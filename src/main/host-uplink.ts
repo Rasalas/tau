@@ -8,7 +8,7 @@ import {
   type HostPush,
 } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
-import { HostCertificateRefusedError, hostTlsConnect, pinnedTlsConnect, type EndpointTrust } from "./host-tls-trust.js";
+import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type ReachedCertificate } from "./host-tls-trust.js";
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
@@ -25,12 +25,14 @@ export interface HostUplinkOptions {
   onCall?(call: HostClientCall): void;
   /** Read at every hello, a reconnect's included: which window this is and which halves it runs. */
   helloFields?(): Pick<HostHello, "windowId" | "windowHalves" | "subscription">;
-  onHello?(reply: HostHelloReply): void;
+  /** `certificate`: what the TLS handshake of the socket that said hello showed, for a `wss:` host. */
+  onHello?(reply: HostHelloReply, certificate?: ReachedCertificate): void;
   logger?: HostLogger;
   requestTimeoutMs?: number;
-  /** A `wss:` host's pinned SHA-256 fingerprint; any other certificate ends the uplink. */
-  fingerprint?: string;
-  /** How to trust a `wss:` host instead: its key pinned, or a CA (a saved machine's address, ADR 0025). */
+  /**
+   * How to trust a `wss:` host: its key (or an old certificate) pinned, or a
+   * CA. Read at every connect, so a pin changed in place applies to the next.
+   */
   trust?: EndpointTrust;
   /** The pinned host presented another certificate. The uplink does not retry. */
   onCertificateRefused?(error: HostCertificateRefusedError): void;
@@ -64,6 +66,7 @@ export class HostUplink {
   private delayMs = RECONNECT_MIN_MS;
   private helloSent = false;
   private token: string;
+  private certificate: ReachedCertificate | undefined;
 
   constructor(private readonly options: HostUplinkOptions) {
     this.token = options.token;
@@ -90,7 +93,7 @@ export class HostUplink {
     this.helloSent = true;
     // Not a client of its own: the renderer beside this process is the one that counts.
     const reply = await this.send("hello", [{ ...this.options.helloFields?.(), protocol: HOST_TRANSPORT_VERSION, auxiliary: true }]) as HostHelloReply;
-    this.options.onHello?.(reply);
+    this.options.onHello?.(reply, this.certificate);
     return reply;
   }
 
@@ -136,9 +139,10 @@ export class HostUplink {
 
   private connect(): void {
     if (this.closed) return;
-    const { fingerprint, trust } = this.options;
+    const { trust } = this.options;
     const tls = this.options.url.startsWith("wss:");
-    const createConnection = !tls ? undefined : trust ? hostTlsConnect(trust) : fingerprint ? pinnedTlsConnect(fingerprint) : undefined;
+    this.certificate = undefined;
+    const createConnection = tls && trust ? hostTlsConnect(trust, (presented, via) => { this.certificate = { presented, via }; }) : undefined;
     const socket = createConnection
       ? new WebSocket(this.options.url, { createConnection: createConnection as unknown as ClientOptions["createConnection"] })
       : new WebSocket(this.options.url);

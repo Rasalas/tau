@@ -128,7 +128,8 @@ if (!existsSync(HOST_ENTRY)) {
   execFileSync(process.execPath, [join(ROOT, "node_modules", "typescript", "bin", "tsc"), "-p", "tsconfig.electron.json"], { cwd: ROOT, stdio: "inherit" });
 }
 // The pinning a window uses, not a copy of it.
-const { pinnedTlsConnect, HostCertificateRefusedError } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);
+const { pinnedTlsConnect, HostCertificateRefusedError, KnownHosts, establishHostTrust, migratedKnownHostPin, hostEndpoint } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);
+const { HostUplink } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-uplink.js")).href);
 // The digits a pinning device computes, from the same module the app uses.
 const { pairingCommitment, pairingVerificationCode, randomPairingNonce } = await import(pathToFileURL(join(ROOT, "dist-electron", "shared", "pairing.js")).href);
 const { parsePairingPayload } = await import(pathToFileURL(join(ROOT, "dist-electron", "shared", "connections.js")).href);
@@ -310,6 +311,22 @@ async function exerciseTls(host, userData, token) {
   const plain = await plaintext.opened.then(() => "open", () => "refused");
   if (plain !== "refused") fail("the TLS port answered a plaintext WebSocket");
   step("tls: no plaintext on the TLS port");
+}
+
+/** The window process's uplink under a trust from `establishHostTrust`: one hello, then closed. */
+async function windowHello(url, token, trust, onCertificate) {
+  if (trust.kind !== "pinned") fail(`expected a pinned host, got ${JSON.stringify(trust)}`);
+  let certificate;
+  const uplink = new HostUplink({ url, token, trust: { pin: trust.pin }, onHello: (_reply, seen) => { certificate = seen; } });
+  const timer = setTimeout(() => fail(`the uplink to ${url} did not say hello`), 10_000);
+  try {
+    await uplink.hello();
+  } finally {
+    clearTimeout(timer);
+    uplink.close();
+  }
+  if (certificate?.via !== "pin") fail(`the uplink's hello did not report the pinned certificate: ${JSON.stringify(certificate)}`);
+  await onCertificate?.(certificate);
 }
 
 /** Any request to the page's server; over TLS the host's own certificate is the only CA. */
@@ -645,6 +662,19 @@ async function scenario({ tls }) {
       await again.close();
       step("tls: a restarted host keeps its fingerprint");
 
+      // TAU_HOST_URL with a known-hosts certificate pin from before key pins: the window's first hello moves it to the key.
+      const knownHosts = new KnownHosts(join(userData, "client-known-hosts.json"));
+      await knownHosts.remember(hostEndpoint(host.url).key, { fingerprint: first });
+      const oldTrust = await establishHostTrust(host.url, { knownHosts, confirm: async () => false });
+      if (oldTrust.kind !== "pinned" || oldTrust.pin.fingerprint !== first) fail(`the old known-hosts entry was not read as a certificate pin: ${JSON.stringify(oldTrust)}`);
+      await windowHello(host.url, token, oldTrust, async (certificate) => {
+        const pin = migratedKnownHostPin(oldTrust, certificate);
+        if (pin) await knownHosts.remember(hostEndpoint(host.url).key, pin);
+      });
+      const migrated = await knownHosts.get(hostEndpoint(host.url).key);
+      if (migrated?.publicKey !== host.publicKey || migrated.fingerprint) fail(`known-hosts did not move to the key: ${JSON.stringify(migrated)}`);
+      step("tls: TAU_HOST_URL moves a known-hosts certificate pin to the key after a hello", host.publicKey);
+
       // Renewal: a certificate near its end is made anew with the same key (F19).
       await host.stop();
       const keyPem = readFileSync(join(userData, "tls", "host-key.pem"), "utf8");
@@ -661,6 +691,13 @@ async function scenario({ tls }) {
       const refusedOld = await byOldCertificate.opened.then(() => undefined, (error) => error);
       if (!(refusedOld instanceof HostCertificateRefusedError)) fail(`the old certificate pin was not refused after the renewal: ${refusedOld}`);
       step("tls: a renewed certificate keeps the key", "the key pin connects, the old certificate pin is refused");
+
+      const keyTrust = await establishHostTrust(host.url, { knownHosts, confirm: async () => false });
+      await windowHello(host.url, token, keyTrust);
+      const base64 = `sha256/${Buffer.from(host.publicKey.replace(/:/gu, ""), "hex").toString("base64")}`;
+      const fromEnvironment = await establishHostTrust(host.url, { knownHosts, publicKey: base64, confirm: async () => false });
+      await windowHello(host.url, token, fromEnvironment);
+      step("tls: TAU_HOST_URL keeps working after a renewal", "the migrated known-hosts key and TAU_HOST_PUBLIC_KEY=sha256/<base64>");
     }
     // Last: rotation replaces the token the steps above used.
     await exerciseAccess(host, join(tokenHome, ".tau", "host-token"), userData, label);

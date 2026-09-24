@@ -1,7 +1,7 @@
 import { dialog, type BrowserWindow, type Session } from "electron";
+import { X509Certificate } from "node:crypto";
 import { join } from "node:path";
 import type { HostLogger } from "./host-log.js";
-import { certificateFingerprint } from "./host-tls.js";
 import {
   CERTIFICATE_REJECT,
   HostTrustError,
@@ -9,13 +9,21 @@ import {
   certificateRefusalMessage,
   certificateVerdict,
   establishHostTrust,
+  hostEndpoint,
+  migratedKnownHostPin,
+  presentedIdentity,
+  type EndpointTrust,
   type HostTrust,
   type PresentedCertificate,
+  type PresentedIdentity,
+  type ReachedCertificate,
 } from "./host-tls-trust.js";
 
 export interface RemoteHostTrustOptions {
   userData: string;
-  /** `TAU_HOST_FINGERPRINT`, when the operator pinned the certificate up front. */
+  /** `TAU_HOST_PUBLIC_KEY`, when the operator pinned the key up front. */
+  publicKey?: string;
+  /** `TAU_HOST_FINGERPRINT`: the certificate, or in `sha256/<base64>` form the key. */
   fingerprint?: string;
   session: Session;
   logger: HostLogger;
@@ -27,10 +35,12 @@ export interface RemoteHostTrustOptions {
 
 export interface RemoteHostTrust {
   trust: HostTrust;
-  /** What the uplink pins, for a pinned host. */
-  fingerprint?: string;
+  /** What the uplink pins, for a pinned host; a migration updates it in place. */
+  endpoint?: EndpointTrust;
   /** The pinned host showed another certificate somewhere else (the uplink). */
   refuse(presented: string): void;
+  /** The uplink's hello succeeded: a known-hosts certificate pin moves to the key it let in. */
+  reached(certificate: ReachedCertificate | undefined): void;
 }
 
 /**
@@ -44,6 +54,7 @@ export async function trustRemoteHost(url: string, options: RemoteHostTrustOptio
   let trust: HostTrust;
   try {
     trust = await establishHostTrust(url, {
+      ...(options.publicKey ? { publicKey: options.publicKey } : {}),
       ...(options.fingerprint ? { fingerprint: options.fingerprint } : {}),
       knownHosts,
       confirm: ({ endpoint, presented }) => confirmCertificate(options.parent, endpoint.key, presented),
@@ -54,27 +65,44 @@ export async function trustRemoteHost(url: string, options: RemoteHostTrustOptio
     options.onRefused(message);
     return undefined;
   }
-  options.logger.info("remote-host.trust", trust.kind === "pinned" ? { url, kind: trust.kind, source: trust.source, fingerprint: trust.fingerprint } : { url, kind: trust.kind });
+  options.logger.info("remote-host.trust", trust.kind === "pinned" ? { url, kind: trust.kind, source: trust.source, ...trust.pin } : { url, kind: trust.kind });
 
+  const endpoint: EndpointTrust | undefined = trust.kind === "pinned" ? { pin: trust.pin } : undefined;
   let refused = false;
-  const refuse = (presented: string): void => {
+  const refuse = (presented: PresentedIdentity | string): void => {
     if (refused) return;
     refused = true;
     options.logger.error("remote-host.certificate-refused", { url, presented });
     options.onRefused(certificateRefusalMessage(url, trust, presented, knownHosts.path));
   };
+  let migrating = false;
+  const reached = (certificate: ReachedCertificate | undefined): void => {
+    const pin = migratedKnownHostPin(trust, certificate);
+    if (!pin || migrating || trust.kind !== "pinned") return;
+    migrating = true;
+    // Both of the window's connections accept the key from here on, so a renewal mid-session is kept.
+    trust = { ...trust, pin };
+    endpoint!.pin = pin;
+    void knownHosts.remember(hostEndpoint(url).key, pin).then(
+      () => options.logger.info("remote-host.pin-migrated", { url, publicKey: pin.publicKey }),
+      (error: unknown) => options.logger.warn("remote-host.pin-migration.failed", { url, message: error instanceof Error ? error.message : String(error) }),
+    );
+  };
   if (trust.kind === "pinned") {
     options.session.setCertificateVerifyProc((request, callback) => {
-      let presented: string;
-      try { presented = certificateFingerprint(request.certificate.data); }
-      catch { presented = "(unreadable)"; }
-      const verdict = certificateVerdict(trust, request.hostname, presented);
-      if (verdict === CERTIFICATE_REJECT) refuse(presented);
+      let presented: PresentedIdentity | undefined;
+      try { presented = presentedIdentity(new X509Certificate(request.certificate.data)); }
+      catch { presented = undefined; }
+      const verdict = certificateVerdict(trust, request.hostname, presented ?? UNREADABLE);
+      if (verdict === CERTIFICATE_REJECT) refuse(presented ?? "(unreadable)");
       callback(verdict);
     });
   }
-  return { trust, ...(trust.kind === "pinned" ? { fingerprint: trust.fingerprint } : {}), refuse };
+  return { trust, ...(endpoint ? { endpoint } : {}), refuse, reached };
 }
+
+/** Matches no pin: an unreadable certificate is refused for the pinned name and left to Chromium for others. */
+const UNREADABLE: PresentedIdentity = { fingerprint: "", publicKey: "" };
 
 async function confirmCertificate(parent: BrowserWindow, hostKey: string, presented: PresentedCertificate): Promise<boolean> {
   const { response } = await dialog.showMessageBox(parent, {
@@ -84,9 +112,9 @@ async function confirmCertificate(parent: BrowserWindow, hostKey: string, presen
     detail: [
       "Its certificate is not signed by an authority this machine trusts, which is normal for a Tau host's own certificate.",
       "",
-      `SHA-256: ${presented.fingerprint}`,
+      `Public key SHA-256: ${presented.publicKey}`,
       "",
-      "Compare it with the fingerprint the host printed when it started. Trust it only if they match: Tau then remembers it for this host and refuses any other certificate.",
+      "Compare it with the \"tls public key\" line the host printed when it started. Trust it only if they match: Tau then remembers the key for this host and refuses any other.",
     ].join("\n"),
     buttons: ["Trust and Connect", "Cancel"],
     defaultId: 1,
