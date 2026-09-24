@@ -813,7 +813,7 @@ A page is built from the same pieces core builds its own with, all on `tau`:
 | Export | What it is |
 |---|---|
 | `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
-| `SettingRow({ id?, title, description?, status?, control?, setting?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. |
+| `SettingRow({ id?, title, description?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
 | `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
 | `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |
 
@@ -1003,7 +1003,8 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the title menu, the compact list, Edit/Fork and the changes tree; preferences stay on the device. |
+| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the title menu, the compact list, Edit/Fork, the changes tree and the Defaults page's model, thinking and runtime; preferences stay on the device. |
+| `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
@@ -1936,9 +1937,13 @@ trusts the declaration. Every other command answers such a device `forbidden`
 before the handler runs, and the refusal does not count as a failure of the
 command. The option travels from an isolated package's worker too. An older
 host ignores it, so a package need not raise `engines.api` for it. A Read-only
-device learns what it is from its hello reply (`access: "read-only"`); a panel
-that hides its buttons there saves the user a refusal, but the host is what
-enforces it.
+device learns what it is from its hello reply (`access: "read-only"`), and
+which commands only look from the host's extension summaries (`readCommands`,
+new in API 1.13.0). The client refuses every other command, and every core
+method the host would refuse, before sending it, with `READ_ONLY_REASON`
+instead of a host error. A control asks `useCommandAllowed(extensionId,
+command)` and is disabled with that reason, or left out when its whole surface
+only writes; the host still enforces it.
 
 `access: "owner"` is the other end: a command that changes who can reach the
 host — Tailscale's `serve-on` and `serve-off` — answers `forbidden` to every
