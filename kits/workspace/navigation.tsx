@@ -165,7 +165,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
         placeholder={listing?.path ?? "Loading folders…"}
         aria-label="Filter folders"
       />
-      <button type="button" className="folder-add" onClick={() => void addCurrent()}>Add <kbd>Enter</kbd></button>
+      <button type="button" className="folder-add" onClick={() => void addCurrent()}>Add <kbd className="keyboard-hint">Enter</kbd></button>
     </div>
     <div className="folder-browser-heading">Directories <small>{listing?.path}</small></div>
     <div className="folder-browser-results" role="listbox">
@@ -182,7 +182,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       {directories.length === 0 && listing ? <p>No matching directories</p> : null}
       {error ? <p className="folder-browser-error">{error}</p> : null}
     </div>
-    <footer><span><kbd>↑↓</kbd> Navigate</span><span><kbd>Backspace</kbd> Back</span><span><kbd>Esc</kbd> Close</span></footer>
+    <footer className="keyboard-hint"><span><kbd>↑↓</kbd> Navigate</span><span><kbd>Backspace</kbd> Back</span><span><kbd>Esc</kbd> Close</span></footer>
   </div>;
 }
 
@@ -890,7 +890,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             />
             {threadQuery ? (
               <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
-            ) : <kbd>/</kbd>}
+            ) : <kbd className="keyboard-hint">/</kbd>}
           </label>
           <button
             className="sidebar-action"

@@ -223,7 +223,7 @@ export function TooltipLayer() {
   return createPortal(
     <div ref={popup} id={TOOLTIP_ID} role="tooltip" className={`tooltip${shown.code ? " code" : ""}`}>
       <span style={shown.lines ? LINES : undefined}>{shown.text}</span>
-      {shown.shortcut ? <kbd>{shown.shortcut}</kbd> : null}
+      {shown.shortcut ? <kbd className="keyboard-hint">{shown.shortcut}</kbd> : null}
     </div>,
     document.body,
   );

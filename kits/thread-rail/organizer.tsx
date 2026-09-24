@@ -209,7 +209,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     const { registry } = useWorkbenchShell();
     const notice = undo.getNotice();
     store.actions = actions;
-    const shortcut = registry.keybindingLabel("thread.undo");
+    // A phone has no ⌘Z to name.
+    const shortcut = document.body.dataset.profile === "compact" ? undefined : registry.keybindingLabel("thread.undo");
     const text = notice ? `${notice.action} ${notice.count} thread${notice.count === 1 ? "" : "s"}` : undefined;
     const toast = actions.toast;
     useEffect(() => {
