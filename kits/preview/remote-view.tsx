@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
-import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, RotateCw, Send } from "lucide-react";
-import { Empty, errorMessage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
-import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey } from "./protocol.js";
+import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, Monitor, RotateCw, Send, Smartphone } from "lucide-react";
+import { Empty, errorMessage, getClientStorage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
+import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
 import { activeThread, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
 import { previewKit, usePreviewState } from "./store.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
+import { describeViewer, screenTraits, viewerId } from "./viewer.js";
 
 /** The keys a touch keyboard lacks, left to right; the page and the window take the same set. */
 const KEY_BAR: Array<{ key: PreviewInputKey & ScreenInputKey; label: string; title: string }> = [
@@ -39,6 +40,16 @@ interface Pointer {
   sentAt: number;
 }
 
+/** The stage's size inside its padding. */
+function innerBox(element: HTMLElement): { width: number; height: number } {
+  const style = getComputedStyle(element);
+  const pad = (value: string) => parseFloat(value) || 0;
+  return {
+    width: element.clientWidth - pad(style.paddingLeft) - pad(style.paddingRight),
+    height: element.clientHeight - pad(style.paddingTop) - pad(style.paddingBottom),
+  };
+}
+
 /** The stage's inner size, for fitting the picture into it. */
 function useStageBox(stage: React.RefObject<HTMLDivElement | null>): { width: number; height: number } | undefined {
   const [box, setBox] = useState<{ width: number; height: number }>();
@@ -46,9 +57,7 @@ function useStageBox(stage: React.RefObject<HTMLDivElement | null>): { width: nu
     const element = stage.current;
     if (!element || typeof ResizeObserver === "undefined") return undefined;
     const measure = () => {
-      const style = getComputedStyle(element);
-      const width = element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      const height = element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const { width, height } = innerBox(element);
       setBox((current) => current && current.width === width && current.height === height ? current : { width, height });
     };
     measure();
@@ -66,9 +75,47 @@ export function fit(picture: { width: number; height: number }, box: { width: nu
   return { width: Math.floor(picture.width * scale), height: Math.floor(picture.height * scale) };
 }
 
-/** A frame of the page from the Preview's host half. */
-const browserSource: LiveFrameSource = async (maxWidth, since) =>
-  await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
+/** Frames of the page from the Preview's host half; each request says what this device's screen is now. */
+function browserSource(viewer: () => PreviewViewer | undefined): LiveFrameSource {
+  return async (maxWidth, since) => {
+    const current = viewer();
+    return await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}), ...(current ? { viewer: current } : {}) }) as LiveFrameAnswer;
+  };
+}
+
+/** Whose screen the page is laid out for, as this device reads it. */
+export function layoutOwner(state: PreviewState, id: string): "this" | "fixed" | "host" | "other" {
+  if (state.layoutFor?.id === id) return "this";
+  if (state.viewport.mode === "fixed") return "fixed";
+  return state.layoutFor ? "other" : "host";
+}
+
+function LayoutStatus({ state, id, viewer, allowed, onError }: { state: PreviewState; id: string; viewer: () => PreviewViewer | undefined; allowed: boolean; onError(message: string): void }) {
+  const owner = layoutOwner(state, id);
+  if (owner === "this") {
+    const size = `${String(state.layoutFor!.width)}×${String(state.layoutFor!.height)}`;
+    return <span className="preview-remote-layout" {...tooltipProps(`The page is laid out for this screen (${size})`)}>
+      {state.layoutFor!.touch ? <Smartphone size={12} aria-hidden="true" /> : <Monitor size={12} aria-hidden="true" />}This screen
+    </span>;
+  }
+  if (owner === "fixed" && state.viewport.mode === "fixed") {
+    return <span className="preview-remote-layout" {...tooltipProps("The viewport has a fixed size, set in the Preview's menu on the host")}>{`${String(state.viewport.width)}×${String(state.viewport.height)}`}</span>;
+  }
+  const whose = owner === "other" ? `Laid out for “${state.layoutFor!.name}”` : "Laid out for the host's window";
+  const layOut = () => {
+    const current = viewer();
+    if (!current) return;
+    void previewKit.layout({ viewer: current }).then(() => onError(""), (problem: unknown) => onError(errorMessage(problem)));
+  };
+  return <button
+    type="button"
+    className="preview-remote-fit"
+    disabled={!allowed}
+    aria-label={`${whose}. Lay it out for this screen`}
+    {...tooltipProps(allowed ? `${whose}. Lay it out for this screen` : READ_ONLY_REASON)}
+    onClick={layOut}
+  ><Monitor size={12} aria-hidden="true" />Fit this screen</button>;
+}
 
 function screenSource(service: ComputerUseScreenService, threadId: string): LiveFrameSource {
   if (service.viewFrame) return async (maxWidth, since) => await service.viewFrame!(threadId, maxWidth, since) ?? null;
@@ -98,6 +145,9 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const mayNavigate = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "navigate");
   const mayOpen = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "open");
   const mayInput = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "input");
+  const mayLayOut = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "layout");
+  const id = useMemo(() => viewerId(getClientStorage()), []);
+  const described = useRef<PreviewViewer | undefined>(undefined);
   const stage = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
   const pointer = useRef<Pointer | undefined>(undefined);
@@ -110,13 +160,28 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
 
   useEffect(() => { if (!editing) setAddress(state.url); }, [editing, state.url]);
 
+  // The stage is this device's screen for the page, measured when a request goes out.
+  const viewer = useCallback((): PreviewViewer | undefined => {
+    const element = stage.current;
+    described.current = element ? describeViewer(id, innerBox(element), screenTraits(), described.current) : undefined;
+    return described.current;
+  }, [id]);
+  const pageFrames = useMemo(() => browserSource(viewer), [viewer]);
   const source = useMemo<LiveFrameSource | undefined>(() => {
-    if (view === "browser") return state.url ? browserSource : undefined;
+    if (view === "browser") return state.url ? pageFrames : undefined;
     return screen && threadId ? screenSource(screen, threadId) : undefined;
-  }, [screen, state.url, threadId, view]);
+  }, [pageFrames, screen, state.url, threadId, view]);
   const frames = useLiveFrames(source, stage, { active });
   const driven = useDrivenWindow(view === "screen" ? screen : undefined, threadId);
   const box = useStageBox(stage);
+  // A new size (turned sideways, a resized window) goes out with the next frame, now.
+  const size = box ? `${String(Math.round(box.width))}x${String(Math.round(box.height))}` : "";
+  useEffect(() => { if (size) frames.poke(); }, [size]);
+  // Leaving the page gives it back to the host's window at once rather than when the host stops hearing from here.
+  useEffect(() => {
+    if (!active || view !== "browser" || !mayLayOut) return undefined;
+    return () => { void previewKit.layout({ release: id }).catch(() => undefined); };
+  }, [active, id, mayLayOut, view]);
   // Fitted by hand: an <img> never grows past its own size, and a small frame on a slow link would stay small.
   const fitted = frames.picture && box ? fit(frames.picture, box) : undefined;
   const canDrive = view === "browser" ? mayInput && Boolean(state.url) : !readOnly && Boolean(screen?.input && threadId);
@@ -262,6 +327,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
     <div className={error ? "preview-remote-status error" : "preview-remote-status"} role="status">
       {driver ? <span className="preview-remote-driver" {...tooltipProps("An agent is working here; what you do goes to the same page")}><Bot size={12} aria-hidden="true" />Agent</span> : null}
       <span className="preview-remote-status-text">{view === "browser" || error ? status : null}</span>
+      {view === "browser" && state.url ? <LayoutStatus state={state} id={id} viewer={viewer} allowed={mayLayOut} onError={setError} /> : null}
       {frames.reduced ? <span className="preview-remote-reduced" {...tooltipProps("The connection is slow, so the picture is smaller")}>low detail</span> : null}
     </div>
     <div

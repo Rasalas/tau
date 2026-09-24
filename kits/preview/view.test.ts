@@ -26,16 +26,24 @@ const electron = vi.hoisted(() => ({
     debugger: { isAttached(): boolean; attach: ReturnType<typeof vi.fn>; sendCommand: ReturnType<typeof vi.fn> };
   } & Record<string, unknown>,
   createFromBuffer: vi.fn(),
+  stages: [] as FakeWindow[],
 }));
 vi.mock("electron", async () => {
-  const { fakeView } = await import("./fake-electron-window.js");
+  const { fakeView, fakeWindow: stageWindow } = await import("./fake-electron-window.js");
   return {
     WebContentsView: class {
       constructor() {
         return Object.assign(fakeView(), { webContents: electron.contents });
       }
     },
-    BaseWindow: class {},
+    BaseWindow: class {
+      constructor() {
+        const stage = stageWindow();
+        stage.visible = false;
+        electron.stages.push(stage);
+        return stage;
+      }
+    },
     BrowserWindow: { getFocusedWindow: () => electron.window, getAllWindows: () => [electron.window] },
     nativeImage: { createFromBuffer: electron.createFromBuffer },
     session: {
@@ -49,12 +57,13 @@ vi.mock("electron", async () => {
   };
 });
 
-const { createElectronPreviewSurface, cropToView } = await import("./view.js");
+const { createElectronPreviewSurface, cropToView, deviceOverride } = await import("./view.js");
 
 const surface = () => createElectronPreviewSurface({ partition: "", onChange: () => undefined, workspaceRoot: () => "", log: () => undefined })!;
 
 beforeEach(() => {
   let attached = false;
+  electron.stages.length = 0;
   electron.window = fakeWindow();
   electron.contents = {
     on: vi.fn(),
@@ -62,6 +71,7 @@ beforeEach(() => {
     off: vi.fn(),
     setWindowOpenHandler: vi.fn(),
     isDestroyed: () => false,
+    getZoomFactor: () => 1,
     // What Electron does for a view that never reached the screen.
     capturePage: vi.fn(async () => { throw new Error("Current display surface not available for capture"); }),
     debugger: {
@@ -94,6 +104,95 @@ describe("the preview surface's capture", () => {
     electron.window.minimized = true;
     expect((await view.capture(1_600)).base64).toBe(Buffer.from("cdp:png").toString("base64"));
     expect(electron.contents.capturePage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a hidden view's screenshot", () => {
+  it("asks again when the first request hangs, as a view hidden in a painting window needs", async () => {
+    vi.useFakeTimers();
+    try {
+      let asked = 0;
+      electron.contents.debugger.sendCommand.mockImplementation(async (method: string) => {
+        if (method !== "Page.captureScreenshot") return {};
+        asked += 1;
+        return asked === 1 ? new Promise(() => undefined) : { data: Buffer.from("shot").toString("base64") };
+      });
+      const view = surface();
+      view.place({ x: 0, y: 0, width: 1_280, height: 800 }, false);
+      const shot = view.capture(640, undefined, true);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(shot).resolves.toMatchObject({ width: 640 });
+      expect(asked).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("a device's layout", () => {
+  const phone = { width: 390, height: 600, dpr: 3, touch: true };
+  const commands = () => electron.contents.debugger.sendCommand.mock.calls.map(([method]) => method as string);
+
+  it("emulates the device's screen and takes its pictures at the device's size", async () => {
+    electron.contents.capturePage.mockResolvedValue(fakeImage(786, 1_400, "frame"));
+    electron.createFromBuffer.mockImplementation(() => fakeImage(1_170, 1_800, "cdp"));
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, true, phone);
+
+    expect(view.viewport()).toEqual({ width: 390, height: 600 });
+    const shot = await view.capture(780, undefined, true);
+    expect(commands().slice(0, 2)).toEqual(["Emulation.setDeviceMetricsOverride", "Emulation.setTouchEmulationEnabled"]);
+    expect(electron.contents.debugger.sendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", expect.objectContaining({ width: 390, height: 600, deviceScaleFactor: 3, mobile: true }));
+    expect(electron.contents.capturePage).not.toHaveBeenCalled();
+    expect(shot).toMatchObject({ width: 780, height: 1_200 });
+  });
+
+  it("paints the page in the stage while the window does not show it, and back in the window when it does", async () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, false, phone);
+    expect(electron.stages).toHaveLength(1);
+    expect(electron.window.contentView.children).toHaveLength(0);
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, true);
+    await vi.waitFor(() => expect(electron.window.contentView.children[0]?.visible).toBe(true));
+    expect(electron.stages[0]?.destroyed).toBe(true);
+  });
+
+  it("taps with touches on a touch screen", async () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, false, phone);
+    await view.input!({ kind: "click", x: 20, y: 30 });
+    expect(commands()).toContain("Input.dispatchTouchEvent");
+    expect(commands()).not.toContain("Input.dispatchMouseEvent");
+  });
+
+  it("shows the view again only once the page has its own layout back", async () => {
+    let clear: (() => void) | undefined;
+    electron.contents.debugger.sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Emulation.clearDeviceMetricsOverride") await new Promise<void>((resolve) => { clear = resolve; });
+      return { data: "" };
+    });
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, false, phone);
+    await view.capture(100).catch(() => undefined);
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, true);
+    const shown = () => electron.window.contentView.children[0]?.visible === true;
+    expect(shown()).toBe(false);
+    await vi.waitFor(() => expect(clear).toBeDefined());
+    clear!();
+    await vi.waitFor(() => expect(shown()).toBe(true));
+    expect(view.viewport()).toEqual({ width: 393, height: 700 });
+  });
+
+  it("emulates a phone's browser for a touch screen only", () => {
+    expect(deviceOverride({ width: 390, height: 844, dpr: 3, touch: true })).toMatchObject({ width: 390, deviceScaleFactor: 3, mobile: true });
+    expect(deviceOverride({ width: 1_280, height: 800, dpr: 1, touch: false })).toMatchObject({ mobile: false });
+  });
+
+  it("never draws a device's layout in the window, even while the panel shows", () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, true, phone);
+    expect(electron.window.contentView.children).toHaveLength(0);
+    expect(electron.stages).toHaveLength(1);
   });
 });
 

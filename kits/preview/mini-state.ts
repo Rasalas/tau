@@ -1,24 +1,16 @@
 import { join } from "node:path";
 import { readPersistedJson, writePersistedJson } from "tau/host-extension";
-import { DEFAULT_MINI_PREFS, type PreviewDriver, type PreviewMiniCorner, type PreviewMiniPrefs } from "./protocol.js";
+import { DEFAULT_MINI_PREFS, type PreviewDriver, type PreviewMiniPrefs } from "./protocol.js";
+import { readMiniPrefs } from "./mini-prefs.js";
+
+export { MINI_WIDTH_RANGE, readMiniPrefs } from "./mini-prefs.js";
 
 const VERSION = 1;
-export const MINI_WIDTH_RANGE = { min: 160, max: 560 } as const;
-const CORNERS: readonly PreviewMiniCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
-
-export function readMiniPrefs(value: unknown, base: PreviewMiniPrefs = DEFAULT_MINI_PREFS): PreviewMiniPrefs {
-  const fields = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const corner = CORNERS.find((candidate) => candidate === fields.corner) ?? base.corner;
-  const width = typeof fields.width === "number" && Number.isFinite(fields.width)
-    ? Math.round(Math.min(MINI_WIDTH_RANGE.max, Math.max(MINI_WIDTH_RANGE.min, fields.width)))
-    : base.width;
-  return { corner, width };
-}
 
 /**
- * Who drives the preview or a window right now, and where the floating
- * preview sits. The host holds both so every client draws the same thing; the
- * corner and width outlive a restart in `<stateDir>/mini.json`.
+ * Who drives the preview or a window right now, so every client draws the
+ * same thing, and where the floating preview sat for clients from before each
+ * device kept its own (`<stateDir>/mini.json`; a new device starts from it).
  */
 export class PreviewMiniState {
   private prefs: PreviewMiniPrefs = DEFAULT_MINI_PREFS;

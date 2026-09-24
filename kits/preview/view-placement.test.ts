@@ -33,6 +33,20 @@ const RECT = { x: 12, y: 80, width: 393, height: 700 };
 beforeEach(() => { stages.length = 0; });
 
 describe("placePreviewView", () => {
+  it("keeps a page laid out for another device in the stage while the window hides it, and brings it back to show it", () => {
+    const { view, window, placement } = setup();
+    placement.place(RECT, false, true);
+    expect(stages).toHaveLength(1);
+    expect(view.parent).not.toBe(window.contentView);
+    expect(view.visible).toBe(true);
+
+    placement.place(RECT, true, true);
+    expect(view.parent).toBe(window.contentView);
+    expect(view.visible).toBe(true);
+    expect((stages[0]!.window as FakeWindow).destroyed).toBe(true);
+    expect(placement.onScreen()).toBe(true);
+  });
+
   it("gives a view the window never showed its size, so the page has something to paint", () => {
     const { view, window, placement } = setup();
     placement.place(RECT, false);

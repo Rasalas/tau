@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { HostCommandError, type HostExtension, type HostExtensionContext, type RuntimeExtensionFactory } from "tau/host-extension";
+import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
   PREVIEW_HOST_EXTENSION_ID,
@@ -54,6 +54,7 @@ import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, re
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
 import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
+import { DeviceLayout, readPreviewViewer, type PreviewDeviceMetrics } from "./device-layout.js";
 
 /** Where the view is drawn inside the window, in device-independent pixels. */
 export interface PreviewRect {
@@ -73,7 +74,8 @@ export interface PreviewSurface {
   accept?(snapshot: unknown): void;
   /** Zoom of the window the panel is drawn in; the panel measures in CSS pixels. */
   zoomFactor(): number;
-  place(rect: PreviewRect, visible: boolean): void;
+  /** With `device`, the page is laid out for that device's screen whatever the rectangle; without, for the rectangle. */
+  place(rect: PreviewRect, visible: boolean, device?: PreviewDeviceMetrics): void;
   load(url: string, timeoutMs: number): Promise<void>;
   navigate(action: "back" | "forward" | "reload" | "hard-reload"): void;
   /** The page's own zoom, kept across its navigations. */
@@ -308,6 +310,12 @@ class PreviewController implements PreviewToolController {
 
   private liveCapture: { maxWidth: number; at: number; frame: Promise<{ id: string; data: string; width: number; height: number; url: string } | null> } | undefined;
 
+  private readonly layout = new DeviceLayout(() => {
+    this.liveCapture = undefined;
+    this.place();
+    this.publish();
+  });
+
   constructor(
     private readonly createSurface: PreviewSurfaceFactory,
     private readonly clearPartition: PreviewPartitionCleaner,
@@ -360,6 +368,7 @@ class PreviewController implements PreviewToolController {
   state(): PreviewState {
     const page = this.view?.state() ?? { ...EMPTY_PREVIEW_STATE, available: this.available };
     const driver: PreviewDriver | undefined = this.mini.driver();
+    const layoutFor = this.viewport.mode === "fill" ? this.layout.owner() : undefined;
     return {
       ...page,
       profile: this.profiles.snapshot().active,
@@ -368,26 +377,71 @@ class PreviewController implements PreviewToolController {
       appearance: this.appearance,
       mini: this.mini.miniPrefs(),
       ...(driver ? { driver } : {}),
+      ...(layoutFor ? { layoutFor } : {}),
       ...(this.mode ? { mode: this.mode } : {}),
       ...(this.recording ? { recordingSince: this.recording.since } : {}),
       ...(this.recordingNotice ? { recordingNotice: this.recordingNotice } : {}),
     };
   }
 
-  /** The panel's rectangle, the viewport inside it, and the page zoom that keeps a fixed viewport's CSS size. */
+  /**
+   * The panel's rectangle, the viewport inside it, and the page zoom that keeps
+   * a fixed viewport's CSS size. A device's layout replaces a filling viewport
+   * only; a fixed one is a size somebody chose.
+   */
   private place(): void {
     const view = this.view;
     if (!view) return;
     const measured = this.bounds.width > 0 && this.bounds.height > 0;
     const rect = measured ? previewRect(this.bounds, view.zoomFactor()) : UNPLACED_RECT;
+    const device = this.viewport.mode === "fill" ? this.layout.metrics() : undefined;
+    if (device) {
+      view.place(rect, previewVisible(this.bounds), device);
+      view.setZoom(1);
+      return;
+    }
     const fitted = fitViewport(rect, this.viewport, this.zoom);
     view.place(fitted.rect, previewVisible(this.bounds));
     view.setZoom(fitted.zoom);
   }
 
   setBounds(bounds: PreviewBounds): void {
+    const shown = previewVisible(this.bounds);
     this.bounds = bounds;
+    // The window shows the page again: it gets its own layout back, before it is drawn.
+    if (!shown && previewVisible(bounds)) this.layout.release();
     this.place();
+  }
+
+  /** A device's own layout changes what the agent and the host window see: Full access only. */
+  private mayLayOut(call: HostCommandCall | undefined): boolean {
+    if (!call || call.extension) return false;
+    if (call.device === undefined) return true;
+    return this.context.services.clients?.devices?.().find((device) => device.id === call.device)?.access === "full";
+  }
+
+  private viewerName(call: HostCommandCall | undefined): string {
+    const device = call?.device === undefined ? undefined : this.context.services.clients?.devices?.().find((entry) => entry.id === call.device);
+    return device?.name || "Another device";
+  }
+
+  /** `layout`: lay the page out for the calling device, or give it back to the host window. */
+  setLayout(input: unknown, call: HostCommandCall | undefined): PreviewState {
+    const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    if (typeof fields.release === "string") {
+      this.layout.release(fields.release);
+      return this.state();
+    }
+    if (fields.viewer === undefined) {
+      this.layout.release();
+      return this.state();
+    }
+    const viewer = readPreviewViewer(fields.viewer);
+    if (!viewer) throw new HostCommandError("Not a device: an id, and a width and height in CSS pixels.");
+    if (!this.mayLayOut(call)) throw new HostCommandError("This device may watch the page, not lay it out for itself.");
+    if (this.viewport.mode !== "fill") throw new HostCommandError("The page has a fixed viewport; choose Fill in the Preview's viewport menu first.");
+    this.layout.claim(viewer, this.viewerName(call));
+    return this.state();
   }
 
   async close(): Promise<PreviewState> {
@@ -397,6 +451,7 @@ class PreviewController implements PreviewToolController {
     this.view?.destroy();
     this.view = undefined;
     this.window.release();
+    this.layout.dispose();
     this.liveCapture = undefined;
     this.agentActions = [];
     this.publish();
@@ -547,12 +602,14 @@ class PreviewController implements PreviewToolController {
    * for. Clients asking at once share a capture; one that still shows the same
    * picture gets its id back without the bytes.
    */
-  async liveFrame(input: unknown): Promise<PreviewLiveFrame | null> {
+  async liveFrame(input: unknown, call?: HostCommandCall): Promise<PreviewLiveFrame | null> {
     const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
     const asked = typeof fields.maxWidth === "number" && Number.isFinite(fields.maxWidth) ? fields.maxWidth : MINI_FRAME_WIDTH;
     const maxWidth = Math.round(Math.min(LIVE_FRAME_WIDTH.max, Math.max(LIVE_FRAME_WIDTH.min, asked)));
     const view = this.view;
     if (!view || !view.state().url) return null;
+    const viewer = readPreviewViewer(fields.viewer);
+    if (viewer && this.viewport.mode === "fill" && this.mayLayOut(call)) this.layout.watch(viewer, this.viewerName(call), previewVisible(this.bounds));
     const recent = this.liveCapture;
     const now = Date.now();
     const shared = recent && recent.maxWidth === maxWidth && now - recent.at < LIVE_FRAME_SHARED_MS ? recent.frame : undefined;
@@ -967,7 +1024,9 @@ export function createPreviewHostExtension(
       context.registerCommand("mini-frame", () => controller.miniFrame(), { access: "read" });
       context.registerCommand("mini-prefs", (input) => controller.setMiniPrefs(input));
       context.registerCommand("mini-dismiss", () => controller.dismissMini());
-      context.registerCommand("live-frame", (input) => controller.liveFrame(input), { access: "read" });
+      // A Read-only device gets frames at whatever layout the page has; `liveFrame` checks.
+      context.registerCommand("live-frame", (input, call) => controller.liveFrame(input, call), { access: "read" });
+      context.registerCommand("layout", (input, call) => controller.setLayout(input, call));
       // Decision 7: a device that shows the page may drive it; a Read-only one only watches.
       // A page that went away under a tap is the device's answer, not a broken kit.
       context.registerCommand("input", (input) => controller.input(input).catch((error: unknown) => {

@@ -25,6 +25,8 @@ export const INTERVAL_MS = { interacting: 250, watching: 1_000, idle: 2_500 } as
 export const INTERACTING_MS = 3_000;
 /** After this long without an input, a page that keeps changing (a blinking caret, an animation) is fetched less often. */
 export const IDLE_AFTER_MS = 15_000;
+/** A request the host never answered (it restarted under it) ends here, so the view asks again. */
+export const FRAME_REQUEST_TIMEOUT_MS = 15_000;
 const SLOW_MS = 900;
 const FAST_MS = 300;
 const FAST_FRAMES_TO_STEP_UP = 3;
@@ -63,6 +65,13 @@ export function pace(state: PaceState, answer: { elapsedMs: number; picture: boo
   }
   const base = answer.interacting ? INTERVAL_MS.interacting : answer.idle ? INTERVAL_MS.idle : INTERVAL_MS.watching;
   return { state: { tier, fastFrames }, delayMs: Math.max(base, answer.picture ? answer.elapsedMs : 0) };
+}
+
+/** The source's answer, or nothing once it took too long. */
+export function askForFrame(source: LiveFrameSource, maxWidth: number, since: string | undefined): Promise<LiveFrameAnswer> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), FRAME_REQUEST_TIMEOUT_MS); });
+  return Promise.race([source(maxWidth, since).catch(() => null), late]).finally(() => clearTimeout(timer));
 }
 
 /** Whether the element is on screen at all: a hidden tab, a closed sheet or a scrolled-away view asks for nothing. */
@@ -123,7 +132,7 @@ export function useLiveFrames(source: LiveFrameSource | undefined, element: RefO
       const started = performance.now();
       let answer: LiveFrameAnswer = null;
       try {
-        answer = await source(frameWidth(width, window.devicePixelRatio, paceState.tier), since);
+        answer = await askForFrame(source, frameWidth(width, window.devicePixelRatio, paceState.tier), since);
       } catch {
         answer = null;
       }
@@ -183,7 +192,7 @@ export function watchFrames(source: LiveFrameSource, maxWidth: number, onFrame: 
       return;
     }
     const started = Date.now();
-    const answer = await source(Math.round(maxWidth * FRAME_TIERS[paceState.tier]!), since).catch(() => null);
+    const answer = await askForFrame(source, Math.round(maxWidth * FRAME_TIERS[paceState.tier]!), since);
     if (!live) return;
     if (answer && "data" in answer) {
       since = answer.id;
