@@ -1074,6 +1074,9 @@ panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
 the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
+`registerRailSection?(Component)` (new in API 1.13.0) draws a section at the foot of
+the rail, above its footer, given the rail's `actions`; Machines Kit lists the other
+machines' threads there. An older Workspace Kit lacks it, so call it as `registerRailSection?.(…)`.
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,
@@ -1936,6 +1939,31 @@ core's to say: a host half that raises news knows who is attached from
 `services.clients`, and Notifications (`kits/notifications/`) lets each client
 report whether its window has focus and which thread it shows, so exactly one
 of them hears of a thread nobody is looking at. That kit is the shipped caller.
+
+### Other machines: `context.environments`
+
+`context.environments` (new in API 1.13.0) is the client's `Platform.environments`
+(`src/workbench/environments.ts`): the machines this window knows and shows threads
+of ([ADR 0025](adr/0025-a-window-follows-the-threads-machine.md)). It is `undefined`
+in a client without a window process — a browser, a phone — and `getSnapshot()`
+stays `undefined` where the window keeps no list (a window started with
+`TAU_HOST_URL` or `TAU_HOST_INPROCESS=1`), so an older core and a web client simply
+show no other machines. Like `attention`, hold the context, not the value.
+
+| Member | What it does |
+|---|---|
+| `getSnapshot()` / `subscribe(listener)` | `UiEnvironments`: `shown` (the machine this page was loaded for), `environments` (this machine first, `local: true`, then the saved ones, each with `status` — `connecting`, `connected`, `offline`, `refused` — `detail`, `roundTripMs`, `lastSeenAt`, `readOnly`, its newest threads with `running`, `threadCount` and `projects`), the `pairing` in progress with its six digits, and whether `secureStorage` can keep a key. |
+| `open(id, target?)` | Points the window at another machine: the page loads again there, and `target` — `{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }` — waits for it. It rejects for a machine that is not connected. For the machine already shown, open the target yourself. |
+| `takeArrival()` | What this page was sent to show, once. |
+| `pair({ text, deviceName? })` | Adds a machine from a pairing link, its QR code's text, or an address; resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
+| `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
+
+The window's process answers all of it through client-side methods
+(`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
+`-open`, `-take-arrival`) and the `environments` window event; a host refuses the
+methods with `unsupported`. Every kit a page loads comes from the machine it shows,
+so a kit needs nothing of its own to work on another machine; what needs *this*
+window's machine — a window half, `local-files` — is not offered there.
 
 ### `engines` and `engines.api`
 

@@ -104,6 +104,9 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./sign-in-flows.js",   "./model-auth.js",
   // The text of a backend's threads for a search index, answered as a delta (API 1.12.0).
   "./thread-texts.js",
+  // The machines a window knows beside its own (ADR 0025, API 1.13.0).
+  "./environment-catalog.js",   "./environment-methods.js",   "./environment-monitor.js",   "./environment-pairing.js",
+  "./environment-session.js",   "./window-environments.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

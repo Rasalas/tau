@@ -100,7 +100,7 @@ export class HostPushLog {
 export function helloReply(
   pushLog: HostPushLog,
   hello: HostHello,
-  options: { hostVersion: string; capabilities: string[] },
+  options: { hostVersion: string; capabilities: string[]; host?: { id: string; name: string } },
   filter?: HostPushFilter,
 ): HostHelloReply {
   const { resync, missed } = pushLog.since(hello.lastSeq, filter);
@@ -111,5 +111,6 @@ export function helloReply(
     resync,
     missed,
     nextSeq: pushLog.nextSeq,
+    ...(options.host ? { host: options.host } : {}),
   };
 }

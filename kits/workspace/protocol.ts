@@ -413,6 +413,8 @@ export interface WorkspaceKitState {
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
   /** Another kit's say over the rail's sections, menus and drops. */
   threadRailOrganizer?: ThreadRailOrganizer;
+  /** Sections other kits draw at the foot of the rail, above its footer. */
+  railSections: ReadonlyArray<ComponentType<{ actions: WorkbenchActions }>>;
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
   /** The rail shows only this repository's threads (the row menu's "Filter by"). */
@@ -563,6 +565,8 @@ export interface WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
   /** Sections, row menus and drops of the rail. */
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void;
+  /** A section at the foot of the rail, above its footer: another machine's threads, say (API 1.13.0). */
+  registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
   setRailProjectFilter(projectName: string | undefined): void;
   /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */

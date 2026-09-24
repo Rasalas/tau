@@ -1,0 +1,12 @@
+{
+  "id": "tau.environments",
+  "name": "Machines",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.12.0"
+  },
+  "permissions": [],
+  "isolation": "worker",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css"
+}

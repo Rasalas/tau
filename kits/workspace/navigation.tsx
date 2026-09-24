@@ -617,6 +617,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const threadStore = useThreadStore();
   const workspace = useWorkspaceStore();
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
+  const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
   const projectSettings = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().projectSettings);
@@ -1008,6 +1009,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         />
       ) : null}
 
+      {railSections.map((Section, index) => <Section key={index} actions={actions} />)}
       {selected.length > 0 ? (
         <div className="rail-selection-bar" role="status">
           <span>{selected.length} selected{selected.length > 1 && organizer?.bulkMenu ? " · right-click for actions" : ""}</span>
