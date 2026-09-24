@@ -1052,7 +1052,7 @@ npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB and 360 messages today, about 15 % above the measurement after D22) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 350 messages, about 15 % above the measurement after wave E) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
 
 ### First results (2026-09-23)
 
@@ -1132,6 +1132,34 @@ The report is written to `reports/compare-<timestamp>.json` and holds every run,
 | renderer JS heap after the turn (MiB) | 47.2 / 71.2 | 146.9 / 188.6 |
 
 Tau's per-turn transfer fell from 8,812 KiB to 347 KiB and its idle host from 273 MiB to 174 MiB RSS; the host is now leaner than T3's server. T3 still sends about a third fewer messages and opens the large thread about 50 ms sooner, because it sends the whole history at once.
+
+### After wave E (2026-09-24)
+
+- **Report:** `reports/compare-20260924-wave-e.json`, five measured runs per app, same machine, fixture and T3 build as above.
+- **Tau:** `000bdf2b` (t3/wave-e with the harness fix and the workspace-id fix below).
+- **The machine was busy:** the 1-minute load average at run start was 9.1 median for Tau (5.8 to 12.7) and 6.2 for T3 (5.5 to 17.5). Other agents' suites ran at the same time.
+
+| metric (median / p95) | Tau | T3 Code |
+| --- | ---: | ---: |
+| first paint (ms) | 2,688 / 3,129 | 2,774 / 3,212 |
+| rail and composer ready (ms) | 4,082 / 4,773 | 3,550 / 4,084 |
+| footprint of the host / server process, idle (MiB) | 159 / 187 | 151 / 152 |
+| RSS of the host / server process, idle (MiB) | 168 / 183 | 102 / 198 |
+| renderer JS heap, idle (MiB) | 26.9 / 38.3 | 40.4 / 41.4 |
+| open the 100-turn thread, first rows visible (ms) | 102 / 131 | 229 / 321 |
+| scroll: frame p99 (ms) / frames over 33 ms | 17.6 / 0 | 33.4 / 3 |
+| turn: Enter → first text visible (ms) | 75 / 184 | 179 / 304 |
+| stream: long tasks (count / total ms) | 0 / 0 | 8 / 470 |
+| long tasks after the last delta (ms) | 0 / 0 | 319 / 514 |
+| turn: WebSocket messages received | 305 / 307 | 112 / 114 |
+| turn: WebSocket messages sent | 25 / 26 | 119 / 120 |
+| turn: KiB received (decoded) | 347 / 347 | 259 / 261 |
+| renderer JS heap after the turn (MiB) | 51.5 / 64.9 | 166.9 / 185.0 |
+
+Two faults kept wave E from producing this table:
+
+- **The harness never finished its turn.** A root's `bin/codex` was written only when the root was seeded, and it pointed at the seeding worktree's `fake-codex.mjs`. After wave D that worktree was removed, so `codex` exited at once and no turn streamed. Every run now rewrites the shim.
+- **Every kit restarted after every turn.** The client lost the workspace id whenever a thread detail arrived: after a turn, on opening a thread and on loading older turns. Each loss and its return re-ran the renderer's workspace effect, which syncs the runtime extensions: every kit was deactivated and activated again, and each read its state from the host once more. That cost about 40 requests and their answers per turn, already in wave D's 340 / 44. With wave E's new kits it went to 372 / 85 and broke the 360-message budget. With the fix a turn receives 305 messages and sends 25.
 
 ### Screen by screen
 

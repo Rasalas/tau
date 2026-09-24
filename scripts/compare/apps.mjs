@@ -36,7 +36,10 @@ function gitInit(dir) {
   execFileSync("git", ["-C", dir, "-c", "user.name=Compare Harness", "-c", "user.email=compare@example.invalid", "commit", "-q", "-m", "chore: init"]);
 }
 
-/** A `codex` on the app's PATH that runs the replay with this harness's own Node. */
+/**
+ * A `codex` on the app's PATH that runs the replay with this harness's own Node.
+ * Rewritten on every launch: a root seeded from another checkout would run its stand-in.
+ */
 function writeCodexShim(root) {
   const bin = join(root, "bin");
   mkdirSync(bin, { recursive: true });
@@ -287,6 +290,7 @@ export function resetRunFromTemplate(app, root) {
   if (!existsSync(template)) throw new Error(`${app.label}: no seeded template under ${template}; run with --seed first`);
   rmSync(run, { recursive: true, force: true });
   cpSync(template, run, { recursive: true, verbatimSymlinks: true });
+  writeCodexShim(root);
 }
 
 export function saveTemplate(app, root) {

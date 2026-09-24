@@ -126,6 +126,8 @@ export class WorkbenchStore {
     this.applyThreadIndex(bootstrap.threadIndex);
     const current = hostSnapshotFromThreadDetail({
       cwd: bootstrap.project.cwd,
+      ...(bootstrap.project.workspaceId ? { workspaceId: bootstrap.project.workspaceId } : {}),
+      ...(bootstrap.project.displayPath ? { displayPath: bootstrap.project.displayPath } : {}),
       projectLabel: bootstrap.project.label,
       sessionId: bootstrap.detail.sessionId,
       sessionTitle: bootstrap.threadIndex.sessions.find((thread) => thread.id === bootstrap.detail.sessionId)?.title ?? "Untitled thread",
@@ -213,6 +215,8 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "project") {
+      // The history cache is the base the next detail merges onto; left behind, that detail drops the workspace id.
+      history.applyProject(update.project);
       view.setSnapshot((current) => current ? { ...current, ...update.project } : current);
       return undefined;
     }
