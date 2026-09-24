@@ -257,7 +257,7 @@ async function activated(paths: { settingsPath?: string; linksPath?: string; sta
   return bench;
 }
 
-/** Waits for the kit's coalesced publish and file write. */
+/** Long enough for the kit's coalesced publish; a check that something did not happen waits this long. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
 
 /** The agent handle a completed spawn reports. */
@@ -729,8 +729,7 @@ describe("Agents Kit", () => {
       });
       // child-b no longer has a session file, child-c no longer has a parent.
       await expect(bench.state()).resolves.toMatchObject({ links: [expect.objectContaining({ threadId: "child-a" })] });
-      await settle();
-      await expect(readAgentLinks(linksPath)).resolves.toEqual([expect.objectContaining({ threadId: "child-a" })]);
+      await vi.waitFor(async () => expect(await readAgentLinks(linksPath)).toEqual([expect.objectContaining({ threadId: "child-a" })]));
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -742,10 +741,9 @@ describe("Agents Kit", () => {
     try {
       const bench = await activated({ linksPath });
       await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
-      await settle();
-      await expect(readAgentLinks(linksPath)).resolves.toEqual([
+      await vi.waitFor(async () => expect(await readAgentLinks(linksPath)).toEqual([
         { threadId: "child-1", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number) },
-      ]);
+      ]));
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -760,10 +758,11 @@ describe("Agents Kit", () => {
       const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "Reply with ALPHA" }));
       bench.threads.get(handle)!.streaming = false;
       await bench.notify("ended", handle, "completed");
-      await settle();
-      const [stored] = await readAgentLinks(linksPath);
-      expect(stored?.startedAt).toEqual(expect.any(Number));
-      expect(stored?.endedAt).toBeGreaterThanOrEqual(stored!.startedAt!);
+      await vi.waitFor(async () => {
+        const [stored] = await readAgentLinks(linksPath);
+        expect(stored?.startedAt).toEqual(expect.any(Number));
+        expect(stored?.endedAt).toBeGreaterThanOrEqual(stored!.startedAt!);
+      });
 
       // A file the previous build wrote has no times; every other field reads on.
       await writeFile(linksPath, JSON.stringify({
@@ -784,11 +783,10 @@ describe("Agents Kit", () => {
       const bench = await activated({ stateDir });
       const parent = bench.runtime("parent");
       await parent.call("tau_spawn_thread", { prompt: "go", title: "Index 1" });
-      await settle();
       // The registry gives every extension its own folder under the root.
-      await expect(readAgentLinks(join(stateDir, AGENTS_HOST_EXTENSION_ID, "agents-links.json"))).resolves.toEqual([
+      await vi.waitFor(async () => expect(await readAgentLinks(join(stateDir, AGENTS_HOST_EXTENSION_ID, "agents-links.json"))).toEqual([
         expect.objectContaining({ parentThreadId: "parent", title: "Index 1" }),
-      ]);
+      ]));
     } finally {
       await rm(stateDir, { recursive: true, force: true });
     }
