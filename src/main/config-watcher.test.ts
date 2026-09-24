@@ -87,6 +87,63 @@ describe("ConfigWatcher", () => {
     watcher.close();
   });
 
+  it("reports nothing for other entries in the ancestor of a missing path", () => {
+    vi.useFakeTimers();
+    const fake = fakeWatch();
+    const present = new Set(["/run"]);
+    const changes: ConfigChange[] = [];
+    const watcher = new ConfigWatcher({
+      onChange: (change) => changes.push(change),
+      watch: fake.watch,
+      recursive: true,
+      exists: (path) => present.has(path),
+      readDirectories: () => [],
+    });
+    watcher.setTargets([{ root: "themes", path: "/run/themes", directory: true }]);
+
+    fake.fire("/run", "userdata");
+    fake.fire("/run", "logs/app.log");
+    fake.fire("/run", "themes.json");
+    fake.fire("/run", null);
+    vi.advanceTimersByTime(1_000);
+
+    expect(changes).toEqual([]);
+    expect(fake.paths()).toEqual(["/run"]);
+    watcher.close();
+  });
+
+  it("moves the watch closer when a folder on the way appears, and reports only the path itself", () => {
+    vi.useFakeTimers();
+    const fake = fakeWatch();
+    const present = new Set(["/home"]);
+    const changes: ConfigChange[] = [];
+    const watcher = new ConfigWatcher({
+      onChange: (change) => changes.push(change),
+      watch: fake.watch,
+      recursive: true,
+      exists: (path) => present.has(path),
+      readDirectories: () => [],
+    });
+    watcher.setTargets([{ root: "themes", path: "/home/.tau/themes", directory: true }]);
+
+    present.add("/home/.tau");
+    fake.fire("/home", ".tau");
+    vi.advanceTimersByTime(300);
+    expect(changes).toEqual([]);
+    expect(fake.paths()).toEqual(["/home/.tau"]);
+
+    fake.fire("/home/.tau", "config.json");
+    vi.advanceTimersByTime(300);
+    expect(changes).toEqual([]);
+
+    present.add("/home/.tau/themes");
+    fake.fire("/home/.tau", "themes");
+    vi.advanceTimersByTime(300);
+    expect(changes).toEqual([{ root: "themes", paths: ["/home/.tau/themes"] }]);
+    expect(fake.paths()).toEqual(["/home/.tau/themes"]);
+    watcher.close();
+  });
+
   it("finds a path that appeared even when the ancestor's event never came", () => {
     vi.useFakeTimers();
     const fake = fakeWatch();
