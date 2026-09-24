@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import type { Server as TlsServer } from "node:tls";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
@@ -85,6 +85,8 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 // Its own file: the window process writes host.log in the same directory.
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
 const hostId = readOrCreateHostId(join(userData, "host-id"));
+/** One name for this machine wherever a person reads it: Bonjour, Machines, a pairing link. The host name stays an address. */
+const machineName = machineDisplayName();
 const workspaceIdentity = new WorkspaceIdentity(hostId);
 const pushLog = new HostPushLog();
 const compactor = new IdleHeapCompactor({
@@ -251,7 +253,7 @@ async function main(): Promise<void> {
     access,
     listen: () => listening,
     hostId,
-    hostName: hostname(),
+    hostName: machineName,
     ...(network ? {
       network: {
         state: () => network!.state(),
@@ -363,7 +365,7 @@ async function main(): Promise<void> {
     onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
-    host: { id: hostId, name: hostname().split(".")[0] || hostname(), endpoints: () => networkEndpoints },
+    host: { id: hostId, name: machineName, endpoints: () => networkEndpoints },
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     allowedOrigins: () => [...staticOrigins, ...publishedOrigins],
@@ -406,7 +408,7 @@ async function main(): Promise<void> {
   if (!supervised) {
     const { code } = access.createLink();
     const page = `${tls ? "https" : "http"}://${boundHost}:${socket.port}/`;
-    const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}), hostId, hostName: hostname() });
+    const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}), hostId, hostName: machineName });
     console.log(`${web ? "web client" : "pairing link"}: ${link} (single use, 10 minutes; allow the device in Settings → Connections${process.stdin.isTTY ? " or here" : ""})`);
   }
   if (!web) console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
@@ -433,7 +435,7 @@ async function main(): Promise<void> {
     attach: socket.attach,
     ...(web ? { web: web.handler } : {}),
     logger: hostLog,
-    bonjour: { announcer, serviceType: bonjourType, hostId, name: machineDisplayName() },
+    bonjour: { announcer, serviceType: bonjourType, hostId, name: machineName },
     proxyHeld: () => networkContributions.proxyHeld,
   });
   networkContributions.bind({
