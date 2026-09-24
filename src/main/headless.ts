@@ -75,6 +75,8 @@ const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || packageVersion(appRoot) || "0.0.0";
 /** Set in a service's unit: this host writes `host.json` itself and takes over from the host it names. */
 const serviceKind = process.env[HOST_SERVICE_ENV] || undefined;
+/** Started by a window's supervisor (which names the version) or by a service manager, not by hand. */
+const supervised = Boolean(process.env.TAU_HOST_VERSION || serviceKind);
 // A service runs from the home folder and nobody names a workspace for it: it opens the last project.
 const workspace = requestedWorkspace ?? (serviceKind ? undefined : process.cwd());
 // The built browser client, when there is one; `npm run build:web` writes it.
@@ -399,11 +401,14 @@ async function main(): Promise<void> {
   if (socket.warning) console.warn(`\nWARNING: ${socket.warning}\n`);
   // The code lives in the fragment: no proxy, no access log and no Referer
   // ever carries it, and the page drops it before it renders anything. It
-  // only asks: the owner still allows the device (ADR 0024).
-  const { code } = access.createLink();
-  const page = `${tls ? "https" : "http"}://${boundHost}:${socket.port}/`;
-  const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}), hostId, hostName: hostname() });
-  console.log(`${web ? "web client" : "pairing link"}: ${link} (single use, 10 minutes; allow the device in Settings → Connections${process.stdin.isTTY ? " or here" : ""})`);
+  // only asks: the owner still allows the device (ADR 0024). A window's host or
+  // a service is paired from Settings → Connections, so it creates no link here.
+  if (!supervised) {
+    const { code } = access.createLink();
+    const page = `${tls ? "https" : "http"}://${boundHost}:${socket.port}/`;
+    const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}), hostId, hostName: hostname() });
+    console.log(`${web ? "web client" : "pairing link"}: ${link} (single use, 10 minutes; allow the device in Settings → Connections${process.stdin.isTTY ? " or here" : ""})`);
+  }
   if (!web) console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   // A host started by hand in a terminal asks there; a supervised one has a window to ask in.
   if (process.stdin.isTTY) terminalPairing = promptPairingsOnTerminal(access, { input: process.stdin, output: process.stdout });

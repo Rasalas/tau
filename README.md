@@ -339,7 +339,7 @@ npm run build && npm run build:web
 TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=127.0.0.1:7788 node dist-electron/main/headless.js
 ```
 
-Besides the socket line, the host prints a pairing link:
+Besides the socket line, a host started by hand prints a pairing link (a window's own host and a service do not; create their links in Settings → Connections):
 
 ```
 web client: http://127.0.0.1:7788/#pair=<code>&host=<id>&name=<machine> (single use, 10 minutes; allow the device in Settings → Connections or here)
