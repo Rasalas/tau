@@ -121,11 +121,20 @@ export class HostPushCoalescer {
     for (const event of pending.values()) this.forward(event);
   }
 
-  /** Outputs and texts go out whole again: a client that starts from a snapshot never saw what a delta refers to. */
-  resendWholeOutputs(): void {
-    this.sent.clear();
-    this.streamed.clear();
-    this.ended.clear();
+  /**
+   * Outputs and texts go out whole again: a client that starts from a snapshot,
+   * or starts showing these threads, never saw what a delta refers to.
+   */
+  resendWholeOutputs(sessionIds?: readonly string[]): void {
+    const maps: Map<string, unknown>[] = [this.sent, this.streamed, this.ended];
+    if (!sessionIds) {
+      for (const map of maps) map.clear();
+      return;
+    }
+    for (const sessionId of sessionIds) {
+      const prefix = toolKey(sessionId, "");
+      for (const map of maps) for (const key of map.keys()) if (key.startsWith(prefix)) map.delete(key);
+    }
   }
 
   private forward(event: HostPushEvent): void {

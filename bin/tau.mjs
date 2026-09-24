@@ -3,8 +3,9 @@
 // for T3 Code. It reads `<userData>/host.json`, which the window writes for the
 // host process it supervises (ADR 0021), says hello with the host's token and
 // asks Workspace Kit's `app-open`. Without a running host it starts the app.
+// `tau service …` runs the app's `service-cli.js` with the app's own binary.
 // Plain Node, no dependencies: Node 22 has a global WebSocket.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -16,18 +17,32 @@ const PROTOCOL = 1;
 const WORKSPACE_KIT = "tau.workspace";
 const TIMEOUT_MS = 15_000;
 
-export const USAGE = `Usage: tau app [path]
+export const SERVICE_ACTIONS = ["install", "status", "uninstall", "restart"];
 
-Opens a folder in the running Tau with a new thread, and brings its window to
-the front. Without a running Tau it starts the app on that folder.
+export const USAGE = `Usage: tau app [path]
+       tau service <install|status|uninstall|restart>
+
+tau app opens a folder in the running Tau with a new thread, and brings its
+window to the front. Without a running Tau it starts the app on that folder.
 
   path   the folder to open; the current directory when left out
+
+tau service runs Tau's host as a service of this machine: a LaunchAgent on
+macOS, a systemd user unit on Linux, a Task Scheduler task on Windows. It
+starts at login and keeps threads running without a window.
 
 TAU_USER_DATA names the instance, as it does for the app itself.`;
 
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
   if (!command || command === "-h" || command === "--help" || command === "help") return { help: true };
+  if (command === "service") {
+    const [action, ...extra] = rest.filter((arg) => arg !== "--");
+    if (!action || action === "-h" || action === "--help") return { help: true };
+    if (!SERVICE_ACTIONS.includes(action)) throw new Error(`Unknown service action "${action}". ${USAGE}`);
+    if (extra.length > 0) throw new Error(`tau service ${action} takes no arguments.`);
+    return { command, action };
+  }
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
   const paths = rest.filter((arg) => arg !== "--");
   if (paths.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
@@ -150,6 +165,37 @@ export function appLauncher(env = process.env, self = fileURLToPath(import.meta.
   return undefined;
 }
 
+/**
+ * The app's binary and its `service-cli.js`, which runs as Node inside it:
+ * from a built checkout, or from the unpacked archive of an installed Tau
+ * (`asarUnpack` puts `bin/` and `dist-electron/main/` there side by side).
+ */
+export function serviceLauncher(self = fileURLToPath(import.meta.url), platform = process.platform) {
+  const real = realpathSync(self);
+  const root = dirname(dirname(real));
+  const entry = join(root, "dist-electron", "main", "service-cli.js");
+  if (!existsSync(entry)) return undefined;
+  const electronPath = join(root, "node_modules", "electron", "path.txt");
+  if (basename(root) !== "app.asar.unpacked" && existsSync(electronPath)) {
+    return { command: join(root, "node_modules", "electron", "dist", readFileSync(electronPath, "utf8").trim()), entry };
+  }
+  if (basename(root) !== "app.asar.unpacked") return undefined;
+  const contents = dirname(dirname(root));
+  if (platform === "darwin") {
+    const macos = join(contents, "MacOS");
+    const executable = existsSync(macos) ? readdirSync(macos).find((name) => !name.startsWith(".")) : undefined;
+    return executable ? { command: join(macos, executable), entry } : undefined;
+  }
+  const command = join(contents, platform === "win32" ? "Tau.exe" : "tau");
+  return existsSync(command) ? { command, entry } : undefined;
+}
+
+function runServiceCli(launcher, action, env) {
+  const result = spawnSync(launcher.command, [launcher.entry, action], { stdio: "inherit", env, windowsHide: true });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
 function launch(launcher, env) {
   const childEnv = { ...process.env, ...env };
   // Inherited from an agent's shell, this would run Electron as plain Node.
@@ -165,6 +211,13 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   const start = io.launch ?? launch;
   const options = parseArgs(argv);
   if (options.help) { out(USAGE); return 0; }
+  if (options.command === "service") {
+    const launcher = io.serviceLauncher ?? serviceLauncher();
+    if (!launcher) throw new Error("This copy of the command line cannot find Tau's app. Run it from a built checkout (npm run build) or an installed Tau.");
+    // The binary runs as Node; the userData is named, so the unit serves the same instance the app does.
+    const childEnv = { ...env, ELECTRON_RUN_AS_NODE: "1", TAU_USER_DATA: userDataDir(env) };
+    return (io.runService ?? runServiceCli)(launcher, options.action, childEnv);
+  }
   const folder = resolve(io.cwd ?? process.cwd(), options.path ?? ".");
   if (!existsSync(folder) || !statSync(folder).isDirectory()) throw new Error(`${folder} is not a folder.`);
   const path = realpathSync(folder);

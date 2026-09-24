@@ -168,6 +168,8 @@ describe("socket host client", () => {
 
     const request = second.frames().find((frame) => frame.type === "request");
     expect(request).toMatchObject({ request: { method: "host-extensions" } });
+    // The host closes a socket for good (4401) on any frame before its hello.
+    expect(second.frames()[0]!.type).toBe("hello");
     second.deliver({ type: "response", response: { id: (request!.request as { id: string }).id, result: [] } });
     await vi.advanceTimersByTimeAsync(0);
     expect(await pending).toEqual([]);
@@ -179,6 +181,9 @@ describe("socket host client", () => {
     const socket = FakeSocket.opened[0]!;
     socket.accept();
     await settle();
+    const started = connection.start();
+    answerHello(socket, helloReply(1));
+    await started;
 
     const pending = connection.request<string[]>("host-extensions");
     const request = socket.frames().find((frame) => frame.type === "request")!;
@@ -196,6 +201,9 @@ describe("socket host client", () => {
     const socket = FakeSocket.opened[0]!;
     socket.accept();
     await settle();
+    const started = connection.start();
+    answerHello(socket, helloReply(1));
+    await started;
 
     const pending = connection.request("host-extensions").then(
       () => "resolved",

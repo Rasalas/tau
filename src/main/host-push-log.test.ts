@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { HostPushLog, helloReply } from "./host-push-log.js";
 import { HOST_TRANSPORT_VERSION } from "../shared/host-transport.js";
+import { HostPushFilter } from "./host-push-scope.js";
 
 const event = (label: string) => ({ type: "event-log" as const, label, timestamp: 0 });
 const options = { hostVersion: "1.2.3", capabilities: ["jobs"] };
+const delta = (sessionId: string, text: string) => ({ type: "assistant-delta" as const, sessionId, id: "a", delta: text });
 
 describe("host push log", () => {
   it("numbers pushes from one", () => {
@@ -54,5 +56,35 @@ describe("host push log", () => {
     const reply = helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1 }, options);
     expect(reply).toMatchObject({ protocol: 1, hostVersion: "1.2.3", capabilities: ["jobs"], resync: false, nextSeq: 3 });
     expect(reply.missed.map((push) => push.seq)).toEqual([2]);
+  });
+
+  it("replays to a subscribed client only what it would have been sent", () => {
+    const log = new HostPushLog();
+    log.record(delta("shown", "a"));
+    log.record(delta("other", "b"));
+    log.record(event("everyone"));
+    log.record(delta("other", "c"));
+    const filter = new HostPushFilter({ threads: ["shown"], topics: [] });
+    expect(log.since(0, filter).missed.map((push) => push.seq)).toEqual([1, 3]);
+    const reply = helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1 }, options, filter);
+    expect(reply.missed.map((push) => push.seq)).toEqual([3]);
+    expect(reply.nextSeq).toBe(5);
+  });
+
+  it("needs no resync when only other threads' pushes fell out", () => {
+    const size = Buffer.byteLength(JSON.stringify({ seq: 1, event: delta("other", "x".repeat(100)) }));
+    const log = new HostPushLog(size * 3);
+    log.record(delta("shown", "a"));
+    for (let index = 0; index < 10; index += 1) log.record(delta("other", "x".repeat(100)));
+    const shown = new HostPushFilter({ threads: ["shown"], topics: [] });
+    // The client saw push 1; everything after it was for another thread.
+    expect(log.since(1, shown)).toEqual({ resync: false, missed: [] });
+    expect(log.since(1).resync).toBe(true);
+    // A client that follows the other thread did lose some.
+    expect(log.since(1, new HostPushFilter({ threads: ["other"], topics: [] })).resync).toBe(true);
+    // And so did one that saw nothing since before push 1 fell out.
+    log.record(event("everyone"));
+    for (let index = 0; index < 3; index += 1) log.record(delta("other", "x".repeat(100)));
+    expect(log.since(1, shown).resync).toBe(true);
   });
 });

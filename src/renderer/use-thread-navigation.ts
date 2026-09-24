@@ -138,6 +138,8 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       view.addEvent("thread.switch.cached", target?.title);
     }
     const transition: TransitionToken = history.beginThreadSwitch(target?.id);
+    // Before the switch is asked for, so the host streams the target from its snapshot on.
+    const releaseTarget = target ? client!.watchThread(target.id) : undefined;
     try {
       const next = await client!.switchSession(path);
       if (!applyActionResult(next, transition)) return false;
@@ -149,6 +151,8 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       if (previous) applySnapshot(previous);
       notify(errorMessage(error));
       return false;
+    } finally {
+      releaseTarget?.();
     }
   }, [applyActionResult, applySnapshot, client, detachPendingDelivery, history, newThread, notify, requireHost, storage, threads, view]);
 

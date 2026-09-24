@@ -14,6 +14,13 @@ export const TERMINAL_DATA_EVENT = "data";
 export const TERMINAL_EXITED_EVENT = "exited";
 export const TERMINAL_LIST_EVENT = "sessions";
 
+/**
+ * The topic a session's output is emitted under: only clients drawing that
+ * shell watch it, so a phone showing a chat is not sent a build log. A host
+ * older than topics sends it to every client, which the view filters by id.
+ */
+export const terminalOutputTopic = (id: string): string => `output/${id}`;
+
 /** A pty session, as the panel lists it. */
 export interface UiTerminalSession {
   id: string;

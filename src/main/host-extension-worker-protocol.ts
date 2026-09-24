@@ -3,7 +3,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 export type { PricedUsage, UsageTally, UsageTurn } from "./usage-pricing.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
-import type { DirectoryPickerOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
  * The wire between the main process and an isolated host extension. Only plain
@@ -184,7 +184,7 @@ export interface WorkerHostExtensionContext {
   /** Calls another host entry through the supervisor-bound worker identity. */
   readonly invokeHostExtension: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
   registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" }): () => void;
-  emit(name: string, payload?: unknown): void;
+  emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
 }
 
 /** The default export of a package's host entry when it runs isolated. */
@@ -216,7 +216,7 @@ export type WorkerToHostMessage =
   | { t: "fatal"; error: SerializedError }
   | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" }
   | { t: "command-off"; name: string }
-  | { t: "emit"; name: string; payload: unknown }
+  | { t: "emit"; name: string; payload: unknown; topic?: string }
   | { t: "log"; label: string; detail?: string }
   | { t: "rpc"; id: number; path: string; args: readonly unknown[] }
   | { t: "release"; handle: number }

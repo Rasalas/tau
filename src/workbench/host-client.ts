@@ -39,7 +39,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
-import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -172,6 +172,16 @@ export interface HostClient {
   /** Tries to reach the host now instead of waiting for the next attempt. */
   reconnectNow(): void;
   /**
+   * What this client shows, so the host sends it those threads' streams and
+   * those topics only (after `limitPushesToWatched`). Each returns its release.
+   */
+  watchThread(sessionId: string): () => void;
+  /** The thread a `newSession` with this request id creates, before its id is known. */
+  watchNewThread(requestId: string): () => void;
+  watchHostTopic(extensionId: string, topic: string): () => void;
+  /** Called once the thread on screen is watched; before it, every push arrives. */
+  limitPushesToWatched(): void;
+  /**
    * The Tau versions the hellos reported: the host's, and the window process's
    * when that is a process apart from the host. Either is unknown until its
    * hello was answered.
@@ -196,6 +206,11 @@ export interface HostClient {
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate(): Promise<{ changed: boolean }>;
+  /** The host's machine runs it as a system service; the owner's alone. */
+  serviceStatus(): Promise<UiHostService>;
+  /** Installs (or repairs) the service; the host answering may be replaced by the one it starts. */
+  installService(): Promise<UiHostService>;
+  uninstallService(): Promise<UiHostService>;
 }
 
 /**
@@ -322,6 +337,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConnectionLink: connection.getLink,
     onConnectionLink: (listener) => connection.onLink(listener),
     reconnectNow: () => connection.reconnectNow(),
+    watchThread: (sessionId) => connection.watchThread(sessionId),
+    watchNewThread: (requestId) => connection.watchNewThread(requestId),
+    watchHostTopic: (extensionId, topic) => connection.watchTopic(extensionId, topic),
+    limitPushesToWatched: () => connection.limitToWatched(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),
     onVersions: (listener) => {
       const offHost = connection.onHello(listener);
@@ -343,5 +362,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     },
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
+    serviceStatus: () => call<UiHostService>("service-status"),
+    installService: () => call<UiHostService>("service-install"),
+    uninstallService: () => call<UiHostService>("service-uninstall"),
   };
 }

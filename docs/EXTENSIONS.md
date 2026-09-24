@@ -728,7 +728,7 @@ a touch screen, and the native app around the web client. There the thread list
 is a screen of its own (a sidebar on a tablet) and diffs do not split. A panel
 that claims `compact` is not docked there: its glyph sits in the title bar and
 opens the panel as a sheet over the thread, with `placement` reading `stage`.
-That is where a phone's terminal or review goes: claim `compact` on the panel. The default is `["desktop"]`, so a package that says nothing keeps
+That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
 A client whose profile is not in the list never registers the contribution, so
@@ -1890,6 +1890,30 @@ host ignores it, so a package need not raise `engines.api` for it. A Read-only
 device learns what it is from its hello reply (`access: "read-only"`); a panel
 that hides its buttons there saves the user a refusal, but the host is what
 enforces it.
+
+### What reaches which client: `emit(…, { topic })` and `watch` (new in API 1.13.0)
+
+A client is sent the stream of the threads it shows, not of every thread
+(`HostSubscription`, [host-protocol.md](host-protocol.md#which-pushes-a-client-receives)).
+For a desktop half this means the workbench events `tool-start`, `tool-end`,
+`user-message`, `assistant-end` and `notice` arrive for the thread on screen
+(and one being opened or created), not for threads running in the
+background. `agent-status`, `thread-index`, `client-count` and the questions
+a runtime asks still arrive for every thread: react to another thread's
+work when its turn ends (`agent-status` with `running: false`), as Workspace
+Kit and Files Kit do to reread the disk.
+
+Extension events go to every client unless the host half names a topic:
+`context.emit(name, payload, { topic })` (a string of 1 to 256 characters)
+reaches only the clients whose desktop half watches that topic with
+`context.host.watch(topic)`, until the function it returns is called or the
+package deactivates. Use a topic for output that only a mounted view draws;
+Terminal Kit emits a shell's output under `output/<id>`, and a pane watches
+it while it is on screen, so a phone showing a chat is not sent a build log.
+Watch before asking for a snapshot of what the topic streams, so nothing
+written in between is lost. A host or client older than 1.13.0 ignores the
+topic and sends such events to everyone, which is why `watch` is optional on
+`HostExtensionClient`: call it as `host.watch?.(topic)`.
 
 ### Reaching the user outside the window: `context.attention`
 
