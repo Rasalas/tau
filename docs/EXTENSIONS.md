@@ -1950,11 +1950,22 @@ tooltip at once, and `SettingRow` does the same for an inert row.
 
 Every other command a paired Full device runs counts as a change it made: the
 host log records it, and Settings → Connections shows it as the device's last
-change. A desktop half that mirrors a preference into its host half on load
-therefore reads what the host holds first, with a `read` command, and sends
-nothing when it matches (Access Kit's `level`, Preview's `current-defaults`,
-the workspace's `open-request-waiting`, SnapShots' `armed`, which answers for
-the window a call reaches now, so a restarted window is armed again); one that
+change. So a desktop half sends nothing on load. A value that lives in Tau's
+config is the host half's to read: `services.settings()` when it activates,
+again on `observeConfigChanges` (kind `config`), which also reports Tau's own
+`update-config` and `clear-config` writes while watching is off, and per
+project from `beforeWorkspace`. A client only tells the host a change its user
+made there, when the host must act on it before the config write lands.
+A fresh device's preferences are defaults until the host's config arrives, so
+mirroring them on load would overwrite the host's values for a moment.
+Access Kit reads `values.tau.access.level` and a client sends `set-level` only
+for the user's pick; Preview reads its defaults for the host's workspace;
+SnapShots arms the window from its own settings (`arm` without input) and
+re-arms it when they change; Workspace's `auto-pull` does nothing unless the
+host's config turns it on. Where a client must start something, it reads
+first, with a `read` command, and sends nothing when nothing is needed (the
+workspace's `open-request-waiting`, SnapShots' `armed`, which answers for the
+window a call reaches now, so a restarted window is armed again); one that
 acts on the host machine itself, like SnapShots' global shortcut, also asks
 `hostHasLocalFiles()` first.
 
