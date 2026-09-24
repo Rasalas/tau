@@ -26,6 +26,14 @@ afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefine
  * alone does not draw.
  */
 describe("Workspace Kit in the workbench", () => {
+  it("offers no new thread on a device paired Read only, and says why", async () => {
+    const invokeHostExtension = workspaceHostStub({ listEditors: async () => [], getFileTree: async () => [] });
+    renderApp(createFakeHostClient({ isReadOnly: () => true, invokeHostExtension }), { extensions: [workspaceExtension] });
+    const button = await screen.findByRole("button", { name: "New thread" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("data-tooltip")).toMatch(/^Read only/u);
+  });
+
   it("starts with the right sidebar closed and opens it from the rail", async () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension] });
     const shell = view.container.querySelector(".app-shell") as HTMLElement;
