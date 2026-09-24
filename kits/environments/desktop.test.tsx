@@ -309,6 +309,19 @@ describe("a draft sent to a machine that shows its first-start setup", () => {
     expect(environments.takeArrival).toHaveBeenCalledTimes(1);
   });
 
+  it("follows once per mount, not once per render", async () => {
+    setClientStorage(createMemoryStorage());
+    const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
+    environments.takeArrival.mockResolvedValueOnce({ thread: { path: "/s/1" } } as never);
+    const switchSession = vi.fn(() => new Promise<boolean>(() => undefined));
+    const Rail = createRailSection(environments, async () => undefined);
+    const view = render(<Rail actions={fakeActions({ switchSession })} />);
+    await vi.waitFor(() => expect(switchSession).toHaveBeenCalledTimes(1));
+    for (let index = 0; index < 5; index += 1) view.rerender(<Rail actions={fakeActions({ switchSession })} />);
+    await act(async () => undefined);
+    expect(switchSession).toHaveBeenCalledTimes(1);
+  });
+
   it("reads back only what it wrote", () => {
     expect(readPendingArrival(JSON.stringify({ machine: "m", target: { thread: { path: "/p" } } }))).toEqual({ machine: "m", target: { thread: { path: "/p" } } });
     expect(readPendingArrival("{")).toBeUndefined();

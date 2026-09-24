@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Network } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { followArrival, readPendingArrival } from "./machines.js";
@@ -21,7 +21,11 @@ export function createRailSection(environments: PlatformEnvironments, pause = wa
   const Section = createMachinesRailSection(environments);
   let taken = false;
   return function MachinesRail({ actions }: { actions: WorkbenchActions }) {
+    const latest = useRef(actions);
+    latest.current = actions;
+    // Once per mount: the rail mounts again when the workbench comes back, not when the actions change.
     useEffect(() => {
+      const actions = latest.current;
       let shown = true;
       const storage = getClientStorage();
       // The machine this page shows; unknown before the window's list arrived, and then any will do.
@@ -29,7 +33,8 @@ export function createRailSection(environments: PlatformEnvironments, pause = wa
       const follow = (target: EnvironmentTarget | undefined) => {
         if (!target || !shown) return;
         void followArrival(target, { actions, wait: pause, shown: () => shown })
-          .then((placed) => { if (placed) storage?.remove(ARRIVAL_KEY); }, () => undefined);
+          // A thread that never showed up is let go; a draft waits for the next time.
+          .then((placed) => { if (placed || (shown && "thread" in target)) storage?.remove(ARRIVAL_KEY); }, () => undefined);
       };
       const stored = () => {
         const pending = readPendingArrival(storage?.get(ARRIVAL_KEY));
@@ -44,7 +49,7 @@ export function createRailSection(environments: PlatformEnvironments, pause = wa
         }, () => follow(stored()));
       }
       return () => { shown = false; };
-    }, [actions]);
+    }, []);
     return <Section actions={actions} />;
   };
 }
