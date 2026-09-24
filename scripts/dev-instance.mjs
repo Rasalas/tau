@@ -274,6 +274,8 @@ async function main() {
     // An update toast clicked in a test instance must never update the machine's real CLIs.
     // Fatal errors go to the log, never a native alert on the user's screen.
     TAU_NO_NATIVE_DIALOGS: "1",
+    // Its window shows and paints without taking focus from the user's app; TAU_FOREGROUND=1 overrides this.
+    TAU_NO_FOCUS: "1",
     TAU_RUNTIME_UPDATE_COMMAND: process.env.TAU_RUNTIME_UPDATE_COMMAND ?? JSON.stringify({ "*": "echo 'Tau test instance: this update was not run.'" }),
     // Installing the host "as a service" in an instance writes its unit here and runs the fake
     // service manager: never a real LaunchAgent, systemd unit or scheduled task.

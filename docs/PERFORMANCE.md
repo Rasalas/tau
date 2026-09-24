@@ -1093,6 +1093,7 @@ T3 runs from its own clone and never touches the installed app or its data. The 
 - Electron gets `--use-mock-keychain`.
 - The environment is built from scratch. Only `USER`, `LOGNAME`, `TMPDIR` and `LANG` are inherited.
 - `isolation.mjs` fails the environment if any data variable points outside the root or into the user's data.
+- Neither app takes focus from the app the user works in. Both run with the macOS activation policy `accessory` (no Dock icon, never the active app), and their windows show with `showInactive()`; `show()`, `focus()` and `app.focus({ steal: true })` do nothing more. The windows still show and paint, so first paint, ready and frame timings measure the same thing as before (see "Focus and the measurements" below). `TAU_FOREGROUND=1` starts both in front as before.
 - After load and after the turn, every run lists the open files of the whole process tree with `lsof`. It aborts if any file sits in `~/.t3`, `~/Library/Application Support/t3code*`, `~/Library/Application Support/tau*`, `~/.tau`, `~/.codex`, `~/.claude` or `~/.pi`. In every run so far, no process of either tree had any file open under the real home.
 
 **T3 specifics**
@@ -1103,10 +1104,12 @@ T3 runs from its own clone and never touches the installed app or its data. The 
 - `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `GROK_HOME` all point under the root.
 - A seeded `settings.json` points Codex at the stand-in, turns Claude off and sets `enableProviderUpdateChecks: false`.
 - Electron's `userData` is `homedir()/Library/Application Support/t3code` with no override, which is why `HOME` has to move.
+- T3's clone stays unchanged: `NODE_OPTIONS=--require scripts/compare/background-preload.cjs` gives its Electron main process the no-focus rules above. The preload acts only in the main process (`process.type === "browser"`) and removes `NODE_OPTIONS` from the environment at once, so T3's server and the Codex stand-in start without it.
 - T3 runs as the plain Electron binary on `apps/desktop/dist-electron/main.cjs`. `apps/desktop/scripts/start-electron.mjs` is never used: on macOS it builds a bundle with the installed app's identifier (`com.t3tools.t3code`) and registers it with LaunchServices.
 
 **Tau specifics**
 
+- Tau gets `TAU_NO_FOCUS=1`, the same switch a dev instance gets.
 - Tau gets the dev-instance variables (`TAU_USER_DATA`, `TAU_CONFIG_FILE`, `TAU_IMPORT_ROOTS`, `PI_CODING_AGENT_SESSION_DIR` and so on) under its root.
 - `TAU_CODEX_COMMAND` points at the stand-in.
 - Because `HOME` moved, Tau loads only the kits it ships, none of the user's packages.
