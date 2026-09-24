@@ -79,6 +79,7 @@ export class HostConnection {
   private queued: HostPush[] = [];
   private capabilities = new Set<string>();
   private readOnly = false;
+  private owner: boolean | undefined;
   private hostVersion: string | undefined;
   private readonly helloListeners = new Set<() => void>();
   private jobMethods = new Set<string>();
@@ -145,6 +146,9 @@ export class HostConnection {
 
   /** The host said in its hello that this device was paired Read only (ADR 0024). */
   isReadOnly = (): boolean => this.readOnly;
+
+  /** Whether the host said this connection manages access; undefined before a hello, or from an older host. */
+  isOwner = (): boolean | undefined => this.owner;
 
   onState(listener: (state: HostConnectionState) => void): () => void {
     this.stateListeners.add(listener);
@@ -383,6 +387,7 @@ export class HostConnection {
     if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
     this.capabilities = new Set(reply.capabilities);
     this.readOnly = reply.access === "read-only";
+    this.owner = reply.owner;
     this.confirmed = reply.capabilities.includes(HOST_CAPABILITY.subscriptions) ? subscription : undefined;
     this.requested = this.confirmed && JSON.stringify(this.confirmed);
     // A snapshot of a thread this client did not follow would miss what streams until it subscribes.

@@ -23,7 +23,7 @@ import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
 import { publicKeyPin } from "./host-tls.js";
 import type { AccessPeer, HostCredential, PairingChannel } from "./host-access.js";
-import type { HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, type HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
 import { isLocalPeer, peerAddress, proxyUser, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
 import { forwardedHost, originAllowed } from "./host-origin.js";
@@ -382,7 +382,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         const identity = options.host ? helloIdentity(options.host) : undefined;
         const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter);
         const readOnly = credential.kind === "client" && (access.accessOf?.(connection) ?? "read-only") === "read-only";
-        send(socket, { type: "hello-reply", id: frame.id, reply: readOnly ? { ...reply, access: "read-only" } : reply });
+        // Said here so a client that manages nothing never asks for the list it would be refused.
+        const owner = isHostOwner(session.principal);
+        send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } });
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
         if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({

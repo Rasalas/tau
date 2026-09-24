@@ -206,6 +206,11 @@ export interface HostHelloReply {
   nextSeq: number;
   /** Set for a device paired Read only: every call that changes something is refused (ADR 0024). */
   access?: "read-only";
+  /**
+   * Whether this connection manages who may connect (ADR 0024): the host token from this machine.
+   * Absent from a host before API 1.13.0; a client then finds out by asking.
+   */
+  owner?: boolean;
   /** Which machine answered: its `<userData>/host-id` and name, so a client that saved it knows it again (ADR 0025). */
   host?: HostIdentity;
 }
@@ -455,6 +460,7 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
     missed: missedFrames as HostPush[],
     nextSeq: item.nextSeq as number,
     ...(item.access === "read-only" ? { access: "read-only" as const } : {}),
+    ...(typeof item.owner === "boolean" ? { owner: item.owner } : {}),
     ...(decodeHostIdentity(item.host) ?? {}),
   };
 }

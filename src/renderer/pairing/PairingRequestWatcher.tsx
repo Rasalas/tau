@@ -11,9 +11,9 @@ const NOT_OWNER = new Set(["forbidden", "unsupported", "unknown-method"]);
 
 /**
  * Wherever the owner is in the window, a device asking to pair is asked
- * about at once, like a Bluetooth pairing prompt (ADR 0024). A paired
- * client's window finds out on its first look that it is not the owner and
- * stops asking.
+ * about at once, like a Bluetooth pairing prompt (ADR 0024). The hello says
+ * whether this connection is the owner; from a host that does not say, a
+ * paired client's window finds out on its first look and stops asking.
  */
 export function PairingRequestWatcher({ onNotify }: { onNotify?(message: string): void }) {
   const client = useHostClient();
@@ -27,6 +27,7 @@ export function PairingRequestWatcher({ onNotify }: { onNotify?(message: string)
     if (!client) return;
     const look = () => {
       if (!owner.current) return;
+      if (client.isOwner?.() === false) { owner.current = false; return; }
       client.listConnections().then(
         (data) => setRequests(data.requests ?? []),
         (error: unknown) => {

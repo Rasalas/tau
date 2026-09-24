@@ -90,6 +90,11 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
 
   const refresh = useCallback(async () => {
     if (!client) return;
+    // The host would refuse it, and log the refusal of a device that only looked.
+    if (client.isOwner?.() === false) {
+      setState({ status: "error", code: "forbidden", message: "Only the host's own machine manages connections." });
+      return;
+    }
     try {
       setState({ status: "ready", data: await client.listConnections() });
     } catch (error: unknown) {
