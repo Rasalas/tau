@@ -122,7 +122,7 @@ function notWritableReason(setting: SettingHandle<unknown>): string {
  * level being edited holds, and turns its control inert where that level
  * cannot hold the key.
  */
-export function SettingRow({ id, title, description, status, control, setting, children }: {
+export function SettingRow({ id, title, description, status, control, setting, disabledReason, children }: {
   /** The row's anchor: a search result scrolls here. */
   id?: string;
   title: ReactNode;
@@ -130,10 +130,12 @@ export function SettingRow({ id, title, description, status, control, setting, c
   status?: ReactNode;
   control?: ReactNode;
   setting?: SettingHandle<never> | SettingHandle<unknown>;
+  /** Why the control is off, for a row without a `setting`: it turns inert with this as its tooltip (API 1.13.0). */
+  disabledReason?: string | undefined;
   children?: ReactNode;
 }) {
   const handle = setting as SettingHandle<unknown> | undefined;
-  const inert = handle !== undefined && !handle.writable;
+  const inert = Boolean(disabledReason) || (handle !== undefined && !handle.writable);
   const resettable = handle !== undefined && handle.writable && handle.origin === handle.editing;
   return (
     <div className="settings-row" id={id} tabIndex={id ? -1 : undefined} data-origin={handle?.origin}>
@@ -157,7 +159,7 @@ export function SettingRow({ id, title, description, status, control, setting, c
         </div>
         {control ? (
           // The reason sits on a wrapper: an inert element shows no tooltip of its own.
-          <div className="settings-row-control" data-inert={inert ? "" : undefined} title={inert ? notWritableReason(handle!) : undefined}>
+          <div className="settings-row-control" data-inert={inert ? "" : undefined} title={disabledReason ?? (inert ? notWritableReason(handle!) : undefined)}>
             {inert ? <div className="settings-row-control-inert" inert>{control}</div> : control}
           </div>
         ) : null}

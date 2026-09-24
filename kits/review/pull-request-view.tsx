@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
-import { errorMessage, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { PendingReviewStore } from "./pending-review.js";
 import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
@@ -13,6 +13,7 @@ import { handOver, RollupIcon } from "./pull-request-parts.js";
 import { PullRequestSummary } from "./pull-request-summary.js";
 import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
+import { usePullRequestWrites } from "./pull-request-writes.js";
 import type { RowRequests } from "./requests.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
@@ -146,6 +147,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   shared: PullRequestViewShared;
 }) {
   const { data, setData, refresh, loadThreads, loadFiles, loadDetail, loadChecks, markViewed } = usePullRequest(client, params.url);
+  const writes = usePullRequestWrites();
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
@@ -199,7 +201,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     setData({ detail: await client.update(params.url, input) });
   }, [client, params.url, setData]);
 
-  const canEdit = useCallback((target: PullRequestComment) => capabilities.editComments.includes(target.kind) && Boolean(data.detail?.viewer) && target.author.login.toLowerCase() === data.detail!.viewer!.toLowerCase(), [capabilities, data.detail]);
+  const canEdit = useCallback((target: PullRequestComment) => writes.editComment && capabilities.editComments.includes(target.kind) && Boolean(data.detail?.viewer) && target.author.login.toLowerCase() === data.detail!.viewer!.toLowerCase(), [capabilities, data.detail, writes.editComment]);
   const editComment = useCallback(async (target: PullRequestComment, body: string) => {
     await client.editComment(params.url, target, body);
     void loadThreads(true);
@@ -266,13 +268,13 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           </button>
           <span className={`pr-state state-${state}`}>{state}</span>
           {condensed ? <strong className="pr-head-title" title={detail.title}>{detail.title}</strong> : <span className="spacer" />}
-          <PullRequestStackControl detail={detail} client={client} actions={actions} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
+          <PullRequestStackControl detail={detail} client={client} actions={actions} writes={writes} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
           <LinkedThreadsControl threadIds={linkedThreads} actions={actions} />
           <button className="icon-button compact" aria-label={`Add ${noun} #${detail.ref.number} to the composer`} title="Add to the composer" onClick={() => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions)}>
             <SquarePlus size={13} />
           </button>
           {threadId ? (
-            <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} title={linked ? "Linked to this thread · click to unlink" : "Link to this thread"} onClick={() => void toggleLink()}>
+            <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} disabled={!writes.link} {...tooltipProps(!writes.link ? READ_ONLY_REASON : linked ? "Linked to this thread · click to unlink" : "Link to this thread")} onClick={() => void toggleLink()}>
               {linked ? <Link2Off size={13} /> : <Link2 size={13} />}
             </button>
           ) : null}
@@ -282,7 +284,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           <button className="icon-button compact" aria-label={`Refresh ${noun} #${detail.ref.number}`} title="Refresh" onClick={() => refresh(true)}>
             <RefreshCw size={13} />
           </button>
-          <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId}
+          <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes}
             onDetail={(next) => { setData({ detail: next }); void loadChecks(); }} onPickThread={() => setPicking(true)} />
         </div>
         {condensed ? null : (
@@ -292,7 +294,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             ) : (
               <div className="pr-title-row">
                 <h1 className="pr-title">{detail.title}</h1>
-                {capabilities.edit ? <button className="icon-button compact pr-edit" aria-label="Edit title" title="Edit title" onClick={() => setEditingTitle(true)}><Pencil size={12} /></button> : null}
+                {capabilities.edit && writes.update ? <button className="icon-button compact pr-edit" aria-label="Edit title" title="Edit title" onClick={() => setEditingTitle(true)}><Pencil size={12} /></button> : null}
               </div>
             )}
             <div className="pr-meta">
@@ -364,13 +366,13 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               threadsError={data.threadsError}
               actions={actions}
               onSend={(chip) => handOver(chip, chips(), actions)}
-              onSaveBody={capabilities.edit ? (body) => update({ body }) : undefined}
+              onSaveBody={capabilities.edit && writes.update ? (body) => update({ body }) : undefined}
               onRetry={() => void loadThreads(true)}
               onOpenPath={(path) => { setFocusPath(path); open("code"); }}
               canEdit={canEdit}
               onEdit={editComment}
-              onReviewers={capabilities.reviewers ? async (change) => { setData({ detail: await client.reviewers(params.url, change) }); } : undefined}
-              onLabels={capabilities.labels ? async (change) => { setData({ detail: await client.labels(params.url, change) }); } : undefined}
+              onReviewers={capabilities.reviewers && writes.reviewers ? async (change) => { setData({ detail: await client.reviewers(params.url, change) }); } : undefined}
+              onLabels={capabilities.labels && writes.labels ? async (change) => { setData({ detail: await client.labels(params.url, change) }); } : undefined}
               showChecks={capabilities.checks}
               candidates={candidates}
             />
@@ -402,6 +404,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               onResolve={resolve}
               canEdit={canEdit}
               onEdit={editComment}
+              writes={writes}
             />
           </div>
         ) : null}
@@ -411,7 +414,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
         <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={(message) => actions.notify(message)} />
       ) : null}
 
-      {composing ? (
+      {composing && (writes.comment || writes.review) ? (
         <ReviewComposer
           service={params.service}
           events={capabilities.reviewEvents}
@@ -422,7 +425,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           onCancel={() => setComposing(false)}
         />
       ) : (
-        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} #${detail.ref.number}`} title={pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review"} onClick={() => setComposing(true)}>
+        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} #${detail.ref.number}`} disabled={!writes.comment && !writes.review} {...tooltipProps(!writes.comment && !writes.review ? READ_ONLY_REASON : pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review")} onClick={() => setComposing(true)}>
           <MessageSquarePlus size={15} />
           {pending.length > 0 ? <span className="pr-fab-count">{pending.length}</span> : null}
         </button>

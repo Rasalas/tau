@@ -334,6 +334,8 @@ describe("HostExtensionRegistry", () => {
     const full = { ...phone, readOnly: undefined };
     await expect(r.invoke("tau.terminal", "open", undefined, full)).resolves.toBe("opened");
     expect(audit).toEqual([["tau.terminal/open", false], ["tau.terminal/open", true]]);
+    // A client learns which commands only look from the summary, so it can refuse the rest itself.
+    expect(r.summaries()[0]).toMatchObject({ commands: ["list", "open"], readCommands: ["list"] });
   });
 
   it("tells a command which paired device called it and whether the caller may manage the host", async () => {

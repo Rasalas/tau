@@ -61,17 +61,18 @@ export function ThreadTitleMenu({
     inputRef.current?.select();
   }, [renaming]);
 
-  // Pin, settle and copy stay this device's; the host refuses the rest (ADR 0024).
+  // Copying, marking and looking stay this device's; the host refuses the rest (ADR 0024).
+  // Pin and settle are the rail's, which the host keeps; a new thread could never be sent.
   const locked = readOnly ? { disabled: true, description: READ_ONLY_REASON } : {};
   const sections: MenuSection[] = [
     {
       items: [
-        { id: "new", label: label ? `New thread on ${label}` : "New thread" },
+        { id: "new", label: label ? `New thread on ${label}` : "New thread", ...locked },
         { id: "tree", label: "Thread tree…" },
         ...(onOpenInstructions ? [{ id: "instructions", label: "Active instructions & prompt…" }] : []),
         { id: "duplicate", label: "Duplicate thread", ...locked },
-        { id: "pin", label: pinned ? "Unpin thread" : "Pin thread" },
-        { id: "settle", label: settled ? "Un-settle thread" : "Settle thread" },
+        { id: "pin", label: pinned ? "Unpin thread" : "Pin thread", ...locked },
+        { id: "settle", label: settled ? "Un-settle thread" : "Settle thread", ...locked },
       ],
     },
     {

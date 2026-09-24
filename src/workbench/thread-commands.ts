@@ -204,7 +204,8 @@ export class ThreadCommands {
     if (kind === "chat") {
       if (!snapshot?.sessionId || !this.client) return;
       try {
-        await this.client.copyThreadMarkdown(snapshot.sessionId);
+        const markdown = await this.client.threadMarkdown(snapshot.sessionId);
+        if (markdown) await this.ports.platform.clipboard.writeText(markdown);
         this.notify("Chat copied as Markdown.");
       } catch (error) {
         this.notify(errorMessage(error));

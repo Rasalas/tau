@@ -1343,6 +1343,7 @@ export class HostExtensionRegistry {
         name: extension.name,
         active: Boolean(record),
         commands: record ? [...record.commands.keys()].sort() : [],
+        ...(record?.readCommands.size ? { readCommands: [...record.readCommands].sort() } : {}),
         isolation: extension.isolation ?? "in-process",
         ...(error ? { error } : {}),
       };

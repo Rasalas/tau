@@ -704,6 +704,11 @@ export interface HostExtensionSummary {
   name: string;
   active: boolean;
   commands: string[];
+  /**
+   * The commands registered to only look, which a device paired Read only may
+   * call; a client refuses it every other one before sending (API 1.13.0).
+   */
+  readCommands?: string[];
   /** Where the host half runs: a worker thread, or the host process itself. */
   isolation?: "worker" | "in-process";
   /** Activation failure, when the extension is known but could not start. */

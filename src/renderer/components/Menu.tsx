@@ -229,10 +229,18 @@ export function Menu({
       return;
     }
     element.style.setProperty("--menu-shift-x", "0px");
+    element.style.maxHeight = "";
+    element.style.overflowY = "";
     const rect = element.getBoundingClientRect();
     const anchor = element.parentElement?.getBoundingClientRect();
     if (side === "below" && rect.bottom > window.innerHeight - EDGE && anchor && anchor.top > window.innerHeight - anchor.bottom) setSide("above");
     else if (side === "above" && rect.top < EDGE && anchor && window.innerHeight - anchor.bottom > anchor.top) setSide("below");
+    // Taller than the room on its side (a phone): it scrolls rather than running off the screen.
+    const room = side === "below" ? window.innerHeight - EDGE - rect.top : rect.bottom - EDGE;
+    if (rect.height > room && room > 0) {
+      element.style.maxHeight = `${Math.floor(room)}px`;
+      element.style.overflowY = "auto";
+    }
     const shift = rect.left < EDGE ? EDGE - rect.left : rect.right > window.innerWidth - EDGE ? window.innerWidth - EDGE - rect.right : 0;
     if (shift) element.style.setProperty("--menu-shift-x", `${Math.round(shift)}px`);
   }, [at, side]);

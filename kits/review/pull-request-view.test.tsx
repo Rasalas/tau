@@ -12,6 +12,8 @@ import { PullRequestView } from "./pull-request-view.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
+import { HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 
 afterEach(cleanup);
 
@@ -98,13 +100,14 @@ const THREADS = [
   { id: "thread-2", path: "/sessions/two.jsonl", title: "Review the terminal", modifiedAt: 2, projectPath: "/other", projectName: "docs", messageCount: 2 },
 ];
 
-function renderView(client = fakeClient(), chips?: ComposerContextChips) {
+function renderView(client = fakeClient(), chips?: ComposerContextChips, readOnly = false) {
   const rows = new RowRequests(async () => undefined);
   const workbench = actions();
   const tab = handle();
   const storage = memoryStorage();
   const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage, () => `held-${storage.keys().length}-${Math.random()}`), preferences: preferences() };
-  render(<TestThreadStore threads={THREADS}><PullRequestView params={PARAMS} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>);
+  const view = <TestThreadStore threads={THREADS}><PullRequestView params={PARAMS} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>;
+  render(readOnly ? <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>{view}</HostClientProvider> : view);
   return { client, rows, workbench, tab, shared };
 }
 
@@ -124,6 +127,22 @@ describe("the pull-request view", () => {
     expect(screen.getAllByRole("button", { name: "kits/terminal/output.ts:10" })).toHaveLength(2);
     expect(tab.setTitle).toHaveBeenCalledWith("PR #7 Add the output helper");
     expect(rows.get("/project")).toMatchObject<Partial<UiReviewRequest>>({ number: 7, checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
+  });
+
+  it("on a device paired Read only, offers reading and disables or leaves out every change", async () => {
+    renderView(fakeClient(), undefined, true);
+    expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit title" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit description" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Request a review/u })).toBeNull();
+    const link = screen.getByRole("button", { name: "Link to this thread" }) as HTMLButtonElement;
+    expect(link.disabled).toBe(true);
+    expect(link.getAttribute("data-tooltip")).toMatch(/Read only/u);
+    expect((screen.getByRole("button", { name: /Comment on or review/u }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    const viewed = await screen.findByRole("checkbox", { name: /Viewed|Changed/u }) as HTMLInputElement;
+    expect(viewed.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Comment on line/u })).toBeNull();
   });
 
   it("says what went wrong when the request cannot be read, and retries", async () => {

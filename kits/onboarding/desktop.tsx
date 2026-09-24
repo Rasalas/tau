@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { SquareTerminal } from "lucide-react";
-import { getClientStorage, type DesktopExtension, type DesktopExtensionContext, type RegionProps } from "tau";
+import { getClientStorage, hostIsReadOnly, READ_ONLY_REASON, type DesktopExtension, type DesktopExtensionContext, type RegionProps } from "tau";
 import { WelcomeFlow } from "./flow.js";
 import { ONBOARDING_EXTENSION_ID as ID, WELCOME_OVERLAY, type WelcomeState } from "./protocol.js";
 import { createWelcomeWizard, type TerminalRunner } from "./wizard.js";
@@ -24,6 +24,8 @@ function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
     useEffect(() => {
       if (asked) return;
       asked = true;
+      // Setup changes the host; a Read-only device follows threads and sets up nothing.
+      if (hostIsReadOnly()) return;
       if (flow.interrupted()) { actions.openOverlay(WELCOME_OVERLAY); return; }
       void context.host.invoke("state").then((state) => {
         if ((state as WelcomeState).firstStart && !threads) actions.openOverlay(WELCOME_OVERLAY);
@@ -42,7 +44,11 @@ const onboarding: DesktopExtension = {
   name: "Onboarding",
   activate(context) {
     const flow = new WelcomeFlow(context.host, (id) => context.hostExtension(id), getClientStorage);
-    const open = (actions: { openOverlay(id: string): void }) => { flow.start(true); actions.openOverlay(WELCOME_OVERLAY); };
+    const open = (actions: { openOverlay(id: string): void; notify(message: string): void }) => {
+      if (hostIsReadOnly()) { actions.notify(READ_ONLY_REASON); return; }
+      flow.start(true);
+      actions.openOverlay(WELCOME_OVERLAY);
+    };
     // A runtime whose login runs in a terminal gets one the user sees, when Terminal Kit is there.
     let runner: TerminalRunner | undefined;
     context.useService<TerminalRunner>(TERMINAL_RUN_SERVICE, (service) => {

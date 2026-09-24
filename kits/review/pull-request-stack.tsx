@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Layers, RefreshCw } from "lucide-react";
-import { Dialog, Menu, errorMessage, type MenuSection, type WorkbenchActions } from "tau";
+import { Dialog, Menu, READ_ONLY_REASON, errorMessage, type MenuSection, type WorkbenchActions } from "tau";
 import { providerInfo, type MergeMethod, type PullRequestDetail, type PullRequestStack, type PullRequestStackLayer, type StackAction } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_WORDS, layerLine, preferredMethod } from "./merge-controls.js";
+import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 
 function LayerGlyph({ layer }: { layer: PullRequestStackLayer }) {
   const { state } = layerLine(layer);
@@ -34,12 +35,13 @@ export function stackScope(stack: PullRequestStack, number: number) {
  * which updates every branch onto the one below. Both ask first and list
  * what they touch.
  */
-export function PullRequestStackControl({ detail, client, actions, workspace, onChanged }: {
+export function PullRequestStackControl({ detail, client, actions, workspace, onChanged, writes = ALL_WRITES }: {
   detail: PullRequestDetail;
   client: PullRequestClient;
   actions: WorkbenchActions;
   workspace?: string;
   onChanged(detail: PullRequestDetail): void;
+  writes?: PullRequestWrites;
 }) {
   const { capabilities } = providerInfo(detail.ref.service);
   const [stack, setStack] = useState<PullRequestStack | null>(null);
@@ -69,8 +71,8 @@ export function PullRequestStackControl({ detail, client, actions, workspace, on
     },
     {
       items: [
-        { id: "merge", label: `Merge stack (${below.length})`, icon: <GitMerge size={13} />, disabled: mergeBlocked || !method },
-        { id: "rebase", label: "Rebase stack", icon: <RefreshCw size={13} />, disabled: rebaseBlocked },
+        { id: "merge", label: `Merge stack (${below.length})`, icon: <GitMerge size={13} />, disabled: mergeBlocked || !method || !writes.stack, ...(writes.stack ? {} : { description: READ_ONLY_REASON }) },
+        { id: "rebase", label: "Rebase stack", icon: <RefreshCw size={13} />, disabled: rebaseBlocked || !writes.stack, ...(writes.stack ? {} : { description: READ_ONLY_REASON }) },
         { id: "refresh", label: "Refresh the stack", icon: <RefreshCw size={13} /> },
       ],
     },

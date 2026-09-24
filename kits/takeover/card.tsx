@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppWindow, Hand, KeyRound, X } from "lucide-react";
-import { errorMessage, tooltipProps, useHostCapabilities, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
-import { PREVIEW_PANEL, webUrl, type Takeover } from "./protocol.js";
+import { errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
+import { PREVIEW_EXTENSION_ID, PREVIEW_PANEL, TAKEOVER_EXTENSION_ID, webUrl, type Takeover } from "./protocol.js";
 import { services, takeovers, workbench } from "./store.js";
 
 export interface TakeoverHosts {
@@ -35,10 +35,12 @@ export function windowTooltip(driven: { app?: string; title?: string } | undefin
  * instead, where the user takes over by tapping and typing. A window's app is
  * the button's icon and tooltip, never its text.
  */
-export function jumpLabel(takeover: Takeover, remote = false): string | undefined {
+export function jumpLabel(takeover: Takeover, remote = false, watchOnly = false): string | undefined {
+  // A device that may not type follows along; it cannot take over.
+  const here = watchOnly ? "Watch here" : "Take over here";
   switch (takeover.target.kind) {
-    case "preview": return remote ? "Take over here" : "Show the page";
-    case "window": return remote ? "Take over here" : "Show window";
+    case "preview": return remote ? here : "Show the page";
+    case "window": return remote ? here : "Show window";
     case "browser": return "Open in browser";
     default: return undefined;
   }
@@ -94,7 +96,8 @@ export async function jumpTo(takeover: Takeover, actions: WorkbenchActions, host
   await preview.jump({ kind: "browser" }, actions);
   if (target.url) {
     const state = await hosts.preview.invoke("state").catch(() => undefined) as { url?: string } | undefined;
-    if (!state?.url) await preview.open(target.url, actions);
+    // A Read-only device looks at what is open; it cannot open the page itself.
+    if (!state?.url && hostCommandAllowed(PREVIEW_EXTENSION_ID, "open")) await preview.open(target.url, actions);
   }
   // A phone's Preview is a full sheet already; there is no stage to move it to.
   if (!remote) await enlargePreview(actions, takeover.id);
@@ -175,14 +178,14 @@ function PasswordWays({ takeover, actions, hosts, remote }: { takeover: Takeover
 }
 
 /** What the user takes over, as it looks now, on a device away from the host's machine; a tap opens it. */
-function TakeoverFrame({ takeover, onOpen }: { takeover: Takeover; onOpen(): void }) {
+function TakeoverFrame({ takeover, onOpen, watchOnly }: { takeover: Takeover; onOpen(): void; watchOnly: boolean }) {
   const preview = useSyncExternalStore(services.preview.subscribe, services.preview.get);
   const [picture, setPicture] = useState<{ url: string; width: number; height: number }>();
   const drivesWindow = takeover.target.kind === "window";
   useEffect(() => preview?.watch?.(drivesWindow ? { kind: "app", threadId: takeover.threadId } : { kind: "browser" }, 480, setPicture), [preview, drivesWindow, takeover.threadId]);
   if (!picture) return null;
   return (
-    <button type="button" className="takeover-frame" onClick={onOpen} aria-label="Open what you take over" {...tooltipProps("Open it here to tap and type")}>
+    <button type="button" className="takeover-frame" onClick={onOpen} aria-label="Open what you take over" {...tooltipProps(watchOnly ? "Open it here to watch" : "Open it here to tap and type")}>
       <img src={picture.url} width={picture.width} height={picture.height} alt="" draggable={false} />
     </button>
   );
@@ -194,7 +197,11 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const screen = useSyncExternalStore(services.screen.subscribe, services.screen.get);
   const preview = useSyncExternalStore(services.preview.subscribe, services.preview.get);
   const remote = preview?.remote?.() ?? false;
-  const { readOnly } = useHostCapabilities();
+  const mayDone = useCommandAllowed(TAKEOVER_EXTENSION_ID, "done");
+  const mayCancel = useCommandAllowed(TAKEOVER_EXTENSION_ID, "cancel");
+  // Passwords are typed into the page; a device that may not type has no use for the help.
+  const mayType = useCommandAllowed(PREVIEW_EXTENSION_ID, "input");
+  const readOnly = !mayDone || !mayCancel;
   const [passwords, setPasswords] = useState(false);
   const [busy, setBusy] = useState(false);
   const [driven, setDriven] = useState<{ app?: string; title?: string }>();
@@ -211,10 +218,10 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
     }, () => undefined);
     return () => { live = false; };
   }, [screen, takeover]);
-  const label = jumpLabel(takeover, remote);
+  const label = jumpLabel(takeover, remote, !mayType);
   const showsFrame = remote && (takeover.target.kind === "preview" || takeover.target.kind === "window");
   const where = takeover.target.kind === "browser" ? takeover.target.url : takeover.target.kind === "window" ? windowTooltip(driven) : undefined;
-  const passwordsApply = takeover.target.kind === "preview";
+  const passwordsApply = takeover.target.kind === "preview" && mayType;
   const finish = (command: "done" | "cancel") => {
     setBusy(true);
     putBack(takeover.id, actions);
@@ -251,15 +258,15 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
               {label}
             </button>
           ) : null}
-          <button type="button" className="takeover-button primary" disabled={busy || readOnly} onClick={() => finish("done")} {...tooltipProps(readOnly ? READ_ONLY_REASON : "Hand control back to the agent")}>
+          <button type="button" className="takeover-button primary" disabled={busy || !mayDone} onClick={() => finish("done")} {...tooltipProps(mayDone ? "Hand control back to the agent" : READ_ONLY_REASON)}>
             Done
           </button>
-          <button type="button" className="takeover-icon-button" aria-label="Cancel" disabled={busy || readOnly} onClick={() => finish("cancel")} {...tooltipProps(readOnly ? READ_ONLY_REASON : "Cancel: the agent stops")}>
+          <button type="button" className="takeover-icon-button" aria-label="Cancel" disabled={busy || !mayCancel} onClick={() => finish("cancel")} {...tooltipProps(mayCancel ? "Cancel: the agent stops" : READ_ONLY_REASON)}>
             <X size={14} aria-hidden="true" />
           </button>
         </span>
       </div>
-      {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} /> : null}
+      {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} watchOnly={!mayType} /> : null}
       {readOnly ? <p className="takeover-note">{READ_ONLY_REASON}.</p> : null}
       {passwords ? <PasswordWays takeover={takeover} actions={actions} hosts={hosts} remote={remote} /> : null}
     </section>

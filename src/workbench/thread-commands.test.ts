@@ -43,3 +43,21 @@ describe("thread commands on a device paired Read only", () => {
     expect(client.abort).toHaveBeenCalledWith("t");
   });
 });
+
+describe("copying the chat", () => {
+  it("puts the host's Markdown on this device's clipboard, which a Read-only device may do", async () => {
+    const writeText = vi.fn(async () => undefined);
+    const copyText = vi.fn(async () => undefined);
+    const client = createFakeHostClient({ isReadOnly: () => true, threadMarkdown: async () => "# Thread", copyText });
+    const setNotice = vi.fn();
+    const thread = new ThreadCommands({
+      client: () => client,
+      view: { setNotice, getSnapshot: () => ({ sessionId: "s1" }) },
+      platform: { clipboard: { writeText } },
+    } as unknown as ThreadCommandPorts);
+    await thread.copyThreadValue("chat");
+    expect(writeText).toHaveBeenCalledWith("# Thread");
+    expect(copyText).not.toHaveBeenCalled();
+    expect(setNotice).toHaveBeenCalledWith("Chat copied as Markdown.");
+  });
+});

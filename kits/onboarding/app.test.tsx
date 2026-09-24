@@ -67,6 +67,14 @@ function host() {
 }
 
 describe("Onboarding in the workbench", () => {
+  it("stays shut on a device paired Read only: setting up changes the host", async () => {
+    const { calls, invokeHostExtension } = host();
+    renderApp(createFakeHostClient({ invokeHostExtension, isReadOnly: () => true }), { extensions: [onboarding] });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull();
+    expect(calls.filter(([id]) => id === "tau.onboarding")).toEqual([]);
+  });
+
   it("opens on a first start and walks through agents, projects and conversations", async () => {
     const { calls, invokeHostExtension } = host();
     const openProject = vi.fn(async () => ({ version: 1 as const, updates: [] }));

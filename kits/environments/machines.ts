@@ -64,6 +64,11 @@ export interface ArrivalPorts {
   /** Waits between tries while the page is still starting. */
   wait(ms: number): Promise<void>;
   tries?: number;
+  /**
+   * False once the workbench gave way to an overlay (a first start's setup):
+   * the arrival stops and is followed again when the workbench is back.
+   */
+  shown?(): boolean;
 }
 
 /**
@@ -74,8 +79,10 @@ export async function followArrival(target: EnvironmentTarget, ports: ArrivalPor
   // A machine seen for the first time may show its first-start steps before the workbench.
   const tries = ports.tries ?? 480;
   const { actions } = ports;
+  const away = () => ports.shown?.() === false;
   if ("thread" in target) {
     for (let attempt = 0; attempt < tries; attempt += 1) {
+      if (away()) return false;
       if (await actions.switchSession(target.thread.path).catch(() => false)) return true;
       await ports.wait(250);
     }
@@ -83,6 +90,7 @@ export async function followArrival(target: EnvironmentTarget, ports: ArrivalPor
   }
   const { draft, workspaceId } = target.newThread;
   for (let attempt = 0; attempt < tries; attempt += 1) {
+    if (away()) return false;
     const active = actions.activeThread();
     if (active?.draftPending && (!workspaceId || active.workspaceId === workspaceId)) {
       // The draft's composer may mount after the draft and restore an empty text; set it until it holds.
@@ -100,4 +108,32 @@ export async function followArrival(target: EnvironmentTarget, ports: ArrivalPor
     await ports.wait(250);
   }
   return false;
+}
+
+/** An arrival not yet placed, kept for the machine it was sent to until the workbench there has it. */
+export interface PendingArrival {
+  machine: string;
+  target: EnvironmentTarget;
+}
+
+export function readPendingArrival(raw: string | null | undefined): PendingArrival | undefined {
+  if (!raw) return undefined;
+  try {
+    const value = JSON.parse(raw) as { machine?: unknown; target?: { thread?: { path?: unknown }; newThread?: { draft?: unknown; workspaceId?: unknown } } };
+    if (typeof value.machine !== "string" || !value.target) return undefined;
+    const { thread, newThread } = value.target;
+    if (thread && typeof thread.path === "string") return { machine: value.machine, target: { thread: { path: thread.path } } };
+    if (!newThread || typeof newThread !== "object") return undefined;
+    return {
+      machine: value.machine,
+      target: {
+        newThread: {
+          ...(typeof newThread.draft === "string" ? { draft: newThread.draft } : {}),
+          ...(typeof newThread.workspaceId === "string" ? { workspaceId: newThread.workspaceId } : {}),
+        },
+      },
+    };
+  } catch {
+    return undefined;
+  }
 }

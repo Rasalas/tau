@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   Popover,
+  READ_ONLY_REASON,
   ThreadRow,
   tooltipProps,
   useContextMenu,
@@ -642,6 +643,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const [selection, setSelection] = useState<RailSelection>(NO_SELECTION);
   const [fileDrop, setFileDrop] = useState<string>();
   const openContextMenu = useContextMenu();
+  // A Read-only device could never send a new thread's first message.
+  const { readOnly: readOnlyDevice } = useHostCapabilities();
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
 
@@ -891,8 +894,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           </label>
           <button
             className="sidebar-action"
-            {...tooltipProps("New thread", { side: "bottom", shortcut: registry.keybindingLabel("runtime.new-session") })}
+            {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
             aria-label="New thread"
+            disabled={readOnlyDevice}
             onClick={() => actions.newSession()}
           >
             <SquarePen size={16} />

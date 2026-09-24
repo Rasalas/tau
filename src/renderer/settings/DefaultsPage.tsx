@@ -18,7 +18,7 @@ import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChan
 import { QUIT_CONFIRMATIONS, isQuitConfirmation, type QuitConfirmation } from "../../shared/window-shell";
 import { isMacPlatform } from "../keybindings";
 import { useHostClient } from "../host-client-context";
-import { useHostCapabilities } from "../use-host-capabilities";
+import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 
 const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
   ["enter", "↵"],
@@ -112,7 +112,9 @@ export function DefaultsPage({
     defaultValue: defaultUpdateChannel(versions?.window ?? versions?.host), read: (raw) => (isUpdateChannel(raw) ? raw : undefined), format: (value) => CHANNEL_LABELS[value],
   });
   // The updater reads this machine's config; a host elsewhere would store a choice nothing here applies.
-  const { localFiles: hostIsThisMachine } = useHostCapabilities();
+  const { localFiles: hostIsThisMachine, readOnly } = useHostCapabilities();
+  // Model and thinking are the host's; a Read-only device starts no thread to pick a runtime for.
+  const threadDefaults = readOnly ? READ_ONLY_REASON : undefined;
   const quitShortcut = useSetting<QuitConfirmation>("confirm.quit", {
     defaultValue: CONFIG_DEFAULTS["confirm.quit"] as QuitConfirmation, read: (raw) => (isQuitConfirmation(raw) ? raw : undefined), format: (value) => QUIT_LABELS[value],
   });
@@ -130,6 +132,7 @@ export function DefaultsPage({
           id={settingAnchor("Default model")}
           title="Model"
           description={`What a new thread starts on, from Pi's configuration in ~/.pi/agent${snapshot?.model?.login === "subscription" ? " (a subscription login)" : ""}. The composer changes it per thread.`}
+          disabledReason={threadDefaults}
           control={<div className="settings-row-inline">
             <button ref={pickerAnchor} className="settings-field compact" onClick={() => setPickerOpen((open) => !open)}>
               {snapshot?.model
@@ -150,6 +153,7 @@ export function DefaultsPage({
           id={settingAnchor("Thinking level")}
           title="Thinking"
           description="How much the model reasons before it answers. Shift-Tab cycles it in the composer."
+          disabledReason={threadDefaults}
           control={(snapshot?.thinkingLevels ?? []).length > 0 ? <div className="segmented">
             {(snapshot?.thinkingLevels ?? []).map((level) => (
               <button key={level} className={level === snapshot?.thinkingLevel ? "active" : ""} onClick={() => onSetThinking(level)}>{level}</button>
@@ -161,6 +165,7 @@ export function DefaultsPage({
             id={settingAnchor("Runtime for new threads")}
             title="Runtime"
             description="Which program runs a new thread. Threads that exist keep theirs; the composer offers the same choice before the first message."
+            disabledReason={threadDefaults}
             status={(snapshot?.runtimeBackends ?? []).map((backend) => {
               const update = runtimeUpdate(backend);
               return update ? <p key={backend.kind} role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null;

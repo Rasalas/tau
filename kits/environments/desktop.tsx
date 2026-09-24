@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Network } from "lucide-react";
-import type { DesktopExtension, PlatformEnvironments, WorkbenchActions } from "tau";
-import { followArrival } from "./machines.js";
+import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
+import { followArrival, readPendingArrival } from "./machines.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, WORKSPACE_STORE_SERVICE, type WorkspaceRailSlice } from "./protocol.js";
 import { createMachinesRailSection, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
@@ -9,18 +9,47 @@ import { createMachinesPage } from "./settings.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** The rail section, plus the one-time step of opening what the page was sent to this machine for. */
-function createRailSection(environments: PlatformEnvironments) {
+/** Where an arrival waits until it is placed: a first start's setup, or a reload during it, must not lose a draft. */
+export const ARRIVAL_KEY = "tau.environments.arrival";
+
+/**
+ * The rail section, plus opening what the page was sent to this machine for.
+ * The rail is mounted only while the workbench shows, so the arrival is
+ * followed then, and again each time the workbench comes back, until placed.
+ */
+export function createRailSection(environments: PlatformEnvironments, pause = wait) {
   const Section = createMachinesRailSection(environments);
-  let arrived = false;
+  let taken = false;
   return function MachinesRail({ actions }: { actions: WorkbenchActions }) {
+    const latest = useRef(actions);
+    latest.current = actions;
+    // Once per mount: the rail mounts again when the workbench comes back, not when the actions change.
     useEffect(() => {
-      if (arrived) return;
-      arrived = true;
-      void environments.takeArrival()
-        .then((target) => target ? followArrival(target, { actions, wait }) : undefined)
-        .catch(() => undefined);
-    }, [actions]);
+      const current = latest.current;
+      let shown = true;
+      const storage = getClientStorage();
+      // The machine this page shows; unknown before the window's list arrived, and then any will do.
+      const machine = () => environments.getSnapshot()?.shown ?? "";
+      const follow = (target: EnvironmentTarget | undefined) => {
+        if (!target || !shown) return;
+        void followArrival(target, { actions: current, wait: pause, shown: () => shown })
+          // A thread that never showed up is let go; a draft waits for the next time.
+          .then((placed) => { if (placed || (shown && "thread" in target)) storage?.remove(ARRIVAL_KEY); }, () => undefined);
+      };
+      const stored = () => {
+        const pending = readPendingArrival(storage?.get(ARRIVAL_KEY));
+        return pending && (!pending.machine || !machine() || pending.machine === machine()) ? pending.target : undefined;
+      };
+      if (taken) follow(stored());
+      else {
+        taken = true;
+        void environments.takeArrival().then((target) => {
+          if (target) storage?.set(ARRIVAL_KEY, JSON.stringify({ machine: machine(), target }));
+          follow(target ?? stored());
+        }, () => follow(stored()));
+      }
+      return () => { shown = false; };
+    }, []);
     return <Section actions={actions} />;
   };
 }
