@@ -1,10 +1,12 @@
 import { X509Certificate, createPrivateKey } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { createServer as createHttpsServer } from "node:https";
+import { connect as tlsConnect } from "node:tls";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
-import { certificateFingerprint, fingerprintsMatch, normalizeFingerprint, resolveHostTls } from "./host-tls.js";
+import { HostTlsReloader, certificateFingerprint, fingerprintsMatch, normalizeFingerprint, resolveHostTls } from "./host-tls.js";
 
 const directories: string[] = [];
 function scratch(): string {
@@ -124,6 +126,71 @@ describe("host TLS material", () => {
       { TAU_HOST_TLS_CERT: join(directory, "cert.pem"), TAU_HOST_TLS_KEY: join(directory, "key.pem") },
       { userData: directory },
     )).toThrow(/is not the key/u);
+  });
+});
+
+describe("a certificate of the user's own", () => {
+  function pair(directory: string, name: string, days = 90, stamp = 1_700_000_000) {
+    const { cert, key } = createSelfSignedCertificate({ commonName: name, dnsNames: ["box.example"], ipAddresses: ["127.0.0.1"], days });
+    const certPath = join(directory, "cert.pem");
+    const keyPath = join(directory, "key.pem");
+    writeFileSync(certPath, cert);
+    writeFileSync(keyPath, key, { mode: 0o600 });
+    // Two writes within one clock tick must still count as a change.
+    utimesSync(certPath, stamp, stamp);
+    utimesSync(keyPath, stamp, stamp);
+    return { certPath, keyPath, fingerprint: certificateFingerprint(cert) };
+  }
+
+  const served = (port: number) => new Promise<string>((resolve, reject) => {
+    const socket = tlsConnect({ host: "127.0.0.1", port, rejectUnauthorized: false }, () => {
+      resolve(socket.getPeerCertificate().fingerprint256);
+      socket.end();
+    });
+    socket.once("error", reject);
+  });
+
+  it("warns two weeks before it runs out", () => {
+    const directory = scratch();
+    const { certPath, keyPath } = pair(directory, "short", 5);
+    const supplied = resolveHostTls({ TAU_HOST_TLS_CERT: certPath, TAU_HOST_TLS_KEY: keyPath }, { userData: directory })!;
+    expect(supplied.warnings.join("\n")).toMatch(/expires on .*renew it/u);
+    expect(Date.parse(supplied.validTo)).toBeGreaterThan(Date.now());
+  });
+
+  it("is served anew once its files change, without restarting the listener", async () => {
+    const directory = scratch();
+    const first = pair(directory, "first");
+    const reloader = new HostTlsReloader(() => resolveHostTls({ TAU_HOST_TLS_CERT: first.certPath, TAU_HOST_TLS_KEY: first.keyPath }, { userData: directory })!);
+    const server = createHttpsServer({ cert: reloader.current.cert, key: reloader.current.key });
+    reloader.track(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    try {
+      expect(await served(port)).toBe(first.fingerprint);
+      expect(reloader.refresh()).toBe(false);
+
+      const second = pair(directory, "second", 90, 1_700_000_100);
+      expect(reloader.refresh()).toBe(true);
+      expect(reloader.current.fingerprint).toBe(second.fingerprint);
+      expect(await served(port)).toBe(second.fingerprint);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("keeps serving the old one when the new files do not load, and does not retry them until they change", () => {
+    const directory = scratch();
+    const first = pair(directory, "first");
+    const reloader = new HostTlsReloader(() => resolveHostTls({ TAU_HOST_TLS_CERT: first.certPath, TAU_HOST_TLS_KEY: first.keyPath }, { userData: directory })!);
+    // Half-written: the certificate is new, the key still the old one.
+    const other = createSelfSignedCertificate({ commonName: "other", dnsNames: [], ipAddresses: [], days: 90 });
+    writeFileSync(first.certPath, other.cert);
+    utimesSync(first.certPath, 1_700_000_200, 1_700_000_200);
+    expect(() => reloader.refresh()).toThrow(/is not the key/u);
+    expect(reloader.current.fingerprint).toBe(first.fingerprint);
+    expect(reloader.refresh()).toBe(false);
   });
 });
 
