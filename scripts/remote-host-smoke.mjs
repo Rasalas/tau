@@ -150,6 +150,7 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
       TAU_USER_DATA: userData,
       TAU_HOST_LISTEN: "127.0.0.1:0",
       ...(kits ? {} : { TAU_NO_EXTENSIONS: "1" }),
+      TAU_NO_RUNTIME_UPDATES: "1",
       TAU_WEB_CLIENT: webClient,
       ...(tls ? { TAU_HOST_TLS: "1" } : {}),
       // A proxy listener beside the loopback one, which here may tell a peer its files are local.
@@ -655,14 +656,17 @@ async function scenario({ tls }) {
     if (tls) {
       // A pinned client survives a host restart: the certificate is kept, not remade.
       const first = host.fingerprint;
+      const firstUrl = host.url;
       await host.stop();
       host = await startHost({ workspace, userData, tokenHome, tls, webClient });
       if (host.fingerprint !== first) fail(`the fingerprint changed across a restart: ${first} -> ${host.fingerprint}`);
+      // A page served from the old port, and the token its origin stored, must reach the new host.
+      if (host.url !== firstUrl) fail(`the port changed across a restart: ${firstUrl} -> ${host.url}`);
       const again = createClient(host.url, token, first);
       await again.opened;
       await again.hello();
       await again.close();
-      step("tls: a restarted host keeps its fingerprint");
+      step("tls: a restarted host keeps its fingerprint and its port", host.url);
 
       // TAU_HOST_URL with a known-hosts certificate pin from before key pins: the window's first hello moves it to the key.
       const knownHosts = new KnownHosts(join(userData, "client-known-hosts.json"));
@@ -694,7 +698,7 @@ async function scenario({ tls }) {
       if (!(refusedOld instanceof HostCertificateRefusedError)) fail(`the old certificate pin was not refused after the renewal: ${refusedOld}`);
       step("tls: a renewed certificate keeps the key", "the key pin connects, the old certificate pin is refused");
 
-      // The smoke's host takes a new port at each start; its entry moves along, as the address would stay.
+      // The entry keyed by the host's address, written again as a window would.
       await knownHosts.remember(hostEndpoint(host.url).key, migrated);
       const keyTrust = await establishHostTrust(host.url, { knownHosts, confirm: async () => false });
       await windowHello(host.url, token, keyTrust);

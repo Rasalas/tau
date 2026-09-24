@@ -27,7 +27,7 @@ import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
 import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
-import { isLoopbackHost, parseListen } from "./host-listen.js";
+import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
 import { ServiceAnnouncer, discoverHosts, machineDisplayName } from "./host-discovery.js";
@@ -345,7 +345,9 @@ async function main(): Promise<void> {
   };
 
 
-  const listenOn = serviceKind ? await takeOverListen() : listen;
+  // Kept across restarts, so a tab or phone on this port reconnects instead of needing a new pairing.
+  const portFile = join(userData, "host-port");
+  const listenOn = await stickyListen(serviceKind ? await takeOverListen() : listen, rememberedPort(portFile), portIsFree);
   const { host: boundHost } = parseListen(listenOn);
   // TAU_HOST_TLS=1, or a certificate of the operator's own; the key stays under userData.
   // Re-read when its files change, so a renewed certificate needs no restart.
@@ -380,6 +382,7 @@ async function main(): Promise<void> {
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}) };
   console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
+  rememberPort(portFile, socket.port);
   if (serviceKind) {
     // Nobody supervises a service host: it tells a window where it is itself.
     await writeHostDescriptor(userData, {
