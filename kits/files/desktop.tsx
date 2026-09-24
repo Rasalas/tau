@@ -134,6 +134,8 @@ export const filesExtension: DesktopExtension = {
     context.events.on("tool-end", (event) => {
       if (event.tool.name === "edit" || event.tool.name === "write" || event.tool.name === "bash") void documents.checkAll();
     });
+    // Tools of a thread this client does not show never reach it; the end of that thread's turn does.
+    context.events.on("agent-status", (event) => { if (!event.running) void documents.checkAll(); });
     // Another project's paths name other files.
     context.events.on("workspace-changed", (event) => { if (event.from && event.from !== event.to) documents.clear(); });
 

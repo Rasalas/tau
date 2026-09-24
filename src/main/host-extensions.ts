@@ -826,6 +826,13 @@ export interface HostExtensionServices {
 
 export type HostExtensionCommandHandler = (input: unknown) => unknown;
 
+/** A topic narrows an event to the clients that watch it; 1 to 256 characters. */
+export interface HostExtensionEmitOptions {
+  topic?: string;
+}
+
+const MAX_TOPIC_LENGTH = 256;
+
 export interface HostExtensionCommandOptions {
   /** Commands that may be called by these host extension IDs. */
   callers?: readonly string[];
@@ -865,8 +872,12 @@ export interface HostExtensionContext {
    * a build): it skips the command timeout and clients run it as a host job.
    */
   registerCommand(name: string, handler: HostExtensionCommandHandler, options?: HostExtensionCommandOptions): () => void;
-  /** Publishes an `extension-event` for this extension's desktop counterpart. */
-  emit(name: string, payload?: unknown): void;
+  /**
+   * Publishes an `extension-event` for this extension's desktop counterpart.
+   * With a `topic` it goes only to the clients whose desktop half watches that
+   * topic (`HostExtensionClient.watch`); use one for output only a visible view draws.
+   */
+  emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
   /**
    * Reports a failure the extension cannot recover from, after activation: the
    * registry records the reason and deactivates it. An isolated package uses
@@ -1029,9 +1040,13 @@ export class HostExtensionRegistry {
         record.disposers.push(dispose);
         return dispose;
       },
-      emit: (name, payload) => {
+      emit: (name, payload, options) => {
         if (this.active.get(extension.id) !== record) return;
-        this.publish({ type: "extension-event", extensionId: extension.id, name, payload });
+        const topic = options?.topic;
+        if (topic !== undefined && !(typeof topic === "string" && topic.length > 0 && topic.length <= MAX_TOPIC_LENGTH)) {
+          throw new Error(`Host extension ${extension.id}: a topic is a string of 1 to ${MAX_TOPIC_LENGTH} characters`);
+        }
+        this.publish({ type: "extension-event", extensionId: extension.id, name, payload, ...(topic === undefined ? {} : { topic }) });
       },
       fail: (reason) => this.reportFatal(extension, record, reason),
     };

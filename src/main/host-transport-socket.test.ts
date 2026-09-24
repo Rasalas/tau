@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } from "../shared/host-transport.js";
+import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostPushEvent, type HostServerFrame, type HostSubscription } from "../shared/host-transport.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
@@ -129,7 +129,7 @@ describe("socket host transport", () => {
     const reply = await frame;
     expect(reply.type).toBe("hello-reply");
     if (reply.type !== "hello-reply") return;
-    expect(reply.reply).toMatchObject({ protocol: 1, hostVersion: "test", capabilities: ["jobs", "heartbeat"], resync: false, nextSeq: 1 });
+    expect(reply.reply).toMatchObject({ protocol: 1, hostVersion: "test", capabilities: ["jobs", "heartbeat", "subscriptions"], resync: false, nextSeq: 1 });
   });
 
   it("closes a connection whose token is wrong or missing", async () => {
@@ -204,7 +204,7 @@ describe("more than one listener", () => {
       const own = await (await hello(transport.port, TOKEN)).frame;
       const proxied = await (await hello(proxy.port, TOKEN)).frame;
       expect(own.type === "hello-reply" && own.reply.capabilities).toContain("local-files");
-      expect(proxied.type === "hello-reply" && proxied.reply.capabilities).toEqual(["jobs", "heartbeat"]);
+      expect(proxied.type === "hello-reply" && proxied.reply.capabilities).toEqual(["jobs", "heartbeat", "subscriptions"]);
       expect(calls.map((call) => call.local)).toEqual([true, false]);
     } finally {
       vi.unstubAllEnvs();
@@ -384,6 +384,84 @@ describe("socket host transport and the coalescer", () => {
     auxiliary.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN, auxiliary: true } }));
     await nextFrame(auxiliary);
     expect(onSnapshotClient).toHaveBeenCalledTimes(2);
+  });
+
+  describe("subscriptions", () => {
+    const delta = (sessionId: string, text: string): HostPushEvent => ({ type: "assistant-delta", sessionId, id: "a", delta: text });
+    const status = (sessionId: string): HostPushEvent => ({ type: "agent-status", sessionId, running: true });
+
+    /** Collects every frame after the hello reply. */
+    async function subscribed(port: number, subscription?: HostSubscription, lastSeq?: number) {
+      const socket = connect(port);
+      await opened(socket);
+      const frames: HostServerFrame[] = [];
+      socket.on("message", (data) => {
+        const frame = decodeHostServerFrame(JSON.parse(String(data)) as unknown);
+        if (frame) frames.push(frame);
+      });
+      socket.send(JSON.stringify({ type: "hello", id: "h", hello: {
+        protocol: HOST_TRANSPORT_VERSION, token: TOKEN,
+        ...(subscription ? { subscription } : {}),
+        ...(lastSeq === undefined ? {} : { lastSeq }),
+      } }));
+      await vi.waitFor(() => expect(frames[0]?.type).toBe("hello-reply"));
+      const pushes = () => frames.flatMap((frame) => frame.type === "push" ? [frame.push] : []);
+      const request = (id: string, params: unknown[]) => socket.send(JSON.stringify({ type: "request", request: { id, method: "subscribe", params } }));
+      return { socket, frames, pushes, request };
+    }
+
+    it("sends a subscribed client its threads and what every client gets, and marks where it skipped", async () => {
+      const { transport: started, pushLog } = await listen();
+      const phone = await subscribed(started.port, { threads: ["shown"], topics: [] });
+      const desktop = await subscribed(started.port);
+      for (const event of [delta("shown", "a"), delta("other", "b"), status("other"), delta("other", "c"), delta("shown", "d")]) {
+        started.deliver(pushLog.record(event));
+      }
+      await vi.waitFor(() => expect(desktop.pushes()).toHaveLength(5));
+      await vi.waitFor(() => expect(phone.pushes()).toHaveLength(3));
+      expect(phone.pushes().map(({ seq, prev }) => ({ seq, prev }))).toEqual([
+        { seq: 1, prev: undefined }, { seq: 3, prev: 1 }, { seq: 5, prev: 3 },
+      ]);
+      // A client without a subscription gets every push, as before.
+      expect(desktop.pushes().every((push) => push.prev === undefined)).toBe(true);
+    });
+
+    it("replaces a subscription on request, answers before any later push and reports the threads it gained", async () => {
+      const onThreadsSubscribed = vi.fn();
+      const pushLog = new HostPushLog();
+      transport = await startSocketHostTransport({
+        listen: "127.0.0.1:0", methods, pushLog, hostVersion: "test", capabilities: [], token: TOKEN, onThreadsSubscribed,
+      });
+      const client = await subscribed(transport.port, { threads: ["a"], topics: [] });
+      client.request("s1", [{ threads: ["a", "b"], topics: [] }]);
+      await vi.waitFor(() => expect(client.frames.some((frame) => frame.type === "response")).toBe(true));
+      expect(client.frames.at(-1)).toEqual({ type: "response", response: { id: "s1", result: true } });
+      expect(onThreadsSubscribed).toHaveBeenCalledWith(["b"]);
+      transport.deliver(pushLog.record(delta("b", "x")));
+      await vi.waitFor(() => expect(client.pushes()).toHaveLength(1));
+      // null lets every push through again, and gains nothing a delta could refer to.
+      client.request("s2", [null]);
+      await vi.waitFor(() => expect(client.frames.filter((frame) => frame.type === "response")).toHaveLength(2));
+      transport.deliver(pushLog.record(delta("c", "y")));
+      await vi.waitFor(() => expect(client.pushes()).toHaveLength(2));
+      expect(onThreadsSubscribed).toHaveBeenCalledTimes(1);
+      client.request("s3", [{ threads: "a" }]);
+      await vi.waitFor(() => expect(client.frames.filter((frame) => frame.type === "response")).toHaveLength(3));
+      expect(client.frames.at(-1)).toMatchObject({ type: "response", response: { id: "s3", error: { code: "invalid-request" } } });
+    });
+
+    it("replays by the subscription the hello carries", async () => {
+      const { transport: started, pushLog } = await listen();
+      for (const event of [delta("shown", "a"), delta("other", "b"), status("other"), delta("shown", "c")]) started.deliver(pushLog.record(event));
+      const client = await subscribed(started.port, { threads: ["shown"], topics: [] }, 1);
+      const reply = client.frames[0];
+      expect(reply?.type === "hello-reply" && reply.reply.missed.map((push) => push.seq)).toEqual([3, 4]);
+      started.deliver(pushLog.record(delta("shown", "d")));
+      await vi.waitFor(() => expect(client.pushes()).toHaveLength(1));
+      // The reply named 4 as the last; the next push follows it without a skip.
+      expect(client.pushes()[0]).toMatchObject({ seq: 5 });
+      expect(client.pushes()[0]?.prev).toBeUndefined();
+    });
   });
 });
 

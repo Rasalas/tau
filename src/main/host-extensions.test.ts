@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "./host-extensions.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, currentCaller } from "./host-invocation.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
@@ -101,6 +101,16 @@ describe("HostExtensionRegistry", () => {
     await r.deactivate("demo.kit");
     emit?.("changed", { path: "b" });
     expect(events).toEqual([{ type: "extension-event", extensionId: "demo.kit", name: "changed", payload: { path: "a" } }]);
+  });
+
+  it("publishes an event under a topic for the clients that watch it", async () => {
+    const { registry: r, events } = registry();
+    let context: HostExtensionContext | undefined;
+    await r.activate({ id: "demo.kit", name: "Demo Kit", activate: (ctx) => { context = ctx; } });
+    context?.emit("data", 1, { topic: "output/7" });
+    expect(events).toEqual([{ type: "extension-event", extensionId: "demo.kit", name: "data", payload: 1, topic: "output/7" }]);
+    expect(() => context?.emit("data", 2, { topic: "" })).toThrow("a topic is a string of 1 to 256 characters");
+    expect(() => context?.emit("data", 2, { topic: "x".repeat(257) })).toThrow("a topic is a string");
   });
 
   it("records an activation failure without throwing, and runs partial cleanup", async () => {

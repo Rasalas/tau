@@ -370,8 +370,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   turnSettled(sessionId: string): void {
-    if (sessionId !== this.sessionId) return;
-    this.update({ turnSettled: true });
+    // Another thread's tools reach only the clients showing it; the end of its turn reaches all.
+    if (sessionId === this.sessionId) this.update({ turnSettled: true });
     void this.refreshChanges();
   }
 
