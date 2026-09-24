@@ -269,6 +269,8 @@ async function main() {
     TAU_CURSOR_HOME: cursorHome,
     TAU_GROK_HOME: grokHome,
     TAU_IMPORT_ROOTS: importRoots,
+    // A test instance announces and looks for the test service type, never the real `_tau._tcp`.
+    TAU_BONJOUR_SERVICE_TYPE: process.env.TAU_BONJOUR_SERVICE_TYPE ?? "_tau-test._tcp",
     // An update toast clicked in a test instance must never update the machine's real CLIs.
     TAU_RUNTIME_UPDATE_COMMAND: process.env.TAU_RUNTIME_UPDATE_COMMAND ?? JSON.stringify({ "*": "echo 'Tau test instance: this update was not run.'" }),
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
