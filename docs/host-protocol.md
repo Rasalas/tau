@@ -79,13 +79,64 @@ in that method's argument order. The host implements them in one table
 a transport only moves frames in and out of it.
 
 A connection opens with `hello { protocol, token?, lastSeq? }`. The reply names
-the host version, its capabilities (`jobs`, `replay`, `local-files`), the pushes
+the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
 buffer. The host numbers every push and keeps the latest 8 MB of them
 (`HOST_PUSH_BUFFER_BYTES`, the newest push always); a client that sees a
 gap in `seq` re-hellos with its `lastSeq`, applies what comes back, and on a
 resync refetches the bootstrap. `HostConnection` in the renderer owns that and
 reports `connected`, `reconnecting` or `resyncing`.
+
+### A link that dies without a close
+
+A phone that sleeps or moves from Wi-Fi to mobile data leaves its socket
+half-open: nothing reports a close, and both ends would wait forever. Each end
+checks for itself.
+
+- **The host** pings every socket at the WebSocket level every 30 s
+  (`SOCKET_PING_INTERVAL_MS`) and drops one that did not answer the previous
+  ping, so a vanished client stops counting. A socket that has not said hello
+  10 s after it opened is closed with 4408 (`SOCKET_HELLO_TIMEOUT_MS`).
+- **The client** cannot see WebSocket pings in a browser, so it sends its own:
+  `{ type: "ping", id }` after its hello, answered by `{ type: "pong", id }`,
+  and only to a host whose hello reply announced the `heartbeat` capability.
+  `createSocketHostTransport` (`src/workbench/host-connection-socket.ts`)
+  pings every 15 s and gives up on a socket that delivered nothing within 10 s
+  of a ping; any frame counts, not only the pong. A connect that has not opened
+  after 10 s and a hello unanswered after 15 s are given up the same way. A
+  timer that fires far too late means the page was frozen, not the link, so it
+  asks again instead of dropping.
+- **Wakes.** The entry point hands the transport a `HostWakeSource`
+  (`src/workbench/host-link.ts`): `foreground`, `online`, `offline`,
+  `network-change`. A page uses `browserWakeSource()`
+  (`src/renderer/browser-wakes.ts`: `visibilitychange`, `resume`, `pageshow`,
+  `online`/`offline`, `navigator.connection`); a native shell passes its own
+  app-state and network events. A wake while the transport waits for its next
+  attempt tries at once; on an open socket it sends a ping with a 3 s deadline;
+  a handshake still pending when the network changes is abandoned. While the
+  device reports no network the backoff stretches to 15 s.
+
+Dropping a socket costs little: the next hello carries `lastSeq` and the host
+replays what was missed. The transport's own state is a `HostLink`
+(`open`, `connecting`, `waiting`, `offline`, `closed`, the last round trip and
+the next attempt), which `HostClient.getConnectionLink()` exposes and the
+title bar shows as a dot for a host on another machine (hidden when the host
+has `local-files`). A click on it, or "Retry now" in the reconnecting strip,
+calls `reconnectNow()`.
+
+### Which pages may open a socket
+
+The host looks at the `Origin` header of the upgrade before anything else and
+closes a refused socket with 4403 (`src/main/host-origin.ts`). No `Origin` is a
+client that is not a browser page (the window's own process, a native HTTP
+stack, the smokes) and passes. A page passes when its origin is the listener's
+own (the `Host` it was reached by), when it is Electron's `file://` window on
+loopback, or when it is listed in `TAU_HOST_ALLOWED_ORIGINS` (comma-separated,
+for a native shell's scheme or a proxy that rewrites `Host`); a development
+window's `TAU_DEV_SERVER_URL` is added by itself. The token in the hello stays
+the real gate; the check keeps a page on another site, or an opaque `null`
+origin, from trying one. The socket client stops on 4403 as it does on 4401 and
+shows why.
 
 ### Coalescing and tool output deltas
 
