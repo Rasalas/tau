@@ -381,7 +381,7 @@ export class PreferencesStore {
       // Preferences are a convenience; a full or blocked store is not worth surfacing.
     }
     // A Read-only device keeps its choices here; the host would refuse them (ADR 0024).
-    const host = syncHost && this.hostClient && !this.hostClient.isReadOnly() ? this.hostClient : undefined;
+    const host = syncHost && this.hostClient && !this.hostClient.isReadOnly?.() ? this.hostClient : undefined;
     if (host && explicitHostPatch) {
       void host.updateConfig(explicitHostPatch, "global", this.activeWorkspaceId).catch(() => {});
     } else if (host) {

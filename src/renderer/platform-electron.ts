@@ -60,7 +60,7 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
 
 /** The page's address names the machine it shows when that is not the window's own (ADR 0025). */
 function environmentOptions(): { shownElsewhere?: string } {
-  const shown = new URLSearchParams(window.location.search).get("environment");
+  const shown = new URLSearchParams(globalThis.location?.search ?? "").get("environment");
   return shown ? { shownElsewhere: shown } : {};
 }
 

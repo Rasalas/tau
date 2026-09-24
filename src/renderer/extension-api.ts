@@ -196,7 +196,7 @@ export type {
 } from "../shared/environments";
 export type { DiscoveredHost, UiDiscoveredHosts } from "../shared/discovery";
 /** The hosts one Bonjour search found, with a slot per host for an action (API 1.13.0). */
-export { NearbyMachineList } from "./settings/NearbyMachines";
+export { NearbyMachineList } from "./settings/NearbyMachineList";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";
 /** The line seam of `ReviewMode`'s diffs. */
