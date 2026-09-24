@@ -1014,6 +1014,13 @@ export interface HostExtensionClient {
   invoke(command: string, input?: unknown): Promise<unknown>;
   /** Events the host entry publishes with `emit`. */
   onEvent(name: string, listener: (payload: unknown) => void): () => void;
+  /**
+   * Asks for the events the host entry emits with this `topic` until the
+   * returned function is called; other clients do not receive them. Watch
+   * only while the view that draws them is mounted. Optional so a stand-in
+   * client in a test need not have it.
+   */
+  watch?(topic: string): () => void;
 }
 
 /** How the registry reaches host extensions; the desktop API is the default. */
@@ -1021,6 +1028,8 @@ export interface HostExtensionBridge {
   invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
   /** Core's own scan of the package folders and the shipped kits; absent without a host. */
   inspect?(cwd: string): Promise<ExtensionInspection>;
+  /** Asks the host for a topic's events; absent without a host. */
+  watch?(extensionId: string, topic: string): () => void;
 }
 
 export type ExtensionEvent = Extract<GlobalHostEvent, { type: "extension-event" }>;
@@ -1193,6 +1202,7 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
       ? client.invokeHostExtension(extensionId, command, input)
       : Promise.reject(new HostUnavailableError()),
     inspect: (cwd) => client ? client.inspectExtensions(cwd) : Promise.reject(new HostUnavailableError()),
+    ...(client ? { watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic) } : {}),
   };
 }
 
@@ -1347,6 +1357,13 @@ export class ExtensionRegistry {
         byName.set(name, listeners);
         listeners.add(listener);
         const dispose = () => { listeners.delete(listener); };
+        disposers.push(dispose);
+        return dispose;
+      },
+      watch: (topic) => {
+        const release = this.hostBridge.watch?.(extensionId, topic) ?? (() => undefined);
+        let done = false;
+        const dispose = () => { if (!done) { done = true; release(); } };
         disposers.push(dispose);
         return dispose;
       },

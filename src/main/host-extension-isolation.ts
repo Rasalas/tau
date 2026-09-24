@@ -408,7 +408,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "command-off":
         return;
       case "emit":
-        context.emit(message.name, message.payload);
+        context.emit(message.name, message.payload, typeof message.topic === "string" ? { topic: message.topic } : undefined);
         return;
       case "log":
         services.log(message.label, message.detail);

@@ -176,6 +176,28 @@ describe("ExtensionRegistry host seam", () => {
     registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "kit", name: "changed", payload: 4 });
     expect(seen).toEqual([1]);
   });
+
+  it("watches a topic for the extension that asks, and stops on release or deactivation", () => {
+    const watched: string[] = [];
+    const registry = new ExtensionRegistry({
+      invoke: async () => undefined,
+      watch: (extensionId, topic) => {
+        watched.push(`${extensionId}/${topic}`);
+        return () => { watched.splice(watched.indexOf(`${extensionId}/${topic}`), 1); };
+      },
+    });
+    let release: (() => void) | undefined;
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      release = context.host.watch?.("output/1");
+      context.hostExtension("other").watch?.("feed");
+    } });
+    expect(watched).toEqual(["kit/output/1", "other/feed"]);
+    release?.();
+    release?.();
+    expect(watched).toEqual(["other/feed"]);
+    registry.deactivate("kit");
+    expect(watched).toEqual([]);
+  });
 });
 
 describe("ExtensionRegistry transcript rows", () => {

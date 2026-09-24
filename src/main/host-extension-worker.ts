@@ -266,7 +266,7 @@ const context: WorkerHostExtensionContext = {
       send({ t: "command-off", name });
     };
   },
-  emit: (name, payload) => { send({ t: "emit", name, payload }); },
+  emit: (name, payload, options) => { send({ t: "emit", name, payload, ...(options?.topic === undefined ? {} : { topic: options.topic }) }); },
 };
 
 function answer(id: number, run: () => unknown): void {
