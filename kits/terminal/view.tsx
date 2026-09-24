@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "tau";
 import type { ILink, ITheme, Terminal } from "@xterm/xterm";
-import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, useTerminalFont } from "./store.js";
+import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, useTerminalFont, watchTerminalOutput } from "./store.js";
 import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
 import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
@@ -168,6 +168,8 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
         if (ready) write(event);
         else pending.push(event);
       });
+      // Before the replay is asked for, so nothing written in between is missed.
+      const unwatch = watchTerminalOutput(id);
       const report = (problem: unknown) => { if (!disposed) setError(errorMessage(problem)); };
       const input = instance.onData((data) => {
         if (!disposed && running.current && !replaying) void terminalKit.input({ id, data }).catch(report);
@@ -192,7 +194,7 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
       };
       const stopFocus = terminalStore.subscribe(takeFocus);
       cleanup = () => {
-        stop(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); observer.disconnect();
+        stop(); unwatch(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); observer.disconnect();
         instance.textarea?.removeEventListener("focus", onFocus);
         instance.dispose();
         terminal.current = null;
