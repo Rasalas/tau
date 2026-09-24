@@ -11,6 +11,7 @@ import {
   type HostPush,
   type HostResponse,
 } from "../shared/host-transport";
+import type { HostLink } from "./host-link";
 import { MessageTextStream } from "./message-text-stream";
 import { ToolOutputStream, isWireEvent } from "./tool-output-stream";
 
@@ -30,6 +31,11 @@ export interface HostTransport {
   onOpen?(listener: () => void): () => void;
   onClose?(listener: () => void): () => void;
   close?(): void;
+  /** The socket underneath, for a transport that has one. */
+  getLink?(): HostLink;
+  onLink?(listener: (link: HostLink) => void): () => void;
+  /** Tries now instead of waiting out the backoff, or checks an open link. */
+  retryNow?(): void;
   /** The token the next hello carries; a transport without one ignores it. */
   updateToken?(token: string): void;
 }
@@ -88,6 +94,17 @@ export class HostConnection {
   getState = (): HostConnectionState => this.state;
 
   getRefusal = (): string | undefined => this.refusal;
+
+  /** The socket's own state; undefined for a transport without one (Electron IPC). */
+  getLink = (): HostLink | undefined => this.transport.getLink?.();
+
+  onLink(listener: (link: HostLink) => void): () => void {
+    return this.transport.onLink?.(listener) ?? (() => undefined);
+  }
+
+  reconnectNow(): void {
+    if (this.refusal === undefined) this.transport.retryNow?.();
+  }
 
   /** Stops talking to the host for good; every request after this fails at once. */
   refuse(reason: string): void {
