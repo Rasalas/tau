@@ -123,6 +123,7 @@ npm run cdp -- snapshot
 ## Known traps
 
 - `npm run cdp` without a port refuses to act unless the process on the port in `.tau-dev/instance.json` was started from this worktree: after an instance dies, its port can be taken by another worktree's instance, and driving or stopping that one acts on someone else's test (on 2026-09-23 a click in a foreign instance's update toast updated a real CLI). Start a new instance instead of passing the old port by hand.
+- `dev-instance` sets `TAU_NO_NATIVE_DIALOGS=1`: a fatal error (the host not starting, a crash) goes to `.tau-dev/userdata/logs/host.log` as `native-dialog.suppressed` instead of a native alert on the user's screen. Read the log when an instance seems to hang.
 - `dev-instance` sets `TAU_RUNTIME_UPDATE_COMMAND` to a harmless `echo` for every runtime (`"*"`), so an update toast clicked in a test instance never updates the machine's real CLIs. Override it only with another stub.
 
 - Stop the instance before `npm run dist` in the same worktree: while it runs, Chromium keeps dangling `Singleton*` symlinks in `.tau-dev/userdata`, and electron-builder aborts on the first one it cannot `stat`.
