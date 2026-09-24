@@ -268,6 +268,8 @@ export class HostNetworkAccess {
   }
 
   private async reconcileNow(): Promise<void> {
+    // Withdraw before the listener closes, so no device finds a port that is gone.
+    if (!this.settings.lan || !this.settings.announce) await this.announce();
     const plan = (this.options.plan ?? planNetworkBinds)(this.settings, this.interfaces());
     const wanted = new Map(plan.map((bind) => [bind.key, bind]));
     const problems: string[] = [];

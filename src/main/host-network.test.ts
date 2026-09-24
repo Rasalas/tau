@@ -273,6 +273,21 @@ describe("the Bonjour announcement", () => {
     expect(readTauServiceTxt(bonjour.current!.txt)?.fingerprint).toBe(second);
   });
 
+  it("is withdrawn before the listener closes when Local network goes off", async () => {
+    const bonjour = fakeAnnouncer();
+    const { access, attached } = await openAccess({ bonjour });
+    await access.update({ lan: true });
+    let detachedWhenWithdrawn: boolean | undefined;
+    const set = bonjour.announcer.set;
+    bonjour.announcer.set = async (service) => {
+      if (!service && detachedWhenWithdrawn === undefined) detachedWhenWithdrawn = attached[0]!.detached;
+      await set(service);
+    };
+    await access.update({ lan: false });
+    expect(detachedWhenWithdrawn).toBe(false);
+    expect(attached[0]!.detached).toBe(true);
+  });
+
   it("is withdrawn before the listeners close", async () => {
     const bonjour = fakeAnnouncer();
     const { access, attached } = await openAccess({ bonjour });
