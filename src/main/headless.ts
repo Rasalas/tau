@@ -17,6 +17,7 @@ import { HostAccess } from "./host-access.js";
 import type { HostListenInfo } from "./host-connections.js";
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
+import { hostAllowedOrigins } from "./host-origin.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { parseListen } from "./host-listen.js";
@@ -200,6 +201,7 @@ async function main(): Promise<void> {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    allowedOrigins: hostAllowedOrigins(),
     ...(tls ? { tls } : {}),
     ...(web ? { attachTo: web.server } : {}),
     clients,
