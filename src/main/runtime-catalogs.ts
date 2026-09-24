@@ -136,6 +136,11 @@ export class RuntimeCatalogs {
     if (this.warmed && !this.disposed) void this.warm();
   }
 
+  /** Resolves once every answer so far is on disk. */
+  flush(): Promise<void> {
+    return this.writing;
+  }
+
   dispose(): void {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);

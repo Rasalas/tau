@@ -38,10 +38,13 @@ async function enlargePreview(actions: WorkbenchActions, takeoverId: string): Pr
   // The panel opened just now; the layout knows it as the one in front only after it rendered.
   await settle();
   if (isStagedPreview(actions)) return;
+  // Known as staged before the toggle, so a Done during the settle still puts it back.
+  staged.add(takeoverId);
   actions.togglePanelMaximized();
   await settle();
-  if (isStagedPreview(actions)) staged.add(takeoverId);
-  else if (actions.activeStageTab?.()?.kind === "panel") actions.togglePanelMaximized();
+  if (!staged.has(takeoverId) || isStagedPreview(actions)) return;
+  staged.delete(takeoverId);
+  if (actions.activeStageTab?.()?.kind === "panel") actions.togglePanelMaximized();
 }
 
 /** Brings forward exactly what the user takes over. */

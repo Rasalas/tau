@@ -193,6 +193,7 @@ describe("RuntimeCatalogs", () => {
     warm.cache.start();
     await vi.waitFor(() => expect(second).toHaveBeenCalledTimes(1));
     expect(first).toHaveBeenCalledTimes(1);
+    await warm.cache.flush();
     warm.cache.dispose();
 
     const again = catalogs(() => both, { automatic: true, startDelayMs: 0, file });
