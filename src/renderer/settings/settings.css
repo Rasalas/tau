@@ -399,6 +399,10 @@ body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
 .connection-dot.live { background: var(--ready); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ready) 22%, transparent); }
 .connection-dot.pending { background: var(--warn); }
 .connection-dot.idle { background: transparent; border: 1px solid var(--faint); }
+.connection-header-actions { display: flex; gap: 6px; }
+.connection-request { background: var(--inset); }
+.connection-request-code { padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 4px; font: 600 12px var(--mono); letter-spacing: 0.05em; color: var(--ink); }
+.connection-row-text > small.connection-expiring { color: var(--warn); }
 .chrome-button.danger { color: var(--danger); border-color: var(--danger-line); }
 .chrome-button.danger:hover:not(:disabled) { background: var(--danger-bg); color: var(--removed); border-color: var(--danger-line); }
 .connection-created { display: flex; gap: var(--space-6); align-items: flex-start; padding: var(--space-5) var(--space-6); background: var(--inset); }
