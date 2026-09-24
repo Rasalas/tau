@@ -61,6 +61,25 @@ const BOOTSTRAP_TIMEOUT_MS = 30_000;
 /** An unreachable machine is tried less and less often, but never less than twice a minute. */
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
+type IndexUpdate =
+  | { type: "thread-index"; index?: ThreadIndexSnapshot }
+  | { type: "thread-shell"; update?: { sessionId?: string; shell?: ThreadIndexSnapshot["sessions"][number]; removed?: boolean } }
+  | { type: string };
+
+/** The index after a host's `thread-index` or `thread-shell` update; undefined when it says nothing about the index. */
+export function applyIndexUpdate(index: ThreadIndexSnapshot | undefined, update: IndexUpdate): ThreadIndexSnapshot | undefined {
+  if (update.type === "thread-index") {
+    const next = (update as { index?: ThreadIndexSnapshot }).index;
+    return next && Array.isArray(next.sessions) && Array.isArray(next.projects) ? next : undefined;
+  }
+  if (update.type !== "thread-shell" || !index) return undefined;
+  const change = (update as { update?: { sessionId?: string; shell?: ThreadIndexSnapshot["sessions"][number]; removed?: boolean } }).update;
+  if (!change?.sessionId) return undefined;
+  const others = index.sessions.filter((session) => session.id !== change.sessionId);
+  if (change.removed) return { ...index, sessions: others };
+  return change.shell ? { ...index, sessions: [change.shell, ...others] } : undefined;
+}
+
 function defaultSocket(url: string, fingerprint: string | undefined): MonitorSocket {
   const options: ClientOptions = fingerprint && url.startsWith("wss:")
     ? { createConnection: pinnedTlsConnect(fingerprint) as unknown as ClientOptions["createConnection"] }
@@ -229,9 +248,12 @@ export class EnvironmentMonitor {
       return;
     }
     if (frame.type !== "push") return;
-    const event = frame.push.event as { type?: unknown; threadIndex?: unknown; sessionId?: unknown; running?: unknown };
+    const event = frame.push.event as { type?: unknown; threadIndex?: unknown; sessionId?: unknown; running?: unknown; update?: unknown };
     if (event.type === "thread-index" && event.threadIndex && typeof event.threadIndex === "object") {
       this.set({ index: event.threadIndex as ThreadIndexSnapshot, lastSeenAt: this.now() });
+    } else if (event.type === "host-update" && event.update && typeof event.update === "object") {
+      const index = applyIndexUpdate(this.state.index, event.update as IndexUpdate);
+      if (index) this.set({ index, lastSeenAt: this.now() });
     } else if (event.type === "agent-status" && typeof event.sessionId === "string") {
       const running = new Set(this.state.running);
       if (event.running === true) running.add(event.sessionId);

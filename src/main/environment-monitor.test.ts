@@ -58,6 +58,13 @@ describe("the window's connection to a machine", () => {
     await expect.poll(() => last().index?.sessions.length).toBe(2);
     push({ type: "agent-status", sessionId: "a", running: false });
     await expect.poll(() => last().running.size).toBe(0);
+    // The host sends most index changes as updates: a whole index, or one thread's shell.
+    push({ type: "host-update", update: { version: 1, type: "thread-index", index: index(["a", "b", "c"]) } });
+    await expect.poll(() => last().index?.sessions.length).toBe(3);
+    push({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "b", removed: true } } });
+    await expect.poll(() => last().index?.sessions.map((session) => session.id)).toEqual(["a", "c"]);
+    push({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "d", shell: index(["d"]).sessions[0] } } });
+    await expect.poll(() => last().index?.sessions.map((session) => session.id)).toEqual(["d", "a", "c"]);
   });
 
   it("is refused for good when the machine no longer takes its key", async () => {

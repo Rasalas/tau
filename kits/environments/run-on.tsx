@@ -10,14 +10,14 @@ import { MachineIcon, useEnvironments } from "./rail.js";
  * it and opens this window there; a started thread stays where it runs.
  */
 export function createRunOnControl(environments: PlatformEnvironments) {
-  return function RunOnControl({ actions }: ComposerControlProps) {
+  return function RunOnControl({ actions, snapshot }: ComposerControlProps) {
     const list = useEnvironments(environments);
     const [open, setOpen] = useState(false);
     const [moving, setMoving] = useState(false);
     const current = list ? shownMachine(list) : undefined;
-    const draftPending = actions?.activeThread()?.draftPending ?? false;
-    // Only a draft chooses, and only where there is a choice or the draft is not on this machine.
-    if (!list || !current || !actions || !draftPending || (list.environments.length < 2 && current.local)) return null;
+    // A draft, or a thread nothing was sent in yet, may still move; a started one stays where it runs.
+    const unstarted = (actions?.activeThread()?.draftPending ?? false) || (snapshot !== undefined && snapshot.messages.length === 0 && !snapshot.isStreaming);
+    if (!list || !current || !actions || !unstarted || (list.environments.length < 2 && current.local)) return null;
     const now = Date.now();
     const move = (id: string) => {
       const machine = list.environments.find((environment) => environment.id === id);

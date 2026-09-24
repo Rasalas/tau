@@ -149,7 +149,7 @@ describe("Run on", () => {
     expect(container.innerHTML).toBe("");
     const two = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Started = createRunOnControl(two.environments);
-    rerender(<Started actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} />);
+    rerender(<Started actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} snapshot={{ messages: [{ id: "m" }], isStreaming: false } as never} />);
     expect(container.innerHTML).toBe("");
   });
 });
@@ -213,10 +213,22 @@ describe("arriving on a machine", () => {
   it("opens a draft in the project it was sent to, with the text", async () => {
     let pending = false;
     const newSession = vi.fn(() => { pending = true; });
-    const setComposerDraft = vi.fn();
-    const actions = fakeActions({ newSession, setComposerDraft, activeThread: () => pending ? { draftPending: true, workspaceId: "ws-api" } : undefined });
+    let text = "";
+    // The first text is lost to the composer mounting, as in the app.
+    const setComposerDraft = vi.fn((value: string) => { if (setComposerDraft.mock.calls.length > 1) text = value; });
+    const actions = fakeActions({ newSession, setComposerDraft, composerDraft: () => text, activeThread: () => pending ? { draftPending: true, workspaceId: "ws-api" } : undefined });
     expect(await followArrival({ newThread: { draft: "hello", workspaceId: "ws-api" } }, { actions, wait })).toBe(true);
     expect(newSession).toHaveBeenCalledWith({ workspace: "ws-api" });
-    expect(setComposerDraft).toHaveBeenCalledWith("hello");
+    expect(setComposerDraft).toHaveBeenCalledTimes(2);
+    expect(text).toBe("hello");
+  });
+});
+
+describe("Run on for a thread nothing was sent in", () => {
+  it("is offered, since the thread has not started anywhere yet", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const Control = createRunOnControl(environments);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
+    expect(screen.getByRole("button", { name: "Run on laptop" })).toBeTruthy();
   });
 });

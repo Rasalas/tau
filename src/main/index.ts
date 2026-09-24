@@ -571,7 +571,8 @@ async function loadWindowHalves(): Promise<void> {
 
 /** The machine list, a connection to each machine, and the page's trust in their certificates (ADR 0025). */
 async function startEnvironments(local: WindowHost): Promise<void> {
-  const name = hostname().replace(/\.local$/u, "");
+  // `studio.local` or `studio.fritz.box` reads as `studio`.
+  const name = hostname().split(".")[0] || hostname();
   environments = new WindowEnvironments({
     catalogPath: join(app.getPath("userData"), "environments.json"),
     box: {

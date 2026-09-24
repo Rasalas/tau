@@ -65,7 +65,8 @@ export interface ArrivalPorts {
  * starting, so each step is tried again until the workbench has it.
  */
 export async function followArrival(target: EnvironmentTarget, ports: ArrivalPorts): Promise<boolean> {
-  const tries = ports.tries ?? 40;
+  // A machine seen for the first time may show its first-start steps before the workbench.
+  const tries = ports.tries ?? 480;
   const { actions } = ports;
   if ("thread" in target) {
     for (let attempt = 0; attempt < tries; attempt += 1) {
@@ -78,9 +79,14 @@ export async function followArrival(target: EnvironmentTarget, ports: ArrivalPor
   for (let attempt = 0; attempt < tries; attempt += 1) {
     const active = actions.activeThread();
     if (active?.draftPending && (!workspaceId || active.workspaceId === workspaceId)) {
-      if (draft) actions.setComposerDraft?.(draft);
-      actions.focusComposer();
-      return true;
+      // The draft's composer may mount after the draft and restore an empty text; set it until it holds.
+      if (!draft || !actions.setComposerDraft || actions.composerDraft() === draft) {
+        actions.focusComposer();
+        return true;
+      }
+      actions.setComposerDraft(draft);
+      await ports.wait(250);
+      continue;
     }
     // Without a project the picker opens, once; with one, the page may not know it yet.
     if (workspaceId) actions.newSession({ workspace: workspaceId });
