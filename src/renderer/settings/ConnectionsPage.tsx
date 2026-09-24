@@ -131,10 +131,10 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
     return <div className="settings-page" aria-busy="true"><Skeleton shape="card" /><Skeleton shape="card" /></div>;
   }
   if (state.status === "error") {
-    const title = state.code === "forbidden" ? "Only the host’s owner manages connections"
+    const title = state.code === "forbidden" ? "Connections are managed on the host’s machine"
       : state.code === "unsupported" || state.code === "unknown-method" ? "This host takes no other clients"
         : "Connections did not load";
-    const description = state.code === "forbidden" ? "This client paired with a token of its own. Pairing links and revocations are made in a Tau window that holds the host token."
+    const description = state.code === "forbidden" ? "Pairing links, waiting devices and revocations are handled in a Tau window on the machine that runs the host, with the host token. A paired device, or the host token from another machine, can use the host but not change who may reach it."
       : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or revoke. The host a Tau window starts for itself has one."
         : state.message;
     return <div className="settings-page"><Empty icon={<Link2 size={18} />} title={title} description={description} /></div>;
