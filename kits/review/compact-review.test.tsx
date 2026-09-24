@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PanelProps, UiFileDiff, UiWorkspaceChanges, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import { HostClientProvider } from "../../src/renderer/host-client-context.js";
+import { HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
 import { ReviewCommentStore } from "./comments.js";
 import { createCompactReview } from "./compact-review.js";
 import { CompactReviewStore } from "./compact-store.js";
