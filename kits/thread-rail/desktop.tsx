@@ -6,6 +6,8 @@ import {
   SettingRow,
   SettingsSection,
   errorMessage,
+  hostIsReadOnly,
+  READ_ONLY_REASON,
   useSetting,
   type ComposerControlProps,
   type DesktopExtension,
@@ -306,6 +308,8 @@ export const threadRailExtension: DesktopExtension = {
     let workspace: WorkspaceStoreSlice | undefined;
     let titles: ThreadTitlesSlice | undefined;
     const send = (patches: Record<string, ThreadMetaPatch | null>) => {
+      // The host refuses a Read-only device's changes (ADR 0024); nothing moves, and it says why.
+      if (hostIsReadOnly()) { store.actions?.notify(READ_ONLY_REASON); return; }
       store.apply(patches);
       context.host.invoke("patch", { patches }).then((state) => store.set(state)).catch(() => {
         // The host pushes its own state again; a failed write shows as the row moving back.
@@ -338,7 +342,7 @@ export const threadRailExtension: DesktopExtension = {
     });
     const load = (state: unknown, preferences: PreferencesStore) => {
       const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
-      if (store.loaded || (pinnedThreadIds.length === 0 && settledThreadIds.length === 0)) { store.set(state); return; }
+      if (store.loaded || hostIsReadOnly() || (pinnedThreadIds.length === 0 && settledThreadIds.length === 0)) { store.set(state); return; }
       // The host takes the old lists over only once, whichever client asks first.
       void context.host.invoke("import", { pinned: pinnedThreadIds, settled: settledThreadIds })
         .then((imported) => store.set(imported))
