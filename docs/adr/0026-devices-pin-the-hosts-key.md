@@ -65,5 +65,8 @@ so it lost the host as soon as it left home.
   new certificate did before.
 - Serve works in the app and in the window without guessing, and the direct
   Tailscale bind under its MagicDNS name stays pinned.
-- `TAU_HOST_URL` with `TAU_HOST_FINGERPRINT` or known-hosts still pins a
-  certificate. That path is outside this decision.
+- `TAU_HOST_URL` follows the same rule since F21: `TAU_HOST_PUBLIC_KEY` pins
+  the key, a first-use yes saves the key in known-hosts, and a known-hosts
+  certificate pin migrates on the window's next hello. A hex
+  `TAU_HOST_FINGERPRINT` stays a certificate pin, because the operator
+  wrote it.

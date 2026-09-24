@@ -174,10 +174,16 @@ was used in the last three minutes, the notification appears there instead.
   "Keep this machine awake while turns run").
 - **Nothing under "On this network"**: iOS Settings → Privacy & Security → Local Network →
   Tau must be on.
-- **"… answered with another key …"**: the Mac's key changed (its `tls/host-key.pem` was
+- **"<address> answered with another key …"**: the Mac's key changed (its `tls/host-key.pem` was
   lost, or you switched to a certificate of your own). A renewal keeps the key and does
-  not cause this. Remove the host in the app (trash icon), revoke the old device on the
+  not cause this. The app shows it even when only this address answered and the others
+  were out of reach. Remove the host in the app (trash icon), revoke the old device on the
   Mac, and scan a new code.
+- **"<address> showed a certificate this phone does not trust"**: an address checked by
+  certificate authorities (Tailscale Serve, `*.ts.net`) presented a certificate the phone
+  rejects: out of date, for another name, or from something on the network in between,
+  such as a hotel Wi-Fi login page. Try another network; `tailscale serve status` on the
+  Mac shows whether Serve is still on.
 - **No push arrives**: Settings → Push → Devices on the Mac shows why the last one
   failed. `InvalidProviderToken`: the Key ID or Team ID does not match the key.
   `DeviceTokenNotForTopic` or `TopicDisallowed`: the key's team is not the one that signed
