@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import App from "../renderer/App";
 import { ClientEnvironmentProvider, type ClientEnvironment } from "../renderer/client-environment";
 import { ClientStorageProvider } from "../renderer/client-storage-context";
@@ -7,6 +8,7 @@ import type { RendererServices } from "../renderer/renderer-services";
 import type { ClientStorage } from "../workbench/client-storage";
 import type { ClientProfile } from "../workbench/client-profile";
 import type { HostClient } from "../workbench/host-client";
+import { followThemePreference } from "../renderer/theme";
 import { createWebPlatform } from "./platform-web";
 
 /** What a browser tab is, as the workbench's `ClientEnvironment`. */
@@ -26,6 +28,8 @@ export function WebWorkbench({ client, storage, services, environment }: {
   services: RendererServices;
   environment: ClientEnvironment;
 }) {
+  // The Electron entry does this before its first render; here the services come with the host.
+  useLayoutEffect(() => followThemePreference(services.preferences), [services]);
   return <ClientEnvironmentProvider environment={environment}>
     <HostClientProvider client={client}>
       <ClientStorageProvider storage={storage}>

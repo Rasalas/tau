@@ -289,3 +289,11 @@ describe("command palette on a Read-only device", () => {
     expect(chosen).toHaveBeenCalledWith("dark");
   });
 });
+
+describe("command palette shortcuts", () => {
+  it("marks a row's chord as a keyboard hint, which a touch screen leaves out", () => {
+    const command: PaletteCommand = { id: "fixture.pin", label: "Pin thread", group: "Thread", extensionId: "fixture", extensionName: "Fixture", run: vi.fn() };
+    render(<CommandPalette open commands={[command]} extensionCount={1} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} shortcutFor={() => "⌘⇧P"} onClose={() => undefined} />);
+    expect(screen.getByText("⌘⇧P").classList.contains("keyboard-hint")).toBe(true);
+  });
+});

@@ -258,7 +258,7 @@ export function CommandPalette({
     return <>
       {refusal(row) ? <small className="palette-locked">Read only</small> : null}
       {item?.current ? <small className="palette-current">Current</small> : null}
-      {shortcut ? <kbd>{shortcut}</kbd> : null}
+      {shortcut ? <kbd className="keyboard-hint">{shortcut}</kbd> : null}
       {submenu ? <ChevronRight className="palette-chevron" size={14} aria-hidden /> : null}
     </>;
   };

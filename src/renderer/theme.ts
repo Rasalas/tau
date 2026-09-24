@@ -62,6 +62,7 @@ export function applyTheme(
 ): void {
   root.dataset.theme = theme;
   if (!targetDoc || !targetDoc.head) return;
+  followThemeColor(theme, targetDoc);
   let styleEl = targetDoc.getElementById("user-theme") as HTMLStyleElement | null;
   const userTheme = userThemes.get(theme);
   if (userTheme) {
@@ -73,6 +74,20 @@ export function applyTheme(
     styleEl.textContent = userTheme.css;
   } else if (styleEl) {
     styleEl.remove();
+  }
+}
+
+/**
+ * The browser's bar colour (`<meta name="theme-color" data-scheme>`, one per
+ * scheme): a chosen or user theme's scheme wins over the OS's.
+ */
+function followThemeColor(theme: ThemePreference, doc: Document): void {
+  const base = theme === "dark" || theme === "light" ? theme : userThemes.get(theme)?.base;
+  const scheme = base === "dark" || base === "light" ? base : undefined;
+  for (const meta of doc.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"][data-scheme]')) {
+    meta.media = scheme
+      ? (meta.dataset.scheme === scheme ? "all" : "not all")
+      : `(prefers-color-scheme: ${meta.dataset.scheme})`;
   }
 }
 
