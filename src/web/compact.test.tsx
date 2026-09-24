@@ -187,6 +187,27 @@ describe("the web client at 400 px", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull());
   });
 
+  it("opens and closes a sheet when a panel asks the workbench for a panel", async () => {
+    const asking: DesktopExtension = {
+      id: "test.asking",
+      name: "Asking probe",
+      activate(plugin) {
+        plugin.registerPanel({ id: "probe-review", label: "Review", profiles: ["compact"], Component: ({ actions }) => <>
+          <button type="button" onClick={() => actions.closePanel?.("probe-review")}>Done</button>
+          <button type="button" onClick={() => actions.openPanel("probe-agents")}>Show agents</button>
+        </> });
+      },
+    };
+    renderCompactClient({}, [probe, asking]);
+    await screen.findByRole("list", { name: "Threads" });
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Show agents" }));
+    expect(await within(await screen.findByRole("dialog", { name: "Agents" })).findByText("agents panel body")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review" })).toBeNull());
+  });
+
   it("finds a thread from the search popover and starts a new one from the floating button", async () => {
     const client = renderCompactClient();
     await screen.findByRole("list", { name: "Threads" });

@@ -21,6 +21,8 @@ export interface PanelLayoutPorts extends PanelLayoutState {
   showStage(): void;
   /** The panel the keyboard is in, if any. */
   focusedPanel?(): string | undefined;
+  /** A compact layout's sheets: each answers true when it took the call, and the dock is left alone. */
+  sheets?: { open(id: string): boolean; close(id: string): boolean };
 }
 
 export interface PanelLayout {
@@ -63,12 +65,14 @@ export function usePanelLayout(ports: PanelLayoutPorts): PanelLayout {
     };
     const openPanel = (id: string) => {
       const current = latest.current;
+      if (current.sheets?.open(id)) return;
       if (!isStaged(id)) { show(id); return; }
       current.setStage((stage) => activateTab(stage, panelTabId(id)));
       current.showStage();
     };
     const closePanel = (id: string) => {
       const current = latest.current;
+      if (current.sheets?.close(id)) return;
       if (isStaged(id)) current.stageTabs.close(panelTabId(id));
       else if (current.drawer === id) current.setDrawer(undefined);
       else if (current.dockOpen && current.activePanel === id) current.setDockOpen(false);

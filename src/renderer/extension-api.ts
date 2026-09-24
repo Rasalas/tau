@@ -40,7 +40,7 @@ export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
 export { listUserThemes as userThemes } from "./theme";
 export { useClientStorage } from "./client-storage-context";
 export { getClientStorage } from "../workbench/client-storage";
-export { useHostCapabilities, hostHasLocalFiles } from "./use-host-capabilities";
+export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
 export { useKeepClear } from "./reserved-region";
 export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../workbench/turn-activity";

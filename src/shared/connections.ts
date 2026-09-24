@@ -122,6 +122,12 @@ export interface UiNetworkSettings {
   port: number;
   /** Where a reverse proxy on this machine (`tailscale serve`) sends its traffic. Plain HTTP, loopback only. */
   proxyPort: number;
+  /**
+   * While Local network listens, announce it with Bonjour so devices here find
+   * it. Settings written before this existed read as off: announcing asks
+   * macOS for local network access, and that question belongs to a click.
+   */
+  announce: boolean;
   /** A certificate of the user's own instead of the self-signed one; re-read when it changes. */
   certificate?: { certPath: string; keyPath: string };
 }
@@ -141,8 +147,20 @@ export interface UiNetworkCertificate {
   warnings: string[];
 }
 
+/** The Bonjour announcement of the local network listener. */
+export interface UiNetworkAnnouncement {
+  /** `unavailable`: the system has no responder Tau can use (no Avahi); `failed`: it stopped, retried every minute. */
+  state: "starting" | "announced" | "failed" | "unavailable";
+  /** What devices see; the network may have renamed it after a clash. */
+  name: string;
+  serviceType: string;
+  detail?: string;
+}
+
 export interface UiNetworkAccess {
   settings: UiNetworkSettings;
+  /** Absent while nothing is to be announced. */
+  announcement?: UiNetworkAnnouncement;
   /** What listens right now. */
   listeners: UiNetworkListener[];
   /** Why something that was asked for does not listen: a port in use, no Tailscale address, a certificate that does not load. */
@@ -158,10 +176,10 @@ export type UiNetworkSettingsInput = Partial<Omit<UiNetworkSettings, "certificat
   certificate?: UiNetworkSettings["certificate"] | null;
 };
 
-export const DEFAULT_NETWORK_SETTINGS: UiNetworkSettings = { lan: false, tailscale: false, port: 7788, proxyPort: 7789 };
+export const DEFAULT_NETWORK_SETTINGS: UiNetworkSettings = { lan: false, tailscale: false, port: 7788, proxyPort: 7789, announce: true };
 
 export interface UiConnections {
-  /** This host's stable id, the same in a pairing link and (later) a Bonjour record. */
+  /** This host's stable id, the same in a pairing link and its Bonjour record. */
   hostId?: string;
   scheme: "ws" | "wss";
   endpoints: UiHostEndpoint[];

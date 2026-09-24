@@ -207,6 +207,14 @@ export class ReviewCommentStore {
     this.update({ draft: undefined, comments: [...this.state.comments, comment] }, true);
   }
 
+  /** The open comment as a finished one, handed out instead of kept in the review. */
+  takeDraft(): ReviewComment | undefined {
+    const draft = this.state.draft;
+    if (!draft || !draft.body.trim()) return undefined;
+    this.update({ draft: undefined });
+    return { ...draft, body: draft.body.trim(), id: this.newId(), createdAt: Date.now() };
+  }
+
   remove(ids: readonly string[]): void {
     const drop = new Set(ids);
     this.update({ comments: this.state.comments.filter((comment) => !drop.has(comment.id)) }, true);

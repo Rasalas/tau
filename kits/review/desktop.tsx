@@ -1,6 +1,6 @@
 import { Suspense, lazy } from "react";
 import { GitCompare } from "lucide-react";
-import { getClientStorage, type DesktopExtension, type RegionProps } from "tau";
+import { getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
 import { createReviewOverlay } from "./overlay.js";
@@ -8,8 +8,10 @@ import { trackDiffSettings } from "./diff-settings.js";
 import { createReviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
+  REVIEW_COMPACT_PANEL,
   REVIEW_HOST_EXTENSION_ID,
   REVIEW_OVERLAY,
+  WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_STORE_SERVICE,
   type ComposerContextChips,
@@ -30,9 +32,19 @@ import { EVIDENCE_SERVICE, localRequestClient, type EvidenceService } from "./lo
 import { PROJECT_SCRIPTS_EXTENSION_ID } from "./local-request-checks.js";
 import { registerLocalRequestTab } from "./local-request-tab.js";
 import { LocalDrafts } from "./local-request.js";
+import { CompactReviewStore } from "./compact-store.js";
+import type { CompactReviewDeps } from "./compact-review.js";
 
 // Evaluated on the first thread drawn, not when the kit activates.
 const PullRequestStrip = lazy(() => import("./pull-request-strip.js"));
+
+/** The phone's review, evaluated when its sheet first opens. */
+function createCompactReviewPanel(deps: CompactReviewDeps) {
+  const Panel = lazy(() => import("./compact-review.js").then((module) => ({ default: module.createCompactReview(deps) })));
+  return function CompactReviewPanel(props: PanelProps) {
+    return <Suspense fallback={null}><Panel {...props} /></Suspense>;
+  };
+}
 
 function createPullRequestStrip(parts: StripParts) {
   return function PullRequestStripRegion(props: RegionProps) {
@@ -83,6 +95,21 @@ export const reviewExtension: DesktopExtension = {
       return () => { if (chips === service) chips = undefined; };
     });
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
+    // A phone or a tablet reads diffs in a sheet from the title bar; the desktop's overlay and Changes panel are not drawn there.
+    plugin.registerPanel({
+      id: REVIEW_COMPACT_PANEL,
+      label: "Review",
+      Icon: GitCompare,
+      order: 20,
+      profiles: ["compact"],
+      Component: createCompactReviewPanel({
+        reader: workspace,
+        workspace: plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID),
+        requests,
+        comments: new ReviewCommentStore(getClientStorage),
+        store: new CompactReviewStore(),
+      }),
+    });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
     // Evidence Kit shrinks the pictures and says when a thread's changed; without it the view reads them whole.

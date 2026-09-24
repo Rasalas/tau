@@ -25,6 +25,7 @@ import { SettingRow, SettingsSection } from "./settings-layout";
 import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
+import { NearbyMachinesDialog } from "./NearbyMachines";
 import { HostServiceSection } from "./HostServiceSection";
 
 type PageState =
@@ -78,6 +79,7 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
   const [confirmRevokeOthers, setConfirmRevokeOthers] = useState(false);
   const [reviewing, setReviewing] = useState<UiPairingRequest>();
   const [editing, setEditing] = useState<UiPairedClient>();
+  const [findingMachines, setFindingMachines] = useState(false);
   const [busy, setBusy] = useState<string>();
   const now = useNow(15_000);
 
@@ -175,6 +177,11 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
           description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Rotating it disconnects every other client that uses it; paired clients keep their own tokens.</>}
           control={<button type="button" className="chrome-button" disabled={busy === "rotate"} onClick={() => setConfirmRotate(true)}>{busy === "rotate" ? "Rotating…" : "Rotate…"}</button>}
         />
+        <SettingRow
+          title="Other machines"
+          description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
+          control={<button type="button" className="chrome-button" onClick={() => setFindingMachines(true)}>Find Machines…</button>}
+        />
       </SettingsSection>
 
       {data.network ? (
@@ -268,6 +275,7 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
           onSave={(update) => void act(`edit:${editing.id}`, async () => { await client!.updateClient(editing.id, update); setEditing(undefined); })}
         />
       ) : null}
+      {findingMachines ? <NearbyMachinesDialog onClose={() => setFindingMachines(false)} /> : null}
       {confirmRevokeOthers ? (
         <ConfirmDialog
           title="Revoke every other device?"

@@ -123,6 +123,9 @@ export interface WorkbenchControlHandle {
   focusStage(): void;
   /** Hides or shows the sidebar; on a compact client, the thread sheet. */
   toggleSidebar(): void;
+  /** On a compact layout a panel is a sheet: true when this opened or closed one, false where the dock does it. */
+  openSheet(id: string): boolean;
+  closeSheet(id: string): boolean;
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -319,8 +322,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // A tablet-sized compact client keeps the list beside the thread instead.
   const clientProfile = useClientEnvironment().profile;
   const split = compact && compactFormFor(clientProfile, windowWidth, windowHeight) === "split";
-  const compactRef = useRef({ compact, split });
-  compactRef.current = { compact, split };
+  const compactRef = useRef({ compact, split, sheets: [] as readonly string[] });
+  compactRef.current = { ...compactRef.current, compact, split };
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
   // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
@@ -339,11 +342,23 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         return !open;
       });
     },
+    openSheet: (id) => {
+      if (!compactRef.current.sheets.includes(id)) return false;
+      setThreadSheetOpen(false);
+      setPanelSheet(id);
+      return true;
+    },
+    closeSheet: (id) => {
+      if (!compactRef.current.sheets.includes(id)) return false;
+      setPanelSheet((open) => (open === id ? undefined : open));
+      return true;
+    },
   }), [clientStorage]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   const sheetPanels = useMemo(() => compact ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, compact]);
   const sheetPanel = sheetPanels.find((panel) => panel.id === panelSheet);
+  compactRef.current.sheets = sheetPanels.map((panel) => panel.id);
   const dockPanels = useMemo(() => panels.filter((panel) => panel.placement !== "drawer"), [panels]);
   const drawerPanels = useMemo(() => panels.filter((panel) => panel.placement === "drawer"), [panels]);
   const staged = panelLayout?.staged ?? EMPTY_STAGED;

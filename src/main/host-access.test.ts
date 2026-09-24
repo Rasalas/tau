@@ -710,7 +710,7 @@ describe("the Connections methods", () => {
 
     const token = await pair(access, { code: created.code });
     const phone = await client(port, token);
-    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others"]) {
+    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others", "connections-discover"]) {
       expect((await phone.request(method)).error?.code).toBe(HOST_ERROR.forbidden);
     }
     expect((await phone.request("start-job", ["connections-revoke-client", [token.split(".")[1]]])).error?.code).toBe(HOST_ERROR.forbidden);
@@ -735,6 +735,22 @@ describe("the Connections methods", () => {
       hostName: "studio",
       endpoints: [{ url: "https://192.0.2.5:4100/", kind: "lan" }],
     });
+  });
+
+  it("look for machines on the network only when the owner asks, for as long as asked", async () => {
+    const { access } = await openAccess();
+    const asked: unknown[] = [];
+    const methods = createConnectionsMethods(() => ({
+      access,
+      listen: () => undefined,
+      discover: async (options) => { asked.push(options); return { hosts: [], serviceType: "_tau-test._tcp" }; },
+    })) as HostMethodTable;
+    expect(await invokeHostMethod(methods, "connections-discover", [{ timeoutMs: 2000 }], HOST_CORE_PRINCIPAL)).toEqual({ hosts: [], serviceType: "_tau-test._tcp" });
+    await invokeHostMethod(methods, "connections-discover", [], HOST_CORE_PRINCIPAL);
+    expect(asked).toEqual([{ timeoutMs: 2000 }, {}]);
+    await expect(invokeHostMethod(methods, "connections-discover", [{ timeoutMs: "long" }], HOST_CORE_PRINCIPAL)).rejects.toThrow(/timeoutMs/u);
+    const without = createConnectionsMethods(() => ({ access, listen: () => undefined })) as HostMethodTable;
+    await expect(invokeHostMethod(without, "connections-discover", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
   });
 
   it("say so on a host without a listener", async () => {

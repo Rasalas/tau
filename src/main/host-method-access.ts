@@ -94,6 +94,7 @@ export const HOST_METHOD_ACCESS = {
   "connections-rotate-host-token": "owner",
   "connections-set-network": "owner",
   "connections-reload-certificate": "owner",
+  "connections-discover": "owner",
   "host.shutdown": "owner",
   // The host's machine running it as a service: whether it does is anyone's to see, changing it the owner's.
   "service-status": "read",

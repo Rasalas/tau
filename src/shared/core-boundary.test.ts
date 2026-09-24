@@ -62,6 +62,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-clients.js",   "./host-access.js",   "./host-connections.js",   "./client-device.js",   "./host-endpoints.js",   "./host-network.js",
+  // Bonjour through the system's responder while Local network is on (API 1.13.0).
+  "./host-discovery.js",   "./host-discovery-windows.js",
   "./host-method-access.js",   "./host-pairing-terminal.js",   "./host-rate-limit.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
   "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",

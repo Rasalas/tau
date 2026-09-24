@@ -40,6 +40,7 @@ import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { UiDiscoveredHosts } from "../shared/discovery";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -161,6 +162,8 @@ export interface HostClient {
    * sense; without it the workbench offers neither.
    */
   hasCapability(capability: string): boolean;
+  /** Whether the host's last hello said this device may only read; every change is refused then (ADR 0024). */
+  isReadOnly(): boolean;
   /** Whether the link to the host is whole, being repaired, refetching state, or refused. */
   getConnectionState(): HostConnectionState;
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
@@ -206,6 +209,8 @@ export interface HostClient {
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate(): Promise<{ changed: boolean }>;
+  /** Tau hosts that announce themselves on the host's network, after a few seconds of looking. */
+  discoverHosts(options?: { timeoutMs?: number }): Promise<UiDiscoveredHosts>;
   /** The host's machine runs it as a system service; the owner's alone. */
   serviceStatus(): Promise<UiHostService>;
   /** Installs (or repairs) the service; the host answering may be replaced by the one it starts. */
@@ -331,6 +336,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       return () => { offHost(); offWindow?.(); };
     },
     hasCapability: connection.hasCapability,
+    isReadOnly: connection.isReadOnly,
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),
@@ -362,6 +368,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     },
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
+    discoverHosts: (options) => call<UiDiscoveredHosts>("connections-discover", [options ?? {}]),
     serviceStatus: () => call<UiHostService>("service-status"),
     installService: () => call<UiHostService>("service-install"),
     uninstallService: () => call<UiHostService>("service-uninstall"),

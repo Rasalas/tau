@@ -728,7 +728,9 @@ a touch screen, and the native app around the web client. There the thread list
 is a screen of its own (a sidebar on a tablet) and diffs do not split. A panel
 that claims `compact` is not docked there: its glyph sits in the title bar and
 opens the panel as a sheet over the thread, with `placement` reading `stage`.
-That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar. The default is `["desktop"]`, so a package that says nothing keeps
+`actions.openPanel(id)` and `actions.closePanel(id)` open and close that sheet
+there (API 1.13.0), so a panel can close itself after it handed something to the composer.
+That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar; Review Kit registers a panel for `compact` alone, since the desktop reviews in an overlay. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
 A client whose profile is not in the list never registers the contribution, so
@@ -994,7 +996,7 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
-| `useHostCapabilities`, `hostHasLocalFiles` | what the connected host announced; `hostHasLocalFiles` reads the ambient client when given none. |
+| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |

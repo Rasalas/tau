@@ -231,6 +231,62 @@ describe("Settings → Connections → Network access", () => {
   });
 });
 
+describe("Bonjour in Settings → Connections", () => {
+  const off: UiNetworkAccess = { settings: DEFAULT_NETWORK_SETTINGS, listeners: [], problems: [], tailscaleUp: false };
+  const lanOn: UiNetworkAccess = { ...off, settings: { ...DEFAULT_NETWORK_SETTINGS, lan: true }, listeners: [{ host: "::", port: 7788, kind: "network" }] };
+  const FP = "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
+
+  it("offers the announcement only with Local network on, says how it is seen, and turns it off without asking", async () => {
+    const network: UiNetworkAccess = { ...lanOn, announcement: { state: "announced", name: "Studio (2)", serviceType: "_tau._tcp" } };
+    const setNetworkAccess = vi.fn(async () => network);
+    renderPage({ listConnections: async () => connections({ network }), setNetworkAccess });
+    expect(await screen.findByText("Devices here see this machine as “Studio (2)”.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Announce on this network" }));
+    await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ announce: false }));
+    cleanup();
+    renderPage({ listConnections: async () => connections({ network: off }) });
+    await screen.findByText("Local network");
+    expect(screen.queryByText("Announce on this network")).toBeNull();
+  });
+
+  it("says why nothing is announced", async () => {
+    const network: UiNetworkAccess = { ...lanOn, announcement: { state: "unavailable", name: "Studio", serviceType: "_tau._tcp", detail: "Avahi is not installed: install avahi-utils (avahi-tools on Fedora) and run avahi-daemon." } };
+    renderPage({ listConnections: async () => connections({ network }) });
+    expect(await screen.findByText(/install avahi-utils/u)).toBeTruthy();
+  });
+
+  it("looks for machines only once asked, lists them with this machine marked, and says when there are none", async () => {
+    const discoverHosts = vi.fn(async () => ({
+      serviceType: "_tau._tcp",
+      hosts: [
+        { name: "Laptop", hostId: "b".repeat(32), fingerprint: FP, port: 7788, addresses: ["192.168.1.30"], endpoints: [{ url: "https://192.168.1.30:7788/", kind: "lan" as const }] },
+        { name: "Studio", hostId: "a".repeat(32), fingerprint: FP, port: 7788, addresses: [], endpoints: [{ url: "https://studio.local:7788/", kind: "mdns" as const }], self: true },
+      ],
+    }));
+    renderPage({ listConnections: async () => connections({ network: off }), discoverHosts });
+    fireEvent.click(await screen.findByRole("button", { name: "Find Machines…" }));
+    const list = await screen.findByRole("list", { name: "Machines on this network" });
+    expect(discoverHosts).toHaveBeenCalledTimes(1);
+    expect(within(list).getByText(/^192\.168\.1\.30:7788 ·/u)).toBeTruthy();
+    expect(within(list).getByText("This machine")).toBeTruthy();
+    expect(within(list).getAllByTitle(`SHA-256 ${FP}`)).toHaveLength(2);
+
+    discoverHosts.mockResolvedValueOnce({ serviceType: "_tau._tcp", hosts: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Search Again" }));
+    expect(await screen.findByText("No Tau on this network")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByText("Machines on this network")).toBeNull();
+  });
+
+  it("says why it could not look", async () => {
+    const discoverHosts = vi.fn(async () => ({ serviceType: "_tau._tcp", hosts: [], problem: "Failed to create client object: Daemon not running" }));
+    renderPage({ listConnections: async () => connections({ network: off }), discoverHosts });
+    fireEvent.click(await screen.findByRole("button", { name: "Find Machines…" }));
+    expect(await screen.findByText("Tau could not look on this network")).toBeTruthy();
+    expect(screen.getByText("Failed to create client object: Daemon not running")).toBeTruthy();
+  });
+});
+
 describe("the QR code", () => {
   it("draws one unit square per dark module", () => {
     expect(qrPath([[true, false], [false, true]])).toBe("M0 0h1v1h-1zM1 1h1v1h-1z");

@@ -101,6 +101,7 @@ function defaults(): HostClient {
       return () => listeners.delete(listener);
     },
     hasCapability: () => true,
+    isReadOnly: () => false,
     getConnectionState: () => "connected",
     getConnectionRefusal: () => undefined,
     onConnectionState: () => () => undefined,
@@ -124,6 +125,7 @@ function defaults(): HostClient {
     rotateHostToken: async () => undefined,
     setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
     reloadCertificate: async () => ({ changed: false }),
+    discoverHosts: async () => ({ hosts: [], serviceType: "_tau-test._tcp" }),
     // No service unless a test gives one: the section says the host cannot run as one.
     serviceStatus: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     installService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },

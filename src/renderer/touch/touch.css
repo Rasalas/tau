@@ -247,3 +247,6 @@ body[data-keyboard] .model-picker.popover { padding-bottom: 0; }
 
 /* Toasts clear the status bar and the notch. */
 body[data-profile="compact"] .toast-stack { top: calc(env(safe-area-inset-top, 0px) + 56px); right: max(12px, env(safe-area-inset-right, 0px)); }
+
+/* A question's buttons are touch targets too. */
+.confirm-dialog footer button { min-height: 44px; padding-inline: 16px; }

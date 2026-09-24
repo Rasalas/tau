@@ -10,6 +10,8 @@ import type { ListenerTrust } from "./host-local-files.js";
 import { HostNetworkAccess, applyNetworkSettings, decodeNetworkSettingsInput, planNetworkBinds, type NetworkBind } from "./host-network.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 import { certificateFingerprint } from "./host-tls.js";
+import type { ServiceAnnouncement } from "./host-discovery.js";
+import { readTauServiceTxt } from "../shared/discovery.js";
 
 const wifi = { en0: [{ address: "192.168.1.20", family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "", cidr: null }] } as unknown as Interfaces;
 const tailnet = { utun4: [{ address: "100.96.0.12", family: "IPv4", internal: false, netmask: "255.255.255.255", mac: "", cidr: null }] } as unknown as Interfaces;
@@ -36,7 +38,22 @@ function onLoopback(ports: "any" | "settings" = "any") {
     planNetworkBinds(settings, interfaces).map((bind) => ({ ...bind, host: "127.0.0.1", port: ports === "any" ? 0 : bind.port }));
 }
 
-async function openAccess(options: { userData?: string; interfaces?: () => Interfaces; ports?: "any" | "settings"; web?: boolean } = {}) {
+/** Records what network access would announce; nothing reaches the network. */
+function fakeAnnouncer() {
+  const calls: Array<ServiceAnnouncement | "closed" | undefined> = [];
+  let current: ServiceAnnouncement | undefined;
+  return {
+    calls,
+    get current() { return current; },
+    announcer: {
+      set: async (service: ServiceAnnouncement | undefined) => { calls.push(service); current = service; },
+      state: () => current ? { state: "announced" as const, name: current.name, serviceType: current.type } : undefined,
+      close: async () => { calls.push("closed"); current = undefined; },
+    },
+  };
+}
+
+async function openAccess(options: { userData?: string; interfaces?: () => Interfaces; ports?: "any" | "settings"; web?: boolean; bonjour?: ReturnType<typeof fakeAnnouncer> } = {}) {
   const attached: Array<{ server: Server; trust: ListenerTrust; detached: boolean }> = [];
   const access = await HostNetworkAccess.open({
     userData: options.userData ?? scratch(),
@@ -48,6 +65,7 @@ async function openAccess(options: { userData?: string; interfaces?: () => Inter
       return () => { entry.detached = true; };
     },
     ...(options.web ? { web: () => (_request, response) => { response.end("the web client"); } } : {}),
+    ...(options.bonjour ? { bonjour: { announcer: options.bonjour.announcer, serviceType: "_tau-test._tcp", hostId: "0123456789abcdef0123456789abcdef", name: "studio.local" } } : {}),
   });
   accesses.push(access);
   return { access, attached };
@@ -208,5 +226,99 @@ describe("network access in a running host", () => {
     const third = write("third", 1_700_000_200);
     expect(await access.reloadCertificate()).toMatchObject({ changed: true });
     expect(await servedFingerprint(port)).toBe(third);
+  });
+});
+
+describe("the Bonjour announcement", () => {
+  it("goes up with the local network listener: its real port, the host id and the certificate it serves", async () => {
+    const bonjour = fakeAnnouncer();
+    const { access } = await openAccess({ bonjour });
+    expect(bonjour.current).toBeUndefined();
+    const state = await access.update({ lan: true });
+    const port = state.listeners[0]!.port;
+    expect(bonjour.current).toEqual({ type: "_tau-test._tcp", name: "studio", port, txt: expect.any(Object) });
+    expect(readTauServiceTxt(bonjour.current!.txt)).toEqual({ hostId: "0123456789abcdef0123456789abcdef", fingerprint: await servedFingerprint(port) });
+    expect(state.announcement).toEqual({ state: "announced", name: "studio", serviceType: "_tau-test._tcp" });
+  });
+
+  it("stays down for Tailscale alone, with the switch off, and once Local network goes off", async () => {
+    const bonjour = fakeAnnouncer();
+    const { access } = await openAccess({ bonjour, interfaces: () => ({ ...wifi, ...tailnet }) });
+    await access.update({ tailscale: true });
+    expect(bonjour.current).toBeUndefined();
+    await access.update({ lan: true, announce: false });
+    expect(bonjour.current).toBeUndefined();
+    await access.update({ announce: true });
+    expect(bonjour.current).toBeDefined();
+    await access.update({ lan: false });
+    expect(bonjour.current).toBeUndefined();
+  });
+
+  it("follows a renewed certificate", async () => {
+    const userData = scratch();
+    const write = (name: string, stamp: number) => {
+      const { cert, key } = createSelfSignedCertificate({ commonName: name, dnsNames: ["box.example"], ipAddresses: [], days: 90 });
+      writeFileSync(join(userData, "cert.pem"), cert);
+      writeFileSync(join(userData, "key.pem"), key, { mode: 0o600 });
+      utimesSync(join(userData, "cert.pem"), stamp, stamp);
+      utimesSync(join(userData, "key.pem"), stamp, stamp);
+      return certificateFingerprint(cert);
+    };
+    write("first", 1_700_000_000);
+    const bonjour = fakeAnnouncer();
+    const { access } = await openAccess({ userData, bonjour });
+    await access.update({ lan: true, certificate: { certPath: join(userData, "cert.pem"), keyPath: join(userData, "key.pem") } });
+    const second = write("second", 1_700_000_100);
+    await access.reloadCertificate();
+    expect(readTauServiceTxt(bonjour.current!.txt)?.fingerprint).toBe(second);
+  });
+
+  it("is withdrawn before the listener closes when Local network goes off", async () => {
+    const bonjour = fakeAnnouncer();
+    const { access, attached } = await openAccess({ bonjour });
+    await access.update({ lan: true });
+    let detachedWhenWithdrawn: boolean | undefined;
+    const set = bonjour.announcer.set;
+    bonjour.announcer.set = async (service) => {
+      if (!service && detachedWhenWithdrawn === undefined) detachedWhenWithdrawn = attached[0]!.detached;
+      await set(service);
+    };
+    await access.update({ lan: false });
+    expect(detachedWhenWithdrawn).toBe(false);
+    expect(attached[0]!.detached).toBe(true);
+  });
+
+  it("is withdrawn before the listeners close", async () => {
+    const bonjour = fakeAnnouncer();
+    const { access, attached } = await openAccess({ bonjour });
+    await access.update({ lan: true });
+    let detachedWhenClosed: boolean | undefined;
+    const close = bonjour.announcer.close;
+    bonjour.announcer.close = async () => { detachedWhenClosed = attached[0]!.detached; await close(); };
+    await access.close();
+    expect(detachedWhenClosed).toBe(false);
+    expect(bonjour.calls.at(-1)).toBe("closed");
+  });
+
+  it("is on for new settings and off for settings written before it existed, so no host start asks macOS unprompted", async () => {
+    expect(DEFAULT_NETWORK_SETTINGS.announce).toBe(true);
+    const userData = scratch();
+    const first = await openAccess({ userData });
+    await first.access.update({ lan: true });
+    await first.access.close();
+    const path = join(userData, "network.json");
+    const stored = JSON.parse(readFileSync(path, "utf8")) as { settings: Record<string, unknown> };
+    delete stored.settings.announce;
+    writeFileSync(path, JSON.stringify(stored));
+    const bonjour = fakeAnnouncer();
+    const { access } = await openAccess({ userData, bonjour });
+    expect(access.state().settings).toMatchObject({ lan: true, announce: false });
+    expect(access.state().listeners).toHaveLength(1);
+    expect(bonjour.current).toBeUndefined();
+  });
+
+  it("takes the switch as true or false only", () => {
+    expect(decodeNetworkSettingsInput({ announce: false })).toEqual({ announce: false });
+    expect(() => decodeNetworkSettingsInput({ announce: "yes" })).toThrow(/announce/u);
   });
 });
