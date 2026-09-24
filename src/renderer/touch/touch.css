@@ -226,6 +226,8 @@
   background: var(--stage); color: var(--ink);
   animation: touch-sheet-up var(--motion-fast, 160ms) var(--ease);
 }
+/* The keyboard covers the home indicator, so a sheet's last row sits right on it. */
+body[data-keyboard] .touch-panel-sheet { padding-bottom: 0; }
 .touch-panel-sheet > .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
 .touch-panel-sheet > .panel-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .touch-panel-sheet .panel-host, .touch-panel-sheet .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }

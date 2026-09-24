@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "tau";
 import type { ILink, ITheme, Terminal } from "@xterm/xterm";
 import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, useTerminalFont } from "./store.js";
@@ -64,6 +64,18 @@ export interface TerminalViewProps {
   place: "panel" | "stage";
   /** Draws the focus ring; only meaningful beside other panes. */
   focused?: boolean;
+  /** A text size of the view's own (a phone's) instead of the shared one. */
+  fontSize?: number;
+  /** What a touch client's key bar needs of the view; read on every call, so it may change without a remount. */
+  touch?: TerminalTouchBinding;
+}
+
+/** The compact terminal's hold on one view: the xterm it drives, and a look at what is typed. */
+export interface TerminalTouchBinding {
+  /** The xterm once it is drawn, `undefined` when it goes. */
+  attach(terminal: Terminal | undefined): void;
+  /** Sees each chunk before it reaches the shell, and answers what is sent instead. */
+  filterInput(data: string): string;
 }
 
 /**
@@ -73,7 +85,7 @@ export interface TerminalViewProps {
  * A view takes the keyboard only when asked to (`requestFocus`), so a pane
  * that remounts never steals it.
  */
-export function TerminalView({ session, place, focused = false }: TerminalViewProps) {
+export function TerminalView({ session, place, focused = false, fontSize, touch }: TerminalViewProps) {
   const { id, exitCode } = session;
   const surface = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -84,7 +96,12 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
   sessionRef.current = session;
   const [error, setError] = useState("");
   const [selection, setSelection] = useState("");
-  const font = useTerminalFont().resolved;
+  const shared = useTerminalFont().resolved;
+  const font = useMemo(() => fontSize === undefined || fontSize === shared.size ? shared : { ...shared, size: fontSize }, [shared, fontSize]);
+  const touchRef = useRef(touch);
+  touchRef.current = touch;
+  const sizeRef = useRef(fontSize);
+  sizeRef.current = fontSize;
 
   useEffect(() => {
     const instance = terminal.current;
@@ -106,11 +123,12 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
   useEffect(() => {
     let disposed = false;
     let cleanup = () => {};
-    const initialFont = terminalFont.getSnapshot().resolved;
+    const sized = (resolved: ResolvedTerminalFont) => sizeRef.current === undefined ? resolved : { ...resolved, size: sizeRef.current };
+    const initialFont = sized(terminalFont.getSnapshot().resolved);
     void Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit"), loadFont(initialFont)]).then(async ([xterm, fit]) => {
       if (disposed || !surface.current) return;
       const element = surface.current;
-      const current = terminalFont.getSnapshot().resolved;
+      const current = sized(terminalFont.getSnapshot().resolved);
       const instance = new xterm.Terminal({
         ...initialSize.current,
         disableStdin: !running.current,
@@ -170,7 +188,9 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
       });
       const report = (problem: unknown) => { if (!disposed) setError(errorMessage(problem)); };
       const input = instance.onData((data) => {
-        if (!disposed && running.current && !replaying) void terminalKit.input({ id, data }).catch(report);
+        if (disposed || !running.current || replaying) return;
+        const sent = touchRef.current ? touchRef.current.filterInput(data) : data;
+        void terminalKit.input({ id, data: sent }).catch(report);
       });
       const refit = () => {
         if (disposed || !element.clientWidth || !element.clientHeight) return;
@@ -194,6 +214,7 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
       cleanup = () => {
         stop(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); observer.disconnect();
         instance.textarea?.removeEventListener("focus", onFocus);
+        touchRef.current?.attach(undefined);
         instance.dispose();
         terminal.current = null;
         refitRef.current = () => undefined;
@@ -208,6 +229,7 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
       ready = true;
       pending.forEach(write);
       pending.length = 0;
+      touchRef.current?.attach(instance);
       refit();
       takeFocus();
     }).catch((problem: unknown) => { if (!disposed) setError(errorMessage(problem)); });
