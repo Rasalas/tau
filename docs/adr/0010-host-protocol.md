@@ -84,6 +84,10 @@ The answer then made up most of a long turn: a 151 KB answer arrived as deltas, 
 
 We chose to recover a reference the client cannot resolve by starting over from the bootstrap, over asking the host for the missing text, because the host only sends references a client can resolve; the fallback covers a defect, and a resync is the path that already repairs any state the push stream left wrong.
 
+## Amendment, 2026-09-24: links that die without a close
+
+A client on a phone loses its socket without a close event when the phone sleeps or changes networks, and a page on another site could open a socket to a host on loopback. Both ends now check liveness: the host pings every socket at the WebSocket level and drops one that stops answering, closes a socket without a hello after 10 s (4408), and answers an application `ping` with `pong` once the hello is accepted, announced as the `heartbeat` capability, so a client never pings an older host. The browser client sends those pings, gives up a connect or a hello that hangs, and checks the link or skips the backoff when the page comes back to the foreground or the network changes; wakes come from the entry point, so a native shell supplies its own. The host refuses an upgrade whose `Origin` is neither its own, Electron's local `file://` window nor listed in `TAU_HOST_ALLOWED_ORIGINS`, with 4403, which the client treats as final. `docs/host-protocol.md` has the numbers.
+
 ## Consequences
 
 - `src/main/index.ts` shrank from 430 to about 320 lines and holds no operation of its own: it supplies the platform (clipboard, dialogs, bundles, rebuild) and installs a transport.

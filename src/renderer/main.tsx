@@ -5,6 +5,7 @@ import type { HostClient } from "../workbench/host-client";
 import { createElectronHostClient, createElectronHostTransport } from "./platform-electron";
 import { createLocalStorageAdapter } from "./browser-storage";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
+import { browserWakeSource } from "./browser-wakes";
 import { HostConnection } from "../workbench/host-connection";
 import { HostClientProvider, setHostClient } from "./host-client-context";
 import { setClientStorage } from "../workbench/client-storage";
@@ -29,6 +30,7 @@ function connect(): { client: HostClient; connection: HostConnection } | undefin
     const local = window.tau ? new HostConnection(createElectronHostTransport(window.tau)) : undefined;
     void local?.start().catch(() => undefined);
     const socket = createSocketHostClient(remoteHost, search.get("token") ?? undefined, {
+      wakes: browserWakeSource(),
       onUnauthorized: (reason) => socket.connection.refuse(accessRefusal(reason)),
       // A reload keeps the address, so it carries the token a rotation gave this window.
       onTokenChanged: (token) => {

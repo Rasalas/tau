@@ -24,10 +24,12 @@ const APP_BUNDLE_ID = "dev.tbuck.tau";
 
 /**
  * What a service host keeps from the environment it was installed from: where
- * an instance keeps its files. Everything else a unit sets itself, and PATH
- * comes from the login shell the host reads at start.
+ * an instance keeps its files, and the page origins its socket accepts.
+ * Network access needs nothing here: the host reads `<userData>/network.json`.
+ * Everything else a unit sets itself, and PATH comes from the login shell.
  */
 export const FORWARDED_SERVICE_ENV = [
+  "TAU_HOST_ALLOWED_ORIGINS", "TAU_DEV_SERVER_URL",
   "TAU_CONFIG_FILE", "TAU_WORKTREES_DIR", "TAU_THEMES_DIR", "TAU_HOST_TOKEN_FILE", "TAU_WEB_CLIENT",
   "TAU_OPENCODE_HOME", "TAU_CURSOR_HOME", "TAU_GROK_HOME", "TAU_IMPORT_ROOTS", "TAU_NO_EXTENSIONS",
   "TAU_RUNTIME_UPDATE_COMMAND", "TAU_CURSOR_COMMAND", "TAU_GROK_COMMAND",

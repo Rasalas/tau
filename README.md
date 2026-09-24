@@ -208,7 +208,10 @@ window adopts the host it finds in `host.json` like any other and never starts
 a second one; quitting the window leaves it running. Installing from a window
 moves that window's threads into the service host, on the same port. An
 instance with its own `TAU_USER_DATA` gets a service of its own (a suffix on
-the names). Uninstalling leaves threads and settings where they are.
+the names). Network access (Settings → Connections) lives in
+`<userData>/network.json`, so the service host opens the same Local network,
+Tailscale and proxy listeners, on the same ports, once it has taken over.
+Uninstalling leaves threads and settings where they are.
 
 After an update the window finds the service on the old version and restarts
 it once; if the unit points at another copy of Tau, it rewrites the unit for
@@ -314,7 +317,9 @@ TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_FINGERPRINT=6F:AB:DF:…:10:E9:1E np
 
 Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on first connect and asks whether to trust it; compare it with the line the host printed. A yes is remembered in the client's `known-hosts.json`. A host whose certificate a CA vouches for needs neither. If the host ever presents another certificate, the window refuses it before sending the token, and the status line shows both fingerprints. If you replaced the certificate yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
 
-A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
+A dropped link (a suspended machine, a restarted tunnel, a phone that slept or changed networks) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. Heartbeats find a link that died without a close, and coming back to the page or to a network tries again at once. A strip above the status line reads `Reconnecting to the host…` (with "Retry now" while it waits), then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. For a host on another machine, a dot in the title bar shows the link and its round trip. Nothing has to be restarted by hand.
+
+The host accepts sockets only from pages it served itself and from clients that are not pages; a native shell or a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=capacitor://localhost,https://…`.
 
 ### The web client
 
@@ -351,6 +356,21 @@ when each was last active — and revokes one, which closes its open connection 
 "Rotate…" replaces the host token and disconnects every other connection that used it
 (a browser paired before tokens of their own, say); paired clients keep theirs. A
 paired client cannot use the page: managing access takes the host token.
+
+**Network access** on the same page lets the app's own host take other devices, with
+no environment variables and no restart. Two switches, off by default, combine:
+**Local network** listens on every interface, **Tailscale** only on the machine's
+Tailscale addresses, so the port stays closed on the LAN. Both use a fixed port (7788
+unless you change it) and speak TLS only: the self-signed certificate, or one of your
+own (**Use Own…**, a certificate and key such as `tailscale cert` writes). Tau reads
+that certificate again when its files change, so a renewal needs no restart; **Reload**
+does it at once. Tailscale also opens a plain listener on `127.0.0.1:7789` for a proxy
+on this machine, such as `tailscale serve`; everything that arrives through it counts
+as a remote device, although it comes from 127.0.0.1. The page lists every address a
+device may use, labelled LAN, `.local`, Tailscale, MagicDNS or IPv6, and a pairing link
+carries all of them. Turning a switch off closes its listener and every connection
+that came through it. A host you start by hand opens a proxy listener with
+`TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>`. The installed app ships the web client.
 
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it

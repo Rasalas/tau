@@ -8,7 +8,7 @@ import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HostClientRegistry } from "./host-clients.js";
-import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
 
@@ -41,8 +41,8 @@ async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allo
   return { transport, pushLog };
 }
 
-function connect(port: number): WebSocket {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+function connect(port: number, options?: ConstructorParameters<typeof WebSocket>[2]): WebSocket {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, options);
   sockets.push(socket);
   return socket;
 }
@@ -129,7 +129,7 @@ describe("socket host transport", () => {
     const reply = await frame;
     expect(reply.type).toBe("hello-reply");
     if (reply.type !== "hello-reply") return;
-    expect(reply.reply).toMatchObject({ protocol: 1, hostVersion: "test", capabilities: ["jobs"], resync: false, nextSeq: 1 });
+    expect(reply.reply).toMatchObject({ protocol: 1, hostVersion: "test", capabilities: ["jobs", "heartbeat"], resync: false, nextSeq: 1 });
   });
 
   it("closes a connection whose token is wrong or missing", async () => {
@@ -180,6 +180,153 @@ describe("socket host transport", () => {
     const reply = await again.frame;
     expect(reply.type === "hello-reply" && reply.reply.missed.map((entry) => entry.seq)).toEqual([2, 3]);
     expect(reply.type === "hello-reply" && reply.reply.resync).toBe(false);
+  });
+});
+
+describe("more than one listener", () => {
+  async function secondListener(trust: "proxy" | "network") {
+    const server = createProtocolServer();
+    const detach = transport!.attach(server, trust);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    return { server, detach, port: typeof address === "object" && address ? address.port : 0 };
+  }
+
+  it("never tells a peer behind a proxy that the host's files are local, though it dials from 127.0.0.1", async () => {
+    vi.stubEnv("TAU_HOST_LOCAL_FILES", "1");
+    const calls: Array<{ connection: string; local: boolean }> = [];
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: ["jobs"], token: TOKEN,
+      calls: { attach: (connection, peer) => calls.push({ connection, local: peer.local }), detach: () => undefined },
+    });
+    const proxy = await secondListener("proxy");
+    try {
+      const own = await (await hello(transport.port, TOKEN)).frame;
+      const proxied = await (await hello(proxy.port, TOKEN)).frame;
+      expect(own.type === "hello-reply" && own.reply.capabilities).toContain("local-files");
+      expect(proxied.type === "hello-reply" && proxied.reply.capabilities).toEqual(["jobs", "heartbeat"]);
+      expect(calls.map((call) => call.local)).toEqual([true, false]);
+    } finally {
+      vi.unstubAllEnvs();
+      proxy.detach();
+      await new Promise<void>((resolve) => proxy.server.close(() => resolve()));
+    }
+  });
+
+  it("closes the connections that came through a listener it detaches, and only those", async () => {
+    await listen();
+    const network = await secondListener("network");
+    const own = await hello(transport!.port, TOKEN);
+    await own.frame;
+    const remote = await hello(network.port, TOKEN);
+    await remote.frame;
+    const remoteClosed = closed(remote.socket);
+    network.detach();
+    await remoteClosed;
+    await new Promise<void>((resolve) => network.server.close(() => resolve()));
+    own.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: ["still here"] } }));
+    expect(await nextFrame(own.socket)).toMatchObject({ type: "response", response: { result: { echo: "still here" } } });
+  });
+});
+
+describe("socket host transport on a network that drops peers", () => {
+  const listenWith = async (extra: Partial<SocketHostTransportOptions>) => {
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], token: TOKEN, ...extra,
+    });
+    return transport;
+  };
+
+  it("answers a heartbeat after the hello, and only then", async () => {
+    const started = await listenWith({});
+    const early = connect(started.port);
+    await opened(early);
+    early.send(JSON.stringify({ type: "ping", id: "p0" }));
+    expect(await closed(early)).toBe(4401);
+
+    const { socket, frame } = await hello(started.port, TOKEN);
+    const reply = await frame;
+    expect(reply.type === "hello-reply" && reply.reply.capabilities).toContain("heartbeat");
+    socket.send(JSON.stringify({ type: "ping", id: "p1" }));
+    expect(await nextFrame(socket)).toEqual({ type: "pong", id: "p1" });
+  });
+
+  it("closes a socket that never says hello", async () => {
+    const started = await listenWith({ helloTimeoutMs: 20 });
+    const socket = connect(started.port);
+    await opened(socket);
+    expect(await closed(socket)).toBe(4408);
+  });
+
+  it("refuses a page from another origin before it can say hello, and serves its own", async () => {
+    const started = await listenWith({ allowedOrigins: ["capacitor://localhost"] });
+    const foreign = connect(started.port, { origin: "https://evil.example" });
+    expect(await closed(foreign)).toBe(4403);
+
+    const own = connect(started.port, { origin: `http://127.0.0.1:${started.port}` });
+    await opened(own);
+    own.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+    expect((await nextFrame(own)).type).toBe("hello-reply");
+
+    const shell = connect(started.port, { origin: "capacitor://localhost" });
+    await opened(shell);
+    shell.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+    expect((await nextFrame(shell)).type).toBe("hello-reply");
+  });
+
+  it("lets a page behind a proxy in at the host the proxy was reached at, and nothing else there", async () => {
+    let published = ["https://mac.local:7788"];
+    const started = await listenWith({ allowedOrigins: () => published });
+    const proxy = createProtocolServer();
+    const detach = started.attach(proxy, "proxy");
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()));
+    const port = (proxy.address() as { port: number }).port;
+    const served = { origin: "https://mac.tailnet.ts.net", headers: { "x-forwarded-host": "mac.tailnet.ts.net" } };
+    try {
+      // tailscale serve hands the page's host over as X-Forwarded-Host; the Host header names 127.0.0.1.
+      const page = connect(port, served);
+      await opened(page);
+      page.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+      expect((await nextFrame(page)).type).toBe("hello-reply");
+      expect(await closed(connect(port, { origin: "https://evil.example", headers: { "x-forwarded-host": "mac.tailnet.ts.net" } }))).toBe(4403);
+      // Electron's file:// counts as this machine only on the loopback listener, never behind a proxy.
+      expect(await closed(connect(port, { origin: "file://" }))).toBe(4403);
+      // The loopback listener takes no forwarded host from anyone.
+      expect(await closed(connect(started.port, served))).toBe(4403);
+      // Published endpoints are asked for per socket, so a name that appears later is let in.
+      expect(await closed(connect(started.port, { origin: "https://box.tail.ts.net:7788" }))).toBe(4403);
+      published = [...published, "https://box.tail.ts.net:7788"];
+      await opened(connect(started.port, { origin: "https://box.tail.ts.net:7788" }));
+    } finally {
+      detach();
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+    }
+  });
+
+  it("drops a peer that stopped answering WebSocket pings, and stops counting it", async () => {
+    const clients = new HostClientRegistry();
+    let tick = (): void => undefined;
+    const started = await listenWith({ clients, schedulePings: (next) => { tick = next; return () => undefined; } });
+    // A phone that went to sleep: the TCP link is still there, nobody answers.
+    const asleep = connect(started.port, { autoPong: false });
+    await opened(asleep);
+    asleep.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+    await nextFrame(asleep);
+    const awake = await hello(started.port, TOKEN);
+    await awake.frame;
+    expect(clients.count()).toBe(2);
+
+    const pinged = new Promise((resolve) => awake.socket.once("ping", resolve));
+    tick();
+    await pinged;
+    // Frames arrive in order: once this pong is back, the host has read the WebSocket pong before it.
+    awake.socket.send(JSON.stringify({ type: "ping", id: "after-pong" }));
+    await nextFrame(awake.socket);
+    tick();
+
+    expect(await closed(asleep)).toBe(1006);
+    await vi.waitFor(() => expect(clients.count()).toBe(1));
+    expect(awake.socket.readyState).toBe(WebSocket.OPEN);
   });
 });
 

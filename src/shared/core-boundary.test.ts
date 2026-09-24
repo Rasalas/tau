@@ -61,10 +61,10 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
-  "./host-clients.js",   "./host-access.js",   "./host-connections.js",   "./client-device.js",
+  "./host-clients.js",   "./host-access.js",   "./host-connections.js",   "./client-device.js",   "./host-endpoints.js",   "./host-network.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
   "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
-  "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
+  "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-process-supervisor.js",   "./host-start.js",
   // The host as a system service of its machine, and keeping that machine awake (API 1.13.0).

@@ -39,7 +39,8 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
-import type { UiConnections, UiCreatedPairingLink, UiHostService } from "../shared/connections";
+import type { UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -165,6 +166,11 @@ export interface HostClient {
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
   getConnectionRefusal(): string | undefined;
   onConnectionState(listener: (state: HostConnectionState) => void): () => void;
+  /** The socket to a host, for a client that has one: phase, round trip, the next attempt. */
+  getConnectionLink(): HostLink | undefined;
+  onConnectionLink(listener: (link: HostLink) => void): () => void;
+  /** Tries to reach the host now instead of waiting for the next attempt. */
+  reconnectNow(): void;
   /**
    * The Tau versions the hellos reported: the host's, and the window process's
    * when that is a process apart from the host. Either is unknown until its
@@ -180,6 +186,10 @@ export interface HostClient {
   revokeClient(id: string): Promise<{ revoked: boolean }>;
   /** Closes every other connection on the old host token; this one carries on with the new one. */
   rotateHostToken(): Promise<void>;
+  /** Opens or closes the listeners beyond loopback in the running host. */
+  setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
+  /** Reads the served certificates again; `changed` when a listener now serves another one. */
+  reloadCertificate(): Promise<{ changed: boolean }>;
   /** The host's machine runs it as a system service; the owner's alone. */
   serviceStatus(): Promise<UiHostService>;
   /** Installs (or repairs) the service; the host answering may be replaced by the one it starts. */
@@ -308,6 +318,9 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),
+    getConnectionLink: connection.getLink,
+    onConnectionLink: (listener) => connection.onLink(listener),
+    reconnectNow: () => connection.reconnectNow(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),
     onVersions: (listener) => {
       const offHost = connection.onHello(listener);
@@ -323,6 +336,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       const { token } = await call<{ token: string }>("connections-rotate-host-token");
       connection.updateToken(token);
     },
+    setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
+    reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
     serviceStatus: () => call<UiHostService>("service-status"),
     installService: () => call<UiHostService>("service-install"),
     uninstallService: () => call<UiHostService>("service-uninstall"),

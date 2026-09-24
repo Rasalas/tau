@@ -311,6 +311,23 @@ describe("Thread Rail on the desktop", () => {
     expect(title).toEqual(expect.arrayContaining([["thread.archive", false], ["thread.delete", true]]));
   });
 
+  it("acts on the thread a compact list row names, not the one on screen", async () => {
+    const { registry, organizer, actions, calls } = setup();
+    await flush();
+    organizer().sections([thread("a", 2), thread("b", 1)]);
+    const row = registry.getCommandsFor("thread-row");
+    expect(row.map((command) => [command.id, Boolean(command.Icon), command.destructive ?? false])).toEqual([
+      ["thread.snooze", true, false], ["thread.archive", true, false], ["thread.delete", true, true],
+    ]);
+    await row.find((command) => command.id === "thread.archive")!.run(actions, { threadId: "a" });
+    await flush();
+    expect(calls("archive")).toEqual([{ threadId: "a" }]);
+    // Without a named thread (the palette, the title menu) it is the open one.
+    await registry.executeCommand("thread.archive", actions);
+    await flush();
+    expect(calls("archive")).toEqual([{ threadId: "a" }, { threadId: "b" }]);
+  });
+
   it("builds T3 Code's full row menu: a new thread on the branch, names, filter, copy and the project", async () => {
     const { organizer, registry } = setup();
     await flush();

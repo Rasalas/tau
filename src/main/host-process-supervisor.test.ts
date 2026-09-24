@@ -11,6 +11,7 @@ import {
   pruneHostLogs,
   readHostDescriptor,
 } from "./host-process-supervisor.js";
+import { HOST_SERVICE_ENV, serviceEnvironment } from "./host-service-units.js";
 
 const STUB = join(import.meta.dirname, "test-support", "stub-host.mjs");
 const started: HostProcessSupervisor[] = [];
@@ -121,7 +122,7 @@ describe("the host process supervisor", () => {
     const userData = workingDirectory();
     let childEnv: NodeJS.ProcessEnv = {};
     const running = await supervisor(userData, {
-      extraEnv: { TAU_HOST_TLS: "1", TAU_HOST_TLS_CERT: "/nowhere/cert.pem", TAU_HOST_TLS_KEY: "/nowhere/key.pem" },
+      extraEnv: { TAU_HOST_TLS: "1", TAU_HOST_TLS_CERT: "/nowhere/cert.pem", TAU_HOST_TLS_KEY: "/nowhere/key.pem", TAU_HOST_PROXY_LISTEN: "127.0.0.1:7789" },
       spawnProcess: (command, args, env) => {
         childEnv = env;
         return spawnStub(command, args, env);
@@ -133,6 +134,30 @@ describe("the host process supervisor", () => {
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS");
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_CERT");
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_KEY");
+    // Network access is the host's own setting (Settings → Connections), not the window's environment.
+    expect(childEnv).not.toHaveProperty("TAU_HOST_PROXY_LISTEN");
+  }, 30_000);
+
+  it("gives its host the settings a service host gets from its unit", async () => {
+    const userData = workingDirectory();
+    let childEnv: NodeJS.ProcessEnv = {};
+    const installer = {
+      TAU_HOST_ALLOWED_ORIGINS: "capacitor://localhost",
+      TAU_DEV_SERVER_URL: "http://localhost:5173",
+      TAU_CONFIG_FILE: "/w/.tau-dev/config.json",
+      TAU_HOST_PROXY_LISTEN: "127.0.0.1:7789",
+      TAU_HOST_TLS: "1",
+    };
+    await supervisor(userData, { extraEnv: installer, spawnProcess: (command, args, env) => { childEnv = env; return spawnStub(command, args, env); } }).start();
+    const unit = serviceEnvironment({ userData, manager: "systemd", env: { ...process.env, ...installer }, path: "/usr/bin" });
+
+    // Network access is not among them: both hosts read it from <userData>/network.json.
+    for (const [key, value] of Object.entries(unit)) {
+      if (key === "PATH" || key === HOST_SERVICE_ENV) continue;
+      if (key === "TAU_HOST_LISTEN") { expect(childEnv[key]).toMatch(/^127\.0\.0\.1:\d+$/u); continue; }
+      expect(childEnv[key], key).toBe(value);
+    }
+    for (const key of ["TAU_HOST_PROXY_LISTEN", "TAU_HOST_TLS", "TAU_HOST_VERSION", "TAU_WORKSPACE"]) expect(unit).not.toHaveProperty(key);
   }, 30_000);
 
   it("adopts a host that is already running instead of starting a second one", async () => {

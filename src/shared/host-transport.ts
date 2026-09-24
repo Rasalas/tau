@@ -167,14 +167,30 @@ export interface HostHelloReply {
 
 export type HostClientFrame =
   | { type: "hello"; id: string; hello: HostHello }
-  | { type: "request"; request: HostRequest };
+  | { type: "request"; request: HostRequest }
+  /** A heartbeat; only after the hello was answered, and only to a host that announced `heartbeat`. */
+  | { type: "ping"; id: string };
 
 export type HostServerFrame =
   | { type: "hello-reply"; id: string; reply: HostHelloReply }
   | { type: "response"; response: HostResponse }
   | { type: "push"; push: HostPush }
   /** Sent to one connection only, outside the push sequence: never replayed, never seen by another client. */
-  | { type: "client-call"; call: HostClientCall };
+  | { type: "client-call"; call: HostClientCall }
+  | { type: "pong"; id: string };
+
+/**
+ * Close codes a socket host uses. A client stops for `unauthorized` and
+ * `forbiddenOrigin`, since retrying cannot help; any other close is a drop.
+ */
+export const HOST_CLOSE_CODE = {
+  /** The hello carried no token or the wrong one, or its access was taken away. */
+  unauthorized: 4401,
+  /** The page that opened the socket is not one this host serves or trusts. */
+  forbiddenOrigin: 4403,
+  /** No hello arrived in time after the socket opened. */
+  helloTimeout: 4408,
+} as const;
 
 export const HOST_ERROR = {
   invalidRequest: "invalid-request",
@@ -198,6 +214,8 @@ export const HOST_CAPABILITY = {
   replay: "replay",
   /** Paths in commands and results are paths of the machine the client runs on. */
   localFiles: "local-files",
+  /** The host answers `ping` with `pong`, so a client can tell a live link from a half-open one. */
+  heartbeat: "heartbeat",
 } as const;
 
 /** `host-extension` invocations are named per extension command, not per method. */
@@ -362,6 +380,7 @@ export function decodeHostClientFrame(value: unknown): HostClientFrame | undefin
     const request = decodeHostRequest(item.request);
     return request ? { type: "request", request } : undefined;
   }
+  if (item.type === "ping") return nonEmptyString(item.id) && item.id.length <= MAX_WINDOW_ID ? { type: "ping", id: item.id } : undefined;
   return undefined;
 }
 
@@ -384,6 +403,7 @@ export function decodeHostServerFrame(value: unknown): HostServerFrame | undefin
     const call = decodeHostClientCall(item.call);
     return call ? { type: "client-call", call } : undefined;
   }
+  if (item.type === "pong") return nonEmptyString(item.id) ? { type: "pong", id: item.id } : undefined;
   return undefined;
 }
 

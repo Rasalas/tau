@@ -185,6 +185,7 @@ export class HostUplink {
       this.options.onCall?.(frame.call);
       return;
     }
+    if (frame.type === "pong") return;
     const id = frame.type === "response" ? frame.response.id : frame.id;
     const request = this.pending.get(id);
     if (!request) return;

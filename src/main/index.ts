@@ -28,6 +28,7 @@ import { HostJobRunner } from "./host-jobs.js";
 import { createClientHostMethods, createHostMethods, createUnsupportedHostMethods, type ClientHostPlatform, type HostMethodTable } from "./host-methods.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
+import { hostAllowedOrigins } from "./host-origin.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
@@ -687,6 +688,7 @@ function installTransport(): void {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    allowedOrigins: hostAllowedOrigins(),
     ...(tls ? { tls } : {}),
     clients: hostClients,
     logger: hostLog,

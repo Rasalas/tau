@@ -79,13 +79,64 @@ in that method's argument order. The host implements them in one table
 a transport only moves frames in and out of it.
 
 A connection opens with `hello { protocol, token?, lastSeq? }`. The reply names
-the host version, its capabilities (`jobs`, `replay`, `local-files`), the pushes
+the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
 buffer. The host numbers every push and keeps the latest 8 MB of them
 (`HOST_PUSH_BUFFER_BYTES`, the newest push always); a client that sees a
 gap in `seq` re-hellos with its `lastSeq`, applies what comes back, and on a
 resync refetches the bootstrap. `HostConnection` in the renderer owns that and
 reports `connected`, `reconnecting` or `resyncing`.
+
+### A link that dies without a close
+
+A phone that sleeps or moves from Wi-Fi to mobile data leaves its socket
+half-open: nothing reports a close, and both ends would wait forever. Each end
+checks for itself.
+
+- **The host** pings every socket at the WebSocket level every 30 s
+  (`SOCKET_PING_INTERVAL_MS`) and drops one that did not answer the previous
+  ping, so a vanished client stops counting. A socket that has not said hello
+  10 s after it opened is closed with 4408 (`SOCKET_HELLO_TIMEOUT_MS`).
+- **The client** cannot see WebSocket pings in a browser, so it sends its own:
+  `{ type: "ping", id }` after its hello, answered by `{ type: "pong", id }`,
+  and only to a host whose hello reply announced the `heartbeat` capability.
+  `createSocketHostTransport` (`src/workbench/host-connection-socket.ts`)
+  pings every 15 s and gives up on a socket that delivered nothing within 10 s
+  of a ping; any frame counts, not only the pong. A connect that has not opened
+  after 10 s and a hello unanswered after 15 s are given up the same way. A
+  timer that fires far too late means the page was frozen, not the link, so it
+  asks again instead of dropping.
+- **Wakes.** The entry point hands the transport a `HostWakeSource`
+  (`src/workbench/host-link.ts`): `foreground`, `online`, `offline`,
+  `network-change`. A page uses `browserWakeSource()`
+  (`src/renderer/browser-wakes.ts`: `visibilitychange`, `resume`, `pageshow`,
+  `online`/`offline`, `navigator.connection`); a native shell passes its own
+  app-state and network events. A wake while the transport waits for its next
+  attempt tries at once; on an open socket it sends a ping with a 3 s deadline;
+  a handshake still pending when the network changes is abandoned. While the
+  device reports no network the backoff stretches to 15 s.
+
+Dropping a socket costs little: the next hello carries `lastSeq` and the host
+replays what was missed. The transport's own state is a `HostLink`
+(`open`, `connecting`, `waiting`, `offline`, `closed`, the last round trip and
+the next attempt), which `HostClient.getConnectionLink()` exposes and the
+title bar shows as a dot for a host on another machine (hidden when the host
+has `local-files`). A click on it, or "Retry now" in the reconnecting strip,
+calls `reconnectNow()`.
+
+### Which pages may open a socket
+
+The host looks at the `Origin` header of the upgrade before anything else and
+closes a refused socket with 4403 (`src/main/host-origin.ts`). No `Origin` is a
+client that is not a browser page (the window's own process, a native HTTP
+stack, the smokes) and passes. A page passes when its origin is the listener's
+own (the `Host` it was reached by), when it is Electron's `file://` window on
+loopback, or when it is listed in `TAU_HOST_ALLOWED_ORIGINS` (comma-separated,
+for a native shell's scheme or a proxy that rewrites `Host`); a development
+window's `TAU_DEV_SERVER_URL` is added by itself. The token in the hello stays
+the real gate; the check keeps a page on another site, or an opaque `null`
+origin, from trying one. The socket client stops on 4403 as it does on 4401 and
+shows why.
 
 ### Coalescing and tool output deltas
 
@@ -224,6 +275,8 @@ manage access refuse a paired client with `forbidden`:
 | `connections-revoke-link` | `id` | `{ revoked }` |
 | `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
 | `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
+| `connections-set-network` | `{ lan?, tailscale?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host |
+| `connections-reload-certificate` | – | `{ changed }`; every listener re-reads its certificate |
 
 `host.shutdown` also refuses a paired client. A host without a socket answers
 the Connections methods with `unsupported`.
@@ -269,8 +322,17 @@ The listen rule (`src/main/host-listen.ts`): TLS may bind any interface;
 plaintext may bind loopback; plaintext beyond loopback needs
 `TAU_HOST_INSECURE=1`, and the host then prints a `WARNING:` line saying the
 token travels in clear text. A host a window supervises (ADR 0021) stays
-plaintext on loopback: the supervisor drops the three TLS variables from the
-child's environment.
+plaintext on loopback: the supervisor drops the three TLS variables and
+`TAU_HOST_PROXY_LISTEN` from the child's environment. Listeners beyond it are
+[network access](#network-access), which the host reads from its own settings.
+
+**Renewal.** A running host re-reads its certificate when the files change on
+disk (checked every minute) and on `connections-reload-certificate`, and swaps
+it into its listeners without closing a connection (`HostTlsReloader`). A pair
+that does not load leaves the old certificate in place and is not tried again
+until the files change once more. A self-signed certificate due for renewal is
+renewed the same way. A certificate of the operator's own draws a warning two
+weeks before it runs out; `tailscale cert`, for one, lasts 90 days.
 
 **Client side.** `TAU_HOST_URL=wss://machine:port` is trusted in this order
 (`src/main/host-tls-trust.ts`):
@@ -304,6 +366,63 @@ way. A refused page carries no token.
 The browser client has no pin of its own: it meets a self-signed host's
 certificate as a browser warning, and its fingerprint is what the host
 printed.
+
+## Network access
+
+Settings → Connections → Network access opens listeners beside the host's own
+(`src/main/host-network.ts`). The host reads the settings from
+`<userData>/network.json` (0o600) and applies a change at once: a listener
+opens or closes in the running process, and closing one closes every
+connection that came through it. Nothing restarts. Both switches are off by
+default and combine:
+
+| Switch | Listens on | Speaks |
+|---|---|---|
+| Local network | `[::]:<port>`, dual-stack; `0.0.0.0` on a machine without IPv6 | TLS |
+| Tailscale | each Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) on `<port>`, so the LAN sees no open port; not needed while Local network covers them | TLS |
+| Tailscale | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
+
+`port` (default 7788) and `proxyPort` (default 7789) are fixed, so a paired
+device and a `tailscale serve --bg` mapping find the host again after a
+restart. The TLS certificate is the self-signed one of [TLS](#tls) or one of
+the user's own (`certificate`); a pair that does not load is refused before
+it is kept. A listener that cannot open (a port in use, a certificate that
+does not load, no Tailscale address yet) is reported in `problems`, never
+replaced by a plaintext one. The host looks again every minute, so a
+Tailscale address that appears later is served then.
+
+**Listener trust** (`src/main/host-local-files.ts`). Every listener tells
+the transport what it may conclude about a peer:
+
+- `loopback`, the host's own listener: a 127.0.0.1 peer is this machine. It
+  alone may be told `local-files` (with `TAU_HOST_LOCAL_FILES=1`), counts as
+  a local window for `callClient`, and gets the larger pairing burst.
+- `network`: nothing is local, whatever the address.
+- `proxy`: bound on loopback, yet every peer is remote, because a proxy
+  delivers them all from 127.0.0.1. No `local-files`, no local window, a
+  strict pairing limit of its own, and the peer's address is the last
+  `X-Forwarded-For` hop, the one the proxy added.
+
+The origin check at the upgrade follows the same trust. `file://` counts as
+a window on this machine only on the loopback listener. A proxy listener also
+accepts a page whose origin is the host the proxy was reached at, the last
+`X-Forwarded-Host` hop, because `tailscale serve` may hand the request on
+with `Host: 127.0.0.1:<proxyPort>`. The origin of every published endpoint
+(LAN address, `.local`, MagicDNS) is allowed too; the host recomputes the list
+when network access changes and every minute.
+
+A hand-started host opens a proxy listener of its own with
+`TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>` (loopback only) and prints
+`tau-host proxy listener on http://…`.
+
+**Endpoints.** `connections-list` names every URL a device may use, best
+first, each with a `kind` a device can choose by: `lan` (with its
+`interface`, IPv4 before IPv6), `mdns` (`<name>.local`: macOS's
+LocalHostName, else the host name), `magicdns`, `tailscale` and `loopback`.
+Link-local addresses are left out. The MagicDNS name comes from a reverse
+lookup of the machine's own Tailscale address at 100.100.100.100, so nothing
+runs the Tailscale CLI; names are looked up only once a listener is beyond
+loopback. A pairing link carries one URL per endpoint.
 
 ## The window is always a client
 

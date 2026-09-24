@@ -11,6 +11,7 @@ const LAZY = [
   { sheet: "./components/command-palette.css", module: "./components/CommandPalette.tsx", owns: [".command-palette", ".palette-results"] },
   { sheet: "./components/reload-conflict.css", module: "./components/ReloadConflictDialog.tsx", owns: [".reload-conflict", ".reload-choice"] },
   { sheet: "./components/ui/toasts.css", module: "./components/ui/Toasts.tsx", owns: [".toast-stack", ".toast-item"] },
+  { sheet: "./touch/touch.css", module: "./touch/TouchLayer.tsx", owns: [".touch-browser", ".touch-thread-row", ".swipe-row", ".action-sheet", ".touch-fab", ".touch-panel-sheet"] },
   { sheet: "./renderer-benchmark.css", module: "./RendererBenchmark.tsx", owns: [".renderer-benchmark", ".benchmark-list-row"] },
 ];
 

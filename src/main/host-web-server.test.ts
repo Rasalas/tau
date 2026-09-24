@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -173,6 +174,55 @@ describe("the web client a listening host serves", () => {
       expect((await post(JSON.stringify({ code }))).status).toBe(403);
     } finally {
       await new Promise<void>((resolve) => limited.server.close(() => resolve()));
+    }
+  });
+
+  it("counts attempts through a proxy apart, strictly, by the address the proxy forwarded", async () => {
+    const client = createWebClientServer({ dir: root, pairing: access, now: () => 0 });
+    const proxy = createServer(client.handler("proxy"));
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()));
+    const address = proxy.address();
+    const proxyOrigin = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    const post = (target: string, forwarded?: string) => fetch(`${target}/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(forwarded ? { "x-forwarded-for": forwarded } : {}) },
+      body: "{}",
+    });
+    await new Promise<void>((resolve) => client.server.listen(0, "127.0.0.1", () => resolve()));
+    const own = client.server.address();
+    const ownOrigin = `http://127.0.0.1:${typeof own === "object" && own ? own.port : 0}`;
+    try {
+      // Five for one tailnet peer, not the twenty a loopback peer gets.
+      const phone = await Promise.all(Array.from({ length: 6 }, () => post(proxyOrigin, "100.64.0.9")));
+      expect(phone.map((response) => response.status)).toEqual([403, 403, 403, 403, 403, 429]);
+      expect((await post(proxyOrigin, "100.64.0.10")).status).toBe(403);
+      // With nothing forwarded every peer is the proxy itself, still held to five.
+      const unnamed = await Promise.all(Array.from({ length: 6 }, () => post(proxyOrigin)));
+      expect(unnamed.filter((response) => response.status === 429)).toHaveLength(1);
+      // This machine's own browser on the loopback listener is untouched by all of it.
+      expect((await post(ownOrigin)).status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+      await new Promise<void>((resolve) => client.server.close(() => resolve()));
+    }
+  });
+
+  it("records the forwarded address of a client that paired through a proxy", async () => {
+    const client = createWebClientServer({ dir: root, pairing: access });
+    const proxy = createServer(client.handler("proxy"));
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()));
+    const address = proxy.address();
+    try {
+      const { code } = access.createLink({ label: "Phone over the tailnet" });
+      const response = await fetch(`http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/pair`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": "100.101.102.103" },
+        body: JSON.stringify({ code }),
+      });
+      expect(response.status).toBe(200);
+      expect(access.overview().clients.find((entry) => entry.label === "Phone over the tailnet")?.lastAddress).toBe("100.101.102.103");
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
     }
   });
 

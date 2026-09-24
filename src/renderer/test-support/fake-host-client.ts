@@ -104,6 +104,9 @@ function defaults(): HostClient {
     getConnectionState: () => "connected",
     getConnectionRefusal: () => undefined,
     onConnectionState: () => () => undefined,
+    getConnectionLink: () => undefined,
+    onConnectionLink: () => () => undefined,
+    reconnectNow: () => undefined,
     getVersions: () => ({}),
     onVersions: () => () => undefined,
     listConnections: async () => ({ scheme: "ws", endpoints: [], webClient: false, tokenPath: "", links: [], clients: [], owners: [] }),
@@ -111,6 +114,8 @@ function defaults(): HostClient {
     revokePairingLink: async () => ({ revoked: false }),
     revokeClient: async () => ({ revoked: false }),
     rotateHostToken: async () => undefined,
+    setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
+    reloadCertificate: async () => ({ changed: false }),
     // No service unless a test gives one: the section says the host cannot run as one.
     serviceStatus: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     installService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
