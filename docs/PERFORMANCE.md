@@ -1240,6 +1240,24 @@ After ticket E31 a turn receives 284 messages and sends 10 (medians over five ru
 
 Seeding a new root (ticket E32) stopped at the wizard's first step. Wave E's runtimes and the pull-request tools made that step taller than the 705 px window the app opened in, so Continue sat below the fold, and the harness clicked at coordinates outside the viewport, where nothing received the click. The harness now scrolls a match into view before it clicks, and gives up on one it cannot bring into view. The wizard keeps its buttons at the window's bottom edge while a step is taller than the window. With both, `--seed` on a new root imports all five conversations again, and `--apps tau --check` on that root passes: 285 messages received and 10 sent per turn.
 
+### Focus and the measurements (2026-09-25)
+
+Since ticket G06 neither app takes focus during a run (see "Isolation"). The windows still show, at the same size, and paint: `document.visibilityState` is `visible` and `requestAnimationFrame` runs at 60 Hz. Only `document.hasFocus()` is false, and nothing the harness measures depends on it; the composer still takes the typed prompt, because CDP's `Input.insertText` goes to the focused element of the page, not of the OS. A run in front for comparison would have taken focus from the user again, so the comparison is with wave F's report on the same machine, fixture and T3 build.
+
+- **Report:** `reports/compare-20260925-g06-no-focus.json`, five measured runs per app after one warm-up; before: `reports/compare-20260924-wave-f.json`.
+- **Load:** 1-minute load at run start 7.2 median for Tau and 8.0 for T3; wave F had 5.6 and 7.3.
+
+| metric (median) | Tau before | Tau after | T3 before | T3 after |
+| --- | ---: | ---: | ---: | ---: |
+| first paint (ms) | 2,363 | 2,434 | 2,362 | 2,411 |
+| rail and composer ready (ms) | 3,737 | 3,704 | 3,137 | 2,947 |
+| open the 100-turn thread (ms) | 81 | 97 | 170 | 175 |
+| scroll: frame p95 / p99 (ms) | 17.3 / 17.6 | 18.2 / 18.6 | 33.0 / 33.5 | 31.6 / 33.5 |
+| turn: first text visible (ms) | 101 | 82 | 178 | 161 |
+| stream: frame p95 / p99 (ms) | 17.4 / 17.6 | 18.3 / 18.6 | 17.6 / 50.0 | 18.4 / 32.5 |
+
+Start-up moved by 2 to 3 % in both apps, in both directions, within the spread of earlier runs at this load. The frame p95 of about 18.3 ms matches waves D and E; wave F's 17.4 ms is the outlier, and it moved alike in both apps, so it comes from the display, not from focus. The Electron fixtures of `benchmark:renderer` and `start:report` open hidden windows, and there the policy changes nothing either: sixteen renderer scenarios in the background and in front (`TAU_FOREGROUND=1`) back to back gave 16.7 ms frame medians in every one, mount medians within the run-to-run spread, and the same budget failures on this loaded machine; the start fixture's first paint was 122 ms median in the background against 128 ms in front over twelve alternating runs.
+
 ### Screen by screen
 
 `scripts/compare/screens/` reuses the harness above for a visual comparison (gap analysis §2.3, ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau`, `/tmp/compare-screens-t3`), so a screen pass never shares a profile with a benchmark run.
