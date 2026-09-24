@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import type {
   EnvironmentPairInput,
@@ -44,6 +45,8 @@ export interface WindowEnvironmentsOptions {
   discover?(): Promise<UiDiscoveredHosts>;
   /** How long a start waits for the machine shown last before it shows this one. */
   reopenWaitMs?: number;
+  /** Resolves a `.local` name for the page, whose Chromium cannot; the system's resolver by default. */
+  resolve?(hostname: string): Promise<string | undefined>;
   /** Test seams. */
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
   pair?(options: PairEnvironmentOptions): ReturnType<typeof pairEnvironment>;
@@ -78,6 +81,8 @@ export class WindowEnvironments {
   /** What the last Bonjour search found, by host id; pairing with one takes its addresses and pin from here. */
   private nearby = new Map<string, NearbyMachine>();
   private readonly connectedWaiters = new Map<string, Set<() => void>>();
+  /** Addresses a `.local` name resolved to for the page, by machine id; trusted like the name. */
+  private readonly resolved = new Map<string, string>();
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
@@ -280,7 +285,22 @@ export class WindowEnvironments {
     this.arrival = target;
     this.schedulePublish();
     this.rememberShown();
-    await this.options.show(connection);
+    await this.options.show(await this.forPage(connection));
+  }
+
+  /**
+   * The page's Chromium does not resolve `.local` names here, while this
+   * process does; the page gets the address, pinned like the name.
+   */
+  private async forPage(connection: EnvironmentConnection): Promise<EnvironmentConnection> {
+    const url = new URL(connection.url);
+    if (!/\.local$/iu.test(url.hostname)) return connection;
+    const resolve = this.options.resolve ?? (async (name: string) => (await lookup(name)).address);
+    const address = await resolve(url.hostname).catch(() => undefined);
+    if (!address) return connection;
+    this.resolved.set(address.toLowerCase(), connection.id);
+    url.hostname = address.includes(":") ? `[${address}]` : address;
+    return { ...connection, url: url.toString() };
   }
 
   private rememberShown(): void {
@@ -312,7 +332,8 @@ export class WindowEnvironments {
   certificateVerdict(hostname: string, presented: string): number {
     const bare = hostname.replace(/^\[|\]$/gu, "").toLowerCase();
     const pins = (this.catalog?.list() ?? []).filter((entry) => entry.fingerprint
-      && entry.endpoints.some((endpoint) => endpoint.url.startsWith("https:") && hostEndpoint(socketUrl(endpoint.url)).hostname === bare));
+      && (this.resolved.get(bare) === entry.id
+        || entry.endpoints.some((endpoint) => endpoint.url.startsWith("https:") && hostEndpoint(socketUrl(endpoint.url)).hostname === bare)));
     if (pins.length === 0) return CERTIFICATE_DEFAULT;
     return pins.some((entry) => fingerprintsMatch(presented, entry.fingerprint!)) ? CERTIFICATE_ACCEPT : CERTIFICATE_REJECT;
   }
@@ -321,9 +342,11 @@ export class WindowEnvironments {
   isSavedSocket(url: string): boolean {
     let target: URL;
     try { target = new URL(url); } catch { return false; }
+    const address = target.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
     return (this.catalog?.list() ?? []).some((entry) => entry.endpoints.some((endpoint) => {
       const socket = new URL(socketUrl(endpoint.url));
-      return socket.protocol === target.protocol && socket.host === target.host;
+      return socket.protocol === target.protocol && (socket.host === target.host
+        || (this.resolved.get(address) === entry.id && socket.port === target.port));
     }));
   }
 

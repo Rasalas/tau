@@ -236,4 +236,17 @@ describe("the machines of a window", () => {
     expect(again.environments.shown).toBe("host-laptop");
     expect(again.shown).toEqual([]);
   });
+
+  it("hands the page a .local machine at the address this process resolved, pinned like the name", async () => {
+    const local = { ...studio, endpoints: [{ url: "https://studio.local:7788/", kind: "mdns" as const }] };
+    const { environments, monitors, shown } = await setup({ state: "approved", environment: local }, { resolve: async () => "192.168.1.77" });
+    await environments.pair({ text: "studio.local:7788" });
+    monitors.get("wss://studio.local:7788/")!.set({ status: "connected", address: "wss://studio.local:7788/" });
+    await environments.open("host-studio");
+    expect(shown.at(-1)?.url).toBe("wss://192.168.1.77:7788/");
+    expect(environments.certificateVerdict("192.168.1.77", PIN)).toBe(CERTIFICATE_ACCEPT);
+    expect(environments.certificateVerdict("192.168.1.77", OTHER)).toBe(CERTIFICATE_REJECT);
+    expect(environments.isSavedSocket("wss://192.168.1.77:7788/")).toBe(true);
+    expect(environments.isSavedSocket("wss://192.168.1.77:9999/")).toBe(false);
+  });
 });
