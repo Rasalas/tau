@@ -46,24 +46,30 @@ function calls(): string[][] {
   return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]) : [];
 }
 
-/** The host's side of network access: a proxy listener that opens while held, unless its port is taken. */
+/** The host's side of network access: a proxy listener that opens while held or kept, unless its port is taken. */
 function fakeNetwork(options: { proxyOpens?: boolean; none?: boolean } = {}) {
-  let holds = 0;
+  let live = 0;
+  let kept = false;
+  const held = () => live + (kept ? 1 : 0);
   const published: UiHostEndpoint[][] = [];
   const state = (): UiNetworkAccess => ({
     settings: { lan: false, tailscale: false, port: 7788, proxyPort: 7789 },
-    listeners: holds > 0 && options.proxyOpens !== false ? [{ host: "127.0.0.1", port: 7789, kind: "proxy" }] : [],
-    problems: holds > 0 && options.proxyOpens === false ? ["The proxy listener on 127.0.0.1:7789 did not open: another program uses port 7789."] : [],
+    listeners: held() > 0 && options.proxyOpens !== false ? [{ host: "127.0.0.1", port: 7789, kind: "proxy" }] : [],
+    problems: held() > 0 && options.proxyOpens === false ? ["The proxy listener on 127.0.0.1:7789 did not open: another program uses port 7789."] : [],
     tailscaleUp: true,
-    ...(holds > 0 ? { proxyHeld: true } : {}),
+    ...(held() > 0 ? { proxyHeld: true } : {}),
   });
   const services: HostNetworkServices = {
     state: () => options.none ? undefined : state(),
     holdProxy: async () => {
       if (options.none) throw new Error("This host opens no listeners of its own.");
-      holds += 1;
+      live += 1;
       let released = false;
-      return () => { if (!released) { released = true; holds -= 1; } };
+      return () => { if (!released) { released = true; live -= 1; } };
+    },
+    keepProxy: async (keep) => {
+      if (options.none) throw new Error("This host opens no listeners of its own.");
+      kept = keep;
     },
     publishEndpoints: (endpoints) => {
       const entry = [...endpoints];
@@ -71,7 +77,7 @@ function fakeNetwork(options: { proxyOpens?: boolean; none?: boolean } = {}) {
       return () => { published.splice(published.indexOf(entry), 1); };
     },
   };
-  return { services, published, holds: () => holds };
+  return { services, published, holds: held, kept: () => kept };
 }
 
 async function kit(network = fakeNetwork(), options: TailscaleHostOptions & { command?: string | null } = {}) {
@@ -134,12 +140,21 @@ describe("setting up Tailscale HTTPS", () => {
     expect(first.logs).toContain("tailscale.serve-on --https=443 http://127.0.0.1:7789");
 
     await first.registry.dispose();
-    expect(first.network.holds()).toBe(0);
+    // Kept for the next start, when the host opens it before any kit runs.
+    expect(first.network.kept()).toBe(true);
+    expect(first.network.published).toEqual([]);
     rmSync(join(fakeState, "calls.log"), { force: true });
-    const again = await kit();
+    const again = await kit(first.network);
     await expect.poll(() => again.network.published).toEqual([[SERVED]]);
-    expect(again.network.holds()).toBe(1);
+    expect(again.network.kept()).toBe(true);
     expect(calls()).toEqual([]);
+  });
+
+  it("lets the host stop keeping the listener when no mapping is recorded any more", async () => {
+    const network = fakeNetwork();
+    await network.services.keepProxy(true);
+    await kit(network);
+    await expect.poll(() => network.kept()).toBe(false);
   });
 
   it("refuses a name other than the one the owner agreed to publish", async () => {

@@ -69,7 +69,8 @@ function decodeServeOn(input: unknown): { httpsPort: number; name: string } {
  */
 class TailscaleKit {
   private record: ServeRecord | undefined;
-  private release: (() => void) | undefined;
+  /** Whether this kit keeps the proxy listener open, across restarts too. */
+  private kept = false;
   private withdraw: (() => void) | undefined;
   private publishedUrl: string | undefined;
   private notice: string | undefined;
@@ -92,14 +93,20 @@ class TailscaleKit {
   start(): Promise<void> {
     return this.serialize(async () => {
       const stored = decodeRecord(await readFile(join(this.services.stateDir, STORE_FILE), "utf8").then((text) => JSON.parse(text) as unknown, () => undefined));
-      if (stored) await this.follow(stored).catch((error: unknown) => this.services.log("tailscale.restore-failed", messageOf(error)));
+      try {
+        // The host may still keep the listener for a mapping this kit no longer records; say which is true.
+        await this.services.network.keepProxy(stored !== undefined);
+        this.kept = stored !== undefined;
+        if (stored) await this.follow(stored);
+      } catch (error: unknown) {
+        this.services.log("tailscale.restore-failed", messageOf(error));
+      }
     });
   }
 
+  /** The kept proxy listener stays: Serve still forwards after Tau quits, and the next start opens it before any kit runs. */
   stop(): void {
-    this.release?.();
     this.withdraw?.();
-    this.release = undefined;
     this.withdraw = undefined;
   }
 
@@ -123,16 +130,14 @@ class TailscaleKit {
       const taken = otherServes(seen.ports, proxyPort).find((other) => other.httpsPort === httpsPort && (other.path === "/" || other.path === ""));
       if (taken) throw refused(`Serve already forwards ${serveUrl(dnsName, httpsPort)} to ${taken.target}. Pick another port, or remove that first.`);
 
-      const heldBefore = this.release !== undefined;
-      this.release ??= await this.services.network.holdProxy();
-      const letGo = () => {
-        if (heldBefore || this.record) return;
-        this.release?.();
-        this.release = undefined;
+      const keptBefore = this.kept;
+      await this.keep(true);
+      const letGo = async () => {
+        if (!keptBefore && !this.record) await this.keep(false);
       };
       const network = await this.services.network.state();
       if (!network?.listeners.some((listener) => listener.kind === "proxy")) {
-        letGo();
+        await letGo();
         throw refused(network?.problems.find((problem) => problem.includes(String(proxyPort))) ?? `Tau’s proxy listener on 127.0.0.1:${proxyPort} did not open.`);
       }
       if (current === undefined) {
@@ -140,7 +145,7 @@ class TailscaleKit {
         this.services.log("tailscale.serve-on", `--https=${httpsPort} ${target}`);
         const result = await this.run(seen.command, ["serve", "--bg", `--https=${httpsPort}`, target], SERVE_TIMEOUT_MS);
         if (result.code !== 0) {
-          letGo();
+          await letGo();
           throw refused(describeFailure(result, this.platform));
         }
       }
@@ -252,13 +257,15 @@ class TailscaleKit {
     };
   }
 
+  private async keep(keep: boolean): Promise<void> {
+    if (keep === this.kept) return;
+    await this.services.network.keepProxy(keep);
+    this.kept = keep;
+  }
+
   /** Holds the proxy listener, publishes the URL and keeps the record while a mapping stands; lets go of all three after. */
   private async follow(next: ServeRecord | undefined): Promise<void> {
-    if (next && !this.release) this.release = await this.services.network.holdProxy();
-    if (!next && this.release) {
-      this.release();
-      this.release = undefined;
-    }
+    await this.keep(next !== undefined);
     const url = next ? serveUrl(next.dnsName, next.httpsPort) : undefined;
     if (url !== this.publishedUrl) {
       this.withdraw?.();
