@@ -8,7 +8,7 @@ import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HostClientRegistry } from "./host-clients.js";
-import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
 
@@ -180,6 +180,52 @@ describe("socket host transport", () => {
     const reply = await again.frame;
     expect(reply.type === "hello-reply" && reply.reply.missed.map((entry) => entry.seq)).toEqual([2, 3]);
     expect(reply.type === "hello-reply" && reply.reply.resync).toBe(false);
+  });
+});
+
+describe("more than one listener", () => {
+  async function secondListener(trust: "proxy" | "network") {
+    const server = createProtocolServer();
+    const detach = transport!.attach(server, trust);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    return { server, detach, port: typeof address === "object" && address ? address.port : 0 };
+  }
+
+  it("never tells a peer behind a proxy that the host's files are local, though it dials from 127.0.0.1", async () => {
+    vi.stubEnv("TAU_HOST_LOCAL_FILES", "1");
+    const calls: Array<{ connection: string; local: boolean }> = [];
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: ["jobs"], token: TOKEN,
+      calls: { attach: (connection, peer) => calls.push({ connection, local: peer.local }), detach: () => undefined },
+    });
+    const proxy = await secondListener("proxy");
+    try {
+      const own = await (await hello(transport.port, TOKEN)).frame;
+      const proxied = await (await hello(proxy.port, TOKEN)).frame;
+      expect(own.type === "hello-reply" && own.reply.capabilities).toContain("local-files");
+      expect(proxied.type === "hello-reply" && proxied.reply.capabilities).toEqual(["jobs"]);
+      expect(calls.map((call) => call.local)).toEqual([true, false]);
+    } finally {
+      vi.unstubAllEnvs();
+      proxy.detach();
+      await new Promise<void>((resolve) => proxy.server.close(() => resolve()));
+    }
+  });
+
+  it("closes the connections that came through a listener it detaches, and only those", async () => {
+    await listen();
+    const network = await secondListener("network");
+    const own = await hello(transport!.port, TOKEN);
+    await own.frame;
+    const remote = await hello(network.port, TOKEN);
+    await remote.frame;
+    const remoteClosed = closed(remote.socket);
+    network.detach();
+    await remoteClosed;
+    await new Promise<void>((resolve) => network.server.close(() => resolve()));
+    own.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: ["still here"] } }));
+    expect(await nextFrame(own.socket)).toMatchObject({ type: "response", response: { result: { echo: "still here" } } });
   });
 });
 

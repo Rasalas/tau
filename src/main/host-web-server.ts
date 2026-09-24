@@ -1,9 +1,10 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { isLoopbackHost } from "./host-listen.js";
 import type { AccessPeer } from "./host-access.js";
+import { peerAddress, type ListenerTrust } from "./host-local-files.js";
 
 /** Everything the built client is made of; anything else is not served at all. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -26,7 +27,8 @@ const AUTH_MAX_SOURCES = 1024;
 const AUTH_IDLE_MS = 10 * 60 * 1000;
 const AUTH_MAX_BACKOFF_MS = 60 * 1000;
 
-export function createAuthRateLimiter(now: () => number = Date.now): (source: string | undefined) => number {
+/** `strict`: no larger burst for loopback, for a listener where 127.0.0.1 is anyone. */
+export function createAuthRateLimiter(now: () => number = Date.now, options: { strict?: boolean } = {}): (source: string | undefined) => number {
   const sources = new Map<string, { attempts: number; retryAt: number; expiresAt: number }>();
   return (source) => {
     const key = (source ?? "unknown").toLowerCase().replace(/^::ffff:/u, "");
@@ -47,7 +49,7 @@ export function createAuthRateLimiter(now: () => number = Date.now): (source: st
       sources.set(key, entry);
     }
     if (entry.retryAt > time) return entry.retryAt - time;
-    const burst = isLoopbackHost(key) ? 20 : 5;
+    const burst = !options.strict && isLoopbackHost(key) ? 20 : 5;
     entry.attempts = Math.min(entry.attempts + 1, burst + 6);
     entry.retryAt = time + (entry.attempts < burst ? 0 : Math.min(1000 * 2 ** (entry.attempts - burst), AUTH_MAX_BACKOFF_MS));
     entry.expiresAt = time + AUTH_IDLE_MS;
@@ -63,11 +65,15 @@ export interface WebClientServerOptions {
   now?(): number;
   /** Serve over HTTPS; the socket transport then upgrades on the same TLS port. */
   tls?: { cert: string; key: string };
+  /** What the server this builds may conclude about its peers; `loopback` by default. */
+  trust?: ListenerTrust;
 }
 
 export interface WebClientServer {
   /** The socket transport attaches to this, so client and protocol share one port. */
   server: Server;
+  /** The same client for another listener; each kind of listener counts pairing attempts apart. */
+  handler(trust: ListenerTrust): RequestListener;
 }
 
 /**
@@ -80,20 +86,28 @@ export interface WebClientServer {
  */
 export function createWebClientServer(options: WebClientServerOptions): WebClientServer {
   const root = resolve(options.dir);
-  const admitPair = createAuthRateLimiter(options.now ?? Date.now);
-
-  const listener = (request: IncomingMessage, response: ServerResponse): void => {
-    void handle(request, response).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
+  const now = options.now ?? Date.now;
+  // Apart, so a flood through a proxy (every peer 127.0.0.1) never locks out this machine's own browser.
+  const limiters: Record<ListenerTrust, (source: string | undefined) => number> = {
+    loopback: createAuthRateLimiter(now),
+    network: createAuthRateLimiter(now, { strict: true }),
+    proxy: createAuthRateLimiter(now, { strict: true }),
   };
+
+  const handler = (trust: ListenerTrust): RequestListener => (request, response) => {
+    void handle(request, response, trust).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
+  };
+  const listener = handler(options.trust ?? "loopback");
   const server: Server = options.tls
     ? createHttpsServer({ cert: options.tls.cert, key: options.tls.key, minVersion: "TLSv1.2" }, listener)
     : createServer(listener);
 
-  async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  async function handle(request: IncomingMessage, response: ServerResponse, trust: ListenerTrust): Promise<void> {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (url.pathname === "/pair") {
       if (request.method !== "POST") { send(response, 405, "text/plain; charset=utf-8", "use POST"); return; }
-      const retryAfterMs = admitPair(request.socket.remoteAddress);
+      const address = peerAddress(trust, request);
+      const retryAfterMs = limiters[trust](address);
       if (retryAfterMs > 0) {
         request.resume();
         response.setHeader("retry-after", Math.ceil(retryAfterMs / 1000));
@@ -104,7 +118,7 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
       const code = typeof body?.code === "string" ? body.code : "";
       const userAgent = request.headers["user-agent"];
       const token = code ? await options.pairing.redeem(code, {
-        ...(request.socket.remoteAddress ? { address: request.socket.remoteAddress } : {}),
+        ...(address ? { address } : {}),
         ...(typeof userAgent === "string" ? { userAgent } : {}),
       }) : undefined;
       // A refused code says nothing about why: expired, spent and invented are one answer.
@@ -132,7 +146,7 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     response.end(request.method === "HEAD" ? undefined : content);
   }
 
-  return { server };
+  return { server, handler };
 }
 
 function send(response: ServerResponse, status: number, type: string, body: string): void {

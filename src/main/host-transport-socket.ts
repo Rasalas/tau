@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { Server as TlsServer } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -18,7 +18,7 @@ import { hostTokenMatches } from "./host-token.js";
 import type { AccessPeer, HostCredential } from "./host-access.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
-import { isLoopbackPeer, socketCapabilities } from "./host-local-files.js";
+import { isLocalPeer, peerAddress, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
 import type { ClientPeer } from "./client-calls.js";
 import type { HostClientSink } from "./host-transport-clients.js";
 import type { HostLogger } from "./host-log.js";
@@ -68,6 +68,8 @@ export interface SocketHostTransportOptions {
    * must be an HTTPS server built from the same certificate.
    */
   attachTo?: Server;
+  /** What the listener `listen` names may conclude about its peers; `loopback` by default. */
+  trust?: ListenerTrust;
   /** Where attached clients are reported; without one the host counts nobody. */
   clients?: HostClientSink;
   /** Told about every authenticated connection, so a call into a window can pick one; `ClientCalls` implements it. */
@@ -91,6 +93,13 @@ export interface SocketHostTransport {
   readonly scheme: "wss" | "ws";
   /** Set when the listener runs without TLS beyond loopback; the caller prints it. */
   readonly warning?: string;
+  /** The server `listen` bound; a certificate reload swaps its secure context. */
+  readonly server: Server;
+  /**
+   * Serves the protocol on another server too, whose connections are judged
+   * by `trust`. Detaching closes every connection that came through it.
+   */
+  attach(server: Server, trust: ListenerTrust): () => void;
   deliver(push: HostPush): void;
   /** Sends a call to that connection alone; false when it is gone. */
   sendCall(connection: string, call: HostClientCall): boolean;
@@ -112,11 +121,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     throw new Error("A TLS listener cannot attach to a plain HTTP server; build the web client's server with the same certificate.");
   }
   const { host, port } = bind;
-  const http = options.attachTo ?? (options.tls ? createTlsUpgradeServer(options.tls) : undefined);
-  const settings = { maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE };
-  const server = http
-    ? new WebSocketServer({ server: http, ...settings })
-    : new WebSocketServer({ host, port, ...settings });
+  const http = options.attachTo ?? (options.tls ? createTlsUpgradeServer(options.tls) : createUpgradeServer());
+  // No server of its own: every listener hands its upgrades over with the trust it has.
+  const server = new WebSocketServer({ noServer: true, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE });
   if (!options.access && !options.token) throw new Error("A socket listener needs a host token or an access model.");
   const access = options.access ?? tokenOnlyAccess(options.token!);
   /** Every authenticated socket, with the principal its requests run as. */
@@ -124,6 +131,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   /** The id the client registry knows a socket by, while it is authenticated. */
   const clientIds = new Map<WebSocket, string>();
   const sockets = new Map<string, WebSocket>();
+  /** The listener each socket came through, so detaching one closes its sockets. */
+  const origins = new Map<WebSocket, Server>();
   const forget = (socket: WebSocket): void => {
     const session = authenticated.get(socket);
     authenticated.delete(socket);
@@ -147,9 +156,11 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     send(socket, response);
   };
 
-  server.on("connection", (socket, request) => {
+  const accept = (socket: WebSocket, request: IncomingMessage, trust: ListenerTrust): void => {
     // Only a peer on this machine may be told that the host's files are local.
-    const capabilities = socketCapabilities(options.capabilities, request.socket.remoteAddress);
+    const capabilities = socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust);
+    const local = isLocalPeer(trust, request.socket.remoteAddress);
+    const address = peerAddress(trust, request);
     socket.on("message", (data) => {
       let payload: unknown;
       try { payload = JSON.parse(String(data)) as unknown; }
@@ -174,7 +185,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         options.beforeReply?.();
         const userAgent = request.headers["user-agent"];
         const connection = access.attach(credential, {
-          ...(request.socket.remoteAddress ? { address: request.socket.remoteAddress } : {}),
+          ...(address ? { address } : {}),
           ...(typeof userAgent === "string" ? { userAgent } : {}),
           ...(frame.hello.profile ? { profile: frame.hello.profile } : {}),
           ...(frame.hello.auxiliary ? { auxiliary: true } : {}),
@@ -186,7 +197,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         sockets.set(connection, socket);
         // Only a window's own process runs halves; a renderer names the window it sits in.
         options.calls?.attach(connection, {
-          local: isLoopbackPeer(request.socket.remoteAddress),
+          local,
           ...(credential.kind === "client" ? { pairedClient: credential.clientId } : {}),
           ...(frame.hello.windowId ? { windowId: frame.hello.windowId } : {}),
           ...(frame.hello.auxiliary && frame.hello.windowHalves ? { windowHalves: frame.hello.windowHalves } : {}),
@@ -228,17 +239,35 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           respond(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
         });
     });
-    socket.on("close", () => forget(socket));
+    socket.on("close", () => { origins.delete(socket); forget(socket); });
     socket.on("error", () => forget(socket));
-  });
+  };
+
+  const attach = (target: Server, trust: ListenerTrust): (() => void) => {
+    const onUpgrade = (request: IncomingMessage, stream: Parameters<WebSocketServer["handleUpgrade"]>[1], head: Buffer): void => {
+      server.handleUpgrade(request, stream, head, (socket) => {
+        origins.set(socket, target);
+        accept(socket, request, trust);
+      });
+    };
+    target.on("upgrade", onUpgrade);
+    return () => {
+      target.off("upgrade", onUpgrade);
+      for (const [socket, origin] of [...origins]) {
+        if (origin !== target) continue;
+        origins.delete(socket);
+        forget(socket);
+        socket.close();
+      }
+    };
+  };
+  attach(http, options.trust ?? "loopback");
 
   await new Promise<void>((resolve, reject) => {
-    const listening = http ?? server;
-    listening.once("error", reject);
-    if (http) http.listen(port, host, () => resolve());
-    else server.once("listening", () => resolve());
+    http.once("error", reject);
+    http.listen(port, host, () => { http.off("error", reject); resolve(); });
   });
-  const address = (http ?? server).address();
+  const address = http.address();
   const boundPort = typeof address === "object" && address ? address.port : port;
   const scheme = options.tls ? "wss" : "ws";
   options.logger?.info("host-transport-socket.listening", { host, port: boundPort, scheme });
@@ -246,6 +275,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   return {
     port: boundPort,
     scheme,
+    server: http,
+    attach,
     ...(warning ? { warning } : {}),
     deliver: (push) => {
       if (authenticated.size === 0) return;
@@ -259,17 +290,30 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       return true;
     },
     close: async () => {
+      // One that never said hello would otherwise hold the port open.
+      for (const socket of server.clients) if (!authenticated.has(socket)) socket.terminate();
       for (const socket of [...authenticated.keys()]) { forget(socket); socket.close(); }
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      if (http) await new Promise<void>((resolve) => http.close(() => resolve()));
+      await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };
 }
 
+const upgradeOnly = (_request: IncomingMessage, response: ServerResponse): void => {
+  response.writeHead(426, { "content-type": "text/plain; charset=utf-8", connection: "close" });
+  response.end("This port speaks the Tau host protocol over WebSocket.");
+};
+
 /** An HTTPS server with nothing to serve but the upgrade to the protocol. */
 function createTlsUpgradeServer(tls: { cert: string; key: string }): Server {
-  return createHttpsServer({ cert: tls.cert, key: tls.key, minVersion: "TLSv1.2" }, (_request, response) => {
-    response.writeHead(426, { "content-type": "text/plain; charset=utf-8", connection: "close" });
-    response.end("This port speaks the Tau host protocol over WebSocket.");
-  });
+  return createHttpsServer({ cert: tls.cert, key: tls.key, minVersion: "TLSv1.2" }, upgradeOnly);
+}
+
+function createUpgradeServer(): Server {
+  return createHttpServer(upgradeOnly);
+}
+
+/** A server for another listener with nothing but the protocol on it; `attach` it to a transport. */
+export function createProtocolServer(tls?: { cert: string; key: string }): Server {
+  return tls ? createTlsUpgradeServer(tls) : createUpgradeServer();
 }
