@@ -68,6 +68,20 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("pulls the default branch only when the host's own config turns that on", async () => {
+    const cwd = await workspace();
+    const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "first");
+    let options: Record<string, boolean> = {};
+    const settings = (async (_id: string, project?: string) => ({ options: project === cwd ? options : {}, values: {} })) as never;
+    const kit = await client(cwd, { settings });
+    // A client whose own copy still says "on" asks; the host's config says off.
+    await expect(kit.autoPull(cwd)).resolves.toEqual([]);
+    options = { "auto-pull-default-branch": true };
+    await expect(kit.autoPull(cwd)).resolves.toContainEqual({ checkout: "workspace", status: "skipped", reason: "no-upstream" });
+  });
+
   it("waits on the folder dialog as long as the user does", async () => {
     const registry = await activated(await workspace());
     expect(registry.longCommands()).toContain("tau.workspace/pick-folder");

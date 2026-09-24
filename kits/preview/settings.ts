@@ -23,16 +23,17 @@ export function readLinkTarget(value: unknown): LinkTarget {
 
 type PreferenceReader = Pick<PreferencesStore, "value" | "optionValue">;
 
-export function defaultsFromPreferences(preferences: PreferenceReader): PreviewDefaults {
-  const value = (key: string) => preferences.value(PREVIEW_HOST_EXTENSION_ID, key);
+/** The defaults from the kit's own `values` and `options`, as `services.settings` answers them on the host. */
+export function defaultsFromSettings(settings: { values: Readonly<Record<string, string>>; options: Readonly<Record<string, boolean>> }): PreviewDefaults {
+  const { values, options } = settings;
   return readDefaults({
-    viewport: value(PREVIEW_SETTINGS.viewport),
-    zoom: value(PREVIEW_SETTINGS.zoom),
-    appearance: value(PREVIEW_SETTINGS.appearance),
+    viewport: values[PREVIEW_SETTINGS.viewport],
+    zoom: values[PREVIEW_SETTINGS.zoom],
+    appearance: values[PREVIEW_SETTINGS.appearance],
     recording: {
-      frameRate: value(PREVIEW_SETTINGS.frameRate),
-      showKeys: preferences.optionValue(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.showKeys, false),
-      showClicks: preferences.optionValue(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.showClicks, false),
+      frameRate: values[PREVIEW_SETTINGS.frameRate],
+      showKeys: options[PREVIEW_SETTINGS.showKeys] === true,
+      showClicks: options[PREVIEW_SETTINGS.showClicks] === true,
     },
   });
 }
@@ -40,33 +41,4 @@ export function defaultsFromPreferences(preferences: PreferenceReader): PreviewD
 /** The floating preview is on unless the user turned it off. */
 export function floatingEnabled(preferences: PreferenceReader): boolean {
   return preferences.optionValue(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.floating, true);
-}
-
-/**
- * Hands the defaults to the host, now and whenever Settings change them; the
- * host opens pages with them. With `held`, what the host holds already is not
- * sent again: a paired device's log counts each call as a change it made.
- * Answers the unsubscribe.
- */
-export function syncDefaults(
-  preferences: PreferenceReader & Pick<PreferencesStore, "subscribe">,
-  send: (defaults: PreviewDefaults) => Promise<unknown>,
-  held?: () => Promise<unknown>,
-): () => void {
-  let sent = "";
-  const push = () => {
-    const defaults = defaultsFromPreferences(preferences);
-    const encoded = JSON.stringify(defaults);
-    if (encoded === sent) return;
-    sent = encoded;
-    if (!held) {
-      void send(defaults).catch(() => { sent = ""; });
-      return;
-    }
-    void held().then((current) => JSON.stringify(readDefaults(current)) === encoded, () => false)
-      .then((same) => (same ? undefined : send(defaults)))
-      .catch(() => { sent = ""; });
-  };
-  push();
-  return preferences.subscribe(push);
 }

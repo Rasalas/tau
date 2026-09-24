@@ -880,7 +880,9 @@ export interface HostExtensionServices {
    * Follows the files the host watches. The host re-reads none of them for a
    * kit and calls no kit by name: it reports what moved, and whoever owns those
    * files decides what to do — the keybindings kit re-reads `keybindings.json`,
-   * a themes kit its folder. Off when watching is.
+   * a themes kit its folder. Off when watching is, except for Tau's own
+   * config writes (`update-config`, `clear-config`), which are reported
+   * always: a write may then arrive twice.
    */
   observeConfigChanges(listener: (change: HostConfigChange) => void): () => void;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */

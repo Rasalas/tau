@@ -126,6 +126,15 @@ export interface ArmInput {
   accessibility: boolean;
 }
 
+/** What the shortcut should be, from the kit's settings as `services.settings` answers them. */
+export function armFromSettings(settings: { values: Readonly<Record<string, string>>; options: Readonly<Record<string, boolean>> } | undefined): ArmInput {
+  const enabled = settings?.options[SETTING_ENABLED] === true;
+  return {
+    accelerator: enabled ? settings.values[SETTING_SHORTCUT] || DEFAULT_SHORTCUT : null,
+    accessibility: settings?.options[SETTING_ACCESSIBILITY] !== false,
+  };
+}
+
 export interface SnapShotsHostCommands {
   /** Captures `target`, or the window in front when none is named. */
   "capture": { input: { target?: SnapShotTarget; accessibility?: boolean }; output: SnapShotMeta };
@@ -136,7 +145,8 @@ export interface SnapShotsHostCommands {
   "read": { input: { id: string }; output: SnapShotContent | null };
   /** Deletes captures that were sent or removed. */
   "release": { input: { ids: string[] }; output: void };
-  "arm": { input: ArmInput; output: ShortcutState };
+  /** Without input, arms what the host's config holds; a client sends none of its own. */
+  "arm": { input: ArmInput | undefined; output: ShortcutState };
   "shortcut-state": { input: undefined; output: ShortcutState };
   /** What `arm` set in the window a call reaches now; null when that window was not armed. */
   "armed": { input: undefined; output: ArmInput | null };
