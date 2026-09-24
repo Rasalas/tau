@@ -8,11 +8,11 @@ import { ACCESS_HOST_EXTENSION_ID } from "./protocol.js";
 
 afterEach(cleanup);
 
-function activate(hostLevel = "ask") {
+function activate() {
   const calls: unknown[][] = [];
   const { registry, preferences } = createKitHarness(async (...args) => {
     calls.push(args);
-    return args[1] === "level" ? hostLevel : args[2];
+    return args[2];
   });
   preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full");
   registry.activate(accessKitExtension);
@@ -22,23 +22,20 @@ function activate(hostLevel = "ask") {
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("Access Kit desktop extension", () => {
-  it("pushes the stored level on activation and after every change", async () => {
+  it("sends nothing on load, whatever this client stored, and the level a person picks at once", async () => {
     const { registry, calls, preferences } = activate();
     await settled();
-    expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "level", undefined], [ACCESS_HOST_EXTENSION_ID, "set-level", { level: "full" }]]);
-    preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "read-only");
+    expect(calls).toEqual([]);
+    // A sync from the host changes the stored value; that is not this client's change.
+    preferences.applyConfig({ values: { "tau.access.level": "read-only" } });
     await settled();
-    expect(calls.at(-1)).toEqual([ACCESS_HOST_EXTENSION_ID, "set-level", { level: "read-only" }]);
-    registry.deactivate(ACCESS_HOST_EXTENSION_ID);
-    preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "ask");
-    await settled();
-    expect(calls).toHaveLength(4);
-  });
-
-  it("sends nothing on activation when the host already holds the stored level", async () => {
-    const { calls } = activate("full");
-    await settled();
-    expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "level", undefined]]);
+    expect(calls).toEqual([]);
+    const run = (id: string) => registry.getCommands().find((command) => command.id === id)!.run({ notify: vi.fn() } as never);
+    void run("access.read-only");
+    expect(calls).toEqual([]);
+    void run("access.ask");
+    expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "set-level", { level: "ask" }]]);
+    expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");
   });
 
   it("contributes the composer control and disables ask mode a runtime cannot serve", () => {
