@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FileDiff } from "lucide-react";
-import { ChangesTree, FileKindIcon, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
+import { ChangesTree, FileKindIcon, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
 import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
@@ -118,6 +118,7 @@ export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
   // Follow the host's proposal until the user types; a commit resets to following.
   useEffect(() => { if (!dirty) setMessage(changes.proposedMessage ?? ""); }, [changes.proposedMessage, dirty]);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const { readOnly } = useHostCapabilities();
   useEffect(() => { if (commitFocusToken > 0 && active) messageRef.current?.focus(); }, [active, commitFocusToken]);
 
   const canCommit = !committing && changes.files.length > 0 && message.trim().length > 0;
@@ -138,7 +139,7 @@ export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
     </header>
     {changesSections.map((Section, index) => <Section key={index} actions={actions} message={message} committed={() => setDirty(false)} />)}
     {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : <>
-      <div className="commit-box">
+      {readOnly ? <p className="empty-copy" role="note">This device is paired Read only: it can look at the changes, not stage, commit or revert them.</p> : <div className="commit-box">
         <div className="commit-selection"><small>{stagedCount}/{changes.files.length} staged</small>{!allStaged ? <button className="text-button" disabled={committing} onClick={() => void stageAll()}>Stage all</button> : <span>All staged</span>}</div>
         <textarea
           ref={messageRef}
@@ -159,7 +160,7 @@ export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
           ) : null}
           <small><span className="stat-add">+{changes.added}</span> <span className="stat-del">−{changes.removed}</span></small>
         </div>
-      </div>
+      </div>}
       <ChangesTree key={snapshot?.cwd} files={changes.files} activePath={activeRelative} onOpen={openDiff} onStage={stageFile} onUnstage={unstageFile} onRevert={revertFile} />
     </>}
   </section>;

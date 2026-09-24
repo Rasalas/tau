@@ -14,7 +14,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
   const workspaceStore = useWorkspaceStore();
   const preferences = usePreferences();
   const state = useWorkspaceKit();
-  const { localFiles } = useHostCapabilities();
+  const { localFiles, readOnly } = useHostCapabilities();
   // Re-render when the editor preference changes.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const [editorMenu, setEditorMenu] = useState(false);
@@ -38,7 +38,8 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
 
   return (
     <>
-      <ProjectActionsControl cwd={state.workspaceId ?? state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />
+      {/* A Read-only device runs nothing and changes no branch (ADR 0024); both are left out. */}
+      {readOnly ? null : <ProjectActionsControl cwd={state.workspaceId ?? state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />}
 
       {localFiles ? <div className="menu-anchor">
         <div className="chrome-group" aria-label="Open in editor">
@@ -125,7 +126,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
         </div>
       ) : null}
 
-      <div className="menu-anchor">
+      {readOnly ? null : <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">
           <button
             className="chrome-button accent split-main"
@@ -181,7 +182,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
             onClose={() => setGitMenu(false)}
           />
         ) : null}
-      </div>
+      </div>}
     </>
   );
 }
