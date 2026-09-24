@@ -3,7 +3,7 @@ import type { HostClient } from "../../src/workbench/host-client";
 import type { HostConnection } from "../../src/workbench/host-connection";
 import type { HostWakeSource } from "../../src/workbench/host-link";
 import { RacingSocket, socketCandidates, type DeviceNetwork, type SocketCandidate } from "./endpoints";
-import type { SavedHost } from "./hosts";
+import type { SavedHost, WonAddress } from "./hosts";
 import { NativeSocket, type SocketBridge } from "./native-socket";
 
 export interface ConnectDependencies {
@@ -26,6 +26,7 @@ export interface ConnectCallbacks {
 /** A pinned native socket for one candidate address. */
 export function openCandidate(dependencies: Pick<ConnectDependencies, "bridge" | "userAgent">, candidate: SocketCandidate): NativeSocket {
   return new NativeSocket(dependencies.bridge, candidate.url, {
+    ...(candidate.publicKey ? { publicKey: candidate.publicKey } : {}),
     ...(candidate.fingerprint ? { fingerprint: candidate.fingerprint } : {}),
     ...(candidate.allowAuthority ? { allowAuthority: true } : {}),
     ...(dependencies.userAgent ? { headers: { "User-Agent": dependencies.userAgent } } : {}),
@@ -35,15 +36,22 @@ export function openCandidate(dependencies: Pick<ConnectDependencies, "bridge" |
 /**
  * The workbench's connection to a saved host. Every socket the transport
  * opens — the first and each reconnect — races the host's addresses again,
- * so a phone that left home switches to Tailscale on its own.
+ * so a phone that left home switches to Tailscale on its own. `host` is read
+ * at every race, so a migrated pin or a refreshed address list applies to the
+ * next socket; `won()` names the address the current one won with.
  */
-export function connectHost(host: SavedHost, token: string, dependencies: ConnectDependencies, callbacks: ConnectCallbacks): { client: HostClient; connection: HostConnection } {
+export function connectHost(host: () => SavedHost, token: string, dependencies: ConnectDependencies, callbacks: ConnectCallbacks): { client: HostClient; connection: HostConnection; won(): WonAddress | undefined } {
   let lastAddress: string | undefined;
-  const candidates = () => socketCandidates(host.endpoints, host.fingerprint, dependencies.device);
-  return createSocketHostClient(candidates()[0]?.url ?? "wss://unreachable.invalid/", token, {
+  let won: WonAddress | undefined;
+  const candidates = () => {
+    const current = host();
+    return socketCandidates(current.endpoints, { ...(current.publicKey ? { publicKey: current.publicKey } : {}), ...(current.fingerprint ? { fingerprint: current.fingerprint } : {}) }, dependencies.device);
+  };
+  const { client, connection } = createSocketHostClient(candidates()[0]?.url ?? "wss://unreachable.invalid/", token, {
     ...(dependencies.wakes ? { wakes: dependencies.wakes } : {}),
     createSocket: () => new RacingSocket(candidates(), (candidate) => openCandidate(dependencies, candidate), {
-      onWinner: (candidate) => {
+      onWinner: (candidate, seen) => {
+        won = { candidate, seen };
         if (candidate.url === lastAddress) return;
         lastAddress = candidate.url;
         callbacks.onAddress?.(candidate);
@@ -52,4 +60,5 @@ export function connectHost(host: SavedHost, token: string, dependencies: Connec
     }),
     onUnauthorized: callbacks.onUnauthorized,
   });
+  return { client, connection, won: () => won };
 }

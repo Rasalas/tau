@@ -22,8 +22,10 @@ import okio.ByteString;
 
 /**
  * A WebSocket that accepts the host's self-signed certificate only when its
- * SHA-256 is the pinned one. The web view's own WebSocket cannot pin, so
- * every socket to a host goes through here.
+ * key (or, for a pin from before key pins, the certificate) is the pinned
+ * one. Without a pin the platform's own trust decides, chain and name, as
+ * for Tailscale Serve. The web view's own WebSocket cannot pin, so every
+ * socket to a host goes through here.
  */
 final class PinnedSocket extends WebSocketListener {
 
@@ -41,17 +43,19 @@ final class PinnedSocket extends WebSocketListener {
     private final Emit emit;
     private final WebSocket socket;
     private volatile String seen;
+    private volatile String seenKey;
     private volatile boolean mismatch;
     private volatile boolean pinned;
     private volatile boolean finished;
 
-    PinnedSocket(String id, String url, String pin, boolean allowAuthority, Map<String, String> headers, Emit emit) throws Exception {
+    PinnedSocket(String id, String url, String keyPin, String pin, boolean allowAuthority, Map<String, String> headers, Emit emit) throws Exception {
         this.id = id;
         this.emit = emit;
         OkHttpClient.Builder builder = BASE.newBuilder();
-        if (pin != null && url.startsWith("wss:")) {
+        if ((keyPin != null || pin != null) && url.startsWith("wss:")) {
             X509TrustManager platform = platformTrustManager();
-            String wanted = normalized(pin);
+            String wantedKey = keyPin == null ? null : normalized(keyPin);
+            String wanted = pin == null ? null : normalized(pin);
             X509TrustManager trust = new X509TrustManager() {
                 @Override
                 public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
@@ -62,6 +66,16 @@ final class PinnedSocket extends WebSocketListener {
                 public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
                     if (chain == null || chain.length == 0) throw new CertificateException("The host presented no certificate.");
                     seen = fingerprint(chain[0]);
+                    seenKey = publicKeyPin(chain[0]);
+                    // A key pin is strict: no CA stands in for it.
+                    if (wantedKey != null) {
+                        if (normalized(seenKey).equals(wantedKey)) {
+                            pinned = true;
+                            return;
+                        }
+                        mismatch = true;
+                        throw new CertificateException("certificate-mismatch");
+                    }
                     if (normalized(seen).equals(wanted)) {
                         pinned = true;
                         return;
@@ -103,6 +117,7 @@ final class PinnedSocket extends WebSocketListener {
     public void onOpen(WebSocket webSocket, Response response) {
         JSObject event = base("open");
         if (seen != null) event.put("fingerprint", seen);
+        if (seenKey != null) event.put("publicKey", seenKey);
         emit.emit(event);
     }
 
@@ -162,8 +177,17 @@ final class PinnedSocket extends WebSocketListener {
 
     /** SHA-256 of the certificate, `AB:CD:…`, the way a pairing link spells it. */
     static String fingerprint(X509Certificate certificate) throws CertificateException {
+        return sha256(certificate.getEncoded());
+    }
+
+    /** SHA-256 of its SubjectPublicKeyInfo: the key pin, which a renewal with the same key keeps. */
+    static String publicKeyPin(X509Certificate certificate) throws CertificateException {
+        return sha256(certificate.getPublicKey().getEncoded());
+    }
+
+    private static String sha256(byte[] data) throws CertificateException {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded());
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(data);
             StringBuilder text = new StringBuilder();
             for (int index = 0; index < digest.length; index++) {
                 if (index > 0) text.append(':');

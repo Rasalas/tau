@@ -12,10 +12,10 @@ import { WebWorkbench } from "../../src/web/WebWorkbench";
 import { connectHost, openCandidate } from "./connect";
 import { nearbyHosts, withDiscoveredEndpoints, type DiscoveredHost, type NativeService } from "./discovery";
 import type { SocketCandidate } from "./endpoints";
-import { fallbackHostId, sortHosts, type HostBook, type SavedHost } from "./hosts";
+import { fallbackHostId, migratedPin, reachedHostEndpoints, sortHosts, type HostBook, type SavedHost } from "./hosts";
 import type { DeviceInfo, ScanResult } from "./native";
 import type { SocketBridge } from "./native-socket";
-import { pairDevice, sameAddress, type PairTarget } from "./pairing";
+import { pairDevice, sameAddress, targetPins, type PairTarget } from "./pairing";
 import { pushRegistrar } from "./push";
 import { routeSearch, type AppRoute } from "./routes";
 import { clearHostStorage, hostStorage } from "./storage";
@@ -59,7 +59,7 @@ export function payloadTarget(payload: PairingPayload): PairTarget {
   return {
     hostId: payload.hostId ?? fallbackHostId(payload.fingerprint, payload.endpoints),
     name: name || "Tau host",
-    ...(payload.fingerprint ? { fingerprint: payload.fingerprint } : {}),
+    ...targetPins(payload),
     endpoints: payload.endpoints,
     code: payload.code,
   };
@@ -112,25 +112,40 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(threadId ? { threadId } : {}) })}`);
     const scoped = hostStorage(storage, host.id);
     setClientStorage(scoped);
-    const { client, connection } = connectHost(host, token, {
+    // Read at every reconnect: a migrated pin or a refreshed address list applies to the next socket.
+    let current = host;
+    const learn = (change: Partial<SavedHost>) => {
+      current = { ...current, ...change };
+      void book.update(host.id, change);
+    };
+    const { client, connection, won } = connectHost(() => current, token, {
       bridge: context.bridge,
       device,
       ...(context.wakes ? { wakes: context.wakes } : {}),
       userAgent: navigator.userAgent,
     }, {
       onAddress: (candidate) => {
-        const endpoint = host.endpoints.find((entry) => sameAddress(entry.url, candidate.url));
+        const endpoint = current.endpoints.find((entry) => sameAddress(entry.url, candidate.url));
         void book.update(host.id, { lastUsedAt: now().toISOString(), ...(endpoint ? { lastEndpoint: endpoint } : {}) });
       },
       onUnauthorized: () => {
         void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open the host to ask again.`));
       },
-      onCertificateMismatch: () => leaveTo("?view=hosts", `${host.name} answered with another certificate than the one this phone pinned, so the phone sent it nothing. If the host renewed its certificate, remove it here and scan a new pairing code.`),
+      onCertificateMismatch: () => leaveTo("?view=hosts", `${host.name} answered with another key than the one this phone pinned, so the phone sent it nothing. A renewed certificate keeps the key; if the host's key was replaced on purpose, remove it here and scan a new pairing code.`),
     });
     setHostClient(client);
     let registered = false;
     connection.onState((state) => {
-      if (state !== "connected" || registered) return;
+      if (state !== "connected") return;
+      // After every hello: an old certificate pin moves to the key, and the host says where else it is reachable.
+      const address = won();
+      const pin = address ? migratedPin(current, address) : undefined;
+      if (pin) learn(pin);
+      void client.reachHost().then((reach) => {
+        const endpoints = reachedHostEndpoints(current, reach, won()?.candidate.url, sameAddress);
+        if (endpoints) learn({ endpoints });
+      }, () => undefined);
+      if (registered) return;
       registered = true;
       void pushRegistrar()?.register({ host, client }).catch(() => undefined);
     });
@@ -171,7 +186,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const openHost = useCallback(async (host: SavedHost, threadId?: string) => {
     const token = await book.token(host.id);
     if (token) openWorkbench(host, token, threadId);
-    else startPairing({ hostId: host.id, name: host.name, ...(host.fingerprint ? { fingerprint: host.fingerprint } : {}), endpoints: host.endpoints }, "hosts");
+    else startPairing({ hostId: host.id, name: host.name, ...targetPins(host), endpoints: host.endpoints }, "hosts");
   }, [book, openWorkbench, startPairing]);
 
   const scan = useCallback(async (from: "hosts" | "add") => {
@@ -272,7 +287,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
         onScan={() => void scan("hosts")}
-        onAsk={(found: DiscoveredHost) => startPairing({ hostId: found.hostId, name: found.name, fingerprint: found.fingerprint, endpoints: found.endpoints }, "hosts")}
+        onAsk={(found: DiscoveredHost) => startPairing({ hostId: found.hostId, name: found.name, ...targetPins(found), endpoints: found.endpoints }, "hosts")}
       />;
     }
   }

@@ -1,14 +1,30 @@
-import type { PairingEndpoint, UiHostEndpointKind } from "../../src/shared/connections";
+import { authorityName, type PairingEndpoint, type UiHostEndpointKind } from "../../src/shared/connections";
+
+/** What the app pins for a host: its key, or, from before key pins, one certificate. */
+export interface HostPins {
+  publicKey?: string;
+  fingerprint?: string;
+}
 
 /** One way to reach a host's socket, in the order the app prefers it. */
 export interface SocketCandidate {
   /** `wss://…/`, or `ws://` to a loopback host from a simulator. */
   url: string;
   kind?: UiHostEndpointKind;
-  /** The certificate to pin, when the host gave one and this is TLS. */
+  /**
+   * `pin`: the host's key (or old certificate) and nothing else; `authority`:
+   * a certificate a CA the phone trusts vouches for under this name, as at
+   * Tailscale Serve; `plain`: a simulator's loopback without TLS.
+   */
+  trust: "pin" | "authority" | "plain";
+  /** The key to pin, for `pin`. */
+  publicKey?: string;
+  /** The certificate to pin, for `pin` without a key: a host paired before key pins. */
   fingerprint?: string;
-  /** A name a public CA can vouch for (Tailscale Serve), where a trusted certificate is as good as the pin. */
+  /** A certificate pin may give way to a CA for a name one can vouch for, as it did before addresses carried the flag. */
   allowAuthority: boolean;
+  /** The address is marked as one a CA vouches for: a proxy in front of the host ends TLS there. */
+  proxied?: boolean;
   /** Lower is preferred. */
   rank: number;
 }
@@ -31,9 +47,11 @@ const isIpLiteral = (host: string): boolean => host.startsWith("[") || /^\d{1,3}
  * Every address the app may try for a host, best first. Plain `ws:` is only
  * ever loopback — a host never listens in plaintext beyond it — and loopback
  * is this phone itself, so it counts only in a simulator (the Android
- * emulator reaches the development machine as 10.0.2.2).
+ * emulator reaches the development machine as 10.0.2.2). An address marked
+ * as one a CA vouches for is checked by chain and name; every other TLS
+ * address is pinned to the host's key.
  */
-export function socketCandidates(endpoints: readonly PairingEndpoint[], fingerprint: string | undefined, device: DeviceNetwork): SocketCandidate[] {
+export function socketCandidates(endpoints: readonly PairingEndpoint[], pins: HostPins, device: DeviceNetwork): SocketCandidate[] {
   const candidates: SocketCandidate[] = [];
   for (const endpoint of endpoints) {
     let url: URL;
@@ -48,11 +66,17 @@ export function socketCandidates(endpoints: readonly PairingEndpoint[], fingerpr
     const ipv6 = url.hostname.startsWith("[");
     const socketUrl = `${tls ? "wss" : "ws"}://${url.host}/`;
     if (candidates.some((candidate) => candidate.url === socketUrl)) continue;
+    const proxied = tls && endpoint.trustedCertificate === true && authorityName(endpoint.url);
+    const pin: HostPins = !tls || proxied ? {} : pins.publicKey ? { publicKey: pins.publicKey } : pins.fingerprint ? { fingerprint: pins.fingerprint } : {};
+    const pinned = Boolean(pin.publicKey || pin.fingerprint);
     candidates.push({
       url: socketUrl,
       ...(kind ? { kind } : {}),
-      ...(tls && fingerprint ? { fingerprint } : {}),
-      allowAuthority: tls && !isIpLiteral(url.hostname) && !url.hostname.endsWith(".local"),
+      trust: !tls ? "plain" : pinned ? "pin" : "authority",
+      ...pin,
+      // Only an old certificate pin keeps the CA fallback; a key pin is strict.
+      allowAuthority: Boolean(pin.fingerprint) && !isIpLiteral(url.hostname) && !url.hostname.endsWith(".local"),
+      ...(proxied ? { proxied: true } : {}),
       // IPv6 after the IPv4 and name of the same network.
       rank: (kind ? RANK[kind] : UNKNOWN_RANK) + (ipv6 ? 1.5 : 0),
     });
@@ -63,7 +87,8 @@ export function socketCandidates(endpoints: readonly PairingEndpoint[], fingerpr
 /** The socket an attempt opens: a `NativeSocket`, or a fake in tests. */
 export interface AttemptSocket {
   readonly readyState: number;
-  fingerprint?: string;
+  fingerprint?: string | undefined;
+  publicKey?: string | undefined;
   pinMismatch?: boolean;
   addEventListener(type: "open", listener: () => void): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
@@ -81,8 +106,8 @@ export interface RaceOptions {
   /** How long an open socket waits for a better address still trying. */
   graceMs?: number;
   timers?: RaceTimers;
-  /** The address that won, before the socket reports open. */
-  onWinner?(candidate: SocketCandidate): void;
+  /** The address that won and what its handshake showed, before the socket reports open. */
+  onWinner?(candidate: SocketCandidate, seen: { fingerprint?: string; publicKey?: string }): void;
   /** No address opened; `certificate-mismatch` when every one showed another certificate. */
   onFailure?(reason: "unreachable" | "certificate-mismatch"): void;
 }
@@ -111,6 +136,7 @@ export class RacingSocket {
   /** Every candidate refused the pinned certificate. */
   pinMismatch = false;
   fingerprint: string | undefined;
+  publicKey: string | undefined;
 
   private readonly attempts: Array<{ candidate: SocketCandidate; socket: AttemptSocket; state: "trying" | "open" | "failed" }>;
   private readonly timers: RaceTimers;
@@ -177,9 +203,13 @@ export class RacingSocket {
     this.chosen = attempt.socket;
     this.winner = attempt.candidate;
     this.fingerprint = attempt.socket.fingerprint;
+    this.publicKey = attempt.socket.publicKey;
     this.readyState = OPEN;
     for (const other of this.attempts) if (other !== attempt && other.state !== "failed") other.socket.close();
-    this.options.onWinner?.(attempt.candidate);
+    this.options.onWinner?.(attempt.candidate, {
+      ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
+      ...(this.publicKey ? { publicKey: this.publicKey } : {}),
+    });
     attempt.socket.addEventListener("message", (event) => this.onmessage?.({ data: event.data }));
     attempt.socket.addEventListener("close", (event) => {
       this.readyState = CLOSED;

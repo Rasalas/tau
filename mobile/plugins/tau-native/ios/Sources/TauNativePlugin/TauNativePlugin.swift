@@ -63,7 +63,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
               url.scheme == "ws" || url.scheme == "wss" else { return call.reject("id and a ws: or wss: url are required") }
         var headers: [String: String] = [:]
         for (name, value) in call.getObject("headers") ?? [:] { if let value = value as? String { headers[name] = value } }
-        let socket = PinnedSocket(id: id, url: url, pin: call.getString("fingerprint"), allowAuthority: call.getBool("allowAuthority") ?? false, headers: headers) { [weak self] event in
+        let socket = PinnedSocket(id: id, url: url, keyPin: call.getString("publicKey"), pin: call.getString("fingerprint"), allowAuthority: call.getBool("allowAuthority") ?? false, headers: headers) { [weak self] event in
             guard let self else { return }
             if event["type"] as? String == "close" { self.forget(id) }
             self.notifyListeners("socket", data: event)

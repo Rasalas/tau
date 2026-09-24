@@ -1,4 +1,5 @@
-import type { DeviceAccess, PairingEndpoint } from "../../src/shared/connections";
+import { reachedEndpoints, type DeviceAccess, type PairingEndpoint, type UiHostReach } from "../../src/shared/connections";
+import type { SocketCandidate } from "./endpoints";
 
 /** The Keychain on iOS, the Keystore-backed store on Android. */
 export interface SecureStore {
@@ -12,7 +13,9 @@ export interface SavedHost {
   /** The host's own id (`<userData>/host-id`), the same in a pairing link and a Bonjour record. */
   id: string;
   name: string;
-  /** SHA-256 of the certificate its network listeners serve; pinned on every TLS address. */
+  /** SHA-256 of its network listeners' public key; pinned on every TLS address a CA does not vouch for. */
+  publicKey?: string;
+  /** SHA-256 of one certificate: the pin of a host paired before key pins, until its next hello. */
   fingerprint?: string;
   endpoints: PairingEndpoint[];
   access: DeviceAccess;
@@ -108,6 +111,36 @@ export class HostBook {
 /** Most recently used first, then by name. */
 export function sortHosts(hosts: readonly SavedHost[]): SavedHost[] {
   return [...hosts].sort((a, b) => (b.lastUsedAt ?? b.addedAt).localeCompare(a.lastUsedAt ?? a.addedAt) || a.name.localeCompare(b.name));
+}
+
+/** What a connection's winning address and handshake were. */
+export interface WonAddress {
+  candidate: SocketCandidate;
+  seen: { fingerprint?: string; publicKey?: string };
+}
+
+/**
+ * After a hello: a host still pinned by certificate moves to its key, when
+ * that pin just held; a CA letting the socket in proves nothing about the
+ * host's own key. Undefined when nothing changes.
+ */
+export function migratedPin(host: SavedHost, won: WonAddress): Pick<SavedHost, "publicKey" | "fingerprint"> | undefined {
+  if (host.publicKey || !host.fingerprint || won.candidate.trust !== "pin" || !won.candidate.fingerprint) return undefined;
+  if (won.seen.fingerprint !== won.candidate.fingerprint || !won.seen.publicKey) return undefined;
+  return { publicKey: won.seen.publicKey, fingerprint: undefined };
+}
+
+/**
+ * The addresses to keep after a host said where it is reachable: its list,
+ * and the one this connection won with when the host did not list it.
+ * Undefined when nothing changes, or when the answer names another host.
+ */
+export function reachedHostEndpoints(host: SavedHost, reach: UiHostReach, wonUrl: string | undefined, same: (endpointUrl: string, socketUrl: string) => boolean): PairingEndpoint[] | undefined {
+  if (reach.hostId && reach.hostId !== host.id) return undefined;
+  const current = wonUrl ? host.endpoints.find((endpoint) => same(endpoint.url, wonUrl)) : undefined;
+  const endpoints = reachedEndpoints(reach.endpoints, current);
+  if (endpoints.length === 0 || JSON.stringify(endpoints) === JSON.stringify(host.endpoints)) return undefined;
+  return endpoints;
 }
 
 /** A host id for a link from a host that names none: stable per certificate, else per first address. */

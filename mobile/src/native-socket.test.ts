@@ -20,15 +20,16 @@ function fakeBridge(options: { refuseOpen?: boolean; forgetOnClose?: boolean } =
 describe("NativeSocket", () => {
   it("opens through the plugin with the pin and reports what the host presented", () => {
     const fake = fakeBridge();
-    const socket = new NativeSocket(fake.bridge, "wss://host:7788/", { fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
-    expect(fake.opened[0]).toMatchObject({ url: "wss://host:7788/", fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
+    const socket = new NativeSocket(fake.bridge, "wss://host:7788/", { publicKey: "EF:01", fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
+    expect(fake.opened[0]).toMatchObject({ url: "wss://host:7788/", publicKey: "EF:01", fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
     const seen: string[] = [];
     socket.addEventListener("open", () => seen.push("open"));
     socket.onmessage = (event) => seen.push(`message ${String(event.data)}`);
-    fake.emit({ type: "open", fingerprint: "AB:CD" });
+    fake.emit({ type: "open", fingerprint: "AB:CD", publicKey: "EF:01" });
     fake.emit({ type: "message", data: "frame" });
     expect(socket.readyState).toBe(NativeSocket.OPEN);
     expect(socket.fingerprint).toBe("AB:CD");
+    expect(socket.publicKey).toBe("EF:01");
     socket.send("hello");
     expect(fake.sent).toEqual([[fake.opened[0]!.id, "hello"]]);
     expect(seen).toEqual(["open", "message frame"]);

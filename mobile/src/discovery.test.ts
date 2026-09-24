@@ -51,4 +51,14 @@ describe("withDiscoveredEndpoints", () => {
     expect(withDiscoveredEndpoints(saved, found("https://192.168.1.9:7788/", "CD:".repeat(31) + "CD"))).toBeUndefined();
     expect(withDiscoveredEndpoints(saved, found("https://192.168.1.2:7788/"))).toBeUndefined();
   });
+
+  it("compares keys once the host is pinned by key: a renewed certificate still matches, another key does not", () => {
+    const KEY = "EF:".repeat(31) + "EF";
+    const keyed: SavedHost = { ...saved, fingerprint: undefined, publicKey: KEY } as SavedHost;
+    const renewed = { ...found("https://192.168.1.9:7788/", "CD:".repeat(31) + "CD"), publicKey: KEY };
+    expect(withDiscoveredEndpoints(keyed, renewed)?.[0]?.url).toBe("https://192.168.1.9:7788/");
+    expect(withDiscoveredEndpoints(keyed, { ...renewed, publicKey: FP })).toBeUndefined();
+    // A record from before key pins proves nothing about the key.
+    expect(withDiscoveredEndpoints(keyed, found("https://192.168.1.9:7788/"))).toBeUndefined();
+  });
 });

@@ -3,12 +3,15 @@ import Foundation
 import Security
 
 /// A WebSocket that accepts the host's self-signed certificate only when its
-/// SHA-256 is the pinned one. WKWebView's own WebSocket cannot pin, so every
-/// socket to a host goes through here.
+/// key (or, for a pin from before key pins, the certificate) is the pinned
+/// one. Without a pin the platform's own trust decides, chain and name, as
+/// for Tailscale Serve. WKWebView's own WebSocket cannot pin, so every socket
+/// to a host goes through here.
 final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
     typealias Emit = ([String: Any]) -> Void
 
     let id: String
+    private let keyPin: String?
     private let pin: String?
     private let allowAuthority: Bool
     private let emit: Emit
@@ -16,11 +19,13 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
     private var session: URLSession?
     private var task: URLSessionWebSocketTask?
     private var seen: String?
+    private var seenKey: String?
     private var mismatch = false
     private var finished = false
 
-    init(id: String, url: URL, pin: String?, allowAuthority: Bool, headers: [String: String], emit: @escaping Emit) {
+    init(id: String, url: URL, keyPin: String?, pin: String?, allowAuthority: Bool, headers: [String: String], emit: @escaping Emit) {
         self.id = id
+        self.keyPin = keyPin.map(PinnedSocket.normalized)
         self.pin = pin.map(PinnedSocket.normalized)
         self.allowAuthority = allowAuthority
         self.emit = emit
@@ -105,11 +110,22 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
         }
         let fingerprint = PinnedSocket.leafFingerprint(trust)
         seen = fingerprint
+        seenKey = PinnedSocket.leaf(trust).flatMap(PublicKeyPin.of)
+        // The pin is stronger than a name check: the self-signed certificate names none of the LAN addresses.
+        if let keyPin {
+            // A key pin is strict: no CA stands in for it.
+            if seenKey.map(PinnedSocket.normalized) == keyPin {
+                completion(.useCredential, URLCredential(trust: trust))
+            } else {
+                mismatch = true
+                completion(.cancelAuthenticationChallenge, nil)
+            }
+            return
+        }
         guard let pin else {
             completion(.performDefaultHandling, nil)
             return
         }
-        // The pin is stronger than a name check: the self-signed certificate names none of the LAN addresses.
         if fingerprint.map(PinnedSocket.normalized) == pin {
             completion(.useCredential, URLCredential(trust: trust))
             return
@@ -127,6 +143,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         var event: [String: Any] = ["id": id, "type": "open"]
         if let seen { event["fingerprint"] = seen }
+        if let seenKey { event["publicKey"] = seenKey }
         emit(event)
     }
 
@@ -146,8 +163,12 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
     // MARK: Fingerprints
 
     /// SHA-256 of the leaf certificate, `AB:CD:…`, the way a pairing link spells it.
+    static func leaf(_ trust: SecTrust) -> SecCertificate? {
+        (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
+    }
+
     static func leafFingerprint(_ trust: SecTrust) -> String? {
-        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first else { return nil }
+        guard let leaf = leaf(trust) else { return nil }
         let digest = SHA256.hash(data: SecCertificateCopyData(leaf) as Data)
         return digest.map { String(format: "%02X", $0) }.joined(separator: ":")
     }
