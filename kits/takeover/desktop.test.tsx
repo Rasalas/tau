@@ -181,6 +181,7 @@ describe("Takeover card", () => {
     expect(windowTooltip({ app: "Electron" })).toBe("Show the window the agent drives");
     expect(isGenericRuntime("Visual Studio Code")).toBe(false);
     expect(jumpLabel(takeover({ kind: "window" }))).toBe("Show window");
+    expect(jumpLabel(takeover({ kind: "preview" }), true, true)).toBe("Watch here");
   });
 
   it("offers the ways to a password only on a click, and imports only the page's site", async () => {

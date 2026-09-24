@@ -35,10 +35,12 @@ export function windowTooltip(driven: { app?: string; title?: string } | undefin
  * instead, where the user takes over by tapping and typing. A window's app is
  * the button's icon and tooltip, never its text.
  */
-export function jumpLabel(takeover: Takeover, remote = false): string | undefined {
+export function jumpLabel(takeover: Takeover, remote = false, watchOnly = false): string | undefined {
+  // A device that may not type follows along; it cannot take over.
+  const here = watchOnly ? "Watch here" : "Take over here";
   switch (takeover.target.kind) {
-    case "preview": return remote ? "Take over here" : "Show the page";
-    case "window": return remote ? "Take over here" : "Show window";
+    case "preview": return remote ? here : "Show the page";
+    case "window": return remote ? here : "Show window";
     case "browser": return "Open in browser";
     default: return undefined;
   }
@@ -176,14 +178,14 @@ function PasswordWays({ takeover, actions, hosts, remote }: { takeover: Takeover
 }
 
 /** What the user takes over, as it looks now, on a device away from the host's machine; a tap opens it. */
-function TakeoverFrame({ takeover, onOpen }: { takeover: Takeover; onOpen(): void }) {
+function TakeoverFrame({ takeover, onOpen, watchOnly }: { takeover: Takeover; onOpen(): void; watchOnly: boolean }) {
   const preview = useSyncExternalStore(services.preview.subscribe, services.preview.get);
   const [picture, setPicture] = useState<{ url: string; width: number; height: number }>();
   const drivesWindow = takeover.target.kind === "window";
   useEffect(() => preview?.watch?.(drivesWindow ? { kind: "app", threadId: takeover.threadId } : { kind: "browser" }, 480, setPicture), [preview, drivesWindow, takeover.threadId]);
   if (!picture) return null;
   return (
-    <button type="button" className="takeover-frame" onClick={onOpen} aria-label="Open what you take over" {...tooltipProps("Open it here to tap and type")}>
+    <button type="button" className="takeover-frame" onClick={onOpen} aria-label="Open what you take over" {...tooltipProps(watchOnly ? "Open it here to watch" : "Open it here to tap and type")}>
       <img src={picture.url} width={picture.width} height={picture.height} alt="" draggable={false} />
     </button>
   );
@@ -216,7 +218,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
     }, () => undefined);
     return () => { live = false; };
   }, [screen, takeover]);
-  const label = jumpLabel(takeover, remote);
+  const label = jumpLabel(takeover, remote, !mayType);
   const showsFrame = remote && (takeover.target.kind === "preview" || takeover.target.kind === "window");
   const where = takeover.target.kind === "browser" ? takeover.target.url : takeover.target.kind === "window" ? windowTooltip(driven) : undefined;
   const passwordsApply = takeover.target.kind === "preview" && mayType;
@@ -264,7 +266,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
           </button>
         </span>
       </div>
-      {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} /> : null}
+      {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} watchOnly={!mayType} /> : null}
       {readOnly ? <p className="takeover-note">{READ_ONLY_REASON}.</p> : null}
       {passwords ? <PasswordWays takeover={takeover} actions={actions} hosts={hosts} remote={remote} /> : null}
     </section>
