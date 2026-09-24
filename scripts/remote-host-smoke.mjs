@@ -7,7 +7,8 @@
 // device to reads, revokes live connections and rotates the host token (ADR 0023,
 // ADR 0024). A last run with kits sends a call into a window and checks that it
 // reaches one connection and only its answer counts, and that a Read-only device
-// runs only the kit commands that just look. A proxy run checks that a peer behind
+// runs only the kit commands that just look. A push run sends through loopback fakes
+// of APNs and FCM with throwaway keys. A proxy run checks that a peer behind
 // a reverse proxy is remote though it dials from 127.0.0.1.
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
@@ -134,7 +135,7 @@ const { parsePairingPayload } = await import(pathToFileURL(join(ROOT, "dist-elec
 const PHONE_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1";
 
 /** Starts a headless host; `tls` adds TAU_HOST_TLS=1. Resolves once it prints its socket. */
-async function startHost({ workspace, userData, tokenHome, tls, webClient, kits = false, proxy = false }) {
+async function startHost({ workspace, userData, tokenHome, tls, webClient, kits = false, proxy = false, env = {} }) {
   const host = spawn(process.execPath, [HOST_ENTRY], {
     cwd: ROOT,
     env: {
@@ -155,6 +156,7 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
       // the same contract dev-instance.mjs relies on, and it keeps this smoke
       // isolated even if HOME later grows a symlink back to real credentials.
       PI_CODING_AGENT_SESSION_DIR: join(tokenHome, "pi-sessions"),
+      ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -743,8 +745,99 @@ async function callsScenario() {
   }
 }
 
+/**
+ * Push: the host sends to loopback fakes of APNs and FCM with throwaway keys.
+ * Paired devices register over the socket, only the owner sets keys, a test
+ * push carries a signed provider token and the payload, a revoked device is
+ * forgotten, and the keys sit in a 0600 file and never in the log.
+ */
+async function pushScenario() {
+  const fakes = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "test-support", "push-fakes.js")).href);
+  const apple = await fakes.startFakeApns();
+  const google = await fakes.startFakeFcm();
+  const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
+  const userData = mkdtempSync(join(tmpdir(), "tau-remote-userdata-"));
+  const tokenHome = mkdtempSync(join(tmpdir(), "tau-remote-home-"));
+  const webClient = mkdtempSync(join(tmpdir(), "tau-remote-web-"));
+  writeFileSync(join(webClient, "index.html"), "<!doctype html><title>Tau</title>");
+  execFileSync("git", ["init", "-b", "main", workspace], { stdio: "ignore" });
+  let host;
+  try {
+    host = await startHost({ workspace, userData, tokenHome, tls: false, webClient, kits: true, env: { TAU_PUSH_APNS_ORIGIN: apple.origin, TAU_PUSH_FCM_ORIGIN: google.origin } });
+    step("push: host started with kits and fake APNs/FCM", `${apple.origin} ${google.origin}`);
+    const owner = createClient(host.url, readFileSync(join(tokenHome, ".tau", "host-token"), "utf8").trim());
+    await owner.opened;
+    await owner.hello();
+    const connect = async (token) => {
+      const client = createClient(host.url, token);
+      await client.opened;
+      await client.hello(undefined, { profile: "compact" });
+      return client;
+    };
+    const iphone = await connect((await pairDevice(host.url, owner, { code: (await owner.request("connections-create-link", [{}])).code, name: "Smoke iPhone" })).token);
+    const pixel = await connect((await pairDevice(host.url, owner, { code: (await owner.request("connections-create-link", [{}])).code, name: "Smoke Pixel" })).token);
+    const push = (client, command, input) => client.request("host-extension", ["tau.push", command, input]);
+    const iosToken = "ab".repeat(32);
+    await push(iphone, "register", { platform: "ios", token: iosToken, host: "smoke-host", topic: "io.github.rasalas.tau" });
+    await push(pixel, "register", { platform: "android", token: "fcm:smoke-registration-token", host: "smoke-host" });
+    const refusedRegister = await push(owner, "register", { platform: "ios", token: iosToken, host: "h", topic: "a.b" }).then(() => "taken", (error) => error.message);
+    if (!/paired device/u.test(refusedRegister)) fail(`the host token registered for pushes: ${refusedRegister}`);
+    step("push: paired devices register their tokens over the socket; the host token cannot");
+
+    const apnsKey = fakes.throwawayApnsKey();
+    const account = fakes.throwawayServiceAccount(google.tokenUri);
+    const fromPhone = await push(iphone, "set-apns", { keyId: fakes.FAKE_KEY_ID, teamId: fakes.FAKE_TEAM_ID, key: apnsKey.pem }).then(() => "saved", (error) => error.message);
+    if (!/owner/u.test(fromPhone)) fail(`a paired device set the APNs key: ${fromPhone}`);
+    await push(owner, "set-apns", { keyId: fakes.FAKE_KEY_ID, teamId: fakes.FAKE_TEAM_ID, key: apnsKey.pem });
+    const status = await push(owner, "set-fcm", { serviceAccount: account.json });
+    if (JSON.stringify(status).includes("PRIVATE KEY")) fail("the status handed a key back");
+    if (status.devices.map((device) => device.name).join() !== "Smoke iPhone,Smoke Pixel") fail(`devices: ${JSON.stringify(status.devices)}`);
+    const keysFile = join(userData, "kit-state", "tau.push", "keys.json");
+    if (status.file !== keysFile) fail(`keys at ${status.file}, expected ${keysFile}`);
+    if (process.platform !== "win32" && (statSync(keysFile).mode & 0o777) !== 0o600) fail(`keys file mode ${(statSync(keysFile).mode & 0o777).toString(8)}`);
+    step("push: only the owner sets keys; the status names them, never shows them; the file is 0600");
+
+    const [ios, android] = status.devices;
+    const sent = await Promise.all([push(owner, "test", { id: ios.id }), push(owner, "test", { id: android.id })]);
+    if (!sent.every((outcome) => outcome.ok)) fail(`test pushes: ${JSON.stringify(sent)}`);
+    const [appleRequest] = apple.requests;
+    if (appleRequest?.path !== `/3/device/${iosToken}` || appleRequest.headers["apns-topic"] !== "io.github.rasalas.tau") fail(`APNs request: ${JSON.stringify(appleRequest)}`);
+    const jwt = fakes.readSignedJwt(appleRequest.headers.authorization.replace(/^bearer /u, ""), apnsKey.publicKey, true);
+    if (jwt?.header.kid !== fakes.FAKE_KEY_ID || jwt.claims.iss !== fakes.FAKE_TEAM_ID) fail(`APNs provider token: ${JSON.stringify(jwt)}`);
+    if (JSON.parse(appleRequest.body).aps?.alert?.body !== "Push notifications reach this device.") fail(`APNs payload: ${appleRequest.body}`);
+    const grant = google.requests.find((request) => request.path === "/token");
+    const assertion = fakes.readSignedJwt(new URLSearchParams(grant?.body ?? "").get("assertion"), account.publicKey, false);
+    if (assertion?.claims.aud !== google.tokenUri) fail(`OAuth assertion: ${JSON.stringify(assertion)}`);
+    const send = google.requests.find((request) => request.path === "/v1/projects/tau-test-project/messages:send");
+    if (JSON.parse(send?.body ?? "{}").message?.token !== "fcm:smoke-registration-token") fail(`FCM request: ${send?.body}`);
+    step("push: a test push reaches fake APNs with a verified ES256 token and fake FCM through a verified RS256 grant");
+
+    await owner.request("connections-revoke-client", [ios.id]);
+    let left = [];
+    for (let round = 0; round < 100; round += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop
+      left = (await push(owner, "status")).devices;
+      if (left.length === 1) break;
+      await wait(50);
+    }
+    if (left.map((device) => device.name).join() !== "Smoke Pixel") fail(`after revoking the iPhone: ${JSON.stringify(left)}`);
+    if (/PRIVATE KEY/u.test(host.output())) fail("the host log printed a key");
+    step("push: revoking a device drops its registration; the host log holds no key");
+  } finally {
+    await host?.stop();
+    await apple.close();
+    await google.close();
+    const removal = { recursive: true, force: true, maxRetries: 10, retryDelay: 200 };
+    await rm(workspace, removal);
+    await rm(userData, removal);
+    await rm(tokenHome, removal);
+    await rm(webClient, removal);
+  }
+}
+
 await scenario({ tls: false });
 await scenario({ tls: true });
 await proxyScenario();
 await callsScenario();
+await pushScenario();
 console.log(`\nremote host smoke passed: ${steps.length} steps`);
