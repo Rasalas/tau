@@ -133,7 +133,7 @@ describe("a device's layout", () => {
   const phone = { width: 390, height: 600, dpr: 3, touch: true };
   const commands = () => electron.contents.debugger.sendCommand.mock.calls.map(([method]) => method as string);
 
-  it("emulates the device's screen and takes its pictures at the device's size, even on screen", async () => {
+  it("emulates the device's screen and takes its pictures at the device's size", async () => {
     electron.contents.capturePage.mockResolvedValue(fakeImage(786, 1_400, "frame"));
     electron.createFromBuffer.mockImplementation(() => fakeImage(1_170, 1_800, "cdp"));
     const view = surface();
@@ -183,9 +183,16 @@ describe("a device's layout", () => {
     expect(view.viewport()).toEqual({ width: 393, height: 700 });
   });
 
-  it("scales the device's screen into a smaller view and never up", () => {
-    expect(deviceOverride({ width: 390, height: 844, dpr: 3, touch: true }, { width: 393, height: 422 })).toMatchObject({ scale: 0.5, mobile: true });
-    expect(deviceOverride({ width: 1_280, height: 800, dpr: 1, touch: false }, { width: 2_000, height: 1_600 })).toMatchObject({ scale: 1, mobile: false });
+  it("emulates a phone's browser for a touch screen only", () => {
+    expect(deviceOverride({ width: 390, height: 844, dpr: 3, touch: true })).toMatchObject({ width: 390, deviceScaleFactor: 3, mobile: true });
+    expect(deviceOverride({ width: 1_280, height: 800, dpr: 1, touch: false })).toMatchObject({ mobile: false });
+  });
+
+  it("never draws a device's layout in the window, even while the panel shows", () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, true, phone);
+    expect(electron.window.contentView.children).toHaveLength(0);
+    expect(electron.stages).toHaveLength(1);
   });
 });
 

@@ -7,9 +7,21 @@ import { isPreviewState, notePanelShown, previewKit, previewStore, readPreviewSt
 import { RecentPages, RecentSuggestions, useRecentPages } from "./recent.js";
 import { PortSuggestions } from "./suggestions.js";
 import { PreviewTools } from "./tools.js";
+import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 
 // Evaluated the first time someone looks at a driven window.
 const ScreenView = lazy(() => import("./screen-view.js"));
+
+const pageFrames: LiveFrameSource = async (maxWidth, since) =>
+  await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
+
+/** The page as another device has it laid out: this window shows its pictures, never the page itself. */
+function DevicePicture({ element }: { element: React.RefObject<HTMLDivElement | null> }) {
+  const frames = useLiveFrames(pageFrames, element);
+  return frames.picture
+    ? <img className="preview-device-picture" src={frames.picture.url} alt="The page, laid out for another device" draggable={false} />
+    : null;
+}
 
 const VIEWS: { id: PreviewView; label: string }[] = [{ id: "browser", label: "Browser" }, { id: "screen", label: "Screen" }];
 
@@ -148,6 +160,7 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
         {error || state.recordingNotice || (state.loading ? "loading…" : state.title || "nothing loaded")}
       </div>
       <div className="preview-surface" ref={surface}>
+        {state.layoutFor && state.url ? <DevicePicture element={surface} /> : null}
         {!state.url && !state.loading ? <RecentPages entries={recent.entries} onOpen={openUrl} onForget={recent.forget} /> : null}
       </div>
     </>}

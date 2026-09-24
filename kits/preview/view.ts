@@ -33,11 +33,11 @@ export function cropToView(image: NativeImage, viewWidth: number, rect?: Preview
 }
 
 /**
- * DevTools' device metrics for a device's layout. A view on screen shows the
- * page scaled to fit its rectangle; a capture is always at the device's size.
+ * DevTools' device metrics for a device's layout. Chromium sizes the view's
+ * surface to the device's screen whatever its bounds, so such a page is only
+ * ever drawn off screen and seen through its pictures.
  */
-export function deviceOverride(device: PreviewDeviceMetrics, view: { width: number; height: number }): Record<string, unknown> {
-  const scale = view.width > 0 && view.height > 0 ? Math.min(1, view.width / device.width, view.height / device.height) : 1;
+export function deviceOverride(device: PreviewDeviceMetrics): Record<string, unknown> {
   return {
     width: device.width,
     height: device.height,
@@ -46,7 +46,6 @@ export function deviceOverride(device: PreviewDeviceMetrics, view: { width: numb
     mobile: device.touch,
     screenWidth: device.width,
     screenHeight: device.height,
-    scale: Math.round(scale * 1_000) / 1_000,
   };
 }
 
@@ -145,7 +144,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   let deviceKey = "";
   let emulation: Promise<void> = Promise.resolve();
   let placing = 0;
-  const emulate = async (next: PreviewDeviceMetrics | undefined, rect: PreviewRect): Promise<void> => {
+  const emulate = async (next: PreviewDeviceMetrics | undefined): Promise<void> => {
     if (contents.isDestroyed()) return;
     if (!next) {
       if (!contents.debugger.isAttached()) return;
@@ -154,7 +153,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       return;
     }
     const tools = devTools();
-    await tools.sendCommand("Emulation.setDeviceMetricsOverride", deviceOverride(next, rect));
+    await tools.sendCommand("Emulation.setDeviceMetricsOverride", deviceOverride(next));
     await tools.sendCommand("Emulation.setTouchEmulationEnabled", next.touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
   };
   // DevTools-protocol input is trusted and reaches a hidden view without taking the window's focus.
@@ -222,9 +221,11 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
 
   const surface: PreviewSurface = {
     zoomFactor: () => window.isDestroyed() ? 1 : window.webContents.getZoomFactor(),
-    place(rect: PreviewRect, visible: boolean, next?: PreviewDeviceMetrics) {
+    place(rect: PreviewRect, asked: boolean, next?: PreviewDeviceMetrics) {
       if (destroyed) return;
-      const key = next ? `${JSON.stringify(next)}@${String(rect.width)}x${String(rect.height)}` : "";
+      // Laid out for a device, the page is never drawn in the window: Chromium would size it past the panel.
+      const visible = asked && !next;
+      const key = next ? JSON.stringify(next) : "";
       if (key === deviceKey) {
         placement.place(rect, visible, device !== undefined);
         return;
@@ -232,7 +233,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       deviceKey = key;
       device = next;
       const token = ++placing;
-      emulation = emulation.then(() => emulate(next, rect)).catch((error: unknown) => note(`device layout: ${error instanceof Error ? error.message : String(error)}`));
+      emulation = emulation.then(() => emulate(next)).catch((error: unknown) => note(`device layout: ${error instanceof Error ? error.message : String(error)}`));
       // Shown only once the page has the layout for it, so the window never draws the other one.
       void emulation.then(() => { if (!destroyed && token === placing) placement.place(rect, visible, next !== undefined); });
       if (!visible) placement.place(rect, visible, next !== undefined);

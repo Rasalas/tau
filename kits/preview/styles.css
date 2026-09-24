@@ -26,6 +26,8 @@
 
 /* The page itself is a WebContentsView the host draws over this rectangle. */
 .preview-surface { flex: 1; min-height: 0; background: var(--sunken); }
+.preview-surface:has(> .preview-device-picture) { display: flex; align-items: flex-start; justify-content: center; padding: 8px; }
+.preview-device-picture { display: block; max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid var(--line); }
 
 /* Local servers the host found, offered under the address bar. */
 .preview-suggestions { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 5px 8px; border-bottom: 1px solid var(--line); }
