@@ -7,7 +7,7 @@ import type { SavedEnvironment, SecretBox } from "./environment-catalog.js";
 import type { EnvironmentMonitor, EnvironmentMonitorOptions, MonitorState } from "./environment-monitor.js";
 import type { PairEnvironmentOptions, PairEnvironmentResult } from "./environment-pairing.js";
 import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT } from "./host-tls-trust.js";
-import { WindowEnvironments, type EnvironmentConnection } from "./window-environments.js";
+import { WindowEnvironments, type EnvironmentConnection, type WindowEnvironmentsOptions } from "./window-environments.js";
 
 const directories: string[] = [];
 const opened: WindowEnvironments[] = [];
@@ -31,9 +31,10 @@ const studio: SavedEnvironment = {
   addedAt: "2026-09-24T10:00:00.000Z",
 };
 
-async function setup(pairResult?: PairEnvironmentResult) {
-  const directory = mkdtempSync(join(tmpdir(), "tau-window-environments-"));
-  directories.push(directory);
+async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEnvironmentsOptions> & { directory?: string } = {}) {
+  const directory = extra.directory ?? mkdtempSync(join(tmpdir(), "tau-window-environments-"));
+  if (!extra.directory) directories.push(directory);
+  const pairCalls: PairEnvironmentOptions[] = [];
   const monitors = new Map<string, { options: EnvironmentMonitorOptions; set(state: Partial<MonitorState>): void }>();
   const published: UiEnvironments[] = [];
   const shown: Array<EnvironmentConnection | undefined> = [];
@@ -52,16 +53,18 @@ async function setup(pairResult?: PairEnvironmentResult) {
       return { close: vi.fn(), retryNow: vi.fn(), get current() { return state; } } as unknown as EnvironmentMonitor;
     },
     pair: async (options: PairEnvironmentOptions) => {
+      pairCalls.push(options);
       options.onWaiting?.({ address: "wss://192.168.1.4:7788/", verification: "123456", expiresAt: "later" });
       // The owner takes a moment; the page hears the digits meanwhile.
       await new Promise((resolve) => setTimeout(resolve, 120));
       return pairResult ?? { state: "approved", environment: studio };
     },
+    ...extra,
   });
   opened.push(environments);
   environments.setLocalHost("ws://127.0.0.1:5000", "host-token");
   await environments.start();
-  return { environments, monitors, published, shown };
+  return { environments, monitors, published, shown, pairCalls, directory };
 }
 
 describe("the machines of a window", () => {
@@ -141,5 +144,96 @@ describe("the machines of a window", () => {
     expect(environments.isSavedSocket("wss://100.64.0.9:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://100.64.0.9:7789/")).toBe(false);
     expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(false);
+  });
+
+  it("follows a saved machine to its new LAN address when its hello names it, keeping names and Tailscale", async () => {
+    const { environments, monitors } = await setup();
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    monitor.options.onReached!("wss://100.64.0.9:7788/", {
+      protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0,
+      host: { id: "host-studio", name: "studio", endpoints: [{ url: "https://10.0.0.8:7788/", kind: "lan" }, { url: "https://studio.local:7788/", kind: "mdns" }] },
+    });
+    // The address that answered stays first; the old LAN address is gone.
+    await expect.poll(() => monitor.options.urls()).toEqual(["wss://100.64.0.9:7788/", "wss://10.0.0.8:7788/", "wss://studio.local:7788/"]);
+    // Another machine's hello changes nothing.
+    monitor.options.onReached!("wss://100.64.0.9:7788/", {
+      protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0,
+      host: { id: "someone-else", name: "x", endpoints: [{ url: "https://10.9.9.9:7788/", kind: "lan" }] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(monitor.options.urls()).not.toContain("wss://10.9.9.9:7788/");
+  });
+
+  it("adds a machine a search found, pinned to its record's fingerprint, and refreshes a saved one found with its pin", async () => {
+    const found = {
+      serviceType: "_tau-test._tcp",
+      hosts: [
+        { name: "Attic", hostId: "host-attic", fingerprint: OTHER, port: 47788, addresses: ["192.168.1.9"], endpoints: [{ url: "https://192.168.1.9:47788/", kind: "lan" as const }] },
+        { name: "studio", hostId: "host-studio", fingerprint: PIN, port: 7788, addresses: ["192.168.1.40"], endpoints: [{ url: "https://192.168.1.40:7788/", kind: "lan" as const }] },
+        { name: "laptop", hostId: "host-laptop", fingerprint: PIN, port: 7788, addresses: ["192.168.1.2"], endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" as const }], self: true },
+      ],
+    };
+    const { environments, monitors, pairCalls } = await setup(undefined, { discover: async () => found });
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    expect(await environments.discover()).toBe(found);
+    expect(monitor.options.urls()).toEqual(["wss://192.168.1.40:7788/", "wss://100.64.0.9:7788/"]);
+    await environments.pair({ nearby: "host-attic" });
+    expect(pairCalls.at(-1)?.nearby).toEqual({ hostId: "host-attic", name: "Attic", fingerprint: OTHER, endpoints: found.hosts[0]!.endpoints });
+    expect(pairCalls.at(-1)?.text).toBeUndefined();
+    expect(await environments.pair({ nearby: "host-laptop" })).toMatchObject({ state: "failed", message: expect.stringMatching(/Search again/u) });
+  });
+
+  it("does not take a found machine's addresses when its certificate is not the pinned one", async () => {
+    const { environments, monitors } = await setup(undefined, {
+      discover: async () => ({ serviceType: "_tau-test._tcp", hosts: [{ name: "studio", hostId: "host-studio", fingerprint: OTHER, port: 7788, addresses: [], endpoints: [{ url: "https://10.6.6.6:7788/", kind: "lan" }] }] }),
+    });
+    await environments.pair({ text: "link" });
+    await environments.discover();
+    expect(monitors.get("wss://192.168.1.4:7788/")!.options.urls()).toEqual(["wss://192.168.1.4:7788/", "wss://100.64.0.9:7788/"]);
+  });
+
+  it("shows the machine it showed last again at start, when asked to and it answers in time", async () => {
+    const first = await setup();
+    await first.environments.pair({ text: "link" });
+    await first.environments.setPreferences({ reopenShown: true });
+    expect(first.environments.snapshot().reopenShown).toBe(true);
+    first.monitors.get("wss://192.168.1.4:7788/")!.set({ status: "connected" });
+    await first.environments.open("host-studio");
+    first.environments.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const monitors = new Map<string, EnvironmentMonitorOptions>();
+    const shown: Array<EnvironmentConnection | undefined> = [];
+    const again = new WindowEnvironments({
+      catalogPath: join(first.directory, "environments.json"),
+      box, logger, deviceName: "laptop", local: { id: "host-laptop", name: "laptop" },
+      publish: () => undefined,
+      show: async (connection) => { shown.push(connection); },
+      monitor: (options) => {
+        monitors.set(options.urls()[0]!, options);
+        // The saved machine answers a moment after the window starts.
+        if (options.token === "tau_client_studio") setTimeout(() => options.onChange({ status: "connected", running: new Set(), address: "wss://192.168.1.4:7788/" }), 10);
+        return { close: vi.fn(), retryNow: vi.fn() } as unknown as EnvironmentMonitor;
+      },
+    });
+    opened.push(again);
+    await again.start();
+    expect(again.shown).toBe("host-studio");
+    expect(shown).toEqual([{ id: "host-studio", url: "wss://192.168.1.4:7788/", token: "tau_client_studio", fingerprint: PIN }]);
+  });
+
+  it("starts on this machine when the one shown last does not answer in time", async () => {
+    const first = await setup();
+    await first.environments.pair({ text: "link" });
+    await first.environments.setPreferences({ reopenShown: true });
+    first.monitors.get("wss://192.168.1.4:7788/")!.set({ status: "connected" });
+    await first.environments.open("host-studio");
+    first.environments.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const again = await setup(undefined, { directory: first.directory, reopenWaitMs: 30 });
+    expect(again.environments.shown).toBe("host-laptop");
+    expect(again.shown).toEqual([]);
   });
 });

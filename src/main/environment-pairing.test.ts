@@ -21,7 +21,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-async function machine() {
+async function machine(endpoints: Array<{ url: string; kind?: "lan" | "mdns" }> = []) {
   const directory = mkdtempSync(join(tmpdir(), "tau-machine-"));
   directories.push(directory);
   let onChange = () => undefined as void;
@@ -33,7 +33,7 @@ async function machine() {
   const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
   transport = await startSocketHostTransport({
     listen: "127.0.0.1:0", methods: {}, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], access, tls,
-    host: { id: "host-studio", name: "studio" },
+    host: { id: "host-studio", name: "studio", endpoints: () => endpoints },
   });
   const page = `https://127.0.0.1:${transport.port}/`;
   /** Resolves with the request once the owner could see it. */
@@ -79,6 +79,36 @@ describe("adding a machine", () => {
     const added = await result;
     expect(added).toMatchObject({ state: "approved", environment: { id: "host-studio", endpoints: [{ url: page }] } });
     if (added.state === "approved") expect(added.environment.fingerprint?.replace(/:/gu, "").toLowerCase()).toBe(fingerprint.replace(/:/gu, "").toLowerCase());
+  });
+
+  it("found with Bonjour asks without a link, pinned to the record's fingerprint, and keeps the addresses its hello names", async () => {
+    const lan = { url: "https://192.168.1.40:47788/", kind: "lan" as const };
+    const { access, page, fingerprint, request } = await machine([lan]);
+    const shown: string[] = [];
+    const asked = request();
+    const result = pairEnvironment({
+      nearby: { hostId: "host-studio", name: "Studio", fingerprint, endpoints: [{ url: page, kind: "lan" }] },
+      deviceName: "laptop",
+      onWaiting: ({ verification }) => shown.push(verification),
+    });
+    await asked;
+    await expect.poll(() => shown.length).toBe(1);
+    // No link: the owner sees a request without one, and the same digits.
+    expect(access.overview().requests[0]).toMatchObject({ verification: shown[0] });
+    expect(access.overview().requests[0]!.link).toBeUndefined();
+    await access.approvePairing(access.overview().requests[0]!.id);
+    const added = await result;
+    expect(added).toMatchObject({ state: "approved", environment: { id: "host-studio", lastUrl: page } });
+    if (added.state !== "approved") return;
+    expect(added.environment.endpoints.map((endpoint) => endpoint.url)).toEqual([lan.url, page]);
+    expect(added.environment.fingerprint?.replace(/:/gu, "").toLowerCase()).toBe(fingerprint.replace(/:/gu, "").toLowerCase());
+  });
+
+  it("found with Bonjour refuses a machine whose certificate is not the one its record named", async () => {
+    const { page } = await machine();
+    const other = Array.from({ length: 32 }, () => "CD").join(":");
+    const result = await pairEnvironment({ nearby: { hostId: "host-studio", name: "Studio", fingerprint: other, endpoints: [{ url: page, kind: "lan" }] }, deviceName: "laptop" });
+    expect(result.state).toBe("failed");
   });
 
   it("hears the owner's no", async () => {

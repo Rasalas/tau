@@ -267,6 +267,20 @@ export interface PairingPayload {
 const ENDPOINT_KINDS: ReadonlySet<string> = new Set<UiHostEndpointKind>(["loopback", "lan", "mdns", "tailscale", "magicdns"]);
 const isEndpointKind = (value: string | null | undefined): value is UiHostEndpointKind => typeof value === "string" && ENDPOINT_KINDS.has(value);
 
+/** Addresses from the wire: `http(s)` URLs with a known kind or none, at most `max`. */
+export function decodePairingEndpoints(value: unknown, max = 16): PairingEndpoint[] {
+  if (!Array.isArray(value)) return [];
+  const endpoints: PairingEndpoint[] = [];
+  for (const item of value) {
+    const url = (item as { url?: unknown } | null)?.url;
+    const kind = (item as { kind?: unknown } | null)?.kind;
+    if (typeof url !== "string" || url.length > 2_048 || !/^https?:\/\/[^\s]+$/u.test(url) || endpoints.some((entry) => entry.url === url)) continue;
+    endpoints.push({ url, ...(typeof kind === "string" && isEndpointKind(kind) ? { kind } : {}) });
+    if (endpoints.length === max) break;
+  }
+  return endpoints;
+}
+
 /**
  * `url#pair=code&k=<kind>&fp=…&host=…&name=…&e=<kind>:<url>…`: the fragment
  * never reaches a server log, and the page drops it before rendering. A

@@ -1,5 +1,6 @@
 import type { HostEvent } from "../shared/contracts";
-import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentTarget, UiEnvironments } from "../shared/environments";
+import type { UiDiscoveredHosts } from "../shared/discovery";
+import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostClient } from "./host-client";
 
 /**
@@ -9,6 +10,12 @@ import type { HostClient } from "./host-client";
  * `getSnapshot` stays undefined where the window keeps no list.
  */
 export interface PlatformEnvironments {
+  /**
+   * The machine this page shows when it is not the window's own, from the
+   * page's address: known before the list loads, and whatever kits that
+   * machine serves (API 1.13.0).
+   */
+  readonly shownElsewhere?: string;
   getSnapshot(): UiEnvironments | undefined;
   subscribe(listener: () => void): () => void;
   /** A pairing link, QR text or address; resolves once the other machine's owner decided. */
@@ -25,9 +32,18 @@ export interface PlatformEnvironments {
   open(id: string, target?: EnvironmentTarget): Promise<void>;
   /** What this page was sent to show, once; undefined when it was simply opened. */
   takeArrival(): Promise<EnvironmentTarget | undefined>;
+  /** Shows the window's own machine again (API 1.13.0). */
+  showLocal(): Promise<void>;
+  /**
+   * Machines that announce themselves on this network, looked for by the
+   * window's own host for a few seconds; `pair({ nearby: hostId })` adds one.
+   * A saved machine found there gets its current addresses (API 1.13.0).
+   */
+  discover(): Promise<UiDiscoveredHosts>;
+  setPreferences(preferences: EnvironmentPreferences): Promise<void>;
 }
 
-export function createPlatformEnvironments(client: HostClient): PlatformEnvironments {
+export function createPlatformEnvironments(client: HostClient, options: { shownElsewhere?: string } = {}): PlatformEnvironments {
   let snapshot: UiEnvironments | undefined;
   let requested = false;
   const listeners = new Set<() => void>();
@@ -46,6 +62,7 @@ export function createPlatformEnvironments(client: HostClient): PlatformEnvironm
     void client.listEnvironments().then((list) => { if (!snapshot) set(list); }, () => undefined);
   };
   return {
+    ...(options.shownElsewhere ? { shownElsewhere: options.shownElsewhere } : {}),
     getSnapshot: () => {
       load();
       return snapshot;
@@ -62,5 +79,13 @@ export function createPlatformEnvironments(client: HostClient): PlatformEnvironm
     retry: (id) => client.retryEnvironment(id),
     open: (id, target) => client.openEnvironment(id, target),
     takeArrival: () => client.takeEnvironmentArrival(),
+    showLocal: async () => {
+      const list = snapshot ?? await client.listEnvironments();
+      const local = list.environments.find((environment) => environment.local);
+      if (!local) throw new Error("This window knows no machine of its own.");
+      await client.openEnvironment(local.id);
+    },
+    discover: () => client.discoverEnvironments(),
+    setPreferences: (preferences) => client.setEnvironmentPreferences(preferences),
   };
 }

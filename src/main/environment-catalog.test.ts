@@ -75,4 +75,17 @@ describe("the catalog of saved machines", () => {
     expect(await catalog.remove("host-studio")).toBe(false);
     expect(catalog.list()).toEqual([]);
   });
+
+  it("keeps the window's choice about the last machine, and the addresses a machine moved to", async () => {
+    const file = path();
+    const catalog = await EnvironmentCatalog.open(file, box());
+    await catalog.save(studio);
+    await catalog.setPreferences({ reopenShown: true, lastShown: "host-studio" });
+    await catalog.update("host-studio", { endpoints: [{ url: "https://10.0.0.8:7788/", kind: "lan" }] });
+    const again = await EnvironmentCatalog.open(file, box());
+    expect(again.preferences).toEqual({ reopenShown: true, lastShown: "host-studio" });
+    expect(again.get("host-studio")!.endpoints).toEqual([{ url: "https://10.0.0.8:7788/", kind: "lan" }]);
+    await again.setPreferences({ reopenShown: false });
+    expect((await EnvironmentCatalog.open(file, box())).preferences).toEqual({ lastShown: "host-studio" });
+  });
 });

@@ -3,6 +3,7 @@ import {
   IDLE_TIMEOUT_CHOICES,
   pairingUrl,
   type DeviceAccess,
+  type PairingEndpoint,
   type UiClientUpdate,
   type UiConnections,
   type UiCreatedPairingLink,
@@ -77,8 +78,23 @@ async function machineNames(interfaces: Interfaces): Promise<EndpointNames> {
  * opened at the `.local` name or the MagicDNS name opens its socket from there.
  */
 export async function endpointOrigins(connections: HostConnectionsService): Promise<string[]> {
+  return (await publishedEndpoints(connections)).origins;
+}
+
+/**
+ * The origins for the socket's check, and the addresses another machine can
+ * dial, as a hello tells them to a client that saved this host (ADR 0025).
+ */
+export async function publishedEndpoints(connections: HostConnectionsService): Promise<{ origins: string[]; network: PairingEndpoint[] }> {
   const endpoints = await allEndpoints(connections, connections.listen());
-  return [...new Set(endpoints.map((endpoint) => new URL(endpoint.url).origin.toLowerCase()))];
+  return {
+    origins: [...new Set(endpoints.map((endpoint) => new URL(endpoint.url).origin.toLowerCase()))],
+    network: networkOnly(endpoints),
+  };
+}
+
+function networkOnly(endpoints: readonly UiHostEndpoint[]): PairingEndpoint[] {
+  return endpoints.filter((endpoint) => endpoint.reachability === "network").map(({ url, kind }) => ({ url, ...(kind ? { kind } : {}) }));
 }
 
 /** Every endpoint of the host's own listener and of network access, best first. */
@@ -176,7 +192,7 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       // The network listeners' certificate is the one a phone meets; the host's own listener is loopback in the app.
       const fingerprint = connections.network?.state().certificate?.fingerprint ?? info?.fingerprint;
       // A phone that dialled loopback would reach itself; only a loopback link names loopback.
-      const network = endpoints.filter((endpoint) => endpoint.reachability === "network").map(({ url, kind }) => ({ url, ...(kind ? { kind } : {}) }));
+      const network = networkOnly(endpoints);
       const urls = endpoints.map((endpoint) => ({
         ...endpoint,
         url: pairingUrl({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}) }, {

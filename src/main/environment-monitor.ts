@@ -7,6 +7,7 @@ import {
   HOST_TRANSPORT_VERSION,
   decodeHostServerFrame,
   type HostHelloReply,
+  type HostIdentity,
 } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
 import { HostCertificateRefusedError, pinnedTlsConnect } from "./host-tls-trust.js";
@@ -21,7 +22,7 @@ export interface MonitorState {
   address?: string;
   hostVersion?: string;
   readOnly?: boolean;
-  host?: { id: string; name: string };
+  host?: HostIdentity;
   index?: ThreadIndexSnapshot;
   running: ReadonlySet<string>;
 }

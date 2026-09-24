@@ -31,6 +31,17 @@ interface StoredEnvironment extends Omit<SavedEnvironment, "token"> {
   token: string;
 }
 
+/** What the window keeps beside the machines: which one it showed last, and whether it shows that one again at start. */
+export interface CatalogPreferences {
+  reopenShown?: boolean;
+  lastShown?: string;
+}
+
+interface StoredCatalog {
+  environments: StoredEnvironment[];
+  preferences: CatalogPreferences;
+}
+
 const VERSION = 1;
 const KINDS = new Set<string>(["loopback", "lan", "mdns", "tailscale", "magicdns"]);
 
@@ -44,6 +55,7 @@ export class SecretStorageUnavailableError extends Error {
 /** `<userData>/environments.json`, mode 0600, one encrypted token per machine. */
 export class EnvironmentCatalog {
   private entries: SavedEnvironment[] = [];
+  private prefs: CatalogPreferences = {};
 
   private constructor(
     private readonly path: string,
@@ -60,6 +72,18 @@ export class EnvironmentCatalog {
   get secure(): boolean { return this.box.available(); }
 
   list(): readonly SavedEnvironment[] { return this.entries; }
+
+  get preferences(): CatalogPreferences { return this.prefs; }
+
+  /** Needs no encryption: nothing secret is in it. */
+  async setPreferences(patch: CatalogPreferences): Promise<void> {
+    const next: CatalogPreferences = { ...this.prefs, ...patch };
+    if (!next.reopenShown) delete next.reopenShown;
+    if (!next.lastShown) delete next.lastShown;
+    if (JSON.stringify(next) === JSON.stringify(this.prefs)) return;
+    this.prefs = next;
+    await this.persist();
+  }
 
   get(id: string): SavedEnvironment | undefined {
     return this.entries.find((entry) => entry.id === id);
@@ -80,7 +104,7 @@ export class EnvironmentCatalog {
     return true;
   }
 
-  async update(id: string, patch: Partial<Pick<SavedEnvironment, "name" | "lastUrl" | "readOnly">>): Promise<boolean> {
+  async update(id: string, patch: Partial<Pick<SavedEnvironment, "name" | "lastUrl" | "readOnly" | "endpoints">>): Promise<boolean> {
     const entry = this.get(id);
     if (!entry) return false;
     const next = { ...entry, ...patch };
@@ -98,7 +122,8 @@ export class EnvironmentCatalog {
       ...(this.logger ? { logger: this.logger } : {}),
     });
     const entries: SavedEnvironment[] = [];
-    for (const entry of stored?.data ?? []) {
+    this.prefs = stored?.data.preferences ?? {};
+    for (const entry of stored?.data.environments ?? []) {
       try {
         entries.push({ ...entry, token: this.box.decrypt(entry.token) });
       } catch (error: unknown) {
@@ -111,13 +136,18 @@ export class EnvironmentCatalog {
 
   private async persist(): Promise<void> {
     const environments: StoredEnvironment[] = this.entries.map((entry) => ({ ...entry, token: this.box.encrypt(entry.token) }));
-    await writePersistedJson(this.path, VERSION, { environments }, this.logger ? { logger: this.logger } : {});
+    await writePersistedJson(this.path, VERSION, { environments, ...this.prefs }, this.logger ? { logger: this.logger } : {});
   }
 }
 
-function decodeStored(value: unknown): StoredEnvironment[] | undefined {
-  const list = (value as { environments?: unknown } | undefined)?.environments;
+function decodeStored(value: unknown): StoredCatalog | undefined {
+  const document = value as { environments?: unknown; reopenShown?: unknown; lastShown?: unknown } | undefined;
+  const list = document?.environments;
   if (!Array.isArray(list)) return undefined;
+  const preferences: CatalogPreferences = {
+    ...(document?.reopenShown === true ? { reopenShown: true } : {}),
+    ...(typeof document?.lastShown === "string" && document.lastShown ? { lastShown: document.lastShown } : {}),
+  };
   const entries: StoredEnvironment[] = [];
   for (const raw of list) {
     const item = raw as Record<string, unknown> | undefined;
@@ -142,5 +172,5 @@ function decodeStored(value: unknown): StoredEnvironment[] | undefined {
       ...(item.readOnly === true ? { readOnly: true } : {}),
     });
   }
-  return entries;
+  return { environments: entries, preferences };
 }

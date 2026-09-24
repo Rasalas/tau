@@ -70,6 +70,13 @@ export interface UiEnvironments {
   pairing?: UiEnvironmentPairing;
   /** False where the window's process cannot keep a token encrypted; adding a machine then fails. */
   secureStorage: boolean;
+  /** The window shows the machine it showed last again after a restart, when that one answers in time. */
+  reopenShown?: boolean;
+}
+
+/** The window's own choices about its machines. */
+export interface EnvironmentPreferences {
+  reopenShown?: boolean;
 }
 
 /** What to show once the page arrives on a machine. */
@@ -77,9 +84,14 @@ export type EnvironmentTarget =
   | { thread: { path: string } }
   | { newThread: { draft?: string; workspaceId?: string } };
 
-/** A pairing link (or a QR code's text), or a bare address the owner is asked from. */
+/**
+ * A pairing link (or a QR code's text), a bare address the owner is asked
+ * from, or the host id of a machine the window's last Bonjour search found.
+ */
 export interface EnvironmentPairInput {
-  text: string;
+  text?: string;
+  /** Pairs with the found machine's addresses and pins the fingerprint its record carried. */
+  nearby?: string;
   /** How this window names itself to the owner; the machine's name by default. */
   deviceName?: string;
 }
@@ -103,6 +115,31 @@ export function orderEndpoints(endpoints: readonly PairingEndpoint[], lastUrl?: 
     .map((entry) => entry.endpoint);
   const last = lastUrl ? sorted.find((endpoint) => endpoint.url === lastUrl) : undefined;
   return last ? [last, ...sorted.filter((endpoint) => endpoint !== last)] : sorted;
+}
+
+const MAX_ENDPOINTS = 16;
+
+/**
+ * A saved machine's addresses after it told fresh ones (its hello, or a
+ * Bonjour record). LAN addresses follow the machine; names, Tailscale
+ * addresses and what the user typed stay until it is paired again, since a
+ * machine reached one way may not list the others right now. `keep` is an
+ * address that just worked.
+ */
+export function refreshEndpoints(saved: readonly PairingEndpoint[], fresh: readonly PairingEndpoint[], keep?: string): PairingEndpoint[] {
+  if (fresh.length === 0) return [...saved];
+  const urls = new Set(fresh.map((endpoint) => endpoint.url));
+  const kept = saved.filter((endpoint) => !urls.has(endpoint.url) && (endpoint.kind !== "lan" || endpoint.url === keep));
+  const seen = new Set<string>();
+  return [...fresh, ...kept]
+    .filter((endpoint) => /^https?:\/\//u.test(endpoint.url) && !seen.has(endpoint.url) && seen.add(endpoint.url))
+    .slice(0, MAX_ENDPOINTS)
+    .map((endpoint) => ({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}) }));
+}
+
+/** Whether two address lists name the same addresses in the same order. */
+export function sameEndpoints(a: readonly PairingEndpoint[], b: readonly PairingEndpoint[]): boolean {
+  return a.length === b.length && a.every((endpoint, index) => endpoint.url === b[index]!.url && endpoint.kind === b[index]!.kind);
 }
 
 /** `https://host:7788/` → `wss://host:7788/`; the socket lives on the page's own origin. */
