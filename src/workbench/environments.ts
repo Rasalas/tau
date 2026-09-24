@@ -35,15 +35,16 @@ export function createPlatformEnvironments(client: HostClient): PlatformEnvironm
     snapshot = next;
     for (const listener of listeners) listener();
   };
+  // Nothing is asked or listened to until something reads the list.
   const load = () => {
     if (requested) return;
     requested = true;
+    client.onHostEvent((event: HostEvent) => {
+      if (event.type === "environments") set(event.environments);
+    });
     // A window without a list refuses; the page then simply shows no other machines.
     void client.listEnvironments().then((list) => { if (!snapshot) set(list); }, () => undefined);
   };
-  client.onHostEvent((event: HostEvent) => {
-    if (event.type === "environments") set(event.environments);
-  });
   return {
     getSnapshot: () => {
       load();
