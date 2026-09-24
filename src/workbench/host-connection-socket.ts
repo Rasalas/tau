@@ -123,6 +123,8 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
         for (const listener of pushListeners) listener(frame.push);
         return;
       }
+      // Calls into a window go to the window's own process, never to a page.
+      if (frame.type === "client-call") return;
       const frameId = frame.type === "response" ? frame.response.id : frame.id;
       const request = pending.get(frameId);
       if (!request) return;

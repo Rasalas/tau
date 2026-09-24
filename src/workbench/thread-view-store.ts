@@ -298,8 +298,6 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     // these two before the thread reducer ever sees them.
     case "extension-packages-changed":
     case "extension-deactivated":
-    // Meant for the process the client runs in, not for the workbench.
-    case "client-call":
     // Who else is attached is client-wide, not thread state; extensions read it.
     case "client-count":
     // The runtime catalog store follows these itself.

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
-import { WORKBENCH_CLIENT_PRINCIPAL } from "./host-invocation.js";
+import { WORKBENCH_CLIENT_PRINCIPAL, currentCaller } from "./host-invocation.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
 function services(): HostExtensionServices & { logs: string[] } {
@@ -256,6 +256,27 @@ describe("HostExtensionRegistry", () => {
     expect(r.isActive("denied.kit")).toBe(true);
     expect(s.logs.filter((line) => line.startsWith("host-extension.denied"))).toHaveLength(3);
     expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([]);
+  });
+
+  it("runs a command as its socket client, so a call into a window goes back to that client", async () => {
+    const { registry: r } = registry();
+    let invokeOther: ((extensionId: string, command: string, input?: unknown) => Promise<unknown>) | undefined;
+    await r.activate({
+      id: "caller.kit",
+      name: "Caller Kit",
+      permissions: [],
+      activate: (ctx) => {
+        invokeOther = ctx.invokeHostExtension;
+        ctx.registerCommand("who", async () => { await Promise.resolve(); return currentCaller() ?? null; });
+        ctx.registerCommand("relay", () => invokeOther!("caller.kit", "who"));
+      },
+    });
+    const client = { kind: "workbench-client", connection: "conn-7" } as const;
+    await expect(r.invoke("caller.kit", "who", undefined, client)).resolves.toBe("conn-7");
+    // A command it calls on the way keeps the client's connection.
+    await expect(r.invoke("caller.kit", "relay", undefined, client)).resolves.toBe("conn-7");
+    await expect(r.invoke("caller.kit", "who")).resolves.toBeNull();
+    await expect(r.invoke("caller.kit", "who", undefined, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBeNull();
   });
 
   it("authorizes host-issued callers per declared command and rejects forged contexts", async () => {

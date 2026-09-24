@@ -29,7 +29,6 @@ import { PiHost } from "./pi-host.js";
 import { HostStart } from "./host-start.js";
 import { ClientCalls } from "./client-calls.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
-import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 import { IdleHeapCompactor } from "./host-idle-compaction.js";
@@ -67,8 +66,8 @@ const pushes = new HostPushCoalescer((event) => {
   return push.seq;
 });
 const jobs = new HostJobRunner((event) => broadcast(event));
-/** The other direction: what a host extension asks the client's process to do. */
-const clientCalls = new ClientCalls((event) => publish(event));
+/** The other direction: what a host extension asks one client's process to do. */
+const clientCalls = new ClientCalls((connection, call) => socket?.sendCall(connection, call) ?? false);
 let socket: SocketHostTransport | undefined;
 
 function broadcast(event: HostPushEvent): void {
@@ -112,11 +111,10 @@ async function main(): Promise<void> {
       threadTrashDir: join(userData, "thread-trash"),
       // A window half of a kit lives in the client's process; this is the
       // only way a host without a window of its own reaches one. The folder
-      // picker is the window's own, asked for the same way.
+      // picker is the window's own, and only the asking client's window shows it.
       platform: {
         callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
-        pickDirectory: async (options) =>
-          await clientCalls.call(WINDOW_SERVICES_ID, "pick-directory", options, 10 * 60_000) as string | undefined,
+        pickDirectory: (options) => clientCalls.pickDirectory(options),
       },
       sessionUsageCachePath: join(userData, "session-usage.json"),
       sessionLineageCachePath: join(userData, "session-lineage.json"),
@@ -205,6 +203,7 @@ async function main(): Promise<void> {
     ...(tls ? { tls } : {}),
     ...(web ? { attachTo: web.server } : {}),
     clients,
+    calls: clientCalls,
     logger: hostLog,
   });
   // The smoke test reads this line to learn the port when it asked for 0.

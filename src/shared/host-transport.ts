@@ -137,6 +137,21 @@ export interface HostHello {
    * host serves it but does not count it among its clients.
    */
   auxiliary?: boolean;
+  /**
+   * Shared by a window's renderer and the window's own process, so a call a
+   * renderer causes reaches the window it sits in. Random per window.
+   */
+  windowId?: string;
+  /** The extensions whose window half this connection runs; read only when `auxiliary`. */
+  windowHalves?: string[];
+}
+
+/** A call from the host into one client's process: the window half of an extension (ADR 0021, ADR 0023). */
+export interface HostClientCall {
+  callId: string;
+  extensionId: string;
+  command: string;
+  input?: unknown;
 }
 
 export interface HostHelloReply {
@@ -157,7 +172,9 @@ export type HostClientFrame =
 export type HostServerFrame =
   | { type: "hello-reply"; id: string; reply: HostHelloReply }
   | { type: "response"; response: HostResponse }
-  | { type: "push"; push: HostPush };
+  | { type: "push"; push: HostPush }
+  /** Sent to one connection only, outside the push sequence: never replayed, never seen by another client. */
+  | { type: "client-call"; call: HostClientCall };
 
 export const HOST_ERROR = {
   invalidRequest: "invalid-request",
@@ -220,6 +237,9 @@ export function decodeHostResponse(value: unknown): HostResponse | undefined {
   return error ? { id: item.id, error } : undefined;
 }
 
+const MAX_WINDOW_ID = 128;
+const MAX_WINDOW_HALVES = 256;
+
 export function decodeHostHello(value: unknown): HostHello | undefined {
   const item = record(value);
   if (!item || item.protocol !== HOST_TRANSPORT_VERSION) return undefined;
@@ -227,12 +247,32 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (item.lastSeq !== undefined && !Number.isSafeInteger(item.lastSeq)) return undefined;
   if (item.profile !== undefined && typeof item.profile !== "string") return undefined;
   if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
+  if (item.windowId !== undefined && !(nonEmptyString(item.windowId) && item.windowId.length <= MAX_WINDOW_ID)) return undefined;
+  if (item.windowHalves !== undefined && !isWindowHalves(item.windowHalves)) return undefined;
   return {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
     ...(typeof item.lastSeq === "number" ? { lastSeq: item.lastSeq } : {}),
     ...(typeof item.profile === "string" ? { profile: item.profile } : {}),
     ...(item.auxiliary === true ? { auxiliary: true } : {}),
+    ...(typeof item.windowId === "string" ? { windowId: item.windowId } : {}),
+    ...(Array.isArray(item.windowHalves) ? { windowHalves: [...item.windowHalves as string[]] } : {}),
+  };
+}
+
+function isWindowHalves(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_WINDOW_HALVES
+    && value.every((entry) => nonEmptyString(entry) && entry.length <= MAX_WINDOW_ID);
+}
+
+function decodeHostClientCall(value: unknown): HostClientCall | undefined {
+  const item = record(value);
+  if (!item || !nonEmptyString(item.callId) || !nonEmptyString(item.extensionId) || !nonEmptyString(item.command)) return undefined;
+  return {
+    callId: item.callId,
+    extensionId: item.extensionId,
+    command: item.command,
+    ...(item.input === undefined ? {} : { input: item.input }),
   };
 }
 
@@ -339,6 +379,10 @@ export function decodeHostServerFrame(value: unknown): HostServerFrame | undefin
   if (item.type === "push") {
     const push = decodeHostPush(item.push);
     return push ? { type: "push", push } : undefined;
+  }
+  if (item.type === "client-call") {
+    const call = decodeHostClientCall(item.call);
+    return call ? { type: "client-call", call } : undefined;
   }
   return undefined;
 }

@@ -24,7 +24,7 @@ import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
+import { HOST_CORE_PRINCIPAL, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
@@ -1137,9 +1137,9 @@ export class HostExtensionRegistry {
     // the extension, not three of any command.
     const commandKey = `${extensionId}/${command}`;
     try {
-      const result = record.longCommands.has(command)
+      const result = await runAsCaller(principal, async () => record.longCommands.has(command)
         ? await handler(input)
-        : await this.runWithTimeout(() => handler(input), timeoutMs, command);
+        : await this.runWithTimeout(() => handler(input), timeoutMs, command));
       this.consecutiveFailures.delete(commandKey);
       return result;
     } catch (error) {

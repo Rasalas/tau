@@ -615,12 +615,6 @@ export type GlobalHostEvent =
   /** Published by a host extension for its desktop counterpart; core only routes it. */
   | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
   /**
-   * The host asking the client's own process to do something for it: the half
-   * of an extension that needs a window, not a host (ADR 0021). Answered with
-   * the `client-call-result` method; a client that has no such half ignores it.
-   */
-  | { type: "client-call"; callId: string; extensionId: string; command: string; input?: unknown; sessionId?: undefined }
-  /**
    * The set of installed or approved packages moved; a client re-reads its
    * desktop halves. `extensionIds` narrows that to the ones that moved, so a
    * client can swap those modules instead of every one it loaded.

@@ -7,6 +7,7 @@ import {
   HOST_TRANSPORT_MAX_FRAME_BYTES,
   decodeHostClientFrame,
   hostErrorInfo,
+  type HostClientCall,
   type HostPush,
   type HostServerFrame,
 } from "../shared/host-transport.js";
@@ -17,7 +18,8 @@ import { hostTokenMatches } from "./host-token.js";
 import type { AccessPeer, HostCredential } from "./host-access.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
-import { socketCapabilities } from "./host-local-files.js";
+import { isLoopbackPeer, socketCapabilities } from "./host-local-files.js";
+import type { ClientPeer } from "./client-calls.js";
 import type { HostClientSink } from "./host-transport-clients.js";
 import type { HostLogger } from "./host-log.js";
 
@@ -68,6 +70,8 @@ export interface SocketHostTransportOptions {
   attachTo?: Server;
   /** Where attached clients are reported; without one the host counts nobody. */
   clients?: HostClientSink;
+  /** Told about every authenticated connection, so a call into a window can pick one; `ClientCalls` implements it. */
+  calls?: { attach(connection: string, peer: ClientPeer): void; detach(connection: string): void };
   /** Runs before every reply, so pushes still waiting to be coalesced reach the client first. */
   beforeReply?(): void;
   /** A client starts from a snapshot, not a replay: its first hello, or a resync. */
@@ -88,6 +92,8 @@ export interface SocketHostTransport {
   /** Set when the listener runs without TLS beyond loopback; the caller prints it. */
   readonly warning?: string;
   deliver(push: HostPush): void;
+  /** Sends a call to that connection alone; false when it is gone. */
+  sendCall(connection: string, call: HostClientCall): boolean;
   close(): Promise<void>;
 }
 
@@ -117,10 +123,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const authenticated = new Map<WebSocket, { connection: string; principal: HostInvocationPrincipal }>();
   /** The id the client registry knows a socket by, while it is authenticated. */
   const clientIds = new Map<WebSocket, string>();
+  const sockets = new Map<string, WebSocket>();
   const forget = (socket: WebSocket): void => {
     const session = authenticated.get(socket);
     authenticated.delete(socket);
-    if (session) access.detach(session.connection);
+    if (session) {
+      sockets.delete(session.connection);
+      access.detach(session.connection);
+      options.calls?.detach(session.connection);
+    }
     const clientId = clientIds.get(socket);
     if (clientId === undefined) return;
     clientIds.delete(socket);
@@ -171,6 +182,14 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           // Gone from the set first, so nothing more is delivered on the way out.
           forget(socket);
           socket.close(UNAUTHORIZED, reason);
+        });
+        sockets.set(connection, socket);
+        // Only a window's own process runs halves; a renderer names the window it sits in.
+        options.calls?.attach(connection, {
+          local: isLoopbackPeer(request.socket.remoteAddress),
+          ...(credential.kind === "client" ? { pairedClient: credential.clientId } : {}),
+          ...(frame.hello.windowId ? { windowId: frame.hello.windowId } : {}),
+          ...(frame.hello.auxiliary && frame.hello.windowHalves ? { windowHalves: frame.hello.windowHalves } : {}),
         });
         authenticated.set(socket, {
           connection,
@@ -232,6 +251,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       if (authenticated.size === 0) return;
       const frame = JSON.stringify({ type: "push", push } satisfies HostServerFrame);
       for (const socket of authenticated.keys()) if (socket.readyState === socket.OPEN) socket.send(frame);
+    },
+    sendCall: (connection, call) => {
+      const socket = sockets.get(connection);
+      if (!socket || socket.readyState !== socket.OPEN) return false;
+      socket.send(JSON.stringify({ type: "client-call", call } satisfies HostServerFrame));
+      return true;
     },
     close: async () => {
       for (const socket of [...authenticated.keys()]) { forget(socket); socket.close(); }

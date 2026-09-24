@@ -40,6 +40,21 @@ describe("host transport frames", () => {
     expect(decodeHostHello({ protocol: 1, token: 7 })).toBeUndefined();
   });
 
+  it("reads which window a hello comes from and which halves it runs", () => {
+    expect(decodeHostHello({ protocol: 1, auxiliary: true, windowId: "w1", windowHalves: ["window", "tau.preview"] }))
+      .toEqual({ protocol: 1, auxiliary: true, windowId: "w1", windowHalves: ["window", "tau.preview"] });
+    expect(decodeHostHello({ protocol: 1, windowId: "" })).toBeUndefined();
+    expect(decodeHostHello({ protocol: 1, windowId: "x".repeat(129) })).toBeUndefined();
+    expect(decodeHostHello({ protocol: 1, windowHalves: "window" })).toBeUndefined();
+    expect(decodeHostHello({ protocol: 1, windowHalves: ["window", 3] })).toBeUndefined();
+  });
+
+  it("takes a call into a window as a frame of its own, outside the push sequence", () => {
+    const call = { callId: "c1", extensionId: "window", command: "pick-directory", input: { createDirectory: true } };
+    expect(decodeHostServerFrame({ type: "client-call", call })).toEqual({ type: "client-call", call });
+    expect(decodeHostServerFrame({ type: "client-call", call: { ...call, callId: "" } })).toBeUndefined();
+  });
+
   it("requires a positive sequence and a typed event on a push", () => {
     expect(decodeHostPush(push)).toEqual(push);
     expect(decodeHostPush({ seq: 0, event: { type: "x" } })).toBeUndefined();
