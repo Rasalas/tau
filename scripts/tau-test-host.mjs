@@ -4,7 +4,7 @@
 // loopback only. `--proxy` adds the listener a reverse proxy such as
 // Tailscale Serve forwards to; `--tls` makes the main listener TLS.
 //
-//   node scripts/tau-test-host.mjs start [--proxy] [--tls] [--kits] [--workspace <path>]
+//   node scripts/tau-test-host.mjs start [--proxy] [--tls] [--kits] [--fresh] [--workspace <path>]
 //   node scripts/tau-test-host.mjs status | stop
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -86,6 +86,9 @@ async function start(flags) {
     const previous = JSON.parse(readFileSync(STATE_PATH, "utf8"));
     if (alive(previous.pid) && ownHost(previous.pid)) throw new Error(`a test host is already running (pid ${previous.pid}); stop it first`);
   }
+  // A device paired in an earlier run would still be listed; --fresh starts without any.
+  if (flags.fresh) rmSync(TEST_HOST_DIR, { recursive: true, force: true });
+  mkdirSync(TEST_HOST_DIR, { recursive: true });
   const entry = join(ROOT, "dist-electron", "main", "headless.js");
   if (!existsSync(entry) || !existsSync(join(ROOT, "dist-web", "index.html"))) throw new Error("build first: npm run build");
   const workspace = flags.workspace ? resolve(flags.workspace) : undefined;
@@ -127,12 +130,13 @@ async function main() {
     proxy: rest.includes("--proxy"),
     tls: rest.includes("--tls"),
     kits: rest.includes("--kits"),
+    fresh: rest.includes("--fresh"),
     ...(rest.includes("--workspace") ? { workspace: rest[rest.indexOf("--workspace") + 1] } : {}),
   };
   if (command === "start") return start(flags);
   if (command === "stop") return stop();
   if (command === "status") return readTestHost();
-  throw new Error("usage: tau-test-host.mjs start [--proxy] [--tls] [--kits] [--workspace <path>] | status | stop");
+  throw new Error("usage: tau-test-host.mjs start [--proxy] [--tls] [--kits] [--fresh] [--workspace <path>] | status | stop");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
