@@ -153,7 +153,7 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
       <PreviewTools state={state} actions={actions} run={(work) => guard(work())} />
       {state.layoutFor ? <div className="preview-layout-note" role="status">
         {state.layoutFor.touch ? <Smartphone size={12} aria-hidden="true" /> : <Monitor size={12} aria-hidden="true" />}
-        <span>{`Laid out for “${state.layoutFor.name}” · ${String(state.layoutFor.width)}×${String(state.layoutFor.height)}`}</span>
+        <span {...tooltipProps(`The page is laid out for “${state.layoutFor.name}”, which shows it (${String(state.layoutFor.width)}×${String(state.layoutFor.height)})`)}>{`Laid out for “${state.layoutFor.name}” · ${String(state.layoutFor.width)}×${String(state.layoutFor.height)}`}</span>
         <button type="button" className="text-button" onClick={() => guard(previewKit.layout({}))}>Use this window's size</button>
       </div> : null}
       <div className={error ? "preview-status error" : "preview-status"}>
