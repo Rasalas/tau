@@ -26,7 +26,7 @@ export function NearbyMachineList({ result, action }: { result: UiDiscoveredHost
     return <Empty size="compact" icon={<RadioTower size={16} />} title="Tau could not look on this network" description={result.problem} />;
   }
   if (result.hosts.length === 0) {
-    return <Empty size="compact" icon={<RadioTower size={16} />} title="No Tau on this network" description="On the other machine, turn on Local network and Announce on this network in Settings → Connections." />;
+    return <Empty size="compact" icon={<RadioTower size={16} />} title="No Tau on this network" description="Turn on Local network and Announce on the other machine." />;
   }
   return (
     <ul className="nearby-machines" aria-label="Machines on this network">
@@ -65,7 +65,7 @@ export function NearbyMachinesDialog({ onClose }: { onClose(): void }) {
   return (
     <Dialog className="confirm-dialog nearby-machines-dialog" label="Machines on this network" onClose={onClose}>
       <h2>Machines on this network</h2>
-      <p>Tau hosts nearby that announce themselves. A machine lets another one in only after its owner allows it with matching digits.</p>
+      <p>A machine lets another in only after its owner allows it.</p>
       <div className="nearby-machines-body" aria-busy={search.status === "searching"}>
         {search.status === "searching" ? (
           <>

@@ -10,7 +10,7 @@ const QUESTIONS: Record<Switchable, { on: { title: string; message: string }; of
   lan: {
     on: {
       title: "Let devices on your network connect?",
-      message: "Tau listens on every network interface of this machine, over TLS only, and announces itself with Bonjour so your devices find it. A device still needs your approval here, and a paired device can do everything you can: run agents, open terminals, read files. macOS may ask whether Tau may use the local network.",
+      message: "Tau listens on every network interface of this machine, over TLS only, and announces itself with Bonjour. A device still needs your approval here, and a paired device can do everything you can: run agents, open terminals, read files.",
     },
     off: {
       title: "Stop listening on the local network?",
@@ -43,9 +43,9 @@ function announcementText(announcement: UiNetworkAnnouncement | undefined, lanLi
   if (!announcement) return "Starting…";
   switch (announcement.state) {
     case "announced": return `Devices here see this machine as “${announcement.name}”.`;
-    case "starting": return "Waiting for the system to announce it. macOS may ask whether Tau may use the local network.";
+    case "starting": return "Waiting for the system; macOS may ask about local network access.";
     case "failed": return `${announcement.detail ?? "The announcement stopped."} Tau tries again every minute.`;
-    case "unavailable": return announcement.detail ?? "This system has no Bonjour responder Tau can use.";
+    case "unavailable": return announcement.detail ?? "No Bonjour responder on this system.";
   }
 }
 
@@ -96,8 +96,8 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         <SettingRow
           title="Announce on this network"
           description={settings.announce
-            ? "Bonjour tells devices here that Tau runs on this machine, with its id and certificate fingerprint. Nothing secret: a device still needs your approval."
-            : "Devices find this machine only through a pairing link or QR code."}
+            ? "Lets devices here find Tau. It shares only the host id and certificate fingerprint; a device still needs your approval."
+            : "Only a pairing link or QR code leads here."}
           status={settings.announce ? announcementText(network.announcement, lanListening) : undefined}
           control={<Switch label="Announce on this network" checked={settings.announce} disabled={busy} onChange={(on) => void onChange({ announce: on }, on ? "Announcing Tau on this network" : "No longer announced on this network")} />}
         />

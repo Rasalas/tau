@@ -179,7 +179,7 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
         />
         <SettingRow
           title="Other machines"
-          description="Tau hosts on this network that announce themselves with Bonjour. The first search may make macOS ask whether Tau may use the local network."
+          description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
           control={<button type="button" className="chrome-button" onClick={() => setFindingMachines(true)}>Find Machines…</button>}
         />
       </SettingsSection>
