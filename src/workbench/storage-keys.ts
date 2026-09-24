@@ -23,6 +23,19 @@ export const STORAGE_KEYS = {
   composerFold: "tau:composer-fold",
 } as const;
 
+/**
+ * Keys that hold one host's state. A page showing another machine keeps its
+ * own copy of each (ADR 0025); stage, dock and review keys already carry a
+ * workspace id, which includes the host's.
+ */
+export const HOST_STORAGE_KEYS: readonly string[] = [
+  STORAGE_KEYS.bootstrapCache,
+  ...STORAGE_KEYS.bootstrapCacheLegacy,
+  STORAGE_KEYS.composerDrafts,
+  STORAGE_KEYS.activeNewThread,
+  STORAGE_KEYS.turnActivityCache,
+];
+
 /** `tau.stage.v1:<workspace>`; `workspace` is a workspace id, or a path from a host that mints none. */
 export function stageStateKey(workspace: string): string {
   return `${STORAGE_KEYS.stage}:${workspace}`;

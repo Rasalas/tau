@@ -31,6 +31,7 @@ import type {
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { StageTab } from "../workbench/stage";
 import type { Platform, PlatformAttention } from "../workbench/platform";
+import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
 import { errorMessage } from "../workbench/error-message";
 import type { SettingScope } from "../shared/config-layers";
@@ -1060,6 +1061,11 @@ export interface DesktopExtensionContext {
    * draws, a count on the app's icon — or undefined where it cannot.
    */
   readonly attention: PlatformAttention | undefined;
+  /**
+   * The machines this window knows and how each is doing, or undefined in a
+   * client without a window process (ADR 0025). New in API 1.13.0.
+   */
+  readonly environments: PlatformEnvironments | undefined;
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
@@ -1381,6 +1387,7 @@ export class ExtensionRegistry {
       preferences: this.services.preferences,
       // Read when used: the client builds its platform after the registry.
       get attention() { return platform?.()?.attention; },
+      get environments() { return platform?.()?.environments; },
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
       registerPanel: (panel) => {

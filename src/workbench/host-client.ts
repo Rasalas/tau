@@ -40,6 +40,7 @@ import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -211,6 +212,19 @@ export interface HostClient {
   /** Installs (or repairs) the service; the host answering may be replaced by the one it starts. */
   installService(): Promise<UiHostService>;
   uninstallService(): Promise<UiHostService>;
+
+  // The machines this window knows (ADR 0025). The window's own process answers; a host refuses them.
+  listEnvironments(): Promise<UiEnvironments>;
+  /** Resolves once the other machine's owner decided, or the attempt failed. */
+  pairEnvironment(input: EnvironmentPairInput): Promise<EnvironmentPairResult>;
+  cancelEnvironmentPairing(): Promise<void>;
+  renameEnvironment(id: string, name: string): Promise<{ renamed: boolean }>;
+  removeEnvironment(id: string): Promise<{ removed: boolean }>;
+  retryEnvironment(id: string): Promise<void>;
+  /** Points this window at another machine; the page loads again there and finds `target` waiting. */
+  openEnvironment(id: string, target?: EnvironmentTarget): Promise<void>;
+  /** What this page was sent to show on arrival, once. */
+  takeEnvironmentArrival(): Promise<EnvironmentTarget | undefined>;
 }
 
 /**
@@ -219,7 +233,7 @@ export interface HostClient {
  * a window whose host runs in another process still copies to its own
  * clipboard and rebuilds its own workbench (ADR 0021).
  */
-const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell"]);
+const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments"]);
 
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
@@ -365,5 +379,14 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     serviceStatus: () => call<UiHostService>("service-status"),
     installService: () => call<UiHostService>("service-install"),
     uninstallService: () => call<UiHostService>("service-uninstall"),
+
+    listEnvironments: () => call<UiEnvironments>("environments-list"),
+    pairEnvironment: (input) => call<EnvironmentPairResult>("environments-pair", [input]),
+    cancelEnvironmentPairing: () => call<void>("environments-cancel-pairing"),
+    renameEnvironment: (id, name) => call<{ renamed: boolean }>("environments-rename", [id, name]),
+    removeEnvironment: (id) => call<{ removed: boolean }>("environments-remove", [id]),
+    retryEnvironment: (id) => call<void>("environments-retry", [id]),
+    openEnvironment: (id, target) => call<void>("environments-open", target ? [id, target] : [id]),
+    takeEnvironmentArrival: async () => (await call<EnvironmentTarget | null>("environments-take-arrival")) ?? undefined,
   };
 }

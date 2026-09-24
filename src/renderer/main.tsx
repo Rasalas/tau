@@ -56,7 +56,8 @@ void host?.connection.start(search.get("profile") ?? "desktop", search.get("wind
 
 // The browser storage adapter works in Electron's renderer like any browser; a
 // future web or mobile client installs its own ClientStorage here instead.
-const clientStorage = createLocalStorageAdapter();
+// A page showing another machine keeps that host's state apart from this machine's (ADR 0025).
+const clientStorage = createLocalStorageAdapter(search.get("environment") ?? undefined);
 setClientStorage(clientStorage);
 const services = createRendererServices();
 // Before the first render: `index.html` paints the OS's theme, and a stored
