@@ -119,6 +119,12 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
   entitlements: assets/entitlements.mac.plist
+  # macOS 15+ asks before an app uses the local network; Bonjour announcing and
+  # browsing count, and so does a connection to a LAN address (Apple TN3179).
+  extendInfo:
+    NSLocalNetworkUsageDescription: Tau uses the local network to let your devices connect to this Mac, to announce itself with Bonjour, and to find other machines running Tau.
+    NSBonjourServices:
+      - _tau._tcp
   # Signing and notarization stay off unless CSC_LINK/APPLE_ID are in the
   # environment; electron-builder turns both on by itself once they are.
   gatekeeperAssess: false
