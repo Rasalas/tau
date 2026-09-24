@@ -52,10 +52,11 @@ export function parseClientProfile(value: string | null | undefined): ClientProf
 /**
  * Which client a browser at this width claims to be. It is decided once, when
  * the page loads: a contribution's profile is a claim about a client, not about
- * a moment, so dragging a window narrow must not unregister a panel.
+ * a moment, so dragging a window narrow must not unregister a panel. A touch
+ * screen (a tablet at any width) is compact too: it has no hover and no mouse.
  */
-export function browserClientProfile(width: number, override?: string | null): ClientProfile {
-  return parseClientProfile(override) ?? (width < COMPACT_WIDTH_PX ? "compact" : "web");
+export function browserClientProfile(width: number, override?: string | null, touch = false): ClientProfile {
+  return parseClientProfile(override) ?? (touch || width < COMPACT_WIDTH_PX ? "compact" : "web");
 }
 
 /**
@@ -65,4 +66,25 @@ export function browserClientProfile(width: number, override?: string | null): C
  */
 export function layoutProfileFor(profile: ClientProfile, width: number): ClientProfile {
   return profile === "compact" || width < COMPACT_WIDTH_PX ? "compact" : profile;
+}
+
+/** A compact client at least this wide and tall shows the thread list beside the thread, as on a tablet. */
+export const COMPACT_SPLIT_MIN_WIDTH_PX = 720;
+export const COMPACT_SPLIT_MIN_HEIGHT_PX = 600;
+
+/**
+ * How a compact layout arranges itself: `single` is one screen at a time (a
+ * phone, or any window narrowed below 720 px), `split` puts the thread list in
+ * a sidebar. Only a client that claims compact splits; the height rule keeps a
+ * phone on its side single.
+ */
+export type CompactForm = "single" | "split";
+
+export function compactFormFor(profile: ClientProfile, width: number, height: number): CompactForm {
+  return profile === "compact" && width >= COMPACT_SPLIT_MIN_WIDTH_PX && height >= COMPACT_SPLIT_MIN_HEIGHT_PX ? "split" : "single";
+}
+
+/** The split's thread list: a third of the width, within bounds. */
+export function compactSidebarWidth(width: number): number {
+  return Math.min(380, Math.max(280, Math.round(width * 0.32)));
 }

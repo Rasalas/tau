@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Eye, Layers, ListFilter, Plus, Search, Star } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Eye, Layers, ListFilter, Plus, Search, Star, X } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
@@ -22,6 +22,7 @@ import { Popover } from "./ui/Dialog";
 import { useFocusTrap } from "./ui/focus";
 import { tooltipProps } from "./ui/Tooltip";
 import { VirtualList } from "./VirtualList";
+import { useSheetDrag } from "../touch/sheet-drag";
 import "./model-picker.css";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
@@ -196,6 +197,10 @@ export function ModelPicker({
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  // On a compact layout the picker is a bottom sheet (touch/touch.css): a close button and a pull down.
+  const [asSheet] = useState(() => typeof document !== "undefined" && document.body.dataset.profile === "compact");
+  const sheetRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => { sheetRef.current = asSheet ? surfaceRef.current?.closest<HTMLElement>(".model-picker") ?? null : null; }, [asSheet]);
   const runtimeColumnRef = useRef<HTMLElement>(null);
   const providerColumnRef = useRef<HTMLElement>(null);
   const chosen = useSyncExternalStore(
@@ -489,6 +494,11 @@ export function ModelPicker({
       data-keybinding-context="modelPicker"
       onKeyDown={onKeyDown}
     >
+      {asSheet ? <header className="touch-sheet-header">
+        <span className="touch-sheet-grip" aria-hidden="true" />
+        <strong>Select model</strong>
+        <button type="button" className="touch-icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button>
+      </header> : null}
       <div className="model-picker-body">
         <nav ref={runtimeColumnRef} className="model-rail" aria-label="Runtimes" onKeyDown={onColumnKeyDown("runtimes")}>
           {views.map((entry, index) => (
@@ -731,6 +741,7 @@ export function ModelPicker({
     setMenu(undefined);
     inputRef.current?.focus();
   };
+  useSheetDrag(sheetRef, onClose);
   const addProvider = addProviderOpen ? (
     <Suspense fallback={null}>
       <LazyAddModelProviderModal

@@ -676,14 +676,17 @@ export interface PaletteSourceContribution {
 
 /**
  * `thread-title` is the thread title's menu; `file-tab` a button in a file tab's header, which reads the tab from `actions.activeStageTab()`;
- * `runtime-switch` an action the model picker offers with another runtime than the thread's, run with `{ runtime }`.
+ * `runtime-switch` an action the model picker offers with another runtime than the thread's, run with `{ runtime }`;
+ * `thread-row` an action on one thread of the compact thread list (swipe or long press), run with `{ threadId }` (API 1.13.0).
  */
-export type CommandSurface = "thread-title" | "file-tab" | "runtime-switch";
+export type CommandSurface = "thread-title" | "file-tab" | "runtime-switch" | "thread-row";
 
 /** What a surface hands the command it runs; the palette hands nothing. */
 export interface CommandContext {
   /** On `runtime-switch`: the runtime backend kind the user pointed at. */
   runtime?: string;
+  /** On `thread-row`: the thread the user acted on, which need not be the open one. */
+  threadId?: string;
 }
 
 export interface CommandContribution {
@@ -699,6 +702,11 @@ export interface CommandContribution {
   submenu?: PaletteMenu;
   /** Deletes or discards something: a surface menu draws it last, in the danger colour. */
   destructive?: boolean;
+  /**
+   * A glyph for surfaces that draw icons: the compact thread list's swipe tray
+   * offers the first non-destructive `thread-row` command that has one (API 1.13.0).
+   */
+  Icon?: PanelIconComponent;
   run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;
 }
 
