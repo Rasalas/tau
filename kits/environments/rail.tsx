@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { ChevronRight, Laptop, Plus, RefreshCw, Server } from "lucide-react";
 import { tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type WorkbenchActions } from "tau";
-import { otherMachines, shortAge, statusText, unavailableReason } from "./machines.js";
+import { otherMachines, shownMachine, shortAge, statusText, unavailableReason } from "./machines.js";
 import { MACHINES_SETTINGS_PAGE } from "./protocol.js";
 
 const FIRST_ROWS = 3;
@@ -145,6 +145,21 @@ export function createMachinesRailSection(environments: PlatformEnvironments) {
           {machines.map((machine) => <MachineGroup key={machine.id} machine={machine} environments={environments} actions={actions} now={now} />)}
         </div>
       </section>
+    );
+  };
+}
+
+/** Beside the title bar's link dot, while the window shows another machine: which one. */
+export function createShownMachine(environments: PlatformEnvironments) {
+  return function ShownMachine() {
+    const list = useEnvironments(environments);
+    const machine = list ? shownMachine(list) : undefined;
+    if (!machine || machine.local) return null;
+    return (
+      <span className="machine-shown" role="note" aria-label={`Showing ${machine.name}`} {...tooltipProps(`This window shows ${machine.name}: its threads, files and terminals are that machine's.`, { side: "bottom" })}>
+        <MachineIcon environment={machine} size={13} />
+        <span>{machine.name}</span>
+      </span>
     );
   };
 }

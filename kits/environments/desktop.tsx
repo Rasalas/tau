@@ -3,7 +3,7 @@ import { Network } from "lucide-react";
 import type { DesktopExtension, PlatformEnvironments, WorkbenchActions } from "tau";
 import { followArrival } from "./machines.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, WORKSPACE_STORE_SERVICE, type WorkspaceRailSlice } from "./protocol.js";
-import { createMachinesRailSection } from "./rail.js";
+import { createMachinesRailSection, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 
@@ -52,6 +52,7 @@ export const environmentsExtension: DesktopExtension = {
       group: "Machines",
       run: (actions) => actions.openSettings(MACHINES_SETTINGS_PAGE),
     });
+    context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
     context.registerComposerControl({ id: "environments.run-on", placement: "toolbar", order: 5, profiles: ["desktop"], Component: createRunOnControl(environments) });
     const RailSection = createRailSection(environments);
     context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => store.registerRailSection?.(RailSection));

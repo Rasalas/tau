@@ -71,3 +71,11 @@
   padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: 6px;
   font: 600 22px var(--mono); letter-spacing: 0.08em; color: var(--ink);
 }
+
+/* The machine the window shows, when it is not this one: beside the link dot. */
+.machine-shown {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; margin-right: 4px;
+  border: 1px solid var(--line-control); border-radius: 7px;
+  color: var(--ink-2); font: 500 11.5px var(--sans); white-space: nowrap;
+}
+.machine-shown svg { color: var(--muted); }

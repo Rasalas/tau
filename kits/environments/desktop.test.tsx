@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PlatformEnvironments, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
+import type { EnvironmentPairResult, PlatformEnvironments, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, statusText, unavailableReason } from "./machines.js";
-import { createMachinesRailSection } from "./rail.js";
+import { createMachinesRailSection, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 import { WORKSPACE_STORE_SERVICE } from "./protocol.js";
@@ -34,7 +34,7 @@ function fakeEnvironments(initial: UiEnvironments) {
   const environments = {
     getSnapshot: () => snapshot,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    pair: vi.fn(async () => ({ state: "added" as const, environment: studio })),
+    pair: vi.fn(async (): Promise<EnvironmentPairResult> => ({ state: "added", environment: studio })),
     cancelPairing: vi.fn(async () => undefined),
     rename: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
@@ -113,6 +113,20 @@ describe("the other machines in the rail", () => {
   });
 });
 
+describe("the title bar", () => {
+  it("names the machine the window shows, and nothing while it shows this one", () => {
+    const here = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const Here = createShownMachine(here.environments);
+    const { container } = render(<Here />);
+    expect(container.innerHTML).toBe("");
+    cleanup();
+    const there = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
+    const There = createShownMachine(there.environments);
+    render(<There />);
+    expect(screen.getByRole("note", { name: "Showing studio" })).toBeTruthy();
+  });
+});
+
 describe("Run on", () => {
   it("moves a draft and its text to another machine, into its latest project", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
@@ -144,7 +158,7 @@ describe("Settings → Machines", () => {
   it("adds a machine and shows the code to compare while its owner decides", async () => {
     const { environments, set } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
     let finish: (value: Awaited<ReturnType<PlatformEnvironments["pair"]>>) => void = () => undefined;
-    environments.pair.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    environments.pair.mockImplementation(() => new Promise<EnvironmentPairResult>((resolve) => { finish = resolve; }));
     const Page = createMachinesPage(environments);
     render(<Page />);
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local:7788" } });
@@ -158,7 +172,7 @@ describe("Settings → Machines", () => {
 
   it("says so when the other owner declines", async () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
-    environments.pair.mockResolvedValue({ state: "denied" } as never);
+    environments.pair.mockResolvedValue({ state: "denied" });
     const Page = createMachinesPage(environments);
     render(<Page />);
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local" } });
