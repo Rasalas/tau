@@ -170,7 +170,9 @@ export class HostNetworkAccess {
   update(input: UiNetworkSettingsInput): Promise<UiNetworkAccess> {
     return this.serialize(async () => {
       const next = applyNetworkSettings(this.settings, input);
-      if (input.certificate) this.resolveTls(next);
+      if (input.certificate) {
+        try { this.resolveTls(next); } catch (error: unknown) { throw new Error(`The certificate did not load: ${messageOf(error)}`, { cause: error }); }
+      }
       await writePersistedJson(this.path, STORE_VERSION, { settings: next }, this.options.logger ? { logger: this.options.logger } : {});
       this.settings = next;
       await this.reconcileNow();
