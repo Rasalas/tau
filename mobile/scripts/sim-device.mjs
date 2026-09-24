@@ -8,8 +8,8 @@
 // The device and the bridge are recorded in <repo>/.tau-dev/sim-device.json, and only
 // they are ever shut down, deleted or stopped. `up` refuses while the machine is busy.
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { loadavg } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { loadavg, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -127,9 +127,12 @@ async function main() {
   if (command === "screenshot") {
     const state = readState();
     if (!state) throw new Error("no simulator; run up first");
-    // simctl resolves a relative path against its own working directory, not ours.
+    // CoreSimulator writes the file itself and may not reach every volume (seen on an external disk); copy it over.
     const file = resolve(args[0]);
-    simctl("io", state.udid, "screenshot", file);
+    const temporary = join(tmpdir(), `tau-sim-${process.pid}.png`);
+    simctl("io", state.udid, "screenshot", temporary);
+    copyFileSync(temporary, file);
+    rmSync(temporary, { force: true });
     return { savedTo: file };
   }
   throw new Error("usage: sim-device.mjs up [--force] | status | screenshot <file.png> | down");
