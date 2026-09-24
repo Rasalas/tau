@@ -2,14 +2,15 @@
 // bootstrap, a prompt, a disconnect, and a reconnect that replays the pushes
 // missed in between — once in plaintext, once over TLS with a pinned certificate.
 // Each run then pairs a client through a link, revokes it while it is connected
-// and rotates the host token (ADR 0023).
+// and rotates the host token (ADR 0023). A last run with kits sends a call into
+// a window and checks that it reaches one connection and only its answer counts.
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
 import { execFileSync, spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { X509Certificate } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -48,6 +49,7 @@ function createClient(url, token, fingerprint) {
     : new WebSocket(url);
   const pending = new Map();
   const pushes = [];
+  const calls = [];
   let counter = 0;
   const closed = new Promise((resolve) => socket.addEventListener("close", (event) => resolve({ code: event.code, reason: String(event.reason) })));
   const opened = new Promise((resolve, reject) => {
@@ -62,6 +64,7 @@ function createClient(url, token, fingerprint) {
   socket.addEventListener("message", (event) => {
     const frame = JSON.parse(event.data);
     if (frame.type === "push") { pushes.push(frame.push); return; }
+    if (frame.type === "client-call") { calls.push(frame.call); return; }
     const id = frame.type === "response" ? frame.response.id : frame.id;
     const waiter = pending.get(id);
     if (!waiter) return;
@@ -76,12 +79,13 @@ function createClient(url, token, fingerprint) {
   });
   return {
     pushes,
+    calls,
     opened,
     closed,
     extensions: () => socket.extensions,
-    hello: (lastSeq) => {
+    hello: (lastSeq, extra = {}) => {
       const id = `h${++counter}`;
-      return send({ type: "hello", id, hello: { protocol: PROTOCOL, token, ...(lastSeq === undefined ? {} : { lastSeq }) } }, id);
+      return send({ type: "hello", id, hello: { ...extra, protocol: PROTOCOL, token, ...(lastSeq === undefined ? {} : { lastSeq }) } }, id);
     },
     request: (method, params = []) => {
       const id = `r${++counter}`;
@@ -113,7 +117,7 @@ if (!existsSync(HOST_ENTRY)) {
 const { pinnedTlsConnect, HostCertificateRefusedError } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);
 
 /** Starts a headless host; `tls` adds TAU_HOST_TLS=1. Resolves once it prints its socket. */
-async function startHost({ workspace, userData, tokenHome, tls, webClient }) {
+async function startHost({ workspace, userData, tokenHome, tls, webClient, kits = false }) {
   const host = spawn(process.execPath, [HOST_ENTRY], {
     cwd: ROOT,
     env: {
@@ -124,7 +128,7 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient }) {
       TAU_WORKSPACE: workspace,
       TAU_USER_DATA: userData,
       TAU_HOST_LISTEN: "127.0.0.1:0",
-      TAU_NO_EXTENSIONS: "1",
+      ...(kits ? {} : { TAU_NO_EXTENSIONS: "1" }),
       TAU_WEB_CLIENT: webClient,
       ...(tls ? { TAU_HOST_TLS: "1" } : {}),
       // HOME is a fresh temp dir already, so ~/.pi/agent/sessions never touches
@@ -334,6 +338,63 @@ async function exerciseAccess(host, tokenPath, userData, label) {
   step(`${label}: rotation closes the other host-token connections and keeps the caller`);
 }
 
+/**
+ * A call into a window (ADR 0023): Workspace Kit's folder picker asked for by a
+ * window's page reaches that window alone; a paired client that claims the same
+ * window neither sees it nor settles it; a client without a window is refused at once.
+ */
+async function exerciseCalls(host, tokenPath, workspace, elsewhere) {
+  const printed = host.output().match(/web client: (\S+)#pair=(\S+)/u);
+  if (!printed) fail(`the host printed no pairing link\n${host.output()}`);
+  const paired = await redeem(printed[1], printed[2]);
+  if (paired.status !== 200) fail(`the startup link did not pair: ${paired.status}`);
+  const hostToken = readFileSync(tokenPath, "utf8").trim();
+  const connect = async (token, hello) => {
+    const client = createClient(host.url, token);
+    await client.opened;
+    await client.hello(undefined, hello);
+    return client;
+  };
+  const window = await connect(hostToken, { auxiliary: true, windowId: "smoke-window", windowHalves: ["window"] });
+  const page = await connect(hostToken, { windowId: "smoke-window", profile: "desktop" });
+  const phone = await connect(paired.body.token, { auxiliary: true, windowId: "smoke-window", windowHalves: ["window"] });
+  await page.request("bootstrap");
+
+  const picked = page.request("host-extension", ["tau.workspace", "pick-folder"]);
+  await waitFor(() => window.calls.length === 1, "the folder picker call to reach the window");
+  const [call] = window.calls;
+  if (call.extensionId !== "window" || call.command !== "pick-directory") fail(`unexpected call: ${JSON.stringify(call)}`);
+  if (phone.calls.length > 0 || page.calls.length > 0) fail("a call into the window reached another connection");
+  if ([window, page, phone].some((client) => client.pushes.some((push) => push.event.type === "client-call"))) fail("a call into the window travelled as a push");
+  step("calls: the folder picker reaches the caller's window alone");
+
+  // The phone learned the id somehow and answers first: it must not count.
+  await phone.request("client-call-result", [call.callId, elsewhere]);
+  await window.request("client-call-result", [call.callId, workspace]);
+  const answer = await picked;
+  if (answer?.displayPath !== workspace) fail(`the host took a forged answer: ${JSON.stringify(answer)}`);
+  step("calls: a forged answer from a paired client is ignored", answer.displayPath);
+
+  // Its own request goes to its own claimed half, never to the host's window.
+  const own = phone.request("host-extension", ["tau.workspace", "pick-folder"]);
+  await waitFor(() => phone.calls.length === 1, "the paired client's own call");
+  if (window.calls.length !== 1) fail("a paired client's call reached the host's window");
+  await phone.request("client-call-result", [phone.calls[0].callId, null]);
+  await own;
+  const browser = await connect(paired.body.token, { profile: "web" });
+  const refused = await browser.request("host-extension", ["tau.workspace", "pick-folder"]).then(() => "answered", (error) => String(error.message));
+  if (!/no window that can answer/u.test(refused)) fail(`a client without a window was not refused: ${refused}`);
+  if (window.calls.length !== 1) fail("a browser's folder picker opened on the host's window");
+  step("calls: a paired client is asked only for its own calls; one without a window is refused");
+
+  await window.close();
+  const started = Date.now();
+  const alone = await page.request("host-extension", ["tau.workspace", "pick-folder"]).then(() => "answered", (error) => String(error.message));
+  if (!/no window that can answer/u.test(alone) || Date.now() - started > 5_000) fail(`a call without a window did not fail at once: ${alone}`);
+  step("calls: without a window the call fails at once", `${Date.now() - started} ms`);
+  await Promise.all([page.close(), phone.close(), browser.close()]);
+}
+
 async function scenario({ tls }) {
   const label = tls ? "tls" : "plain";
   const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
@@ -376,6 +437,29 @@ async function scenario({ tls }) {
   }
 }
 
+async function callsScenario() {
+  const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
+  const userData = mkdtempSync(join(tmpdir(), "tau-remote-userdata-"));
+  const tokenHome = mkdtempSync(join(tmpdir(), "tau-remote-home-"));
+  const webClient = mkdtempSync(join(tmpdir(), "tau-remote-web-"));
+  writeFileSync(join(webClient, "index.html"), "<!doctype html><title>Tau</title>");
+  execFileSync("git", ["init", "-b", "main", workspace], { stdio: "ignore" });
+  let host;
+  try {
+    host = await startHost({ workspace, userData, tokenHome, tls: false, webClient, kits: true });
+    step("calls: host started with kits", host.url);
+    await exerciseCalls(host, join(tokenHome, ".tau", "host-token"), realpathSync(workspace), realpathSync(tokenHome));
+  } finally {
+    await host?.stop();
+    const removal = { recursive: true, force: true, maxRetries: 10, retryDelay: 200 };
+    await rm(workspace, removal);
+    await rm(userData, removal);
+    await rm(tokenHome, removal);
+    await rm(webClient, removal);
+  }
+}
+
 await scenario({ tls: false });
 await scenario({ tls: true });
+await callsScenario();
 console.log(`\nremote host smoke passed: ${steps.length} steps`);
