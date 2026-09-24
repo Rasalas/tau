@@ -8,8 +8,15 @@ import {
   decodeHostServerFrame,
   type HostHelloReply,
 } from "../shared/host-transport.js";
+import type { UiHostReach } from "../shared/connections.js";
 import type { HostLogger } from "./host-log.js";
-import { HostCertificateRefusedError, pinnedTlsConnect } from "./host-tls-trust.js";
+import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type PresentedIdentity } from "./host-tls-trust.js";
+
+/** What the TLS handshake of a connection showed, and whether a pin or a CA let it in. */
+export interface ReachedCertificate {
+  presented: PresentedIdentity;
+  via: "pin" | "authority";
+}
 
 /** What the window knows about one machine from its own connection to it. */
 export interface MonitorState {
@@ -41,13 +48,15 @@ export interface EnvironmentMonitorOptions {
   /** Socket URLs in the order to try them; read again at every attempt. */
   urls(): string[];
   token: string;
-  /** Pins every `wss:` address; absent for a plaintext loopback or tunnel address. */
-  fingerprint?: string;
+  /** How to trust each `wss:` address, read at every attempt: a pin, or a CA. */
+  trust?(url: string): EndpointTrust | undefined;
   onChange(state: MonitorState): void;
-  /** The machine answered at this address; it is tried first next time. */
-  onReached?(url: string, reply: HostHelloReply): void;
+  /** The machine answered at this address; it is tried first next time. `certificate` is absent without TLS. */
+  onReached?(url: string, reply: HostHelloReply, certificate?: ReachedCertificate): void;
+  /** Where the machine says it can be reached, asked after every hello. */
+  onReach?(url: string, reach: UiHostReach): void;
   logger?: HostLogger;
-  createSocket?(url: string, fingerprint: string | undefined): MonitorSocket;
+  createSocket?(url: string, trust: EndpointTrust | undefined, onPresented: (certificate: ReachedCertificate) => void): MonitorSocket;
   now?(): number;
   /** Timers, injectable so tests need not wait. */
   setTimer?(callback: () => void, ms: number): unknown;
@@ -80,9 +89,9 @@ export function applyIndexUpdate(index: ThreadIndexSnapshot | undefined, update:
   return change.shell ? { ...index, sessions: [change.shell, ...others] } : undefined;
 }
 
-function defaultSocket(url: string, fingerprint: string | undefined): MonitorSocket {
-  const options: ClientOptions = fingerprint && url.startsWith("wss:")
-    ? { createConnection: pinnedTlsConnect(fingerprint) as unknown as ClientOptions["createConnection"] }
+function defaultSocket(url: string, trust: EndpointTrust | undefined, onPresented: (certificate: ReachedCertificate) => void): MonitorSocket {
+  const options: ClientOptions = url.startsWith("wss:")
+    ? { createConnection: hostTlsConnect(trust, (presented, via) => onPresented({ presented, via })) as unknown as ClientOptions["createConnection"] }
     : {};
   return new WebSocket(url, options) as unknown as MonitorSocket;
 }
@@ -164,7 +173,8 @@ export class EnvironmentMonitor {
     }
     let settled = false;
     let helloAnswered = false;
-    const socket = (this.options.createSocket ?? defaultSocket)(url, this.options.fingerprint);
+    let certificate: ReachedCertificate | undefined;
+    const socket = (this.options.createSocket ?? defaultSocket)(url, this.options.trust?.(url), (seen) => { certificate = seen; });
     this.socket = socket;
     const helloDeadline = this.timer(() => {
       if (!helloAnswered && this.socket === socket) this.fail(socket, `${url} did not answer in time.`);
@@ -182,6 +192,7 @@ export class EnvironmentMonitor {
       this.onFrame(socket, url, String(data), () => {
         helloAnswered = true;
         this.clear(helloDeadline);
+        return certificate;
       });
     });
     socket.on("error", (error) => {
@@ -189,7 +200,9 @@ export class EnvironmentMonitor {
       if (error instanceof HostCertificateRefusedError) {
         settled = true;
         this.clear(helloDeadline);
-        this.refuse(`It presented a certificate with SHA-256 ${error.presented}, not the one saved when it was added. Someone may be in between; remove it and add it again only if its certificate was replaced on purpose.`);
+        this.refuse(error.kind === "key"
+          ? `It presented a key with SHA-256 ${error.presented}, not the one saved when it was added. A renewed certificate keeps the key, so someone may be in between; remove it and add it again only if its key was replaced on purpose.`
+          : `It presented a certificate with SHA-256 ${error.presented}, not the one saved when it was added. Someone may be in between; remove it and add it again only if its certificate was replaced on purpose.`);
       }
     });
     socket.on("close", (code) => {
@@ -208,7 +221,7 @@ export class EnvironmentMonitor {
     });
   }
 
-  private onFrame(socket: MonitorSocket, url: string, text: string, onHello: () => void): void {
+  private onFrame(socket: MonitorSocket, url: string, text: string, onHello: () => ReachedCertificate | undefined): void {
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { return; }
     const frame = decodeHostServerFrame(parsed);
@@ -216,7 +229,7 @@ export class EnvironmentMonitor {
     this.clear(this.deadline);
     this.deadline = undefined;
     if (frame.type === "hello-reply") {
-      onHello();
+      const certificate = onHello();
       this.attempt = 0;
       const reply = frame.reply;
       this.set({
@@ -228,8 +241,14 @@ export class EnvironmentMonitor {
         host: reply.host,
         lastSeenAt: this.now(),
       });
-      this.options.onReached?.(url, reply);
+      this.options.onReached?.(url, reply, certificate);
       if (reply.capabilities.includes(HOST_CAPABILITY.heartbeat)) this.schedulePing(socket);
+      // A host from before F19 answers unknown-method; its saved addresses stay as they are.
+      if (this.options.onReach) {
+        void this.request<UiHostReach>(socket, "connections-reach", BOOTSTRAP_TIMEOUT_MS)
+          .then((reach) => { if (this.socket === socket && reach && Array.isArray(reach.endpoints)) this.options.onReach?.(url, reach); })
+          .catch(() => undefined);
+      }
       void this.request<HostBootstrap>(socket, "bootstrap", BOOTSTRAP_TIMEOUT_MS)
         .then((bootstrap) => { if (this.socket === socket) this.set({ index: bootstrap.threadIndex, lastSeenAt: this.now() }); })
         .catch((error: unknown) => this.options.logger?.warn("environment.bootstrap.failed", { url, error: error instanceof Error ? error.message : String(error) }));

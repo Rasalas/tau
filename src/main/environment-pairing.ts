@@ -1,10 +1,10 @@
 import { WebSocket, type ClientOptions } from "ws";
-import { parsePairingPayload, type PairingEndpoint } from "../shared/connections.js";
+import { authorityName, parsePairingPayload, type PairingEndpoint } from "../shared/connections.js";
 import { addressPageUrl, orderEndpoints, socketUrl } from "../shared/environments.js";
 import { pairWithHost, type PairingSocket } from "../shared/host-pairing.js";
 import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostHelloReply } from "../shared/host-transport.js";
 import type { SavedEnvironment } from "./environment-catalog.js";
-import { pinnedTlsConnect, probeHostCertificate, type PresentedCertificate } from "./host-tls-trust.js";
+import { hostTlsConnect, probeHostCertificate, type EndpointTrust, type HostPin, type PresentedCertificate } from "./host-tls-trust.js";
 
 export interface PairEnvironmentOptions {
   /** A pairing link, the text of its QR code, or an address such as `studio.local:7788`. */
@@ -15,7 +15,7 @@ export interface PairEnvironmentOptions {
   onWaiting?(waiting: { address: string; verification: string; expiresAt: string }): void;
   signal?: AbortSignal;
   probe?(url: string): Promise<PresentedCertificate>;
-  createSocket?(url: string, fingerprint: string | undefined): PairingSocket;
+  createSocket?(url: string, trust: EndpointTrust | undefined): PairingSocket;
   now?(): Date;
 }
 
@@ -24,9 +24,9 @@ export type PairEnvironmentResult =
   | { state: "denied" | "expired" | "cancelled" }
   | { state: "failed"; message: string };
 
-function defaultSocket(url: string, fingerprint: string | undefined): PairingSocket {
-  const options: ClientOptions = fingerprint && url.startsWith("wss:")
-    ? { createConnection: pinnedTlsConnect(fingerprint) as unknown as ClientOptions["createConnection"] }
+function defaultSocket(url: string, trust: EndpointTrust | undefined): PairingSocket {
+  const options: ClientOptions = url.startsWith("wss:")
+    ? { createConnection: hostTlsConnect(trust) as unknown as ClientOptions["createConnection"] }
     : {};
   return new WebSocket(url, options) as unknown as PairingSocket;
 }
@@ -40,9 +40,11 @@ const REFUSALS: Record<string, string> = {
 
 /**
  * Asks another machine's host to let this window in (ADR 0024, ADR 0025) and
- * waits for its owner. A link brings its fingerprint; a bare address has its
- * certificate read first and pinned for the attempt, and the six digits both
- * screens show are bound to it. Only an approved machine comes back to be saved.
+ * waits for its owner. A link brings the host's key; a bare address has its
+ * certificate read first and its key pinned for the attempt, and the six
+ * digits both screens show are bound to it. An address a CA vouches for
+ * (Tailscale Serve) is checked by chain and name instead, and its digits are
+ * unbound: the proxy ends TLS. Only an approved machine comes back to be saved.
  */
 export async function pairEnvironment(options: PairEnvironmentOptions): Promise<PairEnvironmentResult> {
   const payload = parsePairingPayload(options.text);
@@ -57,27 +59,37 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
     if (options.signal?.aborted) return { state: "cancelled" };
     const url = socketUrl(endpoint.url);
     options.onConnecting?.(url);
-    let pin: string | undefined;
-    let bindTo: string | undefined;
+    let pin: HostPin | undefined;
+    // What the digits are bound to: the key both sides see, or nothing through a proxy.
+    let bindKey: string | undefined;
+    let bindCertificate: string | undefined;
     if (url.startsWith("wss:")) {
-      if (payload?.fingerprint) {
-        pin = payload.fingerprint;
+      if (endpoint.trustedCertificate && authorityName(endpoint.url)) {
+        bindKey = "";
+      } else if (payload?.publicKey) {
+        pin = { publicKey: payload.publicKey };
+        bindKey = payload.publicKey;
+      } else if (payload?.fingerprint) {
+        // A link from a host before key pins: the certificate is pinned and bound, as that host expects.
+        pin = { fingerprint: payload.fingerprint };
+        bindCertificate = payload.fingerprint;
       } else {
         let presented: PresentedCertificate;
         try { presented = await (options.probe ?? probeHostCertificate)(url); }
         catch (error: unknown) { lastProblem = `${endpoint.url} could not be reached: ${error instanceof Error ? error.message : String(error)}`; continue; }
         // A certificate an authority vouches for is renewed under the same name; pin only a self-signed one.
-        pin = presented.authorized ? undefined : presented.fingerprint;
-        bindTo = presented.fingerprint;
+        pin = presented.authorized ? undefined : { publicKey: presented.publicKey };
+        bindKey = presented.publicKey;
       }
     }
+    const trust: EndpointTrust | undefined = url.startsWith("wss:") ? (pin ? { pin } : {}) : undefined;
     const result = await pairWithHost({
       url,
       ...(payload?.code ? { code: payload.code } : {}),
       name: options.deviceName,
-      // Bound digits need a certificate both sides see; a plaintext loopback socket has none, which both sides agree on.
-      fingerprint: pin ?? bindTo ?? "",
-      createSocket: (target) => createSocket(target, pin),
+      // Bound digits need a key both sides see; a plaintext loopback socket has none, which both sides agree on.
+      ...(bindCertificate !== undefined ? { fingerprint: bindCertificate } : { publicKey: bindKey ?? "" }),
+      createSocket: (target) => createSocket(target, trust),
       onWaiting: ({ verification, expiresAt }) => options.onWaiting?.({ address: url, verification, expiresAt }),
       ...(options.signal ? { signal: options.signal } : {}),
     });
@@ -90,13 +102,14 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
     }
     if (result.state === "denied" || result.state === "expired") return { state: result.state };
     if (result.state === "refused") return { state: "failed", message: REFUSALS[result.reason] ?? `The machine refused: ${result.reason}.` };
-    const reply = await helloOnce(url, result.token, pin, createSocket).catch(() => undefined);
+    const reply = await helloOnce(url, result.token, trust, createSocket).catch(() => undefined);
     const fallbackName = payload?.hostName ?? new URL(endpoint.url).hostname;
     const environment: SavedEnvironment = {
       id: reply?.host?.id ?? payload?.hostId ?? `address:${new URL(endpoint.url).host}`,
       name: reply?.host?.name || fallbackName,
       endpoints: payload ? payload.endpoints : [endpoint],
-      ...(pin ? { fingerprint: pin } : {}),
+      ...(payload?.publicKey ? { publicKey: payload.publicKey } : pin?.publicKey ? { publicKey: pin.publicKey } : {}),
+      ...(!payload?.publicKey && payload?.fingerprint ? { fingerprint: payload.fingerprint } : {}),
       token: result.token,
       addedAt: (options.now?.() ?? new Date()).toISOString(),
       lastUrl: endpoint.url,
@@ -108,9 +121,9 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
 }
 
 /** One hello with a fresh token: which machine this is, as it names itself. */
-function helloOnce(url: string, token: string, fingerprint: string | undefined, createSocket: (url: string, fingerprint: string | undefined) => PairingSocket): Promise<HostHelloReply> {
+function helloOnce(url: string, token: string, trust: EndpointTrust | undefined, createSocket: (url: string, trust: EndpointTrust | undefined) => PairingSocket): Promise<HostHelloReply> {
   return new Promise((resolve, reject) => {
-    const socket = createSocket(url, fingerprint);
+    const socket = createSocket(url, trust);
     const timer = setTimeout(() => { socket.close(); reject(new Error("no hello reply")); }, 10_000);
     const done = (error?: Error, reply?: HostHelloReply) => {
       clearTimeout(timer);

@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
+import { checkServerIdentity, connect as tlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
 import type { X509Certificate } from "node:crypto";
 import { fingerprintsMatch, normalizeFingerprint, publicKeyPin } from "./host-tls.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
@@ -78,20 +78,26 @@ export class HostCertificateRefusedError extends Error {
  * pin, one certificate). The chain is not checked — a self-signed host has
  * none — but the pin is, and a mismatch destroys the socket before the
  * WebSocket opens, so no hello and no token ever reach it. `onPresented`
- * hears what an accepted connection showed.
+ * hears what an accepted connection showed and whether the pin or a CA let
+ * it in. `allowAuthority` also accepts a certificate a CA the machine trusts
+ * vouches for under this name: only for a saved machine whose addresses
+ * predate the per-address flag (F19), until its host lists them again.
  */
 export function pinnedTlsConnect(
   expected: string | HostPin,
-  onPresented?: (presented: PresentedIdentity) => void,
+  onPresented?: (presented: PresentedIdentity, via: "pin" | "authority") => void,
+  options: { allowAuthority?: boolean } = {},
 ): (options: ConnectionOptions & { path?: string }) => TLSSocket {
   const pin: HostPin = typeof expected === "string" ? { fingerprint: expected } : expected;
-  return (options) => {
-    const host = options.host ?? "";
+  const allowAuthority = options.allowAuthority === true;
+  return (connectOptions) => {
+    const host = connectOptions.host ?? "";
+    const servername = connectOptions.servername ?? (isIP(host) ? "" : host);
     const socket = tlsConnect({
-      ...options,
+      ...connectOptions,
       // `https.request` passes its request path, which tls.connect would take for an IPC path.
       path: undefined,
-      servername: options.servername ?? (isIP(host) ? "" : host),
+      servername,
       minVersion: "TLSv1.2",
       rejectUnauthorized: false,
     } as ConnectionOptions);
@@ -99,7 +105,12 @@ export function pinnedTlsConnect(
       const certificate = socket.getPeerX509Certificate();
       const presented = certificate ? presentedIdentity(certificate) : undefined;
       if (presented && pinAccepts(pin, presented)) {
-        onPresented?.(presented);
+        onPresented?.(presented, "pin");
+        return;
+      }
+      // Chain and name, as rejectUnauthorized would have checked them.
+      if (presented && allowAuthority && servername && socket.authorized && !checkServerIdentity(servername, socket.getPeerCertificate())) {
+        onPresented?.(presented, "authority");
         return;
       }
       socket.destroy(pin.publicKey
@@ -129,9 +140,21 @@ export function authorityTlsConnect(ca?: string | string[]): (options: Connectio
   };
 }
 
+/**
+ * How a client trusts one `wss:` address: a pin (perhaps with the old
+ * CA fallback), or, with no pin at all, a CA the machine trusts.
+ */
+export interface EndpointTrust {
+  pin?: HostPin;
+  allowAuthority?: boolean;
+}
+
 /** The connection factory one address needs: pinned, or verified by a CA. */
-export function hostTlsConnect(pin: HostPin | undefined, onPresented?: (presented: PresentedIdentity) => void): (options: ConnectionOptions & { path?: string }) => TLSSocket {
-  return isPinned(pin) ? pinnedTlsConnect(pin, onPresented) : authorityTlsConnect();
+export function hostTlsConnect(
+  trust: EndpointTrust | undefined,
+  onPresented?: (presented: PresentedIdentity, via: "pin" | "authority") => void,
+): (options: ConnectionOptions & { path?: string }) => TLSSocket {
+  return isPinned(trust?.pin) ? pinnedTlsConnect(trust.pin, onPresented, { allowAuthority: trust.allowAuthority === true }) : authorityTlsConnect();
 }
 
 /** What a host shows before anything is sent: enough to ask the user about it. */

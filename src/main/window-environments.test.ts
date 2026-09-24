@@ -21,6 +21,7 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
 
 const PIN = Array.from({ length: 32 }, () => "AB").join(":");
 const OTHER = Array.from({ length: 32 }, () => "CD").join(":");
+const KEY = Array.from({ length: 32 }, () => "EF").join(":");
 
 const studio: SavedEnvironment = {
   id: "host-studio",
@@ -86,7 +87,8 @@ describe("the machines of a window", () => {
     expect(environments.snapshot().pairing).toBeUndefined();
     // The LAN address first, pinned with the saved fingerprint.
     const monitor = monitors.get("wss://192.168.1.4:7788/")!;
-    expect(monitor.options).toMatchObject({ token: "tau_client_studio", fingerprint: PIN });
+    expect(monitor.options).toMatchObject({ token: "tau_client_studio" });
+    expect(monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { fingerprint: PIN } });
     expect(monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/", "wss://100.64.0.9:7788/"]);
   });
 
@@ -103,7 +105,7 @@ describe("the machines of a window", () => {
     await expect(environments.open("host-studio", { thread: { path: "/s/x" } })).rejects.toThrow(/not reachable/u);
     monitor.set({ status: "connected", address: "wss://100.64.0.9:7788/" });
     await environments.open("host-studio", { thread: { path: "/s/x" } });
-    expect(shown.at(-1)).toEqual({ id: "host-studio", url: "wss://100.64.0.9:7788/", token: "tau_client_studio", fingerprint: PIN });
+    expect(shown.at(-1)).toEqual({ id: "host-studio", url: "wss://100.64.0.9:7788/", token: "tau_client_studio", trust: { pin: { fingerprint: PIN } } });
     expect(environments.shown).toBe("host-studio");
     expect(environments.takeArrival()).toEqual({ thread: { path: "/s/x" } });
     expect(environments.takeArrival()).toBeUndefined();
@@ -135,11 +137,47 @@ describe("the machines of a window", () => {
   it("trusts a saved machine's certificate for its names only, and drops the page's origin only on its sockets", async () => {
     const { environments } = await setup();
     await environments.pair({ text: "link" });
-    expect(environments.certificateVerdict("192.168.1.4", PIN.toLowerCase())).toBe(CERTIFICATE_ACCEPT);
-    expect(environments.certificateVerdict("192.168.1.4", OTHER)).toBe(CERTIFICATE_REJECT);
-    expect(environments.certificateVerdict("example.com", OTHER)).toBe(CERTIFICATE_DEFAULT);
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: PIN.toLowerCase(), publicKey: OTHER })).toBe(CERTIFICATE_ACCEPT);
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: OTHER, publicKey: PIN })).toBe(CERTIFICATE_REJECT);
+    expect(environments.certificateVerdict("example.com", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_DEFAULT);
     expect(environments.isSavedSocket("wss://100.64.0.9:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://100.64.0.9:7789/")).toBe(false);
     expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(false);
+  });
+
+  it("moves a certificate pin to the key on the next hello that pin let in, and refuses a changed key from then on", async () => {
+    const { environments, monitors } = await setup();
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    const reply = { protocol: 1, hostVersion: "t", capabilities: [], resync: false, missed: [], nextSeq: 1 };
+    // A CA let this one in: it proves nothing about the host's own key.
+    monitor.options.onReached!("wss://192.168.1.4:7788/", reply, { presented: { fingerprint: OTHER, publicKey: OTHER }, via: "authority" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { fingerprint: PIN } });
+
+    monitor.options.onReached!("wss://192.168.1.4:7788/", reply, { presented: { fingerprint: PIN, publicKey: KEY }, via: "pin" });
+    await expect.poll(() => monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { publicKey: KEY } });
+    expect(environments.connection("host-studio")?.trust).toEqual({ pin: { publicKey: KEY } });
+    // A renewed certificate with the same key passes; another key does not.
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: OTHER, publicKey: KEY })).toBe(CERTIFICATE_ACCEPT);
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: PIN, publicKey: OTHER })).toBe(CERTIFICATE_REJECT);
+  });
+
+  it("keeps every address the machine lists after a hello, with the Serve name checked by a CA and the rest pinned", async () => {
+    const { environments, monitors } = await setup({ state: "approved", environment: { ...studio, fingerprint: undefined, publicKey: KEY, endpoints: [studio.endpoints[0]!] } as SavedEnvironment });
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    const serve = { url: "https://studio.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
+    monitor.options.onReach!("wss://192.168.1.4:7788/", { hostId: "someone-else", endpoints: [serve] });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/"]);
+
+    monitor.options.onReach!("wss://192.168.1.4:7788/", { hostId: "host-studio", endpoints: [{ url: "https://100.64.0.9:7788/", kind: "tailscale" }, serve] });
+    // The address in use stays though the host did not list it; the order is the window's own.
+    await expect.poll(() => monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/", "wss://100.64.0.9:7788/", "wss://studio.tail0000.ts.net/"]);
+    expect(monitor.options.trust!("wss://studio.tail0000.ts.net/")).toEqual({});
+    expect(monitor.options.trust!("wss://100.64.0.9:7788/")).toEqual({ pin: { publicKey: KEY } });
+    expect(environments.certificateVerdict("studio.tail0000.ts.net", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_DEFAULT);
+    expect(environments.certificateVerdict("100.64.0.9", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_REJECT);
   });
 });
