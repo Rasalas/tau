@@ -11,6 +11,7 @@ import { Worker } from "node:worker_threads";
 import { build } from "esbuild";
 import type { UiToolRun } from "../shared/contracts.js";
 import type {
+  HostCommandCall,
   DirectoryPickerOptions,
   HostClientObserver,
   HostExtension,
@@ -61,7 +62,7 @@ export interface WorkerHostExtensionOptions {
 }
 
 type OutgoingCall =
-  | { t: "call"; command: string; input: unknown }
+  | { t: "call"; command: string; input: unknown; call: HostCommandCall }
   | { t: "hook"; handle: number; hook: string; args: readonly unknown[] };
 
 const DEFAULT_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 } as const;
@@ -274,6 +275,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     // The host does not wait for a client observer; a worker answers in its own time.
     if (has.has("attached")) observer.attached = (clientId, client) => { void hookCall(handle, "attached", [clientId, client]); };
     if (has.has("detached")) observer.detached = (clientId) => { void hookCall(handle, "detached", [clientId]); };
+    if (has.has("devicesChanged")) observer.devicesChanged = () => { void hookCall(handle, "devicesChanged", []); };
     return observer;
   };
 
@@ -314,6 +316,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "sessions.trash": return services.sessions.trash();
       case "sessions.purge": return services.sessions.purge(String(args[0]));
       case "clients.count": return services.clients.count();
+      case "clients.devices": return (services.clients.devices?.() ?? []).map((device) => ({ ...device }));
       case "clients.observe": {
         const handle = nextHandle++;
         const dispose = services.clients.observe(clientObserverFor(handle, args[0] as string[]));
@@ -394,7 +397,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
           const callers = Array.isArray(message.callers) ? message.callers : [];
           commandDisposers.push(context.registerCommand(
             message.name,
-            (input) => callWorker({ t: "call", command: message.name, input }),
+            (input, call) => callWorker({ t: "call", command: message.name, input, call: { ...call } }),
             {
               ...(message.long ? { long: true } : {}),
               ...(callers.length > 0 ? { callers } : {}),

@@ -93,7 +93,7 @@ export interface WorkerProjectFacts {
 export const LIFECYCLE_HOOKS = ["beforeWorkspace", "afterWorkspaceClose", "threadDeleted", "beforeOpen", "afterFork", "beforeActivate", "sweep"] as const;
 export const TURN_HOOKS = ["accepted", "prepare", "cancelled", "ended", "reset", "closed", "toolEnded"] as const;
 export const FACT_HOOKS = ["name", "label", "nested"] as const;
-export const CLIENT_HOOKS = ["attached", "detached"] as const;
+export const CLIENT_HOOKS = ["attached", "detached", "devicesChanged"] as const;
 
 /** One attached client as a worker sees it; the same plain data the seam carries. */
 export interface WorkerClientInfo {
@@ -105,6 +105,20 @@ export interface WorkerClientInfo {
 export interface WorkerClientObserver {
   attached?(clientId: string, client: WorkerClientInfo): void | Promise<void>;
   detached?(clientId: string): void | Promise<void>;
+  devicesChanged?(): void | Promise<void>;
+}
+
+/** A paired device as a worker sees it (`HostPairedDevice`). */
+export interface WorkerPairedDevice {
+  id: string;
+  name: string;
+  access: "full" | "read-only";
+}
+
+/** Who called a command (`HostCommandCall`). */
+export interface WorkerCommandCall {
+  device?: string;
+  owner: boolean;
 }
 export const CONFIG_HOOKS = ["changed"] as const;
 
@@ -163,6 +177,7 @@ export interface WorkerHostServices {
   readonly clients: {
     observe(observer: WorkerClientObserver): Promise<() => void>;
     count(): Promise<number>;
+    devices(): Promise<WorkerPairedDevice[]>;
   };
   /** Follows the files the host watches; the hook receives one change at a time. */
   observeConfigChanges(listener: (change: { kind: string; paths: readonly string[] }) => void): Promise<() => void>;
@@ -174,7 +189,7 @@ export interface WorkerHostServices {
   pinTranscriptEntries(pins: Record<string, string[]>): Promise<() => void>;
 }
 
-export type WorkerCommandHandler = (input: unknown) => unknown;
+export type WorkerCommandHandler = (input: unknown, call: WorkerCommandCall) => unknown;
 
 export interface WorkerHostExtensionContext {
   readonly id: string;
@@ -205,7 +220,7 @@ export interface SerializedError {
 }
 
 export type HostToWorkerMessage =
-  | { t: "call"; id: number; command: string; input: unknown }
+  | { t: "call"; id: number; command: string; input: unknown; call: WorkerCommandCall }
   | { t: "hook"; id: number; handle: number; hook: string; args: readonly unknown[] }
   | { t: "enter"; id: number }
   | { t: "res"; id: number; ok: true; value: unknown }

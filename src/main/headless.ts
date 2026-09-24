@@ -205,9 +205,10 @@ async function main(): Promise<void> {
     storePath: join(userData, "paired-clients.json"),
     logger: hostLog,
     // No details on the wire: only an owner may ask connections-list what changed.
-    onChange: () => { publish({ type: "connections-changed" }); terminalPairing?.(); },
+    onChange: () => { publish({ type: "connections-changed" }); terminalPairing?.(); clients.devicesChanged(); },
     audit: (entry) => (entry.allowed ? hostLog.info("access.action", entry) : hostLog.warn("access.refused", entry)),
   });
+  clients.setDeviceSource(() => access.devices());
   // Requests nobody answered and tokens unused past their timeout end here, not only at the next hello.
   setInterval(() => access.sweep(), 60_000).unref();
   // The machine's service for this userData, whether or not this host is it (Settings → Connections).

@@ -21,6 +21,7 @@ import {
   type HostPairRequest,
 } from "../shared/pairing.js";
 import { describeUserAgent, deviceLabel, displayAddress } from "./client-device.js";
+import type { HostPairedDevice } from "./host-extensions.js";
 import type { HostTokenFile } from "./host-token.js";
 import { createAuthRateLimiter } from "./host-rate-limit.js";
 import type { ListenerTrust } from "./host-local-files.js";
@@ -495,6 +496,11 @@ export class HostAccess {
     }
     for (const client of [...this.clients.values()]) if (this.expired(client)) this.forgetExpired(client);
     for (const [address, until] of this.deniedSources) if (until <= now) this.deniedSources.delete(address);
+  }
+
+  /** Every paired device, connected or not, for the kits' `clients.devices()`. */
+  devices(): HostPairedDevice[] {
+    return [...this.clients.values()].map((client) => ({ id: client.id, name: client.label, access: client.access }));
   }
 
   overview(current?: string): { links: UiPairingLink[]; requests: UiPairingRequest[]; clients: UiPairedClient[]; owners: UiOwnerConnection[] } {

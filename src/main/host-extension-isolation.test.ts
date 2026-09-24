@@ -27,6 +27,7 @@ export default {
       return { cwd, input, safeMode: services.safeMode };
     });
     context.registerCommand("sessions", async () => (await services.sessions.list()).length);
+    context.registerCommand("caller", async (_input, call) => ({ call, devices: await services.clients.devices() }));
     context.registerCommand("proxy-read", (input) => context.invokeHostExtension("acme.target", "read", input));
     context.registerCommand("proxy-restricted", (input) => context.invokeHostExtension("acme.target", "restricted", input));
     context.registerCommand("electron", () => require("electron").app.getName());
@@ -170,7 +171,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
       },
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
-    clients: { observe: () => () => undefined, count: () => recorder.clientCount },
+    clients: { observe: () => () => undefined, count: () => recorder.clientCount, devices: () => [{ id: "p1", name: "iPhone", access: "full" }] },
     registerThreadLifecycle: (lifecycle) => { recorder.lifecycles.push(lifecycle); return () => undefined; },
     registerTurnObserver: (observer) => { if (observer.pending) recorder.pending.push(observer.pending); return () => undefined; },
     pinTranscriptEntries: (provider) => { recorder.pins.push(provider); return () => undefined; },
@@ -258,6 +259,19 @@ describe("isolated host extensions", () => {
       await expect(registry.invoke("acme.worker", "sessions")).resolves.toBe(1);
       expect(registry.summaries()[0]).toMatchObject({ id: "acme.worker", active: true, isolation: "worker" });
       expect(registry.summaries()[0]?.commands).toContain("hello");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("tells a worker's command who called it, and lists the paired devices", async () => {
+    const { registry, extension } = harness();
+    await registry.activate(extension);
+    try {
+      await expect(registry.invoke("acme.worker", "caller", undefined, { kind: "workbench-client", connection: "c1", pairedClient: "p1" })).resolves.toEqual({
+        call: { device: "p1", owner: false },
+        devices: [{ id: "p1", name: "iPhone", access: "full" }],
+      });
     } finally {
       await registry.dispose();
     }

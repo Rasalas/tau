@@ -24,7 +24,7 @@ import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-import { HOST_CORE_PRINCIPAL, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
+import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
 import { readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
@@ -400,12 +400,27 @@ export interface HostClientInfo {
 export interface HostClientObserver {
   attached?(clientId: string, client: HostClientInfo): void;
   detached?(clientId: string): void;
+  /** A device was paired, renamed, changed its preset, was revoked or expired. New in API 1.13.0. */
+  devicesChanged?(): void;
+}
+
+/** A device paired with this host (ADR 0024), as Settings → Connections lists it. New in API 1.13.0. */
+export interface HostPairedDevice {
+  /** The same id `HostCommandCall.device` names. */
+  readonly id: string;
+  readonly name: string;
+  readonly access: "full" | "read-only";
 }
 
 /** Who is attached right now, and word when that changes. */
 export interface HostClientServices {
   observe(observer: HostClientObserver): () => void;
   count(): number;
+  /**
+   * The devices paired with this host, connected or not; empty on a host that
+   * pairs none (a window's own in-process host). Absent before API 1.13.0.
+   */
+  devices?(): readonly HostPairedDevice[];
 }
 
 /**
@@ -824,7 +839,22 @@ export interface HostExtensionServices {
   presentUi(presenter: HostUiPresenter): () => void;
 }
 
-export type HostExtensionCommandHandler = (input: unknown) => unknown;
+/** Who called a host command. New in API 1.13.0; an older host passes nothing. */
+export interface HostCommandCall {
+  /** The paired device that called (`HostPairedDevice.id`); absent for the host token, a window, the host and another kit. */
+  readonly device?: string;
+  /** The caller may manage this host (ADR 0024): the host itself, its own window, or the host token from this machine. */
+  readonly owner: boolean;
+}
+
+export type HostExtensionCommandHandler = (input: unknown, call: HostCommandCall) => unknown;
+
+/** What a command learns of the principal behind it. */
+export function commandCall(principal: HostInvocationPrincipal): HostCommandCall {
+  if (principal.kind === "host-core") return { owner: true };
+  if (principal.kind !== "workbench-client") return { owner: false };
+  return { ...(principal.pairedClient ? { device: principal.pairedClient } : {}), owner: isHostOwner(principal) };
+}
 
 /** A topic narrows an event to the clients that watch it; 1 to 256 characters. */
 export interface HostExtensionEmitOptions {
@@ -1164,9 +1194,10 @@ export class HostExtensionRegistry {
     // the extension, not three of any command.
     const commandKey = `${extensionId}/${command}`;
     try {
+      const call = commandCall(principal);
       const result = await runAsCaller(principal, async () => record.longCommands.has(command)
-        ? await handler(input)
-        : await this.runWithTimeout(() => handler(input), timeoutMs, command));
+        ? await handler(input, call)
+        : await this.runWithTimeout(() => handler(input, call), timeoutMs, command));
       this.consecutiveFailures.delete(commandKey);
       return result;
     } catch (error) {
