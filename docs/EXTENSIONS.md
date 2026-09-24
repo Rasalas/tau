@@ -728,7 +728,7 @@ a touch screen, and the native app around the web client. There the thread list
 is a screen of its own (a sidebar on a tablet) and diffs do not split. A panel
 that claims `compact` is not docked there: its glyph sits in the title bar and
 opens the panel as a sheet over the thread, with `placement` reading `stage`.
-That is where a phone's terminal or review goes: claim `compact` on the panel. The default is `["desktop"]`, so a package that says nothing keeps
+That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
 A client whose profile is not in the list never registers the contribution, so
