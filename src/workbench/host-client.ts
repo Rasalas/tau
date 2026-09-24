@@ -40,6 +40,7 @@ import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink } from "../shared/connections";
+import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -165,6 +166,11 @@ export interface HostClient {
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
   getConnectionRefusal(): string | undefined;
   onConnectionState(listener: (state: HostConnectionState) => void): () => void;
+  /** The socket to a host, for a client that has one: phase, round trip, the next attempt. */
+  getConnectionLink(): HostLink | undefined;
+  onConnectionLink(listener: (link: HostLink) => void): () => void;
+  /** Tries to reach the host now instead of waiting for the next attempt. */
+  reconnectNow(): void;
   /**
    * The Tau versions the hellos reported: the host's, and the window process's
    * when that is a process apart from the host. Either is unknown until its
@@ -309,6 +315,9 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),
+    getConnectionLink: connection.getLink,
+    onConnectionLink: (listener) => connection.onLink(listener),
+    reconnectNow: () => connection.reconnectNow(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),
     onVersions: (listener) => {
       const offHost = connection.onHello(listener);

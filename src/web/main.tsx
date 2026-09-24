@@ -6,6 +6,7 @@ import { createRendererServices } from "../renderer/renderer-services";
 import { setClientStorage } from "../workbench/client-storage";
 import { browserClientProfile } from "../workbench/client-profile";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
+import { browserWakeSource } from "../renderer/browser-wakes";
 import { PairingWait, TokenGate } from "./TokenGate";
 import { accessRefusal } from "../workbench/access-refusal";
 import { pairWithHost } from "../workbench/host-pairing";
@@ -67,6 +68,7 @@ function pair(code?: string): void {
 
 function connect(token: string): void {
   const host = createSocketHostClient(hostSocketUrl(window.location), token, {
+    wakes: browserWakeSource(),
     // A refused token cannot be repaired by retrying, so ask for another one.
     onUnauthorized: (reason) => { storage.remove(WEB_TOKEN_KEY); showGate(accessRefusal(reason)); },
     // An owner who rotated the host token from this tab keeps working after a reload.

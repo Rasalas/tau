@@ -1,6 +1,7 @@
 // Drives a headless Tau host over the socket transport: hello, compression,
 // bootstrap, a prompt, a disconnect, and a reconnect that replays the pushes
-// missed in between — once in plaintext, once over TLS with a pinned certificate.
+// missed in between — once in plaintext, once over TLS with a pinned certificate —
+// plus heartbeats, the Origin check and the close of a socket that never says hello.
 // Each run then pairs a client through a link, revokes it while it is connected
 // and rotates the host token (ADR 0023). A last run with kits sends a call into
 // a window and checks that it reaches one connection and only its answer counts.
@@ -43,9 +44,12 @@ function fail(message) {
  * A minimal protocol client: one socket, hello, requests by id, pushes by seq.
  * With a fingerprint it speaks TLS and accepts only that certificate.
  */
-function createClient(url, token, fingerprint) {
-  const socket = fingerprint
-    ? new PinnedWebSocket(url, { createConnection: pinnedTlsConnect(fingerprint) })
+function createClient(url, token, fingerprint, origin) {
+  const socket = fingerprint || origin
+    ? new PinnedWebSocket(url, {
+      ...(fingerprint ? { createConnection: pinnedTlsConnect(fingerprint) } : {}),
+      ...(origin ? { origin } : {}),
+    })
     : new WebSocket(url);
   const pending = new Map();
   const pushes = [];
@@ -65,6 +69,7 @@ function createClient(url, token, fingerprint) {
     const frame = JSON.parse(event.data);
     if (frame.type === "push") { pushes.push(frame.push); return; }
     if (frame.type === "client-call") { calls.push(frame.call); return; }
+    if (frame.type === "pong") { pending.get(frame.id)?.resolve(frame); pending.delete(frame.id); return; }
     const id = frame.type === "response" ? frame.response.id : frame.id;
     const waiter = pending.get(id);
     if (!waiter) return;
@@ -90,6 +95,10 @@ function createClient(url, token, fingerprint) {
     request: (method, params = []) => {
       const id = `r${++counter}`;
       return send({ type: "request", request: { id, method, params } }, id);
+    },
+    ping: () => {
+      const id = `p${++counter}`;
+      return send({ type: "ping", id }, id);
     },
     close: () => new Promise((resolve) => {
       socket.addEventListener("close", () => resolve());
@@ -160,8 +169,12 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
   };
 }
 
-/** The protocol run both variants share: token, hello, bootstrap, prompt, replay, resync. */
+/** The protocol run both variants share: token, hello, bootstrap, prompt, replay, resync, liveness, origin. */
 async function exercise(url, token, fingerprint, label) {
+  // Says nothing; the host must close it on its own while the rest runs.
+  const silent = createClient(url, token, fingerprint);
+  await silent.opened;
+
   const rejected = createClient(url, "wrong-token", fingerprint);
   await rejected.opened;
   const refusal = await rejected.hello().then(() => "accepted", () => "closed");
@@ -228,7 +241,26 @@ async function exercise(url, token, fingerprint, label) {
   const stale = await resumed.hello(10_000);
   if (!stale.resync) fail("a client outside the replay window should be told to resync");
   step(`${label}: resync path`, `resync: true, nextSeq ${stale.nextSeq}`);
+
+  if (!replay.capabilities.includes("heartbeat")) fail("the host did not announce heartbeats");
+  const pong = await resumed.ping();
+  if (pong.type !== "pong") fail(`a ping was answered with ${JSON.stringify(pong)}`);
+  step(`${label}: heartbeat answered`);
   await resumed.close();
+
+  const foreign = createClient(url, token, fingerprint, "https://evil.example");
+  await foreign.opened;
+  const foreignClose = await foreign.closed;
+  if (foreignClose.code !== 4403) fail(`a page from another site was not refused (close ${foreignClose.code})`);
+  const own = createClient(url, token, fingerprint, new URL(url.replace(/^ws/u, "http")).origin);
+  await own.opened;
+  await own.hello();
+  await own.close();
+  step(`${label}: origin checked`, "another site's page refused with 4403, the host's own accepted");
+
+  const silentClose = await silent.closed;
+  if (silentClose.code !== 4408) fail(`a socket without a hello was closed with ${silentClose.code} instead of 4408`);
+  step(`${label}: a socket without a hello is closed`, "4408");
 }
 
 /** What only the TLS host must do: prove its certificate, refuse the wrong pin, keep its key private. */
