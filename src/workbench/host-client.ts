@@ -172,6 +172,16 @@ export interface HostClient {
   /** Tries to reach the host now instead of waiting for the next attempt. */
   reconnectNow(): void;
   /**
+   * What this client shows, so the host sends it those threads' streams and
+   * those topics only (after `limitPushesToWatched`). Each returns its release.
+   */
+  watchThread(sessionId: string): () => void;
+  /** The thread a `newSession` with this request id creates, before its id is known. */
+  watchNewThread(requestId: string): () => void;
+  watchHostTopic(extensionId: string, topic: string): () => void;
+  /** Called once the thread on screen is watched; before it, every push arrives. */
+  limitPushesToWatched(): void;
+  /**
    * The Tau versions the hellos reported: the host's, and the window process's
    * when that is a process apart from the host. Either is unknown until its
    * hello was answered.
@@ -312,6 +322,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConnectionLink: connection.getLink,
     onConnectionLink: (listener) => connection.onLink(listener),
     reconnectNow: () => connection.reconnectNow(),
+    watchThread: (sessionId) => connection.watchThread(sessionId),
+    watchNewThread: (requestId) => connection.watchNewThread(requestId),
+    watchHostTopic: (extensionId, topic) => connection.watchTopic(extensionId, topic),
+    limitPushesToWatched: () => connection.limitToWatched(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),
     onVersions: (listener) => {
       const offHost = connection.onHello(listener);

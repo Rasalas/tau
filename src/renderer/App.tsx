@@ -38,6 +38,7 @@ import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { usePanelLayout } from "./use-panel-layout";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { followTurnActivity } from "../workbench/turn-activity";
+import { followShownThread } from "../workbench/shown-thread";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
@@ -369,6 +370,7 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribe = () => {};
+    let stopFollowing = () => {};
     if (client) {
       preferences.bindHost(client, activeWorkspaceId);
       unsubscribe = client.onHostEvent(handleHostEvent);
@@ -378,6 +380,8 @@ export default function App() {
       const bootstrapRequest = transcriptHistory.beginBootstrap();
       client.bootstrap().then((bootstrap) => {
         workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
+        stopFollowing();
+        stopFollowing = followShownThread(client, threadStore);
       }).catch((error) => {
         if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
       });
@@ -386,8 +390,8 @@ export default function App() {
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return unsubscribe;
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, transcriptHistory, workbenchSession]);
+    return () => { unsubscribe(); stopFollowing(); };
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
