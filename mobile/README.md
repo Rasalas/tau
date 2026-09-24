@@ -8,10 +8,10 @@ package adds the shell around it and the native plugin.
 |---|---|
 | `src/Shell.tsx` | host list, adding a host, pairing, a host's workbench |
 | `src/endpoints.ts` | which addresses to try and the race between them (`RacingSocket`) |
-| `src/pairing.ts` | pairing over the best address, digits bound to the pinned certificate |
+| `src/pairing.ts` | pairing over the best address, digits bound to the pinned key |
 | `src/native-socket.ts` | a `WebSocket`-shaped socket over the plugin |
-| `src/hosts.ts` | saved hosts and tokens in the secure store |
-| `src/discovery.ts` | Bonjour records to hosts, read with F06's `src/shared/discovery.ts` (`v=1`, `id`, `fp`) |
+| `src/hosts.ts` | saved hosts and tokens in the secure store; a certificate pin moved to the key, and the host's address list kept, after each hello |
+| `src/discovery.ts` | Bonjour records to hosts, read with F06's `src/shared/discovery.ts` (`v=1`, `id`, `fp`, `pk`) |
 | `src/wakes.ts` | foreground and network changes as wakes for the socket transport |
 | `src/routes.ts` | `?host=`, `?view=`, and `tau://thread?host=&thread=` links |
 | `src/push.ts` | where push notifications plug in (not built) |
@@ -66,8 +66,15 @@ loopback address only in a simulator or emulator. A development build browses fo
 `_tau-test._tcp` instead of `_tau._tcp`; a test record for a TLS host on loopback:
 
 ```bash
-dns-sd -P "Test host" _tau-test._tcp local <port> tau-test.local 127.0.0.1 v=1 id=<host-id> fp=<fingerprint hex>
+dns-sd -P "Test host" _tau-test._tcp local <port> tau-test.local 127.0.0.1 v=1 id=<host-id> fp=<fingerprint hex> pk=<public key hex>
 ```
+
+The app pins the key of a TLS address; an address a link marks with `ca=` is checked by
+the system's certificate authorities and its name. To try that path in a simulator, sign
+a certificate for `tau.localhost` (it resolves to 127.0.0.1 on the Mac and in the
+simulator) with a throwaway CA under `.tau-dev`, add the CA with
+`xcrun simctl keychain <udid> add-root-cert <ca.pem>` for the run, and erase or delete
+the simulator afterwards; never add it to the Mac's own keychain.
 
 Run one simulator at a time, shut it down while building, and stop every process you
 started by its PID.

@@ -389,7 +389,7 @@ that came through it. A host you start by hand opens a proxy listener with
 
 While Local network is on, Tau also **announces itself with Bonjour** (`_tau._tcp`), so
 the Tau app on a phone and other machines on the same network find it without a link.
-The record carries the host's id and certificate fingerprint and nothing secret; a
+The record carries the host's id, its key and certificate fingerprints and nothing secret; a
 device found this way still waits until you allow it with matching digits. Turn off
 **Announce on this network** to be found only by link or QR code. **Find Machines…**
 lists the Tau hosts nearby; it looks only when you ask. macOS may ask once whether Tau
@@ -432,16 +432,20 @@ with `TAU_HOST_TLS=1`, or forward the port over SSH or a tunnel you trust;
 
 `mobile/` is a native app built with Capacitor around the same compact client. It keeps
 several hosts, finds hosts on the local network over Bonjour, and talks to each over a
-socket of its own native side (URLSession on iOS, OkHttp on Android) that pins the host's
-self-signed certificate — a web view cannot. Tokens live in the Keychain or behind a
-Keystore key.
+socket of its own native side (URLSession on iOS, OkHttp on Android) that pins the key of
+the host's self-signed certificate — a web view cannot. The host keeps that key when it
+renews the certificate, so a renewal needs no new pairing. The Tailscale Serve address
+has a certificate a public CA issued; the link marks it, and the app checks it the way a
+browser would instead of pinning. Tokens live in the Keychain or behind a Keystore key.
 
 Add a host by scanning the QR code in Settings → Connections (or pasting its link), or
 tap a host listed under "On this network". Either way the host's window asks
 "<phone> wants to connect" with six digits; allow it only if the phone shows the same
-ones. With a pinned certificate the digits depend on it, so something between the two
-that presents another certificate cannot make them agree (ADR 0024). The link names every
-address of the host; the app races them each time it connects — local network first,
+ones. With a pinned key the digits depend on it, so something between the two that
+presents another key cannot make them agree (ADR 0024, ADR 0026). The link names every
+address of the host, and after each connection the app asks the host for its current
+list, so a host added over Bonjour becomes reachable over Tailscale too; the app races
+them each time it connects — local network first,
 then `.local`, then Tailscale — so it follows a phone from home Wi-Fi to cellular on its
 own. Coming back to the foreground or to a network makes it check the link at once. More
 → Hosts in the thread list goes back to the host list. `tau://thread?host=<id>&thread=<id>`

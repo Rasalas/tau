@@ -109,9 +109,10 @@ asks it without a QR code, with the same digits.
   "Keep this machine awake while turns run").
 - **Nothing under "On this network"**: iOS Settings → Privacy & Security → Local Network →
   Tau must be on.
-- **"… answered with another certificate …"**: the Mac's certificate changed (a renewal
-  after about two years, or your own certificate). Remove the host in the app (trash icon),
-  revoke the old device on the Mac, and scan a new code.
+- **"… answered with another key …"**: the Mac's key changed (its `tls/host-key.pem` was
+  lost, or you switched to a certificate of your own). A renewal keeps the key and does
+  not cause this. Remove the host in the app (trash icon), revoke the old device on the
+  Mac, and scan a new code.
 - **Signed out**: the Mac revoked the phone or it went unused past its timeout (Settings
   → Connections shows both). Open the host in the app to ask again.
 
