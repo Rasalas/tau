@@ -1,4 +1,5 @@
-import { Icon, LucideProvider, createLucideIcon, icons, useLucideContext } from "lucide-react";
+import { Icon, LucideProvider, createLucideIcon, useLucideContext } from "lucide-react";
+import { icons } from "./icon-set";
 
 // Older names lucide keeps for renamed icons. `shared-icons.test.ts` fails when an upgrade changes them.
 const RENAMED: Record<string, keyof typeof icons> = {
