@@ -61,7 +61,7 @@ export const previewExtension: DesktopExtension = {
       Component: PreviewSettingsPage,
     });
     plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(readPreviewState(payload)); });
-    const stopDefaults = syncDefaults(plugin.preferences, (defaults) => previewKit.defaults(defaults));
+    const stopDefaults = syncDefaults(plugin.preferences, (defaults) => previewKit.defaults(defaults), () => previewKit["current-defaults"]());
     const open = async (url: string, app: Pick<WorkbenchActions, "openPanel">): Promise<string | undefined> => {
       app.openPanel(PREVIEW_PANEL);
       if (!url) return undefined;

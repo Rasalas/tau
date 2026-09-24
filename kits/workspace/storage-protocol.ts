@@ -126,3 +126,5 @@ export interface AppOpenResult {
 }
 /** A window that attaches later takes the request that waited for it. */
 export const TAKE_OPEN_REQUEST_COMMAND = "take-open-request";
+/** Whether a request waits, asked first: taking nothing would still count as a change a paired device made. */
+export const OPEN_REQUEST_WAITING_COMMAND = "open-request-waiting";

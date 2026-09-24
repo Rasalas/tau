@@ -4,6 +4,7 @@ import { HostCommandError, type HostExtensionContext } from "tau/host-extension"
 import {
   APP_OPEN_COMMAND,
   OPEN_REQUEST_EVENT,
+  OPEN_REQUEST_WAITING_COMMAND,
   TAKE_OPEN_REQUEST_COMMAND,
   type AppOpenResult,
   type OpenRequest,
@@ -47,8 +48,10 @@ export function registerAppOpen(context: HostExtensionContext, now: () => number
     return { ...ref, delivered: true, focused };
   });
 
+  const waiting = () => (pending && now() - pending.requestedAt < PENDING_TTL_MS ? pending : undefined);
+  context.registerCommand(OPEN_REQUEST_WAITING_COMMAND, () => waiting() !== undefined, { access: "read" });
   context.registerCommand(TAKE_OPEN_REQUEST_COMMAND, () => {
-    const request = pending && now() - pending.requestedAt < PENDING_TTL_MS ? pending : undefined;
+    const request = waiting();
     pending = undefined;
     return request ?? null;
   });

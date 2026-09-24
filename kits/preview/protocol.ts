@@ -258,6 +258,8 @@ export interface PreviewHostCommands {
   "viewport": { input: PreviewViewport; output: PreviewState };
   "appearance": { input: { appearance: PreviewAppearance }; output: PreviewState };
   "defaults": { input: PreviewDefaults; output: void };
+  /** What `defaults` set last; a client that holds the same sends nothing. */
+  "current-defaults": { input: undefined; output: PreviewDefaults };
   "history": { input: undefined; output: PreviewHistoryEntry[] };
   "forget": { input: { url: string }; output: PreviewHistoryEntry[] };
   "mini-frame": { input: undefined; output: PreviewFrame | null };
@@ -308,6 +310,7 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
     viewport: call("viewport"),
     appearance: call("appearance"),
     defaults: call("defaults"),
+    "current-defaults": call("current-defaults"),
     history: call("history"),
     forget: call("forget"),
     "mini-frame": call("mini-frame"),
