@@ -25,14 +25,14 @@ export function createRailSection(environments: PlatformEnvironments, pause = wa
     latest.current = actions;
     // Once per mount: the rail mounts again when the workbench comes back, not when the actions change.
     useEffect(() => {
-      const actions = latest.current;
+      const current = latest.current;
       let shown = true;
       const storage = getClientStorage();
       // The machine this page shows; unknown before the window's list arrived, and then any will do.
       const machine = () => environments.getSnapshot()?.shown ?? "";
       const follow = (target: EnvironmentTarget | undefined) => {
         if (!target || !shown) return;
-        void followArrival(target, { actions, wait: pause, shown: () => shown })
+        void followArrival(target, { actions: current, wait: pause, shown: () => shown })
           // A thread that never showed up is let go; a draft waits for the next time.
           .then((placed) => { if (placed || (shown && "thread" in target)) storage?.remove(ARRIVAL_KEY); }, () => undefined);
       };
