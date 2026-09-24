@@ -421,7 +421,7 @@ async function exerciseAccess(host, tokenPath, userData, label) {
   const printed = host.output().match(/web client: (\S+)/u);
   if (!printed) fail(`the host printed no pairing link\n${host.output()}`);
   const link = parsePairingPayload(printed[1]);
-  const page = link?.endpoints[0];
+  const page = link?.endpoints[0]?.url;
   if (!link || !page) fail(`the printed link carries no code: ${printed[1]}`);
   if (host.fingerprint && link.fingerprint !== host.fingerprint) fail(`the link's fingerprint ${link.fingerprint} is not the host's ${host.fingerprint}`);
   if (!host.fingerprint && link.fingerprint) fail("a plaintext host put a fingerprint in its link");
