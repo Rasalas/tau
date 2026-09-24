@@ -242,6 +242,10 @@ and the `session_info` entry Thread Title Generator wrote through
 Teardown kills the PID in the descriptor and nothing else, and deletes the
 scratch workspace unless you passed `--keep`.
 
+## The native app in a simulator
+
+`mobile/README.md` has the commands. In short: build with `node mobile/scripts/native-build.mjs ios --dev`, start `node mobile/scripts/sim.mjs serve` in the background, create a simulator of your own (`xcrun simctl create`), boot it headless, install and launch the app, and drive it with `node mobile/scripts/sim.mjs eval …`. The simulator shares the Mac's loopback, so the app pairs with this worktree's instance on 127.0.0.1 through a link from Settings → Connections, and the owner allows it with `npm run cdp`. `xcrun simctl io <udid> screenshot` captures only the simulator. For TLS and Bonjour without the LAN, start a headless host with `TAU_HOST_TLS=1` on 127.0.0.1 and announce it with `dns-sd -P … _tau-test._tcp … 127.0.0.1 v=1 id=<host id> fp=<hex>` for as long as the test runs. Boot one simulator at a time, and only while the machine's load is low; shut it down while building; at the end `xcrun simctl shutdown` and `xcrun simctl delete` the device you created. Never install on a real device and never sign with the user's account.
+
 ## Tearing down
 
 Run `npm run cdp -- stop` (SIGTERM, then SIGKILL after ~2s if the process is still alive — observed necessary in practice, since Electron's main process has no SIGTERM handler of its own and a bare `kill <pid>` can leave it running indefinitely). Never `pkill -f Electron` (or any pattern match on the binary name) — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or the worktree.
