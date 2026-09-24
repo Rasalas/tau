@@ -63,7 +63,7 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
   const tailscaleListening = network.listeners.some((listener) => listener.kind === "network" && listener.host !== "::" && listener.host !== "0.0.0.0");
   const proxy = network.listeners.find((listener) => listener.kind === "proxy");
   const nextPort = validPort(port, settings.proxyPort);
-  const on = settings.lan || settings.tailscale;
+  const listening = settings.lan || settings.tailscale;
   const question = asking ? QUESTIONS[asking.key][asking.on ? "on" : "off"] : undefined;
 
   return (
@@ -98,7 +98,7 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         control={(
           <form className="network-port" onSubmit={(event) => {
             event.preventDefault();
-            if (nextPort !== undefined && nextPort !== settings.port) void onChange({ port: nextPort }, on ? `Tau now listens on port ${nextPort}` : `Tau will listen on port ${nextPort}`);
+            if (nextPort !== undefined && nextPort !== settings.port) void onChange({ port: nextPort }, listening ? `Tau now listens on port ${nextPort}` : `Tau will listen on port ${nextPort}`);
           }}>
             <input
               className="settings-input narrow"
@@ -155,7 +155,7 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         <OwnCertificateDialog
           busy={busy}
           onCancel={() => setOwnCertificate(false)}
-          onUse={(certificate) => void onChange({ certificate }, on ? "Tau now serves your certificate" : "Tau will serve your certificate once a listener is on").then((ok) => { if (ok) setOwnCertificate(false); })}
+          onUse={(certificate) => void onChange({ certificate }, listening ? "Tau now serves your certificate" : "Tau will serve your certificate once a listener is on").then((ok) => { if (ok) setOwnCertificate(false); })}
         />
       ) : null}
     </SettingsSection>
