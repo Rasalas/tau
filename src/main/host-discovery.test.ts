@@ -11,6 +11,7 @@ import {
   browseServices,
   discoverHosts,
   instanceName,
+  machineDisplayName,
   parseAvahiBrowse,
   parseDnsSdZone,
   parseWindowsBrowse,
@@ -119,6 +120,12 @@ describe("reading what the system tools print", () => {
 
   it("decodes decimal escapes as UTF-8 bytes", () => {
     expect(unescapeDnsText("Caf\\195\\169\\032\\.x")).toBe("Café .x");
+  });
+
+  it("names the machine as people know it, never with a DHCP domain", () => {
+    expect(machineDisplayName("darwin", () => "Mac mini von Alex\n", "Mini-von-Alex.fritz.box")).toBe("Mac mini von Alex");
+    expect(machineDisplayName("darwin", () => "", "Mini-von-Alex.fritz.box")).toBe("Mini-von-Alex");
+    expect(machineDisplayName("linux", () => { throw new Error("not run"); }, "studio.lan")).toBe("studio");
   });
 
   it("keeps an instance name printable and within 63 bytes", () => {

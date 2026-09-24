@@ -27,7 +27,7 @@ import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
-import { ServiceAnnouncer, discoverHosts } from "./host-discovery.js";
+import { ServiceAnnouncer, discoverHosts, machineDisplayName } from "./host-discovery.js";
 import { TAU_SERVICE_TYPE, isServiceType } from "../shared/discovery.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
@@ -319,7 +319,7 @@ async function main(): Promise<void> {
     attach: socket.attach,
     ...(web ? { web: web.handler } : {}),
     logger: hostLog,
-    bonjour: { announcer, serviceType: bonjourType, hostId, name: hostname() },
+    bonjour: { announcer, serviceType: bonjourType, hostId, name: machineDisplayName() },
   });
   await refreshOrigins();
   for (const listener of network.state().listeners) hostLog.info("host-network.open-at-start", listener);

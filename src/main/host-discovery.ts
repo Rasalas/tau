@@ -1,4 +1,4 @@
-import { spawn as spawnProcess } from "node:child_process";
+import { execFileSync, spawn as spawnProcess } from "node:child_process";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { hostname } from "node:os";
 import type { Readable, Writable } from "node:stream";
@@ -293,6 +293,23 @@ function stopProcess(child: DiscoveryProcess, exited: Promise<void>, graceMs: nu
   term.unref?.();
   kill.unref?.();
   return exited.finally(() => { clearTimeout(term); clearTimeout(kill); });
+}
+
+/**
+ * What the machine is called to people: the Mac's Computer Name ("Mac mini
+ * von Alex"), elsewhere the host name without a DHCP domain ("studio").
+ */
+export function machineDisplayName(platform: NodeJS.Platform = process.platform, run: (command: string, args: string[]) => string = runQuietly, host: string = hostname()): string {
+  const computerName = platform === "darwin" ? run("scutil", ["--get", "ComputerName"]).trim() : "";
+  return computerName || host.split(".")[0] || host;
+}
+
+function runQuietly(command: string, args: string[]): string {
+  try {
+    return execFileSync(command, args, { encoding: "utf8", timeout: 1_000, stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return "";
+  }
 }
 
 /** A Bonjour instance name: printable, at most 63 bytes (RFC 6763 §4.1.1). */
