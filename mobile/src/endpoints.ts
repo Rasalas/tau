@@ -53,7 +53,8 @@ export function socketCandidates(endpoints: readonly PairingEndpoint[], fingerpr
       ...(kind ? { kind } : {}),
       ...(tls && fingerprint ? { fingerprint } : {}),
       allowAuthority: tls && !isIpLiteral(url.hostname) && !url.hostname.endsWith(".local"),
-      rank: (kind ? RANK[kind] : UNKNOWN_RANK) + (ipv6 ? 1 : 0),
+      // IPv6 after the IPv4 and name of the same network.
+      rank: (kind ? RANK[kind] : UNKNOWN_RANK) + (ipv6 ? 1.5 : 0),
     });
   }
   return candidates.sort((a, b) => a.rank - b.rank);
@@ -172,11 +173,12 @@ export class RacingSocket {
 
   private win(attempt: (typeof this.attempts)[number]): void {
     this.timers.clearTimeout(this.grace);
-    for (const other of this.attempts) if (other !== attempt && other.state !== "failed") other.socket.close();
+    // Settled before the losers close: their close events re-enter `decide`.
     this.chosen = attempt.socket;
     this.winner = attempt.candidate;
     this.fingerprint = attempt.socket.fingerprint;
     this.readyState = OPEN;
+    for (const other of this.attempts) if (other !== attempt && other.state !== "failed") other.socket.close();
     this.options.onWinner?.(attempt.candidate);
     attempt.socket.addEventListener("message", (event) => this.onmessage?.({ data: event.data }));
     attempt.socket.addEventListener("close", (event) => {
