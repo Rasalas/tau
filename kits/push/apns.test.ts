@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { ApnsClient, readApnsKey } from "./apns.js";
-import { readSignedJwt, startFakeApns, throwawayApnsKey } from "./fake-services.js";
+import { readSignedJwt, startFakeApns, throwawayApnsKey } from "../../src/main/test-support/push-fakes.js";
 
 const closers: Array<() => unknown> = [];
 afterEach(async () => { await Promise.all(closers.splice(0).map((close) => close())); });

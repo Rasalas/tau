@@ -254,7 +254,13 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
           raiseLater(prompt.sessionId, approval ? "approval" : "question", questionText(prompt));
         }),
         services.registerThreadLifecycle({ threadDeleted: async (sessionId) => { lastPushed.delete(sessionId); } }),
-        services.clients.observe({ devicesChanged: () => { options.track?.(prune().catch((error: unknown) => services.log("push.store", errorText(error)))); } }),
+        services.clients.observe({
+          devicesChanged: () => {
+            // Started before handing it over: `track?.(prune())` would skip the prune without a tracker.
+            const work = prune().catch((error: unknown) => services.log("push.store", errorText(error)));
+            options.track?.(work);
+          },
+        }),
       ];
 
       context.registerCommand("register", async (input, call) => {

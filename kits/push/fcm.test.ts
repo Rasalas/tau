@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { FcmClient, readServiceAccount } from "./fcm.js";
-import { readSignedJwt, startFakeFcm, throwawayServiceAccount } from "./fake-services.js";
+import { readSignedJwt, startFakeFcm, throwawayServiceAccount } from "../../src/main/test-support/push-fakes.js";
 
 const closers: Array<() => unknown> = [];
 afterEach(async () => { await Promise.all(closers.splice(0).map((close) => close())); });

@@ -1,4 +1,5 @@
-// For tests only: throwaway keys and loopback stand-ins for Apple's and Google's push services.
+// For tests and the smoke only: throwaway keys and loopback stand-ins for
+// Apple's and Google's push services. Nothing here reaches either of them.
 import { generateKeyPairSync, verify, type KeyObject } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttp2Server } from "node:http2";
@@ -36,7 +37,10 @@ export function readSignedJwt(jwt: string, publicKey: KeyObject, ec: boolean): {
 export interface FakeRequest { path: string; headers: Record<string, string>; body: string }
 
 /** Apple's push service over cleartext HTTP/2 on loopback; `answer` decides each reply. */
-export async function startFakeApns(answer: (request: FakeRequest) => { status: number; reason?: string } = () => ({ status: 200 })) {
+export const FAKE_KEY_ID = "FAKEKEY123";
+export const FAKE_TEAM_ID = "FAKETEAM12";
+
+export async function startFakeApns(answer: (request: FakeRequest) => { status: number; reason?: string } = () => ({ status: 200 }), onRequest: (request: FakeRequest) => void = () => undefined) {
   const requests: FakeRequest[] = [];
   const server = createHttp2Server();
   server.on("stream", (stream, headers) => {
@@ -46,6 +50,7 @@ export async function startFakeApns(answer: (request: FakeRequest) => { status: 
     stream.on("end", () => {
       const request = { path: String(headers[":path"]), headers: Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, String(value)])), body };
       requests.push(request);
+      onRequest(request);
       const { status, reason } = answer(request);
       stream.respond({ ":status": status, "apns-id": `fake-${requests.length}` });
       stream.end(reason ? JSON.stringify({ reason }) : undefined);
@@ -60,7 +65,7 @@ export async function startFakeApns(answer: (request: FakeRequest) => { status: 
 }
 
 /** Google's OAuth token endpoint and FCM's send endpoint on loopback HTTP/1.1. */
-export async function startFakeFcm(answer: (request: FakeRequest) => { status: number; body?: unknown } = () => ({ status: 200, body: { name: "projects/tau-test-project/messages/1" } })) {
+export async function startFakeFcm(answer: (request: FakeRequest) => { status: number; body?: unknown } = () => ({ status: 200, body: { name: "projects/tau-test-project/messages/1" } }), onRequest: (request: FakeRequest) => void = () => undefined) {
   const requests: FakeRequest[] = [];
   let issued = 0;
   const server = createHttpServer((request, response) => {
@@ -70,6 +75,7 @@ export async function startFakeFcm(answer: (request: FakeRequest) => { status: n
     request.on("end", () => {
       const seen = { path: request.url ?? "", headers: Object.fromEntries(Object.entries(request.headers).map(([key, value]) => [key, String(value)])), body };
       requests.push(seen);
+      onRequest(seen);
       const reply = seen.path === "/token"
         ? { status: 200, body: { access_token: `fake-access-${issued += 1}`, expires_in: 3600, token_type: "Bearer" } }
         : answer(seen);

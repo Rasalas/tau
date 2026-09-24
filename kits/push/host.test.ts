@@ -11,7 +11,7 @@ import type {
   HostTurnObserver,
 } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
-import { startFakeApns, startFakeFcm, throwawayApnsKey, throwawayServiceAccount } from "./fake-services.js";
+import { startFakeApns, startFakeFcm, throwawayApnsKey, throwawayServiceAccount } from "../../src/main/test-support/push-fakes.js";
 import { createPushHostExtension } from "./host.js";
 import { PUSH_EXTENSION_ID as ID, PUSH_STATE_EVENT, type PushStatus } from "./protocol.js";
 
