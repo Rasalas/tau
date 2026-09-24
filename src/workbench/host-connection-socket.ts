@@ -6,7 +6,7 @@ import {
   type HostPush,
   type HostResponse,
 } from "../shared/host-transport";
-import { HostConnection, type HostTransport } from "./host-connection";
+import { HostConnection, HostRequestError, type HostTransport } from "./host-connection";
 import { createHostClient, type HostClient } from "./host-client";
 import type { HostLink, HostWake, HostWakeSource } from "./host-link";
 
@@ -405,5 +405,10 @@ export function createSocketHostClient(
       ?? (() => connection?.refuse("This host does not accept connections from this page's address. Open the client from the host's own address, or add this one to TAU_HOST_ALLOWED_ORIGINS on the host.")),
   });
   connection = new HostConnection(transport);
-  return { client: createHostClient(connection, local), connection };
+  const client = createHostClient(connection, local);
+  if (local) return { client, connection };
+  // A page without a window process (a browser tab, the app) has no window to act on, and asking
+  // the host would count as a change a paired device made.
+  const windowAction = async (): Promise<never> => { throw new HostRequestError("This client has no window of its own.", HOST_ERROR.unsupported); };
+  return { client: { ...client, windowAction }, connection };
 }

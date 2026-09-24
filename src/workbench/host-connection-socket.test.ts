@@ -175,6 +175,15 @@ describe("socket host client", () => {
     expect(await pending).toEqual([]);
   });
 
+  it("answers a window action itself when no window process stands beside it", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { client, connection } = createSocketHostClient("ws://host.test:7788");
+    const request = vi.spyOn(connection, "request");
+
+    await expect(client.windowAction({ kind: "status" })).rejects.toMatchObject({ code: "unsupported" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("ignores a frame that is not JSON at all and keeps serving the connection", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const { connection } = createSocketHostClient("ws://host.test:7788");
