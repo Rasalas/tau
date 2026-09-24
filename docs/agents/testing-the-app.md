@@ -305,7 +305,7 @@ The phone's panels open as sheets from the title bar: `tap` the **Terminal** ico
 
 ### The proxy listener behind a fake Tailscale Serve
 
-The instance opens its proxy listener only with the Tailscale switch, which would bind the machine's real tailnet addresses; never turn it on. Test the proxy path with a headless host instead, and the Tailscale kit's fake CLI (`kits/tailscale/fixtures/fake-tailscale.mjs`) as Serve in front of it:
+Never turn on the instance's **Tailscale** switch: it binds the machine's real tailnet addresses. The instance holds a proxy listener without it once the Tailscale kit sets up HTTPS against the fake CLI ("Tailscale HTTPS" below). Without the kit, or to test the listener alone, use a headless host with the kit's fake CLI (`kits/tailscale/fixtures/fake-tailscale.mjs`) as Serve in front of it:
 
 ```
 node scripts/tau-test-host.mjs start --proxy --fresh       # prints url, proxyUrl, tokenFile; state in .tau-dev/test-host
