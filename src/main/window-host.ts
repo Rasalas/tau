@@ -172,7 +172,8 @@ export class WindowHost {
       requestTimeoutMs: UPLINK_TIMEOUT_MS,
       onPush: (push) => this.receive(push),
       onCall: (call) => void this.answer(call.callId, call.extensionId, call.command, call.input),
-      helloFields: () => ({ windowId: this.windowId, windowHalves: this.extensions.ids }),
+      // The page shows threads and terminals; this process reads only what every client gets.
+      helloFields: () => ({ windowId: this.windowId, windowHalves: this.extensions.ids, subscription: { threads: [], topics: [] } }),
       ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),
       // The next page load takes the token from here, so a window reopened after a rotation connects.

@@ -24,7 +24,7 @@ export interface HostUplinkOptions {
   /** A call the host sent to this connection alone: a window half is asked to do something. */
   onCall?(call: HostClientCall): void;
   /** Read at every hello, a reconnect's included: which window this is and which halves it runs. */
-  helloFields?(): Pick<HostHello, "windowId" | "windowHalves">;
+  helloFields?(): Pick<HostHello, "windowId" | "windowHalves" | "subscription">;
   onHello?(reply: HostHelloReply): void;
   logger?: HostLogger;
   requestTimeoutMs?: number;
