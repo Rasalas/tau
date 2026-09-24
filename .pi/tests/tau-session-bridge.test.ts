@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findPiBridge, PiBridgeClient } from "../../src/main/pi-bridge-client.js";
 import type { PiBridgeDescriptor } from "../../src/shared/pi-bridge-protocol.js";
@@ -16,6 +19,20 @@ import tauSessionBridge, {
   toolOutputPageForMessages,
 } from "../extensions/tau-session-bridge.js";
 import { createNewThreadRequestId } from "../../src/shared/contracts.js";
+
+// The bridge announces itself under <agent dir>/tau-bridge/sessions and the client looks there by cwd.
+// The real one is the user's, and every other test run on the machine uses the same fake cwd.
+const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+let agentDir: string | undefined;
+beforeAll(() => {
+  agentDir = mkdtempSync(join(tmpdir(), "tau-bridge-agent-"));
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+});
+afterAll(() => {
+  if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+  if (agentDir) rmSync(agentDir, { recursive: true, force: true });
+});
 
 const inheritedHostRuntime = process.env.TAU_HOST_RUNTIME;
 beforeEach(() => { delete process.env.TAU_HOST_RUNTIME; });
