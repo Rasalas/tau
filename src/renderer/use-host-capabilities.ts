@@ -18,7 +18,7 @@ export interface HostCapabilities {
 }
 
 /** The reason a write control of a Read-only device gives, where it is disabled rather than left out (API 1.13.0). */
-export const READ_ONLY_REASON = "Read only: this needs a device with Full access.";
+export { READ_ONLY_REASON } from "../shared/host-method-access";
 
 /** What the connected host announced in its hello. */
 export function useHostCapabilities(): HostCapabilities {
@@ -44,4 +44,29 @@ export function hostHasLocalFiles(client: { hasCapability(capability: string): b
 /** Whether this device may only read, for code outside the component tree; defaults to the ambient client. */
 export function hostIsReadOnly(client: { isReadOnly(): boolean } | undefined = getHostClient()): boolean {
   return client?.isReadOnly() ?? false;
+}
+
+type CommandGate = { isReadOnly(): boolean; mayInvokeHostExtension?(extensionId: string, command: string): boolean };
+
+/**
+ * Whether this device may run a kit's host command (API 1.13.0). On a device
+ * paired Read only, only a command registered `access: "read"` is; disable the
+ * control with `READ_ONLY_REASON` otherwise. A call it may not make is refused
+ * before it is sent, with the same reason.
+ */
+export function useCommandAllowed(extensionId: string, command: string): boolean {
+  const client = useHostClient();
+  const subscribe = useCallback((listener: () => void) => {
+    const offState = client?.onConnectionState(listener);
+    const offCommands = client?.onHostCommandsChanged?.(listener);
+    return () => { offState?.(); offCommands?.(); };
+  }, [client]);
+  const read = useCallback(() => hostCommandAllowed(extensionId, command, client), [client, extensionId, command]);
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+/** `useCommandAllowed` for code outside the component tree; defaults to the ambient client. */
+export function hostCommandAllowed(extensionId: string, command: string, client: CommandGate | undefined = getHostClient()): boolean {
+  if (!client) return true;
+  return client.mayInvokeHostExtension?.(extensionId, command) ?? !client.isReadOnly();
 }

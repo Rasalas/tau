@@ -44,6 +44,7 @@ import type { UiDiscoveredHosts } from "../shared/discovery";
 import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
+import { ReadCommands, readOnlyMayCall, readOnlyRefusal } from "./read-only-guard";
 
 /**
  * Transport-neutral view of the desktop host. Every method is one call of the
@@ -163,8 +164,19 @@ export interface HostClient {
    * sense; without it the workbench offers neither.
    */
   hasCapability(capability: string): boolean;
-  /** Whether the host's last hello said this device may only read; every change is refused then (ADR 0024). */
+  /**
+   * Whether the host's last hello said this device may only read; every change
+   * is refused then (ADR 0024), on this side already, with `READ_ONLY_REASON`.
+   */
   isReadOnly(): boolean;
+  /**
+   * Whether this device may run a kit's host command: always with Full access;
+   * Read only, just the commands registered `access: "read"`, and none until the
+   * host said which those are (API 1.13.0). Optional for a stand-in client.
+   */
+  mayInvokeHostExtension?(extensionId: string, command: string): boolean;
+  /** Called when `mayInvokeHostExtension` may answer differently. */
+  onHostCommandsChanged?(listener: () => void): () => void;
   /** Whether the link to the host is whole, being repaired, refetching state, or refused. */
   getConnectionState(): HostConnectionState;
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
@@ -245,12 +257,23 @@ const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "envir
 
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
-  const call = <T>(method: string, params: readonly unknown[] = []) => route(method).request<T>(method, params);
+  // A Read-only device is refused here what the host would refuse; the window's own process never is.
+  const refused = (target: HostConnection, method: string) => target === connection && connection.isReadOnly() && !readOnlyMayCall(method);
+  const call = <T>(method: string, params: readonly unknown[] = []) => {
+    const target = route(method);
+    return refused(target, method) ? Promise.reject(readOnlyRefusal()) : target.request<T>(method, params);
+  };
+  const readCommands = new ReadCommands(() => call<HostExtensionSummary[]>("host-extensions"));
+  connection.onEvent((event) => { if (event.type === "extension-packages-changed") readCommands.invalidate(); });
+  const invokeHostExtension = (extensionId: string, command: string, input?: unknown) => connection.isJobMethod("host-extension", extensionId, command)
+    ? connection.runJob<unknown>("host-extension", [extensionId, command, input])
+    : call<unknown>("host-extension", [extensionId, command, input]);
   return {
     bootstrap: async () => {
       const bootstrap = await call<HostBootstrap>("bootstrap");
-      // Which calls run as jobs depends on the extensions the host just started.
+      // Which calls run as jobs, and which only read, depends on the extensions the host just started.
       void connection.refreshJobMethods();
+      readCommands.invalidate();
       return bootstrap;
     },
     newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration) =>
@@ -305,9 +328,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     loadDesktopExtensions: (cwd, sharedExports, only) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]),
     // A command an extension declared long-running waits on `job-done` instead
     // of on one long response, so the host can report progress and be cancelled.
-    invokeHostExtension: (extensionId, command, input) => connection.isJobMethod("host-extension", extensionId, command)
-      ? connection.runJob<unknown>("host-extension", [extensionId, command, input])
-      : call<unknown>("host-extension", [extensionId, command, input]),
+    invokeHostExtension: async (extensionId, command, input) => {
+      if (connection.isReadOnly() && !await readCommands.check(extensionId, command)) throw readOnlyRefusal();
+      return invokeHostExtension(extensionId, command, input);
+    },
     listHostExtensions: () => call<HostExtensionSummary[]>("host-extensions"),
     inspectExtensions: (cwd) => call<ExtensionInspection>("inspect-extensions", [cwd]),
     setHostExtensionActive: (id, active) => call<HostExtensionSummary[]>("host-extension-active", [id, active]),
@@ -319,6 +343,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       // A job when the connection that answers it offers jobs; a client-side
       // rebuild is one plain request instead.
       const target = route("rebuild-workbench");
+      if (refused(target, "rebuild-workbench")) return Promise.reject(readOnlyRefusal());
       return target.isJobMethod("rebuild-workbench")
         ? target.runJob<WorkbenchBuildResult>("rebuild-workbench")
         : call<WorkbenchBuildResult>("rebuild-workbench");
@@ -354,6 +379,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     },
     hasCapability: connection.hasCapability,
     isReadOnly: connection.isReadOnly,
+    mayInvokeHostExtension: (extensionId, command) => !connection.isReadOnly() || readCommands.allows(extensionId, command) === true,
+    onHostCommandsChanged: (listener) => readCommands.onChange(listener),
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),
