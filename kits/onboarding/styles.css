@@ -14,7 +14,8 @@
 
 .onboarding-dialog {
   width: min(576px, 100%);
-  overflow: hidden;
+  /* clip, not hidden: hidden would make the dialog the scroller its sticky action row sticks to. */
+  overflow: clip;
   border: 1px solid var(--line-card);
   border-radius: var(--radius-xl);
   background: var(--overlay);
@@ -177,7 +178,20 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 .onboarding-note { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
 .onboarding-error { margin: 12px 0 0; font-size: 13px; color: var(--danger); }
 
-.onboarding-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+/* Stays at the window's bottom edge when the step is taller than the window, so Continue is never below the fold. */
+.onboarding-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 12px -24px -20px;
+  padding: 12px 24px 20px;
+  background: var(--stage);
+}
 .onboarding-actions .leading { margin-right: auto; }
 .onboarding-button {
   display: inline-flex;
