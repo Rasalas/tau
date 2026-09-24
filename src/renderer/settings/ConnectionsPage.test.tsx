@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_NETWORK_SETTINGS, type UiConnections, type UiCreatedPairingLink, type UiNetworkAccess } from "../../shared/connections";
 import type { HostClient } from "../../workbench/host-client";
@@ -29,10 +30,10 @@ function connections(overrides: Partial<UiConnections> = {}): UiConnections {
   };
 }
 
-function renderPage(overrides: Partial<HostClient>) {
+function renderPage(overrides: Partial<HostClient>, sections: ComponentProps<typeof ConnectionsPage>["sections"] = []) {
   const notify = vi.fn();
   const client = createFakeHostClient(overrides);
-  render(<TestProviders><HostClientProvider client={client}><ConnectionsPage onNotify={notify} /></HostClientProvider></TestProviders>);
+  render(<TestProviders><HostClientProvider client={client}><ConnectionsPage onNotify={notify} sections={sections} /></HostClientProvider></TestProviders>);
   return { client, notify };
 }
 
@@ -67,6 +68,17 @@ describe("Settings → Connections", () => {
     expect(screen.getByText(/No QR code for a loopback address/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("http://127.0.0.1:4100/#pair=abc"));
+  });
+
+  it("draws a package's section, which asks the page to read its data again, and names the user a proxy saw", async () => {
+    const listConnections = vi.fn(async () => connections({ clients: [{ ...connections().clients[0]!, proxyUser: "alice@example.com" }] }));
+    renderPage({ listConnections }, [{
+      id: "acme.section",
+      Component: ({ onChanged }) => <button type="button" onClick={onChanged}>Acme changed something</button>,
+    }]);
+    fireEvent.click(await screen.findByRole("button", { name: "Acme changed something" }));
+    await waitFor(() => expect(listConnections).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(/192\.0\.2\.7 · as alice@example\.com · paired/u)).toBeTruthy();
   });
 
   it("rotates the host token only after asking", async () => {

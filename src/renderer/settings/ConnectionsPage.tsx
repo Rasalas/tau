@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link2, Plus, X } from "lucide-react";
 import type { UiConnections, UiCreatedPairingLink, UiNetworkSettingsInput, UiOwnerConnection, UiPairedClient, UiPairingLink } from "../../shared/connections";
 import { useHostClient } from "../host-client-context";
@@ -9,6 +9,7 @@ import { SettingRow, SettingsSection } from "./settings-layout";
 import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
+import type { SettingsSectionProps } from "../extension-system";
 
 type PageState =
   | { status: "loading" }
@@ -39,7 +40,11 @@ function StatusDot({ tone, label }: { tone: "live" | "idle" | "pending"; label: 
  * a token for it, single-use pairing links for another device, and the host
  * token's rotation (ADR 0023). Only a connection with the host token sees it.
  */
-export function ConnectionsPage({ onNotify }: { onNotify(message: string): void }) {
+export function ConnectionsPage({ onNotify, sections = [] }: {
+  onNotify(message: string): void;
+  /** What packages add below Network access (`registerSettingsSection`). */
+  sections?: ReadonlyArray<{ id: string; Component: ComponentType<SettingsSectionProps> }>;
+}) {
   const client = useHostClient();
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [created, setCreated] = useState<UiCreatedPairingLink>();
@@ -154,6 +159,8 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
         />
       ) : null}
 
+      {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+
       <SettingsSection
         title="Authorized clients"
         headerAction={(
@@ -225,7 +232,7 @@ function LinkRow({ link, now, busy, onRevoke }: { link: UiPairingLink; now: numb
 
 function ClientRow({ paired, now, busy, onRevoke }: { paired: UiPairedClient; now: number; busy: boolean; onRevoke(): void }) {
   const live = paired.connections > 0;
-  const details = [describeDevice(paired.device), paired.lastAddress, `paired ${formatAgo(paired.pairedAt, now)}`,
+  const details = [describeDevice(paired.device), paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
     live ? "connected" : paired.lastSeenAt ? `last active ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet"].filter(Boolean);
   return (
     <div className="connection-row">
@@ -243,7 +250,7 @@ function ClientRow({ paired, now, busy, onRevoke }: { paired: UiPairedClient; no
 
 function OwnerRow({ owner, now }: { owner: UiOwnerConnection; now: number }) {
   const name = owner.profile === "web" || owner.profile === "compact" ? "Browser" : "Tau window";
-  const details = [describeDevice(owner.device), owner.address, `connected ${formatAgo(owner.since, now)}`, "host token"].filter(Boolean);
+  const details = [describeDevice(owner.device), owner.address, owner.proxyUser ? `as ${owner.proxyUser}` : undefined, `connected ${formatAgo(owner.since, now)}`, "host token"].filter(Boolean);
   return (
     <div className="connection-row">
       <StatusDot tone="live" label="Connected" />
