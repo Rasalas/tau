@@ -25,6 +25,10 @@ The instance also gets its own Pi session store, `.tau-dev/pi-sessions`, via `PI
 
 Run it with `run_in_background` (or the harness's own backgrounding) — you need the terminal free to drive it. Flags: `--safe` (`TAU_NO_EXTENSIONS=1`), `--fresh` (wipes this instance's userData, its `.tau-dev/pi-sessions` and the runtime kits' thread stores in `.tau-dev/tau` first — safe, since it never wipes outside `.tau-dev`), `--shared-sessions` (use the real `~/.pi/agent/sessions` instead of the isolated one), `--workspace <path>` (an existing repo instead of the scratch one), `--port <n>` (pin the port), `--agent-dir <path>` (sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance).
 
+### The window never takes focus
+
+`dev-instance` sets `TAU_NO_FOCUS=1`: on macOS the instance runs without a Dock icon and never becomes the active app, and its window shows with `showInactive()` whatever asks for it (startup, `tau app`, a kit's `focus`). It still paints at full frame rate, so CDP, screenshots and paint timings stay valid; `document.hasFocus()` is false. The user's own app stays in front and keeps the keyboard. `TAU_FOREGROUND=1 npm run dev:instance …` brings the old behaviour back for the rare check that needs a key window. Any other Electron you start for a test (a window against a headless host, a fixture) gets `TAU_NO_FOCUS=1` too; never `app.focus`, `open -a` or System Events to bring a window forward.
+
 ### Testing a custom keybindings.json without touching the real one
 
 `--agent-dir <path>` points the instance at a directory of your own instead of the real `~/.pi/agent` — the one place Pi keeps `keybindings.json`. Build a shadow directory rather than editing the real one:
