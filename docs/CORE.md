@@ -155,10 +155,22 @@ from the entry point.
 There are two such entry points. `src/renderer/main.tsx` is the Electron window;
 `src/web/` is the browser client a listening host serves, which reuses every
 component and adds only its entry, its platform and the token handling. Below
-720 px either of them lays itself out compactly — the thread list as a sheet,
-the composer at the bottom edge, agent supervision as the start screen — through
-`body[data-profile]` and `src/renderer/profile-compact.css`, not a second
-component tree.
+720 px either of them lays itself out compactly — the thread list as a screen of
+its own, the composer at the bottom edge, agent supervision as the start screen —
+through `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
+component tree. A browser on a touch screen claims `compact` at any width, and a
+compact client at least 720 × 600 px (a tablet) keeps the thread list in a
+sidebar beside the thread instead (`compactFormFor`). The touch pieces live in
+`src/renderer/touch/`, a chunk only a compact layout loads: the thread list with
+T3 Code's swipe to settle and a long press for every action (`TouchThreadList`,
+`SwipeRow`, `ActionSheet`), the list's header with search and More as popovers
+and a floating New thread button (`TouchThreadBrowser`), panels that claim
+`compact` as sheets over the thread (`PanelSheet`, opened from the title bar),
+sheets that close on a pull down (`sheet-drag.ts`), and `TouchLayer` — the
+height the on-screen keyboard leaves (`visualViewport`), a tap that shows a
+message's actions, and the open thread in the address (`?thread=<id>`, which a
+push notification opens). A touch keyboard's return key writes a newline; the
+send button sends. Settings on a phone is stacked: the section list, then a page.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) opens as a popover
 at the control that opened it (the composer's model chip, a settings field),

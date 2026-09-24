@@ -327,11 +327,8 @@
 .keybinding-reset-confirm { display: flex; align-items: center; gap: 8px; max-width: none; }
 .keybinding-reset-confirm > span { flex: 1; }
 
-/* The narrow client stacks the section column over the page. */
-body[data-profile="compact"] .settings-nav { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
-body[data-profile="compact"] .settings-nav-header { display: none; }
-body[data-profile="compact"] .settings-nav-search { margin-top: 8px; }
-body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
+/* The stacked page gives its width to the rows. */
+.settings-screen.stacked .settings-content { padding: 16px 12px 32px; }
 
 /* Settings → About: the version and the licences of what Tau ships. */
 .about-version { font: 12px var(--mono); color: var(--ink-2); }
@@ -423,3 +420,34 @@ body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
 .pairing-qr.pending { background: var(--well); }
 .connection-field { display: flex; flex-direction: column; gap: 5px; font: 500 12px var(--sans); color: var(--ink-2); }
 .connection-field > .settings-input, .connection-field > .settings-select { width: 100%; }
+
+/* Stacked, as on a phone: the section list is one screen and a page the next (T3 Code's settings). */
+.settings-screen.stacked { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.settings-screen.stacked[data-view="sections"] .settings-main,
+.settings-screen.stacked[data-view="page"] .settings-nav { display: none; }
+.settings-screen.stacked .settings-nav { border-right: 0; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
+.settings-screen.stacked .settings-nav-header { height: 52px; justify-content: space-between; padding: 0 4px 0 20px; }
+.settings-screen.stacked .settings-nav-header > h1 { margin: 0; font: 650 17px var(--sans); }
+.settings-screen.stacked .settings-nav-footer .settings-back { display: none; }
+.settings-screen.stacked .settings-nav-footer:not(:has(> :not(.settings-back))) { display: none; }
+.settings-screen.stacked .settings-topbar nav { flex: 1; }
+.settings-screen.stacked .settings-close { margin-left: auto; }
+.settings-screen.stacked .settings-nav-search { height: 40px; margin: 0 var(--space-5) var(--space-4); background: var(--field); }
+.settings-screen.stacked .settings-nav-search > input { font-size: 16px; }
+.settings-screen.stacked .settings-nav-search > kbd { display: none; }
+.settings-screen.stacked .settings-nav-list { padding: 0 var(--space-5) var(--space-5); gap: 2px; }
+.settings-screen.stacked .settings-nav-list button,
+.settings-screen.stacked .settings-back { min-height: 46px; font-size: 15px; gap: var(--space-5); }
+.settings-screen.stacked .settings-nav-list button.active { background: transparent; box-shadow: none; color: var(--ink-2); }
+.settings-screen.stacked .settings-nav-list button.settings-nav-heading { min-height: 36px; font-size: 13px; }
+.settings-screen.stacked .settings-nav-footer { padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
+.settings-screen.stacked .settings-main { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
+.settings-screen.stacked .settings-topbar { height: 52px; padding: 0 12px 0 4px; gap: 4px; }
+.settings-sections-back {
+  width: 44px; height: 44px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.settings-screen.stacked .settings-scroll { padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* A row of choices wraps rather than running off a phone's edge. */
+.settings-screen.stacked .segmented { flex-wrap: wrap; max-width: 100%; justify-self: stretch; }
+.settings-screen.stacked .segmented > button { flex: 1 0 auto; min-height: 44px; padding: 0 12px; font-size: 13px; border-top: 1px solid var(--line-soft); margin-top: -1px; }

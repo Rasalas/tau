@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Folder, X } from "lucide-react";
+import { ChevronDown, Folder } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
@@ -22,8 +22,8 @@ import type { ToastStore } from "../workbench/toast-store";
 import { PanelIcon } from "./components/PanelIcon";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
-import { ThreadSupervisor } from "./components/ThreadSupervisor";
-import type { ClientProfile } from "../workbench/client-profile";
+import { compactFormFor, compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
+import { useClientEnvironment } from "./client-environment";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
@@ -90,6 +90,11 @@ const LazySettingsScreen = lazy(() => import("./settings/SettingsScreen").then((
 const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
 const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
 const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
+// The touch layout's own pieces: none of them is in a desktop window's first paint.
+const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
+const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
+const LazyTouchThreadList = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadList }) => ({ default: TouchThreadList })));
+const LazyPanelSheet = lazy(() => import("./touch/PanelSheet").then(({ PanelSheet }) => ({ default: PanelSheet })));
 // Mounted closed from the start, like the palette, so its chunk is in before the first open.
 const LazyProjectPicker = lazy(() => import("./components/ProjectPicker").then(({ ProjectPicker }) => ({ default: ProjectPicker })));
 
@@ -308,12 +313,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   useEffect(() => {
     if (restoredDockWidth !== undefined) setDockWidthState(clampDockWidth(restoredDockWidth));
   }, [restoredDockWidth]);
-  // One screen wide: the thread list is a sheet and the dock has nowhere to go.
+  // One screen wide: the thread list is a screen of its own and the dock has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
   const compact = layoutProfile === "compact";
-  const compactRef = useRef(compact);
-  compactRef.current = compact;
+  // A tablet-sized compact client keeps the list beside the thread instead.
+  const clientProfile = useClientEnvironment().profile;
+  const split = compact && compactFormFor(clientProfile, windowWidth, windowHeight) === "split";
+  const compactRef = useRef({ compact, split });
+  compactRef.current = { compact, split };
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
+  // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
+  const [panelSheet, setPanelSheet] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const stageRef = useRef<HTMLElement>(null);
@@ -321,7 +332,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openInstructions: () => setSystemPromptOpen(true),
     focusStage: () => stageRef.current?.focus(),
     toggleSidebar: () => {
-      if (compactRef.current) { setThreadSheetOpen((open) => !open); return; }
+      if (compactRef.current.split) { setTouchSidebarOpen((open) => !open); return; }
+      if (compactRef.current.compact) { setThreadSheetOpen((open) => !open); return; }
       setSidebarOpen((open) => {
         clientStorage.set(STORAGE_KEYS.sidebarOpen, String(!open));
         return !open;
@@ -330,6 +342,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   }), [clientStorage]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
+  const sheetPanels = useMemo(() => compact ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, compact]);
+  const sheetPanel = sheetPanels.find((panel) => panel.id === panelSheet);
   const dockPanels = useMemo(() => panels.filter((panel) => panel.placement !== "drawer"), [panels]);
   const drawerPanels = useMemo(() => panels.filter((panel) => panel.placement === "drawer"), [panels]);
   const staged = panelLayout?.staged ?? EMPTY_STAGED;
@@ -339,19 +353,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
   const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
-  useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
-  // The sheet is `aria-modal`, so core's own Escape binding stands down for it;
-  // closing it is this listener's job.
-  useEffect(() => {
-    if (!threadSheetOpen) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      setThreadSheetOpen(false);
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [threadSheetOpen]);
+  useEffect(() => { if (!compact || split) setThreadSheetOpen(false); }, [compact, split]);
+  // Opening another thread (from a panel, say) puts the thread in front again.
+  useEffect(() => { setPanelSheet(undefined); }, [compact, snapshot?.sessionId]);
 
   const setDockWidth = (width: number) => {
     const bounded = clampDockWidth(width);
@@ -375,10 +379,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     centerCompact ? "compact" : "",
     centerCompact && chatFocused ? "chat-focused" : "",
   ].filter(Boolean).join(" ");
+  const touchSidebarShown = split && touchSidebarOpen;
   const shellClassName = [
     "app-shell",
-    sidebarContributions.length === 0 ? "no-sidebar" : "",
-    sidebarOpen ? "" : "sidebar-closed",
+    split ? "touch-split" : "",
+    sidebarContributions.length === 0 && !split ? "no-sidebar" : "",
+    (split ? touchSidebarOpen : sidebarOpen) ? "" : "sidebar-closed",
     dockPanels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
@@ -387,10 +393,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setThreadSheetOpen(false);
     void actions.switchSession(row.path);
   };
-  const threadSupervisor = <ThreadSupervisor
-    onOpen={openSupervisedThread}
-    onStop={(row) => composer.abort(row.id)}
-  />;
+  const threadListProps = {
+    registry,
+    actions,
+    onOpen: openSupervisedThread,
+    onStop: (row: { id: string }) => composer.abort(row.id),
+  };
+  const threadBrowserProps = {
+    ...threadListProps,
+    onNewThread: () => { setThreadSheetOpen(false); openNewThreadPicker(); },
+    onOpenSettings: (page?: string) => { setThreadSheetOpen(false); actions.openSettings(page); },
+  };
 
   const conversationComposer = <ConversationComposer
     view={view}
@@ -405,22 +418,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   />;
 
   const overlays = <>
-    {compact && threadSheetOpen ? <div className="thread-sheet-scrim" onClick={() => setThreadSheetOpen(false)}>
-      <section
-        className="thread-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Threads"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header>
-          <strong>Threads</strong>
-          <button type="button" aria-label="Close threads" onClick={() => setThreadSheetOpen(false)}><X size={14} /></button>
-        </header>
-        {threadSupervisor}
-        <button type="button" className="thread-sheet-new" onClick={() => { setThreadSheetOpen(false); openNewThreadPicker(); }}>New thread</button>
-      </section>
-    </div> : null}
+    {compact ? <Suspense fallback={null}><LazyTouchLayer syncUrl={clientProfile !== "desktop"} openThread={actions.switchSession} /></Suspense> : null}
+    {compact && threadSheetOpen ? <Suspense fallback={null}>
+      <LazyTouchThreadBrowser variant="screen" {...threadBrowserProps} onClose={() => setThreadSheetOpen(false)} />
+    </Suspense> : null}
+    {sheetPanel ? <Suspense fallback={null}>
+      <LazyPanelSheet label={sheetPanel.label} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
+    </Suspense> : null}
     {threadTreeModal ? <Suspense fallback={null}><LazyThreadTreeModal
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
       onClose={closeThreadTree} onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)} onFork={(entryId) => void forkFromTree(entryId)}
@@ -461,6 +465,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <Suspense fallback={<div className="settings-screen loading"><LazyFeatureFallback label="settings" /></div>}>
         <LazySettingsScreen
           page={settingsPage}
+          stacked={compact && !split}
           snapshot={snapshot}
           registry={registry}
           projects={projects}
@@ -502,7 +507,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage)} style={{ "--dock-width": dockPanels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px`, "--sidebar-width": `${shownSidebar}px` } as CSSProperties}>
+    <div className={shellClassName} inert={Boolean(settingsPage)} style={{ "--dock-width": dockPanels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px`, "--sidebar-width": `${split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
         dockOpen={dockOpen}
@@ -538,8 +543,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           onToggle: () => (drawer === panel.id ? actions.closePanel?.(panel.id) : openPanel(panel.id)),
         }))}
         onToggleDock={() => setDockOpen(!dockOpen)}
-        {...(compact ? { onOpenThreads: () => setThreadSheetOpen(true) } : {})}
+        {...(compact ? { onOpenThreads: () => (split ? setTouchSidebarOpen((open) => !open) : setThreadSheetOpen(true)) } : {})}
+        sheets={sheetPanels.map((panel) => ({
+          id: panel.id,
+          label: panel.label,
+          Icon: panel.Icon,
+          open: panelSheet === panel.id,
+          onToggle: () => setPanelSheet((open) => (open === panel.id ? undefined : panel.id)),
+        }))}
       />
+      {split ? <div className="sidebar-slot">
+        <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
+      </div> : null}
       <div className="sidebar-slot">{sidebarContributions.map((contribution) => <LazyFeatureBoundary
         key={contribution.id}
         label="sidebar"
@@ -589,9 +604,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
-              {compact && showStartScreen ? <section className="supervision-start" aria-label="Agent supervision">
+              {compact && !split && showStartScreen ? <section className="supervision-start" aria-label="Agent supervision">
                 <h2>Threads</h2>
-                {threadSupervisor}
+                <Suspense fallback={null}><LazyTouchThreadList {...threadListProps} pageSize={12} /></Suspense>
               </section> : null}
             </div>
           </section>
@@ -701,6 +716,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </div>
     {overlays}
     {floats}
+    {sheetPanel ? createPortal(<MountedPanel
+      Component={sheetPanel.Component}
+      active
+      placement="stage"
+      label={sheetPanel.label}
+      extensionId={sheetPanel.extensionId}
+      extensionName={sheetPanel.extensionName}
+      registry={registry}
+      actions={actions}
+      onNotify={actions.notify}
+    />, hostFor(sheetPanel.id), sheetPanel.id) : null}
     {panels.map((panel) => {
       const onStage = staged.has(panel.id);
       const inDrawer = panel.placement === "drawer";

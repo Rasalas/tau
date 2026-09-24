@@ -183,3 +183,32 @@ this ADR, observed rather than asserted.
 - **A client that changes profile at runtime.** A resize changes the layout, not
   the claim; reloading is how a client changes what it draws.
 - **Native apps, push, offline.** Ticket 19 excluded them and still does.
+
+## Amendment, 2026-09-24: the compact client is a touch client
+
+Wave F (ticket F09) gave the compact profile its own touch surface, and in doing
+so settled what `compact` claims.
+
+- **A touch screen is compact at any width.** `browserClientProfile` takes a
+  third argument, whether the primary pointer is coarse; the web entry passes
+  `(pointer: coarse)`. An iPad at 1024 px is a touch client, not a narrow
+  desktop, and `?profile=` still beats it.
+- **Compact has two forms, not two profiles.** `compactFormFor(profile, width,
+  height)` is `split` for a client that claims compact and is at least
+  720 × 600 px, `single` otherwise; a desktop window narrowed below 720 px is
+  always single. The split keeps the thread list in a sidebar a third of the
+  width wide (280–380 px, after T3 Code's), the single form makes it a screen of
+  its own. This is layout, like the width rule above: nothing registers or
+  unregisters when a tablet turns.
+- **A panel that claims `compact` is a sheet.** The compact layout still draws
+  no dock, but it no longer drops every panel: those that claim `compact` get a
+  glyph in the title bar and open over the thread. Agents is the first; the
+  phone's terminal and review (F10, F11) arrive by claiming it.
+- **The touch surface stays out of the desktop's first paint.** Everything
+  touch-shaped is in `src/renderer/touch/`, loaded by the compact layout only,
+  with its own stylesheet; `profile-compact.css` keeps just the grid, the safe
+  areas and the touch sizes the first compact paint needs.
+- **Thread actions reach the list through a command surface.** `thread-row`
+  runs a command with `{ threadId }`; core adds Settle, Pin, Mark unread and
+  Stop itself. The one new API is that surface and a command's `Icon` (1.13.0).
+

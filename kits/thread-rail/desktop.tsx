@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { AlarmClock, Archive, GitFork, ListTree, X } from "lucide-react";
+import { AlarmClock, Archive, GitFork, ListTree, Trash2, X } from "lucide-react";
 import {
   HostUnavailableError,
   Menu,
@@ -362,8 +362,9 @@ export const threadRailExtension: DesktopExtension = {
       const active = app.activeThread();
       return active && !active.draftPending ? active.sessionId : undefined;
     };
-    const withActive = (app: WorkbenchActions, run: (threadId: string) => void) => {
-      const threadId = activeThread(app);
+    // A `thread-row` surface names its thread; the title menu and the palette mean the open one.
+    const withActive = (app: WorkbenchActions, run: (threadId: string) => void, named?: string) => {
+      const threadId = named ?? activeThread(app);
       if (threadId) run(threadId);
       else app.notify("Open a thread first.");
     };
@@ -376,12 +377,12 @@ export const threadRailExtension: DesktopExtension = {
     };
 
     /** The thread a title-menu command acts on. */
-    const withActiveSession = (app: WorkbenchActions, run: (session: UiSession) => Promise<void>) => withActive(app, (threadId) => {
+    const withActiveSession = (app: WorkbenchActions, run: (session: UiSession) => Promise<void>, named?: string) => withActive(app, (threadId) => {
       store.actions = app;
       const session = store.session(threadId);
       if (session) void run(session);
       else app.notify("This thread is not in the index yet.");
-    });
+    }, named);
 
     const disposers: Array<() => void> = [
       stopMeta,
@@ -405,6 +406,8 @@ export const threadRailExtension: DesktopExtension = {
       }),
       context.registerModelSelection(selection),
       context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web"], Component: createSettledNote(store, organizer.toggleSettledById) }),
+      // The rail's dialogs and undo offer; on the desktop the workspace sidebar mounts them, elsewhere this does.
+      context.registerRegion({ id: "thread-rail.layer", placement: "composer-below", order: 99, profiles: ["web", "compact"], Component: ({ actions }: RegionProps) => (organizer.Layer ? <organizer.Layer actions={actions} /> : null) }),
       context.registerComposerControl({ id: "thread-rail.fan-out", placement: "toolbar", order: 30, profiles: ["desktop"], Component: createFanOutChip(selection, () => workspace) }),
       context.registerPromptHook({
         id: "thread-rail.start",
@@ -424,27 +427,30 @@ export const threadRailExtension: DesktopExtension = {
         id: "thread.snooze",
         label: "Snooze thread…",
         group: "Thread",
-        surfaces: ["thread-title"],
-        run: (app) => withActive(app, (threadId) => {
-          const session = [...store.displayed].find((thread) => thread.id === threadId);
+        surfaces: ["thread-title", "thread-row"],
+        Icon: AlarmClock,
+        run: (app, target) => withActive(app, (threadId) => {
+          const session = store.session(threadId);
           if (session) store.openSnooze(session);
           else app.notify("This thread is not in the rail.");
-        }),
+        }, target?.threadId),
       }),
       context.registerCommand({
         id: "thread.archive",
         label: "Archive thread",
         group: "Thread",
-        surfaces: ["thread-title"],
-        run: (app) => withActiveSession(app, (session) => organizer.archive(session, app)),
+        surfaces: ["thread-title", "thread-row"],
+        Icon: Archive,
+        run: (app, target) => withActiveSession(app, (session) => organizer.archive(session, app), target?.threadId),
       }),
       context.registerCommand({
         id: "thread.delete",
         label: "Delete thread",
         group: "Thread",
-        surfaces: ["thread-title"],
+        surfaces: ["thread-title", "thread-row"],
         destructive: true,
-        run: (app) => withActiveSession(app, (session) => organizer.remove(session, app)),
+        Icon: Trash2,
+        run: (app, target) => withActiveSession(app, (session) => organizer.remove(session, app), target?.threadId),
       }),
       context.registerCommand({
         id: "thread.undo",
