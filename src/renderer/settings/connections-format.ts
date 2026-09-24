@@ -1,4 +1,4 @@
-import { PAIRING_LINK_LIFETIMES_MS, type UiClientDevice, type UiHostEndpoint } from "../../shared/connections";
+import { PAIRING_LINK_LIFETIMES_MS, type UiClientDevice, type UiHostEndpoint, type UiPairedClient } from "../../shared/connections";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -25,6 +25,14 @@ export function formatAgo(iso: string, now: number): string {
 export function formatExpiresIn(iso: string, now: number): string {
   const ms = Date.parse(iso) - now;
   return ms <= 0 ? "Expired" : `Expires in ${span(ms)}`;
+}
+
+const MAX_THREAD_TITLE = 40;
+
+/** `last change: sent a prompt in “Fix the queue”, 5 min ago`; a host older than the labels names the method. */
+export function describeLastChange(change: NonNullable<UiPairedClient["lastAction"]>, now: number): string {
+  const title = change.thread && change.thread.length > MAX_THREAD_TITLE ? `${change.thread.slice(0, MAX_THREAD_TITLE - 1).trimEnd()}…` : change.thread;
+  return `last change: ${change.label ?? change.action}${title ? ` in “${title}”` : ""}, ${formatAgo(change.at, now)}`;
 }
 
 /** `Safari · iOS` or whichever halves are known; empty when neither is. */

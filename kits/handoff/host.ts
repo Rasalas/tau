@@ -256,7 +256,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         if (threadId === transfer.sourceThreadId) throw new HostCommandError("A thread cannot continue itself.");
         bind(transfer, threadId, services.thread(threadId)?.backendKind);
         return lineage();
-      });
+      }, { audit: { label: "continued a handoff", automatic: true } });
 
       context.registerCommand("cancel-transfer", (input) => {
         const id = required(input, "transferId");
@@ -313,7 +313,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         }
         if (committed) changed();
         return lineage();
-      });
+      }, { audit: { label: "brought threads back", automatic: true } });
 
       const disposers = [
         services.registerTurnObserver({

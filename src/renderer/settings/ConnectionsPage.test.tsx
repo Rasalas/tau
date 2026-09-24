@@ -144,11 +144,11 @@ describe("Settings → Connections", () => {
     const idle = {
       id: "c2", label: "Old phone", device: { kind: "phone" as const }, pairedAt: soon(-100 * 86_400_000), connections: 0, current: false,
       access: "read-only" as const, idleTimeoutDays: 90 as const, expiresAt: soon(3 * 86_400_000), lastSeenAt: soon(-87 * 86_400_000),
-      lastAction: { action: "prompt", at: soon(-87 * 86_400_000) },
+      lastAction: { action: "prompt", label: "sent a prompt", thread: "Fix the queue", at: soon(-87 * 86_400_000) },
     };
     renderPage({ listConnections: async () => connections({ clients: [idle] }) });
     expect(await screen.findByText(/Signed out in 3 days unless it connects/u)).toBeTruthy();
-    expect(screen.getByText(/last change prompt 87 days ago/u)).toBeTruthy();
+    expect(screen.getByText(/last change: sent a prompt in “Fix the queue”, 87 days ago/u)).toBeTruthy();
     expect(screen.getByText("Read only")).toBeTruthy();
   });
 

@@ -807,6 +807,8 @@ export class PiHost {
     return this.cwd;
   }
 
+  threadTitle(sessionId: string): string | undefined { return this.index.byId(sessionId)?.title; }
+
   async bootstrap(): Promise<HostBootstrap> {
     // The project list is withheld while a checkout is unclassified. Bootstrap
     // is the one publication the client cannot miss, so settle it here.

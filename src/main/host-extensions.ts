@@ -25,7 +25,7 @@ import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
+import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
@@ -934,6 +934,14 @@ export interface HostExtensionCommandOptions {
    * host token from this machine may call it, like the `connections-*` methods.
    */
   access?: "read" | "owner";
+  /**
+   * How Settings → Connections shows a call a paired device made (API 1.13.0).
+   * `label` reads after "last change:", past tense ("committed changes"); without
+   * it the row shows the kit's name and the command. `automatic`: a client
+   * calls it on its own after something the user did (a thread's title after
+   * its prompt), so it is logged but never replaces the device's last change.
+   */
+  audit?: { label?: string; automatic?: boolean };
 }
 
 export interface HostExtensionInvocationContext {
@@ -1050,6 +1058,28 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
 const COMMAND_NAME = /^[a-z][a-z0-9-]*$/u;
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 
+const MAX_AUDIT_LABEL_LENGTH = 80;
+
+function commandAudit(option: HostExtensionCommandOptions["audit"]): { label?: string; automatic?: true } | undefined {
+  if (!option || typeof option !== "object") return undefined;
+  const label = typeof option.label === "string" ? option.label.trim().slice(0, MAX_AUDIT_LABEL_LENGTH) : "";
+  const audit = { ...(label ? { label } : {}), ...(option.automatic === true ? { automatic: true as const } : {}) };
+  return Object.keys(audit).length ? audit : undefined;
+}
+
+/** A kit command's audit record; a `threadId` or `sessionId` in its input names the thread, nothing else of it is kept. */
+function auditedCommandCall(record: ActiveHostExtension, action: string, command: string, input: unknown): AuditedCall {
+  const declared = record.commandAudit.get(command);
+  const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const thread = typeof fields.threadId === "string" ? fields.threadId : typeof fields.sessionId === "string" ? fields.sessionId : "";
+  return {
+    action,
+    label: declared?.label ?? `${record.extension.name}: ${command}`,
+    ...(thread ? { threadId: thread } : {}),
+    ...(declared?.automatic ? { automatic: true } : {}),
+  };
+}
+
 interface ActiveHostExtension {
   extension: HostExtension;
   invocationContextId: string;
@@ -1059,6 +1089,8 @@ interface ActiveHostExtension {
   readCommands: Set<string>;
   /** Commands registered with `access: "owner"`. */
   ownerCommands: Set<string>;
+  /** Each command's `audit` option, when it has one. */
+  commandAudit: Map<string, { label?: string; automatic?: true }>;
   commandCallers: Map<string, ReadonlySet<string>>;
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
@@ -1105,6 +1137,7 @@ export class HostExtensionRegistry {
       longCommands: new Set(),
       readCommands: new Set(),
       ownerCommands: new Set(),
+      commandAudit: new Map(),
       commandCallers: new Map(),
       disposers: [],
     };
@@ -1130,6 +1163,8 @@ export class HostExtensionRegistry {
         if (options?.long) record.longCommands.add(name);
         if (options?.access === "read") record.readCommands.add(name);
         if (options?.access === "owner") record.ownerCommands.add(name);
+        const audit = commandAudit(options?.audit);
+        if (audit) record.commandAudit.set(name, audit);
         record.commandCallers.set(name, new Set(callers));
         const dispose = () => {
           if (record.commands.get(name) !== handler) return;
@@ -1138,6 +1173,7 @@ export class HostExtensionRegistry {
           record.longCommands.delete(name);
           record.readCommands.delete(name);
           record.ownerCommands.delete(name);
+          record.commandAudit.delete(name);
         };
         record.disposers.push(dispose);
         return dispose;
@@ -1258,7 +1294,7 @@ export class HostExtensionRegistry {
     }
     const handler = record.commands.get(command);
     if (!handler) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
-    this.authorize(record, extensionId, command, principal);
+    this.authorize(record, extensionId, command, principal, input);
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
     // The counter is keyed by command so that a healthy command cannot mask an
@@ -1296,20 +1332,21 @@ export class HostExtensionRegistry {
   }
 
   /** Checks a host-issued caller before target lookup or handler execution. */
-  private authorize(record: ActiveHostExtension, extensionId: string, command: string, principal: HostInvocationPrincipal): void {
+  private authorize(record: ActiveHostExtension, extensionId: string, command: string, principal: HostInvocationPrincipal, input?: unknown): void {
     if (principal.kind === "workbench-client") {
       // A client may call any command; a Read-only device only those that declared they just look.
       if (record.readCommands.has(command)) return;
       const action = `${extensionId}/${command}`;
+      const call = auditedCommandCall(record, action, command, input);
       if (record.ownerCommands.has(command) && !isHostOwner(principal)) {
-        principal.audit?.(action, false);
+        principal.audit?.(call, false);
         throw ownerRefusal();
       }
       if (principal.readOnly) {
-        principal.audit?.(action, false);
+        principal.audit?.(call, false);
         throw readOnlyRefusal(`run ${action}`);
       }
-      principal.audit?.(action, true);
+      principal.audit?.(call, true);
       return;
     }
     if (principal.kind === "host-core") return;

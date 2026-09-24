@@ -1,6 +1,6 @@
 import { methodAccess } from "../shared/host-method-access.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
-import { isHostOwner, type HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 
 export { HOST_METHOD_ACCESS, methodAccess, type MethodAccess } from "../shared/host-method-access.js";
 
@@ -14,22 +14,95 @@ export function ownerRefusal(): Error {
 }
 
 /**
+ * How a change reads in Settings → Connections, for every method that is not
+ * `read` (a test holds it complete). `thread` is the index of the param that
+ * names the thread; `automatic` marks a call a client makes on its own as part
+ * of something else, so it never replaces the device's last change.
+ */
+export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?: number; automatic?: true }>> = {
+  "prepare-prompt": { label: "prepared a prompt", thread: 1, automatic: true },
+  "prompt": { label: "sent a prompt", thread: 2 },
+  "run-shell-action": { label: "ran a shell command" },
+  "steer": { label: "steered a run", thread: 2 },
+  "follow-up": { label: "sent a follow-up", thread: 2 },
+  "queue-message": { label: "queued a message", thread: 0 },
+  "take-queued": { label: "took a queued message", thread: 0 },
+  "move-queued": { label: "reordered queued messages", thread: 0 },
+  "resume-limited": { label: "resumed a thread after a limit", thread: 0 },
+  "abort": { label: "stopped a run", thread: 0 },
+  "new-session": { label: "started a thread" },
+  "fork-thread": { label: "forked a thread", thread: 1 },
+  "navigate-thread-tree": { label: "moved within a thread's tree", thread: 2 },
+  "duplicate-thread": { label: "duplicated a thread", thread: 0 },
+  "set-model": { label: "changed the model" },
+  "set-thinking": { label: "changed the thinking level" },
+  "set-mode": { label: "changed the mode", thread: 1 },
+  "compact-context": { label: "compacted the context" },
+  "reload-runtime": { label: "reloaded the runtime" },
+  "reload-extensions": { label: "reloaded extensions" },
+  "answer-extension-ui": { label: "answered a question" },
+  "recover-thread": { label: "recovered a thread" },
+  "rename-thread": { label: "renamed a thread", thread: 1 },
+  "copy-text": { label: "copied text on the host" },
+  "copy-image": { label: "copied an image on the host" },
+  "notify": { label: "showed a notification on the host" },
+  "set-badge": { label: "set the app badge" },
+  "context-menu": { label: "opened a menu on the host" },
+  "window-action": { label: "used the host's window" },
+  "host-extension-active": { label: "turned an extension on or off" },
+  "extension-grant": { label: "changed an extension's grant" },
+  "prepare-workbench-reload": { label: "reloaded the workbench" },
+  "release-workbench-reload": { label: "finished reloading the workbench", automatic: true },
+  "rebuild-workbench": { label: "rebuilt the workbench" },
+  "relaunch-workbench": { label: "relaunched the workbench" },
+  "install-update": { label: "installed an update" },
+  "open-project": { label: "opened a project" },
+  "remove-project": { label: "removed a project" },
+  "update-config": { label: "changed settings" },
+  "clear-config": { label: "reset settings" },
+  "add-model-provider": { label: "added a model provider" },
+  "open-external-editor": { label: "opened an external editor" },
+  "environments-pair": { label: "paired a machine" },
+  "environments-cancel-pairing": { label: "cancelled pairing a machine" },
+  "environments-rename": { label: "renamed a machine" },
+  "environments-remove": { label: "removed a machine" },
+  "environments-retry": { label: "reconnected a machine" },
+  "environments-open": { label: "opened a machine" },
+  "environments-discover": { label: "looked for machines" },
+  "environments-set-preferences": { label: "changed machine preferences" },
+  "cancel-job": { label: "cancelled a job" },
+};
+
+/** The audit record of a core method call: its label and the thread its params name. */
+export function auditedMethodCall(method: string, params: readonly unknown[] = []): AuditedCall {
+  const entry = HOST_METHOD_AUDIT[method];
+  if (!entry) return { action: method };
+  const threadId = entry.thread === undefined ? undefined : params[entry.thread];
+  return {
+    action: method,
+    label: entry.label,
+    ...(typeof threadId === "string" && threadId ? { threadId } : {}),
+    ...(entry.automatic ? { automatic: true } : {}),
+  };
+}
+
+/**
  * Lets a call through or refuses it, before its handler runs. A Read-only
  * device may call only `read` methods, no paired device an `owner` one; every
  * change a paired device makes, or is refused, is recorded. Kit commands are checked by the registry, which
  * knows each command's declaration.
  */
-export function authorizeMethod(principal: HostInvocationPrincipal, method: string): void {
+export function authorizeMethod(principal: HostInvocationPrincipal, method: string, params: readonly unknown[] = []): void {
   const access = methodAccess(method);
   if (principal.kind !== "workbench-client" || access === "read") return;
   if (access === "owner") {
     if (isHostOwner(principal)) return;
-    principal.audit?.(method, false);
+    principal.audit?.(auditedMethodCall(method), false);
     throw ownerRefusal();
   }
   if (principal.readOnly) {
-    principal.audit?.(method, false);
+    principal.audit?.(auditedMethodCall(method, params), false);
     throw readOnlyRefusal(`call ${method}`);
   }
-  principal.audit?.(method, true);
+  principal.audit?.(auditedMethodCall(method, params), true);
 }
