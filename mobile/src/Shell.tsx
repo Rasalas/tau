@@ -9,7 +9,7 @@ import type { HostClient } from "../../src/workbench/host-client";
 import type { HostWakeSource } from "../../src/workbench/host-link";
 import { pairingNotice } from "../../src/web/host-token";
 import { WebWorkbench } from "../../src/web/WebWorkbench";
-import { connectHost, openCandidate } from "./connect";
+import { certificateRefusalNotice, connectHost, openCandidate } from "./connect";
 import { nearbyHosts, withDiscoveredEndpoints, type DiscoveredHost, type NativeService } from "./discovery";
 import type { SocketCandidate } from "./endpoints";
 import { fallbackHostId, helloEndpoints, migratedPin, sortHosts, type HostBook, type SavedHost } from "./hosts";
@@ -137,7 +137,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         const endpoints = helloEndpoints(current, reply.host, address.candidate.url, sameAddress);
         if (pin || endpoints) learn({ ...pin, ...(endpoints ? { endpoints } : {}) });
       },
-      onCertificateMismatch: () => leaveTo("?view=hosts", `${host.name} answered with another key than the one this phone pinned, so the phone sent it nothing. A renewed certificate keeps the key; if the host's key was replaced on purpose, remove it here and scan a new pairing code.`),
+      onCertificateRefused: (refusal) => leaveTo("?view=hosts", certificateRefusalNotice(host.name, refusal)),
     });
     setHostClient(client);
     // The connection starts out "connected", so its first hello is the moment to hand over the push token.

@@ -90,6 +90,8 @@ export interface AttemptSocket {
   fingerprint?: string | undefined;
   publicKey?: string | undefined;
   pinMismatch?: boolean;
+  /** No pin decided and the platform did not trust the certificate (chain or name). */
+  untrustedCertificate?: boolean;
   addEventListener(type: "open", listener: () => void): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
   addEventListener(type: "close", listener: (event: { code?: number; reason?: string }) => void): void;
@@ -108,10 +110,34 @@ export interface RaceOptions {
   timers?: RaceTimers;
   /** The address that won and what its handshake showed, before the socket reports open. */
   onWinner?(candidate: SocketCandidate, seen: { fingerprint?: string; publicKey?: string }): void;
-  /** No address opened; `certificate-mismatch` when every one showed another certificate. */
-  onFailure?(reason: "unreachable" | "certificate-mismatch"): void;
+  /** No address opened. */
+  onFailure?(failure: RaceFailure): void;
   /** Every frame the chosen socket receives, before the socket's own handler sees it. */
   onMessage?(data: unknown): void;
+}
+
+/**
+ * Why no address opened. A wrong key anywhere outranks an untrusted
+ * certificate, and either outranks silence: the rest may just be out of
+ * reach, but those answered with something this phone must refuse.
+ * `addresses` are the ones that did, as `host[:port]`.
+ */
+export type RaceFailure =
+  | { reason: "unreachable" }
+  | { reason: "certificate-mismatch" | "untrusted-certificate"; addresses: string[] };
+
+/** A refusal that names what answered: a wrong key or an untrusted certificate. */
+export type CertificateRefusal = Exclude<RaceFailure, { reason: "unreachable" }>;
+
+/** `a`, `a and b`, `a, b and c`. */
+export function listAddresses(addresses: readonly string[]): string {
+  if (addresses.length <= 1) return addresses[0] ?? "";
+  return `${addresses.slice(0, -1).join(", ")} and ${addresses[addresses.length - 1]}`;
+}
+
+/** `host[:port]` of a socket URL, as the user knows the address. */
+export function displayAddress(socketUrl: string): string {
+  try { return new URL(socketUrl).host; } catch { return socketUrl; }
 }
 
 /** After the first address answers, better ones get this long to answer too. */
@@ -135,8 +161,8 @@ export class RacingSocket {
   onmessage: ((event: { data: unknown }) => void) | null = null;
   /** The candidate that won, once one did. */
   winner: SocketCandidate | undefined;
-  /** Every candidate refused the pinned certificate. */
-  pinMismatch = false;
+  /** Why no candidate opened, once none did. */
+  failure: RaceFailure | undefined;
   fingerprint: string | undefined;
   publicKey: string | undefined;
 
@@ -185,11 +211,11 @@ export class RacingSocket {
     if (this.readyState !== 0) return;
     const best = this.attempts.find((attempt) => attempt.state !== "failed");
     if (!best) {
-      this.pinMismatch = this.attempts.length > 0 && this.attempts.every((attempt) => attempt.socket.pinMismatch === true);
+      const failure = this.failureOf();
+      this.failure = failure;
       this.finish();
-      const reason = this.pinMismatch ? "certificate-mismatch" : "unreachable";
-      this.options.onFailure?.(reason);
-      this.onclose?.({ code: 1006, reason });
+      this.options.onFailure?.(failure);
+      this.onclose?.({ code: 1006, reason: failure.reason });
       return;
     }
     if (best.state === "open") { this.win(best); return; }
@@ -197,6 +223,16 @@ export class RacingSocket {
       const open = this.attempts.find((attempt) => attempt.state === "open");
       if (open) this.win(open);
     }
+  }
+
+  private failureOf(): RaceFailure {
+    const refused = (test: (socket: AttemptSocket) => boolean) =>
+      [...new Set(this.attempts.filter((attempt) => test(attempt.socket)).map((attempt) => displayAddress(attempt.candidate.url)))];
+    const mismatched = refused((socket) => socket.pinMismatch === true);
+    if (mismatched.length > 0) return { reason: "certificate-mismatch", addresses: mismatched };
+    const untrusted = refused((socket) => socket.untrustedCertificate === true);
+    if (untrusted.length > 0) return { reason: "untrusted-certificate", addresses: untrusted };
+    return { reason: "unreachable" };
   }
 
   private win(attempt: (typeof this.attempts)[number]): void {

@@ -21,6 +21,8 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
     private var seen: String?
     private var seenKey: String?
     private var mismatch = false
+    /// No pin, and the platform did not trust the certificate (chain or name).
+    private var untrusted = false
     private var finished = false
 
     init(id: String, url: URL, keyPin: String?, pin: String?, allowAuthority: Bool, headers: [String: String], emit: @escaping Emit) {
@@ -85,7 +87,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
         finished = true
         var event: [String: Any] = ["id": id, "type": "close", "code": code]
         if let reason, !reason.isEmpty { event["reason"] = reason }
-        if mismatch { event["pinMismatch"] = true }
+        if mismatch { event["pinMismatch"] = true } else if untrusted { event["untrusted"] = true }
         emit(event)
         session?.invalidateAndCancel()
         session = nil
@@ -123,6 +125,8 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
             return
         }
         guard let pin else {
+            // The platform decides; the evaluation only lets a refusal say why.
+            untrusted = !SecTrustEvaluateWithError(trust, nil)
             completion(.performDefaultHandling, nil)
             return
         }
@@ -157,8 +161,15 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate {
             finish(code: socket.closeCode.rawValue, reason: socket.closeReason.flatMap { String(data: $0, encoding: .utf8) })
             return
         }
+        if keyPin == nil, pin == nil, let code = (error as? URLError)?.code, PinnedSocket.certificateErrors.contains(code) {
+            untrusted = true
+        }
         finish(code: 1006, reason: mismatch ? "certificate-mismatch" : error?.localizedDescription)
     }
+
+    private static let certificateErrors: Set<URLError.Code> = [
+        .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid,
+    ]
 
     // MARK: Fingerprints
 

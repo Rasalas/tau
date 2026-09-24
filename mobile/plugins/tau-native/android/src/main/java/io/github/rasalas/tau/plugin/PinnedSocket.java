@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
@@ -45,6 +47,9 @@ final class PinnedSocket extends WebSocketListener {
     private volatile String seen;
     private volatile String seenKey;
     private volatile boolean mismatch;
+    /** No pin, and the platform did not trust the certificate (chain or name). */
+    private volatile boolean untrusted;
+    private final boolean hasPin;
     private volatile boolean pinned;
     private volatile boolean finished;
 
@@ -52,7 +57,8 @@ final class PinnedSocket extends WebSocketListener {
         this.id = id;
         this.emit = emit;
         OkHttpClient.Builder builder = BASE.newBuilder();
-        if ((keyPin != null || pin != null) && url.startsWith("wss:")) {
+        hasPin = (keyPin != null || pin != null) && url.startsWith("wss:");
+        if (hasPin) {
             X509TrustManager platform = platformTrustManager();
             String wantedKey = keyPin == null ? null : normalized(keyPin);
             String wanted = pin == null ? null : normalized(pin);
@@ -81,8 +87,13 @@ final class PinnedSocket extends WebSocketListener {
                         return;
                     }
                     if (allowAuthority) {
-                        platform.checkServerTrusted(chain, authType);
-                        return;
+                        try {
+                            platform.checkServerTrusted(chain, authType);
+                            return;
+                        } catch (CertificateException refused) {
+                            mismatch = true;
+                            throw refused;
+                        }
                     }
                     mismatch = true;
                     throw new CertificateException("certificate-mismatch");
@@ -146,6 +157,9 @@ final class PinnedSocket extends WebSocketListener {
 
     @Override
     public void onFailure(WebSocket webSocket, Throwable failure, Response response) {
+        // A pinned name the CA fallback did not vouch for is the pin's refusal too.
+        if (hasPin && failure instanceof SSLPeerUnverifiedException) mismatch = true;
+        if (!hasPin && (failure instanceof SSLHandshakeException || failure instanceof SSLPeerUnverifiedException)) untrusted = true;
         finish(1006, mismatch ? "certificate-mismatch" : failure.getMessage());
     }
 
@@ -156,6 +170,7 @@ final class PinnedSocket extends WebSocketListener {
         event.put("code", code);
         if (reason != null && !reason.isEmpty()) event.put("reason", reason);
         if (mismatch) event.put("pinMismatch", true);
+        else if (untrusted) event.put("untrusted", true);
         emit.emit(event);
     }
 

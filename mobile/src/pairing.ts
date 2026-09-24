@@ -1,6 +1,6 @@
 import type { PairingEndpoint } from "../../src/shared/connections";
 import { pairWithHost, type PairingResult, type PairingSocket } from "../../src/workbench/host-pairing";
-import { RacingSocket, socketCandidates, type AttemptSocket, type DeviceNetwork, type RaceOptions, type SocketCandidate } from "./endpoints";
+import { RacingSocket, listAddresses, socketCandidates, type AttemptSocket, type DeviceNetwork, type RaceFailure, type RaceOptions, type SocketCandidate } from "./endpoints";
 import type { SavedHost } from "./hosts";
 
 /** A host to pair with, from a QR code, a pasted link or a Bonjour record. */
@@ -32,13 +32,15 @@ export interface PairDependencies {
   race?: RaceOptions;
 }
 
+export type PairingFailure = { reason: "no-address" } | RaceFailure;
+
 export type EndpointChoice =
   | { candidate: SocketCandidate; fingerprint?: string; publicKey?: string }
-  | { failure: "no-address" | "unreachable" | "certificate-mismatch" };
+  | { failure: PairingFailure };
 
 /** Races the candidates once and closes the winner: which address this phone reaches the host on right now. */
 export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (candidate: SocketCandidate) => AttemptSocket, race?: RaceOptions): Promise<EndpointChoice> {
-  if (candidates.length === 0) return Promise.resolve({ failure: "no-address" });
+  if (candidates.length === 0) return Promise.resolve({ failure: { reason: "no-address" } });
   return new Promise((resolve) => {
     const socket = new RacingSocket(candidates, open, race);
     socket.onopen = () => {
@@ -47,7 +49,7 @@ export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (ca
       socket.onclose = null;
       socket.close();
     };
-    socket.onclose = () => resolve({ failure: socket.pinMismatch ? "certificate-mismatch" : "unreachable" });
+    socket.onclose = () => resolve({ failure: socket.failure ?? { reason: "unreachable" } });
   });
 }
 
@@ -65,11 +67,19 @@ export function pairingBinding(candidate: SocketCandidate, seen: { fingerprint?:
   return { publicKey: seen.publicKey ?? "" };
 }
 
-export const pairingFailure = {
-  "no-address": "None of this host's addresses can be reached from a phone. Turn on Local network or Tailscale in the host's Settings → Connections, then scan a new code.",
-  unreachable: "The host did not answer on any of its addresses. Is this phone on the same network, or on Tailscale?",
-  "certificate-mismatch": "Something answered at the host's address with another certificate than the one in the code. This phone did not send it anything.",
-} as const;
+/** What the pairing screen says when no address let the phone in. */
+export function pairingFailureMessage(failure: PairingFailure): string {
+  switch (failure.reason) {
+    case "no-address":
+      return "None of this host's addresses can be reached from a phone. Turn on Local network or Tailscale in the host's Settings → Connections, then scan a new code.";
+    case "unreachable":
+      return "The host did not answer on any of its addresses. Is this phone on the same network, or on Tailscale?";
+    case "certificate-mismatch":
+      return `${listAddresses(failure.addresses)} answered with another certificate than the one in the code. This phone did not send it anything.`;
+    case "untrusted-certificate":
+      return `${listAddresses(failure.addresses)} showed a certificate this phone does not trust, so the phone sent it nothing. Something on this network may be in between; try another network.`;
+  }
+}
 
 /**
  * Pairs with a host over the best address this phone reaches it on: the
@@ -83,7 +93,7 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
 } = {}): Promise<PairOutcome> {
   const candidates = socketCandidates(target.endpoints, targetPins(target), dependencies.device);
   const choice = await chooseEndpoint(candidates, dependencies.openSocket, dependencies.race);
-  if ("failure" in choice) return { state: "failed", message: pairingFailure[choice.failure] };
+  if ("failure" in choice) return { state: "failed", message: pairingFailureMessage(choice.failure) };
   if (callbacks.signal?.aborted) return { state: "failed", message: "Pairing was cancelled." };
   callbacks.onAddress?.(choice.candidate);
   const result = await pairWithHost({
