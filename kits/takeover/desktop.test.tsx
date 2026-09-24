@@ -111,7 +111,7 @@ describe("Takeover card", () => {
     await waitFor(() => expect(stage).toHaveLength(1));
     expect(preview.jump).toHaveBeenCalledWith({ kind: "browser" }, actions);
     fireEvent.click(view.getByRole("button", { name: "Done" }));
-    expect(stage).toHaveLength(0);
+    await waitFor(() => expect(stage).toHaveLength(0));
   });
 
   it("raises the driven app by name, and opens a page of the user's own browser there", async () => {

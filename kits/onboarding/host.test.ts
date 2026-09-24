@@ -82,7 +82,8 @@ describe("Onboarding host half", () => {
     const root = await mkdtemp(join(tmpdir(), "tau-onboarding-probe-"));
     directories.push(root);
     const broken = join(root, "glab");
-    await writeFile(broken, "echo no shebang\n", { mode: 0o755 });
+    // A truncated binary: Linux's execvp would run a text file without a shebang through /bin/sh.
+    await writeFile(broken, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00]), { mode: 0o755 });
     await expect(runProbe(broken, ["--version"])).resolves.toEqual({ ok: false, stdout: "" });
   });
 
