@@ -54,15 +54,12 @@ async function activate(options: { timeoutMs?: number } = {}) {
     } as never, { sessionId, cwd: "/project" });
     return { tool: tools[0]!, onToolCall: handlers[0]! };
   };
-  /** Waits by turns of the event loop until the host published a list that passes. */
-  const published = async (check: (list: Takeover[]) => boolean) => {
-    for (let round = 0; round < 1_000; round += 1) {
-      const last = events.filter((event) => event.name === "state").at(-1)?.payload as { takeovers: Takeover[] } | undefined;
-      if (last && check(last.takeovers)) return last.takeovers;
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-    throw new Error("The kit never published that.");
-  };
+  /** Waits until the host published a list that passes. */
+  const published = (check: (list: Takeover[]) => boolean) => vi.waitFor(() => {
+    const last = events.filter((event) => event.name === "state").at(-1)?.payload as { takeovers: Takeover[] } | undefined;
+    if (!last || !check(last.takeovers)) throw new Error("The kit never published that.");
+    return last.takeovers;
+  }, { interval: 5 });
   return { observers, mcp, gates, events, evidence, pushes, invoke, pi, published };
 }
 
