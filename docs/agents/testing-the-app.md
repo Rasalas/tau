@@ -242,9 +242,106 @@ and the `session_info` entry Thread Title Generator wrote through
 Teardown kills the PID in the descriptor and nothing else, and deletes the
 scratch workspace unless you passed `--keep`.
 
-## The native app in a simulator
+## Remote access: a phone against the instance
 
-`mobile/README.md` has the commands. In short: build with `node mobile/scripts/native-build.mjs ios --dev`, start `node mobile/scripts/sim.mjs serve` in the background, create a simulator of your own (`xcrun simctl create`), boot it headless, install and launch the app, and drive it with `node mobile/scripts/sim.mjs eval …`. The simulator shares the Mac's loopback, so the app pairs with this worktree's instance on 127.0.0.1 through a link from Settings → Connections, and the owner allows it with `npm run cdp`. `xcrun simctl io <udid> screenshot` captures only the simulator. For TLS and Bonjour without the LAN, start a headless host with `TAU_HOST_TLS=1` on 127.0.0.1 and announce it with `dns-sd -P … _tau-test._tcp … 127.0.0.1 v=1 id=<host id> fp=<hex>` for as long as the test runs. Boot one simulator at a time, and only while the machine's load is low; shut it down while building; at the end `xcrun simctl shutdown` and `xcrun simctl delete` the device you created. Never install on a real device and never sign with the user's account.
+Remote access (pairing, the compact client, reconnects, the proxy listener, the app) is tested on this machine only: a headless Chromium that behaves like a phone, a headless host on loopback, a fake Tailscale Serve and the iOS Simulator. None of it listens beyond 127.0.0.1, announces the real Bonjour type or runs the real `tailscale`. What only a real phone can show is in `docs/mobile-device-checklist.md`, which the user runs.
+
+Three helpers, each touching only what it started (recorded under `.tau-dev/`, checked against `ps` before any signal):
+
+| Helper | What it is |
+| --- | --- |
+| `npm run cdp:mobile -- …` (`scripts/tau-mobile-cdp.mjs`) | A headless Chromium as an iPhone, iPad or Android phone: device metrics, safe-area insets, a coarse pointer, an iOS user agent and real touch events (`Input.dispatchTouchEvent`). Its profile, and so the paired token, lives in `.tau-dev/mobile/chrome-profile`. |
+| `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host`, on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
+| `node mobile/scripts/sim-device.mjs …` | A simulator of this worktree's own: create, boot, install, launch and the automation bridge in one step, and `down` deletes exactly that device. |
+
+The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1.
+
+### The phone: pair, prompt, reconnect
+
+With an instance running (`env -u ELECTRON_RUN_AS_NODE npm run dev:instance -- --build --fresh`, in the background, welcome wizard done as in the test prompt recipe):
+
+```
+npm run cdp:mobile -- launch --fresh                     # iphone; --device ipad|iphone-landscape|ipad-landscape|android, --scheme light
+npm run cdp:mobile -- pair --label "Test phone"          # a link, the phone opens it, the codes are compared, Allow in the window
+npm run cdp:mobile -- snapshot
+```
+
+`pair` creates a single-use link over the host's loopback listener with the host token, opens it in the phone, waits until the phone shows its six digits and the host lists the request, fails unless both match, then clicks **Allow** in the instance's own dialog through `npm run cdp`. It ends when the phone runs the compact workbench and prints `client`/`profile` (`compact`). `--access read-only` pairs a read-only device; `--allow owner` allows over the socket instead of the dialog; `--allow none` leaves the request waiting (to test Deny or expiry by hand). `link` only prints the link, for the simulator below.
+
+The test prompt, from the phone. The model picker is a bottom sheet there; pick by aria-label and check the chip before sending:
+
+```
+npm run cdp:mobile -- tap "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp:mobile -- tap "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
+npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
+#   must print "Select model: GPT-5.6 Luna"
+npm run cdp:mobile -- type "document.querySelector('textarea')" "Reply with one word: ok"
+npm run cdp:mobile -- tap "document.querySelector('.send-button[aria-label=\"Send\"]')"
+npm run cdp:mobile -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 120000
+```
+
+On touch, Return in the composer adds a line; the send button sends. Prove the model in `.tau-dev/pi-sessions/` as for the desktop.
+
+Gestures and the rest of the phone:
+
+- `tap`, `longpress <expr> [ms]`, `swipe <expr> <dx> [dy]` send touch events at the element's center; a leftward swipe starts near the row's right edge, the way a thumb opens Thread Rail's tray.
+- `keyboard <px>` stands in for the on-screen keyboard: the visual viewport shrinks by that much and `body[data-keyboard]` must appear; `keyboard off` closes it. `insert <text>` types the way a software keyboard does (`Input.insertText`), which is what the terminal must accept.
+- `press` takes the same keys and chords as `npm run cdp -- press`.
+- `device <name> [--scheme]` switches the device; reopen the page afterwards, since the web client picks its profile at load.
+- The emulation holds only while a CDP session stays attached, so `launch` starts a small holder process beside Chromium; `stop` ends both.
+
+Wakes and reconnects (F02):
+
+```
+npm run cdp:mobile -- freeze-host 15000 &      # SIGSTOP the instance's own host, SIGCONT after 15 s
+npm run cdp:mobile -- wake sleep 1500          # the page frozen and resumed: a phone out of the pocket
+npm run cdp:mobile -- wait-for "document.querySelector('.host-connection-status')?.textContent" 20000
+npm run cdp:mobile -- wait-for "!document.querySelector('.host-connection-status')" 30000
+```
+
+The band "Reconnecting to the host…" must appear while the host is frozen (seen 1 to 11 s after the wake) and go within seconds once it thaws. `wake offline` / `wake online` emulate the network going away (Chromium keeps a loopback socket open while "offline", so combine it with `freeze-host` to see the Offline band), `wake foreground` fires `visibilitychange`. `freeze-host` signals only the pid in the instance's `host.json` (or the test host's), and only if its command line runs from this worktree.
+
+The phone's panels open as sheets from the title bar: `tap` the **Terminal** icon, **New terminal**, then `keyboard 320` to see the key bar (esc, ctrl, alt, tab, arrows, ^C) on the keyboard; the **Review** icon opens the review sheet.
+
+### The proxy listener behind a fake Tailscale Serve
+
+The instance opens its proxy listener only with the Tailscale switch, which would bind the machine's real tailnet addresses; never turn it on. Test the proxy path with a headless host instead, and the Tailscale kit's fake CLI (`kits/tailscale/fixtures/fake-tailscale.mjs`) as Serve in front of it:
+
+```
+node scripts/tau-test-host.mjs start --proxy --fresh       # prints url, proxyUrl, tokenFile; state in .tau-dev/test-host
+FAKE_TAILSCALE_STATE=$PWD/.tau-dev/fake-tailscale node kits/tailscale/fixtures/fake-tailscale.mjs \
+  serve --bg --https=443 <proxyUrl>                        # plain HTTP on 127.0.0.1:18443, Serve's headers
+npm run cdp:mobile -- launch --fresh --resolve tau-test-box.tail0000.ts.net
+npm run cdp:mobile -- pair --test-host --label "Via Serve" --via http://tau-test-box.tail0000.ts.net:18443
+npm run cdp:mobile -- host connections-list --test-host    # the device's lastAddress is the fake peer, 100.101.102.103
+```
+
+`--resolve` makes the phone reach the fake MagicDNS name on 127.0.0.1, so the page's origin and `Host` are the tailnet name, as through a real Serve. `--via` sends the pairing link through that origin with the same fragment. A test host has no window, so `pair` allows over the owner socket. `npm run cdp:mobile -- host <method> [json params] --test-host` makes any owner call on it. Afterwards: `… fake-tailscale.mjs serve reset` (stops the stand-in) and `node scripts/tau-test-host.mjs stop`. `start --tls` gives the test host a self-signed certificate for the app's pinning and for a `dns-sd -P … _tau-test._tcp … 127.0.0.1 v=1 id=<host id> fp=<hex>` Bonjour record (`mobile/README.md`).
+
+### Push notifications
+
+Not built yet (F08). Its test path goes here: a local fake APNs and FCM server on loopback, the host pointed at it, a device registered from the phone or the simulator, and never the user's APNs key or Firebase project.
+
+### The native app in the iOS Simulator
+
+Check `uptime` first: boot a simulator only while the one-minute load is below 40, one at a time, never while an Android build or emulator runs.
+
+```
+(cd mobile && npm ci && node scripts/native-build.mjs ios --dev)   # a development build with the automation bridge
+node mobile/scripts/sim-device.mjs up                              # new simulator, boot, install, launch, bridge; refuses above load 40
+node mobile/scripts/sim.mjs wait-for "text().length > 0" 60000     # the app's web view is connected
+npm run cdp:mobile -- link --label "Simulator"                     # prints the loopback pairing link
+node mobile/scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add host\"]'))"
+node mobile/scripts/sim.mjs eval "type(document.querySelector('textarea'), '<link>')"
+node mobile/scripts/sim.mjs eval "tap(byText('button', /^Connect$/))"
+node mobile/scripts/sim.mjs wait-for "document.querySelector('[aria-label=\"Pairing code\"]')?.textContent" 30000
+npm run cdp:mobile -- host connections-list                        # the request's verification must be the same digits
+npm run cdp -- click "<the Allow button of the dialog showing those digits>"
+node mobile/scripts/sim-device.mjs screenshot .tau-dev/sim.png     # this simulator only
+node mobile/scripts/sim-device.mjs down                            # shut down and delete it, stop the bridge
+```
+
+The simulator shares the Mac's loopback, so the app reaches the instance on 127.0.0.1, where the app accepts plaintext only because it runs in a simulator. A fresh simulator's first boot keeps the machine busy for a minute or two; run `down` as soon as the check is done. `mobile/README.md` has the bridge's helpers (`tap`, `type`, `text`, …) and the Android emulator. Never install on a real device and never sign with the user's account.
 
 ## Tearing down
 
