@@ -5,7 +5,9 @@
 Accepted, 2026-09-23. Amends [ADR 0010](0010-host-protocol.md) (one token was
 the whole authentication of a listening host) and builds on
 [ADR 0021](0021-host-runs-in-its-own-process.md) (the host is its own process;
-every window is a socket client).
+every window is a socket client). Amended 2026-09-24: a call into a window
+goes to one connection (below); this changes how ADR 0021's `client-call`
+travels.
 
 ## Context
 
@@ -89,6 +91,34 @@ and `start-job` passes it through, so a job cannot launder a paired client into
 the owner. A paired client gets `forbidden`. A host without a socket listener
 (`TAU_HOST_INPROCESS=1`) answers `unsupported`.
 
+**A call into a window goes to one connection** (added 2026-09-24). Before,
+the host published every `callClient` and folder-picker call as a push to all
+clients and took the first `client-call-result` for its id from anyone. A
+paired device saw what the host asked of the window (URLs, cookie imports,
+frames) and could answer first, with a folder of its choosing, say; two
+windows both ran the call; with no window the call waited for its timeout.
+Now:
+
+- A window's process names in its hello the extension ids whose window half
+  it runs (`windowHalves`, read only from an auxiliary hello) and a random
+  `windowId`; its renderer's hello names the same `windowId`.
+- A call has one addressee. While a request runs for a connection (a kit
+  command, directly or as a job), it is the caller's own window: the caller's
+  connection if it runs the half, or the auxiliary connection with the same
+  `windowId` **and the same credential**. Otherwise the newest window on this
+  machine: loopback, host token, runs the half. A paired client's window is
+  never that fallback; it is asked only for calls its own requests caused.
+- The folder picker (`pick-directory`) goes only to the caller's window. A
+  browser or phone that asks gets a rejection, not a dialog on the host's
+  screen and its answer. A call with no caller (the host's own work) goes to
+  the window on this machine.
+- With no addressee the call fails at once.
+- The call travels as a `client-call` frame to that connection alone, outside
+  the push sequence, so no other client receives it and no replay repeats it.
+- Only the addressee's `client-call-result` settles the call. Answers from any
+  other connection are dropped the same way as an answer to an unknown id.
+  When the addressee disconnects, its open calls fail.
+
 **What is not weakened.** A plaintext listener still binds loopback only unless
 `TAU_HOST_INSECURE=1`; a TLS client still pins the fingerprint and refuses a
 mismatch before the hello leaves it; no method runs before a hello is
@@ -116,6 +146,10 @@ an SSH tunnel, or TLS.
 - Two hosts sharing one token file (the default path) share rotation: the
   other host picks up the new token at its next hello, but does not close the
   connections that used the old one.
+- The caller is tracked for the duration of a command. Work a command leaves
+  running (a timer, a turn's tool call) has no caller and reaches the window on
+  this machine. Folder-picker calls from an isolated (worker) package also have
+  no caller, because they arrive over the worker's port.
 
 ## Out of scope
 

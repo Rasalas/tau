@@ -83,7 +83,9 @@ panel belongs to a window, and the host has none. `tau-extension.json` takes a
 loads it (`src/main/window-extensions.ts`), and a host extension reaches its
 own half with `services.callClient(command, input)`. That call travels as the
 `client-call` push and comes back as the `client-call-result` method
-(`src/main/client-calls.ts`). The id is bound by the registry, so no kit can
+(`src/main/client-calls.ts`). Since 2026-09-24 it is a frame to one
+connection, not a push, and only that connection's answer counts
+([ADR 0023](0023-client-tokens-and-pairing.md)). The id is bound by the registry, so no kit can
 drive another kit's half, and an isolated (worker) kit cannot use it at all.
 Preview Kit is the first user: `view.ts` is its window half, and its host half
 drives the view through a remote surface that caches the state the window

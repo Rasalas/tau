@@ -345,7 +345,12 @@ another process — or on another machine — loads kits at all.
 The window's own process keeps a connection to the host beside its renderer's
 (bundles, calls into the window, shutdown). It says hello with
 `auxiliary: true`, so the host serves it without counting it as a second
-client; a supervisor's liveness probe does the same.
+client; a supervisor's liveness probe does the same. Its hello also carries
+`windowHalves` (the extension ids whose window half it runs, `window` for
+core's folder picker) and a random `windowId`; the renderer's hello repeats
+the `windowId` (the window passes it as `?windowId=`). The host reads
+`windowHalves` only from an auxiliary hello, and says hello again whenever the
+window has loaded its halves.
 
 Two methods are not part of the client surface:
 
@@ -353,11 +358,20 @@ Two methods are not part of the client surface:
   the process calls it before it reaches for a signal.
 - `client-call-result` answers a call that went the other way. A host extension
   that needs the window's process calls `services.callClient(command, input)`;
-  the host publishes a `client-call` push (`{ callId, extensionId, command,
-  input }`) and the window's process runs the extension's window half and
-  answers with `client-call-result [callId, result, error?]`. The renderer
-  ignores the push; a client with no such half answers with an error, which is
-  what a kit falls back on.
+  the host sends a `client-call` frame (`{ type: "client-call", call: { callId,
+  extensionId, command, input } }`) to **one** connection, and that window's
+  process runs the extension's window half and answers with
+  `client-call-result [callId, result, error?]`. The frame is not a push: it
+  has no sequence number, is not buffered and is never replayed. The addressee
+  is the caller's own window (the connection whose request is running, or the
+  auxiliary connection with the same `windowId` and the same credential), else
+  the newest host-token window on loopback that named the half. A paired
+  client's window is asked only for calls its own requests caused.
+  `pick-directory` goes only to the caller's window when there is a caller.
+  With no addressee the call fails at once. An answer counts only from the
+  connection the call was sent to; any other is dropped without a reply that
+  would tell it apart from an unknown id. When the addressee disconnects, its
+  open calls fail.
 
 ## Workspace identity
 
