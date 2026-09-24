@@ -637,6 +637,47 @@ Two methods are not part of the client surface:
   would tell it apart from an unknown id. When the addressee disconnects, its
   open calls fail.
 
+### Several machines in one window
+
+A window beside a supervised host also knows the machines the user paired it
+with ([ADR 0025](adr/0025-a-window-follows-the-threads-machine.md)). Its page
+still speaks to one host at a time, the one it was loaded for; the window's
+process keeps the rest:
+
+- **The catalog**, `<userData>/environments.json` (0600): per machine its host
+  id, name, addresses with their kinds, the pinned fingerprint and the client
+  token, encrypted with `safeStorage`.
+- **One connection per machine and one to its own host**: an auxiliary hello
+  with `subscription: { threads: [], topics: [] }`, a `bootstrap` for the thread
+  index, then only `thread-index` and `agent-status` pushes, and `ping` every
+  20 seconds where the host offers `heartbeat`. Its addresses are tried in turn,
+  the one that answered last first, then loopback, LAN, `.local`, Tailscale and
+  MagicDNS; an unreachable machine is tried after 1, 2, 5, 10, then every 30 s.
+  4401 is final (the token was revoked or expired there), and so is a
+  certificate other than the pinned one.
+- **Pairing** through [Pairing over the socket](#pairing-over-the-socket): with a
+  link's code and fingerprint, or from a bare address with the certificate it
+  presents pinned for the attempt. The digits are bound to that certificate
+  either way.
+- **Moving the page**: `environments-open [id, target?]` attaches a second
+  `WindowHost` (uplink only, no window halves) to the machine and loads the page
+  with `?host=<its socket>&token=<its client token>&environment=<id>`; `target`
+  (`{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }`) waits for
+  `environments-take-arrival`. `desktop-extensions` then goes to that machine.
+  Back to the own machine is the same call with its id.
+
+The page reads the list with `environments-list` and hears every change as the
+`environments` push of its local connection (forwarded like `app-update` and
+`window-shell`). These methods are client-side; a host refuses all of them with
+`unsupported`. For the page's own sockets the window's session accepts a saved
+machine's pinned certificate for its host names only, and drops `Origin` on
+sockets to saved machines, because a host lets a `file://` page in over loopback
+only.
+
+A hello reply now names the machine: `host: { id, name }`, its
+`<userData>/host-id` and host name. A client that saved the machine knows it
+again whatever address reached it.
+
 ## Workspace identity
 
 A client never addresses a workspace by a path of the host's filesystem. Every
