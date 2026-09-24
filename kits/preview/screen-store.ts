@@ -1,6 +1,6 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { WorkbenchActions } from "tau";
-import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
+import type { ComputerUseScreenService, ScreenState, ScreenWindow } from "./screen-protocol.js";
 
 /** A value several components read and one place writes, without a provider around the panel. */
 export class Cell<T> {
@@ -67,4 +67,26 @@ export function useScreenFollower(actions: Pick<WorkbenchActions, "openPanel" | 
       actions.openPanel(panel);
     });
   }, [actions, panel, service]);
+}
+
+/** The window `threadId`'s agent drives, as Computer Use last reported it. */
+export function useDrivenWindow(service: ComputerUseScreenService | undefined, threadId: string | undefined): ScreenWindow | undefined {
+  const [window, setWindow] = useState<ScreenWindow | undefined>(() => service && threadId ? service.state(threadId)?.window : undefined);
+  useEffect(() => {
+    setWindow(service && threadId ? service.state(threadId)?.window : undefined);
+    if (!service || !threadId) return undefined;
+    let live = true;
+    const stop = service.subscribe((state) => { if (state.threadId === threadId) setWindow(state.window); });
+    void service.load(threadId).then((state) => { if (live && state) setWindow(state.window); }).catch(() => undefined);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [service, threadId]);
+  return window;
+}
+
+/** A window's title, else its app's name: every Electron app calls itself "Electron". */
+export function windowName(window: ScreenWindow | undefined): string | undefined {
+  return window?.title?.trim() || window?.app?.trim() || undefined;
 }

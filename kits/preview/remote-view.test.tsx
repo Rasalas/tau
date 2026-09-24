@@ -3,10 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import { HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
+import { HostClientProvider, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { EMPTY_PREVIEW_STATE } from "./protocol.js";
-import RemotePreview from "./remote-view.js";
-import { connectPreviewHost, previewStore } from "./store.js";
+import RemotePreview, { fit } from "./remote-view.js";
+import { windowName } from "./screen-store.js";
+import { connectPreviewHost, drawsFrames, previewStore } from "./store.js";
 
 /** jsdom has no PointerEvent; without one a fired pointer event carries no coordinates. */
 class PointerEventShim extends MouseEvent {
@@ -48,6 +49,37 @@ async function picture(): Promise<HTMLImageElement> {
   image.getBoundingClientRect = () => ({ left: 0, top: 100, width: 400, height: 200, right: 400, bottom: 300, x: 0, y: 100, toJSON: () => ({}) }) as DOMRect;
   return image;
 }
+
+describe("which clients draw frames", () => {
+  it("is every browser and phone, and a desktop window only away from the host's machine", () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => true }));
+    document.body.dataset.client = "desktop";
+    expect(drawsFrames()).toBe(false);
+    document.body.dataset.client = "compact";
+    expect(drawsFrames()).toBe(true);
+    document.body.dataset.client = "web";
+    expect(drawsFrames()).toBe(true);
+    document.body.dataset.client = "desktop";
+    setHostClient(createFakeHostClient({ hasCapability: () => false }));
+    expect(drawsFrames()).toBe(true);
+    setHostClient(undefined);
+    delete document.body.dataset.client;
+  });
+});
+
+describe("fitting the picture", () => {
+  it("grows a small frame to the view and keeps its shape", () => {
+    expect(fit({ width: 220, height: 484 }, { width: 377, height: 480 })).toEqual({ width: 218, height: 480 });
+    expect(fit({ width: 800, height: 400 }, { width: 377, height: 480 })).toEqual({ width: 377, height: 188 });
+    expect(fit({ width: 0, height: 0 }, { width: 377, height: 480 })).toBeUndefined();
+  });
+
+  it("names a driven window by its title before its app", () => {
+    expect(windowName({ pid: 1, app: "Electron", title: "F13 test window" })).toBe("F13 test window");
+    expect(windowName({ pid: 1, app: "TextEdit" })).toBe("TextEdit");
+    expect(windowName(undefined)).toBeUndefined();
+  });
+});
 
 describe("the Preview on another device", () => {
   it("shows the host's page and turns a tap into a click where it landed", async () => {

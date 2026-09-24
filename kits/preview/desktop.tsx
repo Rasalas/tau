@@ -1,6 +1,6 @@
 import { Globe } from "lucide-react";
 import { cookieImportDialogs, createCookieImportLayer } from "./cookie-import-dialog.js";
-import { errorMessage, hostHasLocalFiles, type DesktopExtension, type WorkbenchActions } from "tau";
+import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
 import { holdChipService } from "./attach.js";
 import { followLinkTarget } from "./link-target.js";
 import { createMiniPlayerRegion } from "./mini-player.js";
@@ -20,7 +20,7 @@ import { DesktopPreviewPanel, createMiniBarRegion, createRemotePreviewPanel } fr
 import { watchFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
 import { activeThread, holdScreenService, previewView, screenService } from "./screen-store.js";
-import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
+import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, drawsFrames, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
 
 const pageFrames: LiveFrameSource = async (maxWidth, since) =>
   await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
@@ -79,7 +79,7 @@ export const previewExtension: DesktopExtension = {
       },
       jump: async (target, app) => {
         // Away from the host's machine, raising a window there helps nobody: the Preview here shows and drives it.
-        if (target.kind === "browser" || !hostHasLocalFiles()) {
+        if (target.kind === "browser" || drawsFrames()) {
           previewView.set(target.kind === "browser" ? "browser" : "screen");
           app.openPanel(PREVIEW_PANEL);
           return;
@@ -100,7 +100,7 @@ export const previewExtension: DesktopExtension = {
         }
         return watchFrames(source, maxWidth, (picture) => onFrame(picture ? { url: picture.url, width: picture.width, height: picture.height } : undefined));
       },
-      remote: () => !hostHasLocalFiles(),
+      remote: () => drawsFrames(),
     });
     // A plain click on a link in a reply opens it here when Settings → Preview says so.
     const stopLinks = followLinkTarget(

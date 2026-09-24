@@ -4,7 +4,7 @@ import { Empty, errorMessage, tooltipProps, useHostCapabilities, type WorkbenchA
 import { PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
-import { activeThread, previewView, screenService, type PreviewView } from "./screen-store.js";
+import { activeThread, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
 import { previewKit, usePreviewState } from "./store.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 
@@ -37,6 +37,33 @@ interface Pointer {
   scrolling: boolean;
   pending: { dx: number; dy: number };
   sentAt: number;
+}
+
+/** The stage's inner size, for fitting the picture into it. */
+function useStageBox(stage: React.RefObject<HTMLDivElement | null>): { width: number; height: number } | undefined {
+  const [box, setBox] = useState<{ width: number; height: number }>();
+  useEffect(() => {
+    const element = stage.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+    const measure = () => {
+      const style = getComputedStyle(element);
+      const width = element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const height = element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      setBox((current) => current && current.width === width && current.height === height ? current : { width, height });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [stage]);
+  return box;
+}
+
+/** The largest size of `picture`'s shape that fits `box`. */
+export function fit(picture: { width: number; height: number }, box: { width: number; height: number }): { width: number; height: number } | undefined {
+  if (picture.width < 1 || picture.height < 1 || box.width < 1 || box.height < 1) return undefined;
+  const scale = Math.min(box.width / picture.width, box.height / picture.height);
+  return { width: Math.floor(picture.width * scale), height: Math.floor(picture.height * scale) };
 }
 
 /** A frame of the page from the Preview's host half. */
@@ -85,6 +112,10 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
     return screen && threadId ? screenSource(screen, threadId) : undefined;
   }, [screen, state.url, threadId, view]);
   const frames = useLiveFrames(source, stage, { active });
+  const driven = useDrivenWindow(view === "screen" ? screen : undefined, threadId);
+  const box = useStageBox(stage);
+  // Fitted by hand: an <img> never grows past its own size, and a small frame on a slow link would stay small.
+  const fitted = frames.picture && box ? fit(frames.picture, box) : undefined;
   const canDrive = !readOnly && (view === "browser" ? Boolean(state.url) : Boolean(screen?.input && threadId));
 
   // A secret field on the page makes this device's own field a password field; switching away forgets it.
@@ -188,7 +219,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
 
   const driver = state.driver && !state.driver.dismissed && state.driver.source === view ? state.driver : undefined;
   const status = error
-    || (view === "browser" ? (state.loading ? "Loading…" : state.title || state.url) : "The window the agent drives")
+    || (view === "browser" ? (state.loading ? "Loading…" : state.title || state.url) : windowName(driven) ?? "The window the agent drives")
     || "";
   const empty = view === "browser"
     ? !state.available
@@ -243,6 +274,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
           src={frames.picture.url}
           width={frames.picture.width}
           height={frames.picture.height}
+          {...(fitted ? { style: { width: `${String(fitted.width)}px`, height: `${String(fitted.height)}px` } } : {})}
           alt={view === "browser" ? `The page: ${state.title || state.url}` : "The window the agent drives"}
           draggable={false}
           onPointerDown={onPointerDown}

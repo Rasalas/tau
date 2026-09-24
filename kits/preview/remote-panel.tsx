@@ -4,7 +4,7 @@ import { tooltipProps, useHostCapabilities, useThreadStore, type PanelProps, typ
 import { PreviewPanel } from "./panel.js";
 import { miniPlayerShown } from "./mini-player.js";
 import { floatingEnabled } from "./settings.js";
-import { previewView, screenService } from "./screen-store.js";
+import { previewView, screenService, useDrivenWindow, windowName } from "./screen-store.js";
 import { PREVIEW_PANEL, isPreviewState, notePanelShown, panelShown, previewKit, previewStore, readPreviewState, usePreviewState } from "./store.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 
@@ -60,10 +60,14 @@ export function createMiniBarRegion(preferences: PreferencesStore) {
     const frames = useLiveFrames(browser ? tinySource : undefined, thumb, { active: Boolean(driver) });
     const threads = useThreadStore();
     const index = useSyncExternalStore(threads.subscribe, threads.getSnapshot);
+    const driven = useDrivenWindow(driver && !browser ? screen : undefined, driver?.threadId);
     if (!driver) return null;
-    const title = index.threads.find((entry) => entry.id === driver.threadId)?.title || "an agent";
-    const what = browser ? state.title || state.url : "a window";
+    const thread = index.threads.find((entry) => entry.id === driver.threadId);
+    const title = thread?.title || "an agent";
+    const what = browser ? state.title || state.url : windowName(driven) ?? "A window";
     const open = () => {
+      // The Screen view shows the thread on screen, so the driving thread comes first.
+      if (!browser && thread?.path && actions.activeThread()?.sessionId !== driver.threadId) void actions.switchSession(thread.path);
       previewView.set(browser ? "browser" : "screen");
       actions.openPanel(PREVIEW_PANEL);
     };
