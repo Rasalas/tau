@@ -1,6 +1,6 @@
 import { Code2, Eye, Save, Table2, WrapText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { errorMessage, getClientStorage, Markdown, type StageTabHandle, type UiSharedFile, type WorkbenchActions } from "tau";
+import { errorMessage, getClientStorage, Markdown, READ_ONLY_REASON, useCommandAllowed, type StageTabHandle, type UiSharedFile, type WorkbenchActions } from "tau";
 import { CodeEditor } from "./code-editor.js";
 import { parseDelimited } from "./delimited.js";
 import type { FileDocument } from "./document.js";
@@ -191,6 +191,8 @@ export function FileEditorTab({ params, handle, actions, document }: {
   // A banner button that goes away must not take the keyboard with it: ⌘S belongs to this tab.
   const refocus = () => requestAnimationFrame(() => (root.current?.querySelector<HTMLElement>(".cm-content") ?? root.current)?.focus());
   const wrap = useWrapLines();
+  // A Read-only device opens the file to read: no edit it could not save.
+  const mayWrite = useCommandAllowed(FILES_KIT_ID, "write");
 
   useEffect(() => { handle.setTitle(name); }, [handle, name]);
 
@@ -242,7 +244,7 @@ export function FileEditorTab({ params, handle, actions, document }: {
       text={state.text}
       path={params.path}
       label={`Contents of ${params.path}`}
-      readOnly={!state.editable || reloading}
+      readOnly={!state.editable || !mayWrite || reloading}
       wrap={wrap}
       {...(params.line ? { line: params.line } : {})}
       onChange={(text) => document.edit(text)}
@@ -276,8 +278,8 @@ export function FileEditorTab({ params, handle, actions, document }: {
       {state.editable ? <button
         type="button"
         className="text-button files-save"
-        disabled={!state.dirty || state.saving || Boolean(state.conflict)}
-        title={isMac() ? "Save (⌘S)" : "Save (Ctrl+S)"}
+        disabled={!mayWrite || !state.dirty || state.saving || Boolean(state.conflict)}
+        title={!mayWrite ? READ_ONLY_REASON : isMac() ? "Save (⌘S)" : "Save (Ctrl+S)"}
         onClick={() => void save()}
       ><Save size={12} /> Save</button> : null}
       {workspace ? <OpenInPicker store={workspace} relPath={params.path} line={() => caretLine.current} /> : null}
