@@ -1,0 +1,245 @@
+/*
+ * The touch layout's components: the thread list with its swipe tray, the
+ * list as a screen or a tablet sidebar, the action sheet and panel sheets.
+ * Loaded with the touch chunk, which only a compact layout imports; the grid,
+ * safe areas and touch sizes stay in profile-compact.css.
+ */
+
+/* ----------------------------------------------------------- the browser */
+
+.touch-browser {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: var(--rail); color: var(--ink);
+}
+.touch-browser.sidebar { grid-area: 2 / 1 / 3 / 2; border-right: 1px solid var(--line); padding-left: var(--safe-left, 0px); }
+.touch-browser.screen {
+  position: fixed; z-index: 60; left: 0; right: 0;
+  top: var(--tau-viewport-top, 0px); height: var(--tau-viewport-height, 100dvh);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+  animation: touch-slide-in var(--motion-fast, 160ms) var(--ease);
+}
+@keyframes touch-slide-in { from { transform: translateX(-24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .touch-browser.screen { animation: none; } }
+.touch-browser-header {
+  flex: none; display: flex; align-items: center; gap: 2px;
+  height: 52px; padding: 0 6px 0 14px;
+}
+.touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
+.touch-browser-header > strong { font: 650 17px var(--sans); letter-spacing: -0.01em; }
+.touch-browser-header > .spacer { flex: 1; }
+.touch-icon-button {
+  width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.touch-icon-button:active { background: var(--hover-strong); }
+.touch-browser-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.touch-browser .touch-thread-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* Room under the last row for the floating button and the home indicator. */
+.touch-browser.screen .touch-thread-list { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+.touch-browser.sidebar .touch-thread-list { padding: 0 6px 12px; }
+
+/* New thread: the primary action of the list, bottom right above the safe area. */
+.touch-fab {
+  position: absolute; z-index: 2;
+  right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 64px; height: 64px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 50%; background: var(--acid); color: var(--acid-ink);
+  box-shadow: var(--shadow-strong); cursor: pointer;
+}
+.touch-fab > svg { display: block; }
+.touch-fab:active { transform: scale(.96); }
+
+/* Search and More: popovers at their buttons, inside the viewport. */
+.popover.touch-popover {
+  width: min(360px, calc(100vw - 16px)); max-height: min(70dvh, 520px); overflow: auto;
+  padding: 6px; border-radius: 14px;
+}
+.popover.touch-menu { width: min(240px, calc(100vw - 16px)); }
+.touch-menu [role="menu"] { display: flex; flex-direction: column; }
+.touch-menu [role="menuitem"] {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px;
+  border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: 500 15px var(--sans); text-align: left; cursor: pointer;
+}
+.touch-menu [role="menuitem"] > svg { color: var(--muted); }
+.touch-menu [role="menuitem"]:active, .touch-menu [role="menuitem"]:focus-visible { background: var(--hover-strong); }
+.touch-search-field {
+  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 2px 0 12px;
+  border-radius: 10px; background: var(--field); color: var(--muted);
+}
+.touch-search-field > input { flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--ink); outline: none; }
+.touch-search-field > input::-webkit-search-cancel-button { display: none; }
+.touch-search-results { list-style: none; margin: 6px 0 0; padding: 0; }
+.touch-search-results button {
+  width: 100%; display: flex; flex-direction: column; gap: 2px; min-height: 48px; padding: 7px 10px;
+  border: 0; border-radius: 10px; background: transparent; color: var(--ink); text-align: left; cursor: pointer;
+}
+.touch-search-results button:active, .touch-search-results button:focus-visible { background: var(--hover-strong); }
+.touch-search-results strong { font: 550 15px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.touch-search-results small { font: 13px var(--sans); color: var(--muted); }
+.touch-search-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px; font: 14px/1.4 var(--sans); color: var(--muted); }
+.touch-search-empty > button, .touch-thread-empty > button {
+  min-height: 44px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 10px;
+  background: var(--raised); color: var(--ink); font: 550 15px var(--sans); cursor: pointer;
+}
+
+/* ------------------------------------------------------------- the list */
+
+.touch-thread-list { list-style: none; margin: 0; padding: 0; }
+.touch-thread-group {
+  display: flex; align-items: center; gap: 8px; margin: 14px 14px 5px;
+  font: 500 12px var(--sans); color: var(--muted);
+}
+.touch-thread-group::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+.touch-thread-row + .touch-thread-row { border-top: 1px solid var(--line-soft); }
+.touch-browser.sidebar .touch-thread-row + .touch-thread-row { border-top: 0; }
+.touch-thread-row .swipe-row-content { display: flex; align-items: stretch; background: var(--rail); }
+.supervision-start .touch-thread-row .swipe-row-content { background: var(--stage); }
+.touch-thread-open {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  min-height: 56px; padding: 9px 14px; border: 0; background: none; color: inherit;
+  text-align: left; cursor: pointer;
+}
+.touch-browser.sidebar .touch-thread-open { border-radius: 12px; padding: 9px 10px; }
+.touch-thread-row[data-active] .touch-thread-open { background: var(--thread-active); }
+.touch-thread-open:active { background: var(--hover); }
+.touch-thread-line, .touch-thread-meta { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.touch-thread-line > strong {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 550 16px/21px var(--sans); color: var(--ink);
+}
+.touch-thread-line > time, .touch-thread-line > em {
+  flex: none; font: 12px var(--mono); font-style: normal; font-variant-numeric: tabular-nums; color: var(--faint);
+}
+.touch-thread-meta > small {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 13px var(--sans); color: var(--muted);
+}
+.touch-thread-meta > svg { flex: none; color: var(--faint); }
+.touch-thread-provider { flex: none; }
+.touch-thread-status { display: inline-flex; flex: none; color: var(--muted); }
+.touch-thread-unread { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--acid); }
+.touch-thread-row[data-status="running"] .touch-thread-status { color: var(--working); animation: touch-spin 1.4s linear infinite; }
+.touch-thread-row[data-status="running"] .touch-thread-line > time { color: var(--working); }
+.touch-thread-row[data-status="waiting"] :is(.touch-thread-status, .touch-thread-line > em) { color: var(--acid-text); }
+.touch-thread-row[data-status="failed"] :is(.touch-thread-status, .touch-thread-line > em) { color: var(--fail); }
+@keyframes touch-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .touch-thread-row[data-status="running"] .touch-thread-status { animation: none; } }
+/* Settled rows are slim and quiet, as in T3 Code's shelf. */
+.touch-thread-row[data-settled] .touch-thread-open { min-height: 44px; padding-block: 7px; }
+.touch-thread-row[data-settled] .touch-thread-line > strong { font-weight: 450; color: var(--muted); }
+.touch-thread-stop {
+  flex: none; align-self: center; width: 44px; height: 44px; margin-right: 6px; padding: 0;
+  display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
+}
+/* The visible square is smaller than the target, which stays 44 px. */
+.touch-thread-stop > svg { box-sizing: content-box; padding: 9px; border: 1px solid var(--line-control); border-radius: 10px; background: var(--raised); }
+/* Keyboard and screen-reader way to the actions a long press opens. */
+.touch-thread-more {
+  position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;
+  border: 1px solid var(--line-control); border-radius: 8px; background: var(--raised); color: var(--ink-2);
+  opacity: 0; pointer-events: none;
+}
+.touch-thread-more:focus-visible { opacity: 1; pointer-events: auto; }
+.touch-thread-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 32px 20px; text-align: center;
+  font: 14px/1.45 var(--sans); color: var(--muted);
+}
+.touch-thread-empty > strong { font: 600 16px var(--sans); color: var(--ink-2); }
+.touch-thread-empty > button { margin-top: 10px; }
+.touch-thread-notice {
+  display: flex; flex-direction: column; gap: 2px; margin: 4px 12px 8px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--sunken);
+  font: 13px/1.4 var(--sans); color: var(--muted);
+}
+.touch-thread-notice > strong { font: 600 14px var(--sans); color: var(--ink-2); }
+.touch-thread-notice.refused > strong { color: var(--danger); }
+.touch-thread-more-rows { padding: 6px 12px 10px; }
+.touch-thread-more-rows > button {
+  width: 100%; min-height: 44px; border: 1px dashed var(--line-strong); border-radius: 10px;
+  background: transparent; color: var(--muted); font: 500 13px var(--sans); cursor: pointer;
+}
+
+/* ------------------------------------------------------------ the swipe */
+
+.swipe-row { position: relative; overflow: hidden; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.swipe-row-content { position: relative; z-index: 1; transition: transform 200ms var(--ease); will-change: transform; }
+.swipe-tray { position: absolute; inset: 0 0 0 auto; display: flex; }
+.swipe-action {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  border: 0; padding: 0; background: transparent; color: var(--muted); font: 500 11px var(--sans); cursor: pointer;
+  opacity: var(--swipe-reveal, 0); transform: scale(calc(0.78 + 0.22 * var(--swipe-reveal, 0)));
+}
+.swipe-action > i {
+  width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--raised-strong); color: var(--ink);
+}
+.swipe-action.primary > i { background: var(--acid); color: var(--acid-ink); }
+/* Past the commit line the first action is what letting go runs. */
+.swipe-row[data-committing] .swipe-action.secondary { opacity: 0; }
+.swipe-row[data-committing] .swipe-action.primary > i { width: 48px; border-radius: 18px; }
+
+/* ------------------------------------------------------ the action sheet */
+
+.dialog-backdrop:has(> .action-sheet) { align-items: flex-end; padding: 0; }
+.action-sheet {
+  width: 100%; max-width: 520px; margin: 0 auto;
+  padding: 4px 10px calc(12px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--line-strong); border-bottom: 0; border-radius: 16px 16px 0 0;
+  background: var(--chrome); color: var(--ink); box-shadow: var(--shadow-strong);
+  animation: touch-sheet-up var(--motion-fast, 160ms) var(--ease);
+}
+@keyframes touch-sheet-up { from { transform: translateY(24px); opacity: 0; } }
+.action-sheet-body { display: flex; flex-direction: column; gap: 6px; }
+/* Grip, title, and the close button at the top right of every sheet. */
+.touch-sheet-header {
+  position: relative; flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 52px; padding: 8px 0 0 6px;
+}
+.touch-sheet-header > strong {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 600 15px var(--sans); color: var(--ink-2);
+}
+.touch-sheet-grip {
+  position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
+  border-radius: 2px; background: var(--line-strong);
+}
+.action-sheet-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--raised); }
+.action-sheet-list > button {
+  display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 0 14px;
+  border: 0; background: transparent; color: var(--ink); font: 500 16px var(--sans); text-align: left; cursor: pointer;
+}
+.action-sheet-list > button > span { display: flex; flex-direction: column; gap: 1px; }
+.action-sheet-list > button small { font: 13px var(--sans); color: var(--muted); }
+.action-sheet-list > button + button { border-top: 1px solid var(--line-soft); }
+.action-sheet-list > button:active { background: var(--hover-strong); }
+.action-sheet-list > button > i { width: 20px; flex: none; display: grid; place-items: center; color: var(--muted); }
+.action-sheet-list > button.destructive, .action-sheet-list > button.destructive > i { color: var(--danger); }
+.action-sheet-list > button:disabled { color: var(--muted); }
+
+/* --------------------------------------------------------- panel sheets */
+
+.touch-panel-sheet {
+  position: fixed; z-index: 55; left: 0; right: 0;
+  top: var(--tau-viewport-top, 0px); height: var(--tau-viewport-height, 100dvh);
+  display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: var(--stage); color: var(--ink);
+  animation: touch-sheet-up var(--motion-fast, 160ms) var(--ease);
+}
+.touch-panel-sheet > .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
+.touch-panel-sheet > .panel-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.touch-panel-sheet .panel-host, .touch-panel-sheet .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* The model picker is a sheet from the bottom edge, above the keyboard, not a popover at its chip. */
+body[data-profile="compact"] .model-picker.popover {
+  position: fixed !important; left: 0 !important; right: 0; top: auto !important;
+  bottom: var(--tau-keyboard-inset, 0px) !important;
+  width: 100% !important; max-width: none; max-height: none;
+  height: min(calc(var(--tau-viewport-height, 100dvh) - 24px), 620px);
+  border-radius: 16px 16px 0 0; padding: 0 0 env(safe-area-inset-bottom, 0px);
+}
+body[data-keyboard] .model-picker.popover { padding-bottom: 0; }
+.model-picker .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
+
+/* Toasts clear the status bar and the notch. */
+body[data-profile="compact"] .toast-stack { top: calc(env(safe-area-inset-top, 0px) + 56px); right: max(12px, env(safe-area-inset-right, 0px)); }

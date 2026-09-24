@@ -29,8 +29,9 @@ export function composerEnter(input: {
   return { delivery: alternate === (input.base === "steer") ? "followUp" : "steer" };
 }
 
-/** The placeholder's key hints for the send chord and the running-turn choice. */
-export function sendHint(shortcut: SendShortcut, streaming: boolean, base: StreamingDelivery): string {
+/** The placeholder's key hints for the send chord and the running-turn choice; a touch keyboard gets none. */
+export function sendHint(shortcut: SendShortcut, streaming: boolean, base: StreamingDelivery, touch = false): string {
+  if (touch) return !streaming ? "Direct the agent" : base === "steer" ? "Steer this turn" : "Queue after this turn";
   const send = shortcut === "mod-enter" ? "⌘↵" : "↵";
   const other = shortcut === "mod-enter" ? "⌘⇧↵" : "⌘↵";
   if (!streaming) return `Direct the agent — $ skills, / commands, @ files, ${shortcut === "mod-enter" ? "⌘↵ sends" : "⇧↵ newline"}`;

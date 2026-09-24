@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Info, Monitor, MonitorSmartphone, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Command, Cpu, Folder, Info, Monitor, MonitorSmartphone, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -115,6 +115,7 @@ export function SettingsScreen({
   onSetThinking,
   onClose,
   onNotify,
+  stacked = false,
 }: {
   page: string;
   snapshot?: HostSnapshot;
@@ -125,6 +126,8 @@ export function SettingsScreen({
   onSetThinking(level: string): void;
   onClose(): void;
   onNotify(message: string): void;
+  /** One column, as on a phone: the section list first, a page after a tap, and back. */
+  stacked?: boolean;
 }) {
   const preferences = usePreferences();
   const client = useHostClient();
@@ -160,6 +163,9 @@ export function SettingsScreen({
   // A page without project rows edits this machine; leaving one puts the scope back.
   useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
 
+  const [showingPage, setShowingPage] = useState(!stacked);
+  // What the section list opens; stacked, it also turns from the list to the page.
+  const openPage = (id: string) => { onSetPage(id); setShowingPage(true); };
   const [search, setSearch] = useState("");
   const [activeResult, setActiveResult] = useState(0);
   const [target, setTarget] = useState<string>();
@@ -182,7 +188,7 @@ export function SettingsScreen({
     if (entry.filter !== undefined) setKeybindingFilter((current) => ({ filter: entry.filter!, seq: current.seq + 1 }));
     clearSearch();
     setTarget(entry.target);
-    onSetPage(entry.page);
+    openPage(entry.page);
   };
 
   // A search result that names a row scrolls to it once its page is drawn.
@@ -253,7 +259,7 @@ export function SettingsScreen({
     </>;
   };
 
-  const navButton = (id: string, label: string, icon: React.ReactNode, onClick = () => onSetPage(id), activeWhen = page === id) => (
+  const navButton = (id: string, label: string, icon: React.ReactNode, onClick = () => openPage(id), activeWhen = page === id) => (
     <button key={id} className={activeWhen ? "active" : ""} aria-current={activeWhen ? "page" : undefined} onClick={onClick}>
       {icon}<span>{label}</span>
     </button>
@@ -261,9 +267,12 @@ export function SettingsScreen({
 
   return (
     <SettingsLevelsProvider store={levels}>
-      <div className="settings-screen" role="dialog" aria-modal="true" aria-label="Settings" data-preview-overlay="">
+      <div className={stacked ? "settings-screen stacked" : "settings-screen"} data-view={stacked ? (showingPage ? "page" : "sections") : undefined} role="dialog" aria-modal="true" aria-label="Settings" data-preview-overlay="">
         <nav className="settings-nav" aria-label="Settings sections">
-          <div className="settings-nav-header"><WindowControlsInset /></div>
+          <div className="settings-nav-header">{stacked ? <>
+            <h1>Settings</h1>
+            {showingPage ? null : <button type="button" className="settings-sections-back" aria-label="Close settings" onClick={onClose}><X size={18} /></button>}
+          </> : <WindowControlsInset />}</div>
           <label className="settings-nav-search">
             <Search size={14} />
             <input
@@ -310,7 +319,7 @@ export function SettingsScreen({
               {navButton("defaults", "Defaults", <Sliders size={15} />)}
               {navButton("pi", "Pi", <Cpu size={15} />)}
               {providers.length > 0 ? navButton("providers", "Providers", <Server size={15} />, undefined, onProviders) : null}
-              {navButton("keybindings", "Keybindings", <Command size={15} />, () => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); onSetPage("keybindings"); })}
+              {navButton("keybindings", "Keybindings", <Command size={15} />, () => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); openPage("keybindings"); })}
               {pages.map((entry) => navButton(entry.id, entry.label, <PanelIcon Icon={entry.Icon} size={15} />))}
               {navButton("connections", "Connections", <MonitorSmartphone size={15} />)}
               {navButton("inspector", "Inspector", <Puzzle size={15} />)}
@@ -320,7 +329,7 @@ export function SettingsScreen({
                   key={summary.id}
                   className={`${page === summary.id ? "active" : ""} ${summary.active ? "" : "off"}`}
                   aria-current={page === summary.id ? "page" : undefined}
-                  onClick={() => onSetPage(summary.id)}
+                  onClick={() => openPage(summary.id)}
                 >
                   <span className={`extension-dot ${summary.active ? "" : "off"}`} />
                   <span>{summary.name}</span>
@@ -328,7 +337,7 @@ export function SettingsScreen({
                 </button>
               ))}
               {navGroup("core", "Core", summaries.filter((summary) => summary.core), (summary) => (
-                <button key={summary.id} className={page === summary.id ? "active" : ""} aria-current={page === summary.id ? "page" : undefined} onClick={() => onSetPage(summary.id)}>
+                <button key={summary.id} className={page === summary.id ? "active" : ""} aria-current={page === summary.id ? "page" : undefined} onClick={() => openPage(summary.id)}>
                   <span className="extension-dot" />
                   <span>{summary.name}</span>
                 </button>
@@ -337,7 +346,7 @@ export function SettingsScreen({
           </div>
           <div className="settings-nav-footer">
             {installer ? (
-              <button className="install-extension" onClick={() => onSetPage(installer.id)}>
+              <button className="install-extension" onClick={() => openPage(installer.id)}>
                 <Plus size={13} /> Install extension…
               </button>
             ) : null}
@@ -349,9 +358,10 @@ export function SettingsScreen({
 
         <main className="settings-main">
           <header className="settings-topbar">
+            {stacked ? <button type="button" className="settings-sections-back" aria-label="All settings" onClick={() => setShowingPage(false)}><ChevronLeft size={18} /></button> : null}
             <nav aria-label="Settings breadcrumb">
               <ol>
-                <li className="settings-crumb"><button type="button" onClick={() => onSetPage("defaults")}>Settings</button></li>
+                <li className="settings-crumb"><button type="button" onClick={() => (stacked ? setShowingPage(false) : onSetPage("defaults"))}>Settings</button></li>
                 <li className="settings-crumb-separator" aria-hidden>/</li>
                 <li className="settings-crumb current" aria-current="page"><h1>{pageLabel}</h1></li>
                 {showScope ? <>
@@ -360,6 +370,7 @@ export function SettingsScreen({
                 </> : null}
               </ol>
             </nav>
+            {stacked && showingPage ? <button type="button" className="settings-sections-back settings-close" aria-label="Close settings" onClick={onClose}><X size={18} /></button> : null}
           </header>
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>

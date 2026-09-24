@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Tooltip, TooltipLayer, TOOLTIP_DELAY_MS, TOOLTIP_GROUP_MS, tooltipProps } from "./Tooltip";
+import { installPointerEvents } from "../../test-support/pointer-events";
+import { Tooltip, TooltipLayer, TOOLTIP_DELAY_MS, TOOLTIP_GROUP_MS, TOOLTIP_LONG_PRESS_MS, tooltipProps } from "./Tooltip";
 
-beforeEach(() => { vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] }); });
+beforeEach(() => { installPointerEvents(); vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] }); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 function renderToolbar() {
@@ -100,5 +101,30 @@ describe("TooltipLayer", () => {
     const text = screen.getByRole("tooltip").firstElementChild as HTMLElement;
     expect(text.textContent).toBe("Fix the rail\nworkspace · main");
     expect(text.style.whiteSpace).toBe("pre-line");
+  });
+
+  it("shows the label on a long press of a finger, and that press does not click", () => {
+    const { panel } = renderToolbar();
+    const clicked = vi.fn();
+    panel.addEventListener("click", clicked);
+    fireEvent.pointerDown(panel, { pointerType: "touch", clientX: 5, clientY: 5 });
+    wait(TOOLTIP_LONG_PRESS_MS);
+    expect(screen.getByRole("tooltip").textContent).toContain("Show panel");
+    fireEvent.pointerUp(panel, { pointerType: "touch" });
+    fireEvent.click(panel);
+    expect(clicked).not.toHaveBeenCalled();
+    // A short tap afterwards is an ordinary click.
+    fireEvent.pointerDown(panel, { pointerType: "touch", clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(panel, { pointerType: "touch" });
+    fireEvent.click(panel);
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a finger that moves scroll instead of labelling", () => {
+    const { panel } = renderToolbar();
+    fireEvent.pointerDown(panel, { pointerType: "touch", clientX: 5, clientY: 5 });
+    fireEvent.pointerMove(panel, { pointerType: "touch", clientX: 5, clientY: 40 });
+    wait(TOOLTIP_LONG_PRESS_MS);
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 });

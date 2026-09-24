@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createLocalStorageAdapter } from "../renderer/browser-storage";
 import { setHostClient } from "../renderer/host-client-context";
 import { createRendererServices } from "../renderer/renderer-services";
+import { primaryPointerIsTouch } from "../renderer/touch-input";
 import { setClientStorage } from "../workbench/client-storage";
 import { browserClientProfile } from "../workbench/client-profile";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
@@ -23,9 +24,9 @@ import "./web.css";
 const storage = createLocalStorageAdapter();
 setClientStorage(storage);
 const root = createRoot(document.getElementById("root")!);
-// Which client this is, decided once: a tab that starts phone-sized claims the
-// compact profile, and a resize afterwards changes only the layout.
-const profile = browserClientProfile(window.innerWidth, new URLSearchParams(window.location.search).get("profile"));
+// Which client this is, decided once: a tab that starts phone-sized, or on a
+// touch screen, claims the compact profile; a resize afterwards changes only the layout.
+const profile = browserClientProfile(window.innerWidth, new URLSearchParams(window.location.search).get("profile"), primaryPointerIsTouch());
 
 function showGate(notice?: string): void {
   root.render(<StrictMode>
