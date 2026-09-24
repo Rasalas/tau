@@ -136,6 +136,42 @@ export interface PreviewFrame {
   height: number;
 }
 
+/** What a client that shows the page asks for: a width that fits it, and the frame it already has. */
+export interface PreviewLiveFrameRequest {
+  maxWidth: number;
+  /** The id of the frame the client shows; an unchanged page answers without the picture. */
+  since?: string;
+}
+
+/** A JPEG of the page sized for one client, or word that it still shows the same. */
+export type PreviewLiveFrame =
+  | { id: string; data: string; width: number; height: number; url: string }
+  | { id: string; unchanged: true };
+
+/** The keys a remote device may send; no chords, so nothing reaches past the page. */
+export const PREVIEW_INPUT_KEYS = [
+  "Enter", "Tab", "Backspace", "Delete", "Escape",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown",
+] as const;
+
+export type PreviewInputKey = typeof PREVIEW_INPUT_KEYS[number];
+
+/**
+ * Input from a device that shows the page: a tap becomes a click, typed text
+ * goes into the focused field. `x` and `y` are fractions of the frame, so the
+ * same tap lands in the same place at any frame size.
+ */
+export type PreviewInput =
+  | { kind: "click"; x: number; y: number }
+  | { kind: "scroll"; x: number; y: number; dx: number; dy: number }
+  | { kind: "text"; text: string }
+  | { kind: "key"; key: PreviewInputKey };
+
+/** Where the page's keyboard focus is after an input: a device masks its own field for a secret. */
+export interface PreviewInputResult {
+  focus: "secret" | "field" | "none";
+}
+
 export interface PreviewRecording {
   path: string;
   name: string;
@@ -226,6 +262,10 @@ export interface PreviewHostCommands {
   "mini-frame": { input: undefined; output: PreviewFrame | null };
   "mini-prefs": { input: Partial<PreviewMiniPrefs>; output: PreviewState };
   "mini-dismiss": { input: undefined; output: PreviewState };
+  /** Only a client that shows the page asks; it paces itself and picks the size. */
+  "live-frame": { input: PreviewLiveFrameRequest; output: PreviewLiveFrame | null };
+  /** Full access only: a Read-only device watches. */
+  "input": { input: PreviewInput; output: PreviewInputResult };
   /** Browsers installed on the machine the window runs on; reads no cookie. */
   "import-sources": { input: undefined; output: CookieImportSource[] };
   /** Site names and counts of one source profile; decrypts nothing. */
@@ -272,6 +312,8 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
     "mini-frame": call("mini-frame"),
     "mini-prefs": call("mini-prefs"),
     "mini-dismiss": call("mini-dismiss"),
+    "live-frame": call("live-frame"),
+    input: call("input"),
     "import-sources": call("import-sources"),
     "import-sites": call("import-sites"),
     "import-cookies": call("import-cookies"),
