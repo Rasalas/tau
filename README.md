@@ -381,6 +381,15 @@ carries all of them. Turning a switch off closes its listener and every connecti
 that came through it. A host you start by hand opens a proxy listener with
 `TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>`. The installed app ships the web client.
 
+While Local network is on, Tau also **announces itself with Bonjour** (`_tau._tcp`), so
+the Tau app on a phone and other machines on the same network find it without a link.
+The record carries the host's id and certificate fingerprint and nothing secret; a
+device found this way still waits until you allow it with matching digits. Turn off
+**Announce on this network** to be found only by link or QR code. **Find Machines…**
+lists the Tau hosts nearby; it looks only when you ask. macOS may ask once whether Tau
+may use the local network. Linux needs Avahi (`avahi-utils` and a running
+`avahi-daemon`); Windows 10 1809 or later uses its own mDNS through PowerShell.
+
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it
 can draw. A browser has no editor and no Electron window, so contributions that need one

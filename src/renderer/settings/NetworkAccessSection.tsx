@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { UiNetworkAccess, UiNetworkSettingsInput } from "../../shared/connections";
+import type { UiNetworkAccess, UiNetworkAnnouncement, UiNetworkSettingsInput } from "../../shared/connections";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Dialog } from "../components/ui/Dialog";
 import { SettingRow, SettingsSection, Switch } from "./settings-layout";
@@ -10,7 +10,7 @@ const QUESTIONS: Record<Switchable, { on: { title: string; message: string }; of
   lan: {
     on: {
       title: "Let devices on your network connect?",
-      message: "Tau listens on every network interface of this machine, over TLS only. A device still needs a pairing link from this page, and a paired device can do everything you can here: run agents, open terminals, read files.",
+      message: "Tau listens on every network interface of this machine, over TLS only, and announces itself with Bonjour. A device still needs your approval here, and a paired device can do everything you can: run agents, open terminals, read files.",
     },
     off: {
       title: "Stop listening on the local network?",
@@ -35,6 +35,18 @@ const MAX_PORT = 65535;
 function validPort(text: string, other: number): number | undefined {
   const port = Number(text);
   return Number.isInteger(port) && port >= MIN_PORT && port <= MAX_PORT && port !== other ? port : undefined;
+}
+
+/** What the announcement row says under its switch. */
+function announcementText(announcement: UiNetworkAnnouncement | undefined, lanListening: boolean): string {
+  if (!lanListening) return "Once Tau listens on the local network.";
+  if (!announcement) return "Starting…";
+  switch (announcement.state) {
+    case "announced": return `Devices here see this machine as “${announcement.name}”.`;
+    case "starting": return "Waiting for the system; macOS may ask about local network access.";
+    case "failed": return `${announcement.detail ?? "The announcement stopped."} Tau tries again every minute.`;
+    case "unavailable": return announcement.detail ?? "No Bonjour responder on this system.";
+  }
 }
 
 function formatDate(iso: string): string {
@@ -80,6 +92,16 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
           : "Only this machine can connect."}
         control={<Switch label="Local network" checked={settings.lan} disabled={busy} onChange={(on) => setAsking({ key: "lan", on })} />}
       />
+      {settings.lan ? (
+        <SettingRow
+          title="Announce on this network"
+          description={settings.announce
+            ? "Lets devices here find Tau. It shares only the host id and certificate fingerprint; a device still needs your approval."
+            : "Only a pairing link or QR code leads here."}
+          status={settings.announce ? announcementText(network.announcement, lanListening) : undefined}
+          control={<Switch label="Announce on this network" checked={settings.announce} disabled={busy} onChange={(on) => void onChange({ announce: on }, on ? "Announcing Tau on this network" : "No longer announced on this network")} />}
+        />
+      ) : null}
       <SettingRow
         title="Tailscale"
         description={settings.tailscale

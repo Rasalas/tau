@@ -17,6 +17,8 @@ import { HostTlsReloader, resolveHostTls, type HostTlsMaterial } from "./host-tl
 import { createProtocolServer } from "./host-transport-socket.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 import type { HostLogger } from "./host-log.js";
+import { instanceName, type ServiceAnnouncement, type ServiceAnnouncer } from "./host-discovery.js";
+import { tauServiceTxt } from "../shared/discovery.js";
 
 const STORE_VERSION = 1;
 const MIN_PORT = 1024;
@@ -74,7 +76,7 @@ export function decodeNetworkSettingsInput(value: unknown): UiNetworkSettingsInp
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("connections-set-network: input must be an object.");
   const input = value as Record<string, unknown>;
   const result: UiNetworkSettingsInput = {};
-  for (const flag of ["lan", "tailscale"] as const) {
+  for (const flag of ["lan", "tailscale", "announce"] as const) {
     if (input[flag] === undefined) continue;
     if (typeof input[flag] !== "boolean") throw new Error(`connections-set-network: ${flag} must be true or false.`);
     result[flag] = input[flag];
@@ -101,7 +103,9 @@ function decodeStored(value: unknown): UiNetworkSettings | undefined {
   if (!value || typeof value !== "object") return undefined;
   const { settings } = value as { settings?: unknown };
   try {
-    return applyNetworkSettings(DEFAULT_NETWORK_SETTINGS, decodeNetworkSettingsInput(settings ?? {}));
+    const input = decodeNetworkSettingsInput(settings ?? {});
+    // Written before Bonjour: announcing would ask macOS for local network access at start, unasked.
+    return applyNetworkSettings(DEFAULT_NETWORK_SETTINGS, { announce: false, ...input });
   } catch {
     return undefined;
   }
@@ -120,6 +124,13 @@ export interface HostNetworkAccessOptions {
   /** The certificate for a network listener; the settings' own one, else self-signed. */
   resolveTls?: (settings: UiNetworkSettings) => HostTlsMaterial;
   logger?: HostLogger & PersistedJsonLogger;
+  /** Announces the local network listener with Bonjour while `announce` is on; without it nothing is announced. */
+  bonjour?: {
+    announcer: Pick<ServiceAnnouncer, "set" | "state" | "close">;
+    serviceType: string;
+    hostId: string;
+    name: string;
+  };
 }
 
 interface OpenListener {
@@ -192,6 +203,7 @@ export class HostNetworkAccess {
       try {
         const changed = this.tls.reload();
         this.tlsProblem = undefined;
+        await this.announce();
         return { changed, network: this.state() };
       } catch (error: unknown) {
         this.tlsProblem = `The certificate did not load, so the old one is still served: ${messageOf(error)}`;
@@ -216,8 +228,10 @@ export class HostNetworkAccess {
 
   state(): UiNetworkAccess {
     const material = this.tls?.current;
+    const announcement = this.options.bonjour?.announcer.state();
     return {
       settings: this.settings,
+      ...(announcement ? { announcement } : {}),
       listeners: [...this.open.values()].map(({ bind, host, server }) => ({ host, port: portOf(server) ?? bind.port, kind: bind.kind })),
       problems: [...this.problems, ...(this.tlsProblem ? [this.tlsProblem] : [])],
       tailscaleUp: tailscaleAddresses(this.interfaces()).length > 0,
@@ -242,6 +256,7 @@ export class HostNetworkAccess {
 
   async close(): Promise<void> {
     await this.serialize(async () => {
+      await this.options.bonjour?.announcer.close();
       for (const key of [...this.open.keys()]) await this.stop(key);
     });
   }
@@ -253,6 +268,8 @@ export class HostNetworkAccess {
   }
 
   private async reconcileNow(): Promise<void> {
+    // Withdraw before the listener closes, so no device finds a port that is gone.
+    if (!this.settings.lan || !this.settings.announce) await this.announce();
     const plan = (this.options.plan ?? planNetworkBinds)(this.settings, this.interfaces());
     const wanted = new Map(plan.map((bind) => [bind.key, bind]));
     const problems: string[] = [];
@@ -293,6 +310,30 @@ export class HostNetworkAccess {
       }
     }
     this.problems = problems;
+    await this.announce();
+  }
+
+  /** What Bonjour should say now: the local network listener, while it is open and `announce` is on. */
+  private announcement(): ServiceAnnouncement | undefined {
+    const bonjour = this.options.bonjour;
+    const lan = this.open.get("lan");
+    const fingerprint = this.tls?.current.fingerprint;
+    if (!bonjour || !this.settings.lan || !this.settings.announce || !lan || !fingerprint) return undefined;
+    return {
+      type: bonjour.serviceType,
+      name: instanceName(bonjour.name),
+      port: portOf(lan.server) ?? lan.bind.port,
+      txt: tauServiceTxt({ hostId: bonjour.hostId, fingerprint }),
+    };
+  }
+
+  private async announce(): Promise<void> {
+    if (!this.options.bonjour) return;
+    try {
+      await this.options.bonjour.announcer.set(this.announcement());
+    } catch (error: unknown) {
+      this.options.logger?.warn("host-discovery.set-failed", error);
+    }
   }
 
   private resolveTls(settings: UiNetworkSettings): HostTlsMaterial {
