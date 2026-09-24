@@ -225,15 +225,17 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       const next = nearbyState(services, error);
       setNearby(next);
       if (next.state !== "searching") return;
-      void (async () => {
-        let changed = false;
-        for (const found of next.hosts) {
-          const saved = (await book.list()).find((host) => host.id === found.hostId);
-          const endpoints = saved ? withDiscoveredEndpoint(saved, found) : undefined;
-          if (saved && endpoints) { await book.update(saved.id, { endpoints }); changed = true; }
-        }
-        if (changed) await refresh();
-      })();
+      // A saved host seen at a new address keeps it, first.
+      void book.list().then(async (saved) => {
+        const moves = next.hosts.flatMap((found) => {
+          const host = saved.find((entry) => entry.id === found.hostId);
+          const endpoints = host ? withDiscoveredEndpoint(host, found) : undefined;
+          return host && endpoints ? [{ id: host.id, endpoints }] : [];
+        });
+        if (moves.length === 0) return;
+        await Promise.all(moves.map((move) => book.update(move.id, { endpoints: move.endpoints })));
+        await refresh();
+      });
     });
   }, [book, context, refresh, view.name]);
 
@@ -260,7 +262,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     />;
     case "hosts": {
       const seen = new Set(nearby.state === "searching" ? nearby.hosts.map((host) => host.hostId) : []);
-      const rows: HostRowInfo[] = hosts.map((entry) => ({ ...entry, nearby: seen.has(entry.host.id) }));
+      const rows: HostRowInfo[] = hosts.map(({ host, signedOut }) => ({ host, signedOut, nearby: seen.has(host.id) }));
       return <HostsScreen
         rows={rows}
         nearby={nearby}

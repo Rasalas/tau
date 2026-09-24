@@ -47,6 +47,17 @@ describe("HostBook", () => {
   });
 });
 
+describe("HostBook under concurrent changes", () => {
+  it("keeps every one of several changes made at once", async () => {
+    const book = new HostBook(memoryStore());
+    await Promise.all([book.save(host("a"), "ta"), book.save(host("b"), "tb")]);
+    await Promise.all([book.update("a", { lastUsedAt: "2026-09-24T10:00:00.000Z" }), book.update("a", { name: "Studio" }), book.update("b", { name: "Laptop" })]);
+    const hosts = await book.list();
+    expect(hosts.find((entry) => entry.id === "a")).toMatchObject({ name: "Studio", lastUsedAt: "2026-09-24T10:00:00.000Z" });
+    expect(hosts.find((entry) => entry.id === "b")?.name).toBe("Laptop");
+  });
+});
+
 describe("host helpers", () => {
   it("lists the most recently used first", () => {
     const sorted = sortHosts([host("old"), host("new", { lastUsedAt: "2026-09-20T00:00:00.000Z" }), host("mid", { addedAt: "2026-09-10T00:00:00.000Z" })]);

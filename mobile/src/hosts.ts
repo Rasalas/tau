@@ -37,7 +37,16 @@ function isSavedHost(value: unknown): value is SavedHost {
  * leaving a list without its tokens behind.
  */
 export class HostBook {
+  /** Every change reads the list and writes it back; one at a time, or two would lose one. */
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly store: SecureStore) {}
+
+  private serial<T>(change: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(change, change);
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
 
   async list(): Promise<SavedHost[]> {
     const text = await this.store.get(HOSTS_KEY);
@@ -59,25 +68,31 @@ export class HostBook {
   }
 
   /** Adds a host or replaces the one with its id, with the token pairing just gave. */
-  async save(host: SavedHost, token: string): Promise<void> {
-    await this.store.set(tokenKey(host.id), token);
-    const others = (await this.list()).filter((entry) => entry.id !== host.id);
-    await this.write([...others, host]);
+  save(host: SavedHost, token: string): Promise<void> {
+    return this.serial(async () => {
+      await this.store.set(tokenKey(host.id), token);
+      const others = (await this.list()).filter((entry) => entry.id !== host.id);
+      await this.write([...others, host]);
+    });
   }
 
   /** Merges what a later look at the host learned (a new address, the one that answered). */
-  async update(id: string, change: Partial<Omit<SavedHost, "id">>): Promise<void> {
-    const hosts = await this.list();
-    const index = hosts.findIndex((host) => host.id === id);
-    if (index < 0) return;
-    hosts[index] = { ...hosts[index]!, ...change };
-    await this.write(hosts);
+  update(id: string, change: Partial<Omit<SavedHost, "id">>): Promise<void> {
+    return this.serial(async () => {
+      const hosts = await this.list();
+      const index = hosts.findIndex((host) => host.id === id);
+      if (index < 0) return;
+      hosts[index] = { ...hosts[index]!, ...change };
+      await this.write(hosts);
+    });
   }
 
   /** Forgets the host and its token; the host itself keeps the device until its owner revokes it. */
-  async remove(id: string): Promise<void> {
-    await this.store.remove(tokenKey(id));
-    await this.write((await this.list()).filter((host) => host.id !== id));
+  remove(id: string): Promise<void> {
+    return this.serial(async () => {
+      await this.store.remove(tokenKey(id));
+      await this.write((await this.list()).filter((host) => host.id !== id));
+    });
   }
 
   /** The token no longer works (revoked, expired): keep the host, drop the token. */

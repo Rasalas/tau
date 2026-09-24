@@ -25,7 +25,7 @@ async function answer(socket: NativeSocket, text: string): Promise<void> {
   let reply: { id: string; result?: unknown; error?: string };
   try {
     // The page's CSP allows `blob:` modules and no eval.
-    const source = `const { all, byText, tap, type, sleep, text } = globalThis.__tauAutomation;\nexport default await (async () => (${request.expr}))();`;
+    const source = `const { all, byText, tap, type, sleep, text } = globalThis.tauAutomation;\nexport default await (async () => (${request.expr}))();`;
     const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
     try {
       const module = await import(/* @vite-ignore */ url) as { default: unknown };
@@ -69,5 +69,5 @@ function installHelpers(): void {
   };
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const text = () => document.body.innerText;
-  (globalThis as { __tauAutomation?: unknown }).__tauAutomation = { all, byText, tap, type, sleep, text };
+  (globalThis as { tauAutomation?: unknown }).tauAutomation = { all, byText, tap, type, sleep, text };
 }

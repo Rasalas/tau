@@ -23,8 +23,8 @@ export default defineConfig(({ mode }) => {
     resolve: rendererBuild.resolve,
     base: "./",
     define: {
-      __TAU_AUTOMATION__: JSON.stringify(mode === "development" ? env.TAU_AUTOMATION_PORT ?? "9477" : ""),
-      __TAU_BONJOUR_TYPE__: JSON.stringify(env.TAU_BONJOUR_TYPE ?? (mode === "development" ? "_tau-test._tcp" : "_tau._tcp")),
+      TAU_AUTOMATION_PORT: JSON.stringify(mode === "development" ? env.TAU_AUTOMATION_PORT ?? "9477" : ""),
+      TAU_BONJOUR_TYPE: JSON.stringify(env.TAU_BONJOUR_TYPE ?? (mode === "development" ? "_tau-test._tcp" : "_tau._tcp")),
     },
     build: {
       outDir: "dist",

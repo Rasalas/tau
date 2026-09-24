@@ -27,7 +27,7 @@ async function boot(): Promise<void> {
     environment: webClientEnvironment("compact"),
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
-    browse: (listener) => browseHosts(__TAU_BONJOUR_TYPE__, listener),
+    browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),
     navigate: (search) => window.location.replace(`${window.location.pathname}${search}`),
     subscribeToLinks: (listener) => {
       const handle = App.addListener("appUrlOpen", ({ url }) => { const route = linkRoute(url); if (route) listener(route); });
@@ -37,7 +37,7 @@ async function boot(): Promise<void> {
   const launch = await App.getLaunchUrl().catch(() => undefined);
   const initial = (launch?.url ? linkRoute(launch.url) : undefined) ?? readRoute(window.location.search);
   createRoot(document.getElementById("root")!).render(<StrictMode><Shell context={context} initial={initial} /></StrictMode>);
-  if (__TAU_AUTOMATION__) void import("./dev-automation").then(({ startAutomation }) => startAutomation(bridge, device, Number(__TAU_AUTOMATION__)));
+  if (TAU_AUTOMATION_PORT) void import("./dev-automation").then(({ startAutomation }) => startAutomation(bridge, device, Number(TAU_AUTOMATION_PORT)));
 }
 
 /** The app could not even start: say so on screen instead of staying blank. */
