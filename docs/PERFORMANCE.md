@@ -773,7 +773,9 @@ Luna turn in thread B that ran `seq 1 3000`): the compact client received 22
 messages, 6,338 decoded bytes, where a socket client without a subscription
 received 34 messages and 48,782 decoded bytes of the same turn; a raw socket
 client with the compact client's subscription measured 1,557 wire bytes
-against 7,414. The turn that created thread B cost 39 messages and 101,149
+against 7,414. A second run after merging the rest of wave F (pairing,
+network access, the touch surface) measured the same turn shape at 22
+messages, 6,312 decoded and 1,546 wire bytes against 34, 36,252 and 7,160. The turn that created thread B cost 39 messages and 101,149
 decoded bytes against 56 and 134,563: creating a thread moves the host's one
 active thread, and its catalog and project updates go to every client. 2,000
 lines in a desktop terminal sent 104 `data` pushes (41 KB) to a client without
