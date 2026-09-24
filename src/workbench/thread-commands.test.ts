@@ -30,6 +30,12 @@ describe("thread commands on a device paired Read only", () => {
     expect(setNotice).toHaveBeenCalledWith("Thread rename needs Full access; this device is paired Read only.");
   });
 
+  it("still lets a Read-only device look at another thread", () => {
+    const { thread, setNotice } = commands(true);
+    expect(thread.requireHost("Thread switching")).toBe(true);
+    expect(setNotice).not.toHaveBeenCalled();
+  });
+
   it("send as before with Full access", async () => {
     const { thread, client } = commands(false);
     expect(await thread.renameThread("New")).toBe(true);
