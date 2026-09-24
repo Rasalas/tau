@@ -224,6 +224,8 @@ manage access refuse a paired client with `forbidden`:
 | `connections-revoke-link` | `id` | `{ revoked }` |
 | `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
 | `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
+| `connections-set-network` | `{ lan?, tailscale?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host |
+| `connections-reload-certificate` | – | `{ changed }`; every listener re-reads its certificate |
 
 `host.shutdown` also refuses a paired client. A host without a socket answers
 the Connections methods with `unsupported`.
@@ -269,8 +271,17 @@ The listen rule (`src/main/host-listen.ts`): TLS may bind any interface;
 plaintext may bind loopback; plaintext beyond loopback needs
 `TAU_HOST_INSECURE=1`, and the host then prints a `WARNING:` line saying the
 token travels in clear text. A host a window supervises (ADR 0021) stays
-plaintext on loopback: the supervisor drops the three TLS variables from the
-child's environment.
+plaintext on loopback: the supervisor drops the three TLS variables and
+`TAU_HOST_PROXY_LISTEN` from the child's environment. Listeners beyond it are
+[network access](#network-access), which the host reads from its own settings.
+
+**Renewal.** A running host re-reads its certificate when the files change on
+disk (checked every minute) and on `connections-reload-certificate`, and swaps
+it into its listeners without closing a connection (`HostTlsReloader`). A pair
+that does not load leaves the old certificate in place and is not tried again
+until the files change once more. A self-signed certificate due for renewal is
+renewed the same way. A certificate of the operator's own draws a warning two
+weeks before it runs out; `tailscale cert`, for one, lasts 90 days.
 
 **Client side.** `TAU_HOST_URL=wss://machine:port` is trusted in this order
 (`src/main/host-tls-trust.ts`):
@@ -304,6 +315,55 @@ way. A refused page carries no token.
 The browser client has no pin of its own: it meets a self-signed host's
 certificate as a browser warning, and its fingerprint is what the host
 printed.
+
+## Network access
+
+Settings → Connections → Network access opens listeners beside the host's own
+(`src/main/host-network.ts`). The host reads the settings from
+`<userData>/network.json` (0o600) and applies a change at once: a listener
+opens or closes in the running process, and closing one closes every
+connection that came through it. Nothing restarts. Both switches are off by
+default and combine:
+
+| Switch | Listens on | Speaks |
+|---|---|---|
+| Local network | `[::]:<port>`, dual-stack; `0.0.0.0` on a machine without IPv6 | TLS |
+| Tailscale | each Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) on `<port>`, so the LAN sees no open port; not needed while Local network covers them | TLS |
+| Tailscale | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
+
+`port` (default 7788) and `proxyPort` (default 7789) are fixed, so a paired
+device and a `tailscale serve --bg` mapping find the host again after a
+restart. The TLS certificate is the self-signed one of [TLS](#tls) or one of
+the user's own (`certificate`); a pair that does not load is refused before
+it is kept. A listener that cannot open (a port in use, a certificate that
+does not load, no Tailscale address yet) is reported in `problems`, never
+replaced by a plaintext one. The host looks again every minute, so a
+Tailscale address that appears later is served then.
+
+**Listener trust** (`src/main/host-local-files.ts`). Every listener tells
+the transport what it may conclude about a peer:
+
+- `loopback`, the host's own listener: a 127.0.0.1 peer is this machine. It
+  alone may be told `local-files` (with `TAU_HOST_LOCAL_FILES=1`), counts as
+  a local window for `callClient`, and gets the larger pairing burst.
+- `network`: nothing is local, whatever the address.
+- `proxy`: bound on loopback, yet every peer is remote, because a proxy
+  delivers them all from 127.0.0.1. No `local-files`, no local window, a
+  strict pairing limit of its own, and the peer's address is the last
+  `X-Forwarded-For` hop, the one the proxy added.
+
+A hand-started host opens a proxy listener of its own with
+`TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>` (loopback only) and prints
+`tau-host proxy listener on http://…`.
+
+**Endpoints.** `connections-list` names every URL a device may use, best
+first, each with a `kind` a device can choose by: `lan` (with its
+`interface`, IPv4 before IPv6), `mdns` (`<name>.local`: macOS's
+LocalHostName, else the host name), `magicdns`, `tailscale` and `loopback`.
+Link-local addresses are left out. The MagicDNS name comes from a reverse
+lookup of the machine's own Tailscale address at 100.100.100.100, so nothing
+runs the Tailscale CLI; names are looked up only once a listener is beyond
+loopback. A pairing link carries one URL per endpoint.
 
 ## The window is always a client
 

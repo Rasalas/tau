@@ -308,6 +308,21 @@ when each was last active — and revokes one, which closes its open connection 
 (a browser paired before tokens of their own, say); paired clients keep theirs. A
 paired client cannot use the page: managing access takes the host token.
 
+**Network access** on the same page lets the app's own host take other devices, with
+no environment variables and no restart. Two switches, off by default, combine:
+**Local network** listens on every interface, **Tailscale** only on the machine's
+Tailscale addresses, so the port stays closed on the LAN. Both use a fixed port (7788
+unless you change it) and speak TLS only: the self-signed certificate, or one of your
+own (**Use Own…**, a certificate and key such as `tailscale cert` writes). Tau reads
+that certificate again when its files change, so a renewal needs no restart; **Reload**
+does it at once. Tailscale also opens a plain listener on `127.0.0.1:7789` for a proxy
+on this machine, such as `tailscale serve`; everything that arrives through it counts
+as a remote device, although it comes from 127.0.0.1. The page lists every address a
+device may use, labelled LAN, `.local`, Tailscale, MagicDNS or IPv6, and a pairing link
+carries all of them. Turning a switch off closes its listener and every connection
+that came through it. A host you start by hand opens a proxy listener with
+`TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>`. The installed app ships the web client.
+
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it
 can draw. A browser has no editor and no Electron window, so contributions that need one
