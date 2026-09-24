@@ -697,9 +697,12 @@ process keeps the rest:
   4401 is final (the token was revoked or expired there), and so is a
   certificate other than the pinned one.
 - **Pairing** through [Pairing over the socket](#pairing-over-the-socket): with a
-  link's code and fingerprint, or from a bare address with the certificate it
-  presents pinned for the attempt. The digits are bound to that certificate
-  either way.
+  link's code and fingerprint, from a bare address with the certificate it
+  presents pinned for the attempt, or without a link from a machine a
+  [Bonjour](#bonjour) search found, pinned to its record's `fp`
+  (`environments-discover` runs `connections-discover` on the window's own host,
+  then `environments-pair [{ nearby: <host id> }]`). The digits are bound to that
+  certificate either way.
 - **Moving the page**: `environments-open [id, target?]` attaches a second
   `WindowHost` (uplink only, no window halves) to the machine and loads the page
   with `?host=<its socket>&token=<its client token>&environment=<id>`; `target`
@@ -715,9 +718,16 @@ machine's pinned certificate for its host names only, and drops `Origin` on
 sockets to saved machines, because a host lets a `file://` page in over loopback
 only.
 
-A hello reply now names the machine: `host: { id, name }`, its
-`<userData>/host-id` and host name. A client that saved the machine knows it
-again whatever address reached it.
+A hello reply now names the machine: `host: { id, name, endpoints? }`, its
+`<userData>/host-id`, host name, and the addresses its network listeners have
+now (`{ url, kind }`, nothing on loopback; refreshed with the minute's network
+poll). A client that saved the machine knows it again whatever address reached
+it, and follows it: the saved LAN addresses become the ones named, while names,
+Tailscale addresses, typed ones and the one that just answered stay. A Bonjour
+record with the pinned fingerprint does the same.
+
+`environments-set-preferences [{ reopenShown }]` keeps whether the window shows
+the machine it showed last again at start; the catalog remembers which one.
 
 ## Workspace identity
 
