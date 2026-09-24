@@ -1,5 +1,6 @@
 // Required into T3 Code's Electron main process through NODE_OPTIONS (see apps.mjs): the same
 // no-focus rules as Tau's TAU_NO_FOCUS, without touching T3's checkout. Only the main process acts.
+/* oxlint-disable eslint/no-underscore-dangle -- Module._load is the one hook that runs after Electron's init. */
 if (process.type === "browser") {
   // Children (T3's server, the codex stand-in) start without the preload.
   delete process.env.NODE_OPTIONS;
