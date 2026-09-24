@@ -692,6 +692,8 @@ async function scenario({ tls }) {
       if (!(refusedOld instanceof HostCertificateRefusedError)) fail(`the old certificate pin was not refused after the renewal: ${refusedOld}`);
       step("tls: a renewed certificate keeps the key", "the key pin connects, the old certificate pin is refused");
 
+      // The smoke's host takes a new port at each start; its entry moves along, as the address would stay.
+      await knownHosts.remember(hostEndpoint(host.url).key, migrated);
       const keyTrust = await establishHostTrust(host.url, { knownHosts, confirm: async () => false });
       await windowHello(host.url, token, keyTrust);
       const base64 = `sha256/${Buffer.from(host.publicKey.replace(/:/gu, ""), "hex").toString("base64")}`;
