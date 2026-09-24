@@ -194,3 +194,16 @@ describe("Workspace Kit thread worktrees", () => {
     expect(workspaceStore.workspaceMode()).toBe("current");
   });
 });
+
+describe("Workspace Kit changes after a turn", () => {
+  it("rereads the changes when another thread's turn ends, whose tools this client is not sent", async () => {
+    const getChanges = vi.fn(async () => ({ files: [], additions: 0, deletions: 0 }));
+    const workspaceStore = storeOver({ getChanges });
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "shown", draftPending: false });
+    await vi.waitFor(() => expect(getChanges).toHaveBeenCalled());
+    getChanges.mockClear();
+    workspaceStore.turnSettled("background");
+    await vi.waitFor(() => expect(getChanges).toHaveBeenCalledTimes(1));
+    expect(workspaceStore.getSnapshot().turnSettled).toBe(false);
+  });
+});
