@@ -150,6 +150,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const [armed, setArmed] = useState<ReadonlySet<TouchModifier>>(new Set());
   const [fontSize, setFontSize] = useCompactFontSize();
   const more = useRef<HTMLButtonElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | undefined>(undefined);
   const modifiers = useRef<ReadonlySet<TouchModifier>>(new Set());
 
@@ -166,6 +167,8 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const shownId = [picked, focusedPane(layout), ...ids].find((id): id is string => Boolean(id && ids.includes(id)));
   const shown = sessions.find((session) => session.id === shownId);
   const exited = shown?.exitCode !== undefined;
+  // The chip of the shell on screen stays in view when the strip overflows.
+  useEffect(() => { strip.current?.querySelector<HTMLElement>("[aria-selected=true]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }, [shownId]);
 
   const arm = (next: ReadonlySet<TouchModifier>) => {
     modifiers.current = next;
@@ -287,7 +290,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
 
   return <section className="panel-body terminal-compact">
     <header className="terminal-compact-header">
-      <div className="terminal-compact-shells" role="tablist" aria-label="Terminals">
+      <div ref={strip} className="terminal-compact-shells" role="tablist" aria-label="Terminals">
         {ids.map((id) => {
           const session = sessions.find((entry) => entry.id === id)!;
           const place = placeOf(session, activeSessionId);

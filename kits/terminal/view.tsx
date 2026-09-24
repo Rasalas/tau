@@ -206,8 +206,14 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         const sent = touchRef.current ? touchRef.current.filterInput(data) : data;
         void terminalKit.input({ id, data: sent }).catch(report);
       });
+      // A panel host may still be detached when the view mounts, and a detached element has no tokens.
+      let themed = element.isConnected;
       const refit = () => {
         if (disposed || !element.clientWidth || !element.clientHeight) return;
+        if (!themed) {
+          instance.options.theme = themeFrom(element);
+          themed = true;
+        }
         addon.fit();
         if (running.current) void terminalKit.resize({ id, cols: instance.cols, rows: instance.rows }).catch(report);
       };
