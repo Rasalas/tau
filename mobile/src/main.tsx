@@ -40,4 +40,12 @@ async function boot(): Promise<void> {
   if (__TAU_AUTOMATION__) void import("./dev-automation").then(({ startAutomation }) => startAutomation(bridge, device, Number(__TAU_AUTOMATION__)));
 }
 
-void boot();
+/** The app could not even start: say so on screen instead of staying blank. */
+function fatal(error: unknown): void {
+  const root = document.getElementById("root")!;
+  root.className = "shell-fatal";
+  root.textContent = `Tau could not start: ${error instanceof Error ? error.message : String(error)}`;
+}
+
+window.addEventListener("error", (event) => { if (!document.getElementById("root")?.hasChildNodes()) fatal(event.error ?? event.message); });
+void boot().catch(fatal);

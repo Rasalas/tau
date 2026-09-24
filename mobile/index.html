@@ -6,8 +6,9 @@
     <meta name="theme-color" content="#11110f" />
     <!-- The page never reaches a host itself: every socket is a native one that
          pins the host's certificate. `blob:` is how a kit bundle the host sent
-         as source becomes a module. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'" />
+         as source becomes a module. WebKit's 'self' does not cover the app's
+         own scheme, so the origins are named (capacitor: on iOS, https: on Android). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost https://localhost; script-src 'self' capacitor://localhost https://localhost blob:; style-src 'self' capacitor://localhost https://localhost 'unsafe-inline'; font-src 'self' capacitor://localhost https://localhost; img-src 'self' capacitor://localhost https://localhost data: blob:; connect-src 'self' capacitor://localhost https://localhost" />
     <title>Tau</title>
   </head>
   <body>

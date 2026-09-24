@@ -134,3 +134,5 @@ html, body { margin: 0; background: var(--shell); }
 .shell-dialog > header { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 16px; }
 .shell-dialog h2 { flex: 1; margin: 0; font: 650 18px var(--sans); }
 .shell-dialog > p { margin: 4px 16px 4px; font: 15px/1.5 var(--sans); color: var(--ink-3); }
+
+.shell-fatal { padding: calc(24px + env(safe-area-inset-top, 0px)) 24px; font: 15px/1.5 var(--sans); color: var(--ink); }
