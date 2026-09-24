@@ -270,7 +270,11 @@ const context: WorkerHostExtensionContext = {
   registerCommand: (name, handler, options) => {
     if (commands.has(name)) throw new Error(`Host extension ${boot.id}: command "${name}" registered twice`);
     commands.set(name, handler);
-    send({ t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [], ...(options?.access === "read" || options?.access === "owner" ? { access: options.access } : {}) });
+    send({
+      t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [],
+      ...(options?.access === "read" || options?.access === "owner" ? { access: options.access } : {}),
+      ...(options?.audit ? { audit: { label: options.audit.label, automatic: options.audit.automatic } } : {}),
+    });
     return () => {
       if (commands.get(name) !== handler) return;
       commands.delete(name);

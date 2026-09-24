@@ -217,6 +217,7 @@ async function main(): Promise<void> {
     // No details on the wire: only an owner may ask connections-list what changed.
     onChange: () => { publish({ type: "connections-changed" }); terminalPairing?.(); clients.devicesChanged(); },
     audit: (entry) => (entry.allowed ? hostLog.info("access.action", entry) : hostLog.warn("access.refused", entry)),
+    threadTitle: (threadId) => started.current()?.threadTitle(threadId),
   });
   clients.setDeviceSource(() => access.devices());
   // Requests nobody answered and tokens unused past their timeout end here, not only at the next hello.

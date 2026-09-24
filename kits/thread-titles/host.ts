@@ -16,7 +16,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
     permissions: ["sessions"],
     activate(context: HostExtensionContext) {
       const { services } = context;
-      context.registerCommand("generate", async (input) => {
+      const generate = async (input: unknown, regenerate: boolean) => {
         const fields = record(input);
         // The settings' model wins; else a small one close to the thread's (`prefer`), the thread's own only when none is small.
         const provider = text(fields.provider);
@@ -24,7 +24,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
         const preferred = record(fields.prefer);
         const prefer = text(preferred.provider) && text(preferred.id) ? { provider: text(preferred.provider), id: text(preferred.id) } : undefined;
         const chooseModel = async (hint = prefer) => provider && modelId ? { provider, id: modelId } : smallCompletionModel(services, hint, { elsePrefer: true });
-        const force = fields.force === true;
+        const force = regenerate || fields.force === true;
         const sessionId = typeof fields.sessionId === "string" ? fields.sessionId : undefined;
         const prompt = typeof fields.prompt === "string" ? fields.prompt : "";
         if (services.runtimeOwner() === "pi") {
@@ -67,7 +67,10 @@ export function createThreadTitlesHostExtension(): HostExtension {
         await services.setThreadTitle(thread.sessionId, title, "generated");
         services.log("title.generated", title);
         return { title };
-      });
+      };
+      // A client titles a new thread on its own after its first prompt; the prompt stays the device's last change.
+      context.registerCommand("generate", (input) => generate(input, false), { audit: { label: "titled a thread", automatic: true } });
+      context.registerCommand("regenerate", (input) => generate(input, true), { audit: { label: "regenerated a thread title" } });
     },
   };
 }

@@ -22,6 +22,7 @@ import {
 } from "../shared/pairing.js";
 import { describeUserAgent, deviceLabel, displayAddress } from "./client-device.js";
 import type { HostPairedDevice } from "./host-extensions.js";
+import type { AuditedCall } from "./host-invocation.js";
 import type { HostTokenFile } from "./host-token.js";
 import { createAuthRateLimiter } from "./host-rate-limit.js";
 import type { ListenerTrust } from "./host-local-files.js";
@@ -49,6 +50,16 @@ export interface AccessAuditEntry {
   label: string;
   action: string;
   allowed: boolean;
+  /** Sent on its own after something the user did; not the device's last change. */
+  automatic?: boolean;
+}
+
+/** What the device last changed, as its record keeps it. */
+interface StoredAction {
+  action: string;
+  label?: string;
+  threadId?: string;
+  at: string;
 }
 
 /** Where a pairing request's outcome goes: the socket that asked. False when it is gone. */
@@ -72,7 +83,7 @@ interface StoredClient {
   pairedFrom?: string;
   lastSeenAt?: string;
   lastAddress?: string;
-  lastAction?: { action: string; at: string };
+  lastAction?: StoredAction;
 }
 
 interface PendingLink {
@@ -120,6 +131,8 @@ export interface HostAccessOptions {
   onChange?(): void;
   /** Every change a paired device made, and every one it was refused. */
   audit?(entry: AccessAuditEntry): void;
+  /** The current title of a thread a last change names; read when the list is asked for, never stored. */
+  threadTitle?(threadId: string): string | undefined;
 }
 
 const STORE_VERSION = 2;
@@ -238,14 +251,25 @@ export class HostAccess {
     return this.clients.get(credential.clientId)?.access ?? "read-only";
   }
 
-  /** A paired device changed something, or was refused: the row shows the last change, the log every one. */
-  audit(connectionId: string, action: string, allowed: boolean): void {
+  /**
+   * A paired device changed something, or was refused: the row shows the last
+   * change, the log every one. An automatic call (a title after a prompt) leaves
+   * the last change to what the user did.
+   */
+  audit(connectionId: string, call: AuditedCall, allowed: boolean): void {
     const credential = this.live.get(connectionId)?.credential;
     if (credential?.kind !== "client") return;
     const client = this.clients.get(credential.clientId);
     if (!client) return;
-    if (allowed) client.lastAction = { action, at: new Date(this.now()).toISOString() };
-    this.options.audit?.({ clientId: client.id, label: client.label, action, allowed });
+    if (allowed && !call.automatic) {
+      client.lastAction = {
+        action: call.action,
+        ...(call.label ? { label: call.label } : {}),
+        ...(call.threadId ? { threadId: call.threadId } : {}),
+        at: new Date(this.now()).toISOString(),
+      };
+    }
+    this.options.audit?.({ clientId: client.id, label: client.label, action: call.action, allowed, ...(call.automatic ? { automatic: true } : {}) });
   }
 
   detach(connectionId: string): void {
@@ -550,7 +574,7 @@ export class HostAccess {
         ...(expiresAt !== undefined ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
         ...(client.lastSeenAt ? { lastSeenAt: client.lastSeenAt } : {}),
         ...(client.lastAddress ? { lastAddress: client.lastAddress } : {}),
-        ...(client.lastAction ? { lastAction: client.lastAction } : {}),
+        ...(client.lastAction ? { lastAction: this.describeAction(client.lastAction) } : {}),
         ...(proxyUsers.has(client.id) ? { proxyUser: proxyUsers.get(client.id)! } : {}),
       };
     });
@@ -576,6 +600,15 @@ export class HostAccess {
   }
 
   /** When the token stops working if unused; undefined when it never does. */
+  /** The stored change as the list shows it: the thread by its title now, which a rename or a generated title may have changed. */
+  private describeAction(stored: StoredAction): NonNullable<UiPairedClient["lastAction"]> {
+    let thread: string | undefined;
+    try {
+      thread = stored.threadId ? this.options.threadTitle?.(stored.threadId)?.trim() : undefined;
+    } catch { /* the list does without the title */ }
+    return { action: stored.action, ...(stored.label ? { label: stored.label } : {}), ...(thread ? { thread } : {}), at: stored.at };
+  }
+
   private expiresAt(client: StoredClient): number | undefined {
     if (client.idleTimeoutDays === null) return undefined;
     const last = Date.parse(client.lastSeenAt ?? client.pairedAt);
@@ -665,7 +698,7 @@ function decodeClients(value: unknown): StoredClient[] | undefined {
     if (typeof id !== "string" || !/^[0-9a-f]{24}$/u.test(id)) continue;
     if (typeof secretHash !== "string" || !/^[0-9a-f]{64}$/u.test(secretHash)) continue;
     const device = entry.device as UiClientDevice | undefined;
-    const lastAction = entry.lastAction as { action?: unknown; at?: unknown } | undefined;
+    const lastAction = entry.lastAction as { action?: unknown; label?: unknown; threadId?: unknown; at?: unknown } | undefined;
     clients.push({
       id,
       secretHash,
@@ -679,7 +712,14 @@ function decodeClients(value: unknown): StoredClient[] | undefined {
       ...(typeof entry.lastSeenAt === "string" ? { lastSeenAt: entry.lastSeenAt } : {}),
       ...(typeof entry.lastAddress === "string" ? { lastAddress: entry.lastAddress } : {}),
       ...(lastAction && typeof lastAction.action === "string" && typeof lastAction.at === "string"
-        ? { lastAction: { action: lastAction.action, at: lastAction.at } } : {}),
+        ? {
+          lastAction: {
+            action: lastAction.action,
+            ...(typeof lastAction.label === "string" ? { label: lastAction.label } : {}),
+            ...(typeof lastAction.threadId === "string" ? { threadId: lastAction.threadId } : {}),
+            at: lastAction.at,
+          },
+        } : {}),
     });
   }
   return clients;
