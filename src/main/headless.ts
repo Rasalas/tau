@@ -194,7 +194,8 @@ async function main(): Promise<void> {
       // only way a host without a window of its own reaches one. The folder
       // picker is the window's own, and only the asking client's window shows it.
       platform: {
-        callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
+        callClient: (extensionId, command, input, options) => clientCalls.call(extensionId, command, input, options),
+        clientWindow: (extensionId) => clientCalls.clientWindow(extensionId),
         pickDirectory: (options) => clientCalls.pickDirectory(options),
       },
       sessionUsageCachePath: join(userData, "session-usage.json"),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HostClientCall } from "../shared/host-transport.js";
-import { ClientCalls } from "./client-calls.js";
+import { ClientCalls, PINNED_WINDOW_GONE } from "./client-calls.js";
 import { runAsCaller } from "./host-invocation.js";
 import { WindowExtensionRegistry } from "./window-extensions.js";
 
@@ -176,6 +176,55 @@ describe("which connection a call goes to", () => {
     });
     later?.();
     expect(sent.map((call) => [call.command, call.to])).toEqual([["during", "mac-window"], ["after", "win"]]);
+  });
+});
+
+describe("calls for what lives on the host's machine", () => {
+  it("skips the caller's window on another machine and asks the one on the host", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("mac-window", { local: false, windowId: "w-mac", windowHalves: [PREVIEW] });
+    pending.attach("mac-page", { local: false, windowId: "w-mac" });
+    void pending.call(PREVIEW, "open-view", undefined, { window: "host" }, "mac-page").catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["win"]);
+  });
+
+  it("keeps the caller's own window when it is on the host's machine", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("first", hostWindow);
+    pending.attach("first-page", { local: true, windowId: "w-host" });
+    pending.attach("second", { ...hostWindow, windowId: "w-second" });
+    void pending.call(PREVIEW, "open-view", undefined, { window: "host" }, "first-page").catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["first"]);
+  });
+
+  it("names the window it would reach, never a paired client's", () => {
+    const { calls: pending } = calls(10_000);
+    pending.attach("phone", { local: true, pairedClient: "c1", windowId: "w-phone", windowHalves: [PREVIEW] });
+    expect(pending.clientWindow(PREVIEW, "phone")).toBeUndefined();
+    pending.attach("win", hostWindow);
+    expect(pending.clientWindow(PREVIEW, "phone")).toBe("w-host");
+    expect(pending.clientWindow(PREVIEW)).toBe("w-host");
+  });
+
+  it("sends a pinned call to that window whoever asks, and after it reconnects", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("first", hostWindow);
+    pending.attach("second", { ...hostWindow, windowId: "w-second" });
+    void pending.call(PREVIEW, "place", undefined, { window: "w-host" }).catch(() => undefined);
+    void pending.call(PREVIEW, "place", undefined, { window: "w-host" }, "second").catch(() => undefined);
+    pending.detach("first");
+    pending.attach("first-again", hostWindow);
+    void pending.call(PREVIEW, "place", undefined, { window: "w-host" }).catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["first", "first", "first-again"]);
+  });
+
+  it("rejects a pinned call at once when that window is gone, and never pins a paired client", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("second", { ...hostWindow, windowId: "w-second" });
+    pending.attach("impostor", { local: true, pairedClient: "c1", windowId: "w-host", windowHalves: [PREVIEW] });
+    await expect(pending.call(PREVIEW, "place", undefined, { window: "w-host" })).rejects.toThrow(PINNED_WINDOW_GONE);
+    expect(sent).toEqual([]);
   });
 });
 

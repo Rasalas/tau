@@ -6,6 +6,7 @@ import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.
 import type { PreviewSnapshot } from "./remote-surface.js";
 import { PreviewRecorder } from "./recorder.js";
 import { previewChord } from "./viewport.js";
+import { cdpInputCommands, type PreviewPageInput } from "./remote-input.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const DEFAULT_PARTITION = "persist:tau-preview";
@@ -95,6 +96,18 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   // Chromium keeps zoom per origin; the preview's zoom is the view's, so it follows every navigation.
   const applyZoom = () => {
     if (!contents.isDestroyed() && Math.abs(contents.getZoomFactor() - pageZoom) > 0.001) contents.setZoomFactor(pageZoom);
+  };
+  let focusEmulated = false;
+  // DevTools-protocol input is trusted and reaches a hidden view without taking the window's focus.
+  const sendInput = async (input: PreviewPageInput): Promise<void> => {
+    const tools = contents.debugger;
+    if (!tools.isAttached()) tools.attach("1.3");
+    if (!focusEmulated) {
+      // The page must think it has focus, or a field it focuses drops the typed text.
+      await tools.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+      focusEmulated = true;
+    }
+    for (const [method, params] of cdpInputCommands(input)) await tools.sendCommand(method, params);
   };
   const applyAppearance = async (): Promise<void> => {
     const tools = contents.debugger;
@@ -215,6 +228,14 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       if (action === "take") return active.take();
       recorder = undefined;
       return active.stop();
+    },
+    async input(event: PreviewPageInput) {
+      if (destroyed) throw new Error("The preview is closed.");
+      try {
+        await sendInput(event);
+      } catch (error) {
+        throw new Error(`The page did not take the input: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+      }
     },
     pressKey(key: string) {
       contents.focus();
@@ -355,6 +376,8 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
           const frameRate = typeof options.frameRate === "number" ? options.frameRate : undefined;
           return open().record(action, frameRate === undefined ? undefined : { frameRate }).then((result) => snapshot(surface!, result));
         }
+        case "input":
+          return open().input!(options.event as PreviewPageInput).then(() => snapshot(surface!));
         case "press-key":
           open().pressKey(String(options.key ?? ""));
           return snapshot(open());

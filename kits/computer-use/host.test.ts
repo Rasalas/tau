@@ -59,7 +59,7 @@ async function activate(options: { driver?: RuntimeExtensionFactory; callClient?
     await fire("session_start", {}, sessionContext(sessionId));
     return { tools, fire: (event: string, payload: Record<string, unknown>) => fire(event, payload, sessionContext(sessionId)) };
   };
-  return { contributions, loadRuntimeExtension, invoke, runtime, events };
+  return { contributions, loadRuntimeExtension, invoke, runtime, events, registry };
 }
 
 describe("Computer Use host extension", () => {
@@ -124,6 +124,41 @@ describe("Computer Use host extension", () => {
     expect(execute).toHaveBeenCalledWith("tau-screen-front", { pid: 7, window_id: 3 }, expect.any(AbortSignal), undefined, expect.objectContaining({ cwd: "/project" }));
   });
 
+  it("lets a device click into the thread's window through its driver, and a Read-only one only look", async () => {
+    const calls: Array<{ name: string; params: unknown }> = [];
+    const shot = Buffer.alloc(40);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(shot, 0);
+    shot.writeUInt32BE(200, 16);
+    shot.writeUInt32BE(100, 20);
+    const data = shot.toString("base64");
+    const driver = ((pi: { on: (event: string, handler: Handler) => void; registerTool: (tool: unknown) => void }) => {
+      pi.on("session_start", () => {
+        for (const name of ["computer_use_click", "computer_use_get_window_state"]) {
+          pi.registerTool({ name, execute: async (_id: string, params: unknown) => {
+            calls.push({ name, params });
+            return name.endsWith("get_window_state") ? { content: [{ type: "image", data, mimeType: "image/png" }], details: {} } : { content: [] };
+          } });
+        }
+      });
+    }) as unknown as RuntimeExtensionFactory;
+    const { runtime, invoke, registry } = await activate({ driver });
+    const thread = await runtime("thread-1");
+    await thread.fire("tool_result", { toolName: "computer_use_get_window_state", toolCallId: "a", input: { pid: 7, window_id: 3 }, content: [{ type: "image", data, mimeType: "image/png" }], details: {}, isError: false });
+    const before = (await invoke("screen-state", { threadId: "thread-1" }) as ScreenState).frame!.seq;
+
+    await invoke("screen-input", { threadId: "thread-1", input: { kind: "click", x: 0.5, y: 0.5 } });
+    expect(calls).toEqual([
+      { name: "computer_use_click", params: { pid: 7, window_id: 3, x: 100, y: 50 } },
+      { name: "computer_use_get_window_state", params: { pid: 7, window_id: 3 } },
+    ]);
+    expect((await invoke("screen-state", { threadId: "thread-1" }) as ScreenState).frame!.seq).toBeGreaterThan(before);
+
+    const readOnly = { kind: "workbench-client", connection: "phone", pairedClient: "c1", readOnly: true } as const;
+    await expect(registry.invoke(COMPUTER_USE_EXTENSION_ID, "screen-input", { threadId: "thread-1", input: { kind: "key", key: "Enter" } }, readOnly)).rejects.toThrow();
+    await expect(registry.invoke(COMPUTER_USE_EXTENSION_ID, "screen-state", { threadId: "thread-1" }, readOnly)).resolves.toMatchObject({ threadId: "thread-1" });
+    expect(calls).toHaveLength(2);
+  });
+
   it("records only the window the feed names, and says so when there is no window client", async () => {
     // The host binds the extension id in front of what the kit passes.
     const callClient = vi.fn(async (_extensionId: string, command: string) => command === "access" ? "denied" : "granted");
@@ -133,7 +168,8 @@ describe("Computer Use host extension", () => {
     await expect(invoke("screen-live-start", { threadId: "thread-1" })).rejects.toThrow(/drives no window/u);
     await thread.fire("tool_call", { toolName: "computer_use_click", toolCallId: "a", input: { pid: 7, window_id: 3, x: 1, y: 1 } });
     await invoke("screen-live-start", { threadId: "thread-1", windowId: 999 });
-    expect(callClient).toHaveBeenLastCalledWith(COMPUTER_USE_EXTENSION_ID, "live-start", { windowId: 3 });
+    // Always a window on the host's machine: the driven window and its capture live there.
+    expect(callClient).toHaveBeenLastCalledWith(COMPUTER_USE_EXTENSION_ID, "live-start", { windowId: 3 }, { window: "host" });
     expect(await invoke("screen-access")).toBe("denied");
 
     const offline = await activate();

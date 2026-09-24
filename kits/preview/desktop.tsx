@@ -16,10 +16,14 @@ import {
   type PreviewBrowserService,
   type PreviewCookieImportService,
 } from "./protocol.js";
-import { PreviewPanel } from "./panel.js";
+import { DesktopPreviewPanel, createMiniBarRegion, createRemotePreviewPanel } from "./remote-panel.js";
+import { watchFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
 import { activeThread, holdScreenService, previewView, screenService } from "./screen-store.js";
-import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
+import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, drawsFrames, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
+
+const pageFrames: LiveFrameSource = async (maxWidth, since) =>
+  await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
 
 /** T3 Code's `preview.focusUrl`: the panel's address field, its text selected. */
 function focusAddress(app: Pick<WorkbenchActions, "openPanel">): void {
@@ -40,9 +44,13 @@ export const previewExtension: DesktopExtension = {
   name: "Preview",
   activate(plugin) {
     const disconnect = connectPreviewHost(plugin.host);
-    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["desktop"], Component: PreviewPanel });
+    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["desktop"], Component: DesktopPreviewPanel });
+    // Elsewhere the page stays on the host: a browser and a phone show its frames and drive it from there.
+    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["web"], Component: createRemotePreviewPanel(false) });
+    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, profiles: ["compact"], Component: createRemotePreviewPanel(true) });
     plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, profiles: ["desktop"], Component: PreviewFollower });
-    plugin.registerRegion({ id: "preview.mini-player", placement: "composer-above", order: 61, profiles: ["desktop"], Component: createMiniPlayerRegion(plugin.preferences) });
+    plugin.registerRegion({ id: "preview.mini-player", placement: "composer-above", order: 61, profiles: ["desktop", "web"], Component: createMiniPlayerRegion(plugin.preferences) });
+    plugin.registerRegion({ id: "preview.mini-bar", placement: "composer-above", order: 61, profiles: ["compact"], Component: createMiniBarRegion(plugin.preferences) });
     plugin.registerSettingsPage({
       id: "preview.settings",
       label: "Preview",
@@ -70,8 +78,9 @@ export const previewExtension: DesktopExtension = {
         if (failure) throw new Error(failure);
       },
       jump: async (target, app) => {
-        if (target.kind === "browser") {
-          previewView.set("browser");
+        // Away from the host's machine, raising a window there helps nobody: the Preview here shows and drives it.
+        if (target.kind === "browser" || drawsFrames()) {
+          previewView.set(target.kind === "browser" ? "browser" : "screen");
           app.openPanel(PREVIEW_PANEL);
           return;
         }
@@ -79,6 +88,19 @@ export const previewExtension: DesktopExtension = {
         if (!screen) throw new Error("No agent drives an app: Computer Use is off.");
         await screen.bringToFront(target.threadId);
       },
+      watch: (target, maxWidth, onFrame) => {
+        let source: LiveFrameSource | undefined = pageFrames;
+        if (target.kind === "app") {
+          const screen = screenService.get();
+          source = screen?.viewFrame ? async (width, since) => await screen.viewFrame!(target.threadId, width, since) ?? null : undefined;
+        }
+        if (!source) {
+          onFrame(undefined);
+          return () => undefined;
+        }
+        return watchFrames(source, maxWidth, (picture) => onFrame(picture ? { url: picture.url, width: picture.width, height: picture.height } : undefined));
+      },
+      remote: () => drawsFrames(),
     });
     // A plain click on a link in a reply opens it here when Settings → Preview says so.
     const stopLinks = followLinkTarget(

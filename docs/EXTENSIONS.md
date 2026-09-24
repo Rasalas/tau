@@ -1023,7 +1023,12 @@ Scripts opens a script's `previewUrl` through it, and falls back to
 (new in API 1.12.0) brings forward what an agent drives: `{ kind: "browser" }`
 the Preview panel with the page, `{ kind: "app", threadId }` the window that
 thread's Computer Use driver steers, raised by the driver itself; a handover
-that asks the user to take over uses it. Preview Kit also publishes
+that asks the user to take over uses it. On a client away from the host's
+machine (a phone, a browser, a window on another computer) `jump` opens the
+Preview there instead, where the user drives the page or window by tapping and
+typing, and `remote()` (new in API 1.13.0) says so. `watch(target, maxWidth, onFrame)`
+(new in API 1.13.0) delivers a small live picture of the page or of a thread's
+driven window while the calling page is visible, until the returned stop. Preview Kit also publishes
 `tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
 opens its cookie import dialog with that site filtered to and ticked and that
 Preview profile as the target, and answers the import's result, or `undefined`
@@ -1052,7 +1057,14 @@ every change; `frame(threadId, seq?)` fetches the picture itself (base64; the
 host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
 Screen Recording status, read without asking) and `openAccessSettings` do what
 they say, and `live(threadId, onFrame, ended?)` records that one window a few
-frames a second where the system already allows it. Preview Kit's Screen view
+frames a second where the system already allows it. For a device away from the
+host (new in API 1.13.0), `viewFrame(threadId, maxWidth, since?)` answers a
+frame at that width — the live capture where allowed, else the driver's
+screenshot scaled down — or only its id while it is unchanged, and
+`input(threadId, input)` clicks, scrolls, types or presses Enter, Tab,
+Backspace, Escape or an arrow in that window through the thread's own driver,
+at the pid and window the feed names and nowhere else; a Read-only device may
+call the first, not the second. Preview Kit's Screen view
 draws it; the types are in `kits/computer-use/protocol.ts`. Its host commands
 `screen-state` and `screen-frame` also answer Evidence Kit (`callers`), which
 fetches each new frame before the feed lets go of it after three. Evidence Kit publishes
@@ -2132,7 +2144,21 @@ client, `callClient` asks that client's own window; otherwise, and when that
 client has no window with this half (a browser, a phone), it asks the Tau
 window on the host's machine. With neither, the call rejects at once instead
 of waiting for a timeout. A paired device is only ever asked for calls its own
-requests caused. `services.pickDirectory` is stricter: only the asking
+requests caused.
+
+Two options narrow that (new in API 1.13.0). `callClient(command, input, { window: "host" })`
+asks only a Tau window on the host's own machine — the caller's, when it is
+one, else the newest — never a window on another computer: use it for work on
+what lives on the host, like a window an agent drives. `services.clientWindow()`
+names the window such a call would reach now; pass that id as
+`{ window: id }` and every later call goes to exactly that window, whichever
+client or turn asks, or rejects at once with "The window this was pinned to
+is gone." once it closed. A kit whose half holds a view pins it where the view
+was made, so a panel on one device and an agent's tool in a turn reach the
+same view. Preview Kit and Computer Use share `kits/_host-window/pinned-calls.ts`
+for that: it pins on the first call and moves to the next window when the
+pinned one is gone. `clientWindow` is absent before 1.13.0 and in a worker; an
+older host ignores the options. `services.pickDirectory` is stricter: only the asking
 client's window shows the dialog, so a browser or a phone gets a rejection,
 not a dialog on the host's screen.
 

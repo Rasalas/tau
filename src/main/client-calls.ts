@@ -21,12 +21,24 @@ export interface ClientPeer {
   windowHalves?: readonly string[];
 }
 
+/**
+ * Which window a call may reach (API 1.13.0). `"host"`: a window on the host's
+ * own machine only — the caller's, when it is one, else the newest — for work
+ * on what lives on this machine. A window id from `clientWindow`: exactly that
+ * window, or an immediate rejection once it is gone.
+ */
+export type ClientCallWindow = "host" | (string & {});
+
 export interface ClientCallOptions {
   /** Overrides the default for a call that waits on the user, like a dialog. */
   timeoutMs?: number;
   /** Only the caller's own window may answer; the host's window is not asked instead. */
   callerOnly?: boolean;
+  window?: ClientCallWindow;
 }
+
+/** The message a call to a pinned window that went away rejects with. */
+export const PINNED_WINDOW_GONE = "The window this was pinned to is gone.";
 
 interface PendingCall {
   /** The one connection whose answer counts. */
@@ -72,8 +84,11 @@ export class ClientCalls {
 
   /** `caller` defaults to the connection whose request is running. */
   call(extensionId: string, command: string, input?: unknown, options: ClientCallOptions = {}, caller: string | undefined = currentCaller()): Promise<unknown> {
-    const addressee = this.addressee(extensionId, caller, options.callerOnly === true);
-    if (!addressee) return Promise.reject(new Error(noWindow(extensionId, caller !== undefined && options.callerOnly === true)));
+    const addressee = this.addressee(extensionId, caller, options);
+    if (!addressee) {
+      const pinned = options.window !== undefined && options.window !== "host";
+      return Promise.reject(new Error(pinned ? PINNED_WINDOW_GONE : noWindow(extensionId, caller !== undefined && options.callerOnly === true)));
+    }
     const callId = randomUUID();
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     return new Promise<unknown>((resolve, reject) => {
@@ -87,6 +102,16 @@ export class ClientCalls {
         this.settle(callId, undefined, "The window that was asked disconnected.", addressee);
       }
     });
+  }
+
+  /**
+   * The id of the host-machine window a call with `{ window: "host" }` would
+   * reach now, for pinning later calls to it; undefined when there is none
+   * or it never said its id.
+   */
+  clientWindow(extensionId: string, caller: string | undefined = currentCaller()): string | undefined {
+    const connection = this.addressee(extensionId, caller, { window: "host" });
+    return connection === undefined ? undefined : this.peers.get(connection)?.windowId;
   }
 
   /**
@@ -117,15 +142,28 @@ export class ClientCalls {
     for (const [callId, call] of this.pending) this.settle(callId, undefined, "The host stopped waiting for this client.", call.addressee);
   }
 
-  private addressee(extensionId: string, caller: string | undefined, callerOnly: boolean): string | undefined {
+  private addressee(extensionId: string, caller: string | undefined, options: ClientCallOptions): string | undefined {
+    const { window } = options;
+    if (window !== undefined && window !== "host") return this.pinned(extensionId, window);
+    const onHost = window === "host";
     const own = caller === undefined ? undefined : this.ownWindow(caller, extensionId);
-    if (own || callerOnly && caller !== undefined) return own;
+    if (own && (!onHost || onHostMachine(this.peers.get(own)!))) return own;
+    if (options.callerOnly === true && caller !== undefined) return undefined;
     // Never a paired client's window: it gets only the calls it caused itself.
     let local: string | undefined;
     for (const [connection, peer] of this.peers) {
-      if (peer.local && peer.pairedClient === undefined && peer.windowHalves?.includes(extensionId)) local = connection;
+      if (onHostMachine(peer) && peer.windowHalves?.includes(extensionId)) local = connection;
     }
     return local;
+  }
+
+  /** A window on this machine by id; the newest connection wins after a reconnect. */
+  private pinned(extensionId: string, windowId: string): string | undefined {
+    let found: string | undefined;
+    for (const [connection, peer] of this.peers) {
+      if (peer.windowId === windowId && onHostMachine(peer) && peer.windowHalves?.includes(extensionId)) found = connection;
+    }
+    return found;
   }
 
   /** The caller itself, or the window process beside the caller's renderer, holding the same credential. */
@@ -140,6 +178,11 @@ export class ClientCalls {
     }
     return found;
   }
+}
+
+/** A window process beside the host: loopback, with the host token. */
+function onHostMachine(peer: ClientPeer): boolean {
+  return peer.local && peer.pairedClient === undefined;
 }
 
 function noWindow(extensionId: string, callerOnly: boolean): string {
