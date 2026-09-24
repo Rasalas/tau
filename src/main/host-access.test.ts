@@ -796,7 +796,7 @@ describe("the Connections methods", () => {
     const list = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
     expect(list.endpoints).toEqual([served, expect.objectContaining({ label: "This machine" })]);
     const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
-    expect(link.urls[0]).toMatchObject({ url: `https://box.tail0000.ts.net/#pair=${encodeURIComponent(link.code)}`, trustedCertificate: true });
+    expect(link.urls[0]).toMatchObject({ url: `https://box.tail0000.ts.net/#pair=${encodeURIComponent(link.code)}&k=magicdns`, trustedCertificate: true });
     expect(await endpointOrigins(service)).toEqual(["https://box.tail0000.ts.net", "http://127.0.0.1:4100"]);
   });
 });
