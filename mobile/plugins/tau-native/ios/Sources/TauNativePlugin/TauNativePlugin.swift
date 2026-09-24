@@ -19,7 +19,8 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discoveryStart", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discoveryStop", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "deviceInfo", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "deviceInfo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pushAvailable", returnType: CAPPluginReturnPromise)
     ]
 
     private let lock = NSLock()
@@ -150,5 +151,10 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
             #endif
             call.resolve(["name": UIDevice.current.name, "model": UIDevice.current.model, "platform": "ios", "virtual": virtual])
         }
+    }
+
+    /// APNs needs nothing in the app beyond the capability; the host holds the key.
+    @objc func pushAvailable(_ call: CAPPluginCall) {
+        call.resolve(["available": true])
     }
 }

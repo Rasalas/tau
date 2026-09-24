@@ -21,6 +21,7 @@
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
     "@capacitor/network": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.2",
     "tau-native": "file:plugins/tau-native"
   },
   "devDependencies": {

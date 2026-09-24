@@ -8,5 +8,10 @@
   },
   "android": {
     "adjustMarginsForEdgeToEdge": "disable"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": []
+    }
   }
 }
