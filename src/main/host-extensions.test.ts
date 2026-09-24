@@ -289,6 +289,29 @@ describe("HostExtensionRegistry", () => {
     await expect(r.invoke("caller.kit", "who", undefined, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBeNull();
   });
 
+  it("keeps an owner command to the host token on this machine, and records the refusal", async () => {
+    const { registry: r } = registry();
+    await r.activate({
+      id: "owner.kit",
+      name: "Owner Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("expose", () => "exposed", { access: "owner" });
+        ctx.registerCommand("read", () => "read");
+      },
+    });
+    const audit: Array<[string, boolean]> = [];
+    const paired = { kind: "workbench-client", connection: "conn-9", pairedClient: "phone", audit: (action: string, allowed: boolean) => audit.push([action, allowed]) } as const;
+    await expect(r.invoke("owner.kit", "expose", undefined, paired)).rejects.toMatchObject({ code: "forbidden", message: expect.stringMatching(/on this machine/u) });
+    await expect(r.invoke("owner.kit", "read", undefined, paired)).resolves.toBe("read");
+    // The host token through a LAN or proxy listener uses the host but manages nothing (ADR 0024).
+    await expect(r.invoke("owner.kit", "expose", undefined, { kind: "workbench-client", connection: "conn-2" })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(r.invoke("owner.kit", "expose", undefined, { kind: "workbench-client", connection: "conn-1", local: true })).resolves.toBe("exposed");
+    await expect(r.invoke("owner.kit", "expose")).resolves.toBe("exposed");
+    expect(audit).toEqual([["owner.kit/expose", false], ["owner.kit/read", true]]);
+    expect(r.isActive("owner.kit")).toBe(true);
+  });
+
   it("lets a Read-only device run only commands that declared they just look, and records the rest", async () => {
     const { registry: r } = registry();
     let ran = 0;

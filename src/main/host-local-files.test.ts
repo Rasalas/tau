@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import { describe, expect, it } from "vitest";
 import { HOST_CAPABILITY } from "../shared/host-transport.js";
-import { isLocalPeer, isLoopbackPeer, peerAddress, socketCapabilities } from "./host-local-files.js";
+import { isLocalPeer, isLoopbackPeer, peerAddress, proxyUser, socketCapabilities } from "./host-local-files.js";
 
 const base = [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay];
 
@@ -44,5 +44,21 @@ describe("the address of a peer", () => {
   it("falls back to the socket when the proxy forwarded nothing usable", () => {
     expect(peerAddress("proxy", request("127.0.0.1"))).toBe("127.0.0.1");
     expect(peerAddress("proxy", request("127.0.0.1", "not-an-address"))).toBe("127.0.0.1");
+  });
+});
+
+describe("the user a proxy names", () => {
+  const named = (login: string | string[]) => ({ socket: { remoteAddress: "127.0.0.1" }, headers: { "tailscale-user-login": login } }) as unknown as IncomingMessage;
+
+  it("is read behind the proxy listener only, where Serve set it and dropped what the client sent", () => {
+    expect(proxyUser("proxy", named("alice@example.com"))).toBe("alice@example.com");
+    expect(proxyUser("network", named("alice@example.com"))).toBeUndefined();
+    expect(proxyUser("loopback", named("alice@example.com"))).toBeUndefined();
+  });
+
+  it("decodes the Q-encoded form Serve sends a name outside ASCII in, and drops control characters", () => {
+    expect(proxyUser("proxy", named("=?utf-8?q?j=C3=BCrgen@example.com?="))).toBe("jürgen@example.com");
+    expect(proxyUser("proxy", named("eve\u0007@example.com"))).toBe("eve@example.com");
+    expect(proxyUser("proxy", named(""))).toBeUndefined();
   });
 });
