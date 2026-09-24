@@ -68,17 +68,28 @@ export interface ResolvedService {
   addresses: string[];
 }
 
+/**
+ * An address another device can dial: not loopback, unspecified or link-local.
+ * Resolving the `.local` name of this very machine answers 127.0.0.1 and ::1 too.
+ */
+export function isReachableAddress(address: string): boolean {
+  const lower = address.toLowerCase();
+  if (lower.includes(":")) return lower !== "::1" && lower !== "::" && !/^fe[89ab]/u.test(lower);
+  return !/^(?:127\.|0\.|169\.254\.)/u.test(lower);
+}
+
 function urlHost(address: string): string {
   return address.includes(":") ? `[${address}]` : address;
 }
 
 /**
- * The URLs a resolved record offers, best first: IPv4, then IPv6 without
- * link-local ones (a URL cannot carry their zone), then the `.local` name.
+ * The URLs a resolved record offers, best first: IPv4, then IPv6 (a URL cannot
+ * carry a link-local zone), then the `.local` name.
  */
 export function discoveredEndpoints(service: Pick<ResolvedService, "hostName" | "port" | "addresses">): PairingEndpoint[] {
-  const v4 = service.addresses.filter((address) => !address.includes(":"));
-  const v6 = service.addresses.filter((address) => address.includes(":") && !/^fe[89ab]/iu.test(address));
+  const reachable = service.addresses.filter(isReachableAddress);
+  const v4 = reachable.filter((address) => !address.includes(":"));
+  const v6 = reachable.filter((address) => address.includes(":"));
   const endpoints: PairingEndpoint[] = [...new Set([...v4, ...v6])].map((address) => ({ url: `https://${urlHost(address)}:${service.port}/`, kind: "lan" }));
   const name = service.hostName?.replace(/\.$/u, "");
   if (name) endpoints.push({ url: `https://${name.toLowerCase()}:${service.port}/`, kind: "mdns" });
@@ -97,7 +108,7 @@ export function discoveredHosts(services: readonly ResolvedService[], ownHostId?
     // A host that changed its certificate is a different one to pin.
     const key = `${record.hostId}\0${record.fingerprint}\0${service.port}`;
     const known = hosts.get(key);
-    const addresses = [...new Set([...(known?.addresses ?? []), ...service.addresses])];
+    const addresses = [...new Set([...(known?.addresses ?? []), ...service.addresses.filter(isReachableAddress)])];
     const hostName = known?.hostName ?? service.hostName?.replace(/\.$/u, "");
     hosts.set(key, {
       key,

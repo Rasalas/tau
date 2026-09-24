@@ -410,6 +410,7 @@ export interface BrowseOptions extends DiscoveryEnvironment {
   timeoutMs?: number;
   /** Addresses for a `.local` name where the tool reports only the name. */
   lookup?: (hostName: string) => Promise<string[]>;
+  logger?: HostLogger;
 }
 
 const DEFAULT_BROWSE_MS = 3_000;
@@ -421,11 +422,11 @@ async function lookupAddresses(hostName: string): Promise<string[]> {
   return answers.map((answer) => answer.address);
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T, onFailure: (reason: unknown) => void): Promise<T> {
   return new Promise<T>((resolve) => {
-    const timer = setTimeout(() => resolve(fallback), ms);
+    const timer = setTimeout(() => { onFailure(new Error(`no answer within ${ms} ms`)); resolve(fallback); }, ms);
     timer.unref?.();
-    promise.then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(fallback); });
+    promise.then((value) => { clearTimeout(timer); resolve(value); }, (error: unknown) => { clearTimeout(timer); onFailure(error); resolve(fallback); });
   });
 }
 
@@ -455,7 +456,7 @@ export async function browseServices(type: string, options: BrowseOptions = {}):
   const lookup = options.lookup ?? lookupAddresses;
   const services = await Promise.all(parsed.map(async (service) => service.addresses.length || !service.hostName
     ? service
-    : { ...service, addresses: await withTimeout(lookup(service.hostName), LOOKUP_MS, []) }));
+    : { ...service, addresses: await withTimeout(lookup(service.hostName), LOOKUP_MS, [], (error) => options.logger?.warn("host-discovery.lookup-failed", { hostName: service.hostName, error: error instanceof Error ? `${(error as { code?: string }).code ?? ""} ${error.message}`.trim() : String(error) })) }));
   const failed = !timedOut && exitCode !== 0 && services.length === 0;
   return { services, ...(failed ? { problem: errors.at(-1) ?? `Looking for machines failed (exit code ${exitCode}).` } : {}) };
 }

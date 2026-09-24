@@ -41,8 +41,8 @@ describe("service types", () => {
 });
 
 describe("a discovered host", () => {
-  it("offers IPv4, then IPv6 without link-local ones, then its .local name", () => {
-    expect(discoveredEndpoints({ hostName: "Studio.local.", port: 7788, addresses: ["fe80::1", "2001:db8::5", "192.168.1.20"] })).toEqual([
+  it("offers IPv4, then IPv6, then its .local name, never loopback or link-local", () => {
+    expect(discoveredEndpoints({ hostName: "Studio.local.", port: 7788, addresses: ["::1", "fe80::1", "127.0.0.1", "169.254.3.4", "2001:db8::5", "192.168.1.20"] })).toEqual([
       { url: "https://192.168.1.20:7788/", kind: "lan" },
       { url: "https://[2001:db8::5]:7788/", kind: "lan" },
       { url: "https://studio.local:7788/", kind: "mdns" },

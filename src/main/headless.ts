@@ -180,7 +180,7 @@ async function main(): Promise<void> {
       },
     } : {}),
     reloadCertificates,
-    discover: async (options) => ({ ...(await discoverHosts(bonjourType, { ...options, ownHostId: hostId })), serviceType: bonjourType }),
+    discover: async (options) => ({ ...(await discoverHosts(bonjourType, { ...options, ownHostId: hostId, logger: hostLog })), serviceType: bonjourType }),
   });
   const refreshOrigins = async (): Promise<void> => {
     publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
