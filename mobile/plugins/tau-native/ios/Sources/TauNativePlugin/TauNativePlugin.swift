@@ -28,6 +28,11 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     override public func load() {
         SecureStore.forgetAfterReinstall()
+        // Capacitor lets script focus raise the keyboard; the composer takes focus on every
+        // thread, so a phone would open with half its screen covered. Only a tap opens it.
+        DispatchQueue.main.async { [weak self] in
+            self?.bridge?.webView?.capacitor.setKeyboardShouldRequireUserInteraction(nil)
+        }
     }
 
     // MARK: Secure store

@@ -3,7 +3,8 @@
   "appName": "Tau",
   "webDir": "dist",
   "ios": {
-    "contentInset": "never"
+    "contentInset": "never",
+    "initialFocus": false
   },
   "android": {
     "adjustMarginsForEdgeToEdge": "disable"
