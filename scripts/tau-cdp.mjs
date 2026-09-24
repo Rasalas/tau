@@ -11,7 +11,7 @@ const INSTANCE_PATH = join(ROOT, ".tau-dev", "instance.json");
 
 // Given to every page evaluation so `eval`, `click`, `type` and `wait-for`
 // expressions can all use the same small vocabulary.
-const HELPERS = `
+export const HELPERS = `
   const all = (sel) => [...document.querySelectorAll(sel)];
   const byText = (sel, re) => all(sel).find((el) => re.test(((el.getAttribute('aria-label') ?? '') + ' ' + el.textContent).trim()));
   const rect = (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; };
@@ -22,7 +22,7 @@ const HELPERS = `
 
 // Collects a compact description of the workbench; see docs/agents/testing-the-app.md
 // for the DOM conventions this leans on (thread-row, send-button, panel-rail…).
-const SNAPSHOT_EXPR = `(() => {
+export const SNAPSHOT_EXPR = `(() => {
   const text = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
   const headings = all("h1, h2, h3").map(text).filter(Boolean);
   const buttons = all("button[aria-label]").map((el) => el.getAttribute("aria-label"));

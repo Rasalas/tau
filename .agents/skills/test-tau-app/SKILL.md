@@ -120,6 +120,29 @@ npm run cdp -- snapshot
 - Waiting for a word of the reply in the page's text is a trap: the prompt itself contains it.
 - In zsh, call `npm run cdp -- …` per step; a command kept in a variable (`C="npm run cdp --"; $C …`) is not split into words.
 
+## Recipe: remote access, from a phone
+
+For pairing, the compact client, reconnects, the proxy listener and the native app. Everything stays on loopback; the full recipe, with the proxy behind a fake Tailscale Serve and the iOS Simulator, is in `docs/agents/testing-the-app.md`, "Remote access: a phone against the instance".
+
+```
+npm run cdp:mobile -- launch --fresh                  # headless Chromium as an iPhone: touch, safe areas, coarse pointer
+npm run cdp:mobile -- pair --label "Test phone"       # link → phone → same six digits on both sides → Allow in the window
+npm run cdp:mobile -- tap "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp:mobile -- tap "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
+npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
+npm run cdp:mobile -- type "document.querySelector('textarea')" "Reply with one word: ok"
+npm run cdp:mobile -- tap "document.querySelector('.send-button[aria-label=\"Send\"]')"
+npm run cdp:mobile -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 120000
+npm run cdp:mobile -- freeze-host 15000 & npm run cdp:mobile -- wake sleep 1500   # "Reconnecting…", then back
+npm run cdp:mobile -- stop
+```
+
+- Commands: `tap`, `longpress`, `swipe <expr> <dx>`, `type`, `insert`, `press`, `keyboard <px|off>`, `wake sleep|offline|online|foreground`, `eval`, `wait-for`, `snapshot`, `screenshot`, `link`, `host <method> [json]` (an owner call), `freeze-host <ms>`, `device <name>`.
+- On touch, Return adds a line; tap the send button.
+- `node scripts/tau-test-host.mjs start --proxy` is a headless host with the proxy listener; `--test-host` points `pair`, `host` and `freeze-host` at it. Never turn on the instance's Tailscale switch.
+- The iOS app: `node mobile/scripts/sim-device.mjs up` / `down` (one simulator, load below 40, deleted at the end).
+- What needs the user's own phone is in `docs/mobile-device-checklist.md`; point the user there instead of testing on a device.
+
 ## Known traps
 
 - `npm run cdp` without a port refuses to act unless the process on the port in `.tau-dev/instance.json` was started from this worktree: after an instance dies, its port can be taken by another worktree's instance, and driving or stopping that one acts on someone else's test (on 2026-09-23 a click in a foreign instance's update toast updated a real CLI). Start a new instance instead of passing the old port by hand.
