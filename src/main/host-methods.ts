@@ -360,18 +360,22 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "update-config": async (params) => {
       const patch = decodeConfigPatch("update-config", "patch", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
-      const config = await defaultHostConfigManager.update(patch, scope, await optionalWorkspace("update-config", "workspace", params[2]));
+      const cwd = await optionalWorkspace("update-config", "workspace", params[2]);
+      const config = await defaultHostConfigManager.update(patch, scope, cwd);
       if (patch.modelPrices) (await host()).modelPricesChanged();
       if (patch.extensions) await (await host()).watchingChanged();
+      (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return config;
     },
     "get-config-layers": async (params) => defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
     "clear-config": async (params) => {
       const keys = decodeSettingKeys("clear-config", "keys", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
-      const layers = await defaultHostConfigManager.clear(keys, scope, await optionalWorkspace("clear-config", "workspace", params[2]));
+      const cwd = await optionalWorkspace("clear-config", "workspace", params[2]);
+      const layers = await defaultHostConfigManager.clear(keys, scope, cwd);
       if (keys.some((key) => key.startsWith("modelPrices"))) (await host()).modelPricesChanged();
       if (keys.some((key) => key.startsWith("extensions"))) await (await host()).watchingChanged();
+      (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return layers;
     },
     "get-models-config": async () => (await host()).modelsConfig(),

@@ -2174,6 +2174,8 @@ export class PiHost {
   modelPricesChanged(): void { this.pricing.reloadPrices(); }
   /** `extensions.watch` changed: follow Tau's files again, or stop. */
   async watchingChanged(): Promise<void> { await this.watch?.retarget(); }
+  /** Tau wrote its config: kits that read it hear so even while watching is off. */
+  configWritten(paths: readonly string[]): void { this.seam.notifyConfigChange({ kind: "config", paths }); }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {
     return loadModelsConfig(this.agentDir);
