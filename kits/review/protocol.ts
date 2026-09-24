@@ -6,6 +6,19 @@ export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export const WORKSPACE_CHANGES_PANEL = "changes";
 export const REVIEW_OVERLAY = "review.workspace";
+/** The review sheet a compact client opens from its title bar. */
+export const REVIEW_COMPACT_PANEL = "review";
+/** Workspace Kit's push when a turn's changes were recorded, copied from its protocol. */
+export const WORKSPACE_CHECKPOINT_EVENT = "checkpoint";
+
+/** The slice of Workspace Kit's turn checkpoint the compact review reads (its `checkpoints` answer). */
+export interface ReviewTurn extends UiWorkspaceChanges {
+  id: string;
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+}
+
 /** The kit that asks `pr-status` about a thread's checkout to settle it. */
 export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
 
