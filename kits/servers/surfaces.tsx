@@ -100,7 +100,7 @@ export function registerServerSurfaces(context: DesktopExtensionContext, drift: 
         if (workspace === service) workspace = undefined;
       };
     }),
-    context.events.on("agent-status", (event) => { if (!event.running) store.refreshLoaded(); }),
+    context.events.on("agent-status", (event) => { if (!event.running) store.refreshLoaded(undefined, true); }),
     // Drift is the drift service's; the status reads it again when that changes.
     context.host.onEvent(DRIFT_EVENT, () => store.refreshLoaded()),
     context.host.onEvent(DEPLOY_EVENT, () => store.refreshLoaded()),

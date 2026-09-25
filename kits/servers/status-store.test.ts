@@ -32,4 +32,24 @@ describe("the desktop's server status", () => {
     expect(listener).toBeUndefined();
     expect(SERVERS_STATUS_EVENT).toBe("status");
   });
+
+  it("asks again after a turn only for projects that have servers", async () => {
+    vi.useFakeTimers();
+    try {
+      const invoke = vi.fn(async (_command: string, input: unknown) => (input as { cwd: string }).cwd === "/plain"
+        ? { workspace: "/plain", repository: true, targets: [] }
+        : status());
+      const host: HostExtensionClient = { invoke, onEvent: () => () => undefined, watch: () => () => undefined };
+      const store = new ServersStatusStore(host);
+      store.subscribe(() => undefined);
+      await store.load("/plain", false);
+      await store.load("/real/site", false);
+      invoke.mockClear();
+      store.refreshLoaded(undefined, true);
+      await vi.runAllTimersAsync();
+      expect(invoke.mock.calls.map(([, input]) => (input as { cwd: string }).cwd)).toEqual(["/real/site"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

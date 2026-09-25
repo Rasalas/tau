@@ -106,10 +106,14 @@ export class ServersStatusStore {
     );
   }
 
-  /** A fresh look at the local side of every project a view shows, soon. */
-  refreshLoaded(only?: string): void {
-    for (const cwd of this.entries.keys()) {
+  /**
+   * A fresh look at the local side of every project a view shows, soon. `withServers` skips projects
+   * the host said have no sftp.json: a turn ending there has nothing for this status to show.
+   */
+  refreshLoaded(only?: string, withServers = false): void {
+    for (const [cwd, entry] of this.entries) {
       if (only && cwd !== only) continue;
+      if (withServers && entry.status && !entry.status.file && entry.status.targets.length === 0) continue;
       clearTimeout(this.timers.get(cwd));
       this.timers.set(cwd, setTimeout(() => { this.timers.delete(cwd); if (this.listeners.size > 0) void this.load(cwd, true); }, REFRESH_DELAY));
     }
