@@ -1,6 +1,8 @@
 import type { HostExtension } from "tau/host-extension";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
+import { ServersStore } from "./store.js";
+import { ServerTargets } from "./targets.js";
 
 /**
  * Servers: a server reached over SSH/SFTP or FTP as a project's work target
@@ -13,6 +15,9 @@ export function createServersHostExtension(): HostExtension {
     permissions: ["process", "network", "sessions", "runtime:extend", "workspace:read"],
     isolation: "in-process",
     activate(context) {
+      const { services } = context;
+      const store = new ServersStore(services.stateDir, { warn: (message) => services.log("servers.store", message) });
+      new ServerTargets({ services, store }).register(context);
       const ssh = new ServerSsh(context);
       ssh.register();
       return () => ssh.dispose();

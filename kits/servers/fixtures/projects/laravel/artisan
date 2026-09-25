@@ -1,0 +1,3 @@
+#!/usr/bin/env php
+<?php
+// Fixture stand-in for Laravel's console entry.

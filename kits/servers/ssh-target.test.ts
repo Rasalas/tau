@@ -1,7 +1,12 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureControlDir, expandLocalPath, isLoopbackHost, loopbackRefusal, parseSshG, shellQuote, sshBaseArgs, type SshTarget } from "./ssh-target";
+import type { SftpJsonTarget } from "./sftp-json";
+import { ensureControlDir, expandLocalPath, isLoopbackHost, loopbackRefusal, parseSshResolution, shellQuote, sshBaseArgs, type SshTarget } from "./ssh-target";
+
+// An sftp.json target (I03) is an SshTarget as it is.
+export type SftpJsonTargetFits = SftpJsonTarget extends SshTarget ? true : never;
+const fits: SftpJsonTargetFits = true;
 
 const target = (extra: Partial<SshTarget> = {}): SshTarget => ({ id: "t", host: "example.com", remotePath: "/var/www", ...extra });
 
@@ -54,11 +59,11 @@ describe("the loopback guard", () => {
   });
 
   it("refuses by what ssh -G resolved: the host, every jump, any ProxyCommand", () => {
-    expect(loopbackRefusal(parseSshG("hostname 127.0.0.1\nport 2222\nproxycommand none\n"))).toBeUndefined();
-    expect(loopbackRefusal(parseSshG("hostname 192.0.2.1\nport 22\n"))).toMatch(/192\.0\.2\.1/u);
-    expect(loopbackRefusal(parseSshG("hostname 127.0.0.1\nproxyjump me@[::1]:22,jump.example.com\n"))).toMatch(/jump\.example\.com/u);
-    expect(loopbackRefusal(parseSshG("hostname 127.0.0.1\nproxyjump ssh://me@127.0.0.1:2200\n"))).toBeUndefined();
-    expect(loopbackRefusal(parseSshG("hostname 127.0.0.1\nproxycommand nc %h %p\n"))).toMatch(/ProxyCommand/u);
+    expect(loopbackRefusal(parseSshResolution("hostname 127.0.0.1\nport 2222\nproxycommand none\n"))).toBeUndefined();
+    expect(loopbackRefusal(parseSshResolution("hostname 192.0.2.1\nport 22\n"))).toMatch(/192\.0\.2\.1/u);
+    expect(loopbackRefusal(parseSshResolution("hostname 127.0.0.1\nproxyjump me@[::1]:22,jump.example.com\n"))).toMatch(/jump\.example\.com/u);
+    expect(loopbackRefusal(parseSshResolution("hostname 127.0.0.1\nproxyjump ssh://me@127.0.0.1:2200\n"))).toBeUndefined();
+    expect(loopbackRefusal(parseSshResolution("hostname 127.0.0.1\nproxycommand nc %h %p\n"))).toMatch(/ProxyCommand/u);
   });
 });
 
@@ -87,6 +92,10 @@ describe("ensureControlDir", () => {
 });
 
 describe("helpers", () => {
+  it("takes an sftp.json target as it is", () => {
+    expect(fits).toBe(true);
+  });
+
   it("expands ~, variables and relative paths", () => {
     expect(expandLocalPath("~/.ssh/id", { home: "/h" })).toBe("/h/.ssh/id");
     expect(expandLocalPath("${A}/x", { env: { A: "/a" } })).toBe("/a/x");

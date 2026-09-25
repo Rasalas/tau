@@ -2,8 +2,6 @@ import { chmod, lstat, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-/** A test instance names its ssh config here; it becomes `-F`. */
-export const SSH_CONFIG_ENV = "TAU_SERVERS_SSH_CONFIG";
 /** While set to `1`, every target but loopback is refused before ssh starts. */
 export const LOOPBACK_ONLY_ENV = "TAU_SERVERS_LOOPBACK_ONLY";
 
@@ -125,7 +123,7 @@ export interface SshResolved {
   proxyCommand?: string;
 }
 
-export function parseSshG(stdout: string): SshResolved {
+export function parseSshResolution(stdout: string): SshResolved {
   const values = new Map<string, string>();
   for (const line of stdout.split(/\r?\n/u)) {
     const space = line.indexOf(" ");

@@ -2,14 +2,14 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { posix } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import type { AskpassBridge } from "./askpass.js";
-import type { ServerCapabilities } from "./protocol.js";
+import { SERVERS_SSH_CONFIG_ENV, type ServerCapabilities } from "./protocol.js";
 import {
   isWithin, ServerPathError, touchesGit,
   type ServerArea, type ServerEntry, type ServerExecOptions, type ServerExecResult, type ServerFs, type ServerFsCallOptions, type ServerStat,
 } from "./server-fs.js";
 import { fileType, isNoSuchFile, SftpClient, type SftpAttrs } from "./sftp-client.js";
 import {
-  ensureControlDir, loopbackOnly, loopbackRefusal, parseSshG, shellQuote, sshBaseArgs, SSH_CONFIG_ENV, type SshTarget,
+  ensureControlDir, loopbackOnly, loopbackRefusal, parseSshResolution, shellQuote, sshBaseArgs, type SshTarget,
 } from "./ssh-target.js";
 
 /*
@@ -99,7 +99,7 @@ export class SshTransport implements ServerFs {
   }
 
   private baseArgs(): { args: string[]; destination: string } {
-    const configPath = this.env[SSH_CONFIG_ENV];
+    const configPath = this.env[SERVERS_SSH_CONFIG_ENV];
     return sshBaseArgs(this.target, {
       ...(configPath ? { configPath } : {}),
       ...(this.controlDir ? { controlDir: this.controlDir } : {}),
@@ -162,10 +162,10 @@ export class SshTransport implements ServerFs {
 
   private async checkLoopback(): Promise<void> {
     const { args, destination } = this.baseArgs();
-    if (!args.includes("-F")) throw new SshConnectError(`${SSH_CONFIG_ENV} is not set; with the loopback guard on, Tau never reads the real ssh config.`);
+    if (!args.includes("-F")) throw new SshConnectError(`${SERVERS_SSH_CONFIG_ENV} is not set; with the loopback guard on, Tau never reads the real ssh config.`);
     const resolved = await this.spawnCollect(["-G", ...args, "--", destination], { timeoutMs: 10_000, maxOutputBytes: 256 * 1024 });
     if (resolved.code !== 0) throw new SshConnectError(`ssh -G ${destination} failed: ${sshFailure(resolved.stderr)}`, resolved.stderr);
-    const refusal = loopbackRefusal(parseSshG(resolved.stdout));
+    const refusal = loopbackRefusal(parseSshResolution(resolved.stdout));
     if (refusal) throw new SshConnectError(`Connection refused: loopback only (${refusal}).`);
   }
 

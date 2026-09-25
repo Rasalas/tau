@@ -40,3 +40,57 @@ export const DEFAULT_RETENTION_COUNT = 200;
 export function readTargetLevel(value: unknown): TargetLevel {
   return typeof value === "string" && (TARGET_LEVELS as readonly string[]).includes(value) ? value as TargetLevel : DEFAULT_TARGET_LEVEL;
 }
+
+/** A test instance names its ssh config here; Tau then passes it to ssh as `-F`. */
+export const SERVERS_SSH_CONFIG_ENV = "TAU_SERVERS_SSH_CONFIG";
+
+export interface ServerTargetIssue {
+  code: string;
+  level: "error" | "warning" | "info";
+  message: string;
+}
+
+/** One target as Settings shows it: where the secrets come from, never their values. */
+export interface ServerTargetRow {
+  /** The key of the target's state folder. */
+  id: string;
+  /** The key of the profile choice: stable across profiles. */
+  configKey: string;
+  source: "sftp.json";
+  label: string;
+  /** Local folder relative to the project, `""` for the project itself. */
+  context: string;
+  profiles: string[];
+  profile?: string;
+  protocol: ServerProtocol;
+  host: string;
+  port: number;
+  username?: string;
+  remotePath: string;
+  password: string;
+  privateKeyPath?: string;
+  passphrase?: string;
+  issues: ServerTargetIssue[];
+  usable: boolean;
+}
+
+/** `targets` answer: the main checkout, its sftp.json (absent when there is none) and what it names. */
+export interface ServerTargetsState {
+  workspace: string;
+  file?: string;
+  targets: ServerTargetRow[];
+  issues: ServerTargetIssue[];
+}
+
+export interface SshHostsState {
+  configPath: string;
+  hosts: string[];
+  problems: string[];
+}
+
+export function decodeServerTargetsState(value: unknown): ServerTargetsState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const state = value as Partial<ServerTargetsState>;
+  if (typeof state.workspace !== "string" || !Array.isArray(state.targets) || !Array.isArray(state.issues)) return undefined;
+  return state as ServerTargetsState;
+}
