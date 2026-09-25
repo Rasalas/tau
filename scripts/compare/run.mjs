@@ -84,14 +84,33 @@ async function setViewport(session) {
   await session.send("Emulation.setDeviceMetricsOverride", { ...WINDOW, deviceScaleFactor: 2, mobile: false });
 }
 
+function sentKind(response) {
+  if (response.opcode === 2) return "binary";
+  try {
+    const frame = JSON.parse(response.payloadData);
+    const request = frame.request ?? frame;
+    const [extensionId, command] = Array.isArray(request.params) ? request.params : [];
+    const method = request.method === "host-extension" ? `host-extension ${extensionId ?? "?"}/${command ?? "?"}` : request.method;
+    return [frame.type, method].filter(Boolean).join(" ") || "other";
+  } catch {
+    return "other";
+  }
+}
+
 /** WebSocket frames (decoded payload) plus HTTP bodies (encoded), since T3 also loads snapshots over HTTP. */
 function wireCounter(session) {
-  const counter = { reset() { Object.assign(this, { received: 0, receivedBytes: 0, sent: 0, sentBytes: 0, http: 0, httpBytes: 0 }); } };
+  const counter = { reset() { Object.assign(this, { received: 0, receivedBytes: 0, sent: 0, sentBytes: 0, sentKinds: {}, http: 0, httpBytes: 0 }); } };
   counter.reset();
   const size = (response) => (response.opcode === 2 ? Buffer.from(response.payloadData, "base64").length : Buffer.byteLength(response.payloadData));
   const httpRequests = new Set();
   session.on("Network.webSocketFrameReceived", ({ response }) => { counter.received += 1; counter.receivedBytes += size(response); });
-  session.on("Network.webSocketFrameSent", ({ response }) => { counter.sent += 1; counter.sentBytes += size(response); });
+  session.on("Network.webSocketFrameSent", ({ response }) => {
+    counter.sent += 1;
+    counter.sentBytes += size(response);
+    // Names what a client sends, so a budget overrun points at the call that caused it.
+    const kind = sentKind(response);
+    counter.sentKinds[kind] = (counter.sentKinds[kind] ?? 0) + 1;
+  });
   session.on("Network.requestWillBeSent", ({ requestId, request }) => { if (/^https?:/u.test(request.url)) httpRequests.add(requestId); });
   session.on("Network.loadingFinished", ({ requestId, encodedDataLength }) => {
     if (!httpRequests.delete(requestId)) return;
@@ -103,6 +122,7 @@ function wireCounter(session) {
     receivedKiB: round(counter.receivedBytes / 1024),
     sent: counter.sent,
     sentKiB: round(counter.sentBytes / 1024),
+    sentKinds: { ...counter.sentKinds },
     httpRequests: counter.http,
     httpKiB: round(counter.httpBytes / 1024),
   });

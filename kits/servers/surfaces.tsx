@@ -92,7 +92,9 @@ export function registerServerSurfaces(context: DesktopExtensionContext, drift: 
           const next = service.getSnapshot();
           if (next.changes === changes) return;
           changes = next.changes;
-          if (next.cwd) store.refreshLoaded(next.cwd);
+          // A project without servers only needs a new look when its sftp.json itself changed.
+          const serverFile = touchesServerFile(next.changes);
+          if (next.cwd) store.refreshLoaded(next.cwd, !serverFile);
         }),
       ];
       return () => {
@@ -110,4 +112,12 @@ export function registerServerSurfaces(context: DesktopExtensionContext, drift: 
     showSheet(false);
     store.dispose();
   };
+}
+
+function touchesServerFile(changes: unknown): boolean {
+  const files = (changes as { files?: unknown } | undefined)?.files;
+  return Array.isArray(files) && files.some((file) => {
+    const path = (file as { path?: unknown } | undefined)?.path;
+    return typeof path === "string" && (path === ".vscode/sftp.json" || path.endsWith("/.vscode/sftp.json"));
+  });
 }
