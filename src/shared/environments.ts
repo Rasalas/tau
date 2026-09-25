@@ -82,7 +82,16 @@ export interface EnvironmentPreferences {
 /** What to show once the page arrives on a machine. */
 export type EnvironmentTarget =
   | { thread: { path: string } }
-  | { newThread: { draft?: string; workspaceId?: string } };
+  | { newThread: EnvironmentNewThread };
+
+export interface EnvironmentNewThread {
+  draft?: string;
+  workspaceId?: string;
+  /** Sends `draft` as the thread's first prompt once it is placed (API 1.15.0). */
+  send?: boolean;
+  /** The model the draft had here, picked there before it is sent (API 1.15.0). */
+  model?: { provider: string; id: string };
+}
 
 /**
  * What `open` takes besides an arrival: a thread named by its id on that
@@ -284,12 +293,17 @@ export function decodeEnvironmentTarget(value: unknown): EnvironmentTarget | und
   if (!value || typeof value !== "object") return undefined;
   const thread = (value as { thread?: { path?: unknown } }).thread;
   if (thread && typeof thread.path === "string" && thread.path) return { thread: { path: thread.path } };
-  const draft = (value as { newThread?: { draft?: unknown; workspaceId?: unknown } }).newThread;
+  const draft = (value as { newThread?: { draft?: unknown; workspaceId?: unknown; send?: unknown; model?: { provider?: unknown; id?: unknown } } }).newThread;
   if (draft && typeof draft === "object") {
+    const model = draft.model && typeof draft.model === "object" && typeof draft.model.provider === "string" && typeof draft.model.id === "string"
+      ? { provider: draft.model.provider.slice(0, 200), id: draft.model.id.slice(0, 200) }
+      : undefined;
     return {
       newThread: {
         ...(typeof draft.draft === "string" ? { draft: draft.draft.slice(0, 100_000) } : {}),
         ...(typeof draft.workspaceId === "string" ? { workspaceId: draft.workspaceId } : {}),
+        ...(draft.send === true && typeof draft.draft === "string" && draft.draft.trim() ? { send: true } : {}),
+        ...(model ? { model } : {}),
       },
     };
   }

@@ -51,3 +51,42 @@ export interface RemoteAgentThreadsService {
   threadsOn(machine: string): ReadonlySet<string>;
   subscribe(listener: () => void): () => void;
 }
+
+/**
+ * Where new work goes when the user left it to Tau (plan H §7): Agents Kit
+ * asks for a sub-agent (`machine: "auto"`), the "Run on" chip for a new
+ * thread. The contract's other copy is in `kits/agents/protocol.ts`.
+ */
+export const CHOOSE_MACHINE_COMMAND = "choose-machine";
+export const AGENTS_KIT_ID = "tau.agents";
+
+/** `values.tau.environments.weights`: a JSON object of host id to a weight from 0 to 100. */
+export const WEIGHTS_SETTING = "weights";
+
+export interface ChooseMachineInput {
+  purpose: "sub-agent" | "thread";
+  cwd?: string;
+  /** Runtime backend kind; Pi when absent. */
+  backend?: string;
+  /** `provider/id`. */
+  model?: string;
+  /** Host ids the caller could use besides this computer; every machine the agents reach when absent. */
+  machines?: string[];
+}
+
+export interface ChooseMachineVerdict {
+  id: string;
+  name: string;
+  local?: boolean;
+  score?: number;
+  facts?: string;
+  excluded?: string;
+}
+
+export interface ChooseMachineAnswer {
+  /** A host id; null for this computer. */
+  machine: string | null;
+  /** One line on why, for a tooltip. */
+  reason: string;
+  machines: ChooseMachineVerdict[];
+}

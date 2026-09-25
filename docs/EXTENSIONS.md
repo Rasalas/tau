@@ -2286,6 +2286,24 @@ Machines Kit
 Settings → Machines, answers `whoami` for another machine's agents, and asks
 a machine how busy it is and what it could run (its commands `resources` and
 `readiness`, `{ machine }`), only when the page shows it or on "Check again".
+Its `choose-machine` (`{ purpose: "sub-agent" | "thread", cwd?, backend?, model?,
+machines? }` → `{ machine: hostId | null, reason, machines }`, `read`, caller
+`tau.agents`) picks where new work goes: this computer or a machine its agents
+reach with Full access (only those in `machines` when given), by weight × cores
+× idle CPU share × free memory share. A machine is left out while its reading,
+timed from when it arrived here, is older than 15 s, its CPU is at 95 % or its
+free memory at 5 %, it runs as many turns as it has cores, the runtime
+(`backend`, Pi by default) is not `ready` there, or that runtime lists its models
+and `model` is not among them. The weights (0–100, 0 = never automatically; this
+computer 20, every other machine 50 unless set) are `values.tau.environments.weights`,
+a JSON object keyed by host id, set in Settings → Machines → Automatic. `reason`
+is one line with the scores and why each other machine was left out;
+`machines` has the same per machine. The "Run on" chip offers **Automatic**
+while the window shows this computer: the choice is made when the first prompt
+is sent (a prompt hook's `claimNewThread`), among the connected machines that
+have a project of the same name; another machine gets the prompt with
+`open(id, { newThread: { draft, workspaceId, send: true, model } })` and sends
+it there. A thread that started stays where it runs.
 
 `host-resources` answers `HostResources` (`src/shared/host-resources.ts`, on
 `tau/host-extension` and `tau`): `cpuCount`, `cpuUtilization` (0–1 across all
@@ -2299,7 +2317,7 @@ answer arrived. Answers within 5 s of each other are the same answer.
 with `state` (`ready`, `sign-in-required`, `not-installed`, `unavailable`, or
 `checking` while it has not answered since the host started), read from the
 runtime catalog the kits fill and from the `sign-in-state` of the kit that
-registered the backend (which also gives `account`), with Pi `sign-in-required` while no model provider has a key or a login;
+registered the backend (which also gives `account`), with Pi `sign-in-required` while no model provider has a key or a login, and a ready runtime's `models` count with their `modelIds` (`provider/id`, at most 1000);
 `git` (`version`, and `mergeTree` from Git 2.38); `disk` (free space where new worktrees go: `TAU_WORKTREES_DIR`, else
 `~/.tau`); `display` (`screen` on macOS and Windows, `x11`, `wayland`,
 `invisible` for an Xvfb server, `none`). Nothing is polled; a caller that
@@ -2351,7 +2369,7 @@ show no other machines. Like `attention`, hold the context, not the value.
 | Member | What it does |
 |---|---|
 | `getSnapshot()` / `subscribe(listener)` | `UiEnvironments`: `shown` (the machine this page was loaded for), `environments` (this machine first, `local: true`, then the saved ones, each with `status` — `connecting`, `connected`, `offline`, `refused` — `detail`, `roundTripMs`, `lastSeenAt`, `readOnly`, its newest threads with `running`, `threadCount` and `projects`), the `pairing` in progress with its six digits, and whether `secureStorage` can keep a key. |
-| `open(id, target?)` | Points the window at another machine: the page loads again there, and `target` — `{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }` — waits for it. It rejects for a machine that is not connected. For the machine already shown, open the target yourself. |
+| `open(id, target?)` | Points the window at another machine: the page loads again there, and `target` — `{ thread: { path } }` or `{ newThread: { draft?, workspaceId?, send?, model? } }` — waits for it; with `send` (new in API 1.15.0) the page there sends `draft` as the new thread's first prompt, after picking `model` (`{ provider, id }`), and leaves it in the composer when that fails. It rejects for a machine that is not connected. For the machine already shown, open the target yourself. |
 | `takeArrival()` | What this page was sent to show, once. |
 | `pair({ text, deviceName? })` or `pair({ nearby })` | Adds a machine from a pairing link, its QR code's text, or an address; or (new in API 1.13.0) one the last `discover()` found, by its host id: it asks without a link, pinned to the fingerprint the record carried. Resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
 | `discover()` | New in API 1.13.0. `UiDiscoveredHosts`: the machines that announce themselves on this network, looked for a few seconds by the window's own host, whichever machine the page shows. A saved machine found with its pinned fingerprint takes the addresses it has now. Look only when the user asks: looking makes macOS ask about local network access. `NearbyMachineList` draws the result with an action slot per host. |

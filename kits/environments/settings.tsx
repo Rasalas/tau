@@ -19,6 +19,7 @@ import { MachineHealth } from "./health.js";
 import { formatDigits, statusText } from "./machines.js";
 import { AGENTS_EVENT, type AgentMachine, type AgentMachines } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
+import { MachineWeights } from "./weights.js";
 
 /** The machines this computer's host holds the agents' key for, as its Machines host half reports them. */
 function useAgentMachines(host: HostExtensionClient | undefined): AgentMachines | undefined {
@@ -339,6 +340,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
             />
           ))}
         </SettingsSection>
+        {agents ? <MachineWeights machines={list.environments} agents={agents} /> : null}
         <SettingsSection title="Add a machine">
           <p className="settings-group-note">
             On the other computer, open Settings → Connections, turn on network access and create a pairing link; paste it here,

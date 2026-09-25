@@ -20,7 +20,7 @@ export function readMachineChoice(raw: unknown): string | undefined {
 /** What the row says about the current choice. */
 export function machineChoiceText(value: string, machines: readonly AgentMachineOption[]): string {
   if (value === LOCAL_MACHINE) return "Sub-agents run on this computer, in worktrees of their own.";
-  if (value === AUTO_MACHINE) return "Tau picks the machine with the most room when each sub-agent starts; this computer until Machines can choose.";
+  if (value === AUTO_MACHINE) return "Tau picks the machine with the most room when each sub-agent starts, weighed in Settings → Machines.";
   const machine = machines.find((entry) => entry.id === value || entry.name === value);
   if (!machine) return `Sub-agents go to a machine this computer's agents no longer reach; spawns fail until you choose again.`;
   const budget = machine.budget ? `${machine.budget} at a time (its cores)` : "as many at a time as it has cores";

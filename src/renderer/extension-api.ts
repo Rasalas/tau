@@ -192,6 +192,7 @@ export type {
   EnvironmentPairResult,
   EnvironmentPreferences,
   EnvironmentStatus,
+  EnvironmentNewThread,
   EnvironmentTarget,
   UiEnvironment,
   UiEnvironmentPairing,

@@ -17,6 +17,8 @@ import {
   parseMemAvailable,
   parsePmset,
   parseVmStat,
+  parsePsTime,
+  processTreeCpuMs,
   runtimeReadiness,
   testResourceOs,
   worktreesFolder,
@@ -112,14 +114,46 @@ describe("the machine's load, read when asked", () => {
 });
 
 describe("a test host that plays a smaller machine", () => {
-  it("keeps only TAU_TEST_CPU_COUNT of the CPUs, and nothing changes without it", async () => {
-    const os = { platform: () => "linux" as const, cpus: () => Array.from({ length: 12 }, () => ({ times: { user: 1, nice: 0, sys: 1, idle: 8, irq: 0 } })), totalmem: () => 8e9, freemem: () => 4e9 };
-    expect(testResourceOs({}, os)).toBeUndefined();
-    expect(testResourceOs({ TAU_TEST_CPU_COUNT: "0" }, os)).toBeUndefined();
-    const small = testResourceOs({ TAU_TEST_CPU_COUNT: "2" }, os)!;
+  const os = { platform: () => "linux" as const, cpus: () => Array.from({ length: 12 }, () => ({ times: { user: 1, nice: 0, sys: 1, idle: 8, irq: 0 } })), totalmem: () => 8e9, freemem: () => 4e9 };
+
+  it("has TAU_TEST_CPU_COUNT cores, and nothing changes without it", async () => {
+    const ports = { treeCpuMs: () => 0, now: () => 0 };
+    expect(testResourceOs({}, os, ports)).toBeUndefined();
+    expect(testResourceOs({ TAU_TEST_CPU_COUNT: "0" }, os, ports)).toBeUndefined();
+    const small = testResourceOs({ TAU_TEST_CPU_COUNT: "2" }, os, ports)!;
     expect(small.cpus()).toHaveLength(2);
     const reading = new HostResourceSampler({ os: small, sleep: async () => undefined, availableMemory: async () => undefined, battery: async () => undefined });
     expect((await reading.sample()).cpuCount).toBe(2);
+  });
+
+  it("counts only its own process tree as load, and a tree busier than its cores as full", async () => {
+    let now = 0;
+    let cpu = 0;
+    const small = testResourceOs({ TAU_TEST_CPU_COUNT: "2" }, os, { treeCpuMs: () => cpu, now: () => now })!;
+    const reading = new HostResourceSampler({
+      os: small,
+      now: () => now,
+      // One busy core of two while the reading watches.
+      sleep: async (ms) => { now += ms; cpu += ms; },
+      availableMemory: async () => undefined,
+      battery: async () => undefined,
+    });
+    expect((await reading.sample()).cpuUtilization).toBeCloseTo(0.5);
+    now += 60_000;
+    cpu += 60_000 * 5;
+    const full = new HostResourceSampler({ os: small, now: () => now, sleep: async (ms) => { now += ms; cpu -= 1_000; }, availableMemory: async () => undefined, battery: async () => undefined });
+    // A child that exited took its time along; the counters still do not run backwards.
+    expect((await full.sample()).cpuUtilization).toBe(0);
+  });
+
+  it("adds up ps's CPU times below a process", () => {
+    expect(parsePsTime("0:01.50")).toBe(1_500);
+    expect(parsePsTime("1:02:03")).toBe(3_723_000);
+    expect(parsePsTime("2-00:00:01")).toBe(172_801_000);
+    expect(parsePsTime("soon")).toBeUndefined();
+    const ps = "  1     0   9:00.00\n 10     1   0:01.00\n 11    10   0:02.50\n 12    11   1:00.00\n 20     1   5:00.00\n";
+    expect(processTreeCpuMs(ps, 10)).toBe(63_500);
+    expect(processTreeCpuMs(ps, 99)).toBe(0);
   });
 });
 
@@ -188,7 +222,7 @@ const catalog = (kind: string, models: number, extra: Partial<UiRuntimeCatalog> 
 
 describe("which runtimes could run a thread", () => {
   it("reads each runtime's catalog: a status says why not, Pi without a model has nobody signed in", () => {
-    expect(runtimeReadiness(PI, catalog("pi", 3))).toEqual({ kind: "pi", label: "Pi", state: "ready", models: 3 });
+    expect(runtimeReadiness(PI, catalog("pi", 3))).toEqual({ kind: "pi", label: "Pi", state: "ready", models: 3, modelIds: ["p/m0", "p/m1", "p/m2"] });
     expect(runtimeReadiness(PI, catalog("pi", 0))).toMatchObject({ state: "sign-in-required", note: expect.stringMatching(/provider/u) });
     expect(runtimeReadiness(CODEX, catalog("codex", 0, { status: "sign-in-required", note: "Codex is not signed in." })))
       .toEqual({ kind: "codex", label: "Codex", version: "0.50.0", state: "sign-in-required", note: "Codex is not signed in." });
@@ -204,7 +238,7 @@ describe("which runtimes could run a thread", () => {
     expect(runtimeReadiness(antigravity, unknown, { methods: [], account: { signedIn: false } }))
       .toEqual({ kind: "antigravity", label: "Antigravity", state: "sign-in-required", note: "Antigravity is not signed in." });
     expect(runtimeReadiness(CODEX, catalog("codex", 4), { methods: [], account: { signedIn: true, label: "me@example.com", detail: "ChatGPT Pro" } }))
-      .toEqual({ kind: "codex", label: "Codex", version: "0.50.0", account: "me@example.com · ChatGPT Pro", state: "ready", models: 4 });
+      .toEqual({ kind: "codex", label: "Codex", version: "0.50.0", account: "me@example.com · ChatGPT Pro", state: "ready", models: 4, modelIds: ["p/m0", "p/m1", "p/m2", "p/m3"] });
     // The catalog's reason stands where it has one.
     expect(runtimeReadiness(CODEX, catalog("codex", 0, { status: "not-installed" }), { methods: [], account: { signedIn: false } })).toMatchObject({ state: "not-installed" });
     expect(runtimeReadiness(CODEX, undefined, { methods: [], account: { signedIn: false, detail: "Codex did not report its account within 20 s." } }))
@@ -343,7 +377,7 @@ describe("the two host methods", () => {
     const context = (principal: HostMethodContext["principal"]): HostMethodContext => ({ progress: () => undefined, signal: new AbortController().signal, principal });
     expect(await withAccounts.readiness!([], context({ kind: "workbench-client", connection: "c", pairedClient: "d" }))).toMatchObject({ runtimes: [{ account: "me@example.com" }] });
     const readOnly = await withAccounts.readiness!([], context({ kind: "workbench-client", connection: "c", pairedClient: "d", readOnly: true })) as { runtimes: object[] };
-    expect(readOnly.runtimes[0]).toEqual({ kind: "codex", label: "Codex", version: "0.50.0", state: "ready", models: 1 });
+    expect(readOnly.runtimes[0]).toEqual({ kind: "codex", label: "Codex", version: "0.50.0", state: "ready", models: 1, modelIds: ["p/m0"] });
     const none = createResourceMethods({ runtimes: async () => NO_RUNTIMES });
     await expect(none["host-resources"]!([])).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
   });
