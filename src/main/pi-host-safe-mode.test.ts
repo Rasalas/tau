@@ -16,17 +16,18 @@ const PACKAGED_KIT_IDS = ["tau.access", "tau.agents", "tau.claude-code", "tau.co
 
 type Internals = {
   activateHostExtensions(): Promise<void>;
-  runtimeExtensionsFor(settings: { getGlobalSettings(): object; getProjectSettings(): object }): Array<{ name: string }>;
+  runtimeExtensionsFor(settings: { getGlobalSettings(): object; getProjectSettings(): object }, session: { sessionId: string; cwd: string }): Array<{ name: string }>;
   requireBackend(kind: string): { kind: string };
 };
 const settings = { getGlobalSettings: () => ({}), getProjectSettings: () => ({}) };
+const session = { sessionId: "thread", cwd: "/repo" };
 
 describe("PiHost safe mode", () => {
   it("loads no host extension and injects no Pi extension", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: shipped });
     await (host as unknown as Internals).activateHostExtensions();
     expect(host.listHostExtensions()).toEqual([]);
-    expect((host as unknown as Internals).runtimeExtensionsFor(settings)).toEqual([]);
+    expect((host as unknown as Internals).runtimeExtensionsFor(settings, session)).toEqual([]);
   });
 
   it("loads every bundled kit outside safe mode, each removable on its own", async () => {
@@ -38,7 +39,7 @@ describe("PiHost safe mode", () => {
     // The migrated kits are compiled from `kits/` and imported like packages.
     expect(summaries.filter((summary) => PACKAGED_KIT_IDS.includes(summary.id)).map((summary) => summary.id).sort()).toEqual(PACKAGED_KIT_IDS);
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
-    expect(internals.runtimeExtensionsFor(settings).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-computer-use", "tau-computer-use-screen", "tau-evidence", "tau-pi-limits", "tau-plan", "tau-preview", "tau-pull-requests", "tau-questionnaire", "tau-servers-network", "tau-servers-tools", "tau-service-tier", "tau-takeover", "tau-turn-checkpoints"]);
+    expect(internals.runtimeExtensionsFor(settings, session).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-computer-use", "tau-computer-use-screen", "tau-evidence", "tau-pi-limits", "tau-plan", "tau-preview", "tau-pull-requests", "tau-questionnaire", "tau-servers-network", "tau-servers-tools", "tau-service-tier", "tau-takeover", "tau-turn-checkpoints"]);
   });
 
   // A runtime backend now arrives from a package rather than from a host
