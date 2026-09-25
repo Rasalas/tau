@@ -222,6 +222,7 @@ const services: WorkerHostServices = {
     list: () => rpc("sessions.list") as ReturnType<WorkerHostServices["sessions"]["list"]>,
     read: (path) => rpc("sessions.read", path) as ReturnType<WorkerHostServices["sessions"]["read"]>,
     start: (options) => rpc("sessions.start", options) as ReturnType<WorkerHostServices["sessions"]["start"]>,
+    import: (options) => rpc("sessions.import", options) as ReturnType<WorkerHostServices["sessions"]["import"]>,
     remove: async (sessionId) => { await rpc("sessions.remove", sessionId); },
     restore: async (sessionId) => { await rpc("sessions.restore", sessionId); },
     trash: () => rpc("sessions.trash") as ReturnType<WorkerHostServices["sessions"]["trash"]>,

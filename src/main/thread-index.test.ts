@@ -1,4 +1,8 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { importSessionFile } from "./session-import.js";
 import { threadUsageFrom } from "./usage-pricing.js";
 import type { HostEvent, UiSession } from "../shared/contracts.js";
 import type { HostUpdate } from "../shared/host-protocol.js";
@@ -30,6 +34,7 @@ function makeIndex(options: {
   live?: ThreadRuntime[];
   threadLifecycle?: HostThreadLifecycleSet;
   inTrash?: (sessionId: string) => boolean;
+  sessionsDir?: string;
 } = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
@@ -42,7 +47,7 @@ function makeIndex(options: {
     ...(options.inTrash ? { inTrash: options.inTrash } : {}),
     cwd: () => "/repo",
     safeMode: true,
-    sessionsDir: undefined,
+    sessionsDir: options.sessionsDir,
     projects,
     workspaces: new WorkspaceIdentity("host"),
     projectHistory: {
@@ -223,6 +228,35 @@ describe("ThreadIndex", () => {
     const { index } = makeIndex();
     index.startRecovery();
     await expect(index.dispose()).resolves.toBeUndefined();
+  });
+});
+
+describe("an imported thread", () => {
+  it("is indexed with the machine it came from, in the shell and in the sweep", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-index-import-"));
+    try {
+      const sessionsDir = join(root, "sessions");
+      const cwd = join(root, "project");
+      await mkdir(cwd);
+      const swept: unknown[] = [];
+      const threadLifecycle = new HostThreadLifecycleSet();
+      threadLifecycle.add({ sweep: async ({ sessions }) => { swept.push(...sessions); } });
+      const { index } = makeIndex({ sessionsDir, threadLifecycle, projects: [{ path: cwd, name: "project", lastOpenedAt: 2 }] });
+      const jsonl = [
+        JSON.stringify({ type: "session", version: 3, id: "a", timestamp: "2026-09-25T10:00:00.000Z", cwd: "/elsewhere" }),
+        JSON.stringify({ type: "message", id: "u1", parentId: null, timestamp: "2026-09-25T10:00:01.000Z", message: { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 } }),
+      ].join("\n");
+      const imported = await importSessionFile({ cwd, jsonl, origin: { hostId: "host-a", threadId: "thread-a" } }, { sessionsDir });
+
+      await index.refresh("none");
+
+      expect(index.byId(imported.sessionId)).toMatchObject({ projectPath: cwd, origin: { hostId: "host-a", threadId: "thread-a" } });
+      expect(index.byId(imported.sessionId)?.parentThreadId).toBeUndefined();
+      expect(swept).toEqual([expect.objectContaining({ sessionId: imported.sessionId, origin: { hostId: "host-a", threadId: "thread-a" } })]);
+      await index.dispose();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

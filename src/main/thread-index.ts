@@ -191,6 +191,7 @@ export class ThreadIndex {
       new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
       (info) => this.liveUsage(info.id) ?? this.cachedUsage(info.path, stamps.get(info.path)),
       (info) => parents.get(info.path) ?? this.parents.get(info.id),
+      (info) => this.lineage.originOf(info.path),
     );
     const previous = this.sessions;
     const external = await this.externalShells();
@@ -246,6 +247,7 @@ export class ThreadIndex {
         path: info.path,
         cwd: info.cwd,
         ...(this.parents.get(info.id) ? { parentThreadId: this.parents.get(info.id)! } : {}),
+        ...(this.lineage.originOf(info.path) ? { origin: this.lineage.originOf(info.path)! } : {}),
       })),
       liveThreads: this.port.liveThreads().map((thread) => this.port.hostThread(thread)),
       projectPaths: this.port.projectHistory.list().map((project) => project.path),
