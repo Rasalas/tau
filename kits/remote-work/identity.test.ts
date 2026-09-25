@@ -35,6 +35,8 @@ describe("a project's identity across machines", () => {
     expect(repoKeyOf("github.com/acme/app")).toBe(key);
     expect(repoKeyOf("github.com/other/app")).not.toBe(key);
     expect(REPO_KEY.test(repoKeyOf(`file/${"deep/".repeat(40)}x`))).toBe(true);
+    // A CI checkout under /actions-runner/_work/…: cut to its end, the key began with "_" and rex refused it.
+    expect(REPO_KEY.test(repoKeyOf("file/actions-runner/_work/tau/tau/.tau-dev/remote-work/smoke/origin"))).toBe(true);
   });
 
   it("sends origin without an https user or password, and an ssh URL without its password", () => {

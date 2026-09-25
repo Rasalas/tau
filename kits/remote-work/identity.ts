@@ -47,7 +47,8 @@ export function normalizeOriginUrl(raw: string): string | undefined {
 export function repoKeyOf(identity: string): string {
   const slug = identity.toLowerCase().replace(/[^a-z0-9._-]+/gu, "-").replace(/^[-.]+|-+$/gu, "");
   const hash = createHash("sha256").update(identity).digest("hex").slice(0, 10);
-  return `${slug.slice(-48).replace(/^[-.]+/u, "") || "repo"}-${hash}`;
+  // The receiving side takes only keys that start with a letter or digit (`REPO_KEY`).
+  return `${slug.slice(-48).replace(/^[^a-z0-9]+/u, "") || "repo"}-${hash}`;
 }
 
 /** What a mirror key may look like on the receiving side: nothing that leaves its folder. */
