@@ -198,4 +198,9 @@ stays the gate, as ADR 0023 has it.
 - **Desktop without a host of its own** ("Local environment" off in T3).
 - **SSH-managed machines** and relays (plan, decision 3).
 - **Moving a thread between machines**, or one thread visible on two at once.
+  [ADR 0027](0027-a-host-reaches-other-machines-for-its-agents.md) later let a
+  host reach other machines for its agents, and wave H builds on it: a thread
+  *continues* on another machine as an ordinary thread there, a fork whose
+  original stays here, and comes back as a branch; a thread there can be
+  looked in on without moving the window. The thread itself still never moves.
 - **Port forwarding** so Preview can show a remote machine's `localhost`.

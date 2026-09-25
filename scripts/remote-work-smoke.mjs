@@ -31,7 +31,8 @@ const { pairWithHost } = await import(pathToFileURL(join(DIST, "shared", "host-p
 
 // Host names in .tau-dev of their own, so a developer's `rex` test host is never touched.
 const A = { name: "smoke-a", machineName: "mini" };
-const REX = { name: "smoke-rex", machineName: "rex" };
+// rex has two cores for the choice below; its CPU is its own process tree (TAU_TEST_CPU_COUNT).
+const REX = { name: "smoke-rex", machineName: "rex", cpus: 2 };
 const GUARD_MS = 240_000;
 // A test-only package on rex that exposes sessions.import/send as commands, to check the seam itself (format refusal).
 const IMPORT_PROBE = "test.session-import-probe";
@@ -39,6 +40,8 @@ const IMPORT_PROBE = "test.session-import-probe";
 const BLOB_PROBE = "test.blob-probe";
 // Remote Work Kit, on both hosts: it sends the fixture's state to rex and brings the result back.
 const REMOTE_WORK = "tau.remote-work";
+const MACHINES_KIT = "tau.environments";
+const HANDOFF = "tau.handoff";
 const installBlobProbe = (env) => cpSync(join(ROOT, "scripts", "fixtures", "blob-probe"), join(env.HOME, ".tau", "extensions", "blob-probe"), { recursive: true });
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -139,7 +142,7 @@ export const STEPS = [
           machineName: A.machineName,
           prepare: (env) => { fakePi(env); installBlobProbe(env); },
         }),
-        startTestHost({ name: REX.name, kits: true, tls: true, fresh: true, login: false }, {
+        startTestHost({ name: REX.name, kits: true, tls: true, fresh: true, login: false, cpus: REX.cpus }, {
           machineName: REX.machineName,
           prepare: (env) => {
             fakePi(env);
@@ -256,6 +259,22 @@ export const STEPS = [
       const probe = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]);
       if (probe.device !== ctx.pairing.companion.clientId) throw new Error(`rex saw ${JSON.stringify(probe)}, not A's agents device`);
       return `probe as A's agents device in ${probe.ms} ms`;
+    },
+  },
+  {
+    title: "A asks rex how busy it is and what it could run (host-resources, readiness), and itself by its own id",
+    async run(ctx) {
+      const ask = (command, machine) => ctx.aOwner.request("host-extension", [MACHINES_KIT, command, { machine }]);
+      const [resources, readiness] = await Promise.all([ask("resources", REX.machineName), ask("readiness", REX.machineName)]);
+      if (resources.cpuCount !== REX.cpus || typeof resources.cpuUtilization !== "number" || !(resources.availableMemory > 0) || resources.runningTurns !== 0) throw new Error(`rex reports ${JSON.stringify(resources)}`);
+      const pi = readiness.runtimes?.find((runtime) => runtime.kind === "pi");
+      if (pi?.state !== "ready" || !pi.modelIds?.includes(`${FAKE_PROVIDER}/${FAKE_MODEL}`)) throw new Error(`rex reports Pi as ${JSON.stringify(pi)}`);
+      if (!readiness.git?.mergeTree || !(readiness.disk?.free > 0) || !readiness.display?.kind) throw new Error(`rex reports ${JSON.stringify({ git: readiness.git, disk: readiness.disk, display: readiness.display })}`);
+      const self = (await ctx.aOwner.hello()).host.id;
+      const own = await ask("resources", self);
+      if (!(own.cpuCount > 0) || own.sampledAt === resources.sampledAt) throw new Error(`this computer reports ${JSON.stringify(own)}`);
+      const cpu = Math.round(resources.cpuUtilization * 100);
+      return `rex: ${resources.cpuCount} cores, CPU ${cpu} %, ${resources.runningTurns} turns; Pi ready with ${pi.models} model(s); Git ${readiness.git.version}; display ${readiness.display.kind}; this computer ${own.cpuCount} cores`;
     },
   },
   {
@@ -443,7 +462,7 @@ export const STEPS = [
       if (!/offline|Connecting/u.test(refused)) throw new Error(`a send to an offline rex ended: ${refused}`);
 
       ctx.rexOwner.close();
-      ctx.rex = await startTestHost({ name: REX.name, kits: true, tls: true, login: false, port }, {
+      ctx.rex = await startTestHost({ name: REX.name, kits: true, tls: true, login: false, port, cpus: REX.cpus }, {
         machineName: REX.machineName,
         prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, ctx.model.baseUrl),
       });
@@ -481,6 +500,66 @@ export const STEPS = [
       if (!target.text.includes("say one word") || !target.text.includes("say another word")) throw new Error("the session on rex lacks A's history or the new prompt");
       await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-settle", { link: started.id, how: "discard" }]);
       return `${done.link.thread.slice(0, 8)} on rex: ${assistantTexts(target.entries).length} answers, origin ${aHost.id.slice(0, 8)}`;
+    },
+  },
+  {
+    title: "Handoff: a thread here continues on rex with its history, comes back as a branch with a summary, and merges",
+    async run(ctx) {
+      const cwd = ctx.fixture.work;
+      const { threadId, path } = ctx.aSession;
+      // Handoff acts on an open thread, as the window has it when its menu is used.
+      await ctx.aOwner.request("switch-session", [path]);
+      const went = await ctx.aOwner.request("host-extension", [HANDOFF, "continue-on", { threadId, machine: REX.machineName, prompt: "write handoff.txt carried" }]);
+      if (!went.native || went.machineName !== REX.machineName) throw new Error(`continue-on answered ${JSON.stringify(went)}`);
+      const done = await threadWait(ctx, went.link);
+      if (done.reason !== "idle" || done.link.there?.lastMessage !== "done") throw new Error(`the thread on rex ended ${done.reason}: ${JSON.stringify(done.link.there)}`);
+      const there = sessionFiles(ctx.rex.sessionsDir).find((file) => file.entries[0].id === done.link.thread);
+      if (there?.entries[1]?.data?.threadId !== threadId || !there.text.includes("say one word")) throw new Error("the thread on rex lacks its origin or A's history");
+      if (readFileSync(join(done.link.worktree, "handoff.txt"), "utf8") !== "carried\n") throw new Error("the thread on rex did not write in its worktree");
+
+      const back = await ctx.aOwner.request("host-extension", [HANDOFF, "bring-back-remote", { threadId }]);
+      const branch = /came back as the branch `(tau\/rex\/[^`]+)`/u.exec(back.context)?.[1];
+      if (!branch || !back.context.includes("merge_back_context") || !gitIn(cwd, "rev-parse", "--verify", branch)) throw new Error(`bring-back answered ${back.context}`);
+      if (!/Brought back from .* on rex/u.test(back.context)) throw new Error(`the summary did not come from rex: ${back.context}`);
+
+      const settled = await ctx.aOwner.request("host-extension", [HANDOFF, "settle-remote", { threadId, how: "apply" }]);
+      if (settled.status !== "settled" || settled.applied?.state !== "merged") throw new Error(`settle-remote answered ${JSON.stringify(settled)}`);
+      if (readFileSync(join(cwd, "handoff.txt"), "utf8") !== "carried\n" || gitIn(cwd, "status", "--porcelain") !== "") throw new Error("rex's file is not merged into A's clean checkout");
+      if (existsSync(done.link.worktree)) throw new Error("the worktree on rex is still there");
+      const lineage = await ctx.aOwner.request("host-extension", [HANDOFF, "state"]);
+      if (lineage.remotes?.some((remote) => remote.threadId === threadId)) throw new Error("Handoff still shows the thread as continuing on rex");
+      return `${threadId.slice(0, 8)} → rex ${done.link.thread.slice(0, 8)} (native); back as ${branch}; ${settled.applied.state}`;
+    },
+  },
+  {
+    title: "Automatic: an idle rex wins over this computer; with a turn per core running there it is left out",
+    async run(ctx) {
+      const choose = () => ctx.aOwner.request("host-extension", [MACHINES_KIT, "choose-machine", { purpose: "thread", backend: "pi", model: `${FAKE_PROVIDER}/${FAKE_MODEL}` }]);
+      const rexVerdict = (answer) => answer.machines.find((verdict) => verdict.id === ctx.rexHostId);
+      const idle = await choose();
+      if (idle.machine !== ctx.rexHostId) throw new Error(`with rex idle, Automatic chose ${idle.machine ?? "this computer"}: ${idle.reason}`);
+
+      // Load: a waiting fake turn per core on rex. The chooser reads rex again once its reading is 10 s old.
+      const from = ctx.rexOwner.pushes.length;
+      for (let turn = 0; turn < REX.cpus; turn += 1) await ctx.rexOwner.request("new-session", ["wait 60000"]);
+      const running = () => {
+        const last = new Map();
+        for (const push of ctx.rexOwner.pushes.slice(from)) if (push.event?.type === "agent-status") last.set(push.event.sessionId, push.event.running);
+        return [...last].filter(([, on]) => on).map(([id]) => id);
+      };
+      await waitFor(() => running().length === REX.cpus, `${REX.cpus} running turns on rex`);
+      const busyIds = running();
+      let busy;
+      try {
+        await waitFor(async () => {
+          busy = await choose();
+          return /turns running on/u.test(rexVerdict(busy)?.excluded ?? "");
+        }, "Automatic to leave out a busy rex", 45_000);
+      } finally {
+        for (const id of busyIds) await ctx.rexOwner.request("abort", [id]).catch(() => undefined);
+      }
+      if (busy.machine === ctx.rexHostId) throw new Error(`Automatic chose a busy rex: ${busy.reason}`);
+      return `idle: "${idle.reason}" — busy: "${busy.reason}"`;
     },
   },
   // Last: it cuts A's agents off from rex.

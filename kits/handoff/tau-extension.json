@@ -3,7 +3,7 @@
   "name": "Handoff",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.14.0"
+    "api": "^1.15.0"
   },
   "permissions": [
     "sessions",

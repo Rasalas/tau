@@ -69,6 +69,10 @@ the add form.
 A machine is named by its host id, or by its name when that is unique. An
 offline or refused machine rejects with the reason.
 
+Wave H added two members on the same permission: `upload(machine, source)`
+sends a file there in pieces, which a kit there takes once with
+`services.blobs.take`, and `self` names this host (id, name, Tau version).
+
 ## Alternatives
 
 - **Reuse the window's key.** The host would have to read the window's

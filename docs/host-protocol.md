@@ -884,7 +884,7 @@ may not call `sign-in-state`, gets no `account`. A catalog or a report not
 on hand within 5 s is left out: the runtime is then `checking`. `invisible` is an X display whose server (the pid in
 `/tmp/.X<n>-lock`) is `Xvfb`.
 
-#### Files between hosts
+### Files between hosts
 
 `services.machines.upload` sends a file over the same connection, and the
 receiving host keeps it for a kit there (`services.blobs.take`,
