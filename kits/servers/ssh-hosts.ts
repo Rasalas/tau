@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import type { ServerProtocol } from "./sftp-json.js";
+import type { ServerProtocol } from "./protocol.js";
 
 /**
  * SSH targets from an ssh config and typed-in addresses. Aliases come from the

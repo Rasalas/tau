@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, open, readFile } from "node:fs/promises";
 import { isAbsolute, join, posix, relative, sep } from "node:path";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
+import type { ServerProtocol } from "./protocol.js";
 
 /**
  * `.vscode/sftp.json` as the vscode-sftp extension and its forks (liximomo,
@@ -10,8 +11,6 @@ import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from 
  */
 
 export const SFTP_JSON_PATH = join(".vscode", "sftp.json");
-
-export type ServerProtocol = "sftp" | "ftp";
 
 export type CredentialManagerKind = "keychain" | "vscode" | "secret-tool" | "1password" | "pass" | "gopass" | "bitwarden";
 
