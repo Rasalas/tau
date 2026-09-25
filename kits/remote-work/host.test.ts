@@ -196,7 +196,7 @@ describe("Remote Work Kit: a project's state to another machine and back", () =>
     await put(there, "CHANGELOG.md", "- greeting\n");
 
     const back = await call<RepoTransfer>("fetch-result", { transfer: first.id });
-    expect(back.result).toMatchObject({ state: "branch", branch: "tau/rex/tidy-the-readme", commits: 2, files: 2 });
+    expect(back.result).toMatchObject({ state: "branch", branch: "tau/rex/tidy-the-readme", commits: 2, files: 2, paths: ["CHANGELOG.md", "src/app.js"] });
     expect(repo.git("config", "branch.tau/rex/tidy-the-readme.tau-base")).toBe(first.base);
     expect(repo.git("log", "-1", "--format=%s", "tau/rex/tidy-the-readme")).toBe("tau: result");
     expect(await call<TransferPreview>("preview", { transfer: first.id })).toMatchObject({ clean: true, conflicts: [], merged: false });

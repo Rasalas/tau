@@ -31,11 +31,79 @@ export interface LineageLink {
   mergedAt?: number;
 }
 
-export interface LineageState {
-  links: LineageLink[];
+/**
+ * A thread here that continues on another machine (H08): an ordinary thread
+ * there, followed through Remote Work Kit's link. The thread here stays usable.
+ */
+export interface RemoteContinuation {
+  /** The thread here it continues. */
+  threadId: string;
+  /** Remote Work Kit's link (`tau.remote-work/threads`). */
+  link: string;
+  /** That machine's host id, and its name when the thread went. */
+  machine: string;
+  machineName: string;
+  strategy: HandoffStrategy;
+  createdAt: number;
+  /** When its work was last brought back into this thread. */
+  broughtAt?: number;
 }
 
-export const EMPTY_LINEAGE: LineageState = { links: [] };
+export interface LineageState {
+  links: LineageLink[];
+  remotes?: RemoteContinuation[];
+}
+
+export const EMPTY_LINEAGE: LineageState = { links: [], remotes: [] };
+
+/** Pushed with the machines a thread may continue on, a `ContinueTarget[]`, whenever they change. */
+export const TARGETS_EVENT = "targets";
+
+/** A runtime on another machine, as its readiness reads. */
+export interface TargetRuntime {
+  kind: string;
+  label: string;
+  ready: boolean;
+  /** Why it is not ready, for the menu. */
+  note?: string;
+}
+
+/** A machine this host's agents may work on with Full access, and what runs there. */
+export interface ContinueTarget {
+  /** That machine's host id. */
+  id: string;
+  name: string;
+  /** Absent until it answered; its readiness is asked when it connects and when a menu opens. */
+  runtimes?: TargetRuntime[];
+  /** Why its readiness could not be read. */
+  error?: string;
+}
+
+export interface ContinueOnInput {
+  threadId: string;
+  /** A machine's host id, or its name when unique. */
+  machine: string;
+  /** What that machine should do next: the composer's draft. Needed where the history does not go along. */
+  prompt?: string;
+}
+
+export interface ContinueOnResult {
+  link: string;
+  machine: string;
+  machineName: string;
+  native: boolean;
+}
+
+/** What a machine answers when its thread is brought back to where it came from. */
+export interface RemoteMergeBackResult {
+  header: string;
+  summary: string;
+  /** The last message the summary covers there. */
+  through: string;
+}
+
+/** Called on the machine the thread went to, through `services.machines.call`. */
+export const REMOTE_MERGE_BACK_COMMAND = "remote-merge-back";
 
 export interface CreateTransferInput {
   threadId: string;

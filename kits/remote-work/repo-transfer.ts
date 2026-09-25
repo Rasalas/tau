@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { HostCommandError } from "tau/host-extension";
 import { branchBaseConfigKey, captureWorktreeTree } from "../workspace/agent-worktrees.js";
 import { asAgentRunner, gitMessage, type GitRunner } from "./git.js";
-import { transferRef } from "./protocol.js";
+import { RESULT_PATHS_MAX, transferRef } from "./protocol.js";
 
 /**
  * The sending side's Git (plan-H §2): the checkout's state becomes one commit
@@ -116,6 +116,8 @@ export interface StoredResult {
   tip: string;
   commits: number;
   files: number;
+  /** The changed files, the first `RESULT_PATHS_MAX`. */
+  paths: string[];
 }
 
 /**
@@ -142,6 +144,6 @@ export async function storeResultBundle(options: { root: string; transfer: strin
   await git(root, ["config", TRANSFER_BRANCH_KEY(branch), transfer]);
   const tip = (await git(root, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
   const commits = Number((await git(root, ["rev-list", "--count", tip, `^${base}`])).trim()) || 0;
-  const files = (await git(root, ["diff", "--name-only", "-z", base, tip])).split("\0").filter(Boolean).length;
-  return { branch, tip, commits, files };
+  const changed = (await git(root, ["diff", "--name-only", "-z", base, tip])).split("\0").filter(Boolean);
+  return { branch, tip, commits, files: changed.length, paths: changed.slice(0, RESULT_PATHS_MAX) };
 }
