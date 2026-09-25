@@ -80,6 +80,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Host token", ["rotate", "token", "secret"]],
       ["Authorized clients", ["pairing link", "revoke", "sessions", "devices"]],
       ["Run as a system service", ["service", "background", "launchd", "launchagent", "systemd", "task scheduler", "login", "boot", "daemon"]],
+      ["Invisible display", ["xvfb", "display", "headless", "linux", "preview", "screen", "x11"]],
       ["Keep this machine awake while turns run", ["awake", "sleep", "caffeinate", "power"]],
     ],
   },

@@ -324,8 +324,19 @@ class PreviewController implements PreviewToolController {
     this.profiles = new PreviewProfileStore(context.services.stateDir);
     this.history = new PreviewHistory(context.services.stateDir);
     this.mini = new PreviewMiniState(context.services.stateDir);
-    this.window = pinnedWindowCalls(context.services);
+    // A window that replaced the view's (the invisible display's, restarted) has no view yet.
+    this.window = pinnedWindowCalls(context.services, { onMoved: () => this.reopen() });
     void this.mini.load().then(() => this.publish());
+  }
+
+  /** Makes the view again in a new window, where the page, size and place of the old one are unknown. */
+  private async reopen(): Promise<void> {
+    const view = this.view as (PreviewSurface & { open?(): Promise<void> }) | undefined;
+    if (!view?.open) return;
+    const url = view.state().url;
+    await view.open();
+    this.place();
+    if (url) await view.load(url, LOAD_TIMEOUT_MS);
   }
 
   /** The kit's window half, in the window that holds the view. */

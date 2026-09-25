@@ -12,7 +12,7 @@ type ServiceState =
   | { status: "error"; message: string }
   | { status: "ready"; service: UiHostService };
 
-type Pending = "install" | "repair" | "uninstall";
+type Pending = "install" | "repair" | "uninstall" | "display-add" | "display-remove";
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 
@@ -73,20 +73,30 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
     setConfirm(undefined);
     setBusy(action);
     let failure: string | undefined;
+    const display = action === "display-add" ? true : action === "display-remove" ? false : undefined;
     try {
-      await (action === "uninstall" ? client.uninstallService() : client.installService());
+      await (action === "uninstall" ? client.uninstallService() : client.installService(display === undefined ? undefined : { display }));
     } catch (error: unknown) {
       failure = error instanceof Error ? error.message : String(error);
     }
+    const settled = (service: UiHostService) => {
+      if (action === "uninstall") return !service.installed;
+      return service.installed && service.running && (display === undefined || service.display?.installed === display);
+    };
     let service: UiHostService | undefined;
     for (const delay of [0, 500, 1_000, 2_000, 3_000, 4_000, 5_000]) {
       await new Promise((resolve) => setTimeout(resolve, delay));
       if (!mounted.current) return;
       service = await load();
-      if (service && (action === "uninstall" ? !service.installed : service.installed && service.running)) break;
+      if (service && settled(service)) break;
     }
     if (!mounted.current) return;
     setBusy(undefined);
+    if (display !== undefined) {
+      if (service && settled(service)) onNotify(display ? `The invisible display ${service.display?.display ?? ""} is on`.trimEnd() : "The invisible display is removed");
+      else onNotify(failure ?? "The display did not change; see the service log");
+      return;
+    }
     if (action === "uninstall") onNotify(service && !service.installed ? "The service is removed" : failure ?? "The service is still installed");
     else if (service?.installed && service.running) onNotify("Tau’s host runs as a service");
     else onNotify(failure ?? "The service is installed but its host did not answer yet; see its log");
@@ -143,9 +153,51 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
     );
   })();
 
+  const displayRow = (() => {
+    if (state.status !== "ready") return null;
+    const { service } = state;
+    const display = service.display;
+    // Only a systemd service can have one; elsewhere the reason is in `tau service install --display`.
+    if (!service.installed || service.manager !== "systemd" || !display?.supported) return null;
+    const text = display.installed
+      ? `${display.display ?? "Display"} · window ${display.windowRunning ? "running" : "starts when needed"}`
+      : "Off";
+    const tone = !display.installed ? "idle" : display.xvfbRunning ? "live" : "pending";
+    return (
+      <SettingRow
+        id={settingAnchor("Invisible display")}
+        title="Invisible display"
+        description={`A screen nobody sees (Xvfb): agents’ GUI apps and headed browsers run there, and a Tau window on it gives threads the preview while no one has Tau open on this machine. The window starts when a thread needs it and stops after ${display.idleMinutes} minutes without use.`}
+        status={(
+          <div className="host-service-status">
+            <span className="host-service-summary">
+              <span className={`connection-dot ${tone}`} aria-hidden="true" />
+              {text}
+            </span>
+            {display.installed && !display.xvfbRunning ? <p className="host-service-problem">Xvfb is not running. Repair the service, or see its log.</p> : null}
+          </div>
+        )}
+        control={(
+          <div className="host-service-actions">
+            {display.installed ? (
+              <button type="button" className="chrome-button danger" disabled={busy !== undefined} onClick={() => setConfirm("display-remove")}>
+                {busy === "display-remove" ? "Removing…" : "Remove…"}
+              </button>
+            ) : (
+              <button type="button" className="chrome-button" disabled={busy !== undefined} onClick={() => setConfirm("display-add")}>
+                {busy === "display-add" ? "Adding…" : "Add…"}
+              </button>
+            )}
+          </div>
+        )}
+      />
+    );
+  })();
+
   return (
     <SettingsSection title="Background">
       {serviceRow}
+      {displayRow}
       <SettingRow
         id={settingAnchor("Keep this machine awake while turns run")}
         title="Keep this machine awake while turns run"
@@ -158,6 +210,18 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
           title={confirm === "install" ? "Run Tau’s host as a service?" : "Repair the service?"}
           message="Tau’s host moves into the service. Turns running now stop for a moment and continue if “Continue threads after restarts” is on; this window reconnects by itself."
           confirmLabel={confirm === "install" ? "Install" : "Repair"}
+          onCancel={() => setConfirm(undefined)}
+          onConfirm={() => void run(confirm)}
+        />
+      ) : null}
+      {confirm === "display-add" || confirm === "display-remove" ? (
+        <ConfirmDialog
+          title={confirm === "display-add" ? "Add an invisible display?" : "Remove the invisible display?"}
+          message={confirm === "display-add"
+            ? "Tau’s host restarts with the display. Turns running now stop for a moment and continue if “Continue threads after restarts” is on."
+            : "Tau’s host restarts without it. The window on the display closes, and agents’ shells no longer get a DISPLAY."}
+          confirmLabel={confirm === "display-add" ? "Add Display" : "Remove Display"}
+          destructive={confirm === "display-remove"}
           onCancel={() => setConfirm(undefined)}
           onConfirm={() => void run(confirm)}
         />

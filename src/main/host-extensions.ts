@@ -978,7 +978,8 @@ export interface HostExtensionServices {
   /**
    * Runs a command in this extension's window half — the part of a kit that
    * needs the process the user's window lives in (ADR 0021). Rejects when the
-   * host has no such client, so a kit can fall back or say so.
+   * host has no such client, so a kit can fall back or say so; a Linux service
+   * host with an invisible display starts its window first (API 1.15.0).
    */
   callClient(command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
   /**
