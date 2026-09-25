@@ -27,6 +27,7 @@ import type {
 } from "tau";
 import type { ComponentType, ReactNode } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
+import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./branch-commit.js";
 
 /** Keep the default branch current by fast-forward; off by default, as in T3 Code. */
 export const AUTO_PULL_OPTION = "auto-pull-default-branch";
@@ -226,6 +227,10 @@ export interface WorkspaceHostCommands {
   "push": { input: undefined; output: PushResult };
   /** The first remote of a repository Review Kit just published; refused when it has one (callers: `tau.review`). */
   "add-remote": { input: { name?: string; url: string }; output: { hasCommits: boolean } };
+  /** A new branch holding the parent's tree with these files put in; the checkout is not touched (callers: `tau.servers`). */
+  "commit-files-to-branch": { input: CommitFilesInput & { workspace?: string }; output: CommitFilesResult };
+  /** A normal merge commit of a branch into the checkout's own; a conflict is backed out (callers: `tau.servers`). */
+  "merge-branch": { input: { branch: string; workspace?: string }; output: MergeBranchResult };
   /** Review Kit's reading of the branch before it opens a request (callers: `tau.review`). */
   "review-request-context": { input: { detail?: boolean; base?: string } | undefined; output: ReviewRequestContext };
   /** Reads metadata for a known project without changing the active host workspace. */
