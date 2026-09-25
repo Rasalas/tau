@@ -68,6 +68,10 @@ Symlink whatever the test needs from the real dir (auth, settings, the `npm` ext
 
 `dev-instance` also sets `TAU_IMPORT_ROOTS=.tau-dev/import-roots` (a caller's own value is kept): Onboarding's import then reads `<root>/<backend kind>/…` and never the user's own CLI homes. Write small synthetic sessions there to test it.
 
+### Servers run against fakes
+
+`dev-instance` prepares `.tau-dev/servers/` (test keys, `ssh_config`, `known_hosts`) and starts a test `ssh-agent` there, which it stops by PID when the instance exits. It sets `SSH_AUTH_SOCK` to that agent, `TAU_SERVERS_SSH_CONFIG` (the kit's `-F`), `TAU_SERVERS_SECURITY_COMMAND`/`TAU_SERVERS_SECRET_TOOL_COMMAND` to the keychain stubs, and `TAU_SERVERS_LOOPBACK_ONLY=1`. Start the fake SSH/SFTP server (`kits/servers/fixtures/fake-ssh-server.mjs --dir .tau-dev/servers`) or the fake FTP server beside it. Every call lands in `.tau-dev/servers/calls.log`. Never a real server, `~/.ssh`, the real agent or keychain, or a real `.vscode/sftp.json`; `ssh`/`sftp` always with `-F .tau-dev/servers/ssh_config`. `docs/agents/testing-the-app.md` ("Servers: fakes") has the details.
+
 ## Keep it alive across turns
 
 Treat the verification loop, not one assistant turn, as the instance's lifetime. Do not stop it because one pass finished — a follow-up turn may reuse it. Before starting another one, check whether a live instance already answers: `npm run cdp -- pid` succeeds only while one is running, and `.tau-dev/instance.json` (written by `dev-instance.mjs`) names its port and userData.

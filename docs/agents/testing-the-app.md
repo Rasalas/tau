@@ -163,6 +163,70 @@ notes are due when `.tau-dev/userdata/release-notes.json` names an older
 `{"version":1,"lastVersion":"0.0.1"}` there, and start it again without
 `--fresh`.
 
+### Servers: fakes
+
+The Servers kit (SSH, SFTP, FTP targets) is tested against fakes on this machine only. Never a real server, account or password, never the real keychain (`/usr/bin/security`, `secret-tool`, `op`, `pass`, `gopass`, `bw`), never `~/.ssh/config`, `~/.ssh/known_hosts`, the real ssh-agent or a key of the user's, and never a real `.vscode/sftp.json`. Everything lives in `.tau-dev/servers/`:
+
+| File | What it is |
+|---|---|
+| `id_ed25519`, `id_ed25519_passphrase` | Test keys; the second has the passphrase `test-passphrase` |
+| `ssh_config` | The only config a test `ssh`/`sftp` runs with (`-F`); `Host fake` and `fake-password` point at the fake server |
+| `known_hosts` | `UserKnownHostsFile` of that config; `GlobalKnownHostsFile` is `/dev/null` |
+| `agent.sock`, `agent.pid` | The test ssh-agent, holding `id_ed25519` |
+| `root/`, `home/` | The fake server's files (`root/site/index.php`) and its HOME (with `tmp/`) |
+| `keychain.json`, `secret-tool.json` | The stub keychains' items, passwords base64-encoded |
+| `calls.log` | One JSON line per call to any fake: `tool` is `ssh`, `ftp`, `security` or `secret-tool`; passwords are never written |
+
+`dev-instance` prepares the folder and sets, whatever the caller's shell has:
+
+- `TAU_SERVERS_SECURITY_COMMAND` → `kits/servers/fixtures/fake-security.mjs`, `TAU_SERVERS_SECRET_TOOL_COMMAND` → `fake-secret-tool.mjs`, and `FAKE_SERVERS_STATE` → `.tau-dev/servers`;
+- `TAU_SERVERS_SSH_CONFIG` → `.tau-dev/servers/ssh_config`, which the kit passes as `-F`;
+- `SSH_AUTH_SOCK` → `.tau-dev/servers/agent.sock`, a test `ssh-agent -D` it starts with the test key added; it drops `SSH_AGENT_PID`. The login shell only fills variables that are unset, so the real agent never comes back. When the instance exits, `dev-instance` stops that agent by its PID (`sshAgentPid` in `.tau-dev/instance.json`);
+- `TAU_SERVERS_LOOPBACK_ONLY=1`: the kit refuses every target but 127.0.0.1, `::1` and `localhost`. The tests set it too, and remove `SSH_AUTH_SOCK` from their environment.
+
+The fake SSH server runs beside the instance. It needs `ssh2`, a devDependency, and the machine's own `sftp-server`:
+
+```
+node kits/servers/fixtures/fake-ssh-server.mjs --dir .tau-dev/servers --trust-host-key &
+ssh -F .tau-dev/servers/ssh_config fake 'echo ok'
+printf 'ls site\nget site/index.php /tmp/index.php\n' | sftp -F .tau-dev/servers/ssh_config -b - fake
+node kits/servers/fixtures/fake-ssh-server.mjs stop --dir .tau-dev/servers
+```
+
+It listens on 127.0.0.1 on a free port, with a fresh ed25519 host key each start. It writes `fake-ssh.json` (port, pid, fingerprint), points `Host fake` in `ssh_config` at the port, and drops the stale `known_hosts` lines for that port. `--trust-host-key` adds the new key to `known_hosts`; leave it out to test the host-key question. `tester` gets in with either test key (from the file or the agent), with the password `test` (`fake-password` turns keys off), and with `--otp <code>` only after a `Verification code:` prompt as well. `--no-password` turns passwords off, `--read-only` makes SFTP read-only. `exec` runs `/bin/sh -c` in the fake HOME (under a pty with `ssh -t`), the `sftp` subsystem runs `sftp-server -d root/`, and `-W`/ProxyJump reaches loopback only. `calls.log` records every connection, authentication (method, result, no secret), command, exit code and SFTP operation. SFTP paths outside `root/` and `home/` are marked `"outside": true`. It is not a sandbox: a command or an absolute path runs as you on this machine, so keep tests inside the folder. `stop` ends the PID in `fake-ssh.json`, nothing else. A test starts it in-process with `startFakeSshServer({ dir })`; `kits/servers/fixtures/*.d.mts` has the types.
+
+The fake FTP server is `ftp-srv` (MIT, devDependency). Run it as its own process, because it exits whatever process it runs in on SIGTERM:
+
+```
+node kits/servers/fixtures/fake-ftp-server.mjs --dir .tau-dev/servers --mode explicit [--require-tls] &
+curl --ssl-reqd --cacert .tau-dev/servers/tls/cert.pem --user tester:test ftp://127.0.0.1:<port>/site/
+node kits/servers/fixtures/fake-ftp-server.mjs stop --dir .tau-dev/servers
+```
+
+`--mode plain` offers no TLS, `explicit` offers `AUTH TLS`, and `implicit` is TLS from the first byte. `--require-tls` refuses a login before TLS. The certificate is self-signed for 127.0.0.1 and made once with `openssl`. The port is in `fake-ftp.json`. It serves the same `root/`. Each command goes to `calls.log` with `"tls": true|false`, and `PASS` is redacted.
+
+The stubs answer the way the real tools do. `fake-security.mjs` handles `find-generic-password` (attributes on stdout; with `-g`, `password: "…"` on stderr, or `0x<HEX>  "…"` when not printable ASCII; `-w`), `add-generic-password` (`-U`), `delete-generic-password`, `dump-keychain` (without `-d`) and `-i` with those commands on stdin. It uses the real exit codes: 44 for not found, 45 for a duplicate. Anything else exits 2. It starts no process. `kits/servers/fixtures/fake-keychain.test.ts` shows this with a spawn trace and a trap `security` first on `PATH`. Seed an item the way the VS Code SFTP fork stores one:
+
+```
+FAKE_SERVERS_STATE=$PWD/.tau-dev/servers kits/servers/fixtures/fake-security.mjs add-generic-password \
+  -s vscode-sftp -a "sftp://tester@127.0.0.1:<port>/site" -l "tester@127.0.0.1 (site)" -w test
+```
+
+`fake-secret-tool.mjs` handles `store --label=… <attr> <value>…` (the secret comes from stdin), `lookup`, `clear` and `search`. Afterwards, `grep -r <password> .tau-dev` should find nothing: the stub stores are base64.
+
+Optionally, Docker gives a real OpenSSH. Publish its port on 127.0.0.1 only, and name the container `tau-test-…` so you remove only your own:
+
+```
+docker run -d --name tau-test-sftp -p 127.0.0.1:2222:22 \
+  -v "$PWD/.tau-dev/servers/id_ed25519.pub:/home/tester/.ssh/keys/id_ed25519.pub:ro" atmoz/sftp tester:test:1001::site
+docker run -d --name tau-test-openssh -p 127.0.0.1:2223:2222 -e USER_NAME=tester -e USER_PASSWORD=test -e PASSWORD_ACCESS=true \
+  -e PUBLIC_KEY_FILE=/keys/id_ed25519.pub -v "$PWD/.tau-dev/servers/id_ed25519.pub:/keys/id_ed25519.pub:ro" lscr.io/linuxserver/openssh-server
+ssh -F .tau-dev/servers/ssh_config -p 2223 tester@127.0.0.1 'echo ok'
+docker rm -f tau-test-sftp tau-test-openssh
+```
+
+`atmoz/sftp` is SFTP only, chrooted to `/home/tester`, with the site under `/site`. `linuxserver/openssh-server` has a shell. Neither writes to `calls.log`.
+
 ### What CDP keys do not reach
 
 `npm run cdp -- press` goes to the page. The app menu's accelerators (zoom,
