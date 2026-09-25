@@ -323,6 +323,7 @@ export class RepoTransfers {
         const files = await collectIgnoredFiles(identity.root, ignored, this.git);
         const receiveId = await this.start(machine.id, RECEIVING_COMMANDS.receive, {
           protocol: REMOTE_WORK_PROTOCOL, transfer: transfer.id, repo: transfer.repo, base: state.base, ...(blob ? { blob } : {}), files,
+          ...(transfer.name ? { name: transfer.name } : {}), from: this.machines().self.name,
         });
         const received = await this.follow<ReceiveResult>(machine.id, receiveId, merge);
         transfer.remote = { path: received.worktree, branch: received.branch, ...(received.workspaceId ? { workspaceId: received.workspaceId } : {}) };

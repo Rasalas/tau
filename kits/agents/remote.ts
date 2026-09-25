@@ -93,7 +93,7 @@ export async function resolveMachine(
 /** A remote child's checkout as the panel and the tools show it: the worktree there, and its branch here once back. */
 function workspaceOf(link: RemoteThreadLink, before: AgentWorkspace | undefined): AgentWorkspace | undefined {
   if (!link.transfer && !before) return undefined;
-  const branch = link.result?.state === "branch" ? link.result.branch : link.transfer ? `tau/remote-${link.transfer}` : before?.branch;
+  const branch = link.result?.state === "branch" ? link.result.branch : link.worktreeBranch ?? before?.branch;
   const changes = link.result?.state === "branch"
     ? { files: link.result.files, added: 0, removed: 0, commits: link.result.commits, uncommitted: 0 }
     : link.result?.state === "nothing" ? { files: 0, added: 0, removed: 0, commits: 0, uncommitted: 0 } : undefined;

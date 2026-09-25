@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { HostCommandError } from "tau/host-extension";
 import { branchBaseConfigKey, captureStartingState } from "../workspace/agent-worktrees.js";
 import { asAgentRunner, gitMessage, type GitRunner } from "./git.js";
+import { slugOf } from "./identity.js";
 import { RESULT_PATHS_MAX, transferRef } from "./protocol.js";
 
 /**
@@ -85,16 +86,13 @@ export async function createTransferBundle(options: { root: string; transfer: st
   return { path, size: (await stat(path)).size, sha256: await sha256File(path), commits };
 }
 
-const slug = (value: string, fallback: string) =>
-  value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 40).replace(/-+$/u, "") || fallback;
-
 /**
  * `tau/<machine>/<slug>` for a transfer's result: a branch another transfer
  * holds already gets a number, one this transfer made is reused.
  */
 export async function resultBranchName(options: { root: string; machineName: string; name?: string; transfer: string; git: GitRunner }): Promise<string> {
   const { root, transfer, git } = options;
-  const stem = `tau/${slug(options.machineName, "machine")}/${slug(options.name ?? "", transfer)}`;
+  const stem = `tau/${slugOf(options.machineName, "machine")}/${slugOf(options.name ?? "", transfer)}`;
   for (let attempt = 1; attempt < 100; attempt += 1) {
     const candidate = attempt === 1 ? stem : `${stem}-${attempt}`;
     const taken = await git(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${candidate}`]).then(() => true, () => false);

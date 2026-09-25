@@ -130,7 +130,8 @@ function fakeRemoteWork() {
     run: (id: string) => update(id, (link) => {
       link.thread = `rex-thread-${id}`;
       link.transfer = `t${id.replace(/\D/gu, "")}`;
-      link.worktree = `/rex/worktrees/work/${link.transfer}`;
+      link.worktree = `/rex/worktrees/work/task-${link.transfer.slice(1)}`;
+      link.worktreeBranch = `tau/mini/task-${link.transfer.slice(1)}`;
       // As rex reports it: the last answer stays while a new turn runs.
       report(link, "running", link.there?.turns ?? 0, link.there?.lastMessage ? { lastMessage: link.there.lastMessage } : {});
     }),
@@ -269,7 +270,7 @@ describe("Agents Kit: sub-agents on another machine", () => {
     await until(() => linkOf(b, handle), (link) => link.machine?.thread === "rex-thread-link-1", "the thread on rex");
     b.remoteWork.finish("link-1", "apple");
     const done = await until(() => linkOf(b, handle), (link) => link.status === "completed", "the finished turn");
-    expect(done).toMatchObject({ result: "apple", workspace: { mode: "worktree", branch: "tau/remote-t1", path: "/rex/worktrees/work/t1" }, machine: { costUsd: 0.002 } });
+    expect(done).toMatchObject({ result: "apple", workspace: { mode: "worktree", branch: "tau/mini/task-1", path: "/rex/worktrees/work/task-1" }, machine: { costUsd: 0.002 } });
     const woken = await until(() => b.woken, (list) => list.length > 0, "the parent woken");
     expect(woken[0]).toMatchObject({ sessionId: "parent" });
     expect(woken[0]!.text).toContain('"Word A" on rex');

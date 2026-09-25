@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { assertAllowedCloneSource, HostCommandError } from "tau/host-extension";
 import { branchBaseConfigKey } from "../workspace/agent-worktrees.js";
 import { gitMessage, receivingGitRunner, type GitRunner } from "./git.js";
-import { REPO_KEY, folderName } from "./identity.js";
+import { REPO_KEY, folderName, slugOf } from "./identity.js";
 import { DOWNLOAD_PIECE_BYTES, REMOTE_WORK_PROTOCOL, type PrepareResult, type RepoIdentity, type ResultAnswer, type TransferStepId, type TransferStepState } from "./protocol.js";
 
 /** The receiving machine's own folder for remote work: mirrors, worktrees, outgoing bundles. */
@@ -20,6 +20,7 @@ const MAX_TIPS = 1000;
 export interface ReceivedWorktree {
   transfer: string;
   key: string;
+  /** The project's name on the sending machine; this machine's rail shows the worktree under it. */
   name: string;
   worktree: string;
   branch: string;
@@ -43,7 +44,6 @@ export interface MirrorStoreOptions {
   lsRemoteTimeoutMs?: number;
 }
 
-export const transferBranch = (transfer: string) => `tau/remote-${transfer}`;
 const incomingRef = (transfer: string) => `refs/tau/incoming/${transfer}`;
 const resultRef = (transfer: string) => `refs/tau/result/${transfer}`;
 
@@ -59,7 +59,8 @@ const exists = (path: string) => stat(path).then(() => true, () => false);
 /**
  * The receiving side's Git (plan-H §2): one bare mirror per project under
  * `~/.tau/remote-work/repos/<key>.git`, a worktree per transfer under
- * `worktrees/<name>/<transfer>`, the result as a bundle under `outgoing/`.
+ * `worktrees/<project>/<slug>` on `tau/<from>/<slug>`, the result as a bundle
+ * under `outgoing/`.
  * Nothing here touches a checkout of this machine's user, and no hook runs:
  * the mirror's own config points `core.hooksPath` at an empty folder, so a
  * thread's commits in the worktree skip them too.
@@ -86,8 +87,20 @@ export class MirrorStore {
     return join(this.root, "repos", `${key}.git`);
   }
 
-  worktreePath(name: string, transfer: string): string {
-    return join(this.root, "worktrees", folderName(name), transfer);
+  /**
+   * A folder and branch named after the work, not the transfer id: a slug of
+   * its name (the id without one), numbered when either is taken.
+   */
+  private async placeFor(mirror: string, input: { transfer: string; repo: RepoIdentity; name?: string; from?: string }): Promise<{ worktree: string; branch: string }> {
+    const stem = slugOf(input.name ?? "", input.transfer);
+    for (let attempt = 1; attempt < 100; attempt += 1) {
+      const slug = attempt === 1 ? stem : `${stem}-${attempt}`;
+      const worktree = join(this.root, "worktrees", folderName(input.repo.name), slug);
+      const branch = `tau/${slugOf(input.from ?? "", "remote")}/${slug}`;
+      const taken = await exists(worktree) || await this.git(mirror, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
+      if (!taken) return { worktree, branch };
+    }
+    throw new HostCommandError(`Every worktree name for ${stem} is taken.`);
   }
 
   /** One Git sequence per mirror at a time; transfers of other projects run side by side. */
@@ -199,7 +212,7 @@ export class MirrorStore {
    * it has when the bundle was not needed — and checks it out on a branch of
    * its own. The bundle is verified before a single object is fetched.
    */
-  receive(input: { transfer: string; repo: RepoIdentity; base: string; bundle?: string; device?: string }, step: StepReport): Promise<ReceivedWorktree> {
+  receive(input: { transfer: string; repo: RepoIdentity; base: string; bundle?: string; device?: string; name?: string; from?: string }, step: StepReport): Promise<ReceivedWorktree> {
     const { transfer, repo, base } = input;
     if (!TRANSFER_ID.test(transfer) || !SHA.test(base)) throw new HostCommandError("A transfer needs its id and the commit it carries.");
     const mirror = this.mirrorPath(repo.key);
@@ -224,10 +237,8 @@ export class MirrorStore {
       if (arrived !== base) throw new Error(`The bundle carried ${arrived.slice(0, 12)}, not ${base.slice(0, 12)}.`);
       step("unpack", "done", input.bundle ? "Bundle verified and fetched" : "The mirror had every commit");
 
-      const worktree = this.worktreePath(repo.name, transfer);
-      const branch = transferBranch(transfer);
+      const { worktree, branch } = await this.placeFor(mirror, input);
       step("worktree", "running", "Checking out");
-      if (await exists(worktree)) throw new Error(`${worktree} exists already.`);
       await mkdir(join(worktree, ".."), { recursive: true });
       await this.git(mirror, ["worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, base], { timeoutMs: 30 * 60_000 });
       await this.git(mirror, ["config", branchBaseConfigKey(branch), base]);

@@ -58,6 +58,10 @@ export function folderName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/gu, "-").replace(/^[-.]+/u, "").slice(0, 64) || "project";
 }
 
+/** A lowercase slug for a branch or folder: `Tidy the readme` → `tidy-the-readme`. */
+export const slugOf = (value: string, fallback: string) =>
+  value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 40).replace(/-+$/u, "") || fallback;
+
 /**
  * `origin` as it may travel: an https URL without its user and password (a
  * token often sits there), an ssh URL without a password. The other machine
