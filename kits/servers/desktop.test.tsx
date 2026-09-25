@@ -7,7 +7,7 @@ import { TestProviders } from "../../src/renderer/test-support/test-providers.js
 import type { DesktopExtensionContext } from "tau";
 import servers from "./desktop.js";
 import { ServerPromptFeed, createServerPromptLayer } from "./prompt-dialog.js";
-import { SERVERS_EXTENSION_ID, SERVERS_PROMPTS_EVENT, type CredentialStatus, type ServerPrompt, type ServerTargetRow, type ServerTargetsState } from "./protocol.js";
+import { SERVERS_EXTENSION_ID, SERVERS_PROMPTS_EVENT, type CredentialStatus, type ServerNetworkState, type ServerPrompt, type ServerTargetRow, type ServerTargetsState } from "./protocol.js";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -143,5 +143,50 @@ describe("the servers' questions", () => {
     expect(screen.getByText("op read op://x")).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Not now" })); });
     expect(invoke).toHaveBeenCalledWith("answer-prompt", { id: "c1", action: "cancel" });
+  });
+});
+
+describe("Settings → Servers → Network", () => {
+  const LIMITED: ServerNetworkState = { serverProject: true, allowAll: false, allowHosts: [], packageSources: ["registry.npmjs.org", "pypi.org"], pi: { available: true } };
+
+  it("shows the limit of a server project, adds and removes a host, and lifts the limit", async () => {
+    let state = LIMITED;
+    const { invoke, props } = setup((command, input) => {
+      if (command === "targets") return STATE;
+      if (command === "network") return state;
+      if (command === "set-network") {
+        const patch = input as { allowAll?: boolean; allowHosts?: string[] };
+        state = { ...state, ...(patch.allowAll !== undefined ? { allowAll: patch.allowAll } : {}), ...(patch.allowHosts ? { allowHosts: patch.allowHosts } : {}) };
+        return state;
+      }
+      return undefined;
+    });
+    await flush();
+    expect(screen.getByText(/Reach this machine and the package sources only/u)).toBeTruthy();
+    expect(screen.getByText("registry.npmjs.org · pypi.org")).toBeTruthy();
+    await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Host to allow" }), { target: { value: "api.example.com" } }); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Allow" })); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowHosts: ["api.example.com"] });
+    expect(screen.getByText("api.example.com")).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Host to allow" }) as HTMLInputElement).value).toBe("");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remove api.example.com" })); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowHosts: [] });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Allow all" })); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowAll: true });
+    expect(screen.getByText(/Reach the whole network/u)).toBeTruthy();
+    expect(props.onNotify).toHaveBeenCalledWith("The agent's commands in this project reach the whole network now.");
+  });
+
+  it("says when Pi's sandbox is missing, and shows nothing outside a server project", async () => {
+    setup((command) => (command === "targets" ? STATE : command === "network" ? { ...LIMITED, pi: { available: false, reason: "bubblewrap (bwrap) not installed" } } : undefined));
+    await flush();
+    expect(screen.getByText(/Not available here: bubblewrap \(bwrap\) not installed/u)).toBeTruthy();
+    cleanup();
+    setup((command) => (command === "targets" ? STATE : command === "network" ? { ...LIMITED, serverProject: false } : undefined));
+    await flush();
+    expect(screen.queryByText("Agent commands")).toBeNull();
   });
 });

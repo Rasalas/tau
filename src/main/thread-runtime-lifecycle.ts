@@ -21,6 +21,7 @@ import type {
   HostUiPresenter,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
+import type { HostExecutionPolicy } from "./host-execution-policy.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { mapMessage } from "./host-messages.js";
@@ -81,6 +82,8 @@ export interface ThreadRuntimeLifecyclePort {
   log(label: string, detail?: string): void;
   /** A thread's tallies priced as the host prices every thread. */
   priceUsage(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
+  /** What a folder's commands may reach. */
+  executionPolicy(cwd: string): Promise<HostExecutionPolicy>;
   errorMessage(error: unknown): string;
   /** Why a thread's runtime could not start, or undefined once it did. */
   runtimeUnavailable(threadId: string, reason: string | undefined): void;
@@ -215,6 +218,7 @@ export class ThreadRuntimeLifecycle {
       },
       onEvent: (event) => this.port.emitRuntimeEvent(threadId, event),
       priceUsage: (tallies) => this.port.priceUsage(tallies),
+      executionPolicy: () => this.port.executionPolicy(cwd),
       ask: (prompt) => this.port.extensionUi.ask(
         { ...prompt, id: `backend-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, sessionId: threadId },
         this.port.currentRuntime(threadId),

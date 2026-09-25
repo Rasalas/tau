@@ -17,6 +17,8 @@ export type * from "../shared/contracts.js";
 // What `services.network` speaks (API 1.13.0).
 export type { UiHostEndpoint, UiHostEndpointKind, UiNetworkAccess, UiNetworkCertificate, UiNetworkListener, UiNetworkSettings } from "../shared/connections.js";
 export { HostAuthorizationError, HostCommandError, type HostAuthorizationDetails } from "./host-extension-errors.js";
+// What a project's commands may reach, and the refusal of a runtime that cannot hold them to it (API 1.14.0).
+export { executionPolicyRefusal, normalizeAllowedHost } from "./host-execution-policy.js";
 export { buildTitleConversation, cleanThreadTitle, textFromContent, type TitleMessage } from "./host-text.js";
 export { isSmallModel, smallCompletionModel, type CompletionModelRef } from "./small-completion-model.js";
 export { prepareSkillPrompt, skillInvocationCommand, type PreparedSkillPrompt, type SkillRuntimeAdapter } from "./skill-invocation.js";

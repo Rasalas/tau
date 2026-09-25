@@ -6,6 +6,7 @@ import {
   DEFAULT_RETENTION_COUNT, DEFAULT_RETENTION_DAYS, RETENTION_COUNT_KEY, RETENTION_DAYS_KEY, SERVERS_EXTENSION_ID, TARGET_LEVELS, decodeServerTargetsState, type TargetLevel,
   type CredentialCheck, type CredentialSecretStatus, type CredentialStatus, type SecretKind, type ServerTargetIssue, type ServerTargetRow, type ServerTargetsState,
 } from "./protocol.js";
+import { NetworkSection } from "./network-settings.js";
 
 const ISSUE_ICONS = { error: OctagonAlert, warning: AlertTriangle, info: Info } as const;
 
@@ -238,6 +239,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
             onCheck={(kind) => check(target, kind)}
             onForget={() => forget(target)}
           />)}
+        <NetworkSection context={context} cwd={cwd} onNotify={onNotify} />
         {approvals ? <SettingsSection title="Approvals">
           <SettingRow
             title="Commands and VS Code's keychain items"

@@ -252,6 +252,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
               openSession: (input) => open(id, input) as Promise<CursorSessionLike>,
               storedModels: () => store.listModels(id),
               permissionLevel: thread.permissionLevel,
+              ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
               ask: thread.ask,

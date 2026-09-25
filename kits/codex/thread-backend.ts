@@ -5,8 +5,10 @@ import {
   knownSkillNames,
   prepareSkillPrompt,
   validatePreparedPrompt,
+  executionPolicyRefusal,
   type BackendPrompt,
   type ExtensionUiAnswer,
+  type HostExecutionPolicy,
   type PreparedPrompt,
   type RuntimePermissionLevel,
   type ThreadBackendCapabilities,
@@ -94,6 +96,10 @@ export interface CodexThreadBackendOptions {
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
   permissionLevel?: () => RuntimePermissionLevel;
+  /** What the thread's project lets its commands reach (API 1.14.0); asked before every turn. */
+  executionPolicy?(): Promise<HostExecutionPolicy>;
+  /** The platform the CLI runs on; this machine's by default. */
+  platform?: NodeJS.Platform;
   /** A thread being created keeps only these tools, as Pi names them. */
   tools?: readonly string[];
   now?(): number;
@@ -214,6 +220,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private chosenModel?: string;
   private chosenEffort?: string;
   private mode = DEFAULT_MODE;
+  /** The project limits its commands' network; read before each turn. */
+  private networkLimited = false;
   private observedModel?: string;
   /** The effort Codex applies when Tau names none: the thread's own, or the user's config. */
   private observedEffort?: string;
@@ -398,6 +406,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Codex delivery.");
+    await this.readNetworkLimit();
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     validatePreparedPrompt(input.text, prepared, this.bound());
     const clientMessageId = input.identity?.clientMessageId;
@@ -453,6 +462,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.report({ type: "turn-started" });
     this.reportQueue();
     try {
+      await this.readNetworkLimit();
       const live = await this.ensureSession();
       if (turn.aborted) {
         this.settle(turn, "interrupted");
@@ -464,7 +474,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       const id = await live.startTurn({
         threadId: this.codexThreadId!,
         input: turn.input,
-        policy: policyForLevel(level),
+        policy: this.policy(level),
         ...(this.chosenModel ? { model: this.chosenModel } : {}),
         ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
         ...(mode ? { mode } : {}),
@@ -533,6 +543,21 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.setSelection(this.threadId, this.cwd, { mode: mode === DEFAULT_MODE ? null : mode });
   }
 
+  /**
+   * Reads the project's limit. Codex's sandbox has no host list, so a limited
+   * project runs without network; on Windows it has no sandbox that holds, so
+   * the prompt is refused.
+   */
+  private async readNetworkLimit(): Promise<void> {
+    const policy = await this.options.executionPolicy?.();
+    this.networkLimited = policy?.network === "loopback";
+    if (this.networkLimited && (this.options.platform ?? process.platform) === "win32") throw new Error(executionPolicyRefusal(policy, "Codex on Windows"));
+  }
+
+  private policy(level: RuntimePermissionLevel) {
+    return policyForLevel(level, { network: this.networkLimited ? "none" : "any" });
+  }
+
   /** The workbench's level, or read-only for a thread left without a tool that writes. */
   private permissionLevel(): RuntimePermissionLevel {
     const level = this.options.permissionLevel?.() ?? "full";
@@ -561,7 +586,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       onExit: (error) => this.onExit(session, error),
     });
     try {
-      const policy = policyForLevel(level);
+      const policy = this.policy(level);
       const model = this.chosenModel;
       let info: CodexThreadInfo;
       if (this.codexThreadId) {
@@ -643,6 +668,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (answer !== undefined) return answer;
       throw new Error(`Tau does not answer Codex's ${method}.`);
     }
+    // A limited project's network is not opened one command at a time.
+    if (this.networkLimited && params.networkApprovalContext) return dialog.resultFor([]);
     const ask = this.options.ask;
     const answers: ExtensionUiAnswer[] = [];
     if (ask) {

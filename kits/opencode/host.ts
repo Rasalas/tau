@@ -302,6 +302,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
               storedModels: () => store.listModels(id),
               models: () => cachedModels(id),
               permissionLevel: thread.permissionLevel,
+              ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               ...(tools ? { tools } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,

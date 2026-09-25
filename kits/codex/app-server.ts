@@ -8,7 +8,7 @@ import { RpcConnection, spawnRpcProcess, type RpcClosedError, type RpcProcess, t
 
 export type ApprovalPolicy = "untrusted" | "on-request" | "never";
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-export type SandboxPolicy = { type: "readOnly" } | { type: "workspaceWrite" } | { type: "dangerFullAccess" };
+export type SandboxPolicy = { type: "readOnly"; networkAccess?: boolean } | { type: "workspaceWrite"; networkAccess?: boolean } | { type: "dangerFullAccess" };
 
 export interface CodexPolicy {
   approvalPolicy: ApprovalPolicy;

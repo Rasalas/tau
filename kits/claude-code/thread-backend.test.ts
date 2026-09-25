@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BackendPrompt, ExtensionUiAnswer, ThreadRuntimeEvent, UiComposerCommand } from "tau/host-extension";
+import type { BackendPrompt, ExtensionUiAnswer, HostExecutionPolicy, ThreadRuntimeEvent, UiComposerCommand } from "tau/host-extension";
 import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput } from "./runtime-adapter.js";
 import type { ClaudeSdkSession, ResultMessage, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -305,6 +305,37 @@ describe("thread runtime backends", () => {
     expect(opened[1]!.tools).toEqual(tools);
     expect(await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread")).toMatchObject({ tools });
     await again.dispose();
+  });
+
+  it("starts a limited project's session in the SDK's sandbox, and a new one when the limit changes between turns", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("ok"));
+    let policy: HostExecutionPolicy = { network: "loopback", allowHosts: ["pypi.org"], reasons: ["Limited."], sources: ["tau.servers"] };
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", executionPolicy: async () => policy, onEvent: () => undefined });
+    await backend.start("create");
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    await backend.prompt({ text: "again", delivery: "prompt" });
+    expect(opened.map((input) => input.network)).toEqual([{ allowHosts: ["pypi.org"] }]);
+    policy = { network: "any", allowHosts: [], reasons: [], sources: [] };
+    await backend.prompt({ text: "open now", delivery: "prompt" });
+    expect(opened).toHaveLength(2);
+    expect(opened[1]).not.toHaveProperty("network");
+    // The new session resumes the conversation under the same id.
+    expect(opened[1]!.started).toBe(true);
+    expect(sessions[0]!.close).toHaveBeenCalled();
+    await backend.dispose();
+  });
+
+  it("refuses a limited project's prompt on Windows before the transcript or a session", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
+    const policy: HostExecutionPolicy = { network: "loopback", allowHosts: [], reasons: ["Limited."], sources: ["tau.servers"] };
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", executionPolicy: async () => policy, platform: "win32", onEvent: () => undefined });
+    await backend.start("create");
+    await expect(backend.prompt({ text: "hi", delivery: "prompt" })).rejects.toThrow(/^Limited\. The Agent SDK runtime on Windows cannot enforce that limit/u);
+    expect(opened).toEqual([]);
+    expect(await backend.transcript()).toEqual([]);
+    await backend.dispose();
   });
 
   it("settles a broken turn as an error the host hears about, and reports a session that died", async () => {
