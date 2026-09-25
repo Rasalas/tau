@@ -17,6 +17,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createSecureContext, TLSSocket } from "node:tls";
 import { fileURLToPath } from "node:url";
 import FtpSrv from "ftp-srv";
 import { appendCall, assertLoopback, paths, prepareServersDir, serversStateDir, TEST_PASSWORD, TEST_USER } from "./servers-test-env.mjs";
@@ -37,6 +38,20 @@ export function ensureTlsCertificate(dir) {
   return { cert, key };
 }
 
+// AUTH TLS with the 234 and the switch in one turn. ftp-srv switches a few turns later,
+// so a ClientHello arriving in between was read as a command and answered in plain text.
+function startTls(connection, secureContext) {
+  if (connection.secure) return connection.reply(202);
+  const socket = connection.commandSocket;
+  socket.write("234 Honored\r\n");
+  const secure = new TLSSocket(socket, { isServer: true, secureContext });
+  // The connection listens on the plain socket; hand it the decrypted stream there.
+  for (const event of ["data", "timeout", "end", "close", "drain", "error"]) secure.on(event, (...args) => socket.emit(event, ...args));
+  connection.commandSocket = secure;
+  connection.secure = true;
+  return Promise.resolve();
+}
+
 const quiet = {
   child() { return quiet; },
   trace() {}, debug() {}, info() {}, warn() {},
@@ -52,6 +67,7 @@ export async function startFakeFtpServer({ dir, host = "127.0.0.1", port = 0, mo
   const log = (record) => appendCall(dir, { tool: "ftp", ...record });
   const certificate = mode === "plain" ? undefined : ensureTlsCertificate(dir);
   const tls = certificate ? { cert: readFileSync(certificate.cert), key: readFileSync(certificate.key) } : false;
+  const secureContext = tls && mode === "explicit" ? createSecureContext(tls) : undefined;
   // ftp-srv takes passive ports upward from pasv_min; a random start keeps parallel fakes apart.
   const pasvMin = 40_000 + Math.floor(Math.random() * 20_000);
   const server = new FtpSrv({
@@ -71,6 +87,7 @@ export async function startFakeFtpServer({ dir, host = "127.0.0.1", port = 0, mo
     connection.commands.handle = (command) => {
       const parsed = typeof command === "string" ? connection.commands.parse(command) : command;
       log({ event: "command", directive: parsed.directive, arg: parsed.directive === "PASS" ? "********" : parsed.arg, tls: connection.secure });
+      if (secureContext && parsed.directive === "AUTH" && String(parsed.arg).toUpperCase() === "TLS") return startTls(connection, secureContext);
       return handle(parsed);
     };
   });

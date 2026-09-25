@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanEnv, hasCommand, runCommand } from "./run-command";
 import { paths, readCalls } from "./servers-test-env.mjs";
@@ -13,8 +14,8 @@ const hasOpenssl = hasCommand("openssl", ["version"]);
 interface Running { child: ChildProcess; port: number; cert: string | null }
 
 /** The CLI in its own process: ftp-srv installs signal handlers that exit whatever process it runs in. */
-function startCli(dir: string, args: string[]): Promise<Running> {
-  const child = spawn(process.execPath, [SERVER, "--dir", dir, ...args], { stdio: ["ignore", "pipe", "pipe"], env: cleanEnv() });
+function startCli(dir: string, args: string[], nodeArgs: string[] = []): Promise<Running> {
+  const child = spawn(process.execPath, [...nodeArgs, SERVER, "--dir", dir, ...args], { stdio: ["ignore", "pipe", "pipe"], env: cleanEnv() });
   return new Promise((resolve, reject) => {
     let output = "";
     child.once("error", reject);
@@ -69,6 +70,25 @@ describe.skipIf(!hasCurl)("the fake FTP server", () => {
     expect(readCalls(dir)).toContainEqual(expect.objectContaining({ event: "command", directive: "STOR", arg: "upload.txt", tls: true }));
     expect(readFileSync(paths(dir).calls, "utf8")).not.toContain("tester:test");
     expect(readCalls(dir).filter((call) => call.directive === "PASS").every((call) => call.arg === "********")).toBe(true);
+  });
+
+  it.skipIf(!hasOpenssl)("takes a ClientHello that is already waiting when AUTH TLS switches over", async () => {
+    // The process stalls right after writing 234, as on a loaded runner; the client has sent its ClientHello by then.
+    const stall = join(dir, "stall-after-234.mjs");
+    writeFileSync(stall, [
+      'import net from "node:net";',
+      "const write = net.Socket.prototype.write;",
+      "net.Socket.prototype.write = function (data, ...rest) {",
+      "  const result = write.call(this, data, ...rest);",
+      '  if (String(data).startsWith("234")) { const until = Date.now() + 200; while (Date.now() < until); }',
+      "  return result;",
+      "};",
+    ].join("\n"));
+    running = await startCli(dir, ["--mode", "explicit"], ["--import", pathToFileURL(stall).href]);
+    const listing = await curl(["--ssl-reqd", "--cacert", running.cert as string, `ftp://127.0.0.1:${running.port}/site/`]);
+    expect(listing.code, listing.stderr).toBe(0);
+    expect(listing.stdout).toContain("index.php");
+    expect(readCalls(dir).filter((call) => String(call.directive ?? "").startsWith("\u0016"))).toEqual([]);
   });
 
   it.skipIf(!hasOpenssl)("refuses a plain login when TLS is required", async () => {
