@@ -166,7 +166,10 @@ export function createComputerUseHostExtension(): HostExtension {
       const callWindow = windowCalls(context);
       const icons = new Map<number, Promise<string | null>>();
 
-      const factory = await context.services.loadRuntimeExtension(COMPUTER_USE_PACKAGE);
+      // The package takes a few hundred milliseconds to import; only a runtime waits for it, not the host's start.
+      const loading = context.services.loadRuntimeExtension(COMPUTER_USE_PACKAGE);
+      loading.catch(() => undefined);
+      const factory: RuntimeExtensionFactory = async (pi, session) => (await loading)(pi, session);
       const releaseDriver = context.services.registerRuntimeExtension(COMPUTER_USE_RUNTIME_EXTENSION, drivers.wrap(factory), {
         enabledFor: (settings) =>
           !settingsIncludeComputerUse(settings.global as PackageSettings)

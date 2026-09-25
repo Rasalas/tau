@@ -38,11 +38,15 @@ function fakeDriver(execute = vi.fn(async () => ({ content: [{ type: "text", tex
   return { driver, execute };
 }
 
-async function activate(options: { driver?: RuntimeExtensionFactory; callClient?: (extensionId: string, command: string, input?: unknown) => Promise<unknown> } = {}) {
+async function activate(options: {
+  driver?: RuntimeExtensionFactory;
+  load?: () => Promise<RuntimeExtensionFactory>;
+  callClient?: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
+} = {}) {
   const contributions: RuntimeExtensionContribution[] = [];
   const events: PublishedKitEvent[] = [];
   const driver = options.driver ?? fakeDriver().driver;
-  const loadRuntimeExtension = vi.fn(async () => driver);
+  const loadRuntimeExtension = vi.fn(options.load ?? (async () => driver));
   const registry = await activateHostKit(createComputerUseHostExtension(), {
     loadRuntimeExtension,
     registerRuntimeExtension: (name, factory, extensionOptions) => {
@@ -70,6 +74,20 @@ describe("Computer Use host extension", () => {
     expect(contributions.map((entry) => entry.name)).toEqual([COMPUTER_USE_RUNTIME_EXTENSION, COMPUTER_USE_SCREEN_RUNTIME_EXTENSION]);
     // The driver still registers its tools with Pi itself.
     expect((await runtime("thread")).tools.map((tool) => tool.name)).toEqual(["computer_use_bring_to_front"]);
+  });
+
+  it("activates before the package has loaded, and a runtime waits for it", async () => {
+    const { driver } = fakeDriver();
+    let release!: (factory: RuntimeExtensionFactory) => void;
+    const pending = new Promise<RuntimeExtensionFactory>((resolve) => { release = resolve; });
+    const { runtime } = await activate({ load: () => pending });
+
+    let started = false;
+    const opening = runtime("thread").then((opened) => { started = true; return opened; });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(started).toBe(false);
+    release(driver);
+    expect((await opening).tools.map((tool) => tool.name)).toEqual(["computer_use_bring_to_front"]);
   });
 
   it("stands down when the user already configured the Pi package, while the observer stays", async () => {
