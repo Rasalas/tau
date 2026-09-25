@@ -8,9 +8,9 @@
 // `pending` and names its ticket; the run stays green and lists it. A ticket
 // replaces its pending entries with real steps. Teardown stops only the pids
 // this run started and then checks that none of their ports still listens.
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
@@ -108,6 +108,27 @@ export const STEPS = [
       if (aHello.host?.name !== A.machineName || rexHello.host?.name !== REX.machineName) throw new Error(`the hosts call themselves ${aHello.host?.name} and ${rexHello.host?.name}`);
       if (aHello.host.id === rexHello.host.id) throw new Error("both hosts have the same host id");
       return `A ${a.url} (pid ${a.pid}), rex ${rex.url} (pid ${rex.pid})`;
+    },
+  },
+  {
+    title: "A clones the fixture's origin over file:// (test clone root only) and refuses one outside it",
+    async run(ctx) {
+      const parent = join(dirname(ctx.a.userData), "clones");
+      mkdirSync(parent, { recursive: true });
+      const outside = await ctx.aOwner.request("host-extension", ["tau.workspace", "clone-start", { repositoryUrl: pathToFileURL(ROOT).href, parentPath: parent }])
+        .then(() => "started", (error) => String(error.message));
+      if (!/HTTPS or SSH/u.test(outside)) throw new Error(`a file:// clone outside .tau-dev/remote-work was not refused: ${outside}`);
+      const job = await ctx.aOwner.request("host-extension", ["tau.workspace", "clone-start", { repositoryUrl: ctx.fixture.originUrl, parentPath: parent }]);
+      let snapshot = job;
+      await waitFor(async () => {
+        const jobs = await ctx.aOwner.request("host-extension", ["tau.workspace", "clone-jobs"]);
+        snapshot = jobs.find((entry) => entry.id === job.id) ?? snapshot;
+        return snapshot.phase !== "running";
+      }, "the clone on A");
+      if (snapshot.phase !== "done") throw new Error(`the clone ended ${JSON.stringify(snapshot)}`);
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: snapshot.destination, encoding: "utf8" }).trim();
+      if (head !== ctx.fixture.head) throw new Error(`the clone is at ${head}, origin at ${ctx.fixture.head}`);
+      return snapshot.destination;
     },
   },
   {
