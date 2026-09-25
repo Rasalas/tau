@@ -110,6 +110,11 @@ describe("what one host may ask another for its agents (ADR 0027)", () => {
     }
     expect(isMachineRequestMethod("transcript-page")).toBe(true);
     expect(isMachineRequestMethod("abort")).toBe(true);
+    // How busy and how ready a machine is: read, and what an automatic choice of machine weighs.
+    for (const method of ["host-resources", "readiness"]) {
+      expect(isMachineRequestMethod(method), method).toBe(true);
+      expect(methodAccess(method), method).toBe("read");
+    }
   });
 
   it("keeps the machines' keys to the host token on this machine", () => {

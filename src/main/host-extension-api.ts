@@ -16,6 +16,8 @@ export type * from "./model-auth.js";
 export type * from "../shared/contracts.js";
 // What `services.network` speaks (API 1.13.0).
 export type { UiHostEndpoint, UiHostEndpointKind, UiNetworkAccess, UiNetworkCertificate, UiNetworkListener, UiNetworkSettings } from "../shared/connections.js";
+// What `host-resources` and `readiness` answer, through `services.machines.request` (API 1.15.0).
+export type { HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, RuntimeReadinessState } from "../shared/host-resources.js";
 export { HostAuthorizationError, HostCommandError, type HostAuthorizationDetails } from "./host-extension-errors.js";
 // What a project's commands may reach, and the refusal of a runtime that cannot hold them to it (API 1.14.0).
 export { executionPolicyRefusal, normalizeAllowedHost } from "./host-execution-policy.js";

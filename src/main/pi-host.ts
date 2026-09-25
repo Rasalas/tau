@@ -1565,7 +1565,7 @@ export class PiHost {
    * The backends a new thread can run on, in the one order every picker uses:
    * Pi, then registered backends by their `order`, then by registration.
    */
-  private runtimeBackends(): UiRuntimeBackend[] {
+  runtimeBackends(): UiRuntimeBackend[] {
     const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
     const registered = sortByRuntimeOrder([...this.seam.backends.values()]).map((provider) => {
       const version = this.runtimeVersions.get(provider.kind);
