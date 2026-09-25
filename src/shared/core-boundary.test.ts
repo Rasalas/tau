@@ -114,6 +114,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // The machines a window knows beside its own (ADR 0025, API 1.13.0).
   "./environment-catalog.js",   "./environment-methods.js",   "./environment-monitor.js",   "./environment-pairing.js",
   "./environment-session.js",   "./window-environments.js",
+  // Threads of other machines a page looks in on, over the window's connection there (API 1.15.0).
+  "./environment-thread-watch.js",
   // Test instances and benchmarks keep their windows from taking focus (TAU_NO_FOCUS).
   "./background-mode.js",
 ]);

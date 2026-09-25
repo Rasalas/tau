@@ -307,6 +307,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "window-title":
     case "window-shell":
     case "environments":
+    case "environment-thread":
     case "config-changed":
       return state;
     default: {

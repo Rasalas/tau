@@ -39,7 +39,12 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
   const directory = extra.directory ?? mkdtempSync(join(tmpdir(), "tau-window-environments-"));
   if (!extra.directory) directories.push(directory);
   const pairCalls: PairEnvironmentOptions[] = [];
-  const monitors = new Map<string, { options: EnvironmentMonitorOptions; set(state: Partial<MonitorState>): void }>();
+  const monitors = new Map<string, {
+    options: EnvironmentMonitorOptions;
+    set(state: Partial<MonitorState>): void;
+    calls: Array<{ method: string; params: readonly unknown[] }>;
+    resubscribed: number;
+  }>();
   const published: UiEnvironments[] = [];
   const shown: Array<EnvironmentConnection | undefined> = [];
   const environments = new WindowEnvironments({
@@ -53,8 +58,23 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
     monitor: (options) => {
       const key = options.urls()[0]!;
       let state: MonitorState = { status: "connecting", running: new Set() };
-      monitors.set(key, { options, set: (patch) => { state = { ...state, ...patch }; options.onChange(state); } });
-      return { close: vi.fn(), retryNow: vi.fn(), get current() { return state; } } as unknown as EnvironmentMonitor;
+      const entry = {
+        options,
+        set: (patch: Partial<MonitorState>) => { state = { ...state, ...patch }; options.onChange(state); },
+        calls: [] as Array<{ method: string; params: readonly unknown[] }>,
+        resubscribed: 0,
+      };
+      monitors.set(key, entry);
+      return {
+        close: vi.fn(),
+        retryNow: vi.fn(),
+        resubscribe: () => { entry.resubscribed += 1; },
+        call: async (method: string, params: readonly unknown[] = []) => {
+          entry.calls.push({ method, params });
+          return { sessionId: params[0], messages: [{ id: "m1", role: "assistant", text: "hello from there" }], hasMore: false };
+        },
+        get current() { return state; },
+      } as unknown as EnvironmentMonitor;
     },
     pair: async (options: PairEnvironmentOptions) => {
       pairCalls.push(options);
@@ -362,5 +382,80 @@ describe("this computer's agents on a machine (ADR 0027)", () => {
     await environments.pair({ text: "link", agents: false });
     await environments.remove("host-studio");
     expect(agents.remove).toHaveBeenCalledWith("host-studio");
+  });
+});
+
+describe("looking in on another machine's thread", () => {
+  const index = {
+    projects: [],
+    sessions: [{ id: "t9", path: "/rex/sessions/t9.jsonl", title: "On rex", modifiedAt: 7, projectPath: "/w", projectName: "w", messageCount: 3, usage: { costUsd: 0.02 } }],
+  } as unknown as MonitorState["index"];
+
+  async function connectedStudio() {
+    const published: unknown[] = [];
+    const context = await setup(undefined, { publishThread: (view) => published.push(view) });
+    await context.environments.pair({ text: "link" });
+    const monitor = context.monitors.get("wss://192.168.1.4:7788/")!;
+    monitor.set({ status: "connected", index, running: new Set(["t9"]) });
+    return { ...context, monitor, published };
+  }
+
+  it("subscribes the machine's connection to the thread while a page renews its watch, and reads its pages there", async () => {
+    const { environments, monitor } = await connectedStudio();
+    expect(monitor.options.threads!()).toEqual([]);
+    // By name, as a kit may name it; the view answers the id.
+    const view = environments.watchThread("studio", "t9", true);
+    expect(view).toMatchObject({
+      machine: "host-studio",
+      machineName: "studio",
+      status: "connected",
+      indexed: true,
+      thread: { title: "On rex", path: "/rex/sessions/t9.jsonl", running: true, messageCount: 3, usage: { costUsd: 0.02 } },
+      revision: 0,
+    });
+    expect(monitor.options.threads!()).toEqual(["t9"]);
+    expect(monitor.resubscribed).toBe(1);
+    // A renewal is not a new subscription.
+    environments.watchThread("host-studio", "t9", true);
+    expect(monitor.resubscribed).toBe(1);
+    const page = await environments.transcriptPage("host-studio", "t9");
+    expect(page.messages).toHaveLength(1);
+    expect(monitor.calls).toEqual([{ method: "transcript-page", params: ["t9"] }]);
+    environments.watchThread("host-studio", "t9", false);
+    expect(monitor.options.threads!()).toEqual([]);
+    expect(monitor.resubscribed).toBe(2);
+  });
+
+  it("tells the page of every change to the thread there, and of a question it asks", async () => {
+    const { environments, monitor, published } = await connectedStudio();
+    environments.watchThread("host-studio", "t9", true);
+    monitor.options.onPush!({ type: "assistant-delta", sessionId: "t9", id: "a", delta: "x" });
+    monitor.options.onPush!({ type: "assistant-delta", sessionId: "other", id: "b", delta: "y" });
+    await expect.poll(() => published.length).toBe(1);
+    expect(published[0]).toMatchObject({ machine: "host-studio", sessionId: "t9", revision: 1 });
+    monitor.options.onPush!({ type: "extension-ui-prompt", sessionId: "t9", prompt: { id: "q1", sessionId: "t9", kind: "select", title: "Which colour?" } });
+    await expect.poll(() => published.length).toBe(2);
+    expect(published[1]).toMatchObject({ asking: { id: "q1", title: "Which colour?" }, revision: 2 });
+    monitor.options.onPush!({ type: "extension-ui-resolved", id: "q1", sessionId: "t9" });
+    await expect.poll(() => published.length).toBe(3);
+    expect(published[2]).not.toHaveProperty("asking");
+    monitor.set({ status: "offline", detail: "It stopped answering.", lastSeenAt: 99 });
+    await expect.poll(() => published.length).toBe(4);
+    expect(published[3]).toMatchObject({ status: "offline", lastSeenAt: 99 });
+    await expect(environments.transcriptPage("host-studio", "t9")).rejects.toThrow(/not reachable/u);
+  });
+
+  it("opens a thread there by its id, from the machine's index", async () => {
+    const { environments, shown } = await connectedStudio();
+    await environments.open("host-studio", { threadId: "t9" });
+    expect(shown.at(-1)).toMatchObject({ id: "host-studio" });
+    expect(environments.takeArrival()).toEqual({ thread: { path: "/rex/sessions/t9.jsonl" } });
+    await expect(environments.open("host-studio", { threadId: "nope" })).rejects.toThrow(/does not list that thread/u);
+  });
+
+  it("answers a machine it does not know as unknown, and reads nothing there", async () => {
+    const { environments } = await connectedStudio();
+    expect(environments.watchThread("nowhere", "t1", true)).toMatchObject({ machine: "nowhere", status: "unknown", indexed: false });
+    await expect(environments.transcriptPage("nowhere", "t1")).rejects.toThrow(/does not know/u);
   });
 });

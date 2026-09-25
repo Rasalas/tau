@@ -597,6 +597,7 @@ async function startEnvironments(local: WindowHost): Promise<void> {
     deviceName: name,
     local: { id: localHostId, name },
     publish: (list) => publish({ type: "environments", environments: list }),
+    publishThread: (view) => publish({ type: "environment-thread", view }),
     show: showEnvironment,
     // Looks from this machine's host, whichever machine the page shows.
     discover: () => local.request("connections-discover", [{}]),

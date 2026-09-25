@@ -106,6 +106,24 @@ describe("the window's connection to a machine", () => {
     expect(last().detail).toMatch(/presented a key/u);
   });
 
+  it("receives a thread's stream only while the window looks in on it", async () => {
+    const { url, push } = await host();
+    let threads: string[] = [];
+    const pushes: unknown[] = [];
+    const { monitor, last } = watch({ urls: () => [url], token: "host-secret", onChange: () => undefined, threads: () => threads, onPush: (event) => pushes.push(event) });
+    await expect.poll(() => last().status).toBe("connected");
+    push({ type: "assistant-delta", sessionId: "a", id: "m1", delta: "not for us" });
+    push({ type: "agent-status", sessionId: "a", running: true });
+    await expect.poll(() => pushes.length).toBe(1);
+    threads = ["a"];
+    monitor.resubscribe();
+    await expect.poll(async () => {
+      push({ type: "assistant-delta", sessionId: "a", id: "m1", delta: "now" });
+      return pushes.some((event) => (event as { delta?: string }).delta === "now");
+    }).toBe(true);
+    expect(pushes.some((event) => (event as { delta?: string }).delta === "not for us")).toBe(false);
+  });
+
   it("is refused for good when the machine no longer takes its key", async () => {
     const { url } = await host();
     const { last } = watch({ urls: () => [url], token: "revoked", onChange: () => undefined });

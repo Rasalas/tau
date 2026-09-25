@@ -658,6 +658,8 @@ export type GlobalHostEvent =
   | { type: "window-shell"; event: import("./window-shell.js").WindowShellEvent; sessionId?: undefined }
   /** The window's own process to its page: the machines it knows and how each is doing (ADR 0025). */
   | { type: "environments"; environments: import("./environments.js").UiEnvironments; sessionId?: undefined }
+  /** The window's own process to its page: a thread of another machine a tab looks in on changed there (API 1.15.0). */
+  | { type: "environment-thread"; view: import("./environments.js").UiEnvironmentThreadView; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */

@@ -816,6 +816,19 @@ record with the pinned key (or, for an old pin, fingerprint) does the same.
 `environments-set-preferences [{ reopenShown }]` keeps whether the window shows
 the machine it showed last again at start; the catalog remembers which one.
 
+**Looking in on a thread there** (API 1.15.0) needs no move. `environments-watch-thread
+[machine, sessionId, on]` starts or renews a lease (the page renews every 20 s,
+the window drops one a minute after its last renewal) and answers the thread's
+`UiEnvironmentThreadView`; `on: false` ends it. While a lease lasts, the window's
+connection to that machine subscribes to the thread (`subscribe` with its id in
+`threads`), and every push of the thread's scope, its `agent-status`, its
+`thread-shell`, a whole `thread-index`, a dialog it opens or closes, and a change
+of the connection move the view's `revision`; the page hears the view as the
+`environment-thread` push of its local connection, at most every 300 ms.
+`environments-transcript-page [machine, sessionId, cursor?]` is `transcript-page`
+sent on that connection, with the window's key there. `environments-open [id,
+{ threadId }]` opens a thread by its id, found in that machine's index.
+
 ### A host that reaches other machines for its agents
 
 A host keeps machines of its own too, so its agents can work on another

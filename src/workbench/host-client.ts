@@ -41,7 +41,7 @@ import type { SystemNotification, SystemNotificationOutcome } from "../shared/sy
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { UiDiscoveredHosts } from "../shared/discovery";
-import type { EnvironmentAgentsResult, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
+import type { EnvironmentAgentsResult, EnvironmentOpenTarget, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironmentThreadView, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 import { ReadCommands, readOnlyMayCall, readOnlyRefusal } from "./read-only-guard";
@@ -248,13 +248,17 @@ export interface HostClient {
   removeEnvironment(id: string): Promise<{ removed: boolean }>;
   retryEnvironment(id: string): Promise<void>;
   /** Points this window at another machine; the page loads again there and finds `target` waiting. */
-  openEnvironment(id: string, target?: EnvironmentTarget): Promise<void>;
+  openEnvironment(id: string, target?: EnvironmentOpenTarget): Promise<void>;
   /** What this page was sent to show on arrival, once. */
   takeEnvironmentArrival(): Promise<EnvironmentTarget | undefined>;
   /** A Bonjour search from the window's own host, whichever machine the page shows. */
   discoverEnvironments(): Promise<UiDiscoveredHosts>;
   setEnvironmentPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setEnvironmentAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
+  /** Renews or ends the window's watch of another machine's thread (API 1.15.0). */
+  watchEnvironmentThread(machine: string, sessionId: string, on: boolean): Promise<UiEnvironmentThreadView | undefined>;
+  /** A page of another machine's thread, over the window's own connection to it. */
+  loadEnvironmentTranscript(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
 }
 
 /**
@@ -263,7 +267,7 @@ export interface HostClient {
  * a window whose host runs in another process still copies to its own
  * clipboard and rebuilds its own workbench (ADR 0021).
  */
-const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments"]);
+const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments", "environment-thread"]);
 
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
@@ -438,5 +442,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     discoverEnvironments: () => call<UiDiscoveredHosts>("environments-discover"),
     setEnvironmentPreferences: (preferences) => call<void>("environments-set-preferences", [preferences]),
     setEnvironmentAgents: (id, on) => call<EnvironmentAgentsResult>("environments-set-agents", [id, on]),
+    watchEnvironmentThread: async (machine, sessionId, on) => (await call<UiEnvironmentThreadView | null>("environments-watch-thread", [machine, sessionId, on])) ?? undefined,
+    loadEnvironmentTranscript: (machine, sessionId, cursor) => call<TranscriptPage>("environments-transcript-page", cursor ? [machine, sessionId, cursor] : [machine, sessionId]),
   };
 }
