@@ -1,5 +1,6 @@
 import type { HostExtension } from "tau/host-extension";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
+import { DriftService, WORKSPACE_KIT_ID } from "./drift.js";
 import { registerServerProjects } from "./projects.js";
 import { ServerNetwork } from "./network-policy.js";
 import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
@@ -50,6 +51,14 @@ export function createServersHostExtension(): HostExtension {
         git: gitCall("git", () => services.noteSubprocess()),
       });
       sync.register();
+      const drift = new DriftService(context, {
+        store,
+        list: (cwd) => targets.list(cwd),
+        sync,
+        workspace: (command, input) => context.invokeHostExtension(WORKSPACE_KIT_ID, command, input),
+        git: gitCall("git", () => services.noteSubprocess()),
+      });
+      drift.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
       const sandbox = new NetworkSandbox({
         load: () => services.loadDependency("@anthropic-ai/sandbox-runtime"),
@@ -71,6 +80,7 @@ export function createServersHostExtension(): HostExtension {
         ? services.registerRuntimeExtension("tau-servers-network", createPiNetworkExtension({ policy: (cwd) => policies.for(cwd), sandbox }))
         : undefined;
       return async () => {
+        drift.dispose();
         stopProjects();
         sync.dispose();
         withdraw?.();

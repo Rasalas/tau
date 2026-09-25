@@ -5,10 +5,9 @@ import { join } from "node:path";
 import { gitExecutable, HostCommandError } from "tau/host-extension";
 
 /*
- * Git objects another kit asks this one to write into a project: a first
- * commit made from a tree it keeps elsewhere, and a commit of chosen files on
- * a new branch. Both work through a temporary index; neither touches the
- * working tree, and the second leaves HEAD and the real index alone too.
+ * A project's first commit, made from a tree another kit keeps in a repository
+ * of its own (Servers Kit's mirror of a server). It works through a temporary
+ * index and never touches the working tree.
  */
 
 interface GitResult { code: number | null; stdout: Buffer; stderr: string }
@@ -55,10 +54,10 @@ async function git(args: readonly string[], options: GitOptions = {}): Promise<s
   return result.stdout.toString("utf8").trim();
 }
 
-/** Streams a pack of `wanted` from one repository into another; `revs` walks a tree, else each line is an object. */
-function copyObjects(fromGitDir: string, toRepo: string, wanted: string, revs: boolean): Promise<void> {
+/** Streams a pack of the tree `wanted` names, and all below it, from one repository into another. */
+function copyObjects(fromGitDir: string, toRepo: string, wanted: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const packArgs = ["--git-dir", fromGitDir, "pack-objects", "--stdout", ...(revs ? ["--revs"] : [])];
+    const packArgs = ["--git-dir", fromGitDir, "pack-objects", "--stdout", "--revs"];
     const pack = spawnGit(packArgs);
     const index = spawnGit(["index-pack", "--stdin"], { cwd: toRepo });
     let packErr = "";
@@ -181,7 +180,7 @@ export async function repoFromTree(input: RepoFromTreeInput): Promise<RepoFromTr
     const trees: Array<{ tree: string; prefix: string }> = [];
     for (const source of input.trees) {
       const tree = await git(["--git-dir", source.gitDir, "rev-parse", "--verify", "--end-of-options", `${source.ref}^{tree}`]);
-      await copyObjects(source.gitDir, path, `${tree}\n`, true);
+      await copyObjects(source.gitDir, path, `${tree}\n`);
       trees.push({ tree, prefix: source.prefix });
     }
     // The top goes first: `read-tree` without a prefix replaces what the index holds.
@@ -214,92 +213,4 @@ export async function repoFromTree(input: RepoFromTreeInput): Promise<RepoFromTr
     await rm(join(path, ".git"), { recursive: true, force: true });
     throw error;
   }
-}
-
-export interface BranchFile {
-  path: string;
-  /** The content; absent for a deletion. */
-  blob?: string;
-  mode?: "100644" | "100755";
-  delete?: boolean;
-}
-
-export interface CommitFilesInput {
-  repo: string;
-  branch: string;
-  /** The parent commit; `HEAD` when absent. */
-  base: string;
-  message: string;
-  /** A repository the blobs are copied from; without one they must be in the project already. */
-  objects?: string;
-  files: BranchFile[];
-  /** `suffix` (the default) takes `<branch>-2`, `-3`, … when the name is taken. */
-  onExists: "suffix" | "fail";
-}
-
-export interface CommitFilesResult {
-  branch: string;
-  commit: string;
-  parent: string;
-}
-
-export function decodeCommitFiles(input: unknown): Omit<CommitFilesInput, "repo"> {
-  const raw = record(input);
-  if (!Array.isArray(raw.files) || raw.files.length === 0) throw new HostCommandError("Name the files to commit.");
-  const seen = new Set<string>();
-  const files = raw.files.map((entry): BranchFile => {
-    const file = record(entry);
-    if (!isRepoPath(file.path)) throw new HostCommandError("Name files by their path inside the project.");
-    if (seen.has(file.path)) throw new HostCommandError(`${file.path} is named twice.`);
-    seen.add(file.path);
-    if (file.delete === true) return { path: file.path, delete: true };
-    if (typeof file.blob !== "string" || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(file.blob)) throw new HostCommandError(`${file.path} needs a blob id.`);
-    return { path: file.path, blob: file.blob, mode: file.mode === "100755" ? "100755" : "100644" };
-  });
-  const base = typeof raw.base === "string" && raw.base.trim() ? raw.base.trim() : "HEAD";
-  if (base.startsWith("-")) throw new HostCommandError("The base is a commit or a ref.");
-  return {
-    branch: text(input, "branch").trim(),
-    base,
-    message: text(input, "message"),
-    ...(typeof raw.objects === "string" && raw.objects ? { objects: raw.objects } : {}),
-    files,
-    onExists: raw.onExists === "fail" ? "fail" : "suffix",
-  };
-}
-
-/**
- * One commit on a new branch: the base's tree with `files` put in or taken
- * out. The working tree, the index and HEAD stay as they are.
- */
-export async function commitFilesToBranch(input: CommitFilesInput): Promise<CommitFilesResult> {
-  const { repo } = input;
-  const format = await gitRun(["check-ref-format", "--branch", input.branch], { cwd: repo });
-  if (format.code !== 0) throw new HostCommandError(`"${input.branch}" is not a branch name.`);
-  const parent = await git(["rev-parse", "--verify", "--end-of-options", `${input.base}^{commit}`], { cwd: repo });
-  const blobs = [...new Set(input.files.flatMap((file) => (file.blob ? [file.blob] : [])))];
-  if (input.objects && blobs.length) await copyObjects(input.objects, repo, `${blobs.join("\n")}\n`, false);
-  if (blobs.length) {
-    const check = await git(["cat-file", "--batch-check=%(objectname) %(objecttype)"], { cwd: repo, input: `${blobs.join("\n")}\n` });
-    const missing = check.split("\n").filter((line) => !line.endsWith(" blob"));
-    if (missing.length) throw new HostCommandError(`The project has no blob ${missing[0]!.split(" ")[0]}.`);
-  }
-  const zero = "0".repeat(parent.length);
-  const tree = await withTempIndex(async (env) => {
-    await git(["read-tree", parent], { cwd: repo, env });
-    const records = input.files.map((file) => (file.delete ? `0 ${zero}\t${file.path}` : `${file.mode ?? "100644"} ${file.blob}\t${file.path}`));
-    await git(["update-index", "-z", "--index-info"], { cwd: repo, env, input: `${records.join("\0")}\0` });
-    return git(["write-tree"], { cwd: repo, env });
-  });
-  const commit = await git(["commit-tree", tree, "-p", parent, "-F", "-"], { cwd: repo, env: await identityEnv(repo), input: input.message });
-  for (let attempt = 1; attempt < 100; attempt += 1) {
-    const branch = attempt === 1 ? input.branch : `${input.branch}-${attempt}`;
-    // An empty old value: create only, never move a branch that is there.
-    const created = await gitRun(["update-ref", "-m", "tau: commit files", `refs/heads/${branch}`, commit, ""], { cwd: repo });
-    if (created.code === 0) return { branch, commit, parent };
-    const taken = (await gitRun(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: repo })).code === 0;
-    if (!taken) throw failure(["update-ref"], created);
-    if (input.onExists === "fail") throw new HostCommandError(`The branch ${branch} exists already.`);
-  }
-  throw new HostCommandError(`No free name for ${input.branch}.`);
 }

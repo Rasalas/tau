@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtensionContext, HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createWorkspaceHostExtension } from "./host.js";
-import { commitFilesToBranch, decodeCommitFiles, decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
+import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 
 const directories: string[] = [];
 
@@ -120,54 +120,7 @@ describe("repo-from-tree", () => {
   });
 });
 
-describe("commit-files-to-branch", () => {
-  async function repository() {
-    const repo = await folder("repo");
-    gitAs(repo, "init", "-q", "-b", "main");
-    await place(repo, { "index.php": "old\n", "gone.php": "bye\n", "keep.php": "keep\n" });
-    gitAs(repo, "add", "-A");
-    gitAs(repo, "commit", "-q", "-m", "first");
-    await writeFile(join(repo, "keep.php"), "local work\n");
-    return repo;
-  }
-
-  it("commits blobs from another repository on a new branch and touches nothing else", async () => {
-    const repo = await repository();
-    const mirror = await shadow({ "index.php": "hotfix\n" });
-    const blob = git(mirror, "rev-parse", "refs/tau/server:index.php");
-    const head = git(repo, "rev-parse", "HEAD");
-    const status = git(repo, "status", "--porcelain");
-
-    const first = await commitFilesToBranch({
-      repo, branch: "server-drift/2026-09-25", base: "HEAD", message: "Server drift", objects: mirror, onExists: "suffix",
-      files: [{ path: "index.php", blob, mode: "100644" }, { path: "gone.php", delete: true }],
-    });
-
-    expect(first).toEqual({ branch: "server-drift/2026-09-25", commit: expect.any(String), parent: head });
-    expect(git(repo, "rev-parse", "HEAD")).toBe(head);
-    expect(git(repo, "status", "--porcelain")).toBe(status);
-    expect(await readFile(join(repo, "index.php"), "utf8")).toBe("old\n");
-    expect(git(repo, "diff", "--name-status", head, first.commit)).toBe("D\tgone.php\nM\tindex.php");
-    expect(git(repo, "show", `${first.commit}:index.php`)).toBe("hotfix");
-
-    const second = await commitFilesToBranch({ ...decodeCommitFiles({ branch: "server-drift/2026-09-25", message: "again", files: [{ path: "index.php", blob }] }), repo });
-    expect(second.branch).toBe("server-drift/2026-09-25-2");
-    await expect(commitFilesToBranch({ ...decodeCommitFiles({ branch: "server-drift/2026-09-25", message: "m", onExists: "fail", files: [{ path: "gone.php", delete: true }] }), repo }))
-      .rejects.toThrow("exists already");
-  });
-
-  it("refuses blobs the project does not have and names that are no branches", async () => {
-    const repo = await repository();
-    await expect(commitFilesToBranch({ ...decodeCommitFiles({ branch: "x", message: "m", files: [{ path: "a", blob: "a".repeat(40) }] }), repo }))
-      .rejects.toThrow("has no blob");
-    await expect(commitFilesToBranch({ ...decodeCommitFiles({ branch: "bad..name", message: "m", files: [{ path: "a", delete: true }] }), repo }))
-      .rejects.toThrow("not a branch name");
-    expect(() => decodeCommitFiles({ branch: "x", message: "m", files: [{ path: "../a", delete: true }] })).toThrow("inside the project");
-    expect(() => decodeCommitFiles({ branch: "x", message: "m", base: "--output=x", files: [{ path: "a", delete: true }] })).toThrow("commit or a ref");
-  });
-});
-
-describe("the commands", () => {
+describe("the command", () => {
   async function registryWith(project: string) {
     const services: Partial<HostExtensionServices> = {
       knownWorkspacePath: async (path) => path,
@@ -188,7 +141,7 @@ describe("the commands", () => {
     return callers;
   }
 
-  it("answer Servers Kit and no other kit", async () => {
+  it("answers Servers Kit and no other kit", async () => {
     const mirror = await shadow({ "a.txt": "a\n" });
     const project = await folder("project");
     await place(project, { "a.txt": "a\n" });
@@ -198,9 +151,5 @@ describe("the commands", () => {
     await expect(stat(join(project, ".git"))).rejects.toThrow();
     await expect(callers.get("tau.servers")!.invokeHostExtension("tau.workspace", "repo-from-tree", input))
       .resolves.toMatchObject({ branch: "main", files: 1, workspace: { workspaceId: `ws1_${project}` } });
-    await expect(callers.get("tau.other")!.invokeHostExtension("tau.workspace", "commit-files-to-branch", { cwd: project, branch: "b", message: "m", files: [{ path: "a.txt", delete: true }] }))
-      .rejects.toThrow();
-    await expect(callers.get("tau.servers")!.invokeHostExtension("tau.workspace", "commit-files-to-branch", { cwd: project, branch: "b", message: "m", files: [{ path: "a.txt", delete: true }] }))
-      .resolves.toMatchObject({ branch: "b" });
   });
 });

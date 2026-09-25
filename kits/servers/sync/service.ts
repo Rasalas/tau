@@ -54,6 +54,18 @@ export interface SyncInternal {
   mirrorOnly?: true;
 }
 
+/** What a sync operation works with; `connect` opens (or reuses) the target's transport. */
+export interface SyncSession {
+  workspace: string;
+  target: SftpJsonTarget;
+  localDir: string;
+  key: TargetKey;
+  ignore: SyncIgnore;
+  mirror: Mirror;
+  signal: AbortSignal;
+  connect(): Promise<ServerFs>;
+}
+
 const flag = (value: unknown, key: string, fallback: boolean) => {
   const raw = (value as Record<string, unknown> | undefined)?.[key];
   return typeof raw === "boolean" ? raw : fallback;
@@ -95,7 +107,7 @@ export class SyncService {
     };
   }
 
-  private async open(input: SyncInput, internal: SyncInternal = {}) {
+  private async open(input: SyncInput, internal: SyncInternal = {}): Promise<SyncSession> {
     const workspace = await this.context.services.knownWorkspacePath(input.cwd);
     const { project, target } = await this.options.target(workspace, input.targetId);
     const localDir = target.context ? join(workspace, ...target.context.split("/")) : workspace;
@@ -110,7 +122,13 @@ export class SyncService {
       ...(this.options.git ? { git: this.options.git } : {}),
     });
     const mirror = new Mirror(this.options.store.mirrorDir(key), this.options.git ? { git: this.options.git } : {});
-    return { workspace, target, localDir, key, ignore, mirror, signal: this.stopped.signal };
+    return { workspace, target, localDir, key, ignore, mirror, signal: this.stopped.signal, connect: () => this.options.transport({ cwd: input.cwd, targetId: input.targetId }) };
+  }
+
+  /** Runs `run` alone on the target's queue, with the session the sync commands use. */
+  async exclusive<T>(input: { cwd: string; targetId: string }, run: (session: SyncSession) => Promise<T>): Promise<T> {
+    const session = await this.open(decodeInput(input));
+    return this.serial(session.key, () => run(session));
   }
 
   private async connect(input: SyncInput, report: ReturnType<SyncService["progress"]>): Promise<ServerFs> {

@@ -150,6 +150,33 @@ describe("Workspace Kit host extension", () => {
     }
   });
 
+  it("writes a drift branch and merges it only for Servers Kit", async () => {
+    const cwd = await workspace();
+    const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", "-c", "commit.gpgSign=false", ...args], { encoding: "utf8" }).trim();
+    git("init", "-q", "-b", "main");
+    // The kit's own git calls take the repository's identity, as they would the user's.
+    git("config", "user.name", "Tau");
+    git("config", "user.email", "tau@example.invalid");
+    git("config", "commit.gpgSign", "false");
+    await writeFile(join(cwd, "index.php"), "old\n");
+    git("add", "index.php");
+    git("commit", "-q", "-m", "first");
+    const registry = await activated(cwd);
+    const asKit = async (id: string, command: string, input: unknown) => {
+      let outcome: unknown;
+      await registry.activate({ id, name: id, activate: async (context) => {
+        outcome = await context.invokeHostExtension("tau.workspace", command, input).catch((error: unknown) => error);
+      } });
+      return outcome;
+    };
+    const input = { workspace: cwd, branch: "server-drift/2026-09-25", message: "drift", unique: true, files: [{ path: "index.php", content: Buffer.from("new\n").toString("base64") }] };
+    expect(String(await asKit("acme.other", "commit-files-to-branch", input))).toMatch(/unauthori[sz]ed|not allowed|grant/iu);
+    await expect(asKit("tau.servers", "commit-files-to-branch", input)).resolves.toMatchObject({ branch: "server-drift/2026-09-25", changed: ["index.php"] });
+    expect(registry.longCommands()).toEqual(expect.arrayContaining(["tau.workspace/commit-files-to-branch", "tau.workspace/merge-branch"]));
+    await expect(asKit("tau.servers", "merge-branch", { workspace: cwd, branch: "../x" })).resolves.toBeInstanceOf(Error);
+    await expect(asKit("tau.servers", "merge-branch", { workspace: cwd, branch: "server-drift/2026-09-25" })).resolves.toMatchObject({ alreadyMerged: false, into: "main" });
+  });
+
   it("answers folder browsing with an identity for the folder a client would keep", async () => {
     const cwd = await workspace();
     const kit = await client(cwd);

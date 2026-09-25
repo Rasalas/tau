@@ -31,7 +31,8 @@ import { createTurnStatsFile, turnStatOf } from "./turn-stats.js";
 import { initWorktreeSubmodules } from "./worktree-submodules.js";
 import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
-import { commitFilesToBranch, decodeCommitFiles, decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
+import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
+import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -379,6 +380,35 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project, ["branch", "status", "workspace"]);
         }
       }, { callers: [REVIEW_KIT_ID] });
+      // Servers Kit imports server drift as a branch and merges it on the user's click (ADR 0028).
+      const gitWrite = async <T>(project: string, write: () => Promise<T>, detail: (result: T) => string, label: string) => {
+        try {
+          const result = await write();
+          services.log(label, detail(result));
+          return result;
+        } catch (error) {
+          throw new HostCommandError(error instanceof Error ? error.message : String(error));
+        } finally {
+          git.invalidate(project);
+        }
+      };
+      context.registerCommand("commit-files-to-branch", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const fields = record(input);
+        const parent = optionalString(input, "parent");
+        return gitWrite(project, () => commitFilesToBranch(project, {
+          branch: requiredString(input, "branch"),
+          message: requiredString(input, "message"),
+          files: decodeBranchFiles(fields.files),
+          ...(parent ? { parent } : {}),
+          unique: fields.unique === true,
+        }), (result) => `${result.branch ?? "no branch"} ${result.commit ?? "nothing to commit"}`, "git.branch-commit");
+      }, { long: true, callers: [SERVERS_KIT_ID] });
+      context.registerCommand("merge-branch", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const branch = requiredString(input, "branch");
+        return gitWrite(project, () => mergeBranch(project, branch), (result) => `${branch} into ${result.into} ${result.commit}`, "git.merge");
+      }, { long: true, callers: [SERVERS_KIT_ID] });
       // Servers Kit keeps a server's files in its own repository; the project's Git is written here.
       context.registerCommand("repo-from-tree", async (input) => {
         const request = decodeRepoFromTree(input);
@@ -387,13 +417,6 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.log("git.repo-from-tree", `${path} ${result.commit.slice(0, 7)}`);
         return { ...result, workspace: services.workspaceRef(path) };
       }, { long: true, callers: [SERVERS_KIT_ID], audit: { label: "made a repository from a tree" } });
-      context.registerCommand("commit-files-to-branch", async (input) => {
-        const request = decodeCommitFiles(input);
-        const repo = await services.knownWorkspacePath(workspaceOf(input));
-        const result = await git.write(repo, () => commitFilesToBranch({ ...request, repo }));
-        services.log("git.commit-files", `${result.branch} ${result.commit.slice(0, 7)}`);
-        return result;
-      }, { long: true, callers: [SERVERS_KIT_ID], audit: { label: "committed files to a branch" } });
       // Review Kit opens, merges and edits requests; the Git it needs is read here.
       context.registerCommand("review-request-context", async (input) => {
         // Review's Pull Requests page and its links name another project by id or path.
