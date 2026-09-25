@@ -544,6 +544,62 @@ export interface HostMachineServices {
    * names another. Survives reconnects; nothing arrives while it is offline.
    */
   watch(machine: string, topic: string, listener: (event: HostMachineEvent) => void, options?: { extension?: string }): () => void;
+  /**
+   * Sends a file to that machine in 8 MB pieces and answers its blob id there;
+   * a kit on that machine takes it with `services.blobs.take`. At most 2 GB,
+   * and only with Full access there. Rejects on the first refusal, a checksum
+   * the other host disagrees with, or `signal`. New in API 1.15.0.
+   */
+  upload(machine: string, source: HostBlobSource, options?: HostBlobUploadOptions): Promise<HostUploadedBlob>;
+}
+
+/** Bytes to send: a buffer, or any stream of them (a `fs.createReadStream` without an encoding). */
+export type HostBlobSource = Uint8Array | AsyncIterable<Uint8Array>;
+
+export interface HostBlobUploadOptions {
+  /** After each piece the other machine stored; `total` is `size`, or the buffer's length. */
+  onProgress?(progress: { sent: number; total?: number }): void;
+  signal?: AbortSignal;
+  /** The source's length when it is a stream, for `onProgress` and an early refusal of one too large. */
+  size?: number;
+  /** Per piece; 120 s by default. */
+  timeoutMs?: number;
+}
+
+export interface HostUploadedBlob {
+  /** The blob's id on the other machine; hand it to the kit there that takes it. */
+  id: string;
+  size: number;
+  /** Hex; the other machine checked it before it answered. */
+  sha256: string;
+}
+
+/** A file another machine sent here, while `take`'s callback holds it. */
+export interface HostBlob {
+  id: string;
+  /** Readable until the callback settles; then it is deleted. Move or copy it to keep it. */
+  path: string;
+  size: number;
+  sha256: string;
+  /** The paired device that sent it; absent for the host token. */
+  device?: string;
+}
+
+export interface HostBlobTakeOptions {
+  /** The command call that named the blob: one another device sent stays and reads as missing. */
+  caller?: HostCommandCall;
+}
+
+/**
+ * Files other machines sent this host (`machines` permission, plan-H). A blob
+ * lives an hour after it arrived unless a kit takes it; it can be taken once.
+ */
+export interface HostBlobServices {
+  /**
+   * Hands the file to `use` and deletes it once `use` settles; a second take,
+   * an expired or unknown id rejects with the same sentence.
+   */
+  take<T>(id: string, use: (blob: HostBlob) => Promise<T> | T, options?: HostBlobTakeOptions): Promise<T>;
 }
 
 /** Binds `watch`'s default kit to the extension that asks; the registry calls it. */
@@ -935,6 +991,11 @@ export interface HostExtensionServices {
    * Absent on a host in the window's process and in a worker. New in API 1.15.0.
    */
   readonly machines?: HostMachineServices;
+  /**
+   * Files other machines' agents sent here (`machines`). Absent on a host in
+   * the window's process and in a worker. New in API 1.15.0.
+   */
+  readonly blobs?: HostBlobServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   /** Follows the turns of every thread the host drives. */

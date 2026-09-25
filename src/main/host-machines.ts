@@ -5,10 +5,14 @@ import { EnvironmentCatalog, endpointTrust, type SavedEnvironment } from "./envi
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
 import {
   BIND_MACHINES_EXTENSION,
+  type HostBlobSource,
+  type HostBlobUploadOptions,
   type HostMachine,
   type HostMachineEvent,
   type HostMachineServices,
+  type HostUploadedBlob,
 } from "./host-extensions.js";
+import { sendBlob, type BlobRequest } from "./host-blobs.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import type { HostLogger } from "./host-log.js";
@@ -102,6 +106,25 @@ export class HostMachines {
     return this.connected(machine).monitor.call(method, params, options.timeoutMs);
   }
 
+  /** Sends a file there in pieces over the agents' connection; a kit on that machine takes it by the id. */
+  async upload(machine: string, source: HostBlobSource, options: HostBlobUploadOptions = {}): Promise<HostUploadedBlob> {
+    const { entry, state } = this.connected(machine);
+    if (state.readOnly) throw failure(`${entry.name} lets this computer's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
+    // Each piece asks for the connection again, so a drop or a revocation stops the upload at once.
+    const request: BlobRequest = (method, params, timeoutMs, frame) => this.connected(machine).monitor.call(method, params, timeoutMs, frame);
+    const started = Date.now();
+    try {
+      const blob = await sendBlob(request, source, options);
+      this.options.logger.info("machines.uploaded", { id: entry.id, blob: blob.id, size: blob.size, ms: Date.now() - started });
+      return blob;
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      if (code === HOST_ERROR.unknownMethod) throw failure(`${entry.name} runs a Tau that cannot take files yet; update it there.`, HOST_ERROR.unsupported);
+      if (code === HOST_ERROR.forbidden) throw failure(`${entry.name} lets this computer's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
+      throw error;
+    }
+  }
+
   watch(machine: string, extensionId: string, topic: string, listener: (event: HostMachineEvent) => void): () => void {
     if (!topic || topic.length > 256) throw failure("A topic has 1 to 256 characters.", HOST_ERROR.invalidRequest);
     const watched = this.find(machine);
@@ -127,6 +150,7 @@ export class HostMachines {
       call: (machine, target, command, input, options) => this.call(machine, target, command, input, options),
       request: (machine, method, params, options) => this.request(machine, method, params, options),
       watch: (machine, topic, listener, options) => this.watch(machine, options?.extension ?? extensionId, topic, listener),
+      upload: (machine, source, options) => this.upload(machine, source, options),
     };
   }
 

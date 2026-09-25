@@ -31,9 +31,11 @@ export interface MonitorState {
 
 /** The parts of `ws` the monitor uses, so a test can hand it anything that behaves alike. */
 export interface MonitorSocket {
-  send(data: string): void;
+  send(data: string, options?: { compress?: boolean }): void;
   close(code?: number): void;
   terminate?(): void;
+  /** Bytes sent but not yet on the wire (`ws`); a large frame going out slowly still counts as a live link. */
+  readonly bufferedAmount?: number;
   on(event: "open", listener: () => void): void;
   on(event: "message", listener: (data: unknown) => void): void;
   on(event: "close", listener: (code: number) => void): void;
@@ -124,11 +126,11 @@ export class EnvironmentMonitor {
 
   get current(): MonitorState { return this.state; }
 
-  /** Asks the machine over this connection; rejects at once when it is not connected. */
-  call<T>(method: string, params: readonly unknown[] = [], timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
+  /** Asks the machine over this connection; rejects at once when it is not connected. `compress: false` skips deflate for this frame. */
+  call<T>(method: string, params: readonly unknown[] = [], timeoutMs = CALL_TIMEOUT_MS, options: { compress?: boolean } = {}): Promise<T> {
     const socket = this.socket;
     if (!socket || this.state.status !== "connected") return Promise.reject(new Error(this.state.detail ?? "The machine is not connected."));
-    return this.request<T>(socket, method, timeoutMs, params);
+    return this.request<T>(socket, method, timeoutMs, params, options.compress);
   }
 
   /** Sends the topics again after `topics()` changed; the next hello reads them anyway. */
@@ -299,7 +301,7 @@ export class EnvironmentMonitor {
     }
   }
 
-  private request<T>(socket: MonitorSocket, method: string, timeoutMs: number, params: readonly unknown[] = []): Promise<T> {
+  private request<T>(socket: MonitorSocket, method: string, timeoutMs: number, params: readonly unknown[] = [], compress?: boolean): Promise<T> {
     this.counter += 1;
     const id = `m${this.counter}`;
     return new Promise<T>((resolve, reject) => {
@@ -312,7 +314,7 @@ export class EnvironmentMonitor {
         if (error !== undefined) reject(Object.assign(new Error(error), code ? { code } : {}));
         else resolve(value as T);
       });
-      this.write(socket, { type: "request", request: { id, method, params } });
+      this.write(socket, { type: "request", request: { id, method, params } }, compress);
     });
   }
 
@@ -320,18 +322,32 @@ export class EnvironmentMonitor {
     this.clear(this.pingTimer);
     this.pingTimer = this.timer(() => {
       if (this.socket !== socket) return;
+      this.clear(this.deadline);
       this.pingSentAt = this.now();
       this.write(socket, { type: "ping", id: `p${this.now()}` });
       // Any frame clears it; a half-open link to a machine that slept answers none.
-      this.deadline = this.timer(() => {
-        if (this.socket === socket) this.fail(socket, "It stopped answering.");
-      }, PING_DEADLINE_MS);
+      // The ping waits behind a large frame of ours (a file piece), so a draining buffer earns another round.
+      let buffered = socket.bufferedAmount ?? 0;
+      const expire = (): void => {
+        if (this.socket !== socket) return;
+        const now = socket.bufferedAmount ?? 0;
+        if (now > 0 && now < buffered) {
+          buffered = now;
+          this.deadline = this.timer(expire, PING_DEADLINE_MS);
+          return;
+        }
+        this.fail(socket, "It stopped answering.");
+      };
+      this.deadline = this.timer(expire, PING_DEADLINE_MS);
       this.schedulePing(socket);
     }, PING_EVERY_MS);
   }
 
-  private write(socket: MonitorSocket, frame: unknown): void {
-    try { socket.send(JSON.stringify(frame)); } catch { /* the close handler takes over */ }
+  private write(socket: MonitorSocket, frame: unknown, compress?: boolean): void {
+    try {
+      if (compress === false) socket.send(JSON.stringify(frame), { compress: false });
+      else socket.send(JSON.stringify(frame));
+    } catch { /* the close handler takes over */ }
   }
 
   /** Could not reach it, or lost it: offline, and another try later, at the next address. */

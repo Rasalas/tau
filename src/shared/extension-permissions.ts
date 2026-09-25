@@ -37,7 +37,7 @@ export const PERMISSION_NETWORK = "network" as const;
 /** Install, update and remove other extension packages. Tau's own Packages kit holds it. */
 export const PERMISSION_PACKAGES = "packages" as const;
 
-/** Act on other machines this host holds a key for, as this machine's agents (`services.machines`, ADR 0027). */
+/** Act on other machines this host holds a key for, as this machine's agents (`services.machines`, ADR 0027), and take files theirs sent here (`services.blobs`). */
 export const PERMISSION_MACHINES = "machines" as const;
 
 /**
@@ -109,6 +109,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   updatePackages: "packages",
   // Another machine's host, with the key its owner gave this machine's agents.
   machines: "machines",
+  // Files those machines' agents sent here: the same work, seen from the other side.
+  blobs: "machines",
   // The skill catalog is what a runtime offers a thread; the permission that
   // lets a package register a runtime backend is the one that lets it read it.
   skills: "runtime:extend",

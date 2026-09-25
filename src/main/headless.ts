@@ -50,6 +50,7 @@ import { KeepAwake } from "./keep-awake.js";
 import { HostServiceManager } from "./host-service.js";
 import { DisplayWindow } from "./display-window.js";
 import { HostMachines } from "./host-machines.js";
+import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
 
@@ -181,6 +182,8 @@ async function main(): Promise<void> {
   await networkContributions.load();
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
   const machines = await HostMachines.open({ path: join(userData, "host-machines.json"), logger: hostLog, ownId: hostId });
+  // Files other machines' agents send here; what an earlier run left is gone.
+  const blobs = await HostBlobStore.open({ dir: join(userData, "blobs"), logger: hostLog });
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
@@ -195,6 +198,7 @@ async function main(): Promise<void> {
       clients,
       network: networkContributions.services,
       machines: machines.services,
+      blobs: blobs.services,
       appPath: appRoot,
       kitStateDir: join(userData, "kit-state"),
       turnsInFlightPath: join(userData, "turns-in-flight.json"),
@@ -299,6 +303,7 @@ async function main(): Promise<void> {
     connections: () => connectionsService(),
     service: () => service,
     machines: () => machines,
+    blobs: () => blobs,
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -339,6 +344,7 @@ async function main(): Promise<void> {
       clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
       machines.close();
+      blobs.close();
       compactor.dispose();
       keepAwake.dispose();
       clearInterval(networkPoll);

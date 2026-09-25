@@ -2,7 +2,7 @@ import type { HostCompletionOptions } from "./host-completion.js";
 import type { ThreadBackendKind, UiComposerCommand } from "../shared/contracts.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
 import type { HostClientRegistry } from "./host-clients.js";
-import type { HostExtension, HostMachineServices, HostNetworkServices, HostPlatform } from "./host-extensions.js";
+import type { HostBlobServices, HostExtension, HostMachineServices, HostNetworkServices, HostPlatform } from "./host-extensions.js";
 import type { HostLogger } from "./host-log.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -62,6 +62,8 @@ export interface PiHostOptions {
   network?: HostNetworkServices;
   /** Other machines this host's agents reach (ADR 0027); only a host of its own process has them. */
   machines?: HostMachineServices;
+  /** Files other machines sent here; only a host of its own process takes them. */
+  blobs?: HostBlobServices;
   /**
    * Root of the running checkout. The host watches the kit sources under it
    * while Tau runs from a checkout; an installed app runs prebuilt kits and

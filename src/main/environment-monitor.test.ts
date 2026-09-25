@@ -119,6 +119,7 @@ class FakeSocket implements MonitorSocket {
   readonly sent: Array<{ type: string; id?: string; request?: { id: string; method: string } }> = [];
   private readonly handlers = new Map<string, (...args: never[]) => void>();
   closed = false;
+  bufferedAmount = 0;
   constructor(readonly url: string) {}
   on(event: string, listener: (...args: never[]) => void): void { this.handlers.set(event, listener); }
   send(data: string): void { this.sent.push(JSON.parse(data)); }
@@ -184,6 +185,26 @@ describe("a machine that goes away", () => {
 
     world.advance(1_000);
     expect(world.sockets[1]!.url).toBe("wss://tailnet:7788/");
+  });
+
+  it("waits past the deadline while a large frame of its own still drains, not while it is stuck", () => {
+    const world = fakeWorld();
+    const { last } = watch({ urls: () => ["wss://lan:7788/"], token: "t", onChange: () => undefined, ...world });
+    const socket = world.sockets[0]!;
+    socket.fire("open");
+    socket.reply(helloReply());
+    // A file piece is going out slowly; the ping sits behind it and the other side has not answered yet.
+    socket.bufferedAmount = 9_000_000;
+    world.advance(20_000);
+    socket.bufferedAmount = 4_000_000;
+    world.advance(10_000);
+    expect(last().status).toBe("connected");
+    socket.bufferedAmount = 1_000;
+    world.advance(10_000);
+    expect(last().status).toBe("connected");
+    // Nothing more leaves: the link is stuck, not slow.
+    world.advance(10_000);
+    expect(last()).toMatchObject({ status: "offline", detail: "It stopped answering." });
   });
 
   it("backs off while it cannot be reached, and tries at once when asked", () => {

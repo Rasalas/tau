@@ -19,6 +19,7 @@ import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { createMachineMethods, type HostMachines } from "./host-machines.js";
+import { createBlobMethods, type HostBlobStore } from "./host-blobs.js";
 import { authorizeMethod } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
 import {
@@ -163,6 +164,8 @@ export interface HostMethodDeps {
   service?(): HostServiceManager | undefined;
   /** Other machines this host's agents reach (ADR 0027); absent for a host in the window's process. */
   machines?(): HostMachines | undefined;
+  /** Files other machines send here; absent for a host in the window's process. */
+  blobs?(): HostBlobStore | undefined;
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
@@ -413,6 +416,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createConnectionsMethods(() => deps.connections?.()),
     ...createHostServiceMethods(() => deps.service?.()),
     ...createMachineMethods(() => deps.machines?.()),
+    ...createBlobMethods(() => deps.blobs?.()),
 
     // The other direction of the protocol: a client answering a `client-call`.
     // Only the connection it was sent to may answer (ADR 0023).
