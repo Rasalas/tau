@@ -44,3 +44,9 @@ export const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
 /** Agents Kit applies an agent definition's `access` through it. */
 export const ACCESS_THREAD_LEVEL_CALLERS = ["tau.agents"] as const;
+
+/** The level one thread runs at, `{ threadId }` → `AccessLevel`: the workbench's, narrowed by the thread's own. */
+export const ACCESS_THREAD_LEVEL_OF_COMMAND = "thread-level-of";
+
+/** Servers Kit holds its server commands to the stricter of this and the target's level. */
+export const ACCESS_THREAD_LEVEL_OF_CALLERS = ["tau.servers"] as const;
