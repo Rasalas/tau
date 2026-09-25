@@ -89,7 +89,7 @@ export async function cleanTarget(options: CleanTargetOptions): Promise<Omit<His
   const refs = await deployRefs(git, mirror);
   const known = new Set(records.map((record) => record.seq));
   const context = options.context ?? records.at(-1)?.context ?? "";
-  // A ref without a journal entry: a crash after the upload (a deployment commit) is recorded; a bare backup waits for the retention.
+  // A ref without a journal entry: a crash after the upload (a deployment commit) is recorded; a bare backup is kept below.
   const refTimes = new Map<number, number>();
   const adopted: DeploymentRecord[] = [];
   for (const [seq, commit] of refs) {
@@ -125,12 +125,13 @@ export async function cleanTarget(options: CleanTargetOptions): Promise<Omit<His
     result.adopted = adopted.map((record) => record.seq).sort((a, b) => a - b);
   }
 
-  // Newest first: the journal's deployments and the bare backups, counted together.
-  const recordAt = new Map(records.map((record) => [record.seq, Date.parse(record.at)]));
-  const seqs = [...new Set([...recordAt.keys(), ...refs.keys()])].sort((a, b) => b - a);
+  // The newest deployments within the age; a bare backup only until a deployment went through after it.
   const young = (time: number | undefined) => time !== undefined && Number.isFinite(time) && now.getTime() - time <= retention.days * DAY_MS;
-  const kept = new Set(seqs.filter((seq, rank) => rank < retention.count && young(recordAt.get(seq) ?? refTimes.get(seq))));
-  const removed = seqs.filter((seq) => !kept.has(seq)).sort((a, b) => a - b);
+  const newest = [...records].sort((a, b) => b.seq - a.seq);
+  const kept = new Set(newest.filter((record, rank) => rank < retention.count && young(Date.parse(record.at))).map((record) => record.seq));
+  const last = newest[0]?.seq ?? 0;
+  for (const seq of refs.keys()) if (!records.some((record) => record.seq === seq) && seq > last && young(refTimes.get(seq))) kept.add(seq);
+  const removed = [...new Set([...records.map((record) => record.seq), ...refs.keys()])].filter((seq) => !kept.has(seq)).sort((a, b) => a - b);
   if (removed.length) {
     records = await updateDeployments(store, key, (current) => current.filter((record) => kept.has(record.seq)));
     for (const seq of removed) if (refs.has(seq)) await mirror.deleteRef(deployRef(seq));
@@ -144,14 +145,14 @@ export async function cleanTarget(options: CleanTargetOptions): Promise<Omit<His
       const [commit = "", time = "0"] = line.split(" ");
       return { commit, time: Number(time) * 1000 };
     });
-    let last = 0;
-    chain.forEach((entry, index) => { if (index < retention.count && young(entry.time)) last = Math.max(last, index); });
+    let oldest = 0;
+    chain.forEach((entry, index) => { if (index < retention.count && young(entry.time)) oldest = Math.max(oldest, index); });
     for (const record of records) {
       const index = chain.findIndex((entry) => entry.commit === record.mirrorCommit || entry.commit === record.commit);
-      if (index > last) last = index;
+      if (index > oldest) oldest = index;
     }
-    const boundary = chain[last + 1];
-    if (boundary && last + 2 < chain.length) {
+    const boundary = chain[oldest + 1];
+    if (boundary && oldest + 2 < chain.length) {
       const file = join(mirror.dir, "shallow");
       const existing = (await readFile(file, "utf8").catch(() => "")).split("\n").filter((line) => /^[0-9a-f]{40,64}$/u.test(line));
       await writeFile(file, `${[...new Set([boundary.commit, ...existing])].join("\n")}\n`);

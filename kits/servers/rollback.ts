@@ -168,6 +168,7 @@ export class RollbackService {
         inspected: planned.inspected,
         subject: (seq, files) => `Rollback ${seq}: deployment ${record.seq} undone (${deployCounts(files)})`,
       });
+      if (outcome.deployment) await this.dropCreatedFolders(session, record, outcome.deployment);
       const written = new Set(outcome.deployment?.files.map((file) => file.path));
       const failed = new Set(outcome.failed.map((failure) => failure.path));
       const settled = new Set(outcome.files.filter((file) => (file.outcome === "same" || file.outcome === "gone") && !failed.has(file.path)).map((file) => file.path));
@@ -182,6 +183,32 @@ export class RollbackService {
         ...(outcome.deployment ? { deployment: outcome.deployment } : {}), failed: outcome.failed, rolledBack,
       };
     });
+  }
+
+  /**
+   * Folders the deployment made for files the rollback deleted: removed again
+   * once empty, deepest first. A folder that held a file before stays.
+   */
+  private async dropCreatedFolders(session: SyncSession, record: DeploymentRecord, rollback: DeploymentRecord): Promise<void> {
+    const deleted = rollback.files.filter((file) => file.op === "delete").map((file) => file.path);
+    if (deleted.length === 0) return;
+    const before = await session.mirror.files(`${record.commit}^`).catch(() => undefined);
+    if (!before) return;
+    const folders = new Set<string>();
+    for (const path of deleted) {
+      const parts = path.split("/").slice(0, -1);
+      for (let depth = parts.length; depth > 0; depth -= 1) folders.add(parts.slice(0, depth).join("/"));
+    }
+    const fs = await session.connect();
+    const options = { area: "project" as const, signal: session.signal };
+    for (const folder of [...folders].sort((a, b) => b.split("/").length - a.split("/").length)) {
+      if ([...before.keys()].some((path) => path.startsWith(`${folder}/`))) continue;
+      try {
+        if ((await fs.list(folder, options)).length === 0) await fs.rmdir(folder, options);
+      } catch (error) {
+        this.context.services.log("servers.rollback", `left ${folder}: ${message(error)}`);
+      }
+    }
   }
 
   /** "Mark as checked", or take it back; a committed or rolled back deployment keeps its status. */

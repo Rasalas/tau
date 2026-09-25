@@ -163,8 +163,9 @@ describe.skipIf(!posix)("rollback", () => {
     const undone = await w.call<RollbackResult>("rollback", { ...ref(w), seq: 1 });
     expect(undone.rolledBack).toBe(true);
     expect(undone.deployment).toMatchObject({ seq: 2, kind: "rollback", rollbackOf: 1, status: "uploaded" });
-    // Every file as before, modes included; the folder Tau made for the new file stays, empty.
+    // Every file as before, modes included; the folder the deployment made is gone again.
     expect(snapshot(w.server)).toEqual(start);
+    expect(existsSync(join(w.server, "pages"))).toBe(false);
     expect(modeOf(w.server, "contact.php")).toBe(0o640);
     expect((await readDeployments(w.store, KEY)).map((record) => [record.seq, record.kind, record.status])).toEqual([[1, "upload", "rolled-back"], [2, "rollback", "uploaded"]]);
     await expect(w.call("rollback", { ...ref(w), seq: 1 })).rejects.toThrow("Deployment 1 is rolled back already; roll back 2 to bring it back.");
@@ -342,6 +343,7 @@ describe.skipIf(!posix)("history cleanup", () => {
 
     const result = await w.cleanup.sweep();
     expect(result[0]).toMatchObject({ adopted: [1], removed: [] });
+    expect(w.mirrorGit("for-each-ref", "--format=%(refname)", "refs/tau/deploy/")).toBe("refs/tau/deploy/1\nrefs/tau/deploy/2");
     const [record] = await readDeployments(w.store, KEY);
     expect(record).toMatchObject({ seq: 1, kind: "upload", status: "uploaded", note: expect.stringContaining("Recovered") });
     expect(record!.files.map((file) => [file.path, file.op])).toEqual([["about.php", "modify"], ["contact.php", "delete"]]);
@@ -351,11 +353,12 @@ describe.skipIf(!posix)("history cleanup", () => {
     expect(read(w.server, "contact.php")).toBe("<?php echo 'contact';\n");
     expect(undone.deployment!.seq).toBe(3);
 
+    // Once a deployment went through after it, the bare backup has served; the retention counts deployments only.
     w.settings.retentionCount = "2";
     const later = await w.cleanup.sweep();
-    expect(later[0]!.removed).toEqual([1]);
+    expect(later[0]!.removed).toEqual([2]);
     w.settings.retentionCount = "1";
-    expect((await w.cleanup.sweep())[0]!.removed).toEqual([2]);
+    expect((await w.cleanup.sweep())[0]!.removed).toEqual([1]);
     expect(w.mirrorGit("for-each-ref", "--format=%(refname)", "refs/tau/deploy/")).toBe("refs/tau/deploy/3");
   });
 

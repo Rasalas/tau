@@ -17,10 +17,12 @@ export function historyTitle(entry: HistoryEntry, first: boolean): string {
   return entry.subject;
 }
 
-export function deploymentMeta(deployment: HistoryDeployment): string {
+/** A deployment's line; `tagged`: its status shows as a tag already, only who rolled it back is added. */
+export function deploymentMeta(deployment: HistoryDeployment, tagged = false): string {
+  const rolledBy = deployment.status === "rolled-back" && deployment.rolledBackBy ? `by ${deployment.rolledBackBy}` : "";
   return [
     deployment.rollbackOf !== undefined ? `undid ${deployment.rollbackOf}` : "",
-    DEPLOYMENT_STATUS[deployment.status] + (deployment.status === "rolled-back" && deployment.rolledBackBy ? ` by ${deployment.rolledBackBy}` : ""),
+    tagged ? (rolledBy ? `rolled back ${rolledBy}` : "") : `${DEPLOYMENT_STATUS[deployment.status]}${rolledBy ? ` ${rolledBy}` : ""}`,
     deployment.branch ? `from ${deployment.branch}` : "",
     deployment.failed ? `${deployment.failed} failed` : "",
   ].filter(Boolean).join(" · ");
@@ -87,7 +89,7 @@ function HistoryList({ entries, truncated, active, busy, onFile, onRollBack, onM
                 {deployment ? <span className={`servers-file-tag status-${deployment.status}`}>{DEPLOYMENT_STATUS[deployment.status]}</span> : null}
                 <time dateTime={entry.at} {...tooltipProps(new Date(entry.at).toLocaleString())}>{ago(entry.at)}</time>
               </button>
-              <p className="servers-history-meta">{first ? `${entry.added} files` : entryCounts(entry)}{deployment ? <> · {deploymentMeta(deployment)}</> : null}</p>
+              <p className="servers-history-meta">{first ? `${entry.added} files` : entryCounts(entry)}{deployment && deploymentMeta(deployment, true) ? <> · {deploymentMeta(deployment, true)}</> : null}</p>
               {expanded && deployment?.note ? <p className="servers-history-meta note">{deployment.note}</p> : null}
               {expanded && deployment ? <DeploymentActions deployment={deployment} busy={busy} onRollBack={() => onRollBack({ ...entry, deployment })} onMark={(checked) => onMark(deployment.seq, checked)} /> : null}
               {expanded && !first ? (
@@ -132,8 +134,9 @@ function OverwriteAction({ file, forced, busy, onForce }: { file: RollbackFilePl
   return <div className="servers-plan-actions"><button type="button" className="text-button" disabled={busy} onClick={() => setAsking(true)}>{file.op === "delete" ? "Delete anyway…" : "Overwrite anyway…"}</button></div>;
 }
 
-function RollbackGroups({ seq, files, force, busy, done = false, onOpen, onForce }: {
-  seq: number;
+function RollbackGroups({ name, files, force, busy, done = false, onOpen, onForce }: {
+  /** "Deployment 3" or "Rollback 4". */
+  name: string;
   files: readonly RollbackFilePlan[];
   force: ReadonlySet<string>;
   busy: boolean;
@@ -152,8 +155,8 @@ function RollbackGroups({ seq, files, force, busy, done = false, onOpen, onForce
   return (
     <>
       <Group label={done ? "Put back" : "Goes back"} files={back} icon={<RotateCcw size={12} aria-hidden="true" />}>{back.map((file) => row(file))}</Group>
-      <Group label={done ? "Merged three-way" : "Merges three-way"} files={merged} icon={<GitMerge size={12} aria-hidden="true" />} note={`Deployment ${seq}'s change is taken out; the later change stays.`}>{merged.map((file) => row(file))}</Group>
-      <Group label="Deleted on the server" files={deleted} tone="danger" icon={<Trash2 size={12} aria-hidden="true" />} note={`Deployment ${seq} added ${deleted.length === 1 ? "it" : "them"}. Tau keeps a copy of each.`}>{deleted.map((file) => row(file))}</Group>
+      <Group label={done ? "Merged three-way" : "Merges three-way"} files={merged} icon={<GitMerge size={12} aria-hidden="true" />} note={`${name}'s change is taken out; the later change stays.`}>{merged.map((file) => row(file))}</Group>
+      <Group label="Deleted on the server" files={deleted} tone="danger" icon={<Trash2 size={12} aria-hidden="true" />} note={`${name} added ${deleted.length === 1 ? "it" : "them"}. Tau keeps a copy of each.`}>{deleted.map((file) => row(file))}</Group>
       <Group label="Changed on the server since" files={conflicts} tone="warn" icon={<AlertTriangle size={12} aria-hidden="true" />} note={done ? "Left as they are." : "Left as they are unless you say otherwise."}>
         {conflicts.map((file) => row(file, done ? null : <OverwriteAction file={file} forced={force.has(file.path)} busy={busy} onForce={onForce} />))}
       </Group>
@@ -216,7 +219,8 @@ function RollbackPanel({ parts, actions, cwd, targetId, entry, onOpen, onClose, 
     ).finally(() => { void parts.store.load(cwd, true); });
   };
 
-  const title = entry.deployment.kind === "rollback" ? `Roll back rollback ${seq}` : `Roll back deployment ${seq}`;
+  const name = `${entry.deployment.kind === "rollback" ? "Rollback" : "Deployment"} ${seq}`;
+  const title = `Roll back ${name.toLowerCase()}`;
   if (stage.kind === "result") {
     const { result } = stage;
     const left = result.files.filter((file) => file.outcome === "conflict" || file.outcome === "blocked").length;
@@ -224,8 +228,8 @@ function RollbackPanel({ parts, actions, cwd, targetId, entry, onOpen, onClose, 
       <div className="servers-upload">
         <header className="servers-upload-head">
           {result.deployment
-            ? <p className={`servers-banner ${result.rolledBack ? "ok" : "warn"}`} role="status">{result.rolledBack ? <CheckCircle2 size={13} aria-hidden="true" /> : <AlertTriangle size={13} aria-hidden="true" />}<span>Rollback {result.deployment.seq}: {deployCounts(result.deployment.files)} on the server.{result.rolledBack ? ` Deployment ${seq} is undone.` : ` ${left} ${left === 1 ? "file stays" : "files stay"} as ${left === 1 ? "it is" : "they are"}.`}</span></p>
-            : <p className="servers-banner warn" role="status"><AlertTriangle size={13} aria-hidden="true" /><span>{result.rolledBack ? `The server already held everything as before deployment ${seq}; nothing was written.` : "Nothing was written."}</span></p>}
+            ? <p className={`servers-banner ${result.rolledBack ? "ok" : "warn"}`} role="status">{result.rolledBack ? <CheckCircle2 size={13} aria-hidden="true" /> : <AlertTriangle size={13} aria-hidden="true" />}<span>Rollback {result.deployment.seq}: {deployCounts(result.deployment.files)} on the server.{result.rolledBack ? ` ${name} is undone.` : ` ${left} ${left === 1 ? "file stays" : "files stay"} as ${left === 1 ? "it is" : "they are"}.`}</span></p>
+            : <p className="servers-banner warn" role="status"><AlertTriangle size={13} aria-hidden="true" /><span>{result.rolledBack ? `The server already held everything as before ${name.toLowerCase()}; nothing was written.` : "Nothing was written."}</span></p>}
         </header>
         <div className="servers-upload-plan">
           {result.failed.length > 0 ? (
@@ -234,7 +238,7 @@ function RollbackPanel({ parts, actions, cwd, targetId, entry, onOpen, onClose, 
               <ul className="servers-files">{result.failed.map((failure) => <li key={failure.path} className="servers-file"><span className="servers-file-name">{failure.path}<small>{failure.message}</small></span></li>)}</ul>
             </section>
           ) : null}
-          <RollbackGroups seq={seq} files={result.files.filter((file) => !result.failed.some((failure) => failure.path === file.path))} force={new Set()} busy={false} done onOpen={onOpen} onForce={() => undefined} />
+          <RollbackGroups name={name} files={result.files.filter((file) => !result.failed.some((failure) => failure.path === file.path))} force={new Set()} busy={false} done onOpen={onOpen} onForce={() => undefined} />
         </div>
         <footer className="servers-upload-bar"><button type="button" className="chrome-button" onClick={() => onClose(true)}>Done</button></footer>
       </div>
@@ -266,13 +270,13 @@ function RollbackPanel({ parts, actions, cwd, targetId, entry, onOpen, onClose, 
           : (
             <>
               {shown.newer.length > 0 ? (
-                <p className="servers-banner warn" role="note">
+                <p className="servers-banner warn servers-banner-stack" role="note">
                   <AlertTriangle size={13} aria-hidden="true" />
                   <span>{shown.newer.length === 1 ? `Deployment ${shown.newer[0]} changed` : `Deployments ${seqList([...shown.newer].sort((a, b) => a - b))} changed`} some of these files afterwards. Roll {shown.newer.length === 1 ? "it" : "them"} back first, or merge three-way.</span>
                   <button type="button" className="text-button" disabled={busy} onClick={() => onOther(shown.newer[0]!)}>Roll back {shown.newer[0]} first</button>
                 </p>
               ) : null}
-              <RollbackGroups seq={seq} files={shown.files} force={force} busy={busy} onOpen={onOpen} onForce={setForced} />
+              <RollbackGroups name={name} files={shown.files} force={force} busy={busy} onOpen={onOpen} onForce={setForced} />
             </>
           )}
       </div>

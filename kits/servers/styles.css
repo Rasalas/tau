@@ -296,3 +296,5 @@
 .servers-upload-head > .spacer { flex: 1; }
 .servers-three-way { display: inline-flex; align-items: center; gap: 5px; }
 .servers-three-way.active { border-color: var(--line-field); color: var(--ink); background: var(--chip); }
+.servers-banner-stack { flex-wrap: wrap; }
+.servers-banner-stack > .text-button { flex: 1 1 100%; padding-left: 20px; text-align: left; }
