@@ -298,8 +298,11 @@ function stopProcess(child: DiscoveryProcess, exited: Promise<void>, graceMs: nu
 /**
  * What the machine is called to people: the Mac's Computer Name ("Mac mini
  * von Alex"), elsewhere the host name without a DHCP domain ("studio").
+ * `TAU_MACHINE_NAME` wins, so a second test host on this Mac is not a second "Mac mini".
  */
-export function machineDisplayName(platform: NodeJS.Platform = process.platform, run: (command: string, args: string[]) => string = runQuietly, host: string = hostname()): string {
+export function machineDisplayName(platform: NodeJS.Platform = process.platform, run: (command: string, args: string[]) => string = runQuietly, host: string = hostname(), env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.TAU_MACHINE_NAME?.trim();
+  if (override) return override;
   const computerName = platform === "darwin" ? run("scutil", ["--get", "ComputerName"]).trim() : "";
   return computerName || host.split(".")[0] || host;
 }

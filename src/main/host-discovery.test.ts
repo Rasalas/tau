@@ -126,6 +126,7 @@ describe("reading what the system tools print", () => {
     expect(machineDisplayName("darwin", () => "Mac mini von Alex\n", "Mini-von-Alex.fritz.box")).toBe("Mac mini von Alex");
     expect(machineDisplayName("darwin", () => "", "Mini-von-Alex.fritz.box")).toBe("Mini-von-Alex");
     expect(machineDisplayName("linux", () => { throw new Error("not run"); }, "studio.lan")).toBe("studio");
+    expect(machineDisplayName("darwin", () => { throw new Error("not run"); }, "Mini.fritz.box", { TAU_MACHINE_NAME: " rex " })).toBe("rex");
   });
 
   it("keeps an instance name printable and within 63 bytes", () => {
