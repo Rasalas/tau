@@ -57,6 +57,8 @@ export interface EnvironmentMonitorOptions {
   topics?(): string[];
   /** Every push the machine sends, after the monitor read what it follows itself. */
   onPush?(event: unknown): void;
+  /** What a refused token reads as; a window's wording by default. */
+  unauthorizedDetail?: string;
   now?(): number;
   /** Timers, injectable so tests need not wait. */
   setTimer?(callback: () => void, ms: number): unknown;
@@ -230,7 +232,7 @@ export class EnvironmentMonitor {
       if (this.socket !== socket || settled) return;
       settled = true;
       if (code === HOST_CLOSE_CODE.unauthorized) {
-        this.refuse("It no longer accepts this window's key: the device was revoked there or its access expired. Remove it and add it again.");
+        this.refuse(this.options.unauthorizedDetail ?? "It no longer accepts this window's key: the device was revoked there or its access expired. Remove it and add it again.");
         return;
       }
       if (code === HOST_CLOSE_CODE.forbiddenOrigin) {

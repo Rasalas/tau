@@ -170,6 +170,7 @@ export class HostMachines {
       token: entry.token,
       trust: (url) => endpointTrust(current(), url),
       bootstrap: false,
+      unauthorizedDetail: "its owner revoked this computer's agents there, or their access expired. Turn them on again in Settings → Machines.",
       topics: () => [...watched.topics.keys()],
       logger: this.options.logger,
       onPush: (event) => deliver(watched, event),
