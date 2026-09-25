@@ -317,7 +317,6 @@ export class RemoteThreads {
         machine: link.machine,
         cwd: input.cwd,
         name: link.title,
-        ...(input.snapshotRef ? { snapshotRef: input.snapshotRef } : {}),
         ...(input.ignored ? { ignored: input.ignored } : {}),
       });
       Object.assign(link, { transfer: transfer.id, base: transfer.base, status: "starting" }, transfer.remote ? { worktree: transfer.remote.path } : {});

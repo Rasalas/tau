@@ -73,7 +73,6 @@ function decodeSend(input: unknown): SendRepoInput {
     machine: required(raw, "machine"),
     cwd: required(raw, "cwd"),
     ...(text(raw.name) ? { name: text(raw.name) } : {}),
-    ...(text(raw.snapshotRef) ? { snapshotRef: text(raw.snapshotRef) } : {}),
     ...(Array.isArray(ignored) ? { ignored: ignored as string[] } : {}),
   };
 }
@@ -126,7 +125,7 @@ function decodeThreadStart(input: unknown): RemoteThreadStartInput {
   if (ignored !== undefined && (!Array.isArray(ignored) || ignored.some((path) => typeof path !== "string"))) throw new HostCommandError("ignored is a list of paths.");
   const model = decodeModel(raw.model);
   const agentDepth = decodeDepth(raw.agentDepth);
-  const optional = Object.fromEntries((["title", "backend", "parentThreadId", "agent", "snapshotRef"] as const)
+  const optional = Object.fromEntries((["title", "backend", "parentThreadId", "agent"] as const)
     .map((key) => [key, optionalText(raw, key)] as const)
     .filter((entry): entry is readonly [typeof entry[0], string] => Boolean(entry[1])));
   return {
