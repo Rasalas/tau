@@ -31,11 +31,13 @@ import { createTurnStatsFile, turnStatOf } from "./turn-stats.js";
 import { initWorktreeSubmodules } from "./worktree-submodules.js";
 import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
+import { commitFilesToBranch, decodeCommitFiles, decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
 const REVIEW_KIT_ID = "tau.review";
 const FILES_KIT_ID = "tau.files";
+const SERVERS_KIT_ID = "tau.servers";
 
 /** `~` and `~/…` name the host's home folder; a setting typed by hand usually starts that way. */
 export function expandHome(path: string): string {
@@ -377,6 +379,21 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project, ["branch", "status", "workspace"]);
         }
       }, { callers: [REVIEW_KIT_ID] });
+      // Servers Kit keeps a server's files in its own repository; the project's Git is written here.
+      context.registerCommand("repo-from-tree", async (input) => {
+        const request = decodeRepoFromTree(input);
+        const path = await services.knownWorkspacePath(requiredString(input, "path"));
+        const result = await git.write(path, () => repoFromTree({ ...request, path }));
+        services.log("git.repo-from-tree", `${path} ${result.commit.slice(0, 7)}`);
+        return { ...result, workspace: services.workspaceRef(path) };
+      }, { long: true, callers: [SERVERS_KIT_ID], audit: { label: "made a repository from a tree" } });
+      context.registerCommand("commit-files-to-branch", async (input) => {
+        const request = decodeCommitFiles(input);
+        const repo = await services.knownWorkspacePath(workspaceOf(input));
+        const result = await git.write(repo, () => commitFilesToBranch({ ...request, repo }));
+        services.log("git.commit-files", `${result.branch} ${result.commit.slice(0, 7)}`);
+        return result;
+      }, { long: true, callers: [SERVERS_KIT_ID], audit: { label: "committed files to a branch" } });
       // Review Kit opens, merges and edits requests; the Git it needs is read here.
       context.registerCommand("review-request-context", async (input) => {
         // Review's Pull Requests page and its links name another project by id or path.
