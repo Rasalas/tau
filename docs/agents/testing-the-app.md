@@ -464,6 +464,20 @@ node scripts/tau-test-host.mjs stop --name rex                         # or stop
 - It listens on 127.0.0.1 with a random port; `--kits` loads the kits (off by default), `--tls` gives it a self-signed certificate to pin.
 - `stop` signals only the pid in that host's `state.json`, and only while it still runs this worktree's `headless.js`.
 
+### A fixture project with a local "origin"
+
+`node scripts/remote-work-fixture.mjs [--name demo] [--fresh] [--clean]` makes `.tau-dev/remote-work/<name>/origin.git` (bare) and `.tau-dev/remote-work/<name>/work`, a checkout of it whose `origin` is a `file://` URL. It has two commits with fixed dates (the same ids everywhere), a binary file, ignored files as a user has them (`.env`, `.scratch/issues/`, `node_modules/`), an uncommitted change and an untracked file. The bare repo is made with `clone --bare`, so nothing is ever pushed, and Git runs without the caller's hooks, templates or signing. Point an instance at it with `npm run dev:instance -- --workspace .tau-dev/remote-work/demo/work`.
+
+Tau clones only HTTPS and SSH URLs. Instances and test hosts set `TAU_TEST_CLONE_ROOT` to `.tau-dev/remote-work`; with it, `assertAllowedCloneSource` also accepts a `file://` URL whose path (symlinks followed) lies inside that folder, and nothing else.
+
+### A fake model instead of a login
+
+`scripts/fake-model-server.mjs` is an OpenAI-compatible model on 127.0.0.1 (`startFakeModelServer()`), and `prepareFakePiAgentDir(agentDir, baseUrl)` gives a Pi agent dir only that provider (`tau-fake/fake-1`, priced so a thread costs more than zero). It answers from the last user message: `write <path> <word>` makes a `write` tool call and then says "done", `wait <ms>` pauses mid-answer (for aborts), anything else is "ok". A test host started from a script takes it through `startTestHost(flags, { prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, baseUrl) })` with `login: false`.
+
+### The remote-work smoke
+
+`npm run smoke:remote-work` (after `npm run build`; CI runs it too) starts the fake model, the fixture, and two test hosts, `smoke-a` (calls itself "mini", workspace = the fixture) and `smoke-rex` ("rex", TLS), both with kits. It runs a fake turn on rex that writes a file, pairs A with rex over pinned TLS (allowed by rex's owner over its loopback host token), and runs a kit command on rex with A's device token. Steps whose seams are not there yet print `○ … pending (Hxx)`; each ticket turns its own into real steps in `STEPS`. At the end it stops both hosts by the pids in their state files and fails if a pid is alive or a port still accepts connections. A developer's own `rex` test host is never touched.
+
 ## Tearing down
 
 Run `npm run cdp -- stop` (SIGTERM, then SIGKILL after ~2s if the process is still alive — observed necessary in practice, since Electron's main process has no SIGTERM handler of its own and a bare `kill <pid>` can leave it running indefinitely). Never `pkill -f Electron` (or any pattern match on the binary name) — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or the worktree.

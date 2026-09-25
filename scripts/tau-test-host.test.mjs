@@ -29,6 +29,7 @@ describe("testHostEnv", () => {
     expect(rex.TAU_MACHINE_NAME).toBe("rex");
     expect(other.CODEX_HOME).toBe("/w/.tau-dev/test-host-mini/codex-home");
     expect(other.TAU_MACHINE_NAME).toBeUndefined();
+    expect(testHostEnv({ base, root: "/w", dir: testHostDir("smoke-rex", "/w"), name: "smoke-rex", machineName: "rex" }).TAU_MACHINE_NAME).toBe("rex");
     expect(rex.TAU_TEST_CLONE_ROOT).toBe(remoteWorkDir("/w"));
     expect(remoteWorkDir("/w")).toBe("/w/.tau-dev/remote-work");
   });

@@ -153,7 +153,7 @@ npm run cdp:mobile -- stop
 
 ## Recipe: another machine ("rex")
 
-"rex" in a test is always a second headless host on 127.0.0.1 from this worktree, never the real machine: `node scripts/tau-test-host.mjs start --name rex --kits --tls --fresh`, then `status|stop --name rex`, `list`, `stop --all`. Each name has its own `.tau-dev/test-host-<name>/` (home, userData, token, Pi agent dir with Luna as default, sessions) and calls itself by that name. Details: `docs/agents/testing-the-app.md`, "Another machine: named test hosts".
+"rex" in a test is always a second headless host on 127.0.0.1 from this worktree, never the real machine: `node scripts/tau-test-host.mjs start --name rex --kits --tls --fresh`, then `status|stop --name rex`, `list`, `stop --all`. Each name has its own `.tau-dev/test-host-<name>/` (home, userData, token, Pi agent dir with Luna as default, sessions) and calls itself by that name. A fixture project with a local bare origin: `node scripts/remote-work-fixture.mjs --fresh` (`file://` clones work only below `.tau-dev/remote-work`). No login needed on a scripted host: `scripts/fake-model-server.mjs`. End to end: `npm run smoke:remote-work`. Details: `docs/agents/testing-the-app.md`, "Another machine: named test hosts" and the sections after it.
 
 ## Known traps
 

@@ -48,3 +48,5 @@ jobs:
         run: npm run smoke:remote-host
       - name: Smoke — extension install
         run: npm run smoke:extension-install
+      - name: Smoke — remote work
+        run: npm run smoke:remote-work

@@ -31,7 +31,7 @@ export function remoteWorkDir(root = ROOT) {
 }
 
 /** The host's environment: nothing in it points outside `dir`, and nothing listens beyond loopback. */
-export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_DIR, name, workspace, proxy = false, tls = false, kits = false }) {
+export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_DIR, name, machineName = name, workspace, proxy = false, tls = false, kits = false }) {
   const env = {
     ...base,
     HOME: join(dir, "home"),
@@ -66,7 +66,7 @@ export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_D
     TAU_TEST_CLONE_ROOT: remoteWorkDir(root),
   };
   for (const variable of ["TAU_HOST_URL", "TAU_HOST_TLS", "TAU_HOST_TLS_CERT", "TAU_HOST_TLS_KEY", "TAU_HOST_PROXY_LISTEN", "TAU_NO_EXTENSIONS", "TAU_MACHINE_NAME", "ELECTRON_RUN_AS_NODE"]) delete env[variable];
-  if (name) env.TAU_MACHINE_NAME = name;
+  if (machineName) env.TAU_MACHINE_NAME = machineName;
   if (proxy) env.TAU_HOST_PROXY_LISTEN = "127.0.0.1:0";
   if (tls) env.TAU_HOST_TLS = "1";
   if (!kits) env.TAU_NO_EXTENSIONS = "1";
@@ -152,8 +152,12 @@ export function listTestHosts(root = ROOT) {
   return hosts;
 }
 
-/** Starts a host and resolves with its state once it listens; `flags` as `parseArgs` gives them. */
-export async function startTestHost(flags = {}) {
+/**
+ * Starts a host and resolves with its state once it listens; `flags` as `parseArgs` gives them.
+ * For scripts: `machineName` overrides the name it calls itself, `env` adds variables, and
+ * `prepare(env)` runs after its folders exist and before it starts (a fake Pi agent dir, say).
+ */
+export async function startTestHost(flags = {}, { machineName, env: extraEnv = {}, prepare } = {}) {
   const dir = testHostDir(flags.name);
   const statePath = join(dir, "state.json");
   if (existsSync(statePath)) {
@@ -166,11 +170,12 @@ export async function startTestHost(flags = {}) {
   const entry = join(ROOT, "dist-electron", "main", "headless.js");
   if (!existsSync(entry) || !existsSync(join(ROOT, "dist-web", "index.html"))) throw new Error("build first: npm run build");
   const workspace = flags.workspace ? resolve(flags.workspace) : undefined;
-  const env = testHostEnv({ dir, name: flags.name, workspace, proxy: flags.proxy, tls: flags.tls, kits: flags.kits });
+  const env = { ...testHostEnv({ dir, name: flags.name, machineName, workspace, proxy: flags.proxy, tls: flags.tls, kits: flags.kits }), ...extraEnv };
   for (const path of [env.HOME, env.TAU_USER_DATA, env.TAU_WORKSPACE, env.CODEX_HOME, env.TAU_OPENCODE_HOME, env.TAU_CURSOR_HOME, env.TAU_GROK_HOME]) mkdirSync(path, { recursive: true });
   // Pi as in an instance: the login linked, settings copied with the test model; --no-login leaves it signed out.
   if (flags.login !== false) preparePiAgentDir(env.PI_CODING_AGENT_DIR);
   else mkdirSync(env.PI_CODING_AGENT_DIR, { recursive: true });
+  await prepare?.(env);
   const logPath = join(dir, "host.log");
   rmSync(logPath, { force: true });
   const log = openSync(logPath, "a");
@@ -196,6 +201,7 @@ export async function startTestHost(flags = {}) {
     workspace: env.TAU_WORKSPACE,
     home: env.HOME,
     sessionsDir: env.PI_CODING_AGENT_SESSION_DIR,
+    agentDir: env.PI_CODING_AGENT_DIR,
     log: logPath,
     startedAt: new Date().toISOString(),
   };
