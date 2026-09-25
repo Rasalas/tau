@@ -151,6 +151,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
         const id = setupIdOf(input);
         if (id) setups.failed(id, text(input.error) ?? "The worktree could not be created.");
       }, workspaceOnly);
+      // Remote Work Kit sets up the worktree it makes for another machine's transfer the same way.
       context.registerCommand(WORKTREE_CREATED_COMMAND, async (raw) => {
         const input = fields(raw);
         const project = text(input.project);
@@ -196,7 +197,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
         await Promise.race([blocking, setups.released(setupId)]);
         const current = new Map(runs.list().map((run) => [run.id, run]));
         return { setupId, runs: started.map((run) => current.get(run.id) ?? run) };
-      }, { long: true, ...workspaceOnly });
+      }, { long: true, callers: ["tau.workspace", "tau.remote-work"] });
 
       context.registerCommand("setups", () => setups.list(), { access: "read" });
       context.registerCommand("setup-cancel", (raw) => {

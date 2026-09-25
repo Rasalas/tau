@@ -1,0 +1,49 @@
+/* Remote Work Kit: Settings → Remote work. Tokens only; the rows are core's settings rows. */
+.remote-work-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-work-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.remote-work-step small {
+  color: var(--ink-3);
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-work-step.running { color: var(--working); }
+.remote-work-step.done { color: var(--ink-2); }
+.remote-work-step.done svg { color: var(--done); }
+.remote-work-step.failed { color: var(--danger); }
+.remote-work-spin { animation: spin 1s linear infinite; }
+
+.remote-work-summary.failed { color: var(--danger); }
+.remote-work-age { color: var(--ink-3); font-weight: normal; }
+
+.remote-work-files {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+.remote-work-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.remote-work-skipped { color: var(--ink-3); }
