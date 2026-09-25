@@ -354,3 +354,141 @@ export async function removeAgentWorktree(options: {
   await runGit(parentCwd, ["worktree", "prune"]).catch(() => "");
   await runGit(parentCwd, ["branch", "-D", worktree.branch]).catch(() => "");
 }
+
+/** What merging a branch into a checkout would do, read without touching the checkout. */
+export interface BranchMergePreview {
+  /** `merge-tree --write-tree`'s tree: the merge result, with conflict markers where it has conflicts. */
+  tree: string;
+  conflicts: string[];
+  /** HEAD already contains the branch. */
+  merged: boolean;
+}
+
+/** The exit code and output a runner's rejection carries, the way `execFile` rejects. */
+function gitFailure(error: unknown): { code?: number; stdout?: string; message: string } {
+  const failure = error as { code?: unknown; stdout?: unknown; message?: unknown };
+  return {
+    ...(typeof failure?.code === "number" ? { code: failure.code } : {}),
+    ...(typeof failure?.stdout === "string" ? { stdout: failure.stdout } : {}),
+    message: typeof failure?.message === "string" ? failure.message : String(error),
+  };
+}
+
+/** Git 2.38's `merge-tree --write-tree`: the merge of HEAD and `branch` as a tree, and its conflicted paths. */
+export async function previewBranchMerge(cwd: string, branch: string, runGit: AgentGitRunner = runAgentGit): Promise<BranchMergePreview> {
+  const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
+  const tip = (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).trim();
+  const merged = await runGit(cwd, ["merge-base", "--is-ancestor", tip, head]).then(() => true, () => false);
+  if (merged) return { tree: (await runGit(cwd, ["rev-parse", `${head}^{tree}`])).trim(), conflicts: [], merged: true };
+  let output: string;
+  try {
+    output = await runGit(cwd, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", head, tip]);
+  } catch (error) {
+    const failure = gitFailure(error);
+    // Exit 1 is a merge with conflicts, not a failure of the command.
+    if (failure.code !== 1 || failure.stdout === undefined) {
+      throw new Error(`Git could not check the merge of ${branch} (merge-tree --write-tree needs Git 2.38 or newer): ${failure.message.split("\n")[0]}`, { cause: error });
+    }
+    output = failure.stdout;
+  }
+  const [tree = "", ...paths] = output.split("\0");
+  return { tree: tree.trim(), conflicts: [...new Set(paths.filter(Boolean))], merged: false };
+}
+
+export interface BranchMergeOutcome {
+  branch: string;
+  /**
+   * `merged`: HEAD is now a merge commit with the branch. `already-merged`:
+   * nothing to do. `conflict`: the branch and HEAD conflict in `files`.
+   * `blocked`: the checkout holds work in `files` the merge would overwrite,
+   * or a merge or rebase is in progress. Only `merged` touched the checkout.
+   */
+  state: "merged" | "already-merged" | "conflict" | "blocked";
+  commit?: string;
+  files: string[];
+  detail: string;
+}
+
+const IN_PROGRESS = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"];
+
+async function changedPaths(cwd: string, from: string, to: string, runGit: AgentGitRunner): Promise<Map<string, string>> {
+  if (from === to) return new Map();
+  const output = await runGit(cwd, ["diff-tree", "-r", "-z", "--no-renames", "--name-status", from, to]);
+  const parts = output.split("\0");
+  const paths = new Map<string, string>();
+  for (let index = 0; index + 1 < parts.length; index += 2) {
+    if (parts[index]) paths.set(parts[index + 1], parts[index]);
+  }
+  return paths;
+}
+
+/**
+ * Merges `branch` into the checkout at `cwd` only when that is clean; nothing
+ * is touched otherwise. A clean checkout gets `git merge --no-ff`. A checkout
+ * with uncommitted work may still take the merge when everything it holds is
+ * recorded somewhere the merge keeps: in HEAD, in the merge result, or in
+ * `base` — the state commit the branch started from, which carries the work
+ * this checkout had then. Such a checkout is moved to the merge commit
+ * directly (`read-tree --reset -u`), because `git merge` refuses local changes
+ * even where the result has them already.
+ */
+export async function mergeBranchIntoCheckout(options: {
+  cwd: string;
+  branch: string;
+  /** The commit the branch started from, when it differs from what HEAD was then. */
+  base?: string;
+  message?: string;
+  runGit?: AgentGitRunner;
+}): Promise<BranchMergeOutcome> {
+  const runGit = options.runGit ?? runAgentGit;
+  const { cwd, branch } = options;
+  const verify = (ref: string) => runGit(cwd, ["rev-parse", "-q", "--verify", ref]).then((out) => out.trim(), () => "");
+  for (const ref of IN_PROGRESS) {
+    if (await verify(ref)) return { branch, state: "blocked", files: [], detail: "A merge, rebase or cherry-pick is in progress in this checkout; finish it first." };
+  }
+  const unmerged = (await runGit(cwd, ["ls-files", "-u", "-z"])).split("\0").filter(Boolean);
+  if (unmerged.length > 0) return { branch, state: "blocked", files: [], detail: "This checkout has unresolved conflicts; resolve them first." };
+
+  const preview = await previewBranchMerge(cwd, branch, runGit);
+  if (preview.merged) return { branch, state: "already-merged", files: [], detail: `${branch} is already merged.` };
+  if (preview.conflicts.length > 0) {
+    return { branch, state: "conflict", files: preview.conflicts, detail: `${branch} conflicts with this checkout in ${preview.conflicts.length} file${preview.conflicts.length === 1 ? "" : "s"}; nothing was applied.` };
+  }
+  const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
+  const tip = (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).trim();
+  const headTree = (await runGit(cwd, ["rev-parse", `${head}^{tree}`])).trim();
+  const worktreeTree = await captureWorktreeTree(cwd, runGit);
+  const indexTree = (await runGit(cwd, ["write-tree"])).trim();
+  const message = options.message ?? `Merge branch '${branch}'`;
+
+  if (worktreeTree === headTree && indexTree === headTree) {
+    try {
+      await runGit(cwd, ["merge", "--no-ff", "--no-edit", "-m", message, tip]);
+    } catch (error) {
+      await runGit(cwd, ["merge", "--abort"]).catch(() => "");
+      throw new Error(`${branch} did not merge: ${gitFailure(error).message.split("\n")[0]}`, { cause: error });
+    }
+    const commit = (await runGit(cwd, ["rev-parse", "HEAD"])).trim();
+    return { branch, state: "merged", commit, files: [], detail: `Merged ${branch}.` };
+  }
+
+  // A path blocks when the checkout holds a version of it that neither HEAD, the base nor the result keeps.
+  const keptIn = [headTree, preview.tree, ...(options.base ? [`${options.base}^{tree}`] : [])];
+  const blocking = new Set<string>();
+  for (const held of new Set([worktreeTree, indexTree])) {
+    const lost = await Promise.all(keptIn.map((kept) => changedPaths(cwd, held, kept, runGit)));
+    for (const path of lost[0].keys()) if (lost.every((paths) => paths.has(path))) blocking.add(path);
+  }
+  if (blocking.size > 0) {
+    const files = [...blocking].sort();
+    return { branch, state: "blocked", files, detail: `This checkout has changes the merge would overwrite: ${files.slice(0, 5).join(", ")}${files.length > 5 ? " …" : ""}. Commit or move them first; nothing was applied.` };
+  }
+  const commit = (await runGit(cwd, ["commit-tree", preview.tree, "-p", head, "-p", tip, "-m", message])).trim();
+  // Files the checkout has that the result drops: untracked ones read-tree would leave behind.
+  const dropped = [...(await changedPaths(cwd, worktreeTree, preview.tree, runGit))].filter(([, status]) => status === "D").map(([path]) => path);
+  await runGit(cwd, ["read-tree", "--reset", "-u", commit]);
+  for (const path of dropped) await rm(join(cwd, path), { force: true }).catch(() => undefined);
+  await runGit(cwd, ["update-ref", "-m", `merge ${branch}: Merge made by Tau`, "HEAD", commit, head]);
+  await runGit(cwd, ["update-ref", "ORIG_HEAD", head]).catch(() => "");
+  return { branch, state: "merged", commit, files: [], detail: `Merged ${branch} over this checkout's uncommitted work, which it already held.` };
+}
