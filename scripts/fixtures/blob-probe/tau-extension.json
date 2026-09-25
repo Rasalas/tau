@@ -2,7 +2,7 @@
   "id": "test.blob-probe",
   "name": "Blob probe",
   "version": "0.0.1",
-  "engines": { "api": "^1.14.0" },
+  "engines": { "api": "^1.15.0" },
   "permissions": ["machines"],
   "isolation": "in-process",
   "host": "./host.js"
