@@ -85,7 +85,7 @@ import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ThreadIndex } from "./thread-index.js";
 import type { ThreadTrash } from "./thread-trash.js";
 import type { ThreadBinding } from "./thread-binding.js";
-import type { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
+import type { SessionRuntimeExtension, ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 import type { RuntimePrewarm } from "./runtime-prewarm.js";
 import type { PromptPreparation } from "./prompt-preparation.js";
 import type { TurnDelivery } from "./turn-delivery.js";
@@ -553,11 +553,11 @@ export class PiHost {
     return { sessionId: thread.threadId, cwd: thread.cwd, ...(thread.state.title ? { title: thread.state.title } : {}) };
   }
 
-  private runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): Array<{ name: string; factory: import("@earendil-works/pi-coding-agent").ExtensionFactory }> {
+  private runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[] {
     const settings = { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings() };
     return this.seam.runtimeExtensions
       .filter((contribution) => contribution.enabledFor?.(settings) ?? true)
-      .map(({ name, factory }) => ({ name, factory: (pi) => factory(pi, session) }));
+      .map(({ name, factory, shellCommandPrefix }) => ({ name, factory: (pi) => factory(pi, session), shellCommandPrefix: shellCommandPrefix?.(session) }));
   }
 
   /** The provider behind a non-Pi backend kind. */

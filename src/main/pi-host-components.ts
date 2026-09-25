@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getAgentDir, type ExtensionFactory, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   HostEvent,
   HostSnapshot,
@@ -54,7 +54,7 @@ import { ProjectFactsCache } from "./project-facts-cache.js";
 import { ThreadBinding } from "./thread-binding.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
-import { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
+import { ThreadRuntimeLifecycle, type SessionRuntimeExtension } from "./thread-runtime-lifecycle.js";
 import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { PromptPreparation } from "./prompt-preparation.js";
 import { TurnDelivery } from "./turn-delivery.js";
@@ -132,7 +132,7 @@ export interface PiHostDeps {
   requireThread(sessionId: string | undefined): ThreadRuntime;
   requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider;
   adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter;
-  runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): Array<{ name: string; factory: ExtensionFactory }>;
+  runtimeExtensionsFor(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[];
   getActive(): ThreadRuntime | undefined;
   /** False while Pi's own terminal owns the visible thread. */
   hasLocalActive(): boolean;
