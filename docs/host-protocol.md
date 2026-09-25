@@ -840,7 +840,23 @@ Kits reach the machines through `services.machines`: a kit command there goes
 as `host-extension`, and `request` sends only the methods in
 `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`:
 `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`,
-`follow-up`); every other name is refused before it leaves.
+`follow-up`, `host-resources`, `readiness`); every other name is refused before
+it leaves. Named by the host's own id, a `read` method of that list is answered
+by the host itself.
+
+### How busy a machine is, and what it could run
+
+Two `read` methods, answered only when asked; nothing is pushed or polled.
+
+| Method | Params | Result |
+|---|---|---|
+| `host-resources` | – | `HostResources`: `cpuCount`, `cpuUtilization?` (0–1), `totalMemory`, `availableMemory`, `runningTurns`, `onBattery?`, `sampledAt`. A reading needs two looks at the CPU counters: the previous answer when it is at most 30 s old, otherwise 5 s apart; answers within 5 s are the same. A host in the window's process answers `unsupported`. |
+| `readiness` | – | `HostReadiness`: `runtimes` (`kind`, `label`, `state`: `ready`, `sign-in-required`, `not-installed`, `unavailable`, `checking`; `version?`, `models?`, `note?`), `git` (`version?`, `mergeTree`: Git ≥ 2.38), `disk` (`path`, `free?`, `total?`, `error?`), `display` (`kind`: `screen`, `x11`, `wayland`, `invisible`, `none`; `name?`), `checkedAt`. |
+
+A runtime's state comes from the runtime catalogs (`runtime-catalogs`); one
+without an answer on hand is asked and waited for 3 s, then reported
+`checking`. `invisible` is an X display whose server (the pid in
+`/tmp/.X<n>-lock`) is `Xvfb`.
 
 ## Workspace identity
 

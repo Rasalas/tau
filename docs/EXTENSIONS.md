@@ -1027,7 +1027,7 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
@@ -2189,7 +2189,7 @@ permission and is absent on a host in the window's process and in a worker.
 | `list()` | `HostMachine[]`: `id` (that machine's host id), `name`, `status` (`connecting`, `connected`, `offline`, `refused`), `detail`, `roundTripMs`, `lastSeenAt`, `address`, `hostVersion`, and `readOnly` when its owner let the agents in Read only. Never a token. |
 | `subscribe(listener)` | Calls `listener` with the whole list when a machine is added, removed or changes status. Returns the way to stop. |
 | `call(machine, extensionId, command, input?, { timeoutMs? })` | Runs a kit command on that machine, as `host-extension` from the agents' own device. The other host checks it like any call of a paired device: its preset, `access: "read"`, and an entry in its Connections audit. |
-| `request(machine, method, params?, { timeoutMs? })` | Calls one of the core methods in `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`): `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`, `follow-up`. Any other name is refused with `forbidden` before it leaves. |
+| `request(machine, method, params?, { timeoutMs? })` | Calls one of the core methods in `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`): `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`, `follow-up`, `host-resources`, `readiness`. Any other name is refused with `forbidden` before it leaves. Named by this host's own id, a method that only reads is answered here, so a kit weighs this machine the way it weighs the others; the rest are refused (this host's threads go through `services.sessions`). |
 | `watch(machine, topic, listener, { extension? })` | Events that kit emits there with `emit(name, payload, { topic })` (see [topics](#what-reaches-which-client-emit--topic--and-watch-new-in-api-1130)), as `{ name, payload }`, until the returned function runs. The kit is your own counterpart on that machine unless `extension` names another. The topic survives reconnects; nothing arrives while the machine is offline. |
 
 `machine` is a host id, or a name when exactly one machine has it. A call to
@@ -2197,7 +2197,27 @@ an unknown, offline or refusing machine rejects with a sentence that says
 which. `refused` is final until the owner here turns the agents on again:
 the other owner revoked their device, or its access expired. Machines Kit
 (`kits/environments/host.ts`) is the shipped caller: it lists the machines for
-Settings → Machines and answers `whoami` for another machine's agents.
+Settings → Machines, answers `whoami` for another machine's agents, and asks
+a machine how busy it is and what it could run (its commands `resources` and
+`readiness`, `{ machine }`), only when the page shows it or on "Check again".
+
+`host-resources` answers `HostResources` (`src/shared/host-resources.ts`, on
+`tau/host-extension` and `tau`): `cpuCount`, `cpuUtilization` (0–1 across all
+cores; the last reading is the start of the next one when it is at most 30 s
+old, otherwise the host watches the counters for 5 s), `totalMemory`,
+`availableMemory` (free plus reclaimable cache: `MemAvailable` on Linux,
+`vm_stat` on macOS), `runningTurns`, `onBattery` where the machine can tell,
+and `sampledAt` on that host's clock — compare the age with the time the
+answer arrived. Answers within 5 s of each other are the same answer.
+`readiness` answers `HostReadiness`: each runtime a new thread could start on
+with `state` (`ready`, `sign-in-required`, `not-installed`, `unavailable`, or
+`checking` while it has not answered since the host started), read from the
+runtime catalog the kits fill, with Pi `sign-in-required` while no model
+provider has a key or a login; `git` (`version`, and `mergeTree` from Git
+2.38); `disk` (free space where new worktrees go: `TAU_WORKTREES_DIR`, else
+`~/.tau`); `display` (`screen` on macOS and Windows, `x11`, `wayland`,
+`invisible` for an Xvfb server, `none`). Nothing is polled; a caller that
+chooses a machine asks again when its answer is older than it accepts.
 
 ### Reaching the user outside the window: `context.attention`
 
