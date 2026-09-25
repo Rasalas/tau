@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { planSummary } from "../deploy-protocol";
 import { FolderServerFs } from "../fixtures/fake-server-fs";
-import { heldBy } from "../journal";
+import { heldBy, supersededPaths } from "../journal";
 import { threeWay, writeServerFile } from "./deploy";
 import { hasConflictMarkers } from "./local";
 
@@ -42,6 +42,11 @@ describe("the upload's three-way decision", () => {
     expect(heldBy(record, new Map([["site/a.php", "1".repeat(40)], ["site/b.php", "2".repeat(40)]]))).toBe(false);
     expect(heldBy(record, new Map([["site/a.php", "3".repeat(40)]]))).toBe(false);
     expect(heldBy({ context: "", files: [] }, new Map())).toBe(false);
+    // A file a later deployment wrote again is that deployment's to hold.
+    expect(heldBy(record, new Map([["site/a.php", "3".repeat(40)]]), new Set(["a.php"]))).toBe(true);
+    const records = [1, 2, 3].map((seq) => ({ seq, files: seq === 2 ? [] : [{ path: "a.php", op: "modify" }] })) as unknown as Parameters<typeof supersededPaths>[1];
+    expect([...supersededPaths({ seq: 1 }, records)]).toEqual(["a.php"]);
+    expect([...supersededPaths({ seq: 3 }, records)]).toEqual([]);
   });
 });
 

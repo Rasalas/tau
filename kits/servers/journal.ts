@@ -154,10 +154,17 @@ export async function nextDeploySeq(records: readonly DeploymentRecord[], git: G
 
 /**
  * Whether the files of a deployment are what `head` (path in the project → blob id) holds:
- * every uploaded file with the blob that went up, every deleted one absent.
+ * every uploaded file with the blob that went up, every deleted one absent. A file a
+ * later deployment replaced (`superseded`) is that one's to hold.
  */
-export function heldBy(record: Pick<DeploymentRecord, "files" | "context">, head: ReadonlyMap<string, string>): boolean {
+export function heldBy(record: Pick<DeploymentRecord, "files" | "context">, head: ReadonlyMap<string, string>, superseded: ReadonlySet<string> = new Set()): boolean {
   if (record.files.length === 0) return false;
   const prefix = record.context ? `${record.context}/` : "";
-  return record.files.every((file) => (file.op === "delete" ? !head.has(`${prefix}${file.path}`) : head.get(`${prefix}${file.path}`) === file.after));
+  return record.files.every((file) => superseded.has(file.path)
+    || (file.op === "delete" ? !head.has(`${prefix}${file.path}`) : head.get(`${prefix}${file.path}`) === file.after));
+}
+
+/** Paths of `record` that a later deployment of the same target wrote again. */
+export function supersededPaths(record: Pick<DeploymentRecord, "seq">, records: readonly DeploymentRecord[]): Set<string> {
+  return new Set(records.filter((other) => other.seq > record.seq).flatMap((other) => other.files.map((file) => file.path)));
 }

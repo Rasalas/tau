@@ -8,7 +8,7 @@ import {
   type DeploymentCheckout, type DeploymentFailure, type DeploymentRecord,
 } from "./deploy-protocol.js";
 import { unmergedDriftPaths, unmergedDriftReason, type DriftState } from "./drift-protocol.js";
-import { deployRef, heldBy, nextDeploySeq, readDeployments, recordDeployment, setDeploymentStatus } from "./journal.js";
+import { deployRef, heldBy, nextDeploySeq, supersededPaths, readDeployments, recordDeployment, setDeploymentStatus } from "./journal.js";
 import type { SftpJsonTarget } from "./sftp-json.js";
 import type { ServersStore, TargetKey } from "./store.js";
 import { comparePending } from "./sync/compare.js";
@@ -364,17 +364,17 @@ export class DeployService {
     for (const record of records) {
       const threadId = record.origin.threadId;
       if (!threadId || record.files.length === 0 || (record.status !== "uploaded" && record.status !== "verified")) continue;
-      if (await this.committed(record, root)) await setDeploymentStatus(this.options.store, key, record.seq, "committed");
+      if (await this.committed(record, root, supersededPaths(record, records))) await setDeploymentStatus(this.options.store, key, record.seq, "committed");
       else threads.add(threadId);
     }
     return [...threads].sort();
   }
 
-  private async committed(record: DeploymentRecord, root: string): Promise<boolean> {
+  private async committed(record: DeploymentRecord, root: string, superseded: ReadonlySet<string>): Promise<boolean> {
     for (const cwd of [...new Set([record.checkout.path, root])]) {
       const head = await this.readGit(cwd, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
       if (!head) continue;
-      const id = `${cwd}\0${head}\0${record.seq}`;
+      const id = `${cwd}\0${head}\0${record.seq}\0${[...superseded].sort().join("\0")}`;
       const known = this.held.get(id);
       if (known !== undefined) return known;
       const listing = await gitOk(this.git, ["ls-tree", "-r", "-z", "--full-tree", head], { cwd, env: { GIT_OPTIONAL_LOCKS: "0" } }).catch(() => undefined);
@@ -384,7 +384,7 @@ export class DeployService {
         const match = /^\d+ blob ([0-9a-f]{40,64})\t(.+)$/su.exec(entry);
         if (match) files.set(match[2]!, match[1]!);
       }
-      const held = heldBy(record, files);
+      const held = heldBy(record, files, superseded);
       if (this.held.size > 1000) this.held.clear();
       this.held.set(id, held);
       return held;
