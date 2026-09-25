@@ -175,7 +175,11 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify }: { link: RemoteThr
   const [busy, setBusy] = useState<string>();
   const run = (command: "thread-abort" | "thread-result" | "thread-settle", input: Record<string, unknown>, label: string) => {
     setBusy(`${command}${String(input.how ?? "")}`);
-    host.invoke(command, { link: link.id, ...input }).then((value) => onNotify(`${label}: ${threadSummary(value as RemoteThreadLink)}`), (error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
+    // A settled link's summary says what happened already.
+    host.invoke(command, { link: link.id, ...input }).then((value) => {
+      const next = value as RemoteThreadLink;
+      onNotify(next.settled || next.applied ? threadSummary(next) : `${label}: ${threadSummary(next)}`);
+    }, (error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
   };
   const working = link.status === "running" || link.status === "starting";
   const quiet = link.status === "idle" || link.status === "waiting" || link.status === "failed";
