@@ -26,6 +26,10 @@ describe("parseArgs", () => {
     });
   });
 
+  it("names one of several test hosts with --test-host=<name>", () => {
+    expect(parseArgs(["host", "connections-list", "--test-host=rex"]).flags).toEqual({ "test-host": "rex" });
+  });
+
   it("collects a repeated --resolve", () => {
     expect(parseArgs(["launch", "--resolve", "a.ts.net", "--resolve", "b.ts.net", "--fresh"]).flags).toEqual({ resolve: ["a.ts.net", "b.ts.net"], fresh: true });
   });
