@@ -84,6 +84,8 @@ interface StoredClient {
   lastSeenAt?: string;
   lastAddress?: string;
   lastAction?: StoredAction;
+  /** The device it was paired with under one approval (ADR 0027). */
+  companionOf?: string;
 }
 
 interface PendingLink {
@@ -107,6 +109,8 @@ interface PendingRequest {
   commitment?: string;
   hostNonce?: string;
   binding?: "key";
+  /** A second device to let in with this one: the asking machine's agents (ADR 0027). */
+  companion?: { name?: string };
   verification?: string;
   createdAt: number;
   expiresAt: number;
@@ -344,6 +348,7 @@ export class HostAccess {
 
     const createdAt = this.now();
     const name = cleanLabel(request.name);
+    const companionName = request.companion ? cleanLabel(request.companion.name) : undefined;
     const pending: PendingRequest = {
       id: randomBytes(8).toString("hex"),
       ...(name ? { name } : {}),
@@ -353,6 +358,7 @@ export class HostAccess {
       state: request.commitment ? "challenge" : "waiting",
       ...(request.commitment ? { commitment: request.commitment, hostNonce: randomBytes(32).toString("base64url") } : {}),
       ...(request.commitment && request.binding === "key" ? { binding: "key" as const } : {}),
+      ...(request.companion ? { companion: companionName ? { name: companionName } : {} } : {}),
       // Without a commitment the host picks the digits; the device only shows them.
       ...(request.commitment ? {} : { verification: String(randomInt(0, 1_000_000)).padStart(6, "0") }),
       createdAt,
@@ -396,7 +402,8 @@ export class HostAccess {
   /**
    * Lets a waiting device in: its token is written down first, then answered
    * on its socket. A device that left meanwhile gets nothing, and neither
-   * does its record survive.
+   * does its record survive. A request with a companion lets in two devices,
+   * each with its own token and record, so either can be revoked alone.
    */
   async approvePairing(id: string, choice: { access?: DeviceAccess; label?: string } = {}): Promise<boolean> {
     this.sweep();
@@ -404,36 +411,53 @@ export class HostAccess {
     if (!pending || pending.state !== "waiting") return false;
     this.requests.delete(id);
 
-    const clientId = randomBytes(12).toString("hex");
-    const secret = randomBytes(32).toString("base64url");
     const access = isDeviceAccess(choice.access) ? choice.access : pending.link?.access ?? "full";
-    const client: StoredClient = {
-      id: clientId,
-      label: cleanLabel(choice.label) ?? pending.link?.label ?? pending.name ?? deviceLabel(pending.device),
-      secretHash: sha256(secret),
-      pairedAt: new Date(this.now()).toISOString(),
-      device: pending.device,
-      access,
-      idleTimeoutDays: DEFAULT_IDLE_TIMEOUT_DAYS,
-      ...(pending.address ? { pairedFrom: pending.address, lastAddress: pending.address } : {}),
-    };
-    this.clients.set(clientId, client);
+    const label = cleanLabel(choice.label) ?? requestLabel(pending);
+    const client = this.newClient(pending, label, access);
+    const companion = pending.companion ? this.newClient(pending, companionLabel(pending, label), access, client.record.id) : undefined;
+    const added = [client, companion].filter((entry) => entry !== undefined);
+    for (const entry of added) this.clients.set(entry.record.id, entry.record);
     // Written before the token leaves: a token the host would forget on restart is worth nothing.
     try {
       await this.save();
     } catch (error) {
-      this.clients.delete(clientId);
+      for (const entry of added) this.clients.delete(entry.record.id);
       pending.channel.settle({ state: "denied" });
       this.changed();
       throw error;
     }
-    const delivered = pending.channel.settle({ state: "approved", token: `${CLIENT_TOKEN_PREFIX}.${clientId}.${secret}`, clientId, access });
+    const delivered = pending.channel.settle({
+      state: "approved",
+      token: client.token,
+      clientId: client.record.id,
+      access,
+      ...(companion ? { companion: { token: companion.token, clientId: companion.record.id } } : {}),
+    });
     if (!delivered) {
-      this.clients.delete(clientId);
+      for (const entry of added) this.clients.delete(entry.record.id);
       await this.save().catch(() => undefined);
     }
     this.changed();
     return delivered;
+  }
+
+  private newClient(pending: PendingRequest, label: string, access: DeviceAccess, companionOf?: string): { record: StoredClient; token: string } {
+    const id = randomBytes(12).toString("hex");
+    const secret = randomBytes(32).toString("base64url");
+    return {
+      token: `${CLIENT_TOKEN_PREFIX}.${id}.${secret}`,
+      record: {
+        id,
+        label,
+        secretHash: sha256(secret),
+        pairedAt: new Date(this.now()).toISOString(),
+        device: pending.device,
+        access,
+        idleTimeoutDays: DEFAULT_IDLE_TIMEOUT_DAYS,
+        ...(pending.address ? { pairedFrom: pending.address, lastAddress: pending.address } : {}),
+        ...(companionOf ? { companionOf } : {}),
+      },
+    };
   }
 
   denyPairing(id: string): boolean {
@@ -576,6 +600,7 @@ export class HostAccess {
         ...(client.lastAddress ? { lastAddress: client.lastAddress } : {}),
         ...(client.lastAction ? { lastAction: this.describeAction(client.lastAction) } : {}),
         ...(proxyUsers.has(client.id) ? { proxyUser: proxyUsers.get(client.id)! } : {}),
+        ...(client.companionOf ? { companionOf: client.companionOf } : {}),
       };
     });
     clients.sort((a, b) => Number(b.current) - Number(a.current)
@@ -673,6 +698,17 @@ function linkInfo(link: PendingLink): UiPairingLink {
   };
 }
 
+/** What a request's device will be listed as, unless the owner names it. */
+function requestLabel(pending: PendingRequest): string {
+  return pending.link?.label ?? pending.name ?? deviceLabel(pending.device);
+}
+
+/** `Mini · Agents` when the machine named its agents nothing itself. */
+function companionLabel(pending: PendingRequest, label: string): string {
+  const suffix = " · Agents";
+  return pending.companion?.name ?? `${label.slice(0, MAX_LABEL - suffix.length).trim()}${suffix}`;
+}
+
 function requestInfo(pending: PendingRequest): UiPairingRequest {
   return {
     id: pending.id,
@@ -682,6 +718,7 @@ function requestInfo(pending: PendingRequest): UiPairingRequest {
     ...(pending.link ? { link: pending.link.label ? { label: pending.link.label } : {} } : {}),
     verification: pending.verification!,
     access: pending.link?.access ?? "full",
+    ...(pending.companion ? { companion: { name: companionLabel(pending, requestLabel(pending)) } } : {}),
     createdAt: new Date(pending.createdAt).toISOString(),
     expiresAt: new Date(pending.expiresAt).toISOString(),
   };
@@ -711,6 +748,7 @@ function decodeClients(value: unknown): StoredClient[] | undefined {
       ...(typeof entry.pairedFrom === "string" ? { pairedFrom: entry.pairedFrom } : {}),
       ...(typeof entry.lastSeenAt === "string" ? { lastSeenAt: entry.lastSeenAt } : {}),
       ...(typeof entry.lastAddress === "string" ? { lastAddress: entry.lastAddress } : {}),
+      ...(typeof entry.companionOf === "string" && /^[0-9a-f]{24}$/u.test(entry.companionOf) ? { companionOf: entry.companionOf } : {}),
       ...(lastAction && typeof lastAction.action === "string" && typeof lastAction.at === "string"
         ? {
           lastAction: {

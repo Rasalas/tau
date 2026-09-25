@@ -236,6 +236,60 @@ describe("asking to pair", () => {
   });
 });
 
+describe("a machine and its agents under one approval", () => {
+  it("lets in two devices with their own tokens, listed apart and revoked apart", async () => {
+    const { access, storePath } = await openAccess();
+    const device = channel();
+    const { id, reply } = access.requestPairing({ name: "Mini", companion: {} }, peer, device);
+    expect(reply.state).toBe("waiting");
+    // The owner sees one request that names both.
+    expect(access.overview().requests).toEqual([expect.objectContaining({ name: "Mini", companion: { name: "Mini · Agents" } })]);
+    expect(await access.approvePairing(id!, { access: "full" })).toBe(true);
+    const approved = device.replies.at(-1);
+    if (approved?.state !== "approved" || !approved.companion) throw new Error(`no companion: ${JSON.stringify(approved)}`);
+    expect(approved.companion.token).not.toBe(approved.token);
+    expect(access.authenticate(approved.token)).toEqual({ kind: "client", clientId: approved.clientId });
+    expect(access.authenticate(approved.companion.token)).toEqual({ kind: "client", clientId: approved.companion.clientId });
+
+    const clients = access.overview().clients;
+    expect(clients.map((entry) => [entry.label, entry.access, entry.companionOf])).toEqual(expect.arrayContaining([
+      ["Mini", "full", undefined],
+      ["Mini · Agents", "full", approved.clientId],
+    ]));
+    // Both are on disk before either token left, and the link between them survives a restart.
+    const again = await openTracked({ tokenFile: new HostTokenFile(join(storePath, "..", "..", "tau", "host-token")), storePath });
+    expect(again.overview().clients.find((entry) => entry.label === "Mini · Agents")?.companionOf).toBe(approved.clientId);
+
+    expect(await access.revokeClient(approved.companion.clientId)).toBe(true);
+    expect(access.authenticate(approved.companion.token)).toBeUndefined();
+    expect(access.authenticate(approved.token)).toEqual({ kind: "client", clientId: approved.clientId });
+  });
+
+  it("takes the name the machine gave its agents, and gives none to a request without a companion", async () => {
+    const { access } = await openAccess();
+    const named = channel();
+    const { id } = access.requestPairing({ name: "Studio", companion: { name: "Studio agents" } }, peer, named);
+    expect(access.overview().requests[0]?.companion).toEqual({ name: "Studio agents" });
+    await access.approvePairing(id!);
+    expect(access.overview().clients.map((entry) => entry.label).sort()).toEqual(["Studio", "Studio agents"]);
+
+    const plain = channel();
+    const other = access.requestPairing({ name: "Phone" }, { ...peer, address: "::ffff:192.0.2.8" }, plain);
+    expect(access.overview().requests[0]?.companion).toBeUndefined();
+    await access.approvePairing(other.id!);
+    expect(plain.replies.at(-1)).toMatchObject({ state: "approved" });
+    expect(plain.replies.at(-1)).not.toHaveProperty("companion");
+  });
+
+  it("keeps neither record when the machine left before the answer", async () => {
+    const { access } = await openAccess();
+    const device = channel(false);
+    const { id } = access.requestPairing({ name: "Mini", companion: {} }, peer, device);
+    expect(await access.approvePairing(id!)).toBe(false);
+    expect(access.overview().clients).toEqual([]);
+  });
+});
+
 describe("client tokens", () => {
   it("are stored as hashes in a 0o600 file and survive a restart", async () => {
     const first = await openAccess();
@@ -500,6 +554,26 @@ describe("pairing over the socket", () => {
     const hello = await device.hello(token);
     expect(hello).toMatchObject({ type: "hello-reply", reply: { access: "read-only", owner: false } });
     expect((await device.request("bootstrap")).result).toBe("state");
+  });
+
+  it("answers a request with a companion with both tokens, each saying hello on its own", async () => {
+    const { access, tokenFile } = await openAccess();
+    const port = await listen(access, { ...connectionsOf(access), "bootstrap": async () => "state" });
+    const owner = await connect(port);
+    await owner.hello(tokenFile.current());
+    const device = await connect(port);
+    device.send({ type: "pair", id: "p1", pair: { name: "Mini", companion: { name: "Mini · Agents" } } });
+    await device.next("pair-reply");
+    const listed = (await owner.request("connections-list")).result as UiConnections;
+    expect(listed.requests).toEqual([expect.objectContaining({ name: "Mini", companion: { name: "Mini · Agents" } })]);
+    await owner.request("connections-approve", [listed.requests[0]!.id]);
+    const approved = await device.next("pair-reply") as { reply: { token: string; companion?: { token: string } } };
+    expect(approved.reply.companion?.token).toMatch(/^tauc\./u);
+    const agents = await connect(port);
+    expect(await agents.hello(approved.reply.companion!.token)).toMatchObject({ type: "hello-reply", reply: { owner: false } });
+    expect((await agents.request("bootstrap")).result).toBe("state");
+    const devices = ((await owner.request("connections-list")).result as UiConnections).clients.map((entry) => entry.label).sort();
+    expect(devices).toEqual(["Mini", "Mini · Agents"]);
   });
 
   it("closes the device's socket when the owner says no", async () => {

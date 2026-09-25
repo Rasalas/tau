@@ -23,6 +23,18 @@ export interface HostPairRequest {
   commitment?: string;
   /** `key`: the digits are bound to the listener's public key. Absent: to its certificate, as older devices bind them. */
   binding?: "key";
+  /**
+   * A second device under the same approval: the asking machine's host, for
+   * its agents (ADR 0027). It gets a token and a record of its own, so either
+   * can be revoked alone.
+   */
+  companion?: { name?: string };
+}
+
+/** The companion's own token, answered beside the device's when the request asked for one. */
+export interface HostPairedCompanion {
+  token: string;
+  clientId: string;
 }
 
 export type PairRefusal = "unknown-code" | "busy" | "rate-limited" | "invalid";
@@ -33,7 +45,7 @@ export type HostPairReply =
   /** The owner sees the request now; show `verification` until the host decides. */
   | { state: "waiting"; requestId: string; verification: string; expiresAt: string }
   /** Say hello with `token`; the same socket may be used for it. */
-  | { state: "approved"; token: string; clientId: string; access: DeviceAccess }
+  | { state: "approved"; token: string; clientId: string; access: DeviceAccess; companion?: HostPairedCompanion }
   | { state: "denied" }
   | { state: "expired" }
   /** Refused before anyone was asked. An expired, spent or invented code is one answer: `unknown-code`. */

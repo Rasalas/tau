@@ -5,6 +5,7 @@ import {
   pairingVerificationCode,
   randomPairingNonce,
   type HostPairReply,
+  type HostPairedCompanion,
   type PairRefusal,
 } from "./pairing.js";
 
@@ -19,7 +20,8 @@ export interface PairingSocket {
 }
 
 export type PairingResult =
-  | { state: "approved"; token: string; clientId: string; access: DeviceAccess }
+  /** `companion` only when the request asked for one and the host knows companions (ADR 0027). */
+  | { state: "approved"; token: string; clientId: string; access: DeviceAccess; companion?: HostPairedCompanion }
   | { state: "denied" }
   | { state: "expired" }
   | { state: "refused"; reason: PairRefusal; retryAfterMs?: number }
@@ -33,6 +35,8 @@ export interface PairWithHostOptions {
   code?: string;
   /** How this device names itself to the owner. */
   name?: string;
+  /** Asks for a second device under the same approval, such as this machine's agents (ADR 0027). */
+  companion?: { name: string };
   /**
    * The certificate fingerprint this device pinned for the connection. With
    * it the digits are bound to that certificate, so a relay presenting
@@ -85,6 +89,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
             ...(options.name ? { name: options.name } : {}),
             ...(nonce ? { commitment: await pairingCommitment(nonce) } : {}),
             ...(nonce && options.publicKey !== undefined ? { binding: "key" as const } : {}),
+            ...(options.companion ? { companion: { name: options.companion.name } } : {}),
           },
         });
       })().catch((error: unknown) => finish({ state: "failed", message: error instanceof Error ? error.message : String(error) }));
