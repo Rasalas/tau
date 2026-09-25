@@ -75,8 +75,19 @@ export function preparePiAgentDir(agentDir, realDir = join(homedir(), ".pi", "ag
   }
   for (const name of ["settings.json", "models-store.json", "trust.json", "keybindings.json"]) {
     const copy = join(agentDir, name);
-    if (!existsSync(copy) && existsSync(join(realDir, name))) writeFileSync(copy, readFileSync(join(realDir, name)));
+    if (!existsSync(copy) && existsSync(join(realDir, name))) {
+      const content = readFileSync(join(realDir, name));
+      writeFileSync(copy, name === "settings.json" ? withTestDefaultModel(content) : content);
+    }
   }
+}
+
+/** Test prompts, and the automatic ones a new draft sends (titles, commit messages), run on the cheapest model. */
+export function withTestDefaultModel(content) {
+  let settings;
+  try { settings = JSON.parse(String(content)); } catch { return content; }
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return content;
+  return `${JSON.stringify({ ...settings, defaultProvider: "openai-codex", defaultModel: "gpt-5.6-luna" }, null, 2)}\n`;
 }
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
