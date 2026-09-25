@@ -361,7 +361,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
 
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { path, version } = await cli(id);
-        const latest = await npmLatestVersion(CODEX_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) });
+        const latest = await npmLatestVersion(CODEX_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}) });
         const verdict = await compatibility(path, version);
         return {
           tool: "codex",

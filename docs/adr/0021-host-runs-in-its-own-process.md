@@ -143,6 +143,9 @@ release cycle.
   adopts it, never stops it, and follows it to a restart or back to a host of
   its own after an uninstall. A host of another version run by a service is
   restarted, then repaired, once each, instead of replaced.
+  *Amended 2026-09-25:* a host asked for port 0 binds the port it used last
+  (`<userData>/host-port`) while that is free, so a browser tab or phone keeps
+  its page's origin, and the token stored for it, across a restart of the app.
 - **Several windows on one host.** The protocol allows it and the host serves
   every client it has, but the window process assumes one workbench window.
 - **Turn resume across a host restart.** A restarted host keeps its sessions on

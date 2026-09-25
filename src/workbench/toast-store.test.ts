@@ -55,6 +55,26 @@ describe("ToastStore", () => {
     expect(ids(store)).toEqual([]);
   });
 
+  it("gives a covered toast its whole time again instead of letting it go unseen", () => {
+    const clock = manualClock();
+    const store = new ToastStore(clock);
+    let covered = true;
+    const stop = store.deferExpiry(() => covered);
+    store.show({ id: "a" });
+    clock.advance(5_000);
+    expect(ids(store)).toEqual(["a"]);
+    covered = false;
+    clock.advance(4_999);
+    expect(ids(store)).toEqual(["a"]);
+    clock.advance(1);
+    expect(ids(store)).toEqual([]);
+    stop();
+    store.show({ id: "b" });
+    covered = true;
+    clock.advance(5_000);
+    expect(ids(store)).toEqual([]);
+  });
+
   it("keeps the ones beyond the visible three waiting, their clocks stopped", () => {
     const clock = manualClock();
     const store = new ToastStore(clock);

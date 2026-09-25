@@ -191,7 +191,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         if (!path) return undefined;
         const [installed, latest, real] = await Promise.all([
           readVersion(path),
-          npmLatestVersion(CLAUDE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) }),
+          npmLatestVersion(CLAUDE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}) }),
           realpath(path).catch(() => path),
         ]);
         const verdict = versionCompatibility(policy, installed);

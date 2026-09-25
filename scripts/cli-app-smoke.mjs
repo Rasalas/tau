@@ -56,6 +56,7 @@ const host = spawn(process.execPath, [HOST_ENTRY], {
     TAU_HOST_TOKEN_FILE: tokenPath,
     TAU_WORKTREES_DIR: join(temp, "worktrees"),
     TAU_NO_WATCH: "1",
+    TAU_NO_RUNTIME_UPDATES: "1",
     PI_CODING_AGENT_SESSION_DIR: join(temp, "pi-sessions"),
   },
   stdio: ["ignore", "pipe", "pipe"],

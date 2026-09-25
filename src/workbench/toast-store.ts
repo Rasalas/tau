@@ -61,6 +61,7 @@ export class ToastStore {
   private readonly holds = new Set<string>();
   private readonly listeners = new Set<() => void>();
   private next = 0;
+  private covered: ((id: string) => boolean) | undefined;
   private readonly schedule: Schedule;
   private readonly now: () => number;
   readonly maxVisible: number;
@@ -124,11 +125,30 @@ export class ToastStore {
 
   isHeld = (): boolean => this.holds.size > 0;
 
+  /**
+   * A toast whose time runs out while `covered(id)` is true gets its whole
+   * time again instead of going: something drawn over it (a sheet) hid it.
+   */
+  deferExpiry = (covered: (id: string) => boolean): (() => void) => {
+    this.covered = covered;
+    return () => { if (this.covered === covered) this.covered = undefined; };
+  };
+
   dispose(): void {
     for (const id of this.clocks.keys()) this.stopClock(id);
     this.clocks.clear();
     this.toasts = [];
     this.listeners.clear();
+  }
+
+  private expire(id: string): void {
+    const toast = this.toasts.find((entry) => entry.id === id);
+    const clock = this.clocks.get(id);
+    if (!toast || !clock || !this.covered?.(id)) { this.dismiss(id); return; }
+    clock.cancel = undefined;
+    clock.startedAt = undefined;
+    clock.remaining = toast.timeoutMs ?? TOAST_TIMEOUT_MS;
+    this.sync();
   }
 
   private stopClock(id: string): void {
@@ -152,7 +172,7 @@ export class ToastStore {
         if (!clock) { clock = { remaining: timeout }; this.clocks.set(toast.id, clock); }
         if (clock.cancel) continue;
         clock.startedAt = this.now();
-        clock.cancel = this.schedule(() => this.dismiss(toast.id), clock.remaining);
+        clock.cancel = this.schedule(() => this.expire(toast.id), clock.remaining);
       }
     }
     for (const listener of this.listeners) listener();

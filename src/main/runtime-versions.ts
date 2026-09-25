@@ -1,4 +1,5 @@
 import type { RuntimeToolVersion, ThreadBackendKind } from "../shared/contracts.js";
+import { runtimeUpdatesOff } from "./cli-versions.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -10,12 +11,16 @@ export interface RuntimeVersionsOptions {
   log(label: string, detail?: string): void;
   now?(): number;
   maxAgeMs?: number;
+  /** Read for `TAU_NO_RUNTIME_UPDATES`, which drops every `latest`; `process.env` by default. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
  * The version each registered backend reports for the program it drives.
  * Asking may spawn a process or reach a registry, so it never holds up a
  * snapshot: the first one goes without and a catalog update follows.
+ * With `TAU_NO_RUNTIME_UPDATES=1` no version carries a `latest`, so no client
+ * offers an update, whatever a backend found.
  */
 export class RuntimeVersions {
   private readonly known = new Map<ThreadBackendKind, RuntimeToolVersion>();
@@ -48,6 +53,10 @@ export class RuntimeVersions {
     } catch (error) {
       this.options.log("runtime-version.failed", `${provider.kind}: ${error instanceof Error ? error.message : String(error)}`);
       return;
+    }
+    if (version?.latest !== undefined && runtimeUpdatesOff(this.options.env)) {
+      const { latest: _latest, ...rest } = version;
+      version = rest;
     }
     const previous = this.known.get(provider.kind);
     if (JSON.stringify(previous) === JSON.stringify(version)) return;

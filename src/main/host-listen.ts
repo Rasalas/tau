@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync } from "node:fs";
+
 /** A parsed `TAU_HOST_LISTEN`; port 0 lets the OS pick a free one. */
 export interface ListenAddress {
   host: string;
@@ -8,6 +10,35 @@ export function parseListen(listen: string): ListenAddress {
   const separator = listen.lastIndexOf(":");
   if (separator < 0) return { host: "127.0.0.1", port: Number(listen) };
   return { host: listen.slice(0, separator) || "127.0.0.1", port: Number(listen.slice(separator + 1)) };
+}
+
+function formatListen(host: string, port: number): string {
+  return `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
+}
+
+/**
+ * Port 0 asks again for the port this host bound last, while it is free: a
+ * browser tab or phone keeps its page's address, and so the token stored for
+ * that origin, across a restart of the app. Any port otherwise.
+ */
+export async function stickyListen(listen: string, lastPort: number | undefined, isFree: (host: string, port: number) => Promise<boolean>): Promise<string> {
+  const { host, port } = parseListen(listen);
+  if (port !== 0 || !lastPort) return listen;
+  return await isFree(host, lastPort) ? formatListen(host, lastPort) : listen;
+}
+
+/** The port `rememberPort` kept in `file`, if any. */
+export function rememberedPort(file: string): number | undefined {
+  try {
+    const port = Number(readFileSync(file, "utf8").trim());
+    return Number.isInteger(port) && port > 0 && port < 65_536 ? port : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function rememberPort(file: string, port: number): void {
+  try { writeFileSync(file, `${port}\n`, { mode: 0o600 }); } catch { /* a read-only userData keeps the old behaviour */ }
 }
 
 const LOOPBACK_NAMES = new Set(["localhost", "::1", "0:0:0:0:0:0:0:1"]);
