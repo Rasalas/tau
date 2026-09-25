@@ -296,12 +296,13 @@ export class HostedThreads {
   }
 
   private async noteEnded(entry: HostedThread, outcome: "completed" | "failed"): Promise<void> {
+    const live = this.live(entry.thread);
+    const last = live ? [...await live.transcript().catch(() => [])].reverse().find((message) => message.role === "assistant") : undefined;
+    // Changed only after the read: a report asked during it must not say idle at the old revision.
     entry.open = Math.max(0, entry.open - 1);
     entry.turns += 1;
     entry.starting = false;
     delete entry.error;
-    const live = this.live(entry.thread);
-    const last = live ? [...await live.transcript().catch(() => [])].reverse().find((message) => message.role === "assistant") : undefined;
     if (last?.text) entry.lastMessage = last.text.length > LAST_MESSAGE_CHARS ? `${last.text.slice(0, LAST_MESSAGE_CHARS)}…` : last.text;
     if (entry.aborting) entry.outcome = "aborted";
     else if (outcome === "failed" || last?.error) {
