@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type RuntimePermissionLevel, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
+import { TurnActivityStore, type BackendPrompt, type HostExecutionPolicy, type ExtensionUiAnswer, type RuntimePermissionLevel, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
 import { CodexAppServer } from "./app-server.js";
 import { ALLOW, ALLOW_SESSION } from "./approvals.js";
 import { spawnRpcProcess } from "./rpc.js";
@@ -33,7 +33,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -55,6 +55,8 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
     ...(options.activity ? { activity: options.activity } : {}),
+    ...(options.policy ? { executionPolicy: options.policy } : {}),
+    ...(options.platform ? { platform: options.platform } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");
@@ -324,6 +326,33 @@ describe("a Codex thread restricted to some tools", () => {
     await backend.prompt({ text: "Hello.", delivery: "prompt" });
     const turn = (await sent(space)).find((message) => message.method === "turn/start");
     expect(turn?.params).toMatchObject({ sandboxPolicy: { type: "dangerFullAccess" } });
+  });
+});
+
+describe("a Codex thread in a project that limits its network", () => {
+  const limited: HostExecutionPolicy = { network: "loopback", allowHosts: ["pypi.org"], reasons: ["This project deploys to a server."], sources: ["tau.servers"] };
+
+  it("runs every level in Codex's sandbox without network, and full access again once the limit is lifted", async () => {
+    const space = await scratch();
+    let policy = limited;
+    const { backend } = await open(space, { policy: async () => policy });
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    policy = { network: "any", allowHosts: [], reasons: [], sources: [] };
+    await backend.prompt({ text: "Again.", delivery: "prompt" });
+    const messages = await sent(space);
+    expect(messages.find((message) => message.method === "thread/start")?.params).toMatchObject({ approvalPolicy: "never", sandbox: "workspace-write" });
+    const turns = messages.filter((message) => message.method === "turn/start");
+    expect(turns.map((turn) => [turn.params?.approvalPolicy, turn.params?.sandboxPolicy])).toEqual([
+      ["never", { type: "workspaceWrite", networkAccess: false }],
+      ["never", { type: "dangerFullAccess" }],
+    ]);
+  });
+
+  it("refuses the prompt on Windows before it reaches the transcript", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { policy: async () => limited, platform: "win32" });
+    await expect(backend.prompt({ text: "Hello.", delivery: "prompt" })).rejects.toThrow(/^This project deploys to a server\. Codex on Windows cannot enforce that limit/u);
+    expect(await backend.transcript()).toEqual([]);
   });
 });
 
