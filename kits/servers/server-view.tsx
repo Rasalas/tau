@@ -141,6 +141,8 @@ export default function ServerView({ params, handle, actions, parts }: { params:
   const target = entry.status?.targets.find((candidate) => candidate.targetId === params.targetId);
   const [tab, setTab] = useState<Tab>("pending");
   const [diff, setDiff] = useState<ServerDiffSource>();
+  // An upload's preview and result stay on screen although nothing is left to upload.
+  const [uploading, setUploading] = useState(false);
   const act = useTargetActions(parts, actions, cwd, target);
 
   useEffect(() => { handle.setTitle(target ? `Server · ${target.label}` : "Server"); }, [handle, target?.label]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -240,12 +242,12 @@ export default function ServerView({ params, handle, actions, parts }: { params:
                 onClick={act.download}
               >{act.busy === "download" ? progressWords(act.progress) : "Download the server state"}</button>
             </Empty>
-          ) : target.pendingTotal === 0 && target.withheld.length === 0 ? (
+          ) : target.pendingTotal === 0 && target.withheld.length === 0 && !uploading ? (
             <Empty icon={<Server size={18} />} title="Nothing to upload" description={`Your local copy matches the server as Tau last read it, ${ago(target.mirror.at)}.`} />
           ) : (
             <div className="servers-split">
               <aside className="servers-aside" aria-label="Files not uploaded">
-                <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(pendingDiff ? { active: pendingDiff.path } : {})} onOpen={(path) => setDiff({ source: "pending", path })} />
+                <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(pendingDiff ? { active: pendingDiff.path } : {})} onOpen={(path) => setDiff({ source: "pending", path })} onHolding={setUploading} />
               </aside>
               <main className="servers-main"><FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={pendingDiff} /></main>
             </div>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, GitMerge, Lock, Trash2, Upload } from "lucide-react";
 import { READ_ONLY_REASON, Skeleton, errorMessage, tooltipProps, useCommandAllowed, type WorkbenchActions } from "tau";
 import {
@@ -147,15 +147,15 @@ function PlanGroups({ files, kept, force, canResolve, busy, done = false, onOpen
  * server as it is now, confirm with the count on the button, and see what
  * went through. Only this click uploads; the agent never does.
  */
-export function UploadPanel({ parts, actions, cwd, target, active, onOpen, empty }: {
+export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHolding }: {
   parts: ServerViewParts;
   actions: WorkbenchActions;
   cwd: string;
   target: TargetStatus;
   active?: string;
   onOpen(path: string): void;
-  /** Drawn instead of the list while nothing is left to upload; an upload's result stays until Done. */
-  empty?: ReactNode;
+  /** True from the preview until Done: keep the panel although nothing is left to upload, so the result stays. */
+  onHolding?(holding: boolean): void;
 }) {
   const canDeploy = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy");
   const canResolve = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy-resolve");
@@ -165,6 +165,9 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, empty
   const [force, setForce] = useState<ReadonlySet<string>>(new Set());
   const [resolving, setResolving] = useState(false);
   const targetId = target.targetId;
+  const holding = stage.kind !== "choose";
+  useEffect(() => { onHolding?.(holding); }, [onHolding, holding]);
+  useEffect(() => () => onHolding?.(false), [onHolding]);
 
   const chosen = (row: PendingUploadRow) => !row.blocked && (choices[row.path] ?? row.selected);
   const set = (path: string, value: boolean) => setChoices((current) => ({ ...current, [path]: value }));
@@ -231,7 +234,6 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, empty
   });
 
   if (stage.kind === "choose") {
-    if (empty !== undefined && target.pendingTotal === 0 && target.withheld.length === 0) return <>{empty}</>;
     const label = uploadSummary(target.pending, chosen);
     return (
       <div className="servers-upload">

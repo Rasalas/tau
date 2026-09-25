@@ -241,6 +241,22 @@ describe("the servers on a compact client", () => {
     expect(screen.getByText("Nothing to upload.")).toBeTruthy();
   });
 
+  it("keeps the stage tab's upload result until Done, though nothing is left to upload", async () => {
+    const h = harness(PENDING);
+    withWrites(h);
+    render(h.wrap(<ServerView params={{ workspace: "/work/site", targetId: "sftp-site-1" }} handle={handle} actions={h.actions} parts={h.parts} />));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted…" }));
+    await flush();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" })); });
+    await flush();
+    await flush();
+    expect(screen.getByText(/Deployment 1: .* on the server\./u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await flush();
+    expect(screen.getByText("Nothing to upload")).toBeTruthy();
+  });
+
   it("rolls a deployment back on a Full device after its preview", async () => {
     const h = sheet(BASE, false);
     withWrites(h);

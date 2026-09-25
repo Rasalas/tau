@@ -50,6 +50,8 @@ function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts
   const act = useTargetActions(parts, actions, cwd, target);
   const [open, setOpen] = useState<Section | undefined>(target.pendingTotal > 0 ? "pending" : undefined);
   const [diff, setDiff] = useState<ServerDiffSource>();
+  // An upload's preview and result stay on screen although nothing is left to upload.
+  const [uploading, setUploading] = useState(false);
   const same = (next: ServerDiffSource) => JSON.stringify(next) === JSON.stringify(diff);
   const show = (next: ServerDiffSource) => setDiff(same(next) ? undefined : next);
   const shownDiff = diff ? <CompactDiff parts={parts} cwd={cwd} targetId={target.targetId} source={diff} /> : null;
@@ -92,12 +94,12 @@ function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts
           <button type="button" className="servers-compact-toggle" aria-expanded={open === "pending"} onClick={() => toggle("pending")}>
             <ChevronRight size={14} className="chev" aria-hidden="true" />Not uploaded<span className="servers-count">{target.pendingTotal}</span>
           </button>
-          {open === "pending" ? (
-            <>
-              <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(diff?.source === "pending" ? { active: diff.path } : {})} onOpen={(path) => show({ source: "pending", path })} empty={<p className="servers-empty-line">Nothing to upload.</p>} />
+          {open === "pending" ? (target.pendingTotal === 0 && target.withheld.length === 0 && !uploading
+            ? <p className="servers-empty-line">Nothing to upload.</p>
+            : <>
+              <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(diff?.source === "pending" ? { active: diff.path } : {})} onOpen={(path) => show({ source: "pending", path })} onHolding={setUploading} />
               {diff?.source === "pending" ? shownDiff : null}
-            </>
-          ) : null}
+            </>) : null}
           {drift > 0 ? (
             <>
               <button type="button" className="servers-compact-toggle" aria-expanded={open === "drift"} onClick={() => toggle("drift")}>
