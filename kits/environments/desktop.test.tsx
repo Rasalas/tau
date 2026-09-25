@@ -549,6 +549,20 @@ describe("Run on: Automatic", () => {
     expect(screen.getByRole("button", { name: "Run on laptop" })).toBeTruthy();
   });
 
+  it("applies to a new thread's draft only, not to a thread that exists and has no message yet", () => {
+    useStorage();
+    autoRunOn.set(true);
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, withApi], secureStorage: true });
+    const host = chooser();
+    const Control = createRunOnControl(environments, host);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s", cwd: "/work/api" }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    const item = screen.getByRole("menuitem", { name: /Automatic/u });
+    expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
+    expect(item.textContent).toMatch(/exists here already/u);
+    expect(host.invoke).not.toHaveBeenCalled();
+  });
+
   it("is not offered while the window shows another machine, whose host does not choose for this one", () => {
     useStorage();
     const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, withApi], secureStorage: true });

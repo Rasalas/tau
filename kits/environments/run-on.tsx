@@ -34,9 +34,11 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
     // A draft, or a thread nothing was sent in yet, may still move; a started one stays where it runs.
     const unstarted = (active?.draftPending ?? false) || (snapshot !== undefined && snapshot.messages.length === 0 && !snapshot.isStreaming);
     const offerAuto = host !== undefined && autoApplies(environments, list);
-    const automatic = auto && offerAuto;
+    // The choice is made when a draft's first prompt creates its thread; a thread that exists stays here.
+    const draft = active?.draftPending ?? false;
+    const automatic = auto && offerAuto && draft;
     const targets = list && offerAuto ? threadTargets(list, active?.cwd) : new Map<string, string | undefined>();
-    const preview = useAutoPreview(host, automatic && unstarted && targets.size > 0 ? chooseInput(targets, active?.cwd, active?.backendKind, active?.model) : undefined);
+    const preview = useAutoPreview(host, automatic && targets.size > 0 ? chooseInput(targets, active?.cwd, active?.backendKind, active?.model) : undefined);
     if (!list || !current || !actions || !unstarted || (list.environments.length < 2 && current.local)) return null;
     const now = Date.now();
     const move = (id: string) => {
@@ -82,7 +84,8 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
                 label: "Automatic",
                 icon: <Scale size={14} aria-hidden />,
                 selected: automatic,
-                description: "The machine with the most room when you send",
+                description: draft ? "The machine with the most room when you send" : "For a new thread's draft; this thread exists here already",
+                disabled: !draft,
               }] : []),
               ...list.environments.map((machine) => ({
                 id: machine.id,
