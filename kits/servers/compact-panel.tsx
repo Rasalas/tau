@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ChevronRight, Download, RefreshCw, Server, SquareTerminal } from "lucide-react";
 import { DiffView, Empty, READ_ONLY_REASON, Skeleton, Spinner, errorMessage, tooltipProps, useWorkbenchShell, type PanelProps, type UiFileDiff } from "tau";
-import { PendingList } from "./pending-list.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
 import { StatusDot, useServersStatus } from "./status-parts.js";
 import type { ServersStatusStore } from "./status-store.js";
-import { HISTORY_CLEANED, deploymentMeta, entryCounts, historyTitle } from "./history-panel.js";
+import { HistoryPanel } from "./history-panel.js";
 import { ServerGitLine, progressWords, useTargetActions, type ServerViewParts } from "./server-view.js";
-import type { HistoryEntry, ServerHistory, TargetStatus } from "./view-protocol.js";
+import { UploadPanel } from "./upload-panel.js";
+import type { ServerDiffSource, TargetStatus } from "./view-protocol.js";
 import { worstState } from "./status-model.js";
 
 /** The thread's project on a compact client; outside the workbench there is none. */
@@ -28,48 +28,20 @@ export function createCompactGlyph(store: ServersStatusStore) {
   };
 }
 
-function CompactHistory({ parts, cwd, target }: { parts: ServerViewParts; cwd: string; target: TargetStatus }) {
-  const [history, setHistory] = useState<{ entries?: HistoryEntry[]; truncated?: boolean; error?: string }>({});
+function CompactDiff({ parts, cwd, targetId, source }: { parts: ServerViewParts; cwd: string; targetId: string; source: ServerDiffSource }) {
+  const key = JSON.stringify(source);
+  const [loaded, setLoaded] = useState<{ key: string; diff?: UiFileDiff; error?: string }>();
   useEffect(() => {
     let live = true;
-    parts.host.invoke("server-history", { cwd, targetId: target.targetId }).then(
-      (value) => { if (live) setHistory({ entries: (value as ServerHistory).entries, truncated: (value as ServerHistory).truncated === true }); },
-      (failure: unknown) => { if (live) setHistory({ error: errorMessage(failure) }); },
+    parts.host.invoke("server-diff", { cwd, targetId, ...(JSON.parse(key) as ServerDiffSource) }).then(
+      (diff) => { if (live) setLoaded({ key, diff: diff as UiFileDiff }); },
+      (failure: unknown) => { if (live) setLoaded({ key, error: errorMessage(failure) }); },
     );
     return () => { live = false; };
-  }, [parts.host, cwd, target.targetId, target.mirror?.commit, target.deployments]);
-  if (history.error) return <p className="servers-error" role="alert">{history.error}</p>;
-  if (!history.entries) return <Skeleton shape="block" />;
-  if (history.entries.length === 0) return <p className="servers-empty-line">{history.truncated ? HISTORY_CLEANED : "No history yet."}</p>;
-  return (
-    <>
-      <ol className="servers-history compact">
-        {history.entries.map((entry) => (
-          <li key={entry.commit} className="servers-history-entry">
-            <span className="servers-history-title">{historyTitle(entry, !entry.parent)}</span>
-            <time dateTime={entry.at}>{ago(entry.at)}</time>
-            <p className="servers-history-meta">{entry.parent ? [entryCounts(entry), entry.deployment ? deploymentMeta(entry.deployment) : ""].filter(Boolean).join(" · ") : `${entry.added} files`}</p>
-          </li>
-        ))}
-      </ol>
-      {history.truncated ? <p className="servers-compact-note">{HISTORY_CLEANED}</p> : null}
-    </>
-  );
-}
-
-function CompactDiff({ parts, cwd, targetId, path }: { parts: ServerViewParts; cwd: string; targetId: string; path: string }) {
-  const [loaded, setLoaded] = useState<{ path: string; diff?: UiFileDiff; error?: string }>();
-  useEffect(() => {
-    let live = true;
-    parts.host.invoke("server-diff", { cwd, targetId, source: "pending", path }).then(
-      (diff) => { if (live) setLoaded({ path, diff: diff as UiFileDiff }); },
-      (failure: unknown) => { if (live) setLoaded({ path, error: errorMessage(failure) }); },
-    );
-    return () => { live = false; };
-  }, [parts.host, cwd, targetId, path]);
-  const shown = loaded?.path === path ? loaded : undefined;
+  }, [parts.host, cwd, targetId, key]);
+  const shown = loaded?.key === key ? loaded : undefined;
   if (shown?.error) return <p className="servers-error" role="alert">{shown.error}</p>;
-  return <div className="servers-compact-diff"><DiffView key={path} {...(shown?.diff ? { diff: shown.diff } : {})} mode="unified" path={path} /></div>;
+  return <div className="servers-compact-diff"><DiffView key={key} {...(shown?.diff ? { diff: shown.diff } : {})} mode="unified" path={source.path} /></div>;
 }
 
 type Section = "pending" | "drift" | "history";
@@ -77,7 +49,12 @@ type Section = "pending" | "drift" | "history";
 function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts; cwd: string; target: TargetStatus; actions: PanelProps["actions"] }) {
   const act = useTargetActions(parts, actions, cwd, target);
   const [open, setOpen] = useState<Section | undefined>(target.pendingTotal > 0 ? "pending" : undefined);
-  const [file, setFile] = useState<string>();
+  const [diff, setDiff] = useState<ServerDiffSource>();
+  // An upload's preview and result stay on screen although nothing is left to upload.
+  const [uploading, setUploading] = useState(false);
+  const same = (next: ServerDiffSource) => JSON.stringify(next) === JSON.stringify(diff);
+  const show = (next: ServerDiffSource) => setDiff(same(next) ? undefined : next);
+  const shownDiff = diff ? <CompactDiff parts={parts} cwd={cwd} targetId={target.targetId} source={diff} /> : null;
   const toggle = (section: Section) => setOpen((current) => (current === section ? undefined : section));
   const drift = target.drift?.length ?? 0;
   return (
@@ -117,11 +94,11 @@ function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts
           <button type="button" className="servers-compact-toggle" aria-expanded={open === "pending"} onClick={() => toggle("pending")}>
             <ChevronRight size={14} className="chev" aria-hidden="true" />Not uploaded<span className="servers-count">{target.pendingTotal}</span>
           </button>
-          {open === "pending" ? (target.pendingTotal === 0 && target.withheld.length === 0
+          {open === "pending" ? (target.pendingTotal === 0 && target.withheld.length === 0 && !uploading
             ? <p className="servers-empty-line">Nothing to upload.</p>
             : <>
-              <PendingList rows={target.pending} total={target.pendingTotal} withheld={target.withheld} {...(file ? { active: file } : {})} onOpen={(path) => setFile((current) => (current === path ? undefined : path))} />
-              {file ? <CompactDiff parts={parts} cwd={cwd} targetId={target.targetId} path={file} /> : null}
+              <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(diff?.source === "pending" ? { active: diff.path } : {})} onOpen={(path) => show({ source: "pending", path })} onHolding={setUploading} />
+              {diff?.source === "pending" ? shownDiff : null}
             </>) : null}
           {drift > 0 ? (
             <>
@@ -138,14 +115,29 @@ function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts
           <button type="button" className="servers-compact-toggle" aria-expanded={open === "history"} onClick={() => toggle("history")}>
             <ChevronRight size={14} className="chev" aria-hidden="true" />History
           </button>
-          {open === "history" ? <CompactHistory parts={parts} cwd={cwd} target={target} /> : null}
+          {open === "history" ? (
+            <HistoryPanel
+              stacked
+              parts={parts}
+              actions={actions}
+              cwd={cwd}
+              target={target}
+              active={diff?.source === "history" ? diff : undefined}
+              onFile={(entry, path) => show({ source: "history", commit: entry.commit, path })}
+              main={diff?.source === "history" ? shownDiff : null}
+            />
+          ) : null}
         </div>
       ) : null}
     </section>
   );
 }
 
-/** A phone's or tablet's servers: status, what is not uploaded, the history; writes only with Full access. */
+/**
+ * A phone's or tablet's servers: status, upload, history and rollback, with
+ * touch-sized targets. Upload and rollback show their preview first and write
+ * only on its button; a Read-only device sees them disabled with the reason.
+ */
 export function createCompactPanel(parts: ServerViewParts) {
   return function ServersSheet({ actions }: PanelProps) {
     const cwd = useThreadCwd();

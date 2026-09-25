@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { GitBranch, GitMerge, RefreshCw } from "lucide-react";
 import {
   DiffView, Empty, READ_ONLY_REASON, Spinner, errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed,
-  type ComposerGateContext, type ComposerGateProps, type DesktopExtensionContext, type UiFileDiff,
+  type ComposerGateContext, type ComposerGateProps, type DesktopExtensionContext, type UiFileDiff, type WorkbenchActions,
 } from "tau";
 import {
   DRIFT_EVENT, decodeDriftState, undecidedDrift,
@@ -11,8 +11,12 @@ import {
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 
 /** Each checkout's drift state as the host half last answered, refreshed on its `drift` event. */
+/** How long a new draft's fresh drift check counts before the next draft checks again. */
+export const DRIFT_REFRESH_MS = 60_000;
+
 export class DriftFeed {
   private readonly states = new Map<string, DriftState>();
+  private readonly refreshed = new Map<string, number>();
   private readonly loading = new Set<string>();
   private readonly listeners = new Set<() => void>();
 
@@ -54,6 +58,22 @@ export class DriftFeed {
     }
   }
 
+  /**
+   * A quiet check of the targets checked before, at most once a minute per
+   * checkout, so a new thread's gate sees drift from after the project opened.
+   * A target never checked is left alone: checking it could ask for a login.
+   */
+  refresh(cwd: string, now = Date.now()): void {
+    const last = this.refreshed.get(cwd);
+    if (last !== undefined && now - last < DRIFT_REFRESH_MS) return;
+    const targets = (this.get(cwd)?.targets ?? []).filter((target) => target.check);
+    if (!targets.length) return;
+    this.refreshed.set(cwd, now);
+    void (async () => {
+      for (const target of targets) await this.run("check-drift", cwd, { targetId: target.targetId }).catch(() => undefined);
+    })();
+  }
+
   /** Runs a drift command and keeps the state it answers with. */
   async run(command: "check-drift" | "import-drift" | "merge-drift" | "drift-later", cwd: string, input: Record<string, unknown> = {}): Promise<DriftImportResult> {
     const answer = await this.context.host.invoke(command, { cwd, ...input });
@@ -92,10 +112,24 @@ function ago(iso: string): string {
 }
 
 /** Whether the first prompt of a thread should wait for a word about drift. */
+/** Renders nothing: a new thread's draft in a server project checks the server again for its gate. */
+export function createDriftRefresh(feed: DriftFeed) {
+  return function DriftRefresh({ actions }: { actions?: Pick<WorkbenchActions, "activeThread"> }) {
+    // A new thread's draft has no id yet; the composer's snapshot is still the thread it came from.
+    const active = actions?.activeThread();
+    const cwd = active && !active.sessionId ? active.cwd : undefined;
+    const state = useDrift(feed, cwd);
+    useEffect(() => { if (cwd && state) feed.refresh(cwd); }, [feed, cwd, state]);
+    return null;
+  };
+}
+
 export function driftGateAsks(feed: DriftFeed, context: ComposerGateContext): boolean {
   const snapshot = context.snapshot;
   if (context.action !== "prompt" || !snapshot?.cwd) return false;
-  if (snapshot.messages.length > 0 || snapshot.olderCursor) return false;
+  // A new thread's draft still carries the messages of the thread it came from.
+  const first = context.newThread ?? (snapshot.messages.length === 0 && !snapshot.olderCursor);
+  if (!first) return false;
   if (!hostCommandAllowed(SERVERS_EXTENSION_ID, "import-drift")) return false;
   const undecided = undecidedDrift(feed.ensure(snapshot.cwd));
   return undecided.files > 0 || undecided.imports.length > 0;

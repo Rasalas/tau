@@ -102,6 +102,18 @@ describe("composer gates", () => {
     expect(screen.queryByRole("dialog", { name: "Ask prompt" })).toBeNull();
   });
 
+  it("say when the prompt starts a new thread", () => {
+    const seen: ComposerGateContext[] = [];
+    renderComposer(plain, [asksFor("acme", seen)]);
+    send();
+    expect(seen.at(-1)?.newThread).toBeUndefined();
+    cleanup();
+    const modelSet: ModelSelectionContribution = { id: "test.set", selected: () => [], subscribe: () => () => undefined, toggle: () => undefined, reset: () => undefined };
+    renderComposer(plain, [asksFor("acme", seen)], [], undefined, modelSet);
+    send();
+    expect(seen.at(-1)).toMatchObject({ action: "prompt", newThread: true });
+  });
+
   it("drop a prompt the dialog cancels, and let other models through untouched", () => {
     const { onSubmit } = renderComposer(guarded, [asksFor("acme")]);
     send();

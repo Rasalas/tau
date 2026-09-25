@@ -604,7 +604,10 @@ model picker or added to a new thread's model set with Shift-click
 the ⌘↵ alternate send included (`action: "prompt"`); `context` carries the `model`, the
 `runtime` the thread runs on (or a new thread will start on) and the
 `snapshot`. `model` is absent when a new thread will start on another
-runtime's default. Answer `true` and core draws `Component` over a backdrop,
+runtime's default. `newThread` (new in API 1.14.0) is true in a new
+thread's draft: its `snapshot` names the draft's project, model and runtime
+but still carries the messages of the thread it was opened from, so a gate
+for a thread's first prompt asks `newThread`, not `snapshot.messages`. Answer `true` and core draws `Component` over a backdrop,
 with `proceed()` and `cancel()`; a click outside or Escape cancels. Gates run
 in `order`, and a proceeded gate hands on to the next one that asks. A
 cancelled model choice reopens the picker; a cancelled prompt stays in the
@@ -1896,6 +1899,38 @@ database on TCP) is out of reach there too; Unix sockets still work. The
 Terminal Kit prints the reasons above a new shell and says that the shell is
 the user's own and not limited.
 
+How each runtime holds a `loopback` policy, and where it stops:
+
+| Runtime | Under `loopback` |
+|---|---|
+| Pi | `bash` runs in `@anthropic-ai/sandbox-runtime`. Its `SandboxManager` is one per process with one host list, so the kit gives it the union of the lists of every limited project that ran a command since the kit started: a host one project allows is reachable from another's `bash` meanwhile. The inner shell is `bash` whatever Pi's `shellPath` says, and a `shellCommandPrefix` runs outside the sandbox. |
+| Agent SDK runtime | The SDK's own sandbox with `allowedDomains`, local binding and no unsandboxed commands; `WebFetch` is turned off, since it runs outside. The user's and the project's own settings for that CLI (`WebFetch(domain:…)` rules, `excludedCommands`) can loosen it; Tau does not read them. A changed policy restarts the session between turns. |
+| Codex | `workspaceWrite` (or `readOnly`) without network at every level, since Codex's sandbox takes no host list: no package sources and no loopback either. A command the user approves out of the sandbox in "ask" runs without it. |
+| OpenCode, Antigravity, Cursor, Grok | The prompt is refused with the reasons (`executionPolicyRefusal`), until the project's limit is lifted. |
+| Windows | Every runtime refuses: none has a sandbox there that holds. |
+
+Tau's own tools in the host process (MCP tools such as `server_*` and
+`preview_*`, the Preview browser) and the user's terminal are not limited.
+
+### What Servers asks of other kits
+
+Servers never writes Git in a project or reads the access level itself; it asks
+the kit that owns each, through commands that name `tau.servers` as their only
+caller (ADR 0020). A kit that replaces one of these answers the same command:
+
+| Kit | Command | What it does |
+|---|---|---|
+| Workspace (`kits/workspace/protocol.ts`) | `repo-from-tree { path, trees: [{ gitDir, ref, prefix? }], files?, exclude?, message }` | `git init` in a folder without `.git` and one commit of the named trees (the mirror state), the working tree untouched and the index set to that commit, so `git status` shows exactly what differs locally. Answers `{ commit, branch, files, workspace }`. |
+| | `commit-files-to-branch { workspace?, branch, message, files: [{ path, content, executable? } \| { path, delete: true }], parent?, unique? }` | A commit on a new branch whose tree is the parent's (HEAD by default) with only these paths replaced or removed, through a scratch index; the user's checkout, index and HEAD stay as they are. `unique` adds `-2`, `-3` to a taken name. |
+| | `merge-branch { workspace?, branch }` | A plain `git merge --no-ff` in the caller's checkout; a conflict is aborted and reported, never left half done. |
+| Access (`kits/access/protocol.ts`) | `thread-level-of { threadId }` | The level a thread runs at, so a server command asks under the stricter of the thread's level and the target's. |
+
+Servers' own commands are for its own halves; the agent reaches it through
+its tools (`server_status`, `server_list`, `server_read`, `server_diff`,
+`server_exec`, `server_put_tmp`, `server_propose_upload`), for Pi as a runtime
+extension and for every other runtime over `services.mcp`. No tool uploads or
+rolls back: `server_propose_upload` draws a card whose button the user clicks.
+
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
 A host half reads its own entries of `options` and `values` the way the
@@ -2187,7 +2222,7 @@ window's machine — a window half, `local-files` — is not offered there.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.13.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.14.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only

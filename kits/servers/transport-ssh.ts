@@ -56,6 +56,14 @@ export interface ProbeResult {
   commands: string[];
 }
 
+/**
+ * `command` run in `cwd`, grouped: a failed `cd` runs none of it, even past a
+ * `;` or `||` at its top level. The newlines let it end in a comment or `&`.
+ */
+export function commandIn(cwd: string, command: string): string {
+  return `cd ${shellQuote(cwd)} && {\n${command}\n}`;
+}
+
 export function parseProbe(stdout: string): ProbeResult {
   const lines = stdout.split(/\r?\n/u);
   if (lines[0] !== "tau") return { shell: false, commands: [] };
@@ -396,7 +404,7 @@ export class SshTransport implements ServerFs {
     // Ending the local ssh leaves a command without a terminal running; the server's own `timeout` stops it.
     const seconds = Math.ceil(timeoutMs / 1000);
     const bounded = this.probe?.commands.includes("timeout") ? `timeout -k 5 ${seconds} sh -c ${shellQuote(command)}` : command;
-    return this.run([], `cd ${shellQuote(cwd)} && ${bounded}`, {
+    return this.run([], commandIn(cwd, bounded), {
       timeoutMs,
       maxOutputBytes: options.maxOutputBytes ?? DEFAULT_OUTPUT_CAP,
       ...(options.signal ? { signal: options.signal } : {}),
@@ -408,7 +416,7 @@ export class SshTransport implements ServerFs {
     const { args, destination } = this.baseArgs();
     const session = await this.options.askpass.session(this.askpassTarget());
     this.options.onSpawn?.();
-    const child = spawn(this.options.ssh, [...args, "-T", "--", destination, `cd ${shellQuote(cwd)} && ${command}`], {
+    const child = spawn(this.options.ssh, [...args, "-T", "--", destination, commandIn(cwd, command)], {
       env: this.childEnv(session.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
     });
     let stderr = "";

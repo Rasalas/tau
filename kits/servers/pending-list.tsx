@@ -29,15 +29,19 @@ function Choice({ row, selection }: { row: PendingUploadRow; selection: PendingS
   const label = `${chosen ? "Chosen" : "Not chosen"} for the upload: ${row.path}`;
   if (selection) {
     const reason = row.blocked ?? selection.disabledReason;
-    return <input
-      type="checkbox"
-      className="servers-choice-box"
-      aria-label={label}
-      checked={chosen}
-      disabled={Boolean(reason)}
-      {...(reason ? tooltipProps(reason) : {})}
-      onChange={() => selection.toggle(row)}
-    />;
+    // The label is the touch target on a compact client; the box stays small.
+    return (
+      <label className="servers-choice-hit" {...(reason ? tooltipProps(reason) : {})}>
+        <input
+          type="checkbox"
+          className="servers-choice-box"
+          aria-label={label}
+          checked={chosen}
+          disabled={Boolean(reason)}
+          onChange={() => selection.toggle(row)}
+        />
+      </label>
+    );
   }
   const tip = chosen ? "An upload takes this by default" : row.blocked ?? (row.credentials ? "Left out by default: it holds credentials" : "Left out by default");
   return <span className={`servers-choice${chosen ? " chosen" : ""}`} role="img" aria-label={label} {...tooltipProps(tip)}>{chosen ? <Check size={11} /> : <Minus size={11} />}</span>;

@@ -8,7 +8,7 @@ describe("testHostEnv", () => {
     const env = testHostEnv({ base, root: "/w", dir: "/w/.tau-dev/test-host" });
     expect(env.HOME).toBe("/w/.tau-dev/test-host/home");
     expect(env.USERPROFILE).toBe("/w/.tau-dev/test-host/home");
-    for (const name of ["TAU_USER_DATA", "TAU_WORKSPACE", "TAU_HOST_TOKEN_FILE", "TAU_CONFIG_FILE", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "TAU_SERVICE_UNIT_DIR"]) {
+    for (const name of ["TAU_USER_DATA", "TAU_WORKSPACE", "TAU_HOST_TOKEN_FILE", "TAU_CONFIG_FILE", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "TAU_SERVICE_UNIT_DIR", "TAU_SERVERS_PROJECTS_ROOT"]) {
       expect(env[name].startsWith("/w/.tau-dev/test-host/")).toBe(true);
     }
     expect(env.TAU_HOST_LISTEN).toBe("127.0.0.1:0");
@@ -16,6 +16,7 @@ describe("testHostEnv", () => {
     expect(env.TAU_SERVICE_CONTROL).toBe("/w/scripts/fake-service-manager.mjs");
     expect(env.TAU_NO_NATIVE_DIALOGS).toBe("1");
     expect(env.TAU_NO_RUNTIME_UPDATES).toBe("1");
+    expect(env.TAU_SERVERS_LOOPBACK_ONLY).toBe("1");
     expect(env.PATH).toBe("/bin");
   });
 

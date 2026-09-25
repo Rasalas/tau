@@ -473,7 +473,7 @@ export function Composer({
     toggle: (model, current) => {
       if (modelSet.selected().includes(modelKey(model))) { modelSet.toggle(model, current); return; }
       passGates(
-        { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+        { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
         () => modelSet.toggle(model, current),
       );
     },
@@ -493,7 +493,7 @@ export function Composer({
       return;
     }
     passGates(
-      { action: "model", model, ...(runtime ? { runtime } : {}), ...(snapshot ? { snapshot } : {}) },
+      { action: "model", model, ...(runtime ? { runtime } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
       () => {
         applyModel(model, runtime);
         // The popover hands focus back to its chip; with a model chosen, the prompt is next.
@@ -666,7 +666,7 @@ export function Composer({
         const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
         const model = draftOnOtherRuntime ? undefined : snapshot?.model;
         passGates(
-          { action: "prompt", ...(model ? { model } : {}), ...(runtime ? { runtime } : {}), ...(snapshot ? { snapshot } : {}) },
+          { action: "prompt", ...(model ? { model } : {}), ...(runtime ? { runtime } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
           () => submitRef.current(delivery, true),
         );
         return;
@@ -682,6 +682,7 @@ export function Composer({
     onNotify,
     onRunShellAction,
     draftOnOtherRuntime,
+    newThread,
     passGates,
     promptSubmit,
     recordPrompt,

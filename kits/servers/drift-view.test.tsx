@@ -38,6 +38,30 @@ function host(states: Record<string, DriftState>, first: DriftState) {
 const gateContext = (messages: unknown[] = []): ComposerGateContext => ({ action: "prompt", snapshot: { cwd: CWD, messages } as unknown as HostSnapshot });
 
 describe("server drift gate", () => {
+  it("checks the server again when a new thread's draft opens, at most once a minute", async () => {
+    const CLEAN: DriftState = { workspace: CWD, branch: "main", targets: [target({ check: { at: "2026-09-25T07:00:00.000Z", baseline: "mirror", later: false, files: [] } })] };
+    const invoke = host({ "check-drift": DRIFTING }, CLEAN);
+    const { registry } = createKitHarness(invoke);
+    registry.activate(servers);
+    const control = registry.getComposerControls().find((entry) => entry.id === "servers.drift-refresh")!;
+    const gate = registry.getComposerGates().find((entry) => entry.id === "servers.drift")!;
+    const draft = { activeThread: () => ({ cwd: CWD, draftPending: false }) } as never;
+    const { rerender } = render(<control.Component actions={draft} />);
+    await flush();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "check-drift", { cwd: CWD, targetId: "sftp-site-1" });
+    // The colleague's change the check found makes the gate ask.
+    expect(gate.check(gateContext())).toBe(true);
+    rerender(<control.Component actions={{ activeThread: () => ({ cwd: CWD, draftPending: true }) } as never} />);
+    await flush();
+    expect(invoke.mock.calls.filter(([, command]) => command === "check-drift")).toHaveLength(1);
+    // A thread that exists checks nothing.
+    cleanup();
+    render(<control.Component actions={{ activeThread: () => ({ sessionId: "s1", cwd: "/work/other", draftPending: false }) } as never} />);
+    await flush();
+    expect(invoke.mock.calls.filter(([, command]) => command === "check-drift")).toHaveLength(1);
+  });
+
   it("asks before a thread's first prompt, imports as a branch, then merges on the click", async () => {
     const invoke = host({ "import-drift": IMPORTED, "merge-drift": MERGED }, DRIFTING);
     const { registry, preferences } = createKitHarness(invoke);
@@ -48,6 +72,8 @@ describe("server drift gate", () => {
     await flush();
     expect(gate.check(gateContext())).toBe(true);
     expect(gate.check(gateContext([{ id: "m1" }]))).toBe(false);
+    // A new thread's draft carries the messages of the thread it was opened from.
+    expect(gate.check({ ...gateContext([{ id: "m1" }]), newThread: true })).toBe(true);
     expect(gate.check({ ...gateContext(), action: "model" })).toBe(false);
 
     const proceed = vi.fn();

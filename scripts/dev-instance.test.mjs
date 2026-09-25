@@ -174,6 +174,17 @@ describe("preparePiAgentDir", () => {
     expect(readdirSync(own).sort()).toEqual(["auth.json", "npm", "settings.json"]);
   });
 
+  it("points the copied settings at the test model, whatever the real default is", () => {
+    const root = mkdtempSync(join(tmpdir(), "tau-dev-pi-agent-"));
+    const real = join(root, "real");
+    mkdirSync(real, { recursive: true });
+    writeFileSync(join(real, "settings.json"), '{"defaultProvider":"openai-codex","defaultModel":"gpt-5.6-sol","theme":"dark"}');
+    const own = join(root, "own");
+    preparePiAgentDir(own, real);
+    expect(JSON.parse(readFileSync(join(own, "settings.json"), "utf8"))).toEqual({ defaultProvider: "openai-codex", defaultModel: "gpt-5.6-luna", theme: "dark" });
+    expect(readFileSync(join(real, "settings.json"), "utf8")).toContain("gpt-5.6-sol");
+  });
+
   it("copies keybindings.json, and turns a link an older instance made into a copy", () => {
     const root = mkdtempSync(join(tmpdir(), "tau-dev-pi-agent-"));
     const real = join(root, "real");

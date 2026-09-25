@@ -6,7 +6,7 @@ import {
   defaultExcluded, formatBytes, normalizeExcluded, projectFolderName, selectedTotals,
   type DraftListing, type DraftServer, type FolderInspection, type ProjectMade,
 } from "./project-plan.js";
-import type { SshHostsState } from "./protocol.js";
+import type { ProjectsRootState, SshHostsState } from "./protocol.js";
 import { SYNC_PROGRESS_EVENT, SYNC_PROGRESS_TOPIC, type ScanSummary, type SyncProgress } from "./sync/protocol.js";
 
 export interface ServerProjectSourceOptions {
@@ -125,7 +125,21 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
     const [name, setName] = useState("");
     const [folder, setFolder] = useState(`${base}/`);
     const [download, setDownload] = useState(false);
+    const [root, setRoot] = useState<string>();
     const progress = useProgress(host, busy === "create" || busy === "link");
+
+    // A test instance holds projects to one folder: it replaces the defaults the user has not touched.
+    useEffect(() => {
+      let live = true;
+      host.invoke("projects-root").then((value) => {
+        const found = (value as ProjectsRootState | undefined)?.root;
+        if (!live || !found) return;
+        setRoot(found);
+        setParent((current) => (current === base ? found : current));
+        setFolder((current) => (current === `${base}/` ? `${found}/` : current));
+      }, () => undefined);
+      return () => { live = false; };
+    }, []);
 
     useEffect(() => {
       host.invoke("ssh-hosts").then((state) => {
@@ -213,7 +227,8 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
             {tabs}
             <label>
               <span>Local folder</span>
-              <input autoFocus value={folder} onChange={(event) => setFolder(event.target.value)} placeholder="~/Sites/shop" disabled={Boolean(busy)} />
+              <input autoFocus value={folder} onChange={(event) => setFolder(event.target.value)} placeholder={root ? `${root}/shop` : "~/Sites/shop"} disabled={Boolean(busy)} />
+              {root ? <small>This Tau links only folders inside {root}.</small> : null}
               <small>A folder with <code>.vscode/sftp.json</code> and no Git. Tau reads its servers, makes a repository whose first commit is the server's state and leaves the files as they are, so Git shows where they differ.</small>
             </label>
             {errorLine}
@@ -295,6 +310,7 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
             <label>
               <span>Parent folder</span>
               <input value={parent} onChange={(event) => setParent(event.target.value)} disabled={Boolean(busy)} aria-label="Parent folder" />
+              {root ? <small>This Tau makes server projects only inside {root}.</small> : null}
             </label>
             <label>
               <span>New folder</span>

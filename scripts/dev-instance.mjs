@@ -75,8 +75,19 @@ export function preparePiAgentDir(agentDir, realDir = join(homedir(), ".pi", "ag
   }
   for (const name of ["settings.json", "models-store.json", "trust.json", "keybindings.json"]) {
     const copy = join(agentDir, name);
-    if (!existsSync(copy) && existsSync(join(realDir, name))) writeFileSync(copy, readFileSync(join(realDir, name)));
+    if (!existsSync(copy) && existsSync(join(realDir, name))) {
+      const content = readFileSync(join(realDir, name));
+      writeFileSync(copy, name === "settings.json" ? withTestDefaultModel(content) : content);
+    }
   }
+}
+
+/** Test prompts, and the automatic ones a new draft sends (titles, commit messages), run on the cheapest model. */
+export function withTestDefaultModel(content) {
+  let settings;
+  try { settings = JSON.parse(String(content)); } catch { return content; }
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return content;
+  return `${JSON.stringify({ ...settings, defaultProvider: "openai-codex", defaultModel: "gpt-5.6-luna" }, null, 2)}\n`;
 }
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
@@ -240,6 +251,9 @@ async function main() {
   // all under .tau-dev/servers. Never ~/.ssh, the real agent or keychain.
   const serversDir = join(DEV_DIR, "servers");
   prepareServersDir(serversDir);
+  // "From a server…" makes and links projects only here, never below the real home.
+  const projectsRoot = join(DEV_DIR, "projects");
+  mkdirSync(projectsRoot, { recursive: true });
 
   if (!options.workspace) initScratchWorkspace(workspace);
   else if (!existsSync(workspace)) throw new Error(`--workspace ${workspace} does not exist`);
@@ -298,6 +312,7 @@ async function main() {
     TAU_SERVICE_CONTROL: join(ROOT, "scripts", "fake-service-manager.mjs"),
     // Always the test agent's socket, even when it failed to start: a login shell only fills unset variables.
     ...serversInstanceEnv(serversDir),
+    TAU_SERVERS_PROJECTS_ROOT: projectsRoot,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),

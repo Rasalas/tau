@@ -9,7 +9,7 @@ import { hasCommand } from "./fixtures/run-command";
 import { paths, readCalls, startTestSshAgent, type TestSshAgent } from "./fixtures/servers-test-env.mjs";
 import { ServerPathError } from "./server-fs";
 import type { SshTarget } from "./ssh-target";
-import { parseProbe, SshConnections, SshTransport } from "./transport-ssh";
+import { commandIn, parseProbe, SshConnections, SshTransport } from "./transport-ssh";
 
 type Started = Awaited<ReturnType<typeof startFakeSshServer>>;
 
@@ -63,6 +63,24 @@ describe("parseProbe", () => {
   it("reads the shell probe and treats anything else as SFTP only", () => {
     expect(parseProbe("tau\n/home/u\nLinux\n/usr/bin/sha256sum\n/usr/bin/tar\n")).toEqual({ shell: true, home: "/home/u", os: "Linux", commands: ["sha256sum", "tar"] });
     expect(parseProbe("This service allows sftp connections only.\n")).toEqual({ shell: false, commands: [] });
+  });
+});
+
+describe.skipIf(process.platform === "win32")("commandIn", () => {
+  const sh = (line: string) => spawnSync("/bin/sh", ["-c", line], { encoding: "utf8" });
+
+  it("runs none of a command whose folder is missing, past ; and ||", () => {
+    const missing = sh(commandIn("/nonexistent-tau-dir", "echo one; echo two || echo three"));
+    expect(missing.status).not.toBe(0);
+    expect(missing.stdout).toBe("");
+    const dir = realpathSync(mkdtempSync("/tmp/tau-cd-t-"));
+    try {
+      expect(sh(commandIn(dir, "pwd; false || echo fallback")).stdout).toBe(`${dir}\nfallback\n`);
+      expect(sh(commandIn(dir, "echo last # a comment")).stdout).toBe("last\n");
+      expect(spawnSync("/bin/sh", ["-n", "-c", commandIn(dir, "sleep 1 &")]).status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
