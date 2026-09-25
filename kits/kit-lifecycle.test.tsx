@@ -9,6 +9,7 @@ import access from "./access/desktop.js";
 import keybindings from "./keybindings/desktop.js";
 import notifications from "./notifications/desktop.js";
 import push from "./push/desktop.js";
+import servers from "./servers/desktop.js";
 import onboarding from "./onboarding/desktop.js";
 import questionnaire from "./questionnaire/desktop.js";
 import serviceTier from "./service-tier/desktop.js";
@@ -48,7 +49,7 @@ import { screenService } from "./preview/screen-store.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames, appearance, handoff, evidence, snapshots, takeover, environments, tailscale, push];
+const kits = [access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames, appearance, handoff, evidence, snapshots, takeover, environments, tailscale, push, servers];
 
 afterEach(cleanup);
 
