@@ -24,8 +24,9 @@ const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? 
  * and `client-call-result` belongs to the window process around it, which
  * answers the host's calls into its own machine (ADR 0021), and hands its
  * host the agents' keys with the `machines-*` methods (ADR 0027).
+ * `host-resources` and `readiness` are asked by another machine's host.
  */
-const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove"]);
+const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove", "host-resources", "readiness"]);
 
 function tableMethods(): Set<string> {
   const unavailable = () => { throw new Error("not available in this test"); };
