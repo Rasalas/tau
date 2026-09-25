@@ -30,7 +30,7 @@ export {
   type ReadPersistedJsonOptions,
   type WritePersistedJsonOptions,
 } from "./persisted-json.js";
-export { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
+export { ORIGIN_ENTRY, PARENT_LINK_ENTRY, originEntry, parentLinkEntry } from "./session-lineage.js";
 export { DEFAULT_THREAD_MODE, THREAD_MODE_ENTRY, threadModeFromEntries } from "../shared/thread-mode.js";
 export { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 export { validatePreparedPrompt } from "../shared/prepared-prompt.js";
