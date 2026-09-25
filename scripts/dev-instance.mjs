@@ -240,6 +240,9 @@ async function main() {
   // all under .tau-dev/servers. Never ~/.ssh, the real agent or keychain.
   const serversDir = join(DEV_DIR, "servers");
   prepareServersDir(serversDir);
+  // "From a server…" makes and links projects only here, never below the real home.
+  const projectsRoot = join(DEV_DIR, "projects");
+  mkdirSync(projectsRoot, { recursive: true });
 
   if (!options.workspace) initScratchWorkspace(workspace);
   else if (!existsSync(workspace)) throw new Error(`--workspace ${workspace} does not exist`);
@@ -298,6 +301,7 @@ async function main() {
     TAU_SERVICE_CONTROL: join(ROOT, "scripts", "fake-service-manager.mjs"),
     // Always the test agent's socket, even when it failed to start: a login shell only fills unset variables.
     ...serversInstanceEnv(serversDir),
+    TAU_SERVERS_PROJECTS_ROOT: projectsRoot,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),

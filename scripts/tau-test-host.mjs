@@ -40,6 +40,9 @@ export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_D
     TAU_SERVICE_CONTROL: join(root, "scripts", "fake-service-manager.mjs"),
     TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ "*": "echo 'Tau test host: this update was not run.'" }),
     TAU_NO_RUNTIME_UPDATES: "1",
+    // Servers kit, when kits run: loopback targets only, projects only below `dir`.
+    TAU_SERVERS_LOOPBACK_ONLY: "1",
+    TAU_SERVERS_PROJECTS_ROOT: join(dir, "projects"),
   };
   for (const name of ["TAU_HOST_URL", "TAU_HOST_TLS", "TAU_HOST_TLS_CERT", "TAU_HOST_TLS_KEY", "TAU_HOST_PROXY_LISTEN", "TAU_NO_EXTENSIONS", "ELECTRON_RUN_AS_NODE"]) delete env[name];
   if (proxy) env.TAU_HOST_PROXY_LISTEN = "127.0.0.1:0";

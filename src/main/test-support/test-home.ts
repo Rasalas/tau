@@ -15,7 +15,7 @@ const HOME_VARIABLES = [
   "TAU_OPENCODE_HOME", "TAU_CURSOR_HOME", "TAU_GROK_HOME",
   // The developer's own ssh-agent, and an instance's servers fakes, never reach a test.
   "SSH_AUTH_SOCK", "SSH_AGENT_PID", "FAKE_SERVERS_STATE",
-  "TAU_SERVERS_SECURITY_COMMAND", "TAU_SERVERS_SECRET_TOOL_COMMAND", "TAU_SERVERS_SSH_CONFIG",
+  "TAU_SERVERS_SECURITY_COMMAND", "TAU_SERVERS_SECRET_TOOL_COMMAND", "TAU_SERVERS_SSH_CONFIG", "TAU_SERVERS_PROJECTS_ROOT",
 ];
 
 /** fs functions that change the file system, with the positions of the paths they change. */

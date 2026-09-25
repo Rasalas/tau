@@ -44,6 +44,17 @@ export function readTargetLevel(value: unknown): TargetLevel {
 /** A test instance names its ssh config here; Tau then passes it to ssh as `-F`. */
 export const SERVERS_SSH_CONFIG_ENV = "TAU_SERVERS_SSH_CONFIG";
 
+/**
+ * A test instance names a folder here: new server projects default to it, and
+ * every local folder the project commands touch must lie inside it.
+ */
+export const SERVERS_PROJECTS_ROOT_ENV = "TAU_SERVERS_PROJECTS_ROOT";
+
+/** What `projects-root` answers: the folder the guard holds new projects to, or null without one. */
+export interface ProjectsRootState {
+  root: string | null;
+}
+
 export interface ServerTargetIssue {
   code: string;
   level: "error" | "warning" | "info";

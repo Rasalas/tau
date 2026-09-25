@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, posix } from "node:path";
+import { isAbsolute, join, posix, resolve, sep } from "node:path";
 import { HostCommandError, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import {
   NEW_PROJECT_IGNORE, excludeLinesFor, excludedFolderLines, newProjectGitignore, normalizeExcluded, serverStateMessage,
@@ -11,6 +11,7 @@ import { SFTP_JSON_PATH, readProfileChoices, readSftpJsonFile, renderSftpJson, w
 import { parseManualTarget } from "./ssh-hosts.js";
 import type { ServerSsh } from "./ssh-service.js";
 import type { SshTarget } from "./ssh-target.js";
+import { SERVERS_PROJECTS_ROOT_ENV, type ProjectsRootState } from "./protocol.js";
 import type { ServersStore } from "./store.js";
 import { SyncIgnore } from "./sync/ignore.js";
 import { MIRROR_REF } from "./sync/mirror.js";
@@ -30,6 +31,14 @@ export interface ServerProjectsOptions {
   sync: SyncService;
   /** A Workspace Kit command, called as this kit. */
   workspace(command: string, input: unknown): Promise<unknown>;
+  /** The folder every local project folder must lie in; `TAU_SERVERS_PROJECTS_ROOT` by default. */
+  projectsRoot?: string;
+}
+
+/** The guard's folder from the environment, absolute; undefined when unset. */
+export function projectsRootFrom(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const value = env[SERVERS_PROJECTS_ROOT_ENV]?.trim();
+  return value ? resolve(expandHome(value)) : undefined;
 }
 
 interface RepoFromTreeAnswer { commit: string; branch: string; files: number }
@@ -55,17 +64,30 @@ function remoteFolder(value: unknown): string {
   return posix.normalize(value);
 }
 
-async function localFolder(value: unknown): Promise<string> {
+/**
+ * An existing local folder, resolved. With a projects root (a test instance),
+ * it must be that folder or lie inside it, links resolved, like the loopback guard.
+ */
+async function localFolder(value: unknown, root: string | undefined): Promise<string> {
   if (typeof value !== "string" || !value.trim()) throw new HostCommandError("Name the local folder.");
   const path = expandHome(value);
   if (!isAbsolute(path)) throw new HostCommandError("The local folder must be an absolute path.");
+  // The root is the default parent of a new project, so it exists before anyone asks.
+  if (root) await mkdir(root, { recursive: true });
+  let real: string;
   try {
-    const real = await realpath(path);
+    real = await realpath(path);
     if (!(await stat(real)).isDirectory()) throw new Error("not a folder");
-    return real;
   } catch {
     throw new HostCommandError(`${path} is not a folder on this machine.`);
   }
+  if (root) {
+    const inside = await realpath(root);
+    if (real !== inside && !real.startsWith(`${inside}${sep}`)) {
+      throw new HostCommandError(`${path} is outside ${inside}, the only folder this Tau makes or links server projects in (${SERVERS_PROJECTS_ROOT_ENV}).`);
+    }
+  }
+  return real;
 }
 
 function parseAddress(address: string): { host: string; port: number; username?: string } {
@@ -144,11 +166,20 @@ export class ServerProjects {
     return summarize(id, await scanServer(fs, ignore), false);
   }
 
+  /** Where new projects go and linked folders must be, while the guard is on. */
+  private get root(): string | undefined {
+    return "projectsRoot" in this.options ? this.options.projectsRoot : projectsRootFrom();
+  }
+
+  projectsRoot(): ProjectsRootState {
+    return { root: this.root ?? null };
+  }
+
   async create(input: unknown): Promise<ProjectMade> {
     const fields = record(input);
     const server = decodeServer(fields.server);
     const remotePath = remoteFolder(fields.remotePath);
-    const parent = await localFolder(fields.parent);
+    const parent = await localFolder(fields.parent, this.root);
     const name = typeof fields.name === "string" ? fields.name.trim() : "";
     if (!name || name === "." || name === ".." || /[\\/\0]/u.test(name)) throw new HostCommandError("Name the new folder.");
     const exclude = normalizeExcluded(Array.isArray(fields.exclude) ? fields.exclude.filter((path): path is string => typeof path === "string") : []);
@@ -195,7 +226,7 @@ export class ServerProjects {
   }
 
   async inspect(input: unknown): Promise<FolderInspection> {
-    const path = await localFolder(record(input).path);
+    const path = await localFolder(record(input).path, this.root);
     const { workspaceId } = this.options.services.workspaceRef(path);
     const profileChoices = await readProfileChoices(join(this.options.store.targetsDir, workspaceId, "profiles.json"));
     const read = await readSftpJsonFile(path, { profileChoices });
@@ -212,7 +243,7 @@ export class ServerProjects {
 
   /** The size overview of one sftp.json target of a folder that has no Git yet. */
   async linkScan(input: unknown): Promise<ScanSummary> {
-    const path = await localFolder(record(input).path);
+    const path = await localFolder(record(input).path, this.root);
     if (await hasGit(path)) throw new HostCommandError(`${path} has Git already.`);
     this.options.services.admitWorkspace(path);
     return this.options.sync.scan({ cwd: path, targetId: record(input).targetId }, { gitRules: false });
@@ -233,7 +264,7 @@ export class ServerProjects {
    */
   async link(input: unknown): Promise<ProjectMade> {
     const fields = record(input);
-    const path = await localFolder(fields.path);
+    const path = await localFolder(fields.path, this.root);
     if (await hasGit(path)) throw new HostCommandError(`${path} has Git already.`);
     const download = fields.download === true;
     const excluded = record(fields.exclude);
@@ -277,6 +308,7 @@ export class ServerProjects {
     context.registerCommand("draft-close", () => ssh.closeDrafts());
     context.registerCommand("create-project", wrap((input) => this.create(input)), { long: true, audit: { label: "made a project from a server" } });
     context.registerCommand("inspect-folder", wrap((input) => this.inspect(input)), { access: "read" });
+    context.registerCommand("projects-root", () => this.projectsRoot(), { access: "read" });
     context.registerCommand("link-scan", wrap((input) => this.linkScan(input)), { long: true, audit: { label: "sized a server folder" } });
     context.registerCommand("link-folder", wrap((input) => this.link(input)), { long: true, audit: { label: "made Git for a server folder" } });
     return () => void ssh.closeDrafts();

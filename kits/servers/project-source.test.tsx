@@ -36,6 +36,29 @@ function setup(answer: (command: string, input?: unknown) => unknown) {
 }
 
 describe("From a server…", () => {
+  it("defaults to the projects root of a test instance, for a new project and a folder with sftp.json", async () => {
+    const { invoke } = setup((command) => ({
+      "ssh-hosts": { configPath: "/test/ssh_config", hosts: ["fake"], problems: [] },
+      "projects-root": { root: "/w/.tau-dev/projects" },
+      "draft-browse": LISTING,
+      "draft-scan": SUMMARY,
+      "create-project": MADE,
+    } as Record<string, unknown>)[command]);
+    await flush();
+    fireEvent.click(screen.getByRole("tab", { name: "Folder with sftp.json" }));
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/w/.tau-dev/projects/");
+    fireEvent.click(screen.getByRole("tab", { name: "Server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
+    await flush();
+    expect((screen.getByLabelText("Parent folder") as HTMLInputElement).value).toBe("/w/.tau-dev/projects");
+    expect(screen.getByText(/only inside \/w\/\.tau-dev\/projects/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await flush();
+    expect(invoke).toHaveBeenCalledWith("tau.servers", "create-project", expect.objectContaining({ parent: "/w/.tau-dev/projects" }));
+  });
+
   it("connects to an ssh host, sizes the folder with uploads left out, and opens the project it made", async () => {
     const { invoke, actions, onDone, view } = setup((command) => ({
       "ssh-hosts": { configPath: "/test/ssh_config", hosts: ["fake"], problems: [] },
