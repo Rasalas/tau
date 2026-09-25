@@ -9,6 +9,7 @@ import RemotePreview, { fit, layoutOwner } from "./remote-view.js";
 import { viewerId } from "./viewer.js";
 import { windowName } from "./screen-store.js";
 import { connectPreviewHost, drawsFrames, previewStore } from "./store.js";
+import { hostMachineName } from "./machine.js";
 
 /** jsdom has no PointerEvent; without one a fired pointer event carries no coordinates. */
 class PointerEventShim extends MouseEvent {
@@ -27,6 +28,7 @@ afterEach(() => {
   cleanup();
   disconnect();
   previewStore.set(EMPTY_PREVIEW_STATE);
+  hostMachineName.set(undefined);
 });
 
 function setup(options: { readOnly?: boolean; focus?: "secret" | "field" | "none"; url?: string; state?: Partial<PreviewState> } = {}) {
@@ -178,5 +180,37 @@ describe("the page laid out for this device", () => {
     setup({ state: { layoutFor: { id, name: "Phone", width: 377, height: 600, touch: true } } });
     expect(await screen.findByText("This screen")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Lay it out for this screen/u })).toBeNull();
+  });
+});
+
+describe("a machine without a window for the page", () => {
+  it("says the machine shown has no display and how Linux gets one, and asks for no frames", async () => {
+    hostMachineName.set("rex");
+    const { invoke } = setup({ state: { noWindow: { displayService: true } } });
+    expect(screen.getByText("rex has no display")).toBeTruthy();
+    expect(screen.getByText("tau service install --display")).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(invoke.mock.calls.some(([command]) => command === "live-frame")).toBe(false);
+    expect((screen.getByLabelText("Text for the page") as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("asks for the Tau app on a Mac or PC, and names the host when the machine is unknown", () => {
+    setup({ state: { noWindow: { displayService: false } } });
+    expect(screen.getByText("The host has no display")).toBeTruthy();
+    expect(screen.getByText(/Open the Tau app there/u)).toBeTruthy();
+  });
+
+  it("looks again until a window came there", async () => {
+    vi.useFakeTimers();
+    try {
+      const { invoke } = setup({ state: { noWindow: { displayService: false } } });
+      const shown: PreviewState = { ...EMPTY_PREVIEW_STATE, url: "http://localhost:18727/", title: "Sign in" };
+      invoke.mockImplementation((async (command: string) => command === "state" ? shown : undefined) as never);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(invoke.mock.calls.some(([command]) => command === "state")).toBe(true);
+      expect(screen.queryByText(/has no display/u)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
