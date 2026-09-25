@@ -160,13 +160,15 @@ export async function cleanTarget(options: CleanTargetOptions): Promise<Omit<His
     }
   }
 
+  // Git writes no commit-graph in a shallow repository and keeps a stale one that names pruned commits.
+  if (await access(join(mirror.dir, "shallow")).then(() => true, () => false)) {
+    await rm(join(mirror.dir, "objects", "info", "commit-graph"), { force: true });
+    await rm(join(mirror.dir, "objects", "info", "commit-graphs"), { recursive: true, force: true });
+  }
   const keepChanged = await keepDriftBlobs(store, key, run, text);
   const loose = Number(/^count: (\d+)$/mu.exec(await text(["count-objects", "-v"]))?.[1] ?? 0);
   if (options.force || result.removed.length || result.adopted.length || result.truncated || keepChanged || loose > 0) {
     await run(["reflog", "expire", "--expire=now", "--all"]);
-    // Git writes no commit-graph in a shallow repository and would keep a stale one naming pruned commits.
-    await rm(join(mirror.dir, "objects", "info", "commit-graph"), { force: true });
-    await rm(join(mirror.dir, "objects", "info", "commit-graphs"), { recursive: true, force: true });
     await run(["-c", "gc.writeCommitGraph=false", "gc", "--prune=now", "--quiet"]);
     result.gc = true;
   }
