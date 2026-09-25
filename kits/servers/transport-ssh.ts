@@ -5,7 +5,8 @@ import type { AskpassBridge } from "./askpass.js";
 import { SERVERS_SSH_CONFIG_ENV, type ServerCapabilities } from "./protocol.js";
 import {
   isWithin, ServerPathError, touchesGit,
-  type ServerArea, type ServerEntry, type ServerExecOptions, type ServerExecResult, type ServerFs, type ServerFsCallOptions, type ServerStat,
+  type ServerArea, type ServerEntry, type ServerExecOptions, type ServerExecResult, type ServerExecStream, type ServerExecStreamOptions,
+  type ServerFs, type ServerFsCallOptions, type ServerStat,
 } from "./server-fs.js";
 import { fileType, isNoSuchFile, SftpClient, type SftpAttrs } from "./sftp-client.js";
 import {
@@ -381,12 +382,16 @@ export class SshTransport implements ServerFs {
     await client.setstat(real, { atime: current.atime ?? mtime, mtime }, options?.signal);
   }
 
-  async exec(command: string, options: ServerExecOptions = {}): Promise<ServerExecResult> {
+  private async execCwd(where: ServerExecOptions["cwd"] = "project"): Promise<string> {
     await this.connect();
     if (!this.caps.exec) throw new SshConnectError(`${this.label} runs no commands (SFTP only).`);
-    const where = options.cwd ?? "project";
     const cwd = where === "project" ? this.root : where === "tmp" ? this.scratch : await this.resolve(where, { area: "any" });
     if (!cwd) throw new ServerPathError("~/tmp", "this server has no ~/tmp");
+    return cwd;
+  }
+
+  async exec(command: string, options: ServerExecOptions = {}): Promise<ServerExecResult> {
+    const cwd = await this.execCwd(options.cwd);
     const timeoutMs = options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT;
     // Ending the local ssh leaves a command without a terminal running; the server's own `timeout` stops it.
     const seconds = Math.ceil(timeoutMs / 1000);
@@ -396,6 +401,35 @@ export class SshTransport implements ServerFs {
       maxOutputBytes: options.maxOutputBytes ?? DEFAULT_OUTPUT_CAP,
       ...(options.signal ? { signal: options.signal } : {}),
     });
+  }
+
+  async execStream(command: string, options: ServerExecStreamOptions = {}): Promise<ServerExecStream> {
+    const cwd = await this.execCwd(options.cwd);
+    const { args, destination } = this.baseArgs();
+    const session = await this.options.askpass.session(this.askpassTarget());
+    this.options.onSpawn?.();
+    const child = spawn(this.options.ssh, [...args, "-T", "--", destination, `cd ${shellQuote(cwd)} && ${command}`], {
+      env: this.childEnv(session.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+    });
+    let stderr = "";
+    let timedOut = false;
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { if (stderr.length < 16_384) stderr += chunk; });
+    child.stdin.on("error", () => undefined);
+    const stop = () => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM"); };
+    const timer = options.timeoutMs ? setTimeout(() => { timedOut = true; stop(); }, options.timeoutMs) : undefined;
+    options.signal?.addEventListener("abort", stop, { once: true });
+    const done = new Promise<Omit<ServerExecResult, "stdout" | "truncated">>((resolve, reject) => {
+      child.once("error", (error) => { clearTimeout(timer); session.dispose(); reject(error); });
+      child.once("close", (code, signal) => {
+        clearTimeout(timer);
+        session.dispose();
+        options.signal?.removeEventListener("abort", stop);
+        resolve({ code, signal, stderr, timedOut });
+      });
+    });
+    child.stdin.end(options.input ?? "");
+    return { stdout: child.stdout, done };
   }
 
   async hashMany(paths: readonly string[], options?: ServerFsCallOptions): Promise<Map<string, string>> {

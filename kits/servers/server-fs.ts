@@ -55,6 +55,22 @@ export interface ServerExecResult {
   timedOut: boolean;
 }
 
+export interface ServerExecStreamOptions {
+  cwd?: ServerExecOptions["cwd"];
+  /** Fed to the command's stdin, then closed. */
+  input?: Buffer | string;
+  /** None by default: a download may take long. */
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/** A command whose stdout is read as it comes (a listing, a tar stream). */
+export interface ServerExecStream {
+  stdout: NodeJS.ReadableStream & AsyncIterable<Buffer>;
+  /** Settles once the command ended; stderr capped. */
+  done: Promise<Omit<ServerExecResult, "stdout" | "truncated">>;
+}
+
 export interface ServerFs {
   readonly caps: ServerCapabilities;
   /** `remotePath`, resolved. */
@@ -77,6 +93,8 @@ export interface ServerFs {
   chmod(path: string, mode: number, options?: ServerFsCallOptions): Promise<void>;
   setMtime(path: string, mtime: number, options?: ServerFsCallOptions): Promise<void>;
   exec?(command: string, options?: ServerExecOptions): Promise<ServerExecResult>;
+  /** As `exec`, with stdin and a stdout that streams; present when `exec` is. */
+  execStream?(command: string, options?: ServerExecStreamOptions): Promise<ServerExecStream>;
   /** SHA-256 per path that exists; missing ones are left out. */
   hashMany?(paths: readonly string[], options?: ServerFsCallOptions): Promise<Map<string, string>>;
   close(): Promise<void>;
