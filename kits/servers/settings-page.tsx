@@ -7,6 +7,7 @@ import {
   type CredentialCheck, type CredentialSecretStatus, type CredentialStatus, type SecretKind, type ServerTargetIssue, type ServerTargetRow, type ServerTargetsState,
 } from "./protocol.js";
 import { NetworkSection } from "./network-settings.js";
+import type { HistoryCleanupResult } from "./rollback-protocol.js";
 
 const ISSUE_ICONS = { error: OctagonAlert, warning: AlertTriangle, info: Info } as const;
 
@@ -124,12 +125,12 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
   );
 }
 
-const RETENTION_DAYS = ["30", "90", "180", "365"];
-const RETENTION_COUNTS = ["50", "200", "500", "1000"];
+const RETENTION_DAYS = ["1", "7", "30", "90", "180", "365"];
+const RETENTION_COUNTS = ["1", "10", "50", "200", "500", "1000"];
 const readChoice = (choices: readonly string[]) => (raw: unknown) => (typeof raw === "string" && choices.includes(raw) ? raw : undefined);
 
 /** How long Tau keeps the recorded server states and deployments; this machine's setting. */
-function RetentionSection() {
+function RetentionSection({ busy, cleanAllowed, onClean }: { busy: boolean; cleanAllowed: boolean; onClean(): void }) {
   const days = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_DAYS_KEY}`, { defaultValue: String(DEFAULT_RETENTION_DAYS), scope: "host", read: readChoice(RETENTION_DAYS) });
   const count = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_COUNT_KEY}`, { defaultValue: String(DEFAULT_RETENTION_COUNT), scope: "host", read: readChoice(RETENTION_COUNTS) });
   return (
@@ -147,8 +148,14 @@ function RetentionSection() {
         description="The newest entries per server stay; older ones go first."
         setting={count}
         control={<select className="settings-select" aria-label="Keep at most this many entries" value={count.value} disabled={!count.writable} onChange={(event) => count.set(event.target.value)}>
-          {RETENTION_COUNTS.map((value) => <option key={value} value={value}>{value} entries</option>)}
+          {RETENTION_COUNTS.map((value) => <option key={value} value={value}>{value === "1" ? "The newest only" : `${value} entries`}</option>)}
         </select>}
+      />
+      <SettingRow
+        title="Clean up now"
+        description="Tau cleans up every hour. Dropped deployments can no longer be rolled back."
+        disabledReason={cleanAllowed ? undefined : READ_ONLY_REASON}
+        control={<button type="button" className="chrome-button" disabled={busy || !cleanAllowed} onClick={onClean}>Clean up</button>}
       />
     </SettingsSection>
   );
@@ -167,6 +174,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
     const [credentials, setCredentials] = useState<Record<string, CredentialStatus>>({});
     const allowed = useCommandAllowed(SERVERS_EXTENSION_ID, "set-profile");
     const levelAllowed = useCommandAllowed(SERVERS_EXTENSION_ID, "set-target-level");
+    const cleanAllowed = useCommandAllowed(SERVERS_EXTENSION_ID, "cleanup-history");
     const [levels, setLevels] = useState<Record<string, TargetLevel>>({});
 
     const loadCredentials = useCallback(() => {
@@ -198,6 +206,12 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
     const forget = (target: ServerTargetRow) => run(context.host.invoke("forget-credential", { cwd, targetId: target.id }), () => onNotify(`Tau forgot what it kept for ${target.label}.`));
     const withdraw = () => run(context.host.invoke("forget-credential-approvals", { cwd }), () => onNotify("Tau will ask again before it runs a command or reads VS Code's items."));
     const approvals = Object.values(credentials).some((entry) => [entry.password, entry.passphrase].some((secret) => secret?.command === "allowed" || secret?.foreignItem?.allowed));
+
+    const clean = () => run(context.host.invoke("cleanup-history", { cwd }), (value) => {
+      const targets = (value as { targets?: HistoryCleanupResult[] } | undefined)?.targets ?? [];
+      const removed = targets.reduce((sum, entry) => sum + entry.removed.length, 0);
+      onNotify(removed ? `Cleaned up: ${removed} ${removed === 1 ? "deployment" : "deployments"} dropped, the rest kept.` : "Cleaned up: every deployment is within what Tau keeps.");
+    });
 
     const chooseLevel = (target: ServerTargetRow, level: TargetLevel) => run(context.host.invoke("set-target-level", { cwd, targetId: target.id, level }), (value) => {
       setLevels((current) => ({ ...current, [target.id]: (value as { level: TargetLevel }).level }));
@@ -249,7 +263,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
             control={<button type="button" className="chrome-button" disabled={busy || !allowed} onClick={withdraw}>Withdraw</button>}
           />
         </SettingsSection> : null}
-        {state.targets.length > 0 ? <RetentionSection /> : null}
+        {state.targets.length > 0 ? <RetentionSection busy={busy} cleanAllowed={cleanAllowed} onClean={clean} /> : null}
       </div>
     );
   };

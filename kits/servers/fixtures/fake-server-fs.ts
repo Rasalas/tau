@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Stats } from "node:fs";
-import { chmod, lstat, mkdir, readdir, readFile, rename, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, rmdir, utimes, writeFile } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
 import type { ServerCapabilities } from "../protocol";
 import { ServerPathError, type ServerEntry, type ServerExecResult, type ServerExecStream, type ServerExecStreamOptions, type ServerFs, type ServerStat } from "../server-fs";
@@ -116,7 +116,7 @@ export class FolderServerFs implements ServerFs {
 
   async rmdir(path: string): Promise<void> {
     this.calls.push(`rmdir ${path}`);
-    await rm(this.writeCheck(path), { recursive: false });
+    await rmdir(this.writeCheck(path));
   }
 
   async chmod(path: string, mode: number): Promise<void> {

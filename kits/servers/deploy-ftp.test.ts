@@ -8,6 +8,8 @@ import type { PromptAsker } from "./askpass";
 import type { ServerCredentials } from "./credentials";
 import { DeployService } from "./deploy";
 import type { DeployResult } from "./deploy-protocol";
+import { RollbackService } from "./rollback";
+import type { RollbackPreview, RollbackResult } from "./rollback-protocol";
 import { startFtpCli, stopFtpCli, type RunningFtp } from "./fixtures/fake-ftp-cli";
 import { hasCommand } from "./fixtures/run-command";
 import { paths, prepareServersDir, readCalls } from "./fixtures/servers-test-env.mjs";
@@ -84,7 +86,9 @@ function suite(mode: "plain" | "explicit") {
     ftp.register();
     const sync = new SyncService(context, { store, target: async () => ({ project, target }), transport: (input) => ftp.transport(input) });
     sync.register();
-    new DeployService(context, { store, sync, target: async () => ({ project, target }) }).register();
+    const deploy = new DeployService(context, { store, sync, target: async () => ({ project, target }) });
+    deploy.register();
+    new RollbackService(context, { store, sync, deploy }).register();
   }, 60_000);
 
   afterAll(async () => {
@@ -162,6 +166,30 @@ function suite(mode: "plain" | "explicit") {
     const result = await call<DeployResult>("deploy", { ...ref(), files: [{ path: "index.php", op: "modify" }] });
     expect(result.files[0]).toMatchObject({ outcome: "conflict" });
     expect(readFileSync(join(site, "index.php"), "utf8")).toContain("colleague");
+  }, 60_000);
+
+  it("rolls the deployment back, leaves the colleague's file unless told, and rolls the rollback back", async () => {
+    const preview = await call<RollbackPreview>("rollback-preview", { ...ref(), seq: 1 });
+    expect(preview.files.map((file) => [file.path, file.outcome])).toEqual([
+      ["about.php", "upload"], ["css/site.css", "upload"], ["index.php", "conflict"], ["pages/pricing.php", "delete"],
+    ]);
+    const undone = await call<RollbackResult>("rollback", { ...ref(), seq: 1, force: ["index.php"] });
+    expect(undone.failed).toEqual([]);
+    expect(undone.rolledBack).toBe(true);
+    expect(readFileSync(join(site, "index.php"), "utf8")).toBe("<?php echo 'home';\n");
+    expect(statSync(join(site, "index.php")).mode & 0o777).toBe(0o640);
+    expect(readFileSync(join(site, "css", "site.css"), "utf8")).toBe("body{}\n");
+    expect(statSync(join(site, "css", "site.css")).mode & 0o777).toBe(0o604);
+    expect(readFileSync(join(site, "about.php"), "utf8")).toContain("hotfix");
+    expect(existsSync(join(site, "pages"))).toBe(false);
+    expect(ftpCommands().some((entry) => entry.directive === "RMD" && entry.arg === "/site/pages")).toBe(true);
+
+    const redone = await call<RollbackResult>("rollback", { ...ref(), seq: undone.deployment!.seq });
+    expect(redone.rolledBack).toBe(true);
+    expect(readFileSync(join(site, "index.php"), "utf8")).toContain("colleague");
+    expect(readFileSync(join(site, "pages", "pricing.php"), "utf8")).toBe("price\n");
+    expect(existsSync(join(site, "about.php"))).toBe(false);
+    expect((await call<CompareResult>("compare", ref())).drift?.rows).toEqual([]);
   }, 60_000);
 }
 

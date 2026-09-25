@@ -89,6 +89,8 @@ export interface TargetStatus {
   liveConfigs: LiveConfigRow[];
   /** Threads with a deployment not committed yet; the rail marks them. */
   uncommittedThreads: string[];
+  /** Each deployment's number and status, so a view knows when to read the history again. */
+  deployments?: string;
 }
 
 export interface ServersStatus {
@@ -117,10 +119,15 @@ export interface HistoryFile {
 export interface HistoryDeployment {
   seq: number;
   kind: "upload" | "rollback";
+  /** For a rollback: the deployment it undid. */
+  rollbackOf?: number;
+  /** The latest rollback of this deployment. */
+  rolledBackBy?: number;
   status: DeploymentStatus;
   branch?: string;
   threadId?: string;
   failed: number;
+  note?: string;
 }
 
 /** One recorded server state: a read (download), a drift import or a deployment. */
@@ -144,6 +151,8 @@ export const HISTORY_FILE_CAP = 300;
 export interface ServerHistory {
   targetId: string;
   entries: HistoryEntry[];
+  /** Older recorded states were cleaned up. */
+  truncated?: boolean;
 }
 
 /** `pending`: the mirror state against the local file; `history`: a recorded state against the one before. */

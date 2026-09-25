@@ -67,6 +67,12 @@ export class ServersStore {
     return writePersistedJson(path, spec.version, data, { logger: this.logger });
   }
 
+  /** The workspace ids with a folder of targets. */
+  async workspaces(): Promise<string[]> {
+    const entries = await readdir(this.targetsDir, { withFileTypes: true }).catch(() => []);
+    return entries.filter((entry) => entry.isDirectory() && isStoreSegment(entry.name)).map((entry) => entry.name).sort();
+  }
+
   /** The target ids a workspace has a folder for. */
   async targets(workspaceId: string): Promise<string[]> {
     if (!isStoreSegment(workspaceId)) return [];

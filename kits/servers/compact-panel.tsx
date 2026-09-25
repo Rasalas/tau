@@ -5,7 +5,8 @@ import { PendingList } from "./pending-list.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
 import { StatusDot, useServersStatus } from "./status-parts.js";
 import type { ServersStatusStore } from "./status-store.js";
-import { ServerGitLine, deploymentMeta, historyTitle, progressWords, useTargetActions, type ServerViewParts } from "./server-view.js";
+import { HISTORY_CLEANED, deploymentMeta, entryCounts, historyTitle } from "./history-panel.js";
+import { ServerGitLine, progressWords, useTargetActions, type ServerViewParts } from "./server-view.js";
 import type { HistoryEntry, ServerHistory, TargetStatus } from "./view-protocol.js";
 import { worstState } from "./status-model.js";
 
@@ -28,28 +29,31 @@ export function createCompactGlyph(store: ServersStatusStore) {
 }
 
 function CompactHistory({ parts, cwd, target }: { parts: ServerViewParts; cwd: string; target: TargetStatus }) {
-  const [history, setHistory] = useState<{ entries?: HistoryEntry[]; error?: string }>({});
+  const [history, setHistory] = useState<{ entries?: HistoryEntry[]; truncated?: boolean; error?: string }>({});
   useEffect(() => {
     let live = true;
     parts.host.invoke("server-history", { cwd, targetId: target.targetId }).then(
-      (value) => { if (live) setHistory({ entries: (value as ServerHistory).entries }); },
+      (value) => { if (live) setHistory({ entries: (value as ServerHistory).entries, truncated: (value as ServerHistory).truncated === true }); },
       (failure: unknown) => { if (live) setHistory({ error: errorMessage(failure) }); },
     );
     return () => { live = false; };
-  }, [parts.host, cwd, target.targetId, target.mirror?.commit]);
+  }, [parts.host, cwd, target.targetId, target.mirror?.commit, target.deployments]);
   if (history.error) return <p className="servers-error" role="alert">{history.error}</p>;
   if (!history.entries) return <Skeleton shape="block" />;
-  if (history.entries.length === 0) return <p className="servers-empty-line">No history yet.</p>;
+  if (history.entries.length === 0) return <p className="servers-empty-line">{history.truncated ? HISTORY_CLEANED : "No history yet."}</p>;
   return (
-    <ol className="servers-history compact">
-      {history.entries.map((entry) => (
-        <li key={entry.commit} className="servers-history-entry">
-          <span className="servers-history-title">{historyTitle(entry, !entry.parent)}</span>
-          <time dateTime={entry.at}>{ago(entry.at)}</time>
-          <p className="servers-history-meta">{entry.parent ? [entry.added ? `${entry.added} new` : "", entry.modified ? `${entry.modified} changed` : "", entry.deleted ? `${entry.deleted} deleted` : "", entry.deployment ? deploymentMeta(entry.deployment) : ""].filter(Boolean).join(" · ") || "no changes" : `${entry.added} files`}</p>
-        </li>
-      ))}
-    </ol>
+    <>
+      <ol className="servers-history compact">
+        {history.entries.map((entry) => (
+          <li key={entry.commit} className="servers-history-entry">
+            <span className="servers-history-title">{historyTitle(entry, !entry.parent)}</span>
+            <time dateTime={entry.at}>{ago(entry.at)}</time>
+            <p className="servers-history-meta">{entry.parent ? [entryCounts(entry), entry.deployment ? deploymentMeta(entry.deployment) : ""].filter(Boolean).join(" · ") : `${entry.added} files`}</p>
+          </li>
+        ))}
+      </ol>
+      {history.truncated ? <p className="servers-compact-note">{HISTORY_CLEANED}</p> : null}
+    </>
   );
 }
 

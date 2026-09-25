@@ -24,7 +24,7 @@ type Stage =
 /** A pending row as the upload asks for it. */
 const requestOf = (row: PendingUploadRow): DeployRequestFile => ({ path: row.path, op: OPS[row.change] });
 
-function PlanRow({ file, onOpen, children }: { file: DeployFilePlan; onOpen(path: string): void; children?: ReactNode }) {
+export function PlanRow({ file, onOpen, children }: { file: DeployFilePlan; onOpen(path: string): void; children?: ReactNode }) {
   return (
     <li className={`servers-file servers-plan-row outcome-${file.outcome}`}>
       <button type="button" className="servers-file-open" aria-label={file.path} onClick={() => onOpen(file.path)}>
@@ -36,7 +36,7 @@ function PlanRow({ file, onOpen, children }: { file: DeployFilePlan; onOpen(path
   );
 }
 
-function Group({ label, files, tone, note, icon, children }: { label: string; files: readonly unknown[]; tone?: "danger" | "warn" | "muted"; note?: string; icon?: ReactNode; children: ReactNode }) {
+export function Group({ label, files, tone, note, icon, children }: { label: string; files: readonly unknown[]; tone?: "danger" | "warn" | "muted"; note?: string; icon?: ReactNode; children: ReactNode }) {
   if (files.length === 0) return null;
   return (
     <section className={`servers-plan-group${tone ? ` tone-${tone}` : ""}`} aria-label={label}>
