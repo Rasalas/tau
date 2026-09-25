@@ -410,6 +410,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
               models: () => cachedModels(id),
               onModels: (models) => void store.setModels(models, id).catch(() => undefined),
               permissionLevel: thread.permissionLevel,
+              ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
               onRateLimits: (snapshot) => noteRateLimits(id, snapshot),
               ...(tools ? { tools } : {}),

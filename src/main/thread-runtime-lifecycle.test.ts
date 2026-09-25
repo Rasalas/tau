@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ThreadRuntimeLifecycle, type ThreadRuntimeLifecyclePort } from "./thread-runtime-lifecycle.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { UNLIMITED_EXECUTION_POLICY, type HostExecutionPolicy } from "./host-execution-policy.js";
 
 function externalBackend(threadId: string, options: { streaming?: boolean } = {}) {
   return {
@@ -39,6 +40,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     activeSessionFile: () => undefined,
     adapterFor: () => PI_AGENT_RUNTIME_ADAPTER,
     priceUsage: () => undefined,
+    executionPolicy: async () => UNLIMITED_EXECUTION_POLICY,
     requireBackend: (kind) => {
       const provider = backends[kind];
       if (!provider) throw new Error(`Runtime backend "${kind}" is not installed`);
@@ -154,6 +156,25 @@ describe("ThreadRuntimeLifecycle", () => {
       expect.objectContaining({ kind: "confirm", title: "Approve Bash?", sessionId: "thread", id: expect.stringMatching(/^backend-/u) }),
       undefined,
     );
+  });
+
+  it("tells a backend what its thread's folder may reach, asked afresh each time", async () => {
+    let policy!: () => Promise<HostExecutionPolicy>;
+    const provider = {
+      open: async (_id: string, _cwd: string, _options: unknown, context: { executionPolicy: () => Promise<HostExecutionPolicy> }) => {
+        policy = context.executionPolicy;
+        return externalBackend("thread");
+      },
+    };
+    const limited: HostExecutionPolicy = { network: "loopback", allowHosts: [], reasons: ["Limited."], sources: ["kit"] };
+    const executionPolicy = vi.fn(async () => limited);
+    const { lifecycle } = makeLifecycle({ executionPolicy }, { test: provider });
+    await lifecycle.openExternal("test", "thread", "/repo/sub");
+    expect(executionPolicy).not.toHaveBeenCalled();
+    await expect(policy()).resolves.toBe(limited);
+    await policy();
+    expect(executionPolicy).toHaveBeenCalledTimes(2);
+    expect(executionPolicy).toHaveBeenCalledWith("/repo/sub");
   });
 
   it("hands a live thread back instead of opening its session file twice", async () => {

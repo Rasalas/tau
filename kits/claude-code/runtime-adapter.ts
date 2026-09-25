@@ -76,6 +76,8 @@ export interface ClaudeSessionInput {
   mcpServer?: HostMcpConnection;
   /** The only tools the thread keeps, as Pi names them; every tool when absent. */
   tools?: readonly string[];
+  /** The project holds its commands to this machine and these hosts (API 1.14.0). */
+  network?: ClaudeNetworkLimit;
   onMessage(message: SDKMessage): void;
   onExit(error: unknown | undefined): void;
   /** The CLI's stderr, for the message when the session fails. */
@@ -116,7 +118,33 @@ export interface ClaudeQueryPlan {
   effort?: EffortLevel;
   mcpServer?: HostMcpConnection;
   tools?: readonly string[];
+  network?: ClaudeNetworkLimit;
   extraArgs?: Record<string, string | null>;
+}
+
+/** A project's network limit as the Agent SDK runtime applies it. */
+export interface ClaudeNetworkLimit {
+  allowHosts: readonly string[];
+}
+
+/**
+ * The SDK's own sandbox around every Bash command: loopback and the allowed
+ * hosts only, never a command outside it, and still a question per command at
+ * the ask level. Files stay as open as without it. WebFetch runs in the CLI's
+ * own process, outside any sandbox, so it is switched off.
+ */
+export function claudeNetworkOptions(limit: ClaudeNetworkLimit): Pick<Options, "sandbox" | "disallowedTools"> {
+  return {
+    sandbox: {
+      enabled: true,
+      failIfUnavailable: true,
+      autoAllowBashIfSandboxed: false,
+      allowUnsandboxedCommands: false,
+      network: { allowedDomains: [...limit.allowHosts], strictAllowlist: true, allowLocalBinding: true, allowAllUnixSockets: true },
+      filesystem: { disabled: true },
+    },
+    disallowedTools: ["WebFetch"],
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -148,6 +176,7 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     ...(plan.stderr ? { stderr: plan.stderr } : {}),
     ...(plan.mcpServer ? tauMcpOptions(plan.mcpServer) : {}),
     ...(plan.tools ? claudeToolOptions(plan.tools) : {}),
+    ...(plan.network ? claudeNetworkOptions(plan.network) : {}),
     ...(plan.extraArgs && Object.keys(plan.extraArgs).length ? { extraArgs: { ...plan.extraArgs } } : {}),
   };
 }
@@ -435,6 +464,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.mcpServer ? { mcpServer: input.mcpServer } : {}),
       ...(input.tools ? { tools: input.tools } : {}),
+      ...(input.network ? { network: input.network } : {}),
     });
     const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
     session.start();

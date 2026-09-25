@@ -158,3 +158,24 @@ export interface CredentialCheck {
   source?: string;
   message?: string;
 }
+
+/** `network` answer: the limit of the agent's commands in a server project, and what lifts it. */
+export interface ServerNetworkState {
+  /** An sftp.json or a target folder makes it one; only then does the limit hold. */
+  serverProject: boolean;
+  /** The user lifted the limit for this project. */
+  allowAll: boolean;
+  /** Hosts the user allowed beyond the package sources. */
+  allowHosts: string[];
+  /** Reachable without asking. */
+  packageSources: string[];
+  /** Whether Pi's commands can be held to the limit on this machine. */
+  pi?: { available: boolean; reason?: string };
+}
+
+export function decodeServerNetworkState(value: unknown): ServerNetworkState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const state = value as Partial<ServerNetworkState>;
+  if (typeof state.serverProject !== "boolean" || typeof state.allowAll !== "boolean" || !Array.isArray(state.allowHosts) || !Array.isArray(state.packageSources)) return undefined;
+  return state as ServerNetworkState;
+}

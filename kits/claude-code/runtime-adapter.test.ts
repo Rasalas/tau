@@ -114,6 +114,23 @@ describe("Claude Code runtime adapter", () => {
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
   });
 
+  it("holds Bash to the SDK's sandbox in a project that limits its network, and switches WebFetch off", () => {
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("sandbox");
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("disallowedTools");
+    expect(claudeQueryOptions({ ...plan, network: { allowHosts: ["registry.npmjs.org", "*.github.com"] } })).toMatchObject({
+      sandbox: {
+        enabled: true,
+        failIfUnavailable: true,
+        autoAllowBashIfSandboxed: false,
+        allowUnsandboxedCommands: false,
+        network: { allowedDomains: ["registry.npmjs.org", "*.github.com"], strictAllowlist: true, allowLocalBinding: true, allowAllUnixSockets: true },
+        filesystem: { disabled: true },
+      },
+      disallowedTools: ["WebFetch"],
+    });
+  });
+
   it("collects the main loop's text, skips sub-agent frames and the resume handshake", async () => {
     async function* frames(): AsyncGenerator<SDKMessage> {
       yield init();
@@ -172,6 +189,20 @@ describe("Claude Code runtime adapter", () => {
     await session.close();
     expect(seen).toEqual(["system"]);
     expect(exits).toEqual([undefined]);
+  });
+
+  it("starts a limited project's session with the sandbox in the SDK's options", async () => {
+    let options: Options | undefined;
+    const query = ((received: { options?: Options }) => {
+      options = received.options;
+      async function* run(): AsyncGenerator<SDKMessage, void> { yield init(); }
+      return Object.assign(run(), { interrupt: vi.fn(), setPermissionMode: vi.fn(), setModel: vi.fn() }) as unknown as ReturnType<ClaudeQuery>;
+    }) as unknown as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/claude", storePath: store("limited"), query, env: {} });
+    const session = adapter.openSession({ cwd: "/repo", claudeSessionId: SESSION, started: false, permissionLevel: "full", network: { allowHosts: ["pypi.org"] }, onMessage: () => undefined, onExit: () => undefined });
+    expect(options?.sandbox).toMatchObject({ enabled: true, allowUnsandboxedCommands: false, network: { allowedDomains: ["pypi.org"], allowLocalBinding: true } });
+    expect(options?.disallowedTools).toEqual(["WebFetch"]);
+    await session.close();
   });
 
   it("probes the CLI once and shares the answer for a while", async () => {
