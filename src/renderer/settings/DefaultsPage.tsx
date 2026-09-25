@@ -182,13 +182,13 @@ export function DefaultsPage({
         <SettingRow
           id={settingAnchor("Model parameters")}
           title="Temperature"
-          description="Sampling temperature for generations; empty leaves it to the model."
+          description="Sampling temperature of Pi threads; empty leaves it to the model. Other runtimes choose their own; OpenAI's reasoning models, and Claude while it thinks, go without."
           setting={temperature}
           control={<NumberField label="Temperature" value={temperature.value} step={0.1} min={0} max={2} onCommit={temperature.set} onClear={temperature.reset} />}
         />
         <SettingRow
           title="Max tokens"
-          description="The longest answer a generation may give; empty leaves it to the model."
+          description="The longest answer a Pi thread's model may give; empty leaves it to the model. Other runtimes choose their own; the ChatGPT subscription's models go without."
           setting={maxTokens}
           control={<NumberField label="Max tokens" value={maxTokens.value} step={256} min={1} onCommit={maxTokens.set} onClear={maxTokens.reset} />}
         />
