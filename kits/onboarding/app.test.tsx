@@ -178,6 +178,37 @@ describe("Onboarding in the workbench", () => {
     expect(screen.getByRole("checkbox", { name: /notes/ })).toBeTruthy();
   });
 
+  it("opens although the thread index names the blank thread a start opens before setup asks", async () => {
+    const { invokeHostExtension } = host();
+    let answerState!: () => void;
+    const delayed = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+      if (extensionId === "tau.onboarding" && command === "state") await new Promise<void>((resolve) => { answerState = resolve; });
+      return invokeHostExtension(extensionId, command, input);
+    });
+    const client = createFakeHostClient({ invokeHostExtension: delayed });
+    renderApp(client, { extensions: [onboarding] });
+    await waitFor(() => expect(delayed).toHaveBeenCalledWith("tau.onboarding", "state", undefined));
+    const session = (id: string, messageCount: number) => ({ id, path: `/s/${id}.jsonl`, title: "Untitled thread", modifiedAt: NOW, projectPath: "/work/alpha", projectName: "alpha", messageCount });
+    act(() => { client.emit({ type: "thread-index", threadIndex: { projects: [], sessions: [session("blank", 0)] } }); });
+    await act(async () => { answerState(); });
+    await screen.findByRole("heading", { name: "Your agents" });
+  });
+
+  it("stays shut when the thread index already holds a thread with messages", async () => {
+    const { invokeHostExtension } = host();
+    let answerState!: () => void;
+    const delayed = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+      if (extensionId === "tau.onboarding" && command === "state") await new Promise<void>((resolve) => { answerState = resolve; });
+      return invokeHostExtension(extensionId, command, input);
+    });
+    const client = createFakeHostClient({ invokeHostExtension: delayed });
+    renderApp(client, { extensions: [onboarding] });
+    await waitFor(() => expect(delayed).toHaveBeenCalledWith("tau.onboarding", "state", undefined));
+    act(() => { client.emit({ type: "thread-index", threadIndex: { projects: [], sessions: [{ id: "codex-1", path: "/s/codex-1.jsonl", title: "Imported", modifiedAt: NOW, projectPath: "/work/alpha", projectName: "alpha", messageCount: 4, backendKind: "codex" }] } }); });
+    await act(async () => { answerState(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull();
+  });
+
   it("stays closed once setup ran, and /welcome brings it back", async () => {
     const { invokeHostExtension } = host();
     await invokeHostExtension("tau.onboarding", "complete");

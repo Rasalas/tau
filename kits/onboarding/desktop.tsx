@@ -17,8 +17,9 @@ const TERMINAL_RUN_SERVICE = "tau.terminal/run";
 function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
   let asked = false;
   // The host counts Pi's sessions; the index also lists other runtimes' threads.
+  // It lists the blank thread every start opens too, so only a thread with messages counts.
   let threads: number | undefined;
-  context.events.on("thread-index", (event) => { threads = event.threadIndex.sessions.length; });
+  context.events.on("thread-index", (event) => { threads = event.threadIndex.sessions.filter((session) => session.messageCount > 0).length; });
   return function FirstStart({ actions }: RegionProps) {
     const { terminal } = useSyncExternalStore(flow.subscribe, flow.get);
     useEffect(() => {
