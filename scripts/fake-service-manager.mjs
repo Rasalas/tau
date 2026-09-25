@@ -5,9 +5,11 @@
 // manager ever hearing of it. It starts the unit's program itself, detached,
 // with the unit's environment, and keeps the pid in a state file beside the
 // units (TAU_SERVICE_UNIT_DIR). Every call is appended to `.fake-calls.log`
-// there. Task Scheduler is not faked. Never used by the app.
+// there. A systemd unit's `Wants=`/`BindsTo=` start with it, and a unit bound
+// to one that stops stops too (the display's Xvfb and window). Task Scheduler
+// is not faked. Never used by the app.
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +41,13 @@ export function parseSystemdUnit(text, home) {
   const program = [...exec.matchAll(/"((?:\\.|[^"\\])*)"/gu)].map((match) => systemdText(match[1]).replaceAll("$$", "$"));
   const log = (/^StandardOutput=append:(.*)$/mu.exec(text)?.[1] ?? "").replaceAll("%%", "%");
   return { program, env, cwd: home, log };
+}
+
+/** The units a unit pulls in (`Wants=`, `BindsTo=`) and the ones it stops with (`BindsTo=`). */
+export function systemdDependencies(text) {
+  const list = (key) => [...text.matchAll(new RegExp(`^${key}=(.*)$`, "gmu"))].flatMap((match) => match[1].trim().split(/\s+/u)).filter(Boolean);
+  const bindsTo = list("BindsTo");
+  return { pulls: [...list("Wants"), ...bindsTo], bindsTo };
 }
 
 function alive(pid) {
@@ -121,23 +130,46 @@ async function launchctl(args, directory, state) {
   }
 }
 
+function unitText(directory, name) {
+  try { return readFileSync(join(directory, name), "utf8"); } catch { return undefined; }
+}
+
+function startUnit(directory, state, name) {
+  const text = unitText(directory, name);
+  if (text === undefined) { console.error(`Unit ${name} not found.`); return 5; }
+  for (const dependency of systemdDependencies(text).pulls) {
+    const code = startUnit(directory, state, dependency);
+    if (code !== 0 && systemdDependencies(text).bindsTo.includes(dependency)) return code;
+  }
+  const entry = (state[name] ??= {});
+  if (!alive(entry.pid)) entry.pid = start(parseSystemdUnit(text, process.env.HOME));
+  return 0;
+}
+
+/** Stops a unit and, first, every running unit bound to it; the state keeps no file of a removed unit. */
+async function stopUnit(directory, state, name) {
+  for (const [other, entry] of Object.entries(state)) {
+    if (other === name || !alive(entry.pid)) continue;
+    const text = unitText(directory, other);
+    if (text && systemdDependencies(text).bindsTo.includes(name)) await stopUnit(directory, state, other);
+  }
+  const entry = state[name];
+  if (!entry) return;
+  await stop(entry.pid);
+  entry.pid = undefined;
+}
+
 async function systemctl(args, directory, state) {
   const [verb, unitName] = args.filter((arg) => arg !== "--user");
   const entry = unitName ? (state[unitName] ??= {}) : undefined;
-  const unitPath = unitName ? join(directory, unitName) : "";
-  const startUnit = () => {
-    if (!existsSync(unitPath)) { console.error(`Unit ${unitName} not found.`); return 5; }
-    if (!alive(entry.pid)) entry.pid = start(parseSystemdUnit(readFileSync(unitPath, "utf8"), process.env.HOME));
-    return 0;
-  };
   switch (verb) {
     case "daemon-reload": return 0;
     case "show-environment": console.log(`HOME=${process.env.HOME}`); return 0;
     case "enable": entry.enabled = true; return 0;
     case "disable": entry.enabled = false; return 0;
-    case "start": return startUnit();
-    case "restart": await stop(entry.pid); return startUnit();
-    case "stop": await stop(entry.pid); entry.pid = undefined; return 0;
+    case "start": return startUnit(directory, state, unitName);
+    case "restart": await stopUnit(directory, state, unitName); return startUnit(directory, state, unitName);
+    case "stop": await stopUnit(directory, state, unitName); return 0;
     case "is-enabled": console.log(entry.enabled ? "enabled" : "disabled"); return entry.enabled ? 0 : 1;
     case "is-active": console.log(alive(entry.pid) ? "active" : "inactive"); return alive(entry.pid) ? 0 : 3;
     default:

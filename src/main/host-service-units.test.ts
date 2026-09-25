@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   HOST_SERVICE_ENV,
   defaultUserData,
+  displayServiceNames,
   hostServiceNames,
+  renderWindowUnit,
+  renderXauthority,
+  renderXvfbUnit,
+  windowEnvironment,
+  windowProgram,
+  type HostDisplaySpec,
   renderLaunchAgent,
   renderSystemdUnit,
   renderWindowsLauncher,
@@ -87,6 +94,73 @@ describe("a systemd user unit", () => {
     expect(unit).toContain("StandardOutput=append:/home/me/logs/100%%.log");
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("WantedBy=default.target");
+  });
+});
+
+describe("the invisible display", () => {
+  const display: HostDisplaySpec = {
+    number: 101,
+    xvfb: "/usr/bin/Xvfb",
+    authPath: "/home/me/.config/tau/display/Xauthority",
+    xvfbUnit: "tau-xvfb.service",
+    windowUnit: "tau-window.service",
+    window: {
+      program: ["/opt/Tau/tau"],
+      env: { DISPLAY: ":101", TAU_NO_FOCUS: "1" },
+      workingDirectory: "/home/me",
+      logPath: "/home/me/.config/tau/logs/display-window.log",
+    },
+  };
+
+  it("names its units after the host's, suffix and all", () => {
+    expect(displayServiceNames("tau-host.service")).toEqual({ xvfbUnit: "tau-xvfb.service", windowUnit: "tau-window.service" });
+    expect(displayServiceNames("tau-host-1a2b3c4d.service")).toEqual({ xvfbUnit: "tau-xvfb-1a2b3c4d.service", windowUnit: "tau-window-1a2b3c4d.service" });
+  });
+
+  it("runs Xvfb without TCP and with a cookie, started by the host unit", () => {
+    const xvfb = renderXvfbUnit(display, "/home/me/logs/xvfb.log");
+    expect(xvfb).toContain('ExecStart="/usr/bin/Xvfb" ":101" "-nolisten" "tcp" "-screen" "0" "1920x1080x24" "-auth" "/home/me/.config/tau/display/Xauthority"');
+    expect(xvfb).not.toContain("[Install]");
+    const host = renderSystemdUnit(spec, display);
+    expect(host).toContain("Wants=tau-xvfb.service\nAfter=tau-xvfb.service");
+    expect(renderSystemdUnit(spec)).not.toContain("Wants=");
+  });
+
+  it("binds the window to Xvfb and the host, and only the host starts it", () => {
+    const window = renderWindowUnit(display, "tau-host.service");
+    expect(window).toContain("BindsTo=tau-xvfb.service tau-host.service");
+    expect(window).toContain("After=tau-xvfb.service tau-host.service");
+    expect(window).toContain('Environment="DISPLAY=:101"');
+    expect(window).toContain('Environment="TAU_NO_FOCUS=1"');
+    expect(window).toContain('ExecStart="/opt/Tau/tau"');
+    expect(window).not.toContain("[Install]");
+  });
+
+  it("gives the window the host's instance, never the host's own switches", () => {
+    const env = windowEnvironment({
+      PATH: "/usr/bin", ELECTRON_RUN_AS_NODE: "1", TAU_USER_DATA: "/u", TAU_HOST_LISTEN: "127.0.0.1:0", TAU_HOST_LOCAL_FILES: "1",
+      [HOST_SERVICE_ENV]: "systemd", TAU_CONFIG_FILE: "/c.json", TAU_HOST_ALLOWED_ORIGINS: "http://x",
+    }, { number: 99, authPath: "/u/display/Xauthority" });
+    expect(env).toEqual({
+      PATH: "/usr/bin", TAU_USER_DATA: "/u", TAU_CONFIG_FILE: "/c.json", TAU_HOST_ALLOWED_ORIGINS: "http://x",
+      DISPLAY: ":99", XAUTHORITY: "/u/display/Xauthority", TAU_NO_FOCUS: "1", TAU_NO_NATIVE_DIALOGS: "1",
+    });
+  });
+
+  it("starts the app itself: a package's binary, or Electron with the checkout", () => {
+    expect(windowProgram("/opt/Tau/tau", "/opt/Tau/resources/app.asar.unpacked/dist-electron/main/headless.js")).toEqual(["/opt/Tau/tau"]);
+    expect(windowProgram("/w/node_modules/electron/dist/electron", "/w/dist-electron/main/headless.js")).toEqual(["/w/node_modules/electron/dist/electron", "/w"]);
+  });
+
+  it("writes one MIT cookie for the display in Xauthority's format", () => {
+    const cookie = Buffer.alloc(16, 0xab);
+    const bytes = renderXauthority(99, cookie);
+    expect([...bytes.subarray(0, 6)]).toEqual([0xff, 0xff, 0, 0, 0, 2]);
+    expect(bytes.subarray(6, 8).toString()).toBe("99");
+    expect(bytes.readUInt16BE(8)).toBe(18);
+    expect(bytes.subarray(10, 28).toString()).toBe("MIT-MAGIC-COOKIE-1");
+    expect(bytes.readUInt16BE(28)).toBe(16);
+    expect(bytes.subarray(30)).toEqual(cookie);
   });
 });
 

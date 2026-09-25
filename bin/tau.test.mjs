@@ -104,11 +104,26 @@ describe("tau app", () => {
 
 describe("tau service", () => {
   it("reads its action", () => {
-    expect(parseArgs(["service", "install"])).toEqual({ command: "service", action: "install" });
-    expect(parseArgs(["service", "status"])).toEqual({ command: "service", action: "status" });
+    expect(parseArgs(["service", "install"])).toEqual({ command: "service", action: "install", flags: [] });
+    expect(parseArgs(["service", "status"])).toEqual({ command: "service", action: "status", flags: [] });
     expect(parseArgs(["service"])).toEqual({ help: true });
     expect(() => parseArgs(["service", "start"])).toThrow(/Unknown service action/u);
     expect(() => parseArgs(["service", "status", "now"])).toThrow(/takes no arguments/u);
+  });
+
+  it("passes --display and --no-display to install only", async () => {
+    expect(parseArgs(["service", "install", "--display"])).toEqual({ command: "service", action: "install", flags: ["--display"] });
+    expect(parseArgs(["service", "install", "--no-display"])).toEqual({ command: "service", action: "install", flags: ["--no-display"] });
+    expect(() => parseArgs(["service", "install", "--display", "--no-display"])).toThrow(/--display or --no-display/u);
+    expect(() => parseArgs(["service", "status", "--display"])).toThrow(/takes no arguments/u);
+    const runs = [];
+    await main(["service", "install", "--display"], {
+      out: () => undefined,
+      env: { TAU_USER_DATA: "/tmp/instance" },
+      serviceLauncher: { command: "/usr/lib/tau/tau", entry: "/x/service-cli.js" },
+      runService: (_launcher, action, _env, flags) => { runs.push([action, ...flags]); return 0; },
+    });
+    expect(runs).toEqual([["install", "--display"]]);
   });
 
   it("runs the app's service command as Node, for the instance it names", async () => {
@@ -117,13 +132,14 @@ describe("tau service", () => {
       out: () => undefined,
       env: { TAU_USER_DATA: "/tmp/instance", ELECTRON_RUN_AS_NODE: "0" },
       serviceLauncher: { command: "/Applications/Tau.app/Contents/MacOS/Tau", entry: "/x/service-cli.js" },
-      runService: (launcher, action, env) => { runs.push({ launcher, action, env }); return 3; },
+      runService: (launcher, action, env, flags) => { runs.push({ launcher, action, env, flags }); return 3; },
     });
     expect(code).toBe(3);
     expect(runs).toEqual([{
       launcher: { command: "/Applications/Tau.app/Contents/MacOS/Tau", entry: "/x/service-cli.js" },
       action: "status",
       env: { TAU_USER_DATA: "/tmp/instance", ELECTRON_RUN_AS_NODE: "1" },
+      flags: [],
     }]);
   });
 

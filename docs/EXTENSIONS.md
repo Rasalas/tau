@@ -71,6 +71,19 @@ carries it, including a remote host's. `registerRuntimeExtension` is one of the
 members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 `"isolation": "in-process"`.
 
+The factory's second argument says which session it serves: `sessionId`, `cwd`
+and, for a thread another one spawned (`sessions.start({ parent })`),
+`parentThreadId`. The option `shellCommandPrefix(session)` (API 1.15.0) gives
+that runtime shell lines Pi runs before every `bash` command, the user's `!`
+commands included, ahead of the user's own `shellCommandPrefix` from Pi's
+settings. They run in the shell Pi starts, outside whatever a `tool_call`
+handler rewrote the command to, so they hold whichever extension loaded first:
+Servers wraps a limited project's commands in its sandbox there, and Agents
+Kit's line still lowers the shell that starts the sandbox. Tau asks once per
+runtime; `undefined` adds nothing. Keep the lines silent and let them fail
+quietly (`{ …; } >/dev/null 2>&1`): they share the shell and the output with
+the command.
+
 `context.services.loadRuntimeExtension(packageName)` answers with the factory a
 Pi extension Tau ships as one of its own npm dependencies exports. The host
 resolves the package, so it keeps the layout npm gave it and still finds the
@@ -2337,8 +2350,10 @@ ungated like the other two, it is never shared with another package, and
 nothing creates it until the package writes there. `TAU_USER_DATA` moves it
 with everything else, so a dev instance's state is its own — Agents Kit keeps
 its link index there. What belongs in the *user's* `~/.tau` instead is
-configuration the user edits: Agents Kit reads its running budget from
-`~/.tau/agents.json` and never writes it.
+configuration the user edits: Agents Kit reads its running budget
+(`maxRunningAgents`) and how far sub-agents' commands yield (`priority`:
+`"low"` by default, `"background"` or `"normal"`; `"lowPriority": false` means
+`"normal"`) from `~/.tau/agents.json` and never writes it.
 
 `services.themesDir` is the folder of the user's own themes — `~/.tau/themes`,
 or what `TAU_THEMES_DIR` names (a dev instance points it under `.tau-dev/`). It
@@ -2428,7 +2443,13 @@ not a dialog on the host's screen.
 
 Two limits: an isolated (worker) package cannot use `callClient` at all, and a
 host with no Tau window that runs the half (the browser client alone, a host
-nobody is attached to) makes the call reject. Treat it as an optional
+nobody is attached to) makes the call reject. One exception (new in API
+1.15.0): a Linux service host with an invisible display (`tau service install
+--display`) starts the Tau window on that display first, waits up to 60 s for
+it to connect, then asks it; a call pinned to a window that is gone, or one
+only the caller's own window may answer, never starts it. That window stops
+after 10 minutes without a call, so a half should rebuild its view on the next
+call rather than assume it is still there (Preview Kit's half does). Treat it as an optional
 capability and say what is missing, the way Preview Kit answers "Preview needs
 the Tau desktop app on this host".
 

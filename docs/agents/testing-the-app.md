@@ -51,6 +51,18 @@ Tau's own settings get the same treatment: `TAU_CONFIG_FILE=<worktree>/.tau-dev/
 
 The host's system service never reaches the machine's service manager from an instance: `TAU_SERVICE_UNIT_DIR=<worktree>/.tau-dev/service-units` is where its unit goes, and `TAU_SERVICE_CONTROL=scripts/fake-service-manager.mjs` stands in for `launchctl`, `systemctl` and `loginctl`. The fake starts the unit's program itself, detached, with the unit's environment, records its pid in `.tau-dev/service-units/.fake-state.json` and every call in `.fake-calls.log` there. Installing the service in Settings → Connections → Background (or `TAU_USER_DATA=<instance userData> TAU_SERVICE_UNIT_DIR=… TAU_SERVICE_CONTROL=… ELECTRON_RUN_AS_NODE=1 <electron> dist-electron/main/service-cli.js status`) therefore runs a real service host that takes over from the instance's own. That host outlives `npm run cdp -- stop` by design: uninstall the service in the instance before you stop it, or stop the pid in `.fake-state.json` yourself. Never install the service in an instance started without those two variables, and never run `tau service` outside one on this machine.
 
+### Invisible display
+
+The display units (`tau service install --display`, Linux only) are tested the same way: `npm run smoke:display` installs them through the fake service manager, which starts Xvfb and the Tau window as ordinary processes of the smoke, checks that a preview call starts the window, that the window draws a frame, that it starts again after a stop, and that uninstalling stops everything. On macOS, or without Xvfb, it says so and passes; it runs on the Linux CI runner. Never install the display units against a real systemd from a test.
+
+Checklist for the user, on the Linux machine itself (rex), after `sudo apt install xvfb` and `tau service install --display`:
+
+1. `tau service status` shows `display: :N (Xvfb running; window stopped, …)`, and `systemctl --user status tau-xvfb.service` is active.
+2. In a Tau terminal on that machine, `echo $DISPLAY` prints `:N`, and `xdpyinfo -display "$DISPLAY" | head -3` answers (package `x11-utils`).
+3. Open a page in the preview from a thread on that machine (from the Mac, through the machine's connection): `systemctl --user status tau-window.service` turns active, and the preview shows the page.
+4. Leave it alone for 10 minutes: `tau-window.service` is inactive again; the next preview call starts it.
+5. `tau service install --no-display`: both display units are gone, the host runs on, and a new terminal has no `DISPLAY`.
+
 ### Codex gets a shadow home
 
 The Codex CLI keeps its sessions, config, logs and caches under `CODEX_HOME` (`~/.codex` by default), and a Codex thread writes there from its first turn. `dev-instance.mjs` therefore sets `CODEX_HOME=<worktree>/.tau-dev/codex-home` and prepares that directory the way the keybindings shadow above is prepared, with one difference: only `auth.json` is linked from `~/.codex`, nothing else, so the instance signs in as the user while every rollout, `config.toml` and SQLite file Codex writes lands under `.tau-dev`. A `CODEX_HOME` already set in the calling shell is kept as it is. By hand, for a test that drives `codex app-server` without an instance:

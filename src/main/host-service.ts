@@ -1,15 +1,26 @@
 import { execFile, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { accessSync, constants, existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import type { UiHostService, UiHostServiceProblem } from "../shared/connections.js";
+import type { UiHostDisplay, UiHostService, UiHostServiceProblem } from "../shared/connections.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { processAlive, readHostDescriptor } from "./host-process-supervisor.js";
+import { DISPLAY_WINDOW_IDLE_MS } from "./display-window.js";
 import {
+  FIRST_DISPLAY_NUMBER,
   defaultUserData,
+  displayEnvironment,
+  displayServiceNames,
   hostServiceNames,
+  renderWindowUnit,
+  renderXauthority,
+  renderXvfbUnit,
+  windowEnvironment,
+  windowProgram,
   renderLaunchAgent,
   renderSystemdUnit,
   renderWindowsLauncher,
@@ -17,6 +28,7 @@ import {
   serviceEnvironment,
   servicePath,
   utf16WithBom,
+  type HostDisplaySpec,
   type HostServiceManagerKind,
   type HostServiceNames,
   type HostServiceSpec,
@@ -60,7 +72,20 @@ export interface HostServiceOptions {
   runner?: ServiceCommandRunner;
   /** Stops a host a Windows task started: ending the task leaves the host it started running. */
   retireHost?: () => Promise<void>;
+  /** Where Xvfb is; searched on the unit's PATH when absent. */
+  locateXvfb?: () => string | undefined;
+  /** Whether display `:N` is in use on this machine; its X lock and socket when absent. */
+  displayTaken?: (number: number) => boolean;
 }
+
+/** `--display` on a machine that cannot have one. */
+const DISPLAY_UNSUPPORTED: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: "macOS has no invisible display: there is no Xvfb, and virtual displays need private API. The preview runs hidden in a Tau window you open instead.",
+  win32: "Windows has no invisible display Tau can start a window on. The preview runs hidden in a Tau window you open instead.",
+};
+const NO_XVFB = "Xvfb is not installed. Install it (Debian and Ubuntu: sudo apt install xvfb), then run tau service install --display again.";
+/** Past this, something else owns every display number Tau would try. */
+const LAST_DISPLAY_NUMBER = FIRST_DISPLAY_NUMBER + 100;
 
 interface ServiceFile {
   path: string;
@@ -72,7 +97,7 @@ interface Backend {
   kind: HostServiceManagerKind;
   label: string;
   unitPath: string;
-  files(spec: HostServiceSpec): ServiceFile[];
+  files(spec: HostServiceSpec, display?: HostDisplaySpec): ServiceFile[];
   /** After the files are written; the last step starts the host. */
   activate: ServiceStep[];
   /** Starts an installed service that is not running; a no-op for one that is. */
@@ -157,14 +182,115 @@ export class HostServiceManager {
   }
 
   /** What the unit says; the same for the window, the host and the command line of one install. */
-  spec(): HostServiceSpec {
+  spec(display?: Pick<HostDisplaySpec, "number" | "authPath">): HostServiceSpec {
     const kind = this.backend?.kind ?? "launchd";
+    const env = serviceEnvironment({ userData: this.options.userData, manager: kind, env: this.env, path: servicePath(this.platform, this.options.execPath) });
     return {
       program: [this.options.execPath, this.options.entry],
-      env: serviceEnvironment({ userData: this.options.userData, manager: kind, env: this.env, path: servicePath(this.platform, this.options.execPath) }),
+      env: display ? { ...env, ...displayEnvironment(display) } : env,
       workingDirectory: this.home,
       logPath: this.logPath,
     };
+  }
+
+  /** Why this machine cannot keep an invisible display; undefined when it can. */
+  get displayUnsupported(): string | undefined {
+    if (this.unsupported) return this.unsupported;
+    return this.backend?.kind === "systemd" ? undefined : DISPLAY_UNSUPPORTED[this.platform] ?? `Tau knows no invisible display on ${this.platform}.`;
+  }
+
+  /** The display units and files of this userData; the host unit's own names decide theirs. */
+  private get displayPaths() {
+    const directory = dirname(this.backend?.unitPath ?? "");
+    const { xvfbUnit, windowUnit } = displayServiceNames(this.names.unit);
+    return {
+      xvfbUnit,
+      windowUnit,
+      xvfbUnitPath: join(directory, xvfbUnit),
+      windowUnitPath: join(directory, windowUnit),
+      authPath: join(this.options.userData, "display", "Xauthority"),
+      xvfbLog: join(this.options.userData, "logs", "display-xvfb.log"),
+      windowLog: join(this.options.userData, "logs", "display-window.log"),
+    };
+  }
+
+  /** The display the installed units name: its number and Xvfb, read back from the Xvfb unit. */
+  async installedDisplay(): Promise<{ number: number; xvfb: string } | undefined> {
+    if (this.displayUnsupported) return undefined;
+    const unit = await readFile(this.displayPaths.xvfbUnitPath, "utf8").catch(() => undefined);
+    const match = unit && /^ExecStart="((?:\\.|[^"\\])*)" ":(\d+)"/mu.exec(unit);
+    return match ? { number: Number(match[2]), xvfb: match[1]!.replace(/\\(["\\])/gu, "$1").replaceAll("%%", "%").replaceAll("$$", "$") } : undefined;
+  }
+
+  private displaySpec(number: number, xvfb: string): HostDisplaySpec {
+    const paths = this.displayPaths;
+    const display = { number, authPath: paths.authPath };
+    const program = windowProgram(this.options.execPath, this.options.entry);
+    return {
+      ...display,
+      xvfb,
+      xvfbUnit: paths.xvfbUnit,
+      windowUnit: paths.windowUnit,
+      window: { program, env: windowEnvironment(this.spec().env, display), workingDirectory: this.home, logPath: paths.windowLog },
+    };
+  }
+
+  private locateXvfb(): string | undefined {
+    if (this.options.locateXvfb) return this.options.locateXvfb();
+    for (const directory of servicePath(this.platform, this.options.execPath).split(":")) {
+      const candidate = join(directory, "Xvfb");
+      try {
+        accessSync(candidate, constants.X_OK);
+        return candidate;
+      } catch {
+        // not here
+      }
+    }
+    return undefined;
+  }
+
+  private freeDisplayNumber(): number {
+    const taken = this.options.displayTaken ?? ((number: number) => existsSync(`/tmp/.X${number}-lock`) || existsSync(`/tmp/.X11-unix/X${number}`));
+    for (let number = FIRST_DISPLAY_NUMBER; number <= LAST_DISPLAY_NUMBER; number++) if (!taken(number)) return number;
+    throw new HostServiceError(`Every display from :${FIRST_DISPLAY_NUMBER} to :${LAST_DISPLAY_NUMBER} is in use.`);
+  }
+
+  /** Kept across installs, so a running Xvfb and the windows on it keep matching. */
+  private async writeCookie(display: HostDisplaySpec): Promise<void> {
+    await mkdir(dirname(display.authPath), { recursive: true, mode: 0o700 });
+    if (existsSync(display.authPath)) return;
+    await writeFile(display.authPath, renderXauthority(display.number, randomBytes(16)), { mode: 0o600 });
+  }
+
+  private async removeDisplayFiles(): Promise<void> {
+    const paths = this.displayPaths;
+    for (const path of [paths.xvfbUnitPath, paths.windowUnitPath]) await rm(path, { force: true });
+    await rm(dirname(paths.authPath), { recursive: true, force: true });
+  }
+
+  /** Starts the window on the display; the host asks when a call needs a window half. */
+  async startWindow(): Promise<void> {
+    await this.runner.run({ command: "systemctl", args: ["--user", "start", this.displayPaths.windowUnit] }).then((result) => {
+      if (result.code !== 0) throw new HostServiceError(`The window on the invisible display did not start: ${(result.stderr || result.stdout).trim().split("\n")[0] || `exit ${result.code}`}.`);
+    });
+  }
+
+  async stopWindow(): Promise<void> {
+    await this.runner.run({ command: "systemctl", args: ["--user", "stop", this.displayPaths.windowUnit] });
+  }
+
+  private async active(unit: string): Promise<boolean> {
+    return (await this.runner.run({ command: "systemctl", args: ["--user", "is-active", unit] })).code === 0;
+  }
+
+  private async displayStatus(installed: { number: number } | undefined): Promise<UiHostDisplay> {
+    const idleMinutes = DISPLAY_WINDOW_IDLE_MS / 60_000;
+    const reason = this.displayUnsupported;
+    if (reason) return { supported: false, reason, installed: false, xvfbRunning: false, windowRunning: false, idleMinutes };
+    if (!installed) return { supported: true, installed: false, xvfbRunning: false, windowRunning: false, idleMinutes };
+    const paths = this.displayPaths;
+    const [xvfbRunning, windowRunning] = await Promise.all([this.active(paths.xvfbUnit), this.active(paths.windowUnit)]);
+    return { supported: true, installed: true, display: `:${installed.number}`, xvfbRunning, windowRunning, idleMinutes };
   }
 
   /** Whether a unit for this userData is on disk. */
@@ -177,7 +303,10 @@ export class HostServiceManager {
   async status(self?: { pid: number }): Promise<UiHostService> {
     const backend = this.backend;
     if (!backend) return { supported: false, reason: this.unsupported, installed: false, running: false, serving: false, stale: false, logPath: this.logPath, problems: [] };
-    const expected = backend.files(this.spec());
+    const installedDisplay = await this.installedDisplay();
+    const xvfb = installedDisplay && (this.locateXvfb() ?? installedDisplay.xvfb);
+    const display = installedDisplay && xvfb ? this.displaySpec(installedDisplay.number, xvfb) : undefined;
+    const expected = backend.files(this.spec(display), display);
     const present = await Promise.all(expected.map((file) => readFile(file.path).catch(() => undefined)));
     const installed = present[0] !== undefined;
     const stale = installed && expected.some((file, index) => !present[index]?.equals(Buffer.from(file.content)));
@@ -194,7 +323,8 @@ export class HostServiceManager {
       ...(running && descriptor?.version ? { version: descriptor.version } : {}),
       unitPath: backend.unitPath,
       logPath: this.logPath,
-      problems: installed ? await this.problems(backend) : [],
+      problems: installed ? [...await this.problems(backend), ...(installedDisplay && !this.locateXvfb() ? [{ code: "xvfb-missing", message: NO_XVFB }] : [])] : [],
+      display: await this.displayStatus(installed ? installedDisplay : undefined),
     };
   }
 
@@ -202,13 +332,33 @@ export class HostServiceManager {
    * Writes the unit and starts the service. A host started by it takes over
    * from the one running now (`headless.ts`). `detached` for the service host
    * itself, which the restart stops before it could finish the steps.
+   * `display` adds or removes the invisible display; left out, an install
+   * keeps whatever is there.
    */
-  async install(options: { detached?: boolean } = {}): Promise<void> {
+  async install(options: { detached?: boolean; display?: boolean } = {}): Promise<void> {
     const backend = this.require();
+    const current = await this.installedDisplay();
+    const wanted = options.display ?? current !== undefined;
+    if (wanted && this.displayUnsupported) throw new HostServiceError(this.displayUnsupported);
+    let display: HostDisplaySpec | undefined;
+    if (wanted) {
+      const xvfb = this.locateXvfb();
+      if (!xvfb) throw new HostServiceError(NO_XVFB);
+      display = this.displaySpec(current?.number ?? this.freeDisplayNumber(), xvfb);
+    }
     if (backend.kind === "systemd") await this.prepareSystemd();
     await mkdir(dirname(this.logPath), { recursive: true, mode: 0o700 });
-    for (const file of backend.files(this.spec())) await writeAtomically(file);
-    await this.steps(backend.activate, options.detached);
+    const paths = this.displayPaths;
+    // The window starts again on demand, on whatever the units say now.
+    if (current) await this.steps([{ ...systemctlUser("stop", paths.windowUnit), optional: true }]);
+    if (current && !display) {
+      await this.steps([{ ...systemctlUser("stop", paths.xvfbUnit), optional: true }]);
+      await this.removeDisplayFiles();
+    }
+    if (display) await this.writeCookie(display);
+    for (const file of backend.files(this.spec(display), display)) await writeAtomically(file);
+    const activate = display ? [...backend.activate.slice(0, -1), systemctlUser("restart", paths.xvfbUnit), ...backend.activate.slice(-1)] : backend.activate;
+    await this.steps(activate, options.detached);
   }
 
   /** Stops the service and removes it from login. False when there was none. */
@@ -216,6 +366,11 @@ export class HostServiceManager {
     const backend = this.require();
     if (!await this.installed()) return false;
     await this.steps(backend.deactivate);
+    if (await this.installedDisplay()) {
+      const paths = this.displayPaths;
+      await this.steps([{ ...systemctlUser("stop", paths.windowUnit), optional: true }, { ...systemctlUser("stop", paths.xvfbUnit), optional: true }]);
+      await this.removeDisplayFiles();
+    }
     for (const file of backend.files(this.spec())) await rm(file.path, { force: true });
     await this.steps(backend.finalize, options.detached);
     if (backend.kind === "task-scheduler") await this.options.retireHost?.();
@@ -293,12 +448,19 @@ export class HostServiceManager {
     }
     if (this.platform === "linux") {
       const unitPath = join(override || join(this.env.XDG_CONFIG_HOME || join(this.home, ".config"), "systemd", "user"), unit);
-      const systemctl = (...args: string[]): ServiceStep => ({ command: "systemctl", args: ["--user", ...args] });
+      const systemctl = systemctlUser;
+      const directory = dirname(unitPath);
       return {
         kind: "systemd",
         label: unit,
         unitPath,
-        files: (spec) => [{ path: unitPath, content: renderSystemdUnit(spec) }],
+        files: (spec, display) => [
+          { path: unitPath, content: renderSystemdUnit(spec, display) },
+          ...(display ? [
+            { path: join(directory, display.xvfbUnit), content: renderXvfbUnit(display, this.displayPaths.xvfbLog) },
+            { path: join(directory, display.windowUnit), content: renderWindowUnit(display, unit) },
+          ] : []),
+        ],
         activate: [systemctl("daemon-reload"), systemctl("enable", unit), systemctl("restart", unit)],
         start: [systemctl("start", unit)],
         restart: [systemctl("restart", unit)],
@@ -387,6 +549,10 @@ const PROBLEM_TEXT = {
   "not-registered": { message: "Task Scheduler has no task for the service. Install it again." },
 } satisfies Record<string, { message: string; command?: string }>;
 
+function systemctlUser(...args: string[]): ServiceStep {
+  return { command: "systemctl", args: ["--user", ...args] };
+}
+
 function currentUid(): number | undefined {
   return typeof process.getuid === "function" ? process.getuid() : undefined;
 }
@@ -418,17 +584,20 @@ export function createHostServiceMethods(manager: () => HostServiceManager | und
     if (!service) throw Object.assign(new Error("This host cannot run as a service."), { code: HOST_ERROR.unsupported });
     return service;
   };
-  const owned = (run: (service: HostServiceManager) => Promise<unknown>): Method => async (_params, context) => {
+  const owned = (run: (service: HostServiceManager, params: readonly unknown[]) => Promise<unknown>): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) {
       throw Object.assign(new Error("Only a connection with the host token, on this machine, manages the host's service."), { code: HOST_ERROR.forbidden });
     }
-    return run(available());
+    return run(available(), params);
   };
   return {
     "service-status": async () => available().status(self),
-    "service-install": owned(async (service) => {
+    // `[{ display: boolean }]` adds or removes the invisible display; without it an install keeps it.
+    "service-install": owned(async (service, params) => {
+      const option = params[0] as { display?: unknown } | undefined;
+      const display = typeof option?.display === "boolean" ? option.display : undefined;
       const serving = (await service.status(self)).serving;
-      await service.install({ detached: serving });
+      await service.install({ detached: serving, ...(display === undefined ? {} : { display }) });
       return service.status(self);
     }),
     "service-uninstall": owned(async (service) => {
