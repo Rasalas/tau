@@ -130,6 +130,7 @@ export const tau = {
       PI_CODING_AGENT_SESSION_DIR: join(run, "pi-sessions"),
       PI_CODING_AGENT_DIR: join(run, "home", ".pi", "agent"),
       TAU_CODEX_COMMAND: join(root, "bin", "codex"),
+      TAU_NO_RUNTIME_UPDATES: "1",
       ...(startsInBackground() ? { TAU_NO_FOCUS: "1" } : {}),
     };
     assertEnvUnder(env, ["HOME", "CFFIXED_USER_HOME", "TAU_USER_DATA", "TAU_WORKSPACE", "TAU_CONFIG_FILE", "TAU_WORKTREES_DIR", "TAU_THEMES_DIR", "TAU_HOST_TOKEN_FILE", "CODEX_HOME", "TAU_IMPORT_ROOTS", "PI_CODING_AGENT_SESSION_DIR", "PI_CODING_AGENT_DIR", "TAU_CODEX_COMMAND", "ZDOTDIR"], root);

@@ -15,6 +15,7 @@ describe("testHostEnv", () => {
     expect(env.TAU_BONJOUR_SERVICE_TYPE).toBe("_tau-test._tcp");
     expect(env.TAU_SERVICE_CONTROL).toBe("/w/scripts/fake-service-manager.mjs");
     expect(env.TAU_NO_NATIVE_DIALOGS).toBe("1");
+    expect(env.TAU_NO_RUNTIME_UPDATES).toBe("1");
     expect(env.PATH).toBe("/bin");
   });
 

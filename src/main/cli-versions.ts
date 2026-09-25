@@ -9,6 +9,14 @@ import { readPersistedJson, writePersistedJson } from "./persisted-json.js";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CACHE_VERSION = 1;
 
+/**
+ * `TAU_NO_RUNTIME_UPDATES=1`: nobody asks for newer releases, so nothing offers
+ * an update. Test instances, smokes and benchmarks set it.
+ */
+export function runtimeUpdatesOff(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.TAU_NO_RUNTIME_UPDATES === "1";
+}
+
 export interface NpmLatestVersionOptions {
   /** A JSON file of the caller's own, e.g. under `services.stateDir`. */
   cacheFile: string;
@@ -18,6 +26,8 @@ export interface NpmLatestVersionOptions {
   fetch?: typeof globalThis.fetch;
   now?(): number;
   registry?: string;
+  /** Read for `TAU_NO_RUNTIME_UPDATES`; `process.env` by default. */
+  env?: NodeJS.ProcessEnv;
 }
 
 interface CacheEntry { version: string; checkedAt: number }
@@ -37,9 +47,11 @@ function decodeCache(value: unknown): Cache | undefined {
 /**
  * The `latest` dist-tag of an npm package, asked of the registry at most once
  * per `maxAgeMs`. A failed request answers with the cached value, however old,
- * or `undefined`; it never throws.
+ * or `undefined`; it never throws. `undefined` without a request while
+ * `TAU_NO_RUNTIME_UPDATES=1`.
  */
 export async function npmLatestVersion(packageName: string, options: NpmLatestVersionOptions): Promise<string | undefined> {
+  if (runtimeUpdatesOff(options.env)) return undefined;
   const now = options.now ?? Date.now;
   const cache = (await readPersistedJson(options.cacheFile, { expectedVersion: CACHE_VERSION, decode: decodeCache, logger: { warn: () => undefined } }).catch(() => undefined))?.data ?? {};
   const cached = cache[packageName];

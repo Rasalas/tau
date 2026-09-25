@@ -149,6 +149,7 @@ async function measureLargeThread(PiHost, ProjectHistory, SessionManager, kits, 
     CODEX_HOME: join(alternate, "large-codex"),
     TAU_NO_WATCH: "1",
     TAU_NO_PREWARM: "1",
+    TAU_NO_RUNTIME_UPDATES: "1",
   };
   for (const [key, value] of Object.entries(isolate)) { saved[key] = process.env[key]; process.env[key] = value; }
   await mkdir(isolate.HOME, { recursive: true });

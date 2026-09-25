@@ -191,7 +191,10 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
 
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { path, version } = await cli(id);
-        const latest = await cursorLatestVersion({ cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) });
+        // Test instances set TAU_NO_RUNTIME_UPDATES=1: no update is asked for or offered.
+        const latest = env.TAU_NO_RUNTIME_UPDATES === "1"
+          ? undefined
+          : await cursorLatestVersion({ cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) });
         const verdict = cursorCompatibility(policy, version);
         return {
           tool: "cursor-agent",

@@ -257,7 +257,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           return { tool: "opencode", ...(version ? { installed: version } : {}), updateCommand: "Update the OpenCode server you connect to.", ...(verdict ? { compatibility: verdict } : {}) };
         }
         const { path, version } = await cli(id);
-        const latest = await npmLatestVersion(OPENCODE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) });
+        const latest = await npmLatestVersion(OPENCODE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}) });
         const verdict = await compatibility(path, version);
         return {
           tool: "opencode",

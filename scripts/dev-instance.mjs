@@ -277,6 +277,8 @@ async function main() {
     // Its window shows and paints without taking focus from the user's app; TAU_FOREGROUND=1 overrides this.
     TAU_NO_FOCUS: "1",
     TAU_RUNTIME_UPDATE_COMMAND: process.env.TAU_RUNTIME_UPDATE_COMMAND ?? JSON.stringify({ "*": "echo 'Tau test instance: this update was not run.'" }),
+    // Nor is an update offered at all; TAU_NO_RUNTIME_UPDATES=0 brings the toasts back for a test of them.
+    TAU_NO_RUNTIME_UPDATES: process.env.TAU_NO_RUNTIME_UPDATES ?? "1",
     // Installing the host "as a service" in an instance writes its unit here and runs the fake
     // service manager: never a real LaunchAgent, systemd unit or scheduled task.
     TAU_SERVICE_UNIT_DIR: join(DEV_DIR, "service-units"),

@@ -118,6 +118,13 @@ describe("Cursor host half", () => {
     });
   });
 
+  it("asks for no newer release in a test instance (TAU_NO_RUNTIME_UPDATES=1)", async () => {
+    const { provider } = await harness({ env: { FAKE_CURSOR_VERSION: "2026.09.18-9a7762b", TAU_NO_RUNTIME_UPDATES: "1" } });
+    const version = await provider.version!();
+    expect(version).toMatchObject({ installed: "2026.09.18-9a7762b" });
+    expect(version).not.toHaveProperty("latest");
+  });
+
   it("gives an instance's home to the CLI as its config and data folder with a file login", () => {
     expect(cursorEnvironment({ TAU_CURSOR_HOME: "/shadow", PATH: "/bin" })).toEqual({ TAU_CURSOR_HOME: "/shadow", PATH: "/bin", CURSOR_CONFIG_DIR: "/shadow", CURSOR_DATA_DIR: "/shadow", AGENT_CLI_CREDENTIAL_STORE: "file" });
     expect(cursorEnvironment({ PATH: "/bin" })).toEqual({ PATH: "/bin" });

@@ -496,7 +496,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   // One of each for the whole window, over the shell, an overlay and Settings alike.
   const floats = <>
-    <ToastLayer store={toasts} />
+    <ToastLayer store={toasts} placement={compact ? "bottom" : "top"} />
     <TooltipLayer />
     <ContextMenuLayer />
     <PairingRequestWatcher onNotify={actions.notify} />
