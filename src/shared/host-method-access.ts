@@ -104,6 +104,9 @@ export const HOST_METHOD_ACCESS = {
   "blob-abort": "write",
   // The host's machine running it as a service: whether it does is anyone's to see, changing it the owner's.
   "service-status": "read",
+  // How busy the machine is and what it could run; asked for, never pushed.
+  "host-resources": "read",
+  "readiness": "read",
   "service-install": "owner",
   "service-uninstall": "owner",
   // A window's own list of machines (ADR 0025); a host refuses them all.
@@ -132,8 +135,8 @@ export function methodAccess(method: string): MethodAccess {
 
 /**
  * What a host may ask another machine's host on its threads' behalf
- * (`services.machines.request`, ADR 0027): reading a thread there and steering
- * or stopping its run. A kit's own commands go through `call`; access
+ * (`services.machines.request`, ADR 0027): reading a thread there, steering
+ * or stopping its run, and how busy and how ready that machine is. A kit's own commands go through `call`; access
  * management, jobs, subscriptions and a window's methods never go.
  */
 export const MACHINE_REQUEST_METHODS = [
@@ -143,6 +146,8 @@ export const MACHINE_REQUEST_METHODS = [
   "abort",
   "steer",
   "follow-up",
+  "host-resources",
+  "readiness",
 ] as const satisfies readonly (keyof typeof HOST_METHOD_ACCESS)[];
 
 export function isMachineRequestMethod(method: string): boolean {

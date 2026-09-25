@@ -1207,6 +1207,13 @@ export function guardedServices(
 }
 
 /** What one extension sees: the permission guard, with `stateDir` bound to its own folder. */
+const backendOwners = new WeakMap<HostRuntimeBackendProvider, string>();
+
+/** The extension that registered a runtime backend; its `sign-in-state` speaks for the backend's program. */
+export function runtimeBackendOwner(provider: HostRuntimeBackendProvider): string | undefined {
+  return backendOwners.get(provider);
+}
+
 export function extensionServices(services: HostExtensionServices, extension: Pick<HostExtension, "id" | "permissions">): HostExtensionServices {
   const guarded = guardedServices(services, extension.permissions, extension.id);
   const stateDir = services.stateDir ? join(services.stateDir, extension.id) : undefined;
@@ -1240,6 +1247,14 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
       if (prop === "network") {
         const raw = Reflect.get(target, prop, receiver) as (HostNetworkServices & { [BIND_NETWORK_EXTENSION]?: (id: string) => HostNetworkServices }) | undefined;
         return raw?.[BIND_NETWORK_EXTENSION]?.(extension.id) ?? raw;
+      }
+      if (prop === "registerRuntimeBackend") {
+        const raw = Reflect.get(target, prop, receiver) as HostExtensionServices["registerRuntimeBackend"];
+        return (provider: HostRuntimeBackendProvider) => {
+          const unregister = raw(provider);
+          backendOwners.set(provider, extension.id);
+          return unregister;
+        };
       }
       return Reflect.get(target, prop, receiver) as unknown;
     },

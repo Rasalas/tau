@@ -19,6 +19,7 @@ import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { createMachineMethods, type HostMachines } from "./host-machines.js";
+import { createResourceMethods, type HostResourceSampler } from "./host-resources.js";
 import { createBlobMethods, type HostBlobStore } from "./host-blobs.js";
 import { authorizeMethod } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
@@ -164,6 +165,8 @@ export interface HostMethodDeps {
   service?(): HostServiceManager | undefined;
   /** Other machines this host's agents reach (ADR 0027); absent for a host in the window's process. */
   machines?(): HostMachines | undefined;
+  /** The machine's load, for `host-resources`; absent for a host in the window's process. */
+  resources?(): HostResourceSampler | undefined;
   /** Files other machines send here; absent for a host in the window's process. */
   blobs?(): HostBlobStore | undefined;
 }
@@ -416,6 +419,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createConnectionsMethods(() => deps.connections?.()),
     ...createHostServiceMethods(() => deps.service?.()),
     ...createMachineMethods(() => deps.machines?.()),
+    ...createResourceMethods({ resources: () => deps.resources?.(), runtimes: host }),
     ...createBlobMethods(() => deps.blobs?.()),
 
     // The other direction of the protocol: a client answering a `client-call`.

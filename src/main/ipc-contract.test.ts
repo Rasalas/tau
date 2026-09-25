@@ -24,11 +24,12 @@ const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? 
  * and `client-call-result` belongs to the window process around it, which
  * answers the host's calls into its own machine (ADR 0021), and hands its
  * host the agents' keys with the `machines-*` methods (ADR 0027). `blob-*`
- * come from another machine's host (`services.machines.upload`).
+ * come from another machine's host (`services.machines.upload`), and so do
+ * `host-resources` and `readiness`.
  */
 const CLIENT_SIDE = new Set([
   "hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove",
-  "blob-put", "blob-commit", "blob-abort",
+  "blob-put", "blob-commit", "blob-abort", "host-resources", "readiness",
 ]);
 
 function tableMethods(): Set<string> {

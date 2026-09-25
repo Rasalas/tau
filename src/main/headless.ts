@@ -14,10 +14,10 @@ import { pairingUrl, type PairingEndpoint } from "../shared/connections.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
-import { HostJobRunner } from "./host-jobs.js";
+import { HostJobRunner, NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
-import { createHostMethods } from "./host-methods.js";
+import { createHostMethods, type HostMethodTable } from "./host-methods.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
 import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
@@ -50,6 +50,7 @@ import { KeepAwake } from "./keep-awake.js";
 import { HostServiceManager } from "./host-service.js";
 import { DisplayWindow } from "./display-window.js";
 import { HostMachines } from "./host-machines.js";
+import { HostResourceSampler } from "./host-resources.js";
 import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
@@ -118,6 +119,7 @@ function broadcast(event: HostPushEvent): void {
 function publish(event: HostEvent): void {
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
   keepAwake.observe(event);
+  resources.observe(event);
   broadcast(event);
 }
 
@@ -164,6 +166,9 @@ const keepAwake = new KeepAwake({
   logger: hostLog,
 });
 
+/** The machine's load, read only when asked (`host-resources`). */
+const resources = new HostResourceSampler();
+
 const versions: ExtensionHostVersions = { tau: hostVersion, pi: PI_VERSION, api: EXTENSION_API_VERSION };
 /** Where the kits Tau ships are read from; a headless host runs from the same tree. */
 const kitOptions = { appPath: appRoot, cacheDir: join(userData, "host-extensions"), versions };
@@ -181,7 +186,17 @@ async function main(): Promise<void> {
   const networkContributions = new NetworkContributions({ storePath: join(userData, "network-kept.json"), logger: hostLog });
   await networkContributions.load();
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
-  const machines = await HostMachines.open({ path: join(userData, "host-machines.json"), logger: hostLog, ownId: hostId });
+  let localMethods: HostMethodTable | undefined;
+  const machines = await HostMachines.open({
+    path: join(userData, "host-machines.json"),
+    logger: hostLog,
+    ownId: hostId,
+    local: async (method, params) => {
+      const handler = localMethods?.[method];
+      if (!handler) throw new Error(`${method}: this host is still starting.`);
+      return handler(params, NO_JOB_CONTEXT);
+    },
+  });
   // Files other machines' agents send here; what an earlier run left is gone.
   const blobs = await HostBlobStore.open({ dir: join(userData, "blobs"), logger: hostLog });
   const started = new HostStart(() => {
@@ -303,6 +318,7 @@ async function main(): Promise<void> {
     connections: () => connectionsService(),
     service: () => service,
     machines: () => machines,
+    resources: () => resources,
     blobs: () => blobs,
     ...started.methodDeps(),
     jobs,
@@ -337,6 +353,7 @@ async function main(): Promise<void> {
       setBadge: unsupported("A badge on the app icon"),
     },
   });
+  localMethods = methods;
 
   const shutdown = (): void => {
     void (async () => {

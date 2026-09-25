@@ -79,7 +79,7 @@ import type {
   HostWorkspaceCloseReason,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
-import { runtimeExtensionModes, sortByRuntimeOrder } from "./host-extensions.js";
+import { runtimeBackendOwner, runtimeExtensionModes, sortByRuntimeOrder } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ThreadIndex } from "./thread-index.js";
@@ -1565,7 +1565,7 @@ export class PiHost {
    * The backends a new thread can run on, in the one order every picker uses:
    * Pi, then registered backends by their `order`, then by registration.
    */
-  private runtimeBackends(): UiRuntimeBackend[] {
+  runtimeBackends(): UiRuntimeBackend[] {
     const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
     const registered = sortByRuntimeOrder([...this.seam.backends.values()]).map((provider) => {
       const version = this.runtimeVersions.get(provider.kind);
@@ -1573,6 +1573,9 @@ export class PiHost {
     });
     return [{ kind: "pi", label: "Pi", ...withModes(runtimeExtensionModes(this.seam.runtimeExtensions)) }, ...registered];
   }
+
+  /** The extension that registered a backend, for its `sign-in-state` (`readiness`). */
+  runtimeBackendOwner(kind: ThreadBackendKind): string | undefined { const provider = this.seam.backends.get(kind); return provider && runtimeBackendOwner(provider); }
 
   /** The commands a backend's composer offers, before any thread of it exists. */
   private composerCommandsFor(kind: ThreadBackendKind, cwd: string): readonly UiComposerCommand[] {
