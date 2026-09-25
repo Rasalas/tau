@@ -128,6 +128,24 @@ describe("another machine, reached by this host for its agents", () => {
     expect(MACHINE_REQUEST_METHODS).not.toContain("connections-approve");
   });
 
+  it("answers this host's own id here, for the methods that only read", async () => {
+    const asked: Array<[string, readonly unknown[]]> = [];
+    const machines = await HostMachines.open({
+      path: join(tempDir(), "host-machines.json"),
+      logger,
+      ownId: "mini-id",
+      local: async (method, params) => { asked.push([method, params]); return { cpuCount: 8 }; },
+    });
+    cleanups.push(() => machines.close());
+    expect(await machines.request("mini-id", "host-resources")).toEqual({ cpuCount: 8 });
+    expect(await machines.request("mini-id", "readiness", [])).toEqual({ cpuCount: 8 });
+    // Stopping this host's own threads is `services.sessions`' job.
+    await expect(machines.request("mini-id", "abort", ["s1"])).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+    await expect(machines.request("mini-id", "prompt")).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+    expect(asked).toEqual([["host-resources", []], ["readiness", []]]);
+    expect(machines.list()).toEqual([]);
+  });
+
   it("follows a topic a kit there emits, across the hello, and lets go of it", async () => {
     const rex = await startRex({});
     const paired = await pairWithAgents(rex);

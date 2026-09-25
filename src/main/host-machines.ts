@@ -12,7 +12,7 @@ import {
 import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import type { HostLogger } from "./host-log.js";
-import { isMachineRequestMethod, ownerRefusal } from "./host-method-access.js";
+import { isMachineRequestMethod, methodAccess, ownerRefusal } from "./host-method-access.js";
 import { decodeString } from "./ipc-input.js";
 
 /** A machine this host's agents may reach: what a window saves for itself, with the agents' own token. */
@@ -26,6 +26,8 @@ export interface HostMachinesOptions {
   ownId: string;
   /** Test seam. */
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
+  /** Answers `request` for this host's own id, so a kit asks this machine the way it asks the others. */
+  local?(method: string, params: readonly unknown[]): Promise<unknown>;
 }
 
 interface Watched {
@@ -98,6 +100,10 @@ export class HostMachines {
   async request(machine: string, method: string, params: readonly unknown[] = [], options: { timeoutMs?: number } = {}): Promise<unknown> {
     if (!isMachineRequestMethod(method)) {
       throw failure(`${method} is not a method a host may ask another machine for; call a kit command there instead.`, HOST_ERROR.forbidden);
+    }
+    if (machine === this.options.ownId && this.options.local) {
+      if (methodAccess(method) !== "read") throw failure(`${method} on this host's own threads goes through services.sessions.`, HOST_ERROR.forbidden);
+      return this.options.local(method, params);
     }
     return this.connected(machine).monitor.call(method, params, options.timeoutMs);
   }
