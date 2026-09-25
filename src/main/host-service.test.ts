@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +37,14 @@ function fakeRunner(answer: (command: string) => Partial<ServiceCommandResult> |
   };
 }
 
-function manager(platform: NodeJS.Platform, options: { answer?: (command: string) => Partial<ServiceCommandResult> | undefined; execPath?: string; env?: NodeJS.ProcessEnv; retireHost?: () => Promise<void> } = {}) {
+function manager(platform: NodeJS.Platform, options: {
+  answer?: (command: string) => Partial<ServiceCommandResult> | undefined;
+  execPath?: string;
+  env?: NodeJS.ProcessEnv;
+  retireHost?: () => Promise<void>;
+  xvfb?: string | undefined;
+  displayTaken?: (number: number) => boolean;
+} = {}) {
   const root = temp();
   const userData = join(root, "userdata");
   const units = join(root, "units");
@@ -53,6 +60,8 @@ function manager(platform: NodeJS.Platform, options: { answer?: (command: string
     env: { TAU_SERVICE_UNIT_DIR: units, ...options.env },
     runner: fake.runner,
     ...(options.retireHost ? { retireHost: options.retireHost } : {}),
+    locateXvfb: () => ("xvfb" in options ? options.xvfb : "/usr/bin/Xvfb"),
+    displayTaken: options.displayTaken ?? (() => false),
   });
   return { service, userData, units, ...fake };
 }
@@ -204,6 +213,100 @@ describe("the host service on Linux", () => {
     expect((await plain.status()).unitPath).toBe(`/cfg/systemd/user/${plain.names.unit}`);
     const appImage = new HostServiceManager({ execPath: "/tmp/.mount_TauXYZ/tau", entry: "/e", userData: "/u", platform: "linux", home: "/home/me", uid: 1000, env: {}, runner: fakeRunner().runner });
     expect((await appImage.status()).reason).toMatch(/AppImage/u);
+  });
+});
+
+describe("the invisible display on Linux", () => {
+  it("adds Xvfb and a window unit, a private cookie, and DISPLAY for the host", async () => {
+    const { service, units, userData, calls } = manager("linux", { displayTaken: (number) => number < 101 });
+    await service.install({ display: true });
+
+    const host = readFileSync(join(units, service.names.unit), "utf8");
+    expect(host).toContain('Environment="DISPLAY=:101"');
+    expect(host).toContain(`Environment="XAUTHORITY=${join(userData, "display", "Xauthority")}"`);
+    expect(host).toContain("Wants=tau-xvfb-");
+    const { xvfbUnit, windowUnit } = { xvfbUnit: service.names.unit.replace("tau-host", "tau-xvfb"), windowUnit: service.names.unit.replace("tau-host", "tau-window") };
+    expect(readFileSync(join(units, xvfbUnit), "utf8")).toContain('"/usr/bin/Xvfb" ":101"');
+    const window = readFileSync(join(units, windowUnit), "utf8");
+    expect(window).toContain('ExecStart="/Applications/Tau.app/Contents/MacOS/Tau"');
+    expect(window).not.toContain("ELECTRON_RUN_AS_NODE");
+    expect(statSync(join(userData, "display", "Xauthority")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(userData, "display")).mode & 0o777).toBe(0o700);
+    // The window is left for the first call that needs it.
+    expect(calls.slice(-3)).toEqual([`systemctl --user enable ${service.names.unit}`, `systemctl --user restart ${xvfbUnit}`, `systemctl --user restart ${service.names.unit}`]);
+    expect(calls.some((call) => call.includes(windowUnit) && !call.includes("stop"))).toBe(false);
+
+    expect((await service.status()).display).toEqual({ supported: true, installed: true, display: ":101", xvfbRunning: true, windowRunning: true, idleMinutes: 10 });
+    expect((await service.status()).stale).toBe(false);
+  });
+
+  it("keeps the display, its number and its cookie when installed again, and stops the old window", async () => {
+    const { service, userData, calls } = manager("linux");
+    await service.install({ display: true });
+    const cookie = readFileSync(join(userData, "display", "Xauthority"));
+    calls.length = 0;
+    const later = new HostServiceManager({
+      execPath: "/Applications/Tau.app/Contents/MacOS/Tau",
+      entry: "/Applications/Tau.app/Contents/Resources/app.asar.unpacked/dist-electron/main/headless.js",
+      userData, platform: "linux", home: join(userData, "..", "home"), uid: 501,
+      env: { TAU_SERVICE_UNIT_DIR: join(userData, "..", "units") },
+      runner: fakeRunner().runner, locateXvfb: () => "/usr/bin/Xvfb", displayTaken: () => true,
+    });
+    await service.install();
+    expect(readFileSync(join(userData, "display", "Xauthority"))).toEqual(cookie);
+    expect(calls).toContain(`systemctl --user stop ${service.names.unit.replace("tau-host", "tau-window")}`);
+    // Every number is taken now, Xvfb's own included: the installed one is kept, not chosen again.
+    await later.install();
+    expect((await later.installedDisplay())?.number).toBe(99);
+  });
+
+  it("removes the display with --no-display and with the service", async () => {
+    const { service, units, userData, calls } = manager("linux");
+    await service.install({ display: true });
+    calls.length = 0;
+    await service.install({ display: false });
+    const xvfbUnit = service.names.unit.replace("tau-host", "tau-xvfb");
+    expect(existsSync(join(units, xvfbUnit))).toBe(false);
+    expect(existsSync(join(userData, "display"))).toBe(false);
+    expect(readFileSync(join(units, service.names.unit), "utf8")).not.toContain("DISPLAY=");
+    expect(calls).toContain(`systemctl --user stop ${xvfbUnit}`);
+    expect((await service.status()).display).toMatchObject({ supported: true, installed: false });
+
+    await service.install({ display: true });
+    calls.length = 0;
+    await service.uninstall();
+    expect(existsSync(join(units, xvfbUnit))).toBe(false);
+    expect(calls.slice(0, 3)).toEqual([
+      `systemctl --user disable ${service.names.unit}`,
+      `systemctl --user stop ${service.names.unit.replace("tau-host", "tau-window")}`,
+      `systemctl --user stop ${xvfbUnit}`,
+    ]);
+  });
+
+  it("refuses without Xvfb and writes nothing", async () => {
+    const { service, units } = manager("linux", { xvfb: undefined });
+    await expect(service.install({ display: true })).rejects.toThrow(/Xvfb is not installed.*sudo apt install xvfb/u);
+    expect(existsSync(join(units, service.names.unit))).toBe(false);
+  });
+
+  it("starts and stops the window on demand", async () => {
+    const { service, calls } = manager("linux");
+    await service.install({ display: true });
+    calls.length = 0;
+    await service.startWindow();
+    await service.stopWindow();
+    const windowUnit = service.names.unit.replace("tau-host", "tau-window");
+    expect(calls).toEqual([`systemctl --user start ${windowUnit}`, `systemctl --user stop ${windowUnit}`]);
+  });
+
+  it("is refused with a reason on macOS and Windows", async () => {
+    const mac = manager("darwin");
+    await expect(mac.service.install({ display: true })).rejects.toThrow(/macOS has no invisible display/u);
+    expect(existsSync(join(mac.units, `${mac.service.names.label}.plist`))).toBe(false);
+    await mac.service.install();
+    expect((await mac.service.status()).display).toMatchObject({ supported: false, installed: false, reason: expect.stringMatching(/private API/u) });
+    const windows = manager("win32", { execPath: "C:\\Program Files\\Tau\\Tau.exe" });
+    await expect(windows.service.install({ display: true })).rejects.toThrow(/Windows has no invisible display/u);
   });
 });
 

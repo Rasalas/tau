@@ -254,6 +254,26 @@ export interface UiHostService {
   unitPath?: string;
   logPath: string;
   problems: UiHostServiceProblem[];
+  /** The invisible display beside the service; absent from a host before it. */
+  display?: UiHostDisplay;
+}
+
+/**
+ * An invisible display beside a Linux service host (`tau service install
+ * --display`): Xvfb for agents' GUI runs, and a Tau window on it that gives
+ * the host its window halves (preview, captures).
+ */
+export interface UiHostDisplay {
+  supported: boolean;
+  /** Why this machine cannot have one. */
+  reason?: string;
+  installed: boolean;
+  /** `:99`. */
+  display?: string;
+  xvfbRunning: boolean;
+  /** The host starts the window when a call needs one and stops it after `idleMinutes` without one. */
+  windowRunning: boolean;
+  idleMinutes: number;
 }
 
 /** What the owner may change about a paired device. */

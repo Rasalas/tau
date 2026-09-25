@@ -9,11 +9,14 @@ import { defaultUserData } from "./host-service-units.js";
 /**
  * `tau service install|status|uninstall|restart`. `bin/tau.mjs` runs this
  * with the app's own binary as Node, so the unit names exactly the binary and
- * the host entry a window of this app starts.
+ * the host entry a window of this app starts. `install --display` adds an
+ * invisible display (Linux), `install --no-display` removes it.
  */
 
 export const SERVICE_ACTIONS = ["install", "status", "uninstall", "restart"] as const;
 export type ServiceAction = (typeof SERVICE_ACTIONS)[number];
+
+export const DISPLAY_FLAGS = ["--display", "--no-display"] as const;
 
 export interface ServiceCliIo {
   out(line: string): void;
@@ -30,6 +33,7 @@ export function describeService(status: UiHostService): string[] {
     `  running:   ${status.running ? `yes${status.version ? `, Tau ${status.version}` : ""}` : "no"}`,
     ...(status.unitPath ? [`  unit:      ${status.unitPath}`] : []),
     `  log:       ${status.logPath}`,
+    ...describeDisplay(status),
   ];
   for (const problem of status.problems) {
     lines.push(`  ! ${problem.message}`);
@@ -38,15 +42,26 @@ export function describeService(status: UiHostService): string[] {
   return lines;
 }
 
-export async function runServiceCommand(action: string | undefined, io: ServiceCliIo): Promise<number> {
-  if (!action || !(SERVICE_ACTIONS as readonly string[]).includes(action)) {
-    io.out(`Usage: tau service <${SERVICE_ACTIONS.join("|")}>`);
+function describeDisplay(status: UiHostService): string[] {
+  const display = status.display;
+  if (!display?.installed || !status.installed) return [];
+  const window = display.windowRunning ? "running" : `stopped, starts when a thread needs it and stops after ${display.idleMinutes} min idle`;
+  return [`  display:   ${display.display} (Xvfb ${display.xvfbRunning ? "running" : "stopped"}; window ${window})`];
+}
+
+export async function runServiceCommand(action: string | undefined, io: ServiceCliIo, flags: readonly string[] = []): Promise<number> {
+  const unknown = flags.find((flag) => !(DISPLAY_FLAGS as readonly string[]).includes(flag));
+  if (!action || !(SERVICE_ACTIONS as readonly string[]).includes(action) || unknown || (flags.length > 0 && action !== "install") || flags.length > 1) {
+    io.out(`Usage: tau service <${SERVICE_ACTIONS.join("|")}>\n       tau service install --display | --no-display`);
     return action ? 1 : 0;
   }
   const { manager } = io;
   if (action === "install") {
-    await manager.install();
+    const display = flags[0] === "--display" ? true : flags[0] === "--no-display" ? false : undefined;
+    await manager.install(display === undefined ? {} : { display });
     io.out("Installed. The service starts Tau's host now and at every login; a running Tau window moves over to it.");
+    if (display === true) io.out("The host has an invisible display: agents' shells get its DISPLAY, and a Tau window starts there when a thread needs the preview.");
+    if (display === false) io.out("The invisible display is removed.");
   } else if (action === "uninstall") {
     io.out(await manager.uninstall() ? "Uninstalled. The next Tau window starts a host of its own." : "No service was installed.");
     return 0;
@@ -73,7 +88,7 @@ if (invokedDirectly()) {
     entry: join(dirname(fileURLToPath(import.meta.url)), "headless.js"),
     userData,
   });
-  runServiceCommand(process.argv[2], { out: (line) => process.stdout.write(`${line}\n`), manager }).then(
+  runServiceCommand(process.argv[2], { out: (line) => process.stdout.write(`${line}\n`), manager }, process.argv.slice(3)).then(
     (code) => { process.exitCode = code; },
     (error: unknown) => {
       process.stderr.write(`tau service: ${error instanceof Error ? error.message : String(error)}\n`);

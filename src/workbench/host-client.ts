@@ -232,8 +232,11 @@ export interface HostClient {
   discoverHosts(options?: { timeoutMs?: number }): Promise<UiDiscoveredHosts>;
   /** The host's machine runs it as a system service; the owner's alone. */
   serviceStatus(): Promise<UiHostService>;
-  /** Installs (or repairs) the service; the host answering may be replaced by the one it starts. */
-  installService(): Promise<UiHostService>;
+  /**
+   * Installs (or repairs) the service; the host answering may be replaced by the one it starts.
+   * `display` adds or removes the invisible display of a Linux service; left out, it stays as it is.
+   */
+  installService(options?: { display?: boolean }): Promise<UiHostService>;
   uninstallService(): Promise<UiHostService>;
 
   // The machines this window knows (ADR 0025). The window's own process answers; a host refuses them.
@@ -420,7 +423,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
     discoverHosts: (options) => call<UiDiscoveredHosts>("connections-discover", [options ?? {}]),
     serviceStatus: () => call<UiHostService>("service-status"),
-    installService: () => call<UiHostService>("service-install"),
+    installService: (options) => call<UiHostService>("service-install", options ? [options] : []),
     uninstallService: () => call<UiHostService>("service-uninstall"),
 
     listEnvironments: () => call<UiEnvironments>("environments-list"),

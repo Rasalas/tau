@@ -49,6 +49,23 @@ describe("tau service", () => {
     expect(await runServiceCommand(undefined, { out: (line) => out.push(line), manager })).toBe(0);
   });
 
+  it("adds or removes the invisible display, and refuses a flag anywhere else", async () => {
+    const manager = fakeManager(status({
+      manager: "systemd", label: "tau-host.service",
+      display: { supported: true, installed: true, display: ":99", xvfbRunning: true, windowRunning: false, idleMinutes: 10 },
+    }));
+    const out: string[] = [];
+    expect(await runServiceCommand("install", { out: (line) => out.push(line), manager }, ["--display"])).toBe(0);
+    expect(manager.install).toHaveBeenLastCalledWith({ display: true });
+    expect(out).toContain("  display:   :99 (Xvfb running; window stopped, starts when a thread needs it and stops after 10 min idle)");
+    await runServiceCommand("install", { out: (line) => out.push(line), manager }, ["--no-display"]);
+    expect(manager.install).toHaveBeenLastCalledWith({ display: false });
+    await runServiceCommand("install", { out: (line) => out.push(line), manager });
+    expect(manager.install).toHaveBeenLastCalledWith({});
+    expect(await runServiceCommand("status", { out: (line) => out.push(line), manager }, ["--display"])).toBe(1);
+    expect(await runServiceCommand("install", { out: (line) => out.push(line), manager }, ["--screen"])).toBe(1);
+  });
+
   it("says what is wrong and the command that fixes it, or why the machine cannot run it", () => {
     const lines = describeService(status({
       manager: "systemd",

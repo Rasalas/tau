@@ -169,11 +169,13 @@ function systemdQuote(value: string, command = false): string {
 /**
  * A systemd user unit. `Restart=on-failure` for the same reason as the
  * LaunchAgent's `SuccessfulExit`; the start limit ends a crash loop.
+ * `display`: the host keeps an invisible display and starts it with itself.
  */
-export function renderSystemdUnit(spec: HostServiceSpec): string {
+export function renderSystemdUnit(spec: HostServiceSpec, display?: { xvfbUnit: string }): string {
   return [
     "[Unit]",
     "Description=Tau host",
+    ...(display ? [`Wants=${display.xvfbUnit}`, `After=${display.xvfbUnit}`] : []),
     "StartLimitIntervalSec=300",
     "StartLimitBurst=5",
     "",
@@ -194,6 +196,117 @@ export function renderSystemdUnit(spec: HostServiceSpec): string {
     "",
     "[Install]",
     "WantedBy=default.target",
+    "",
+  ].join("\n");
+}
+
+/**
+ * An invisible display beside a Linux service host (`tau service install
+ * --display`): Xvfb, started with the host, and a Tau window on it that the
+ * host starts when a call needs a window half and stops when idle
+ * (`display-window.ts`). Agents' shells get its `DISPLAY` from the host.
+ */
+export interface HostDisplaySpec {
+  /** N of `:N`. */
+  number: number;
+  xvfb: string;
+  /** The cookie Xvfb admits; without one any local user could read the screen. */
+  authPath: string;
+  xvfbUnit: string;
+  windowUnit: string;
+  /** The window process: the app itself, not the host entry. */
+  window: HostServiceSpec;
+}
+
+export const DISPLAY_SCREEN = "1920x1080x24";
+/** Xvfb's own default and `xvfb-run`'s; taken numbers are skipped at install. */
+export const FIRST_DISPLAY_NUMBER = 99;
+
+/** The display units that go with a host unit: `tau-host-1a2b.service` → `tau-xvfb-1a2b.service`. */
+export function displayServiceNames(hostUnit: string): { xvfbUnit: string; windowUnit: string } {
+  const suffix = hostUnit.slice(SYSTEMD_UNIT.length, -".service".length);
+  return { xvfbUnit: `tau-xvfb${suffix}.service`, windowUnit: `tau-window${suffix}.service` };
+}
+
+/** What a host unit adds for its display: agents' shells and the window inherit both. */
+export function displayEnvironment(display: Pick<HostDisplaySpec, "number" | "authPath">): Record<string, string> {
+  return { DISPLAY: `:${display.number}`, XAUTHORITY: display.authPath };
+}
+
+/** The window's environment: the host's instance settings, the display, and no focus or native dialogs. */
+export function windowEnvironment(hostEnv: Record<string, string>, display: Pick<HostDisplaySpec, "number" | "authPath">): Record<string, string> {
+  const hostOnly = new Set(["ELECTRON_RUN_AS_NODE", HOST_SERVICE_ENV, "TAU_HOST_LISTEN", "TAU_HOST_LOCAL_FILES"]);
+  const env = Object.fromEntries(Object.entries(hostEnv).filter(([key]) => !hostOnly.has(key)));
+  return { ...env, ...displayEnvironment(display), TAU_NO_FOCUS: "1", TAU_NO_NATIVE_DIALOGS: "1" };
+}
+
+/**
+ * What starts the app beside a host entry: a packaged app's binary alone, or
+ * Electron with the checkout (`dist-electron/main/headless.js` three levels down).
+ */
+export function windowProgram(execPath: string, entry: string): string[] {
+  const root = posix.dirname(posix.dirname(posix.dirname(entry)));
+  return posix.basename(root) === "app.asar.unpacked" ? [execPath] : [execPath, root];
+}
+
+/** One `MIT-MAGIC-COOKIE-1` for display N, any address (FamilyWild), in Xauthority's binary format. */
+export function renderXauthority(number: number, cookie: Buffer): Buffer {
+  const field = (value: Buffer) => {
+    const length = Buffer.alloc(2);
+    length.writeUInt16BE(value.length);
+    return Buffer.concat([length, value]);
+  };
+  const family = Buffer.alloc(2);
+  family.writeUInt16BE(0xffff);
+  return Buffer.concat([family, field(Buffer.alloc(0)), field(Buffer.from(String(number))), field(Buffer.from("MIT-MAGIC-COOKIE-1")), field(cookie)]);
+}
+
+/** Xvfb on `:N`, no TCP, with a cookie. The host unit wants it, so it has no `[Install]`. */
+export function renderXvfbUnit(display: HostDisplaySpec, logPath: string): string {
+  const command = [display.xvfb, `:${display.number}`, "-nolisten", "tcp", "-screen", "0", DISPLAY_SCREEN, "-auth", display.authPath];
+  return [
+    "[Unit]",
+    `Description=Tau invisible display :${display.number}`,
+    "StartLimitIntervalSec=300",
+    "StartLimitBurst=5",
+    "",
+    "[Service]",
+    "Type=simple",
+    `ExecStart=${command.map((argument) => systemdQuote(argument, true)).join(" ")}`,
+    "Restart=on-failure",
+    "RestartSec=2",
+    `StandardOutput=append:${systemdEscape(logPath, false)}`,
+    `StandardError=append:${systemdEscape(logPath, false)}`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * The Tau window on the display. Bound to Xvfb and to the host: when either
+ * stops the window stops too, so it never outlives the host and starts one of
+ * its own. No `[Install]`: only the host starts it, on demand.
+ */
+export function renderWindowUnit(display: HostDisplaySpec, hostUnit: string): string {
+  const { window } = display;
+  return [
+    "[Unit]",
+    "Description=Tau window on the invisible display",
+    `BindsTo=${display.xvfbUnit} ${hostUnit}`,
+    `After=${display.xvfbUnit} ${hostUnit}`,
+    "StartLimitIntervalSec=300",
+    "StartLimitBurst=5",
+    "",
+    "[Service]",
+    "Type=simple",
+    "WorkingDirectory=%h",
+    ...Object.entries(window.env).map(([key, value]) => `Environment=${systemdQuote(`${key}=${value}`)}`),
+    `ExecStart=${window.program.map((argument) => systemdQuote(argument, true)).join(" ")}`,
+    "Restart=on-failure",
+    "RestartSec=5",
+    "KillMode=mixed",
+    "TimeoutStopSec=20",
+    `StandardOutput=append:${systemdEscape(window.logPath, false)}`,
+    `StandardError=append:${systemdEscape(window.logPath, false)}`,
     "",
   ].join("\n");
 }
