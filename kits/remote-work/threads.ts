@@ -320,7 +320,7 @@ export class RemoteThreads {
         name: link.title,
         ...(input.ignored ? { ignored: input.ignored } : {}),
       });
-      Object.assign(link, { transfer: transfer.id, base: transfer.base, status: "starting" }, transfer.remote ? { worktree: transfer.remote.path } : {});
+      Object.assign(link, { transfer: transfer.id, base: transfer.base, status: "starting" }, transfer.remote ? { worktree: transfer.remote.path, worktreeBranch: transfer.remote.branch } : {});
       if (this.aborted.delete(link.id)) throw new Error(`Stopped before the thread started on ${link.machineName}.`);
       await this.commit(link);
       const machines = this.machines();

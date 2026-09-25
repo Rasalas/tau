@@ -259,7 +259,7 @@ describe("an agent on another machine", () => {
         title: "Word on rex",
         result: "apple",
         machine: { id: "rex-id", name: "rex", link: "link-1", thread: "rex-thread", costUsd: 0.25 },
-        workspace: { mode: "worktree", path: "/rex/worktrees/work/t1", branch: "tau/remote-t1" },
+        workspace: { mode: "worktree", path: "/rex/worktrees/work/task-1", branch: "tau/mini/task-1" },
       })],
     };
     const commands: Array<{ command: string; input?: unknown }> = [];

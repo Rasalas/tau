@@ -219,6 +219,10 @@ export interface ReceiveInput {
   /** The bundle the sending side uploaded; absent when the mirror has `base` already. */
   blob?: { id: string; sha256: string };
   files?: IgnoredFilePayload[];
+  /** What the work is called (a thread's title, an agent's name); the worktree's folder and branch there carry its slug. */
+  name?: string;
+  /** The sending machine's name; the branch there is `tau/<from>/<slug>`. */
+  from?: string;
 }
 
 export interface SetupRun {
@@ -384,8 +388,9 @@ export interface RemoteThreadLink {
   transfer?: string;
   /** The commit the thread started from. */
   base?: string;
-  /** The worktree there. */
+  /** The worktree there, and its branch. */
   worktree?: string;
+  worktreeBranch?: string;
   /** The thread's id there, once it exists. */
   thread?: string;
   status: RemoteThreadStatus;

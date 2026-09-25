@@ -183,6 +183,7 @@ async function twoHosts(options: { hello?: "old" | "missing" } = {}) {
       },
     },
     admitWorkspace: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
+    rememberProjectName: () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,
   };

@@ -96,8 +96,10 @@ async function twoHosts(options: { projectFile?: Record<string, unknown>; projec
       }
     },
   };
+  const projectNames = new Map<string, string>();
   const rexServices: Partial<HostExtensionServices> = {
     cwd: () => dir,
+    rememberProjectName: (path: string, name: string) => { projectNames.set(path, name); },
     stateDir: join(dir, "rex-state"),
     blobs: blobServices,
     admitWorkspace: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
@@ -146,7 +148,7 @@ async function twoHosts(options: { projectFile?: Record<string, unknown>; projec
   const a = await activateHostKit(createRemoteWorkHostExtension({ pollMs: 5 }), { machines, stateDir: join(dir, "a-state") }, (event) => aEvents.push(event));
   const call = <T>(command: string, input?: unknown) => a.invoke(ID, command, input) as Promise<T>;
   const rexGit = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd, stdio: "pipe" }).toString().trim();
-  return { dir, repo, rex, a, call, aEvents, rexEvents, rexRoot, rexGit, hookMark, blobs, paired, machines };
+  return { dir, repo, rex, a, call, aEvents, rexEvents, rexRoot, rexEnv, rexServices, rexGit, hookMark, blobs, paired, machines, projectNames };
 }
 
 describe("Remote Work Kit: a project's state to another machine and back", () => {
@@ -169,7 +171,8 @@ describe("Remote Work Kit: a project's state to another machine and back", () =>
     expect(transfer.steps.find((step) => step.id === "bundle")?.detail).toMatch(/^1 commit, /u);
 
     const worktree = transfer.remote!.path;
-    expect(worktree).toBe(join(hosts.rexRoot, "worktrees", "work", transfer.id));
+    expect(worktree).toBe(join(hosts.rexRoot, "worktrees", "work", "tidy-the-readme"));
+    expect(transfer.remote!.branch).toBe("tau/mini/tidy-the-readme");
     expect(await readFile(join(worktree, "README.md"), "utf8")).toBe("# Fixture\n\nAn uncommitted line.\n");
     expect(await readFile(join(worktree, "notes/draft.md"), "utf8")).toBe("An untracked draft.\n");
     expect(await readFile(join(worktree, ".env"), "utf8")).toBe("SECRET=local\n");
@@ -226,6 +229,28 @@ describe("Remote Work Kit: a project's state to another machine and back", () =>
     expect(repo.git("rev-parse", "--verify", "tau/rex/tidy-the-readme-2")).toMatch(/^[0-9a-f]{40}$/u);
   });
 
+  it("names the worktree there after the project and the work, and rex's rail after the project, also after a restart", async () => {
+    const hosts = await twoHosts();
+    const first = await hosts.call<RepoTransfer>("send", { machine: "rex", cwd: hosts.repo.work, name: "Tidy the readme" });
+    const second = await hosts.call<RepoTransfer>("send", { machine: "rex", cwd: hosts.repo.work, name: "Tidy the readme" });
+    const unnamed = await hosts.call<RepoTransfer>("send", { machine: "rex", cwd: hosts.repo.work });
+    const folder = join(hosts.rexRoot, "worktrees", "work");
+    expect([first, second, unnamed].map((transfer) => [transfer.remote!.path, transfer.remote!.branch])).toEqual([
+      [join(folder, "tidy-the-readme"), "tau/mini/tidy-the-readme"],
+      [join(folder, "tidy-the-readme-2"), "tau/mini/tidy-the-readme-2"],
+      [join(folder, unnamed.id), `tau/mini/${unnamed.id}`],
+    ]);
+    // Git would name a worktree of the bare mirror after the mirror's folder ("repos").
+    expect([...hosts.projectNames.entries()]).toEqual([first, second, unnamed].map((transfer) => [transfer.remote!.path, "work"]));
+
+    const restarted = new Map<string, string>();
+    await activateHostKit(createRemoteWorkHostExtension({ root: hosts.rexRoot, env: hosts.rexEnv }), {
+      ...hosts.rexServices,
+      rememberProjectName: (path: string, name: string) => { restarted.set(path, name); },
+    });
+    expect(restarted).toEqual(hosts.projectNames);
+  });
+
   it("answers nothing when nothing changed there, and leaves out the bundle when rex has every commit", async () => {
     const { repo, call } = await twoHosts();
     repo.git("add", "-A");
@@ -278,7 +303,7 @@ describe("Remote Work Kit: a project's state to another machine and back", () =>
     expect(existsSync(transfer.remote!.path)).toBe(false);
     expect(() => repo.git("rev-parse", "--verify", `refs/tau/transfer/${transfer.id}`)).toThrow();
     const mirror = join(rexRoot, "repos", `${transfer.repo.key}.git`);
-    expect(execFileSync("git", ["branch", "--list", "tau/remote-*"], { cwd: mirror }).toString().trim()).toBe("");
+    expect(execFileSync("git", ["branch", "--list", "tau/mini/*"], { cwd: mirror }).toString().trim()).toBe("");
     await expect(call("fetch-result", { transfer: transfer.id })).rejects.toThrow(/no worktree there/u);
   });
 

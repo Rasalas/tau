@@ -11,7 +11,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
@@ -430,6 +430,15 @@ export const STEPS = [
       if (session?.entries[0].cwd !== link.worktree) throw new Error(`rex's session for ${link.thread} works in ${session?.entries[0].cwd}`);
       const book = JSON.parse(readFileSync(join(ctx.a.userData, "kit-state", REMOTE_WORK, "remote-links.json"), "utf8"));
       if (book[0]?.id !== link.id || book[0].thread !== link.thread) throw new Error("A's book does not hold the link");
+      // rex's rail: the worktree carries A's project name and the thread's title, not the transfer id or the mirror's folder.
+      const project = basename(cwd);
+      if (!link.worktree.endsWith(join("worktrees", project, "smoke-thread")) || link.worktreeBranch !== "tau/mini/smoke-thread") throw new Error(`rex's worktree is ${link.worktree} on ${link.worktreeBranch}`);
+      let shell;
+      await waitFor(async () => {
+        shell = (await ctx.rexOwner.request("bootstrap")).threadIndex.sessions.find((entry) => entry.id === link.thread);
+        return Boolean(shell);
+      }, "the thread in rex's index");
+      if (shell.projectName !== project) throw new Error(`rex's index files the thread under ${shell.projectName}, not ${project}`);
       ctx.thread = link;
       return `${statuses.join(" → ")}; ${link.there.turns} turn, $${link.usage.costUsd.toFixed(5)}, thread ${link.thread.slice(0, 8)} in ${link.worktree.split("/").slice(-2).join("/")}`;
     },

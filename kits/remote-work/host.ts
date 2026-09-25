@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
@@ -7,7 +7,7 @@ import { worktreeSetupCommand } from "../workspace/agent-worktrees.js";
 import { HostedThreads } from "./hosted-threads.js";
 import { REPO_KEY } from "./identity.js";
 import { writeIgnoredFiles } from "./ignored-files.js";
-import { MirrorStore, TRANSFER_ID } from "./mirror.js";
+import { MirrorStore, TRANSFER_ID, type ReceivedWorktree } from "./mirror.js";
 import { Operations, type OperationStep } from "./operations.js";
 import {
   DEFAULT_REMOTE_WAIT_MS,
@@ -266,6 +266,12 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         ...(options.pollMs !== undefined ? { pollMs: options.pollMs } : {}),
       });
       const mirrors = new MirrorStore({ stateDir: services.stateDir, ...(options.root ? { root: options.root } : {}), ...(options.env ? { env: options.env } : {}) });
+      // The worktree is a linked worktree of a bare mirror, so Git alone would name it after the mirror's folder.
+      const nameProject = async (entry: ReceivedWorktree) => {
+        for (const path of new Set([entry.worktree, await realpath(entry.worktree).catch(() => entry.worktree)])) services.rememberProjectName(path, entry.name);
+      };
+      // Before the thread index's first scan, which activation precedes.
+      for (const entry of await mirrors.list()) await nameProject(entry);
       const operations = new Operations({ emit: (snapshot) => context.emit(OPERATION_EVENT, snapshot, { topic: operationTopic(snapshot.id) }) });
       const hosted = new HostedThreads({
         services,
@@ -316,10 +322,13 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         const base = required(raw, "base");
         const blob = raw.blob === undefined ? undefined : { id: required(fields(raw.blob), "id"), sha256: required(fields(raw.blob), "sha256") };
         const files = Array.isArray(raw.files) ? raw.files as IgnoredFilePayload[] : [];
+        const name = optionalText(raw, "name");
+        const from = optionalText(raw, "from");
+        const named = { ...(name ? { name } : {}), ...(from ? { from } : {}) };
         if (blob && !services.blobs) throw new HostCommandError("This host takes no files from other machines.");
         const steps = pending([["unpack", "Unpack"], ["worktree", "Worktree"], ["files", "Ignored files"], ["setup", "Setup"]]);
         const operation = operations.start("receive", device(call), steps, async (step): Promise<ReceiveResult> => {
-          const receive = (bundle?: string) => mirrors.receive({ transfer, repo, base, ...(bundle ? { bundle } : {}), ...(device(call) ? { device: device(call) } : {}) }, step);
+          const receive = (bundle?: string) => mirrors.receive({ transfer, repo, base, ...(bundle ? { bundle } : {}), ...(device(call) ? { device: device(call) } : {}), ...named }, step);
           const entry = blob
             ? await services.blobs!.take(blob.id, (file) => {
               if (file.sha256 !== blob.sha256) throw new Error("The bundle here has another checksum than the one sent.");
@@ -332,6 +341,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
             const written = await writeIgnoredFiles(entry.worktree, files);
             step("files", written.refused.length > 0 ? "failed" : "done", `${written.written} written${written.refused.length > 0 ? `; refused ${written.refused.join(", ")}` : ""}`);
           }
+          await nameProject(entry);
           const workspace = services.admitWorkspace(entry.worktree);
           await mirrors.remember(transfer, { workspaceId: workspace.workspaceId });
           const setup = await runSetup(context, entry.worktree, step);
