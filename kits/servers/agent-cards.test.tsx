@@ -57,7 +57,7 @@ describe("the agent's server tools in the transcript", () => {
     expect(exec).toMatchObject({ glyph: "$", tone: "shell", title: "server · site", detail: "~/tmp ls", source: "server site" });
     const running = serverToolPresentation({ id: "2", name: "server_read", args: { path: "index.php", target: "live" }, status: "running", startedAt: 0 });
     expect(running).toMatchObject({ tone: "read", title: "server · live", detail: "index.php" });
-    expect(serverToolPresentation({ id: "3", name: "server_put_tmp", args: { path: "probe.php" }, status: "running", startedAt: 0 })).toMatchObject({ tone: "write", detail: "~/tmp/probe.php" });
+    expect(serverToolPresentation({ id: "3", name: "server_put_tmp", args: { path: "probe.php" }, status: "running", startedAt: 0 })).toMatchObject({ tone: "write", title: "server", source: "server", detail: "~/tmp/probe.php" });
   });
 
   it("shows the proposal and uploads only on the click, as the card and for its thread", async () => {

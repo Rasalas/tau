@@ -24,15 +24,16 @@ const OUTCOME_WORDS: Record<DeployFilePlan["outcome"], string | undefined> = {
 const writes = (file: DeployFilePlan) => file.outcome === "upload" || file.outcome === "delete";
 
 /** The server a call went to: from its answer, else from what the agent named. */
-function markOf(tool: UiToolRun): string {
-  return parseServerMark(tool.output)?.label ?? (typeof tool.args.target === "string" && tool.args.target ? tool.args.target : "server");
+function markOf(tool: UiToolRun): string | undefined {
+  return parseServerMark(tool.output)?.label ?? (typeof tool.args.target === "string" && tool.args.target ? tool.args.target : undefined);
 }
 
 /** A server tool's row in the transcript, with the server it reached. */
 export function serverToolPresentation(tool: UiToolRun): ToolPresentation {
   const name = serverToolName(tool.name);
   const label = markOf(tool);
-  const base = { title: `server · ${label}`, source: `server ${label}` };
+  // A refused call has no answer to name its server by.
+  const base = label ? { title: `server · ${label}`, source: `server ${label}` } : { title: "server", source: "server" };
   const arg = (key: string) => (typeof tool.args[key] === "string" ? tool.args[key] as string : "");
   switch (name) {
     case SERVER_TOOLS.exec:
