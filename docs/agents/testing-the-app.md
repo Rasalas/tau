@@ -139,7 +139,11 @@ Pi signs in through `--agent-dir` pointing at a folder of plain files — never 
 ### A runtime update without a real update
 
 The update toast of a runtime backend runs the program's update command in a
-Terminal Kit shell. Never let an instance run the real `brew upgrade` or
+Terminal Kit shell. A test instance offers no update at all: `dev-instance`,
+`tau-test-host.mjs`, the smokes and the benchmarks set
+`TAU_NO_RUNTIME_UPDATES=1`, so no backend's version carries a `latest` and
+nothing asks npm or Cursor for one. Start with `TAU_NO_RUNTIME_UPDATES=0` to test
+the toast itself. Never let an instance run the real `brew upgrade` or
 `npm install -g`: point `TAU_RUNTIME_UPDATE_COMMAND` at a script under
 `.tau-dev/` (`{"codex":"<abs path>/fake-update.sh"}`) and `TAU_CODEX_COMMAND`
 at a fake `codex` that answers `--version` from a file the script bumps. A
@@ -201,7 +205,7 @@ This is about not restarting between passes of the same task, not about leaving 
 
 ## Known traps
 
-`npm run cdp` without a port only drives an instance started from this worktree: a port read from `.tau-dev/instance.json` whose process runs from another worktree is refused, because a dead instance's port can be reused by someone else's. `dev-instance` also sets `TAU_RUNTIME_UPDATE_COMMAND` to `{"*": "echo …"}`, so an update toast in a test instance never runs a real `brew upgrade`, `npm install -g` or `claude update`.
+`npm run cdp` without a port only drives an instance started from this worktree: a port read from `.tau-dev/instance.json` whose process runs from another worktree is refused, because a dead instance's port can be reused by someone else's. `dev-instance` also sets `TAU_NO_RUNTIME_UPDATES=1`, so a test instance shows no update toast at all, and `TAU_RUNTIME_UPDATE_COMMAND` to `{"*": "echo …"}`, so one it shows anyway (`TAU_NO_RUNTIME_UPDATES=0`) never runs a real `brew upgrade`, `npm install -g` or `claude update`. On the phone, toasts sit at the bottom above the composer and under every sheet; swipe one sideways or tap its × before tapping near it.
 
 
 `byText('button', /send/i)` can match a sidebar thread row whose title contains "send" (observed with the German "ungesendete"); the send button is the one with `aria-label === 'Send'`. While a turn streams, that button is replaced by a Stop button (`class="send-button stop"`, no `aria-label="Send"`) — `snapshot` reports this as the composer's `streaming` flag, and it is the more reliable signal that a reply is still in flight than the presence of a toast. The composer's `<textarea>` has no id or class of its own; querying the only `<textarea>` on the page is reliable because exactly one is ever mounted.

@@ -151,7 +151,10 @@ npm run cdp:mobile -- stop
 
 - `npm run cdp` without a port refuses to act unless the process on the port in `.tau-dev/instance.json` was started from this worktree: after an instance dies, its port can be taken by another worktree's instance, and driving or stopping that one acts on someone else's test (on 2026-09-23 a click in a foreign instance's update toast updated a real CLI). Start a new instance instead of passing the old port by hand.
 - `dev-instance` sets `TAU_NO_NATIVE_DIALOGS=1`: a fatal error (the host not starting, a crash) goes to `.tau-dev/userdata/logs/host.log` as `native-dialog.suppressed` instead of a native alert on the user's screen. Read the log when an instance seems to hang.
-- `dev-instance` sets `TAU_RUNTIME_UPDATE_COMMAND` to a harmless `echo` for every runtime (`"*"`), so an update toast clicked in a test instance never updates the machine's real CLIs. Override it only with another stub.
+- `dev-instance` sets `TAU_NO_RUNTIME_UPDATES=1`: no runtime update is looked up or offered, so no update toast appears. `TAU_NO_RUNTIME_UPDATES=0` brings them back for a test of the toast.
+- It also sets `TAU_RUNTIME_UPDATE_COMMAND` to a harmless `echo` for every runtime (`"*"`), so an update toast clicked in a test instance never updates the machine's real CLIs. Override it only with another stub.
+- On the phone (`cdp:mobile`), toasts sit at the bottom, above the docked composer, and under every sheet and dialog. Close one with its × or `swipe "<its title>" 250` before tapping anything near it.
+- The host keeps its loopback port across restarts (`<userData>/host-port`), so a paired phone tab reconnects after `cdp stop` and a new `dev:instance` without `--fresh`. If the port was taken in between, the host takes another one and the tab needs a new link.
 
 - Stop the instance before `npm run dist` in the same worktree: while it runs, Chromium keeps dangling `Singleton*` symlinks in `.tau-dev/userdata`, and electron-builder aborts on the first one it cannot `stat`.
 - `byText('button', /send/i)` can match a sidebar thread row whose title happens to contain "send" (seen with German "ungesendete"). The send button is the one with `aria-label === 'Send'`; prefer `document.querySelector('.send-button[aria-label="Send"]')` or an exact-match regex.
