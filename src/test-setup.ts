@@ -1,6 +1,15 @@
 import { relative } from "node:path";
 import { afterAll, afterEach, beforeAll, inject, vi } from "vitest";
+import { isolateHome } from "./main/test-support/test-home.js";
 import { TEST_FILE_VARIABLE, TEST_RUN_VARIABLE } from "./main/test-support/test-processes.js";
+
+// Each file gets a temporary home, and with it its own ~/.pi/agent, ~/.tau, ~/.codex and the rest;
+// a write into the real home's tool folders is refused and fails the file.
+const testHome = isolateHome();
+afterAll(() => {
+  testHome.remove();
+  if (testHome.violations.length > 0) throw new Error(`Tests wrote into the real home:\n  ${testHome.violations.join("\n  ")}`);
+});
 
 // A host built in a test would otherwise watch the developer's own ~/.tau and
 // ~/.pi: real files, real edits, and one more set of handles per suite. A test
