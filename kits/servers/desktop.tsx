@@ -12,7 +12,8 @@ const servers: DesktopExtension = {
     const questions = new AskpassQuestions(context.host);
     const disconnect = questions.connect();
     const releases = [
-      context.registerRegion({ id: "servers.askpass", placement: "title-bar", Component: createAskpassLayer(questions) }),
+      // A login question reaches the user on whichever client they are.
+      context.registerRegion({ id: "servers.askpass", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: createAskpassLayer(questions) }),
       context.registerSettingsPage({
         id: "servers.settings",
         label: "Servers",
