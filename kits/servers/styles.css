@@ -284,3 +284,15 @@
 .servers-drift-diff { min-height: 240px; max-height: 60vh; overflow: auto; border: 1px solid var(--line-card); border-radius: var(--radius-md); }
 .servers-drift-gate { width: 520px; }
 .servers-drift-gate footer > button { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* History: a deployment's actions, its status tag, the rollback preview. */
+.servers-history-actions { padding: 0 10px 8px 28px; }
+.servers-history-meta.note { color: var(--warn); }
+.servers-history-entry.rolled-back .servers-history-title { color: var(--muted); }
+.servers-history-head .servers-file-tag { color: var(--muted); }
+.servers-history-head .servers-file-tag.status-uploaded { color: var(--warn); }
+.servers-history-head .servers-file-tag.status-committed { color: var(--ready); }
+.servers-history-end { padding: 4px 10px 12px 28px; }
+.servers-upload-head > .spacer { flex: 1; }
+.servers-three-way { display: inline-flex; align-items: center; gap: 5px; }
+.servers-three-way.active { border-color: var(--line-field); color: var(--ink); background: var(--chip); }

@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronRight, Download, GitBranch, History, KeyRound, RefreshCw, Server, Settings2, SquareTerminal } from "lucide-react";
+import { AlertTriangle, Download, GitBranch, KeyRound, RefreshCw, Server, Settings2, SquareTerminal } from "lucide-react";
 import {
   DiffView, Empty, READ_ONLY_REASON, Skeleton, Spinner, errorMessage, tooltipProps, useCommandAllowed,
   type HostExtensionClient, type StageTabHandle, type UiFileDiff, type WorkbenchActions,
 } from "tau";
 import { DriftPanel, type DriftFeed } from "./drift-view.js";
+import { HistoryPanel } from "./history-panel.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
 import { StatusDot, openTarget, useServersStatus, type TargetTabParams } from "./status-parts.js";
 import type { ServersStatusStore } from "./status-store.js";
 import { UploadPanel } from "./upload-panel.js";
 import { SYNC_PROGRESS_EVENT, SYNC_PROGRESS_TOPIC, type SyncProgress } from "./sync/protocol.js";
-import { SERVERS_SETTINGS_PAGE, type HistoryDeployment, type HistoryEntry, type ServerDiffSource, type ServerGitInfo, type ServerHistory, type TargetStatus } from "./view-protocol.js";
+import { SERVERS_SETTINGS_PAGE, type ServerDiffSource, type ServerGitInfo, type TargetStatus } from "./view-protocol.js";
 
 /** Terminal Kit's `tau.terminal/run`, named here: a kit never imports another. */
 export const TERMINAL_RUN_SERVICE = "tau.terminal/run";
@@ -64,56 +65,6 @@ export function ServerGitLine({ git }: { git: ServerGitInfo | undefined }) {
       <span>{git.changed === 0 ? "clean" : `${git.changed} uncommitted`}</span>
       {last ? <span className="servers-git-commit">{last.sha.slice(0, 7)} {last.subject}</span> : null}
     </span>
-  );
-}
-
-const DEPLOYMENT_STATUS: Record<HistoryDeployment["status"], string> = { uploaded: "not committed", verified: "checked", committed: "committed", "rolled-back": "rolled back" };
-
-export function historyTitle(entry: HistoryEntry, first: boolean): string {
-  if (entry.deployment) return entry.deployment.kind === "rollback" ? `Rollback ${entry.deployment.seq}` : `Deployment ${entry.deployment.seq}`;
-  if (entry.kind === "read") return first ? "First read of the server" : "Read from the server";
-  return entry.subject;
-}
-
-export function deploymentMeta(deployment: HistoryDeployment): string {
-  return [DEPLOYMENT_STATUS[deployment.status], deployment.branch ? `from ${deployment.branch}` : "", deployment.failed ? `${deployment.failed} failed` : ""].filter(Boolean).join(" · ");
-}
-
-function HistoryList({ entries, active, onFile }: { entries: readonly HistoryEntry[]; active: ServerDiffSource | undefined; onFile(entry: HistoryEntry, path: string): void }) {
-  const [open, setOpen] = useState<string | undefined>(entries[0]?.commit);
-  return (
-    <ol className="servers-history" aria-label="History">
-      {entries.map((entry) => {
-        const expanded = open === entry.commit;
-        const counts = [entry.added ? `${entry.added} new` : "", entry.modified ? `${entry.modified} changed` : "", entry.deleted ? `${entry.deleted} deleted` : ""].filter(Boolean).join(" · ") || "no changes";
-        const first = !entry.parent;
-        return (
-          <li key={entry.commit} className="servers-history-entry">
-            <button type="button" className="servers-history-head" aria-expanded={expanded} onClick={() => setOpen(expanded ? undefined : entry.commit)}>
-              <ChevronRight size={12} className="chev" aria-hidden="true" />
-              <span className="servers-history-title">{historyTitle(entry, first)}</span>
-              <time dateTime={entry.at} {...tooltipProps(new Date(entry.at).toLocaleString())}>{ago(entry.at)}</time>
-            </button>
-            <p className="servers-history-meta">{first ? `${entry.added} files` : counts}{entry.deployment ? <> · {deploymentMeta(entry.deployment)}</> : null}</p>
-            {expanded && !first ? (
-              <ul className="servers-files">
-                {entry.files.map((file) => {
-                  const current = active?.source === "history" && active.commit === entry.commit && active.path === file.path;
-                  return (
-                    <li key={file.path} className={`servers-file${current ? " active" : ""}`}>
-                      <button type="button" className="servers-file-open" aria-current={current} onClick={() => onFile(entry, file.path)}>
-                        <span className={`servers-change ${file.change}`} aria-hidden="true">{file.change === "added" ? "A" : file.change === "deleted" ? "D" : "M"}</span>
-                        <span className="servers-file-name">{file.path}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null}
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 
@@ -190,20 +141,9 @@ export default function ServerView({ params, handle, actions, parts }: { params:
   const target = entry.status?.targets.find((candidate) => candidate.targetId === params.targetId);
   const [tab, setTab] = useState<Tab>("pending");
   const [diff, setDiff] = useState<ServerDiffSource>();
-  const [history, setHistory] = useState<{ entries?: HistoryEntry[]; error?: string }>({});
   const act = useTargetActions(parts, actions, cwd, target);
 
   useEffect(() => { handle.setTitle(target ? `Server · ${target.label}` : "Server"); }, [handle, target?.label]); // eslint-disable-line react-hooks/exhaustive-deps
-  const mirrorCommit = target?.mirror?.commit;
-  useEffect(() => {
-    if (tab !== "history") return;
-    let live = true;
-    parts.host.invoke("server-history", { cwd, targetId: params.targetId }).then(
-      (value) => { if (live) setHistory({ entries: (value as ServerHistory).entries }); },
-      (failure: unknown) => { if (live) setHistory({ error: errorMessage(failure) }); },
-    );
-    return () => { live = false; };
-  }, [tab, cwd, params.targetId, mirrorCommit, parts.host]);
 
   if (entry.error && !target) return <div className="servers-view"><Empty icon={<AlertTriangle size={18} />} title="Could not read the server status" description={entry.error} /></div>;
   if (!entry.status) return <div className="servers-view" aria-busy="true"><Skeleton shape="card" /></div>;
@@ -313,15 +253,15 @@ export default function ServerView({ params, handle, actions, parts }: { params:
         ) : null}
         {tab === "drift" ? <DriftPanel context={{ host: parts.host }} feed={parts.drift} cwd={cwd} targetId={target.targetId} /> : null}
         {tab === "history" ? (
-          history.error ? <p className="servers-error" role="alert">{history.error}</p>
-            : !history.entries ? <Skeleton shape="card" />
-            : history.entries.length === 0 ? <Empty icon={<History size={18} />} title="No history yet" description="Each read of the server, and later each upload, is recorded here." />
-            : (
-              <div className="servers-split">
-                <aside className="servers-aside"><HistoryList entries={history.entries} active={historyDiff} onFile={(item, path) => setDiff({ source: "history", commit: item.commit, path })} /></aside>
-                <main className="servers-main"><FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={historyDiff} /></main>
-              </div>
-            )
+          <HistoryPanel
+            parts={parts}
+            actions={actions}
+            cwd={cwd}
+            target={target}
+            active={historyDiff}
+            onFile={(item, path) => setDiff({ source: "history", commit: item.commit, path })}
+            main={<FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={historyDiff} />}
+          />
         ) : null}
       </div>
     </div>
