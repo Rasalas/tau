@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HostClientCall } from "../shared/host-transport.js";
 import { ClientCalls, PINNED_WINDOW_GONE } from "./client-calls.js";
 import { runAsCaller } from "./host-invocation.js";
@@ -261,5 +261,55 @@ describe("the window half registry", () => {
     instance.dispose();
     expect(disposed).toBe(true);
     expect(instance.ids).toEqual([]);
+  });
+});
+
+describe("a window started on demand", () => {
+  function launcher(onEnsure: () => void = () => undefined) {
+    const log: string[] = [];
+    return { log, launcher: { ensure: async () => { log.push("ensure"); onEnsure(); }, activity: () => { log.push("activity"); } } };
+  }
+
+  it("starts the display's window when no window is attached, then asks it", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    const { log, launcher: display } = launcher(() => { queueMicrotask(() => pending.attach("win", hostWindow)); });
+    pending.setWindowLauncher(display);
+    const answer = pending.call(PREVIEW, "live-frame", undefined, {}, "phone");
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ to: "win", command: "live-frame" });
+    pending.settle(sent[0]!.callId, "frame", undefined, "win");
+    await expect(answer).resolves.toBe("frame");
+    expect(log).toEqual(["ensure", "activity", "activity"]);
+  });
+
+  it("says so when the window it started has no such half, or never connects", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.setWindowLauncher(launcher(() => { queueMicrotask(() => pending.attach("win", { ...hostWindow, windowHalves: ["window"] })); }).launcher);
+    await expect(pending.call(PREVIEW, "open-view")).rejects.toThrow(/No Tau window on this host has the window half of tau.preview/u);
+
+    const idle = calls(10_000);
+    idle.calls.setWindowLauncher(launcher().launcher, 5);
+    await expect(idle.calls.call(PREVIEW, "open-view")).rejects.toThrow(/did not connect within/u);
+    expect([...sent, ...idle.sent]).toEqual([]);
+  });
+
+  it("never starts one for a pinned window or a call only the caller's own window may answer", async () => {
+    const { calls: pending } = calls(10_000);
+    const { log, launcher: display } = launcher();
+    pending.setWindowLauncher(display);
+    await expect(pending.call(PREVIEW, "open-view", undefined, { window: "w-gone" })).rejects.toThrow(PINNED_WINDOW_GONE);
+    await expect(pending.pickDirectory(undefined, "phone")).rejects.toThrow(/open it in the Tau desktop app/u);
+    expect(log).toEqual([]);
+  });
+
+  it("does not count a paired device's window as activity on this machine", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    const { log, launcher: display } = launcher();
+    pending.setWindowLauncher(display);
+    pending.attach("phone", { local: false, pairedClient: "c1", windowHalves: [PREVIEW] });
+    const answer = pending.call(PREVIEW, "open-view", undefined, {}, "phone");
+    pending.settle(sent[0]!.callId, true, undefined, "phone");
+    await expect(answer).resolves.toBe(true);
+    expect(log).toEqual([]);
   });
 });
