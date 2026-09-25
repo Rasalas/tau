@@ -129,3 +129,23 @@ hand and a confirmation on the Storage page. Agent worktrees are not recorded
 yet: Agents Kit removes its children's worktrees itself when their work is
 applied or discarded.
 
+
+## Amendment, 2026-09-25: a child starts from HEAD and the working copy, never a checkpoint
+
+The decision above based a child on the parent's latest turn checkpoint,
+committed on the parent's *current* HEAD. A checkpoint does not record which
+HEAD it was captured on, so when the user committed between the parent's last
+turn and the spawn, that base commit carried the old content on top of the new
+commit: it reverted the user's commit, and merging the child's work back undid
+it without a conflict (seen with a sub-agent on another machine, and true for
+local worktrees as well).
+
+A child now starts from HEAD and the parent's working copy as they are at the
+spawn (`captureStartingState`: HEAD, plus a state commit on it through a
+private index when anything is uncommitted). That is never less than HEAD, and
+it also holds what the parent changed in the turn that spawned the child. A
+sub-agent on another machine and "Continue on" send the same state through
+Remote Work Kit; its `snapshotRef` input is gone. When the parent's checkout
+still holds uncommitted work that the child's base carries, applying a child
+that committed goes through `mergeBranchIntoCheckout` with that base, as a
+remote result does, since `git merge` refuses to overwrite those files.
