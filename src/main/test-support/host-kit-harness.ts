@@ -36,6 +36,7 @@ export function activateHostKit(
     // still activates, and its test drives the listener it passes here.
     observeConfigChanges: () => () => undefined,
     registerThreadLifecycle: () => () => undefined,
+    registerRuntimeExtension: () => () => undefined,
     // No MCP endpoint in a kit's own test; a kit that offers tools passes its own fake.
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
     ...services,

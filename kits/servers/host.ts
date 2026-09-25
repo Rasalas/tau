@@ -1,4 +1,5 @@
 import type { HostExtension } from "tau/host-extension";
+import { ServerAgentTools, registerServerAgentTools } from "./agent-tools.js";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
 import { DeployService } from "./deploy.js";
 import { DriftService, WORKSPACE_KIT_ID } from "./drift.js";
@@ -6,13 +7,16 @@ import { registerServerProjects } from "./projects.js";
 import { ServerNetwork } from "./network-policy.js";
 import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
 import { ServerPrompts } from "./prompts.js";
-import { SERVERS_EXTENSION_ID } from "./protocol.js";
+import { SERVERS_EXTENSION_ID, TARGET_LEVELS, type TargetLevel } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
 import { createServerStatus } from "./status-host.js";
 import { ServersStore } from "./store.js";
 import { gitCall } from "./sync/git.js";
+import { readTargetFile } from "./target-settings.js";
 import { SyncService } from "./sync/service.js";
 import { ServerTargets } from "./targets.js";
+
+const ACCESS_KIT_ID = "tau.access";
 
 /**
  * Servers: a server reached over SSH/SFTP or FTP as a project's work target
@@ -73,6 +77,21 @@ export function createServersHostExtension(): HostExtension {
       const status = createServerStatus(context, { store, targets, sync, ssh, drift, deploy, git });
       status.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
+      // Before the network extension: its hook rewrites bash, and the bypass check reads the command as the model wrote it.
+      const stopAgentTools = registerServerAgentTools(context, new ServerAgentTools({
+        list: (cwd) => targets.list(cwd),
+        transport: (input) => ssh.transport(input),
+        status: (input) => status.status(input),
+        preview: (input) => deploy.preview(input),
+        targetLevel: async (key) => (await readTargetFile(store, key)).level,
+        threadLevel: async (threadId) => {
+          const level = await context.invokeHostExtension(ACCESS_KIT_ID, "thread-level-of", { threadId });
+          return (TARGET_LEVELS as readonly unknown[]).includes(level) ? level as TargetLevel : undefined;
+        },
+        mirrorDir: (key) => store.mirrorDir(key),
+        git,
+        log: (label, detail) => services.log(label, detail),
+      }));
       const sandbox = new NetworkSandbox({
         load: () => services.loadDependency("@anthropic-ai/sandbox-runtime"),
         ripgrep: () => services.findCommand("rg"),
@@ -96,6 +115,7 @@ export function createServersHostExtension(): HostExtension {
         status.dispose();
         drift.dispose();
         stopProjects();
+        stopAgentTools();
         sync.dispose();
         withdraw?.();
         unregisterPi?.();
