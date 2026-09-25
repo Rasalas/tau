@@ -283,7 +283,9 @@ function TargetDrift({ context, feed, cwd, target, branch }: { context: Pick<Des
         <Empty size="compact" title="Not read yet" description="Tau has not read this server. Check it against the last commit, or download it first." />
       ) : target.check ? (
         <p className="servers-drift-note">Nothing changed on the server since Tau last read it.</p>
-      ) : null}
+      ) : checking ? null : (
+        <p className="servers-drift-note">Not checked since Tau last read the server.</p>
+      )}
       {target.imports.length ? (
         <ol className="servers-drift-imports" aria-label="Drift branches">
           {target.imports.map((item) => (
