@@ -12,7 +12,7 @@ import {
   type HostMachineServices,
   type HostUploadedBlob,
 } from "./host-extensions.js";
-import { sendBlob } from "./host-blobs.js";
+import { sendBlob, type BlobRequest } from "./host-blobs.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import type { HostLogger } from "./host-log.js";
@@ -111,7 +111,7 @@ export class HostMachines {
     const { entry, state } = this.connected(machine);
     if (state.readOnly) throw failure(`${entry.name} lets this computer's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
     // Each piece asks for the connection again, so a drop or a revocation stops the upload at once.
-    const request = (method: string, params: readonly unknown[], timeoutMs: number) => this.connected(machine).monitor.call(method, params, timeoutMs);
+    const request: BlobRequest = (method, params, timeoutMs, frame) => this.connected(machine).monitor.call(method, params, timeoutMs, frame);
     const started = Date.now();
     try {
       const blob = await sendBlob(request, source, options);

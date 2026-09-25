@@ -859,6 +859,10 @@ device's id reads as missing.
 | `blob-commit` | `id`, `sha256` (hex), `size` | `{ id, size, sha256 }` once size and sum match what arrived; otherwise nothing is kept and it fails with both sums |
 | `blob-abort` | `id` | `{ aborted }`; what arrived is deleted |
 
+The sender sends one piece at a time and `blob-put` frames without
+per-message deflate: base64 of compressed or random data shrinks by a quarter
+at about 150 ms per piece, slower than sending it on any fast link.
+
 The host keeps blobs in `<userData>/blobs/` (0700, files 0600) and empties it
 at start. A blob is at most 2 GB (`BLOB_MAX_BYTES`); a device keeps at most
 4 GB there until its blobs are taken (`BLOB_DEVICE_QUOTA_BYTES`) and sends at

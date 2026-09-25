@@ -97,7 +97,7 @@ describe("files another machine sends this host", () => {
     await store.put(MINI, ID, 0, "YWJj");
     await expect(store.put(MINI, ID, 2, "YWJj")).rejects.toThrow(/expected piece 1 .* got 2/u);
     await expect(store.put(MINI, ID, 0, "YWJj")).rejects.toThrow(/started already/u);
-    await expect(store.put(MINI, ID, 1, "not base64!")).rejects.toMatchObject({ code: HOST_ERROR.invalidRequest });
+    await expect(store.put(MINI, ID, 1, "YWJ!")).rejects.toMatchObject({ code: HOST_ERROR.invalidRequest });
     await expect(store.put(MINI, ID, 1, "YWJjZGVmZ2g=")).rejects.toThrow(/at most 6 bytes/u);
     await expect(store.put(MINI, "short", 0, "YWJj")).rejects.toThrow(/16 to 64/u);
     // The refused pieces changed nothing: piece 1 still fits.
@@ -198,8 +198,8 @@ describe("sending a file to another host", () => {
     const { store, dir } = await open();
     const methods = createBlobMethods(() => store);
     const calls: string[] = [];
-    const request: BlobRequest = (method, params) => {
-      calls.push(`${method}:${String(params[1] ?? "")}`);
+    const request: BlobRequest = (method, params, _timeout, options) => {
+      calls.push(`${method}:${String(params[1] ?? "")}${options?.compress === false ? ":raw" : ""}`);
       return invokeHostMethod(methods, method, params, principal);
     };
     return { store, dir, request, calls };
@@ -214,7 +214,8 @@ describe("sending a file to another host", () => {
     const progress: unknown[] = [];
     const sent = await sendBlob(request, Readable.from(chunks), { size: bytes.length, onProgress: (step) => progress.push(step) });
     expect(sent).toMatchObject({ size: bytes.length, sha256: sha(bytes) });
-    expect(calls.map((call) => call.split(":")[0])).toEqual(["blob-put", "blob-put", "blob-put", "blob-commit"]);
+    // Pieces go without deflate; base64 of random bytes is not worth its time.
+    expect(calls).toEqual(["blob-put:0:raw", "blob-put:1:raw", "blob-put:2:raw", `blob-commit:${sent.sha256}`]);
     expect(progress).toEqual([
       { sent: BLOB_PIECE_BYTES, total: bytes.length },
       { sent: BLOB_PIECE_BYTES * 2, total: bytes.length },

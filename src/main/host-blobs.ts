@@ -22,7 +22,6 @@ const BLOB_SWEEP_MS = 60 * 1000;
 const PIECE_TIMEOUT_MS = 120_000;
 
 const BLOB_ID = /^[A-Za-z0-9_-]{16,64}$/u;
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/u;
 
 export const BLOB_METHODS = { put: "blob-put", commit: "blob-commit", abort: "blob-abort" } as const;
 
@@ -105,9 +104,7 @@ export class HostBlobStore {
     if (!BLOB_ID.test(id)) return Promise.reject(invalid("blob-put: the id has 16 to 64 letters, digits, - or _."));
     if (!Number.isSafeInteger(index) || index < 0) return Promise.reject(invalid("blob-put: index must be a whole number from 0."));
     const pieceBytes = this.options.pieceBytes ?? BLOB_PIECE_BYTES;
-    if (base64.length > Math.ceil(pieceBytes / 3) * 4 || base64.length % 4 !== 0 || !BASE64.test(base64)) {
-      return Promise.reject(invalid(`blob-put: a piece is base64 of at most ${pieceBytes} bytes.`));
-    }
+    if (base64.length > Math.ceil(pieceBytes / 3) * 4) return Promise.reject(invalid(`blob-put: a piece is base64 of at most ${pieceBytes} bytes.`));
     const owner = deviceOf(principal) ?? "host";
     let entry = this.entries.get(id);
     if (index === 0) {
@@ -130,6 +127,8 @@ export class HostBlobStore {
       if (this.entries.get(id) !== current || current.state !== "receiving") throw missing(id);
       if (index !== current.next) throw invalid(`blob-put: expected piece ${current.next} of ${id}, got ${index}.`);
       const bytes = Buffer.from(base64, "base64");
+      // Node decodes leniently; only canonical base64 survives the way back.
+      if (bytes.toString("base64") !== base64) throw invalid(`blob-put: a piece is base64 of at most ${pieceBytes} bytes.`);
       if (bytes.length === 0 && index > 0) throw invalid("blob-put: only the first piece may be empty.");
       const max = this.options.maxBytes ?? BLOB_MAX_BYTES;
       if (current.size + bytes.length > max) {
@@ -306,8 +305,8 @@ export function createBlobMethods(store: () => HostBlobStore | undefined): Recor
   };
 }
 
-/** How a sender reaches the other host: one protocol request, with a timeout. */
-export type BlobRequest = (method: string, params: readonly unknown[], timeoutMs: number) => Promise<unknown>;
+/** How a sender reaches the other host: one protocol request, with a timeout; `compress: false` for a piece. */
+export type BlobRequest = (method: string, params: readonly unknown[], timeoutMs: number, options?: { compress?: boolean }) => Promise<unknown>;
 
 /** Cuts any source into pieces of exactly `size` bytes, the last one shorter. */
 async function* pieces(source: HostBlobSource, size: number): AsyncGenerator<Buffer> {
@@ -345,13 +344,15 @@ export async function sendBlob(request: BlobRequest, source: HostBlobSource, opt
   const cancelled = () => failure("The upload was cancelled.", HOST_ERROR.cancelled);
   const signal = options.signal;
   // An abort answers at once; the piece in flight still lands there and the abort drops it.
+  // Base64 of random bytes deflates by a quarter at 150 ms a piece: slower than sending it on any fast link.
   const send = (method: string, params: readonly unknown[]): Promise<unknown> => {
-    if (!signal) return request(method, params, timeout);
+    const frame = method === BLOB_METHODS.put ? { compress: false } : undefined;
+    if (!signal) return request(method, params, timeout, frame);
     if (signal.aborted) return Promise.reject(cancelled());
     return new Promise((resolve, reject) => {
       const stop = () => reject(cancelled());
       signal.addEventListener("abort", stop, { once: true });
-      request(method, params, timeout).then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+      request(method, params, timeout, frame).then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
     });
   };
   let sent = 0;
