@@ -122,8 +122,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
     case "window-shell":
       targets.windowShell?.(event.event);
       return;
-    // The platform's machine list follows these itself.
+    // The platform's machine list and its look-ins follow these themselves.
     case "environments":
+    case "environment-thread":
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;

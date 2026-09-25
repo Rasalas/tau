@@ -1,14 +1,19 @@
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import {
-  decodeEnvironmentTarget,
+  decodeEnvironmentOpenTarget,
   type EnvironmentAgentsResult,
+  type EnvironmentOpenTarget,
   type EnvironmentPairInput,
   type EnvironmentPreferences,
   type EnvironmentPairResult,
   type EnvironmentTarget,
+  type UiEnvironmentThreadView,
   type UiEnvironments,
 } from "../shared/environments.js";
+import type { TranscriptPage } from "../shared/host-protocol.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
+import { decodeHostTranscriptCursor } from "./ipc-input.js";
 import type { HostMethodTable } from "./host-methods.js";
 
 /** What the window's process answers about its machines (ADR 0025); `WindowEnvironments` is the one implementation. */
@@ -19,11 +24,13 @@ export interface EnvironmentsService {
   rename(id: string, name: string): Promise<boolean>;
   remove(id: string): Promise<boolean>;
   retry(id: string): void;
-  open(id: string, target?: EnvironmentTarget): Promise<void>;
+  open(id: string, target?: EnvironmentOpenTarget): Promise<void>;
   takeArrival(): EnvironmentTarget | undefined;
   discover(): Promise<UiDiscoveredHosts>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
+  watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
+  transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -75,9 +82,24 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
     "environments-remove": async (params) => ({ removed: await require().remove(text("environments-remove", "id", params[0], 200)) }),
     "environments-retry": async (params) => { require().retry(text("environments-retry", "id", params[0], 200)); },
     "environments-open": async (params) => {
-      const target = params[1] === undefined ? undefined : decodeEnvironmentTarget(params[1]);
+      const target = params[1] === undefined ? undefined : decodeEnvironmentOpenTarget(params[1]);
       await require().open(text("environments-open", "id", params[0], 200), target);
     },
     "environments-take-arrival": async () => require().takeArrival() ?? null,
+    "environments-watch-thread": async (params) => {
+      if (typeof params[2] !== "boolean") {
+        throw Object.assign(new Error("environments-watch-thread: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().watchThread(
+        text("environments-watch-thread", "machine", params[0], 200),
+        text("environments-watch-thread", "sessionId", params[1], 512),
+        params[2],
+      ) ?? null;
+    },
+    "environments-transcript-page": async (params) => require().transcriptPage(
+      text("environments-transcript-page", "machine", params[0], 200),
+      text("environments-transcript-page", "sessionId", params[1], 512),
+      decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
+    ),
   };
 }

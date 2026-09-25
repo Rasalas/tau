@@ -57,6 +57,8 @@ export interface EnvironmentMonitorOptions {
   bootstrap?: boolean;
   /** Extension topics (`<extensionId>/<topic>`) to receive, read at every hello; `resubscribe` sends a change. */
   topics?(): string[];
+  /** Threads whose stream to receive, the same way: a window looking in on one there (API 1.15.0). */
+  threads?(): string[];
   /** Every push the machine sends, after the monitor read what it follows itself. */
   onPush?(event: unknown): void;
   /** What a refused token reads as; a window's wording by default. */
@@ -103,7 +105,8 @@ function defaultSocket(url: string, trust: EndpointTrust | undefined, onPresente
 
 /**
  * The window's own small connection to one machine (ADR 0025): says hello as
- * an auxiliary client that subscribes to nothing, reads the thread index once
+ * an auxiliary client that subscribes to nothing but the threads a tab looks
+ * in on, reads the thread index once
  * and follows its pushes, pings to notice a machine that went away, and tries
  * the machine's addresses in turn when it cannot reach it.
  */
@@ -142,7 +145,7 @@ export class EnvironmentMonitor {
   }
 
   private subscription(): { threads: string[]; topics: string[] } {
-    return { threads: [], topics: this.options.topics?.() ?? [] };
+    return { threads: this.options.threads?.() ?? [], topics: this.options.topics?.() ?? [] };
   }
 
   /** Tries now instead of at the next scheduled attempt. */

@@ -53,6 +53,7 @@ function setup(answers: Record<string, unknown> = {}) {
     getSnapshot: () => ({ environments: [{ id: "rex-id", name: "rex", threads: [{ id: "rex-thread", path: "/rex/sessions/x.jsonl", title: "Parser work" }] }] }),
     subscribe: () => () => undefined,
     open: vi.fn(async () => undefined),
+    watchThread: () => () => undefined,
   };
   const store = new HandoffStore();
   const { registry } = createKitHarness(invoke, undefined, { environments } as never);
@@ -113,9 +114,14 @@ describe("Continue on another machine", () => {
     await settle();
     expect(view.container.textContent).toContain("Continues on rex · Idle");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
     await settle();
     expect(environments.open).toHaveBeenCalledWith("rex-id", { thread: { path: "/rex/sessions/x.jsonl" } });
+    // Or read it here, without moving the window.
+    const openThread = vi.fn();
+    (actions as unknown as { openThread: typeof openThread }).openThread = openThread;
+    fireEvent.click(screen.getByRole("button", { name: "Look in" }));
+    expect(openThread).toHaveBeenCalledWith("rex-thread", { pin: true, machine: "rex-id" });
 
     fireEvent.click(screen.getByRole("button", { name: "Bring back" }));
     await settle();

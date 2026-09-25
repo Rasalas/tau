@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SettingsPageProps } from "tau";
+import type { PlatformEnvironments, SettingsPageProps } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import remoteWork, { REMOTE_WORK_SETTINGS_PAGE } from "./desktop.js";
@@ -39,9 +39,9 @@ const TRANSFER: RepoTransfer = {
   remote: { path: "/home/rex/.tau/remote-work/worktrees/app/abcdef0123456789", branch: "tau/remote-abcdef0123456789" },
 };
 
-function setup(answer: (command: string, input?: unknown) => unknown, cwd: string | null = "/work/app") {
+function setup(answer: (command: string, input?: unknown) => unknown, cwd: string | null = "/work/app", platform?: Parameters<typeof createKitHarness>[2]) {
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown) => answer(command, input));
-  const { registry, preferences } = createKitHarness(invoke);
+  const { registry, preferences } = createKitHarness(invoke, undefined, platform);
   registry.activate(remoteWork);
   const page = registry.getSettingsPages().find((entry) => entry.id === REMOTE_WORK_SETTINGS_PAGE)!;
   const props: SettingsPageProps = { onNotify: vi.fn(), ...(cwd ? { cwd } : {}) };
@@ -128,6 +128,28 @@ describe("Settings → Remote work", () => {
     expect(screen.getByText("429 You exceeded your current quota.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Merge" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("opens a thread there, in a window that can show another machine", async () => {
+    const link: RemoteThreadLink = {
+      id: "link1", machine: "rex-id", machineName: "rex", cwd: "/work/app", root: "/work/app", title: "Colours",
+      thread: "t1", status: "running", createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    const open = vi.fn(async () => undefined);
+    const answer = (command: string) => {
+      if (command === "ignored-files") return { ...VIEW, candidates: [], selected: [] };
+      if (command === "threads") return [link];
+      return command === "transfers" ? [] : undefined;
+    };
+    setup(answer, "/work/app", { environments: { open } as unknown as PlatformEnvironments });
+    await flush();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Open on rex" })); });
+    expect(open).toHaveBeenCalledWith("rex-id", { threadId: "t1" });
+    cleanup();
+    // A browser or a phone cannot move to another machine.
+    setup(answer);
+    await flush();
+    expect(screen.queryByRole("button", { name: "Open on rex" })).toBeNull();
   });
 
   it("says what to do without an open project", () => {

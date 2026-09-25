@@ -107,6 +107,22 @@ describe("the other machines in the rail", () => {
     expect(environments.retry).toHaveBeenCalledWith("attic");
   });
 
+  it("looks in on a thread there in a tab here, where the core offers it, and not on an unreachable machine", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+    const openThread = vi.fn();
+    const Section = createMachinesRailSection({ ...environments, watchThread: () => () => undefined });
+    render(<Section actions={fakeActions({ openThread })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Look in on Fix the build here" }));
+    expect(openThread).toHaveBeenCalledWith("s1", { pin: true, machine: "studio" });
+    expect(environments.open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Look in on Old idea here" })).toBeNull();
+    cleanup();
+    // An older core has no look-in, and would read the id as this machine's thread.
+    const Older = createMachinesRailSection(environments);
+    render(<Older actions={fakeActions({ openThread })} />);
+    expect(screen.queryByRole("button", { name: "Look in on Fix the build here" })).toBeNull();
+  });
+
   it("leaves out the threads this computer's sub-agents run there", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });

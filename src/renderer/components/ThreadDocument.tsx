@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { Bot } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import { formatCost } from "../cost-format";
@@ -18,6 +18,15 @@ interface LoadState {
   messages: UiMessage[];
   loaded: boolean;
   error?: string;
+}
+
+/** A reader at the tail stays there when the messages reload. */
+export function useStickToTail(scrollRef: RefObject<HTMLDivElement | null>, messages: readonly UiMessage[]): void {
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || node.scrollHeight - node.scrollTop - node.clientHeight > STICK_TO_TAIL_PX) return;
+    node.scrollTop = node.scrollHeight;
+  }, [scrollRef, messages]);
 }
 
 /**
@@ -62,11 +71,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadThread, sessionId, revision, tick]);
 
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node || node.scrollHeight - node.scrollTop - node.clientHeight > STICK_TO_TAIL_PX) return;
-    node.scrollTop = node.scrollHeight;
-  }, [state.messages]);
+  useStickToTail(scrollRef, state.messages);
 
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);

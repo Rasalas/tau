@@ -1,7 +1,9 @@
-import { Bot, MessageSquare, SquareDashed, X } from "lucide-react";
+import { Bot, MessageSquare, Server, SquareDashed, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { StageTab } from "../../workbench/stage";
 import type { ExtensionRegistry } from "../extension-system";
+import { usePlatform } from "../platform-context";
+import { useEnvironmentThread } from "../use-environment-thread";
 import { useThreadShell } from "../use-thread-shell";
 import { FileKindIcon } from "./FileKindIcon";
 import { Menu, type MenuItem } from "./Menu";
@@ -66,6 +68,13 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
 function ThreadStageTab({ sessionId, chrome }: { sessionId: string; chrome: TabChrome }) {
   const label = useThreadShell(sessionId)?.title || "Agent";
   return <StageTabButton chrome={chrome} title={label} label={label} icon={<Bot size={13} />} />;
+}
+
+/** Another machine's thread: its title as that machine lists it, and the machine's glyph. */
+function RemoteThreadStageTab({ machine, sessionId, chrome }: { machine: string; sessionId: string; chrome: TabChrome }) {
+  const view = useEnvironmentThread(usePlatform().environments, machine, sessionId);
+  const label = view?.thread?.title || "Thread";
+  return <StageTabButton chrome={chrome} title={`${label} · on ${view?.machineName ?? machine}`} label={label} icon={<Server size={13} />} />;
 }
 
 /** Where the tab strip's context menu is open, and what it may do there. */
@@ -136,6 +145,7 @@ export function StageTabs({
         pin: () => onPin(tab.id),
         openMenu: (event, label) => setMenu({ id: tab.id, label, preview: tab.preview, x: event.clientX, y: event.clientY }),
       };
+      if (tab.kind === "thread" && tab.machine) return <RemoteThreadStageTab key={tab.id} machine={tab.machine} sessionId={tab.sessionId} chrome={chrome} />;
       if (tab.kind === "thread") return <ThreadStageTab key={tab.id} sessionId={tab.sessionId} chrome={chrome} />;
       if (tab.kind === "panel") {
         const panel = registry?.getPanels().find((entry) => entry.id === tab.panelId);
