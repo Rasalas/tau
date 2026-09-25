@@ -43,7 +43,7 @@ describe("choose-machine on the host", () => {
     let now = 0;
     const choose = createMachineChooser({ machines: () => machines, weights: async () => ({}), now: () => now });
     const first = await choose({ purpose: "sub-agent", model: "openai-codex/gpt-5.6-luna" });
-    expect(first).toMatchObject({ machine: "rex-id", reason: expect.stringMatching(/^rex has the most room: 45 .*; this computer 40\.$/u) });
+    expect(first).toMatchObject({ machine: "rex-id", reason: expect.stringMatching(/^rex has the most room: 45 .*; this computer 10\.$/u) });
     load["rex-id"] = { cpuUtilization: 0.97 };
     now += 11_000;
     expect(await choose({ purpose: "sub-agent" })).toMatchObject({ machine: null, reason: expect.stringContaining("rex left out: CPU 97 %") });

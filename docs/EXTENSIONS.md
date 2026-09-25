@@ -2295,7 +2295,7 @@ timed from when it arrived here, is older than 15 s, its CPU is at 95 % or its
 free memory at 5 %, it runs as many turns as it has cores, the runtime
 (`backend`, Pi by default) is not `ready` there, or that runtime lists its models
 and `model` is not among them. The weights (0–100, 0 = never automatically; this
-computer 20, every other machine 50 unless set) are `values.tau.environments.weights`,
+computer 5, every other machine 50 unless set) are `values.tau.environments.weights`,
 a JSON object keyed by host id, set in Settings → Machines → Automatic. `reason`
 is one line with the scores and why each other machine was left out;
 `machines` has the same per machine. The "Run on" chip offers **Automatic**

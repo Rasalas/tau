@@ -43,7 +43,7 @@ export function MachineWeights({ machines, agents }: { machines: readonly UiEnvi
       <p className="settings-group-note">
         When a new thread runs on Automatic, or a sub-agent does, it goes to the machine with the most room: weight × cores ×
         idle CPU × free memory. A machine is left out while its CPU is at 95 %, its memory is almost full, it runs a turn per
-        core, or the thread&apos;s runtime is not ready there. 0 keeps a machine out; this computer starts at 20 so the others get work first.
+        core, or the thread&apos;s runtime is not ready there. 0 keeps a machine out; this computer starts at 5, so an idle machine elsewhere gets the work first.
       </p>
       {listed.map((machine) => {
         const value = weightOf(weights, machine.id, machine.local);

@@ -71,7 +71,7 @@ describe("chooseMachine", () => {
 
 describe("weights", () => {
   it("spares this computer by default and keeps a saved one within 0–100", () => {
-    expect(weightOf({}, "mac", true)).toBe(20);
+    expect(weightOf({}, "mac", true)).toBe(5);
     expect(weightOf({}, "rex", false)).toBe(50);
     expect(weightOf({ rex: 0 }, "rex", false)).toBe(0);
     expect(weightOf({ rex: 140 }, "rex", false)).toBe(100);

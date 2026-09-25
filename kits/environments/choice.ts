@@ -7,7 +7,7 @@ export const MEMORY_FLOOR = 0.05;
 
 /** Weights run 0–100; 0 keeps a machine out of every automatic choice. This computer is spared by default. */
 export const MAX_WEIGHT = 100;
-export const LOCAL_WEIGHT = 20;
+export const LOCAL_WEIGHT = 5;
 export const MACHINE_WEIGHT = 50;
 
 export type MachineWeights = Readonly<Record<string, number>>;

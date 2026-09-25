@@ -640,7 +640,7 @@ describe("Run on: Automatic", () => {
 });
 
 describe("Settings → Machines → Automatic", () => {
-  it("weighs this computer and each machine its agents reach, 20 and 50 unless set", async () => {
+  it("weighs this computer and each machine its agents reach, 5 and 50 unless set", async () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
     const host = {
       invoke: vi.fn(async (command: string) => (command === "agents" ? { available: true, machines: [{ id: "studio", name: "studio", status: "connected" }] } : new Promise(() => undefined))),
@@ -653,7 +653,7 @@ describe("Settings → Machines → Automatic", () => {
     render(withSettings(<Page />, client));
     await vi.waitFor(() => expect((screen.getByRole("spinbutton", { name: "Weight of studio" }) as HTMLInputElement).value).toBe("70"));
     const here = screen.getByRole("spinbutton", { name: "Weight of laptop" }) as HTMLInputElement;
-    expect(here.value).toBe("20");
+    expect(here.value).toBe("5");
     // attic's agents are not let in, so it cannot be measured.
     expect(screen.queryByRole("spinbutton", { name: "Weight of attic" })).toBeNull();
     fireEvent.change(here, { target: { value: "0" } });
