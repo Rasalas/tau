@@ -22,3 +22,139 @@
 .servers-prompt footer > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
 .servers-prompt footer > button.servers-prompt-alternative { margin-right: auto; border-color: transparent; color: var(--muted); }
 .servers-prompt footer > button:disabled { opacity: .45; cursor: default; }
+
+/* Status: the dot every surface shares. */
+.servers-dot { display: inline-block; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); }
+.servers-dot.tone-ok { background: var(--ready); }
+.servers-dot.tone-info { background: var(--info); }
+.servers-dot.tone-warn { background: var(--warn); }
+.servers-dot.tone-danger { background: var(--danger); }
+.servers-dot.tone-muted { background: transparent; border: 1px solid var(--faint); }
+.servers-dot.checking { animation: blink 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .servers-dot.checking { animation: none; } }
+
+.servers-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 7px; }
+.servers-chip-count { color: var(--muted); font: 500 11px var(--mono); }
+
+/* Changes panel: one line per server that needs a look. */
+.servers-changes { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); }
+.servers-changes-row { display: flex; align-items: center; gap: 7px; min-height: 26px; color: var(--ink-2); font: 12px/1.4 var(--sans); }
+.servers-changes-text { flex: 1; min-width: 0; }
+.servers-changes-text strong { color: var(--ink); font-weight: 500; }
+
+/* Rail: the followed project's servers above the rail's footer. */
+.servers-rail { flex: none; display: flex; flex-direction: column; padding: 4px var(--space-4) var(--space-3); border-top: 1px solid var(--line); }
+.servers-rail-head { padding: 6px 6px 2px; font: 500 11px var(--sans); color: var(--faint); letter-spacing: 0.02em; }
+.servers-rail-row { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font: 500 12px var(--sans); text-align: left; cursor: pointer; }
+.servers-rail-row:hover { background: var(--raised); color: var(--ink); }
+.servers-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.servers-rail-state { flex: none; color: var(--faint); font-size: 11px; font-weight: 400; }
+.servers-row-mark { display: inline-flex; align-items: center; color: var(--warn); }
+
+/* The server view on the stage. */
+.servers-view { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); color: var(--ink-2); font: 12px/1.5 var(--sans); }
+.servers-view > .empty-state, .servers-view > .skeleton { margin: 24px; }
+.servers-view .spacer { flex: 1; }
+.servers-view .icon-button { width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer; }
+.servers-view .icon-button:hover:not(:disabled) { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.servers-view .icon-button:disabled { opacity: .45; cursor: default; }
+.servers-head { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px 16px; border-bottom: 1px solid var(--line); }
+.servers-head-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.servers-head-row > svg { flex: none; color: var(--muted); }
+.servers-title { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font: 600 15px/1.35 var(--sans); }
+.servers-tag { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); color: var(--muted); font: 500 10.5px/1.6 var(--sans); }
+.servers-tag.danger { border-color: var(--danger-line); color: var(--danger); }
+.servers-state { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--chip); color: var(--ink-2); font: 500 11.5px var(--sans); }
+.servers-switch { max-width: 14rem; }
+.servers-head-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: 11.5px; }
+.servers-head-meta code, .servers-compact-meta code { color: var(--ink-2); font: 11px var(--mono); overflow-wrap: anywhere; }
+.servers-git { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.servers-git.muted { color: var(--faint); }
+.servers-git-commit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 11px var(--mono); }
+.servers-banner { display: flex; align-items: flex-start; gap: 7px; margin: 2px 0 0; padding: 7px 10px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.45; }
+.servers-banner > svg { flex: none; margin-top: 2px; }
+.servers-banner > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.servers-banner.danger { border-color: var(--danger-line); background: var(--danger-bg); color: var(--ink); }
+.servers-banner.danger > svg { color: var(--danger); }
+.servers-banner.warn > svg { color: var(--warn); }
+.servers-tabs { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--line-soft); }
+.servers-body { position: relative; flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.servers-body > .empty-state { margin: auto; padding: 32px 16px; }
+.servers-body > .skeleton { margin: 16px; }
+.servers-split { flex: 1; min-height: 0; display: flex; }
+.servers-aside { flex: none; width: 300px; overflow: auto; border-right: 1px solid var(--line); background: var(--chrome); }
+.servers-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.servers-main > .servers-empty-line, .servers-main > .servers-error { padding: 16px; }
+.servers-empty-line { margin: 0; color: var(--faint); font-size: 12px; }
+.servers-error { margin: 0; color: var(--danger); font-size: 12px; }
+
+/* The upload list: new and changed, deletions as their own group, what never goes. */
+.servers-pending { display: flex; flex-direction: column; padding: 6px 0 10px; }
+.servers-pending > section + section { margin-top: 8px; }
+.servers-group-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 12px 4px; color: var(--muted); font: 600 11px var(--sans); letter-spacing: 0.02em; }
+.servers-count { margin-left: 2px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--chip); color: var(--ink-2); font: 500 10.5px var(--mono); }
+.servers-group-note { margin: 0; padding: 0 12px 4px; color: var(--faint); font-size: 11.5px; line-height: 1.4; }
+.servers-deleted { margin: 8px 8px 0; padding-bottom: 4px; border: 1px solid var(--danger-line); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--danger-bg) 60%, transparent); }
+.servers-deleted .servers-group-head { color: var(--danger); }
+.servers-withheld .servers-group-head { color: var(--faint); }
+.servers-files { margin: 0; padding: 0; list-style: none; }
+.servers-file { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px 0 12px; color: var(--ink-2); }
+.servers-file.active { background: var(--thread-active); color: var(--ink); }
+.servers-file.muted { color: var(--faint); font: 11.5px var(--mono); }
+.servers-file.conflict .servers-file-name { color: var(--danger); }
+.servers-drift .servers-file, .servers-compact-sections > .servers-files .servers-file { font: 11.5px var(--mono); }
+.servers-file-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.servers-file:hover:not(.muted):not(.active) { background: var(--hover); }
+.servers-file-name { flex: 1; min-width: 0; display: flex; flex-direction: column; font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.servers-file-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 9.5px; }
+.servers-file-guard { flex: none; display: inline-flex; color: var(--warn); }
+.servers-change { flex: none; width: 14px; text-align: center; font: 600 10.5px var(--mono); }
+.servers-change.added { color: var(--ready); }
+.servers-change.modified { color: var(--info); }
+.servers-change.deleted { color: var(--danger); }
+.servers-choice { flex: none; display: grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--line-control); border-radius: 3px; color: var(--faint); }
+.servers-choice.chosen { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.servers-choice-box { flex: none; margin: 0; accent-color: var(--acid); }
+
+.servers-drift { padding: 10px 0; }
+.servers-drift > .servers-group-note { padding-bottom: 8px; }
+.servers-history { margin: 0; padding: 6px 0; list-style: none; }
+.servers-history-entry + .servers-history-entry { border-top: 1px solid var(--line-soft); }
+.servers-history-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px 0; border: 0; background: transparent; color: var(--ink); font: 500 12px var(--sans); text-align: left; cursor: pointer; }
+.servers-history-head .chev { flex: none; color: var(--faint); transition: transform 120ms ease; }
+.servers-history-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.servers-history-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.servers-history time { flex: none; color: var(--faint); font-size: 11px; font-weight: 400; }
+.servers-history-meta { margin: 0; padding: 0 10px 7px 28px; color: var(--muted); font-size: 11px; }
+
+/* A compact client's sheet: touch sizes, larger text. */
+.servers-glyph { position: relative; display: inline-grid; place-items: center; }
+.servers-glyph > .servers-dot { position: absolute; right: -3px; bottom: -2px; box-shadow: 0 0 0 2px var(--chrome); }
+.servers-compact { display: flex; flex-direction: column; gap: 18px; padding: 12px 16px 24px; color: var(--ink-2); font: 16px/1.45 var(--sans); }
+.servers-compact-target { display: flex; flex-direction: column; gap: 8px; }
+.servers-compact-target + .servers-compact-target { padding-top: 16px; border-top: 1px solid var(--line); }
+.servers-compact-head { display: flex; align-items: center; gap: 10px; }
+.servers-compact-head .servers-dot { width: 10px; height: 10px; }
+.servers-compact-name { display: flex; flex-direction: column; min-width: 0; }
+.servers-compact-name h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font: 600 18px/1.3 var(--sans); }
+.servers-compact-state { color: var(--muted); font-size: 13px; }
+.servers-compact-sentence { margin: 0; color: var(--ink); }
+.servers-compact-meta { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--muted); font-size: 13px; }
+.servers-compact-meta .servers-git { font-size: 13px; }
+.servers-compact-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.servers-compact-actions > .chrome-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; min-width: 44px; padding: 0 14px; font-size: 15px; }
+.servers-compact-note { margin: 0; color: var(--muted); font-size: 13px; }
+.servers-compact-sections { display: flex; flex-direction: column; }
+.servers-compact-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 2px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; color: var(--ink); font: 500 16px var(--sans); text-align: left; cursor: pointer; }
+.servers-compact-toggle .chev { flex: none; color: var(--faint); transition: transform 120ms ease; }
+.servers-compact-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.servers-compact .servers-file { min-height: 44px; padding-left: 4px; }
+.servers-compact .servers-file-name { font-size: 13px; }
+.servers-compact .servers-file-name small { font-size: 12px; }
+.servers-compact .servers-group-head { padding-left: 4px; font-size: 13px; }
+.servers-compact .servers-group-note { padding-left: 4px; font-size: 13px; }
+.servers-compact .servers-history-entry { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 8px; padding: 8px 2px; }
+.servers-compact .servers-history-title { font-size: 15px; color: var(--ink); }
+.servers-compact .servers-history time { font-size: 13px; }
+.servers-compact .servers-history-meta { grid-column: 1 / -1; padding: 0; font-size: 13px; }
+.servers-compact-diff { max-height: 60vh; display: flex; flex-direction: column; border: 1px solid var(--line-card); border-radius: var(--radius-sm); overflow: hidden; }
