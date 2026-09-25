@@ -36,3 +36,25 @@ export async function clickWhenReady(session, selector, pattern, { timeoutMs = 3
 export async function textPresent(session, text) {
   return evaluate(session, `document.body.textContent.includes(${JSON.stringify(text)})`);
 }
+
+/** What a dialog shows, for an error when the step the harness waits for never comes. */
+export function describeDialog(selector) {
+  return `(() => {
+    const dialog = document.querySelector(${JSON.stringify(selector)});
+    const text = (element) => element.textContent.replace(/\\s+/g, " ").trim();
+    if (!dialog) return "no " + ${JSON.stringify(selector)} + "; the page reads " + JSON.stringify(text(document.body).slice(0, 300));
+    const headings = [...dialog.querySelectorAll("h1, h2, h3")].map(text);
+    const buttons = [...dialog.querySelectorAll("button")].map((button) => text(button) + (button.disabled ? " (disabled)" : ""));
+    return "headings " + JSON.stringify(headings) + ", buttons " + JSON.stringify(buttons);
+  })()`;
+}
+
+/** `waitFor`, but a timeout also says what `selector` shows at that moment. */
+export async function waitForStep(session, expression, selector, { timeoutMs = 60_000 } = {}) {
+  try {
+    return await waitFor(session, expression, { timeoutMs });
+  } catch (error) {
+    const shows = await evaluate(session, describeDialog(selector)).catch((cause) => `unreadable: ${cause.message}`);
+    throw new Error(`${error.message}\nThe page shows: ${shows}`, { cause: error });
+  }
+}

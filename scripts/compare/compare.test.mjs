@@ -15,7 +15,7 @@ import { MEASURE, TAB_ORDER } from "./screens/measure.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
 import { largeThreadRows, writePiThread } from "./large-thread.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
-import { locate } from "./ui.mjs";
+import { describeDialog, locate } from "./ui.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
 
 describe("the recorded turn", () => {
@@ -361,5 +361,26 @@ describe("clicking by text", () => {
     const { button, context } = page(854);
     button.scrollIntoView = () => undefined;
     expect(runInNewContext(locate("button", /^Continue/u), context)).toBeNull();
+  });
+});
+
+describe("a seeding step that never comes", () => {
+  const element = (textContent, extra = {}) => ({ textContent, ...extra });
+
+  it("names the dialog's headings and buttons", () => {
+    const dialog = {
+      querySelectorAll: (selector) => selector === "button"
+        ? [element("Open Settings"), element("Add 0 projects", { disabled: true })]
+        : [element("Choose your  projects")],
+    };
+    const context = { document: { querySelector: () => dialog } };
+    expect(runInNewContext(describeDialog("section.onboarding-dialog"), context))
+      .toBe('headings ["Choose your projects"], buttons ["Open Settings","Add 0 projects (disabled)"]');
+  });
+
+  it("says when no dialog is open, and what the page reads instead", () => {
+    const context = { document: { querySelector: () => null, body: element("Tau\n  New thread") } };
+    expect(runInNewContext(describeDialog("section.onboarding-dialog"), context))
+      .toBe('no section.onboarding-dialog; the page reads "Tau New thread"');
   });
 });

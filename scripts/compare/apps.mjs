@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertEnvUnder } from "./isolation.mjs";
+import { waitForStep } from "./ui.mjs";
 
 const TAU_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL("./fake-codex.mjs", import.meta.url));
@@ -173,7 +174,7 @@ export const tau = {
     const step = `(() => { const labels = [...document.querySelectorAll(${JSON.stringify(dialog)})].map((b) => b.textContent.trim()); `
       + `return labels.some((l) => /^Import \\d+ conversations?/.test(l)) ? "import" : labels.includes("Do not add projects") ? "projects" : labels.some((l) => /^Continue/.test(l)) ? "agents" : null; })()`;
     for (let guard = 0; guard < 5; guard += 1) {
-      const { value } = await waitFor(session, step, { timeoutMs: 60_000 });
+      const { value } = await waitForStep(session, step, "section.onboarding-dialog");
       if (value === "import") break;
       // The workspace is a project already, so "Add 0 projects" stays disabled and the skip button moves on.
       if (value === "projects") await clickWhenReady(session, dialog, /^(Add [1-9]\d* projects?|Do not add projects)/u);
@@ -271,7 +272,7 @@ export const t3 = {
     const step = `(() => { const labels = [...document.querySelectorAll(${JSON.stringify(dialog)})].map((b) => b.textContent.trim()); `
       + `return labels.some((l) => /^Import \\d+ projects?$/.test(l)) ? "import" : labels.includes("Continue") ? "continue" : null; })()`;
     for (let guard = 0; guard < 5; guard += 1) {
-      const { value } = await waitFor(session, step, { timeoutMs: 60_000 });
+      const { value } = await waitForStep(session, step, "[role=dialog]");
       if (value === "import") break;
       await clickWhenReady(session, dialog, /^Continue$/u);
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
