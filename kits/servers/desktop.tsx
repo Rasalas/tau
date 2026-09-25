@@ -1,5 +1,6 @@
 import { Server } from "lucide-react";
 import type { DesktopExtension } from "tau";
+import { registerAgentCards } from "./agent-cards.js";
 import { createServerProjectSource } from "./project-source.js";
 import { DriftFeed, createDriftGate, driftGateAsks } from "./drift-view.js";
 import { ServerPromptFeed, createServerPromptLayer } from "./prompt-dialog.js";
@@ -8,7 +9,7 @@ import { SERVERS_SETTINGS_PAGE } from "./view-protocol.js";
 import { createServersSettingsPage } from "./settings-page.js";
 import { registerServerSurfaces } from "./surfaces.js";
 
-/** Servers' desktop half: the server view and its status, server drift, the "From a server…" project source, Settings → Servers and the host half's questions. */
+/** Servers' desktop half: the server view and its status, the agent's server tools in the transcript, server drift, the "From a server…" project source, Settings → Servers and the host half's questions. */
 const servers: DesktopExtension = {
   id: SERVERS_EXTENSION_ID,
   name: "Servers",
@@ -49,7 +50,8 @@ const servers: DesktopExtension = {
       Component: createServerProjectSource({ host: context.host, baseDirectory: () => store?.projectBaseDirectory?.() }),
     });
     const unregisterSurfaces = registerServerSurfaces(context, drift);
-    return () => { unregisterSurfaces(); unregisterSource(); unregisterGate(); stopStore(); stopFeed(); stopDrift(); unregisterLayer(); unregisterPage(); };
+    const unregisterCards = registerAgentCards(context);
+    return () => { unregisterCards(); unregisterSurfaces(); unregisterSource(); unregisterGate(); stopStore(); stopFeed(); stopDrift(); unregisterLayer(); unregisterPage(); };
   },
 };
 
