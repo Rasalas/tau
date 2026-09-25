@@ -2,13 +2,31 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { HostCommandCall, HostExtensionCommandHandler, HostExtensionContext, HostExtensionServices, HostThreadLifecycle } from "tau/host-extension";
-import { ASKPASS_ANSWER_COMMAND, ASKPASS_QUESTION_EVENT, type AskpassQuestion } from "./askpass-protocol";
+import type { AskpassTarget, CredentialSource, LoginOutcome } from "./askpass";
+import { ServerPrompts } from "./prompts";
+import { SERVERS_PROMPTS_EVENT, type ServerPrompt } from "./protocol";
+import type { SftpJsonTarget } from "./sftp-json";
 import { findSftpServer, startFakeSshServer } from "./fixtures/fake-ssh-server.mjs";
 import { hasCommand } from "./fixtures/run-command";
 import { paths, readCalls, TEST_PASSWORD } from "./fixtures/servers-test-env.mjs";
-import { decodeClientTarget, ServerSsh } from "./ssh-service";
+import { decodeClientTarget, ServerSsh, sshTargetOf } from "./ssh-service";
 
 const ready = hasCommand("ssh") && Boolean(findSftpServer()) && process.platform !== "win32";
+
+describe("sshTargetOf", () => {
+  it("leaves out the local paths sftp.json may not choose: an ssh config and a known_hosts file", () => {
+    const target = {
+      id: "sftp-site", protocol: "sftp", host: "127.0.0.1", port: 22, username: "u", remotePath: "/srv", name: "site",
+      sshConfigPath: "evil_config", knownHostsPath: "/home/me/.bashrc", privateKeyPath: "~/.ssh/id", hop: [], hostVerification: true,
+      connectTimeout: 10_000, concurrency: 4, usable: true,
+    } as unknown as SftpJsonTarget;
+    const ssh = sshTargetOf(target);
+    expect(ssh).toMatchObject({ id: "sftp-site", host: "127.0.0.1", port: 22, username: "u", privateKeyPath: "~/.ssh/id" });
+    expect(ssh).not.toHaveProperty("sshConfigPath");
+    expect(ssh).not.toHaveProperty("knownHostsPath");
+    expect(() => sshTargetOf({ ...target, protocol: "ftp" } as SftpJsonTarget)).toThrow(/FTP/u);
+  });
+});
 
 describe("decodeClientTarget", () => {
   it("takes the address from a client and never a local path", () => {
@@ -24,13 +42,12 @@ describe("decodeClientTarget", () => {
 
 function fakeContext(stateDir: string) {
   const commands = new Map<string, HostExtensionCommandHandler>();
-  const events: Array<{ name: string; payload: unknown }> = [];
   const lifecycles: HostThreadLifecycle[] = [];
-  const listeners = new Set<(event: { name: string; payload: unknown }) => void>();
   const services = {
     stateDir,
     findCommand: (name: string) => (name === "ssh" ? "ssh" : undefined),
     noteSubprocess: () => undefined,
+    log: () => undefined,
     knownWorkspacePath: async (path: string) => path,
     registerThreadLifecycle: (lifecycle: HostThreadLifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
   } as unknown as HostExtensionServices;
@@ -38,14 +55,10 @@ function fakeContext(stateDir: string) {
     id: "tau.servers",
     services,
     registerCommand: (name: string, handler: HostExtensionCommandHandler) => { commands.set(name, handler); return () => undefined; },
-    emit: (name: string, payload: unknown) => {
-      const event = { name, payload };
-      events.push(event);
-      for (const listener of listeners) listener(event);
-    },
+    emit: () => undefined,
   } as unknown as HostExtensionContext;
   const call = (name: string, input?: unknown) => Promise.resolve(commands.get(name)!(input, { owner: true } as HostCommandCall));
-  return { context, call, events, lifecycles, listeners };
+  return { context, call, lifecycles };
 }
 
 describe.skipIf(!ready)("ServerSsh against the fake server", () => {
@@ -70,32 +83,39 @@ describe.skipIf(!ready)("ServerSsh against the fake server", () => {
   });
 
   it("asks the windows for the host key and the password, connects, and lets go when the project closes", async () => {
-    const { context, call, lifecycles, listeners } = fakeContext(join(dir, "state"));
-    const ssh = new ServerSsh(context, { controlRoot });
-    ssh.register();
+    const { context, call, lifecycles } = fakeContext(join(dir, "state"));
     // What a window does: answer each question as it arrives.
-    listeners.add(({ name, payload }) => {
-      if (name !== ASKPASS_QUESTION_EVENT) return;
-      const question = payload as AskpassQuestion;
-      void call(ASKPASS_ANSWER_COMMAND, { id: question.id, answer: question.kind === "host-key" ? "yes" : TEST_PASSWORD });
+    const prompts: ServerPrompts = new ServerPrompts((event, payload) => {
+      if (event !== SERVERS_PROMPTS_EVENT) return;
+      for (const prompt of (payload as { prompts: ServerPrompt[] }).prompts) {
+        queueMicrotask(() => prompts.answer(prompt.id, prompt.kind === "secret" ? { action: "confirm", value: TEST_PASSWORD } : { action: "confirm" }));
+      }
     });
+    const outcomes: Array<[AskpassTarget, LoginOutcome]> = [];
+    const recorder: CredentialSource = { answer: async () => undefined, settled: (target, outcome) => { outcomes.push([target, outcome]); } };
     const site = realpathSync(join(paths(dir).root, "site"));
-    const target = { id: "site", alias: "fake-password", remotePath: site };
+    const sftpJson = { id: "sftp-site", protocol: "sftp", host: "fake-password", port: server.port, username: "tester", remotePath: site, name: "site", hop: [], hostVerification: true, connectTimeout: 10_000, concurrency: 4, usable: true } as unknown as SftpJsonTarget;
+    const ssh = new ServerSsh(context, { prompts, controlRoot, credentialSources: [recorder], lookupTarget: async (_cwd, id) => { if (id !== "sftp-site") throw new Error("unknown"); return sftpJson; } });
+    ssh.register();
+    const byId = { cwd: "/project", targetId: "sftp-site" };
     try {
-      const state = await call("ssh-connect", { cwd: "/project", target }) as { root: string; caps: { exec: boolean } };
+      const state = await call("ssh-connect", byId) as { root: string; caps: { exec: boolean } };
       expect(state.root).toBe(site);
       expect(state.caps.exec).toBe(true);
-      const entries = await call("ssh-list", { cwd: "/project", target, path: "" }) as Array<{ name: string }>;
+      expect(outcomes).toEqual([[{ id: "sftp-site", label: "site", workspace: "/project" }, { ok: true }]]);
+      const entries = await call("ssh-list", { ...byId, path: "" }) as Array<{ name: string }>;
       expect(entries.map((entry) => entry.name)).toContain("index.php");
-      await expect(call("ssh-list", { cwd: "/project", target, path: "/etc" })).rejects.toThrow(/outside/u);
-      await expect(call("ssh-list", { cwd: "/project", target, path: "missing" })).rejects.toMatchObject({ name: "HostCommandError" });
+      await expect(call("ssh-list", { ...byId, path: "/etc" })).rejects.toThrow(/outside/u);
+      await expect(call("ssh-list", { ...byId, path: "missing" })).rejects.toMatchObject({ name: "HostCommandError" });
       await expect(call("ssh-connect", { cwd: "/project", target: { id: "bad", alias: "-oProxyCommand=x", remotePath: "/" } })).rejects.toMatchObject({ name: "HostCommandError" });
+      expect(outcomes.at(-1)![1]).toMatchObject({ ok: false });
       expect(readCalls(dir).filter((entry) => entry.event === "authenticated")).toHaveLength(1);
       await lifecycles[0]!.afterWorkspaceClose!("/project", "switch");
       // Closed with the project: the next call logs in again.
-      await call("ssh-list", { cwd: "/project", target, path: "" });
+      await call("ssh-list", { ...byId, path: "" });
       expect(readCalls(dir).filter((entry) => entry.event === "authenticated")).toHaveLength(2);
     } finally {
+      prompts.dispose();
       await ssh.dispose();
     }
   });

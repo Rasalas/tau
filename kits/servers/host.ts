@@ -1,4 +1,6 @@
 import type { HostExtension } from "tau/host-extension";
+import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
+import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
 import { ServersStore } from "./store.js";
@@ -16,11 +18,30 @@ export function createServersHostExtension(): HostExtension {
     isolation: "in-process",
     activate(context) {
       const { services } = context;
-      const store = new ServersStore(services.stateDir, { warn: (message) => services.log("servers.store", message) });
-      new ServerTargets({ services, store }).register(context);
-      const ssh = new ServerSsh(context);
+      const logger = { warn: (message: string) => services.log("servers.store", message) };
+      const store = new ServersStore(services.stateDir, logger);
+      const targets = new ServerTargets({ services, store });
+      targets.register(context);
+      const prompts = new ServerPrompts((event, payload) => context.emit(event, payload));
+      const credentials = new ServerCredentials({
+        prompts,
+        targetsDir: store.targetsDir,
+        findCommand: (name) => services.findCommand(name),
+        logger,
+        log: (event, message) => services.log(event, message),
+      });
+      const lookup = (cwd: unknown, targetId: unknown) => targets.target(cwd, targetId);
+      registerCredentialCommands(context, credentials, prompts, lookup, (cwd) => targets.list(cwd));
+      const ssh = new ServerSsh(context, {
+        prompts,
+        credentialSources: [new CredentialAskpassSource(credentials, lookup)],
+        lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
+      });
       ssh.register();
-      return () => ssh.dispose();
+      return async () => {
+        prompts.dispose();
+        await ssh.dispose();
+      };
     },
   };
 }

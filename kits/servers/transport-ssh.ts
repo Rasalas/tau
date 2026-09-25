@@ -24,6 +24,8 @@ export interface SshTransportOptions {
   askpass: AskpassBridge;
   /** The project, for relative key paths. */
   baseDir?: string;
+  /** The project as the host knows it; credential sources look the target up there. */
+  workspace?: string;
   /** The host's environment by default; `SSH_AUTH_SOCK` and the servers variables come from here. */
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -96,6 +98,10 @@ export class SshTransport implements ServerFs {
 
   get label(): string {
     return this.target.name ?? (this.target.alias ?? `${this.target.username ? `${this.target.username}@` : ""}${this.target.host}`);
+  }
+
+  private askpassTarget() {
+    return { id: this.target.id, label: this.label, ...(this.options.workspace ? { workspace: this.options.workspace } : {}) };
   }
 
   private baseArgs(): { args: string[]; destination: string } {
@@ -190,7 +196,7 @@ export class SshTransport implements ServerFs {
 
   private async openSftp(): Promise<SftpClient> {
     const { args, destination } = this.baseArgs();
-    const session = await this.options.askpass.session({ id: this.target.id, label: this.label });
+    const session = await this.options.askpass.session(this.askpassTarget());
     this.options.onSpawn?.();
     const child = spawn(this.options.ssh, [...args, "-T", "-s", "--", destination, "sftp"], {
       env: this.childEnv(session.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
@@ -253,7 +259,7 @@ export class SshTransport implements ServerFs {
   /** One ssh call through the master, with its own askpass token. */
   private async run(extra: string[], command: string, options: { timeoutMs: number; maxOutputBytes: number; signal?: AbortSignal }): Promise<ServerExecResult> {
     const { args, destination } = this.baseArgs();
-    const session = await this.options.askpass.session({ id: this.target.id, label: this.label });
+    const session = await this.options.askpass.session(this.askpassTarget());
     try {
       return await this.spawnCollect([...args, "-T", ...extra, "--", destination, command], { ...options, env: session.env });
     } finally {

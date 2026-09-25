@@ -1,18 +1,22 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
-import { AskpassBridge, AskpassDialogs, type CredentialSource } from "./askpass.js";
-import { ASKPASS_ANSWER_COMMAND, ASKPASS_PENDING_COMMAND } from "./askpass-protocol.js";
+import { AskpassBridge, AskpassPrompts, type CredentialSource, type LoginOutcome, type PromptAsker } from "./askpass.js";
 import { ServerPathError, type ServerEntry } from "./server-fs.js";
 import { SftpError } from "./sftp-client.js";
+import type { SftpJsonTarget } from "./sftp-json.js";
 import type { SshTarget } from "./ssh-target.js";
 import { isStoreSegment } from "./store.js";
 import { SshConnectError, SshConnections, SshTransport } from "./transport-ssh.js";
 
 export interface ServerSshOptions {
+  /** The kit's dialogs; ssh's questions become some of them. */
+  prompts: PromptAsker;
   /**
-   * Asked before the dialog, in order: the credentials ticket's keychain and
-   * command sources go here. The dialog answers what they pass on.
+   * Asked before the dialog, in order: the credentials' keychain and command
+   * source goes here. The dialog answers what they pass on.
    */
   credentialSources?: readonly CredentialSource[];
+  /** A project's sftp.json target by its id. */
+  lookupTarget?: (cwd: string, targetId: string) => Promise<SftpJsonTarget>;
   /** `/tmp` unless a test names its own. */
   controlRoot?: string;
 }
@@ -45,57 +49,96 @@ export function decodeClientTarget(value: unknown): SshTarget {
   return { id, host, remotePath, ...(alias ? { alias } : {}), ...(name ? { name } : {}), ...(username ? { username } : {}), ...(port ? { port } : {}) };
 }
 
-/** SSH connections of the open projects, the askpass bridge and the dialog behind it. */
+/**
+ * An sftp.json target for ssh. Its `sshConfigPath` and `knownHostsPath` are
+ * left out: the file is repo content, a config can run commands
+ * (ProxyCommand, Match exec) and ssh writes to a known_hosts file.
+ */
+export function sshTargetOf(target: SftpJsonTarget): SshTarget {
+  if (target.protocol !== "sftp") throw new HostCommandError(`${target.name ?? target.host} is an FTP server; Tau reaches it over SSH only for now.`);
+  if (!target.usable) throw new HostCommandError(`${target.name ?? target.host} cannot be reached as sftp.json names it.`);
+  return {
+    id: target.id,
+    host: target.host,
+    port: target.port,
+    remotePath: target.remotePath,
+    hostVerification: target.hostVerification,
+    connectTimeout: target.connectTimeout,
+    concurrency: target.concurrency,
+    ...(target.name ? { name: target.name } : {}),
+    ...(target.username ? { username: target.username } : {}),
+    ...(target.privateKeyPath ? { privateKeyPath: target.privateKeyPath } : {}),
+    ...(target.agent ? { agent: target.agent } : {}),
+    ...(target.hop.length ? { hop: target.hop.map(({ host, port, username }) => ({ host, ...(port ? { port } : {}), ...(username ? { username } : {}) })) } : {}),
+  };
+}
+
+/** SSH connections of the open projects and the askpass bridge behind them. */
 export class ServerSsh {
-  readonly dialogs: AskpassDialogs;
   readonly askpass: AskpassBridge;
   readonly connections: SshConnections;
+  private readonly sources: readonly CredentialSource[];
   private unhook: (() => void) | undefined;
 
-  constructor(private readonly context: HostExtensionContext, options: ServerSshOptions = {}) {
+  constructor(private readonly context: HostExtensionContext, private readonly options: ServerSshOptions) {
     const services = context.services;
-    this.dialogs = new AskpassDialogs((name, payload) => context.emit(name, payload));
-    this.askpass = new AskpassBridge({ stateDir: services.stateDir, sources: [...(options.credentialSources ?? []), this.dialogs], ...(options.controlRoot ? { controlRoot: options.controlRoot } : {}) });
+    this.sources = [...(options.credentialSources ?? []), new AskpassPrompts(options.prompts)];
+    this.askpass = new AskpassBridge({ stateDir: services.stateDir, sources: this.sources, ...(options.controlRoot ? { controlRoot: options.controlRoot } : {}) });
     this.connections = new SshConnections((target, workspace) => {
       const ssh = services.findCommand("ssh");
       if (!ssh) throw new HostCommandError("ssh is not on this machine's PATH.");
       return new SshTransport(target, {
-        ssh, askpass: this.askpass, baseDir: workspace, onSpawn: () => services.noteSubprocess(),
+        ssh, askpass: this.askpass, baseDir: workspace, workspace, onSpawn: () => services.noteSubprocess(),
         ...(options.controlRoot ? { controlRoot: options.controlRoot } : {}),
       });
     });
   }
 
-  /** The transport of a project's target; connected on first use. */
-  async transport(cwd: unknown, target: SshTarget): Promise<SshTransport> {
+  /** `{ cwd, targetId }` names an sftp.json target; `{ cwd, target }` an address. */
+  private async resolve(input: unknown): Promise<{ workspace: string; target: SshTarget }> {
+    const { cwd, targetId, target } = (input ?? {}) as { cwd?: unknown; targetId?: unknown; target?: unknown };
     if (typeof cwd !== "string" || !cwd) throw new HostCommandError("Open a project first.");
     const workspace = await this.context.services.knownWorkspacePath(cwd);
+    if (typeof targetId === "string" && targetId) {
+      if (!this.options.lookupTarget) throw new HostCommandError("This host reads no sftp.json targets.");
+      return { workspace, target: sshTargetOf(await this.options.lookupTarget(workspace, targetId)) };
+    }
+    return { workspace, target: decodeClientTarget(target) };
+  }
+
+  /** The transport of a project's target; connected on first use. */
+  async transport(input: unknown): Promise<SshTransport> {
+    const { workspace, target } = await this.resolve(input);
     const transport = this.connections.get(workspace, target);
+    let outcome: LoginOutcome = { ok: true };
     try {
       await transport.connect();
     } catch (error) {
+      outcome = { ok: false, message: error instanceof Error ? error.message : String(error) };
       // A failed login or a refused target is an answer about the server, not a broken command.
       throw error instanceof Error ? new HostCommandError(error.message) : error;
+    } finally {
+      const settled = { id: target.id, label: transport.label, workspace };
+      await Promise.all(this.sources.map(async (source) => {
+        try { await source.settled?.(settled, outcome); } catch (error) { this.context.services.log("servers.ssh", `a credential source failed after the login: ${(error as Error).message}`); }
+      }));
     }
     return transport;
   }
 
   register(): void {
     const { context } = this;
-    context.registerCommand(ASKPASS_ANSWER_COMMAND, (input) => this.dialogs.respond(input), { audit: { label: "answered a server login question" } });
-    context.registerCommand(ASKPASS_PENDING_COMMAND, () => this.dialogs.pending(), { access: "read" });
     // `long`: a login may wait on the user's answer in a dialog.
     context.registerCommand("ssh-connect", async (input) => {
-      const { cwd, target } = (input ?? {}) as { cwd?: unknown; target?: unknown };
-      const transport = await this.transport(cwd, decodeClientTarget(target));
+      const transport = await this.transport(input);
       const state: SshConnectState = { root: transport.root, caps: transport.caps };
       if (transport.scratch) state.scratch = transport.scratch;
       if (transport.probe?.os) state.os = transport.probe.os;
       return state;
     }, { long: true, audit: { label: "connected to a server" } });
     context.registerCommand("ssh-list", async (input) => {
-      const { cwd, target, path } = (input ?? {}) as { cwd?: unknown; target?: unknown; path?: unknown };
-      const transport = await this.transport(cwd, decodeClientTarget(target));
+      const transport = await this.transport(input);
+      const path = (input as { path?: unknown } | undefined)?.path;
       try {
         return await transport.list(typeof path === "string" ? path : "") satisfies ServerEntry[];
       } catch (error) {
@@ -109,12 +152,11 @@ export class ServerSsh {
 
   async dispose(): Promise<void> {
     this.unhook?.();
-    this.dialogs.cancelAll();
     await this.connections.closeAll();
     await this.askpass.close();
   }
 }
 
-/** What the server or the user answered is not a broken command; the registry counts only those. */
+/** What the server answered is not a broken command; the registry counts only those. */
 const commandError = (error: unknown) =>
   error instanceof SshConnectError || error instanceof ServerPathError || error instanceof SftpError ? new HostCommandError(error.message) : error;

@@ -1,4 +1,4 @@
-/* Servers: Settings → Servers and the ssh login dialogs. */
+/* Servers: Settings → Servers. */
 .servers-issues { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: var(--space-4) var(--space-6); list-style: none; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .settings-section .servers-issues { border-top: 1px solid var(--line-card); }
 .servers-issue { display: flex; align-items: flex-start; gap: 6px; }
@@ -6,6 +6,19 @@
 .servers-issue.error > svg { color: var(--danger); }
 .servers-issue.warning > svg { color: var(--warn); }
 .servers-issue.info > svg { color: var(--info); }
-.servers-askpass input { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--field); color: var(--ink); font: 13px var(--sans); outline: none; }
-.servers-askpass input:focus { border-color: var(--line-focus); }
-.servers-fingerprint { overflow-wrap: anywhere; font: 12px var(--mono); color: var(--ink); }
+.servers-secret-actions { display: inline-flex; gap: 6px; }
+
+/* The host half's questions: a password, a consent, a command to allow. */
+.servers-prompt { width: 460px; max-width: calc(100vw - 48px); padding: 18px; border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3); color: var(--ink); animation: fade-up .14s ease; }
+.servers-prompt form { display: flex; flex-direction: column; gap: 12px; }
+.servers-prompt h2 { margin: 0; font: 600 16px var(--sans); overflow-wrap: anywhere; }
+.servers-prompt header p { margin: 6px 0 0; color: var(--muted); font: 12.5px/1.45 var(--sans); }
+.servers-prompt-detail { margin: 0; max-height: 8em; overflow: auto; padding: 8px 10px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); background: var(--field); color: var(--ink-2); font: 11.5px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.servers-prompt input { padding: 8px 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--field); color: var(--ink); font: 13px var(--sans); outline: none; }
+.servers-prompt input:focus { border-color: var(--line-focus); }
+.servers-prompt-error { margin: 0; color: var(--danger); font-size: 12px; }
+.servers-prompt footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.servers-prompt footer > button { min-height: 32px; padding: 7px 14px; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); font: 500 12.5px var(--sans); cursor: pointer; }
+.servers-prompt footer > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.servers-prompt footer > button.servers-prompt-alternative { margin-right: auto; border-color: transparent; color: var(--muted); }
+.servers-prompt footer > button:disabled { opacity: .45; cursor: default; }

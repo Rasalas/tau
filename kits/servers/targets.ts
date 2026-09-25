@@ -74,7 +74,8 @@ export interface ServerTargetsOptions {
 export class ServerTargets {
   constructor(private readonly options: ServerTargetsOptions) {}
 
-  private async project(cwd: unknown): Promise<{ root: string; workspaceId: string; choicesPath: string }> {
+  /** The main checkout behind `cwd` and the key of its state. */
+  async project(cwd: unknown): Promise<{ root: string; workspaceId: string; choicesPath: string }> {
     if (typeof cwd !== "string" || !cwd) throw new HostCommandError("Open a project first.");
     const known = await this.options.services.knownWorkspacePath(cwd);
     const root = await mainCheckoutOf(known, this.options.git);
@@ -89,6 +90,21 @@ export class ServerTargets {
     const read = await readSftpJsonFile(root, { profileChoices });
     if (!read) return { workspace: root, targets: [], issues: [] };
     return { workspace: root, file: join(root, SFTP_JSON_PATH), targets: read.targets.map(targetRow), issues: read.issues.map(issueRow) };
+  }
+
+  /** The project's targets as they read now, profiles applied; for connecting and for their secrets. */
+  async list(cwd: unknown): Promise<{ project: { root: string; workspaceId: string }; targets: SftpJsonTarget[] }> {
+    const { root, workspaceId, choicesPath } = await this.project(cwd);
+    const read = await readSftpJsonFile(root, { profileChoices: await readProfileChoices(choicesPath) });
+    return { project: { root, workspaceId }, targets: read?.targets ?? [] };
+  }
+
+  async target(cwd: unknown, targetId: unknown): Promise<{ project: { root: string; workspaceId: string }; target: SftpJsonTarget }> {
+    if (typeof targetId !== "string" || !targetId) throw new HostCommandError("Name the server.");
+    const { project, targets } = await this.list(cwd);
+    const target = targets.find((candidate) => candidate.id === targetId);
+    if (!target) throw new HostCommandError("sftp.json no longer names this server.");
+    return { project, target };
   }
 
   async setProfile(input: unknown): Promise<ServerTargetsState> {

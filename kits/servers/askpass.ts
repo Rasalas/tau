@@ -1,10 +1,8 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
-import {
-  ASKPASS_DONE_EVENT, ASKPASS_QUESTION_EVENT, type AskpassKind, type AskpassQuestion,
-} from "./askpass-protocol.js";
+import type { ServerPromptAnswer, ServerPromptRequest } from "./protocol.js";
 import { ensureControlDir } from "./ssh-target.js";
 
 /*
@@ -15,11 +13,19 @@ import { ensureControlDir } from "./ssh-target.js";
  * answer for ssh. No answer is ever in argv, the environment or a file.
  */
 
+/** What ssh asked, as Tau reads the prompt. */
+export type AskpassKind = "password" | "passphrase" | "otp" | "host-key" | "confirm" | "other";
+
 export interface AskpassTarget {
   id: string;
   /** How a dialog names the target. */
   label: string;
+  /** The project the connection belongs to; a credential source looks the target up there. */
+  workspace?: string;
 }
+
+/** How a login ended; `message` is ssh's own reason. */
+export type LoginOutcome = { ok: true } | { ok: false; message: string };
 
 export interface AskpassRequest {
   kind: AskpassKind;
@@ -42,6 +48,8 @@ export interface AskpassRequest {
  */
 export interface CredentialSource {
   answer(request: AskpassRequest): Promise<string | null | undefined>;
+  /** After a connection: keep a typed secret that worked, drop one the server refused. */
+  settled?(target: AskpassTarget, outcome: LoginOutcome): Promise<void> | void;
 }
 
 /** Reads ssh's prompt; the wording is OpenSSH's (sshconnect.c, sshconnect2.c). */
@@ -241,70 +249,54 @@ export class AskpassBridge {
   }
 }
 
-interface WaitingQuestion {
-  question: AskpassQuestion;
-  settle(answer: string | null): void;
+/** The dialogs of the host half (I04's `ServerPrompts`), as far as askpass needs them. */
+export interface PromptAsker {
+  ask(request: ServerPromptRequest, signal?: AbortSignal): Promise<ServerPromptAnswer>;
+}
+
+const TITLES: Record<AskpassKind, string> = {
+  password: "Server password",
+  passphrase: "Key passphrase",
+  otp: "Verification code",
+  "host-key": "Unknown server",
+  confirm: "Confirm",
+  other: "Server question",
+};
+
+const FIELDS: Record<AskpassKind, string> = { password: "Password", passphrase: "Passphrase", otp: "Code", "host-key": "", confirm: "", other: "Answer" };
+
+export function askpassPrompt(request: AskpassRequest): ServerPromptRequest {
+  const title = TITLES[request.kind];
+  if (request.kind === "host-key") {
+    return {
+      kind: "confirm",
+      title,
+      message: `Tau has not connected to ${request.host ?? request.target.label} before. Connect only if its ${request.keyType ?? "host"} key fingerprint is this one:`,
+      detail: request.fingerprint ?? "unknown",
+      confirmLabel: "Trust and connect",
+    };
+  }
+  if (request.kind === "confirm") return { kind: "confirm", title, message: request.prompt.trim(), confirmLabel: "Continue" };
+  const what = request.kind === "password" ? `Enter the password for ${request.target.label}.`
+    : request.kind === "passphrase" ? `Enter the passphrase for ${request.keyPath ?? "the key"} to connect to ${request.target.label}.`
+      : request.kind === "otp" ? `Enter the one-time code for ${request.target.label}.`
+        : request.prompt.trim();
+  const retry = request.attempt > 1 ? " The server did not accept the last answer." : "";
+  return { kind: "secret", title, message: `${what}${retry}`, field: FIELDS[request.kind], confirmLabel: "Connect" };
 }
 
 /**
- * The prompt source: every question becomes a dialog in the windows (an
- * `askpass-question` event); the first answer wins. Unanswered after
- * `timeoutMs`, it is cancelled.
+ * The last source: ssh's question as a Tau dialog. Unanswered after
+ * `timeoutMs` it is cancelled, since ssh waits on its helper and the
+ * server would drop the login anyway.
  */
-export class AskpassDialogs implements CredentialSource {
-  private readonly waiting = new Map<string, WaitingQuestion>();
+export class AskpassPrompts implements CredentialSource {
+  constructor(private readonly prompts: PromptAsker, private readonly timeoutMs = 120_000) {}
 
-  constructor(
-    private readonly emit: (name: string, payload: unknown) => void,
-    private readonly timeoutMs = 120_000,
-    private readonly now: () => number = Date.now,
-  ) {}
-
-  answer(request: AskpassRequest): Promise<string | null> {
-    if (request.signal.aborted) return Promise.resolve(null);
-    const question: AskpassQuestion = {
-      id: randomUUID(),
-      kind: request.kind,
-      target: request.target.label,
-      prompt: request.prompt,
-      attempt: request.attempt,
-      expiresAt: this.now() + this.timeoutMs,
-      ...(request.fingerprint ? { fingerprint: request.fingerprint } : {}),
-      ...(request.keyType ? { keyType: request.keyType } : {}),
-      ...(request.host ? { host: request.host } : {}),
-      ...(request.keyPath ? { keyPath: request.keyPath } : {}),
-    };
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => settle(null), this.timeoutMs);
-      const onAbort = () => settle(null);
-      const settle = (answer: string | null) => {
-        if (!this.waiting.delete(question.id)) return;
-        clearTimeout(timer);
-        request.signal.removeEventListener("abort", onAbort);
-        this.emit(ASKPASS_DONE_EVENT, { id: question.id });
-        resolve(answer);
-      };
-      this.waiting.set(question.id, { question, settle });
-      request.signal.addEventListener("abort", onAbort, { once: true });
-      this.emit(ASKPASS_QUESTION_EVENT, question);
-    });
-  }
-
-  /** The `askpass-answer` command. */
-  respond(input: unknown): { ok: boolean } {
-    const { id, answer, cancel } = (input ?? {}) as { id?: unknown; answer?: unknown; cancel?: unknown };
-    const waiting = typeof id === "string" ? this.waiting.get(id) : undefined;
-    if (!waiting) return { ok: false };
-    if (cancel === true || typeof answer !== "string") waiting.settle(null);
-    else waiting.settle(answer);
-    return { ok: true };
-  }
-
-  pending(): AskpassQuestion[] {
-    return [...this.waiting.values()].map((entry) => entry.question);
-  }
-
-  cancelAll(): void {
-    for (const entry of [...this.waiting.values()]) entry.settle(null);
+  async answer(request: AskpassRequest): Promise<string | null> {
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(this.timeoutMs)]);
+    const answer = await this.prompts.ask(askpassPrompt(request), signal);
+    if (request.kind === "host-key" || request.kind === "confirm") return answer.action === "confirm" ? "yes" : "no";
+    return answer.action === "confirm" && typeof answer.value === "string" ? answer.value : null;
   }
 }

@@ -1,8 +1,9 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AskpassBridge, AskpassDialogs, classifyPrompt, type AskpassRequest, type CredentialSource } from "./askpass";
-import { ASKPASS_DONE_EVENT, ASKPASS_QUESTION_EVENT, type AskpassQuestion } from "./askpass-protocol";
+import { AskpassBridge, AskpassPrompts, askpassPrompt, classifyPrompt, type AskpassRequest, type CredentialSource } from "./askpass";
+import { ServerPrompts } from "./prompts";
+import type { ServerPrompt } from "./protocol";
 import { runCommand } from "./fixtures/run-command";
 
 const HOST_KEY_PROMPT = [
@@ -107,8 +108,8 @@ describe.skipIf(skipOnWindows)("AskpassBridge", () => {
 
   it("cancels an open question when the call ends", async () => {
     const session = await bridge.session({ id: "site", label: "site" });
-    const dialogs = new AskpassDialogs(() => undefined);
-    const waiting = new AskpassBridge({ stateDir: join(dir, "state2"), socketDir: dir, sources: [dialogs] });
+    const dialogs = new ServerPrompts(() => undefined);
+    const waiting = new AskpassBridge({ stateDir: join(dir, "state2"), socketDir: dir, sources: [new AskpassPrompts(dialogs)] });
     const other = await waiting.session({ id: "site", label: "site" });
     const asking = helper(other.env, "Password: ");
     await expect.poll(() => dialogs.pending().length).toBe(1);
@@ -120,36 +121,52 @@ describe.skipIf(skipOnWindows)("AskpassBridge", () => {
   });
 });
 
-describe("AskpassDialogs", () => {
+describe("AskpassPrompts", () => {
   const request = (extra: Partial<AskpassRequest> = {}): AskpassRequest => ({
     kind: "password", prompt: "Password: ", target: { id: "t", label: "tester@127.0.0.1" }, attempt: 1, signal: new AbortController().signal, ...extra,
   });
 
-  it("emits a question without secrets and settles on the first answer", async () => {
-    const events: Array<[string, unknown]> = [];
-    const dialogs = new AskpassDialogs((name, payload) => events.push([name, payload]), 60_000, () => 1000);
-    const answering = dialogs.answer(request({ kind: "host-key", fingerprint: "SHA256:abc", host: "[127.0.0.1]:2" }));
-    const question = events[0]![1] as AskpassQuestion;
-    expect(events[0]![0]).toBe(ASKPASS_QUESTION_EVENT);
-    expect(question).toMatchObject({ kind: "host-key", target: "tester@127.0.0.1", fingerprint: "SHA256:abc", host: "[127.0.0.1]:2", attempt: 1, expiresAt: 61_000 });
-    expect(dialogs.pending()).toEqual([question]);
-    expect(dialogs.respond({ id: question.id, answer: "yes" })).toEqual({ ok: true });
-    expect(dialogs.respond({ id: question.id, answer: "yes" })).toEqual({ ok: false });
+  function asked() {
+    const published: ServerPrompt[][] = [];
+    const prompts = new ServerPrompts((_event, payload) => published.push((payload as { prompts: ServerPrompt[] }).prompts));
+    return { prompts, published, last: () => published.at(-1)![0]! };
+  }
+
+  it("asks a host key as a yes-or-no dialog with the fingerprint, never a secret in the event", async () => {
+    const { prompts, published, last } = asked();
+    const answering = new AskpassPrompts(prompts).answer(request({ kind: "host-key", fingerprint: "SHA256:abc", keyType: "ED25519", host: "[127.0.0.1]:2" }));
+    expect(last()).toMatchObject({ kind: "confirm", title: "Unknown server", detail: "SHA256:abc", confirmLabel: "Trust and connect" });
+    expect(last().message).toContain("[127.0.0.1]:2");
+    prompts.answer(last().id, { action: "confirm" });
     expect(await answering).toBe("yes");
-    expect(events[1]).toEqual([ASKPASS_DONE_EVENT, { id: question.id }]);
+    const declining = new AskpassPrompts(prompts).answer(request({ kind: "host-key" }));
+    prompts.answer(last().id, { action: "cancel" });
+    expect(await declining).toBe("no");
+    expect(JSON.stringify(published)).not.toContain("hunter2");
+  });
+
+  it("asks a secret with a hidden field and says when the last answer was refused", async () => {
+    const { prompts, last } = asked();
+    const answering = new AskpassPrompts(prompts).answer(request({ attempt: 2 }));
+    expect(last()).toMatchObject({ kind: "secret", title: "Server password", field: "Password" });
+    expect(last().message).toMatch(/did not accept/u);
+    prompts.answer(last().id, { action: "confirm", value: "hunter2" });
+    expect(await answering).toBe("hunter2");
+    expect(askpassPrompt(request({ kind: "otp" }))).toMatchObject({ field: "Code" });
+    expect(askpassPrompt(request({ kind: "passphrase", keyPath: "/k/id" })).message).toContain("/k/id");
   });
 
   it("answers a cancel, an abort and a timeout with null", async () => {
-    const events: Array<[string, unknown]> = [];
-    const dialogs = new AskpassDialogs((name, payload) => events.push([name, payload]), 20);
-    const cancelled = dialogs.answer(request());
-    dialogs.respond({ id: (events[0]![1] as AskpassQuestion).id, cancel: true });
+    const { prompts, last } = asked();
+    const source = new AskpassPrompts(prompts, 20);
+    const cancelled = source.answer(request());
+    prompts.answer(last().id, { action: "cancel" });
     expect(await cancelled).toBeNull();
     const controller = new AbortController();
-    const aborted = dialogs.answer(request({ signal: controller.signal }));
+    const aborted = source.answer(request({ signal: controller.signal }));
     controller.abort();
     expect(await aborted).toBeNull();
-    expect(await dialogs.answer(request())).toBeNull();
-    expect(dialogs.pending()).toHaveLength(0);
+    expect(await source.answer(request())).toBeNull();
+    expect(prompts.pending()).toHaveLength(0);
   });
 });
