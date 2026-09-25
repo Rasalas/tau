@@ -203,6 +203,18 @@ terminal:
   status says so with the command. An AppImage cannot run as a service.
 - **Windows:** a Task Scheduler task, "Tau Host", that runs at your logon.
 
+On Linux, `tau service install --display` gives the service an invisible
+display: `tau-xvfb.service` runs Xvfb (no TCP, a cookie in
+`<userData>/display/Xauthority`) whenever the host runs, and the host hands
+its `DISPLAY` to terminals, agents' shell commands and project scripts, so
+GUI apps and headed browsers run where nobody sees them. When a thread needs
+the preview and no Tau window is attached, the host starts
+`tau-window.service`, a Tau window on that display, and stops it after 10
+minutes without use (it costs about 200–300 MB). Install Xvfb first
+(`sudo apt install xvfb`); `tau service install --no-display` removes the
+display, and Settings → Connections → Background shows and removes it too.
+macOS and Windows refuse the option: neither has a display that nobody sees.
+
 The service runs the app's own binary on the app's own userData, so a Tau
 window adopts the host it finds in `host.json` like any other and never starts
 a second one; quitting the window leaves it running. Installing from a window

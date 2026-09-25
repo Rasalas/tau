@@ -2364,7 +2364,13 @@ not a dialog on the host's screen.
 
 Two limits: an isolated (worker) package cannot use `callClient` at all, and a
 host with no Tau window that runs the half (the browser client alone, a host
-nobody is attached to) makes the call reject. Treat it as an optional
+nobody is attached to) makes the call reject. One exception (new in API
+1.15.0): a Linux service host with an invisible display (`tau service install
+--display`) starts the Tau window on that display first, waits up to 60 s for
+it to connect, then asks it; a call pinned to a window that is gone, or one
+only the caller's own window may answer, never starts it. That window stops
+after 10 minutes without a call, so a half should rebuild its view on the next
+call rather than assume it is still there (Preview Kit's half does). Treat it as an optional
 capability and say what is missing, the way Preview Kit answers "Preview needs
 the Tau desktop app on this host".
 
