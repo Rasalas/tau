@@ -2,6 +2,7 @@ import type { HostExtension } from "tau/host-extension";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
 import { DeployService } from "./deploy.js";
 import { DriftService, WORKSPACE_KIT_ID } from "./drift.js";
+import { ServerFtp } from "./ftp-service.js";
 import { registerServerProjects } from "./projects.js";
 import { ServerNetwork } from "./network-policy.js";
 import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
@@ -46,11 +47,16 @@ export function createServersHostExtension(): HostExtension {
         lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
       });
       ssh.register();
+      const ftp = new ServerFtp(context, { prompts, credentials, store, lookupTarget: lookup });
+      ftp.register();
+      // The transport by the target's protocol; everything above it is the same.
+      const transport = async (input: { cwd: string; targetId: string }) =>
+        (await lookup(input.cwd, input.targetId)).target.protocol === "ftp" ? ftp.transport(input) : ssh.transport(input);
       const git = gitCall("git", () => services.noteSubprocess());
       const sync = new SyncService(context, {
         store,
         target: (cwd, targetId) => targets.target(cwd, targetId),
-        transport: (input) => ssh.transport(input),
+        transport,
         git,
       });
       sync.register();
@@ -70,7 +76,7 @@ export function createServersHostExtension(): HostExtension {
         git,
       });
       deploy.register();
-      const status = createServerStatus(context, { store, targets, sync, ssh, drift, deploy, git });
+      const status = createServerStatus(context, { store, targets, sync, ssh, transport, drift, deploy, git });
       status.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
       const sandbox = new NetworkSandbox({
@@ -101,6 +107,7 @@ export function createServersHostExtension(): HostExtension {
         unregisterPi?.();
         prompts.dispose();
         await ssh.dispose();
+        await ftp.dispose();
         await sandbox.dispose();
       };
     },

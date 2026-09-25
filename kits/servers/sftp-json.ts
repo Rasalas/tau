@@ -40,11 +40,24 @@ export interface SshHop {
 
 export type FtpSecure = false | true | "control" | "implicit";
 
+/** The part of `secureOptions` (Node's TLS options) Tau passes on; the rest is ignored with a note. */
+export interface FtpSecureOptions {
+  /** PEM text of the certificates to trust besides the system's. */
+  ca?: string[];
+  servername?: string;
+  minVersion?: string;
+  maxVersion?: string;
+  ciphers?: string;
+  /** `false` in the file: Tau still checks and asks once before it trusts a certificate it cannot verify. */
+  rejectUnauthorized?: boolean;
+}
+
 export type SftpJsonIssueCode =
   | "invalid-json" | "not-a-config" | "invalid-field" | "missing-host" | "missing-username" | "unsupported-protocol"
   | "remote-setting" | "context-outside" | "duplicate-context" | "missing-name" | "unknown-profile" | "profile-required"
   | "plaintext-password" | "plaintext-passphrase" | "host-verification-off" | "upload-on-save-ignored"
-  | "watcher-ignored" | "production-profile" | "ftp-unencrypted" | "ftp-secure-control" | "remote-path-default";
+  | "watcher-ignored" | "production-profile" | "ftp-unencrypted" | "ftp-secure-control" | "remote-path-default"
+  | "ftp-secure-options";
 
 export interface SftpJsonIssue {
   code: SftpJsonIssueCode;
@@ -91,6 +104,7 @@ export interface SftpJsonTarget {
   syncDelete?: boolean;
   remoteTimeOffsetInHours?: number;
   secure: FtpSecure;
+  secureOptions?: FtpSecureOptions;
   connectTimeout: number;
   concurrency: number;
   /** Set in the file; Tau never uploads on its own and only says so. */
@@ -282,6 +296,35 @@ function hopsOf(value: unknown, reader: FieldReader): SshHop[] {
   return hops;
 }
 
+const SECURE_STRINGS = ["servername", "minVersion", "maxVersion", "ciphers"] as const;
+
+function secureOptionsOf(value: unknown, issues: SftpJsonIssue[], reader: FieldReader): FtpSecureOptions | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isJson(value)) return reader.invalid("secureOptions", "an object");
+  const options: FtpSecureOptions = {};
+  const ignored: string[] = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "ca" && (typeof entry === "string" || (Array.isArray(entry) && entry.every((item) => typeof item === "string")))) {
+      const pems = (typeof entry === "string" ? [entry] : entry as string[]).filter((item) => item.includes("-----BEGIN CERTIFICATE-----"));
+      if (pems.length) options.ca = pems;
+      else ignored.push(key);
+    } else if ((SECURE_STRINGS as readonly string[]).includes(key) && typeof entry === "string" && entry.trim()) {
+      options[key as typeof SECURE_STRINGS[number]] = entry.trim();
+    } else if (key === "rejectUnauthorized" && typeof entry === "boolean") {
+      options.rejectUnauthorized = entry;
+    } else {
+      ignored.push(key);
+    }
+  }
+  if (options.rejectUnauthorized === false) {
+    issues.push({ code: "ftp-secure-options", level: "info", field: "secureOptions", message: "secureOptions turns certificate checks off; Tau still checks and asks you once before it trusts a certificate it cannot verify." });
+  }
+  if (ignored.length) {
+    issues.push({ code: "ftp-secure-options", level: "info", field: "secureOptions", message: `Tau ignores these secureOptions: ${ignored.join(", ")}. It passes on ca (PEM text), servername, minVersion, maxVersion and ciphers.` });
+  }
+  return Object.keys(options).length ? options : undefined;
+}
+
 function resolveProfile(config: Json, key: string, choices: Readonly<Record<string, string>>, issues: SftpJsonIssue[]): { profiles: string[]; profile?: string } {
   const profiles = isJson(config.profiles) ? Object.keys(config.profiles).filter((name) => isJson((config.profiles as Json)[name])) : [];
   if (profiles.length === 0) return { profiles };
@@ -360,6 +403,8 @@ function targetOf(raw: Json, index: number, configKey: string, options: SftpJson
     issues.push({ code: "ftp-unencrypted", level: "warning", field: "secure", message: "Plain FTP: the password and files travel unencrypted." });
   }
 
+  const secureOptions = protocol === "ftp" && secure !== false ? secureOptionsOf(config.secureOptions, issues, read) : undefined;
+
   const interactive = config.interactiveAuth;
   const interactiveAuth = Array.isArray(interactive) ? "preset" : interactive === true ? "prompt" : "off";
   const syncOption = isJson(config.syncOption) ? config.syncOption : undefined;
@@ -409,6 +454,7 @@ function targetOf(raw: Json, index: number, configKey: string, options: SftpJson
   if (filePerm !== undefined) target.filePerm = filePerm;
   if (dirPerm !== undefined) target.dirPerm = dirPerm;
   if (syncOption && typeof syncOption.delete === "boolean") target.syncDelete = syncOption.delete;
+  if (secureOptions) target.secureOptions = secureOptions;
   const offset = read.number("remoteTimeOffsetInHours");
   if (offset !== undefined) target.remoteTimeOffsetInHours = offset;
   target.usable = !issues.some((issue) => issue.level === "error");

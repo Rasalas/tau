@@ -46,7 +46,7 @@ export function parseGitLog(output: string): ServerGitCommit[] {
 
 /** What the server's Git says about `remotePath`, or why there is nothing to say. */
 export async function readServerGit(fs: Pick<ServerFs, "exec">, hasGit: boolean, signal?: AbortSignal): Promise<ServerGitInfo> {
-  if (!fs.exec) return { repository: false, reason: "The server runs no commands for Tau (SFTP only)." };
+  if (!fs.exec) return { repository: false, reason: "The server runs no commands for Tau (file access only)." };
   if (!hasGit) return { repository: false, reason: "The server has no git." };
   const options = { cwd: "project" as const, timeoutMs: 20_000, maxOutputBytes: 256 * 1024, ...(signal ? { signal } : {}) };
   const status = await fs.exec(SERVER_GIT_STATUS, options);

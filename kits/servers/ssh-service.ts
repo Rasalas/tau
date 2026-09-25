@@ -55,7 +55,7 @@ export function decodeClientTarget(value: unknown): SshTarget {
  * (ProxyCommand, Match exec) and ssh writes to a known_hosts file.
  */
 export function sshTargetOf(target: SftpJsonTarget): SshTarget {
-  if (target.protocol !== "sftp") throw new HostCommandError(`${target.name ?? target.host} is an FTP server; Tau reaches it over SSH only for now.`);
+  if (target.protocol !== "sftp") throw new HostCommandError(`${target.name ?? target.host} is an FTP server: no SSH login, no server commands.`);
   if (!target.usable) throw new HostCommandError(`${target.name ?? target.host} cannot be reached as sftp.json names it.`);
   return {
     id: target.id,
