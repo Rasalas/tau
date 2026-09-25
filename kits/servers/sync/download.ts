@@ -14,9 +14,10 @@ import { readTar, TarError } from "./tar.js";
 
 /*
  * A full copy of the server's files into the local folder and the mirror.
- * Local work is never lost: a local file that differs from the server stays
- * (it shows as pending), and a file deleted locally since the last download
- * stays deleted, unless the caller asks to overwrite.
+ * Local work is never lost: a local file that differs from the last mirror
+ * state stays (it shows as pending), and a file deleted locally since stays
+ * deleted, unless the caller asks to overwrite. What the server deleted goes
+ * locally only while it holds no local work, so an upload cannot bring it back.
  */
 
 export interface DownloadOptions {
@@ -28,6 +29,12 @@ export interface DownloadOptions {
   concurrency?: number;
   signal?: AbortSignal;
   onProgress?(done: number, bytes: number): void;
+  /**
+   * Mirror paths the server no longer has (and that are not ignored now). A
+   * local file that still holds the mirror's content goes too; one with local
+   * changes stays and shows as pending.
+   */
+  deletedOnServer?: readonly string[];
 }
 
 export interface DownloadOutcome {
@@ -39,6 +46,7 @@ export interface DownloadOutcome {
   unchanged: number;
   kept: string[];
   keptDeleted: string[];
+  removed: string[];
   failed: Array<{ path: string; message: string }>;
   findings: SecretFinding[];
 }
@@ -96,6 +104,18 @@ class LocalCopy {
     }
     return "written";
   }
+
+  /** Removes the local file only while it holds exactly `previous`. */
+  async removeIfUnchanged(path: string, previous: MirrorEntry): Promise<boolean> {
+    const root = await this.realRoot();
+    const file = localPath(root, path);
+    const info = await lstat(file).catch(() => undefined);
+    if (!info?.isFile() || info.size !== previous.size) return false;
+    if (!isInside(await realpath(dirname(file)), root)) return false;
+    if (blobId(await readFile(file)) !== previous.oid) return false;
+    await rm(file);
+    return true;
+  }
 }
 
 function isText(data: Buffer): boolean {
@@ -103,7 +123,7 @@ function isText(data: Buffer): boolean {
 }
 
 export async function download(fs: ServerFs, listing: ServerListing, previous: MirrorState | undefined, mirror: Mirror, options: DownloadOptions): Promise<DownloadOutcome> {
-  const outcome: DownloadOutcome = { method: "sftp", entries: new Map(), bytes: 0, written: 0, unchanged: 0, kept: [], keptDeleted: [], failed: [], findings: [] };
+  const outcome: DownloadOutcome = { method: "sftp", entries: new Map(), bytes: 0, written: 0, unchanged: 0, kept: [], keptDeleted: [], removed: [], failed: [], findings: [] };
   const local = new LocalCopy(options.localDir);
   await mirror.ensure();
   let done = 0;
@@ -183,7 +203,17 @@ export async function download(fs: ServerFs, listing: ServerListing, previous: M
     if (outcome.entries.has(path)) continue;
     if (failed.has(path) || ancestors(path).some((folder) => listing.unreadable.includes(folder))) outcome.entries.set(path, entry);
   }
+  for (const path of options.deletedOnServer ?? []) {
+    const entry = previous?.entries.get(path);
+    if (!entry || outcome.entries.has(path)) continue;
+    try {
+      if (await local.removeIfUnchanged(path, entry)) outcome.removed.push(path);
+    } catch (error) {
+      outcome.failed.push({ path, message: `could not be removed here: ${(error as Error).message}` });
+    }
+  }
   outcome.kept.sort();
   outcome.keptDeleted.sort();
+  outcome.removed.sort();
   return outcome;
 }

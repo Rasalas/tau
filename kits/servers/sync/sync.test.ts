@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderServerFs } from "../fixtures/fake-server-fs";
 import { ServersStore } from "../store";
-import { compareDrift, comparePending } from "./compare";
+import { compareDrift, comparePending, deletedFrom } from "./compare";
 import { download } from "./download";
 import { SyncIgnore } from "./ignore";
 import { loadMirrorState, Mirror, saveMirrorState } from "./mirror";
@@ -155,16 +155,31 @@ describe.skipIf(!posix).each([
   it("downloads again without losing local work, and overwrites only when asked", async () => {
     await pull(w, fs);
     writeFileSync(join(w.local, "css/site.css"), "local edit\n");
+    writeFileSync(join(w.local, "wp-config.php"), "<?php // local edit\n");
     unlinkSync(join(w.local, "js/app.js"));
     put(w.server, "index.php", "<?php // v2\n", 1_700_000_900);
-    const again = await pull(w, fs);
-    expect(again.outcome.kept).toEqual(["css/site.css"]);
-    expect(again.outcome.keptDeleted).toEqual(["js/app.js"]);
+    // Deleted on the server: one untouched here, one edited here.
+    rmSync(join(w.server, "bin/run.sh"));
+    rmSync(join(w.server, "wp-config.php"));
+    const ignore = await SyncIgnore.create({ localDir: w.local, patterns: [".vscode"] });
+    const listing = await scanServer(fs, ignore);
+    const previous = await loadMirrorState(w.store, key, w.mirror);
+    const outcome = await download(fs, listing, previous, w.mirror, { localDir: w.local, deletedOnServer: await deletedFrom(listing, previous!, ignore) });
+    const state = await saveMirrorState(w.store, key, w.mirror, outcome.entries, "test");
+    expect(outcome.kept).toEqual(["css/site.css"]);
+    expect(outcome.keptDeleted).toEqual(["js/app.js"]);
+    expect(outcome.removed).toEqual(["bin/run.sh"]);
     expect(readFileSync(join(w.local, "css/site.css"), "utf8")).toBe("local edit\n");
     expect(existsSync(join(w.local, "js/app.js"))).toBe(false);
+    expect(existsSync(join(w.local, "bin/run.sh"))).toBe(false);
+    expect(readFileSync(join(w.local, "wp-config.php"), "utf8")).toBe("<?php // local edit\n");
     expect(readFileSync(join(w.local, "index.php"), "utf8")).toBe("<?php // v2\n");
-    const local = await scanLocal(w.local, again.ignore);
-    expect((await comparePending(w.local, local, again.state, again.ignore)).rows.map((row) => [row.path, row.change])).toEqual([["css/site.css", "modified"], ["js/app.js", "deleted"]]);
+    const local = await scanLocal(w.local, ignore);
+    expect((await comparePending(w.local, local, state, ignore)).rows.map((row) => [row.path, row.change])).toEqual([
+      ["css/site.css", "modified"], ["js/app.js", "deleted"], ["wp-config.php", "added"],
+    ]);
+    put(w.server, "bin/run.sh", "#!/bin/sh\n");
+    put(w.server, "wp-config.php", "<?php\n");
     const forced = await pull(w, fs, { overwrite: true });
     expect(forced.outcome.kept).toEqual([]);
     expect(readFileSync(join(w.local, "css/site.css"), "utf8")).toBe("body{}\n");

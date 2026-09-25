@@ -5,7 +5,7 @@ import { SftpError } from "../sftp-client.js";
 import type { SftpJsonTarget } from "../sftp-json.js";
 import type { ServersStore, TargetKey } from "../store.js";
 import { readTrust, recordLiveConfigs } from "../trust.js";
-import { compareDrift, comparePending } from "./compare.js";
+import { compareDrift, comparePending, deletedFrom } from "./compare.js";
 import { download } from "./download.js";
 import { GitError, type GitCall } from "./git.js";
 import { SyncIgnore } from "./ignore.js";
@@ -161,8 +161,9 @@ export class SyncService {
       for (const info of listing.files.values()) totalBytes += info.size;
       const total = listing.files.size;
       const previous = await loadMirrorState(this.options.store, session.key, session.mirror);
+      const deletedOnServer = previous ? await deletedFrom(listing, previous, session.ignore) : [];
       const outcome = await download(fs, listing, previous, session.mirror, {
-        localDir: session.localDir, overwrite, method: input.sftpOnly ? "sftp" : "auto",
+        localDir: session.localDir, overwrite, method: input.sftpOnly ? "sftp" : "auto", deletedOnServer,
         concurrency: Math.max(1, session.target.concurrency), signal: session.signal,
         onProgress: (done, bytes) => report("fetch", done, { total, bytes, totalBytes }, done === total),
       });
@@ -180,6 +181,7 @@ export class SyncService {
         unchanged: outcome.unchanged,
         kept: outcome.kept,
         keptDeleted: outcome.keptDeleted,
+        removed: outcome.removed,
         failed: outcome.failed,
         liveConfigs: new Set(outcome.findings.map((finding) => finding.path)).size,
       };

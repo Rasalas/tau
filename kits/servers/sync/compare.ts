@@ -17,7 +17,7 @@ import { shellHashes } from "./shell.js";
 const under = (path: string, folders: readonly string[]) => folders.length > 0 && ancestors(path).some((folder) => folders.includes(folder));
 
 /** Mirror paths a side no longer has and that count as deleted there. */
-async function deletedFrom(side: Listing, mirror: MirrorState, ignore: SyncIgnore): Promise<string[]> {
+export async function deletedFrom(side: Listing, mirror: MirrorState, ignore: SyncIgnore): Promise<string[]> {
   const skipped = new Set(side.skipped);
   const missing = [...mirror.entries.keys()].filter((path) => !side.files.has(path) && !skipped.has(path) && !under(path, side.unreadable));
   const ignored = await ignore.files(missing, { ancestors: true });

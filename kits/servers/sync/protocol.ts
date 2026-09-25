@@ -114,6 +114,8 @@ export interface DownloadResult {
   kept: string[];
   /** Files deleted locally since the last download; left deleted, they show as pending deletions. */
   keptDeleted: string[];
+  /** Local files the server deleted since the last download, removed here because they held no local work. */
+  removed: string[];
   failed: Array<{ path: string; message: string }>;
   /** Live credentials found in what came down (paths in trust.json, never values). */
   liveConfigs: number;
