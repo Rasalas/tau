@@ -24,6 +24,7 @@ type Step =
 
 const serverName = (server: DraftServer) => ("alias" in server ? server.alias : server.address);
 const count = (value: number) => value.toLocaleString("en-US");
+const files = (value: number) => `${count(value)} ${value === 1 ? "file" : "files"}`;
 
 /** Folders one level down, each with its second level; checked means it comes down. */
 export function SizeOverview({ summary, excluded, onChange, disabled }: {
@@ -38,12 +39,12 @@ export function SizeOverview({ summary, excluded, onChange, disabled }: {
   const rootFiles = summary.files - top.reduce((sum, folder) => sum + folder.files, 0);
   const rootBytes = summary.bytes - top.reduce((sum, folder) => sum + folder.bytes, 0);
   const toggle = (path: string) => onChange(normalizeExcluded(off.has(path) ? excluded.filter((entry) => entry !== path) : [...excluded.filter((entry) => !entry.startsWith(`${path}/`)), path]));
-  const row = (path: string, label: string, files: number, bytes: number, parentOff: boolean, extra?: ReactNode) => (
+  const row = (path: string, label: string, fileCount: number, bytes: number, parentOff: boolean, extra?: ReactNode) => (
     <label key={path} className={`servers-size-row${off.has(path) || parentOff ? " off" : ""}`}>
       <input type="checkbox" checked={!off.has(path) && !parentOff} disabled={disabled || parentOff} onChange={() => toggle(path)} />
       {extra}
       <span className="servers-size-name">{label}</span>
-      <small>{count(files)} files</small>
+      <small>{files(fileCount)}</small>
       <b>{formatBytes(bytes)}</b>
     </label>
   );
@@ -62,12 +63,12 @@ export function SizeOverview({ summary, excluded, onChange, disabled }: {
           <div key={folder.path}>
             {row(folder.path, `${folder.path}/`, folder.files, folder.bytes, false, caret)}
             {expanded ? <div className="servers-size-children">
-              {children.map((child) => row(child.path, `${child.path.slice(folder.path.length + 1)}/`, child.files, child.bytes, off.has(folder.path)))}
+              {children.map((child) => row(child.path, `${child.path.slice(folder.path.length + 1)}/`, child.files, child.bytes, off.has(folder.path), <span className="servers-size-caret" />))}
             </div> : null}
           </div>
         );
       })}
-      {rootFiles > 0 ? <div className="servers-size-row fixed"><span className="servers-size-caret" /><span className="servers-size-name">Files at the top</span><small>{count(rootFiles)} files</small><b>{formatBytes(rootBytes)}</b></div> : null}
+      {rootFiles > 0 ? <div className="servers-size-row fixed"><span /><span className="servers-size-caret" /><span className="servers-size-name">Files at the top</span><small>{files(rootFiles)}</small><b>{formatBytes(rootBytes)}</b></div> : null}
       {top.length === 0 && rootFiles === 0 ? <p className="servers-source-note">The folder is empty.</p> : null}
     </div>
   );
