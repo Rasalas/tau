@@ -1,4 +1,5 @@
 import type { HostExtension } from "tau/host-extension";
+import { HistoryCleanup } from "./cleanup.js";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
 import { DeployService } from "./deploy.js";
 import { DriftService, WORKSPACE_KIT_ID } from "./drift.js";
@@ -7,6 +8,7 @@ import { ServerNetwork } from "./network-policy.js";
 import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
 import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
+import { RollbackService } from "./rollback.js";
 import { ServerSsh } from "./ssh-service.js";
 import { createServerStatus } from "./status-host.js";
 import { ServersStore } from "./store.js";
@@ -70,6 +72,10 @@ export function createServersHostExtension(): HostExtension {
         git,
       });
       deploy.register();
+      new RollbackService(context, { store, sync, deploy, git }).register();
+      const cleanup = new HistoryCleanup(context, { store, sync, list: (cwd) => targets.list(cwd), git });
+      cleanup.register();
+      cleanup.start();
       const status = createServerStatus(context, { store, targets, sync, ssh, drift, deploy, git });
       status.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
@@ -94,6 +100,7 @@ export function createServersHostExtension(): HostExtension {
         : undefined;
       return async () => {
         status.dispose();
+        await cleanup.dispose();
         drift.dispose();
         stopProjects();
         sync.dispose();

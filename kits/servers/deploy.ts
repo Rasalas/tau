@@ -5,15 +5,17 @@ import { HostCommandError, type HostExtensionContext } from "tau/host-extension"
 import {
   DEPLOY_EVENT, DEPLOY_OP_WORDS, deployCounts, isDeployOp,
   type DeployFilePlan, type DeployOp, type DeployPreview, type DeployRequestFile, type DeployResolveAction, type DeployResolveResult, type DeployResult,
-  type DeploymentCheckout, type DeploymentFailure, type DeploymentRecord,
+  type DeploymentCheckout, type DeploymentFailure, type DeploymentFile, type DeploymentOrigin, type DeploymentRecord,
 } from "./deploy-protocol.js";
 import { unmergedDriftPaths, unmergedDriftReason, type DriftState } from "./drift-protocol.js";
-import { deployRef, heldBy, nextDeploySeq, supersededPaths, readDeployments, recordDeployment, setDeploymentStatus } from "./journal.js";
+import { CommitMarks } from "./commit-mark.js";
+import { deployRef, nextDeploySeq, readDeployments, recordDeployment } from "./journal.js";
+import type { ServerFs } from "./server-fs.js";
 import type { SftpJsonTarget } from "./sftp-json.js";
 import type { ServersStore, TargetKey } from "./store.js";
 import { comparePending } from "./sync/compare.js";
 import { applyIntents, inspectIntents, readServerFile, writes, type DeployIntent, type InspectedIntent } from "./sync/deploy.js";
-import { gitCall, gitOk, type GitCall } from "./sync/git.js";
+import { gitCall, type GitCall } from "./sync/git.js";
 import { hasConflictMarkers, readLocalFile, removeLocalFile, writeLocalFile } from "./sync/local.js";
 import { loadMirrorState, recordMirrorState, saveMirrorState, sortedEntries, type MirrorEntry, type MirrorState } from "./sync/mirror.js";
 import { byPath, isSyncPath } from "./sync/paths.js";
@@ -47,6 +49,19 @@ export interface DeployServiceOptions {
   };
   git?: GitCall;
   now?(): Date;
+}
+
+/** What `execute` writes and how the deployment it records reads. */
+export interface DeploymentSpec {
+  kind: DeploymentRecord["kind"];
+  rollbackOf?: number;
+  origin: DeploymentOrigin;
+  note?: string;
+  /** Chosen files decided without the server. */
+  plans: DeployFilePlan[];
+  inspected: InspectedIntent[];
+  /** The deployment commit's subject. */
+  subject(seq: number, files: readonly DeploymentFile[]): string;
 }
 
 interface DeployInput {
@@ -104,11 +119,11 @@ const byOutcome = (a: DeployFilePlan, b: DeployFilePlan) => OUTCOME_ORDER[a.outc
 /** Upload preview, upload, conflict resolution and the journal of a project's targets. */
 export class DeployService {
   private readonly git: GitCall;
-  /** Whether HEAD of a checkout holds a deployment, by checkout, HEAD and deployment. */
-  private readonly held = new Map<string, boolean>();
+  readonly marks: CommitMarks;
 
   constructor(private readonly context: HostExtensionContext, private readonly options: DeployServiceOptions) {
     this.git = options.git ?? gitCall();
+    this.marks = new CommitMarks(options.store, this.git);
   }
 
   private now(): Date {
@@ -203,12 +218,29 @@ export class DeployService {
   }
 
   private async run(session: SyncSession, input: DeployInput): Promise<DeployResult> {
-    const { store } = this.options;
     const prepared = await this.prepare(session, input);
-    const { state } = prepared;
     const fs = await session.connect();
     // Reading again is the backup: every blob read lands in the shadow repository before a write.
     const inspected = await inspectIntents(fs, prepared.intents, { mirror: session.mirror, signal: session.signal });
+    const outcome = await this.execute(session, prepared.state, fs, {
+      kind: "upload",
+      origin: { actor: "user", via: input.via, ...(input.threadId ? { threadId: input.threadId } : {}) },
+      ...(input.note ? { note: input.note } : {}),
+      plans: prepared.plans,
+      inspected,
+      subject: (seq, files) => `Deployment ${seq}: ${deployCounts(files)}`,
+    });
+    return { targetId: session.target.id, ...outcome };
+  }
+
+  /**
+   * Writes what the inspected intents say should go and records it: the
+   * backup ref before the first write, then the deployment commit, the new
+   * mirror state and the journal entry. An upload and a rollback both end here.
+   */
+  async execute(session: SyncSession, state: MirrorState, fs: ServerFs, spec: DeploymentSpec): Promise<Omit<DeployResult, "targetId">> {
+    const { store } = this.options;
+    const { inspected } = spec;
     const at = this.now();
     // The mirror after: what went up, plus what the server turned out to hold already.
     const next = new Map(state.entries);
@@ -242,8 +274,8 @@ export class DeployService {
         }
         const checkout = await this.checkout(session.workspace);
         const files = outcome.applied.map(({ file }) => file).sort((a, b) => byPath(a.path, b.path));
-        const subject = `Deployment ${seq}: ${deployCounts(files)}`;
-        const body = [`From ${checkout.branch ?? "a detached HEAD"}${checkout.head ? ` at ${checkout.head.slice(0, 12)}` : ""} in ${checkout.path}.`, input.note ?? ""].filter(Boolean).join("\n\n");
+        const subject = spec.subject(seq, files);
+        const body = [`From ${checkout.branch ?? "a detached HEAD"}${checkout.head ? ` at ${checkout.head.slice(0, 12)}` : ""} in ${checkout.path}.`, spec.note ?? ""].filter(Boolean).join("\n\n");
         const commit = await session.mirror.commit(sortedEntries(after), `${subject}\n\n${body}`, beforeCommit);
         await session.mirror.setRef(deployRef(seq), commit);
         // The mirror state is the deployment's own commit whenever it holds the same tree.
@@ -254,28 +286,29 @@ export class DeployService {
         const failedPaths = new Set(failed.map((failure) => failure.path));
         deployment = {
           seq,
-          kind: "upload",
+          kind: spec.kind,
+          ...(spec.rollbackOf !== undefined ? { rollbackOf: spec.rollbackOf } : {}),
           at: at.toISOString(),
-          origin: { actor: "user", via: input.via, ...(input.threadId ? { threadId: input.threadId } : {}) },
+          origin: spec.origin,
           checkout,
           context: session.target.context,
           files,
           failed,
-          skipped: [...prepared.plans, ...inspected.map(({ plan }) => raced.get(plan.path) ?? plan)].filter((plan) => !done.has(plan.path) && !failedPaths.has(plan.path)).sort(byOutcome),
+          skipped: [...spec.plans, ...inspected.map(({ plan }) => raced.get(plan.path) ?? plan)].filter((plan) => !done.has(plan.path) && !failedPaths.has(plan.path)).sort(byOutcome),
           status: "uploaded",
           commit,
           mirrorCommit,
-          ...(input.note ? { note: input.note } : {}),
+          ...(spec.note ? { note: spec.note } : {}),
         };
         await recordDeployment(store, session.key, deployment);
       }
     }
     if (!deployment && !sameTree(next, state.entries)) {
-      await saveMirrorState(store, session.key, session.mirror, next, `Server state ${fs.root} ${at.toISOString()} (read for an upload)`);
+      await saveMirrorState(store, session.key, session.mirror, next, `Server state ${fs.root} ${at.toISOString()} (read for ${spec.kind === "rollback" ? "a rollback" : "an upload"})`);
     }
     await this.settle(session, settled, deployment?.seq);
-    const files = [...prepared.plans, ...inspected.map(({ plan }) => raced.get(plan.path) ?? plan)].sort(byOutcome);
-    return { targetId: session.target.id, ...(deployment ? { deployment } : {}), files, failed };
+    const files = [...spec.plans, ...inspected.map(({ plan }) => raced.get(plan.path) ?? plan)].sort(byOutcome);
+    return { ...(deployment ? { deployment } : {}), files, failed };
   }
 
   private async settle(session: SyncSession, paths: readonly string[], seq?: number): Promise<void> {
@@ -319,7 +352,7 @@ export class DeployService {
       } else {
         if (!local || now.kind !== "file") throw new HostCommandError(`Merging needs ${path} here and on the server; take the server's version or upload yours instead.`);
         const base = state.entries.get(path);
-        const merged = await this.mergeFile(local.data, base ? await session.mirror.readBlob(base.oid) : Buffer.alloc(0), now.data);
+        const merged = await mergeFileContents(this.git, { ours: local.data, base: base ? await session.mirror.readBlob(base.oid) : Buffer.alloc(0), theirs: now.data }, ["local", "last read from the server", "server"]);
         await writeLocalFile(session.localDir, path, merged.data, { mode: local.mode });
         result = { path, action, conflicts: merged.conflicts };
       }
@@ -333,19 +366,6 @@ export class DeployService {
     });
   }
 
-  /** `git merge-file` of three versions; the answer holds conflict markers where both sides changed the same lines. */
-  private async mergeFile(ours: Buffer, base: Buffer, theirs: Buffer): Promise<{ data: Buffer; conflicts: number }> {
-    const dir = await mkdtemp(join(tmpdir(), "tau-merge-"));
-    try {
-      await Promise.all([writeFile(join(dir, "local"), ours), writeFile(join(dir, "base"), base), writeFile(join(dir, "server"), theirs)]);
-      const out = await this.git(["merge-file", "-p", "-L", "local", "-L", "last read from the server", "-L", "server", "local", "base", "server"], { cwd: dir });
-      if (out.code === null || out.code < 0 || out.code > 127) throw new HostCommandError(`git could not merge the file: ${out.stderr.trim() || `exit ${out.code}`}`);
-      return { data: out.stdout, conflicts: out.code };
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
-
   /** The journal of a target, newest first. */
   async list(raw: unknown): Promise<{ targetId: string; deployments: DeploymentRecord[] }> {
     const { cwd, targetId } = decodeRef(raw);
@@ -354,42 +374,9 @@ export class DeployService {
     return { targetId: target.id, deployments: (await readDeployments(this.options.store, { workspaceId: project.workspaceId, targetId: target.id })).reverse() };
   }
 
-  /**
-   * Threads with a deployment their checkout's HEAD does not hold yet. One
-   * HEAD found to hold it marks the deployment `committed` for good.
-   */
-  async uncommittedThreads(key: TargetKey, root: string): Promise<string[]> {
-    const records = await readDeployments(this.options.store, key);
-    const threads = new Set<string>();
-    for (const record of records) {
-      const threadId = record.origin.threadId;
-      if (!threadId || record.files.length === 0 || (record.status !== "uploaded" && record.status !== "verified")) continue;
-      if (await this.committed(record, root, supersededPaths(record, records))) await setDeploymentStatus(this.options.store, key, record.seq, "committed");
-      else threads.add(threadId);
-    }
-    return [...threads].sort();
-  }
-
-  private async committed(record: DeploymentRecord, root: string, superseded: ReadonlySet<string>): Promise<boolean> {
-    for (const cwd of [...new Set([record.checkout.path, root])]) {
-      const head = await this.readGit(cwd, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
-      if (!head) continue;
-      const id = `${cwd}\0${head}\0${record.seq}\0${[...superseded].sort().join("\0")}`;
-      const known = this.held.get(id);
-      if (known !== undefined) return known;
-      const listing = await gitOk(this.git, ["ls-tree", "-r", "-z", "--full-tree", head], { cwd, env: { GIT_OPTIONAL_LOCKS: "0" } }).catch(() => undefined);
-      if (!listing) continue;
-      const files = new Map<string, string>();
-      for (const entry of listing.toString("utf8").split("\0")) {
-        const match = /^\d+ blob ([0-9a-f]{40,64})\t(.+)$/su.exec(entry);
-        if (match) files.set(match[2]!, match[1]!);
-      }
-      const held = heldBy(record, files, superseded);
-      if (this.held.size > 1000) this.held.clear();
-      this.held.set(id, held);
-      return held;
-    }
-    return false;
+  /** Threads with a deployment their checkout's HEAD does not hold yet; marks the ones it holds `committed`. */
+  uncommittedThreads(key: TargetKey, root: string): Promise<string[]> {
+    return this.marks.uncommittedThreads(key, root);
   }
 
   register(): void {
@@ -407,6 +394,22 @@ export class DeployService {
     context.registerCommand("deploy", wrap((input) => this.deploy(input)), { long: true, audit: { label: "uploaded to a server" } });
     context.registerCommand("deploy-resolve", wrap((input) => this.resolve(input)), { long: true, audit: { label: "resolved an upload conflict locally" } });
     context.registerCommand("deployments", wrap((input) => this.list(input)), { access: "read" });
+  }
+}
+
+/**
+ * `git merge-file` of three versions, labelled ours, base, theirs; the answer
+ * holds conflict markers where both sides changed the same lines.
+ */
+export async function mergeFileContents(git: GitCall, versions: { ours: Buffer; base: Buffer; theirs: Buffer }, labels: readonly [string, string, string]): Promise<{ data: Buffer; conflicts: number }> {
+  const dir = await mkdtemp(join(tmpdir(), "tau-merge-"));
+  try {
+    await Promise.all([writeFile(join(dir, "ours"), versions.ours), writeFile(join(dir, "base"), versions.base), writeFile(join(dir, "theirs"), versions.theirs)]);
+    const out = await git(["merge-file", "-p", "-L", labels[0], "-L", labels[1], "-L", labels[2], "ours", "base", "theirs"], { cwd: dir });
+    if (out.code === null || out.code < 0 || out.code > 127) throw new HostCommandError(`git could not merge the file: ${out.stderr.trim() || `exit ${out.code}`}`);
+    return { data: out.stdout, conflicts: out.code };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 

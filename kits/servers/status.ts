@@ -1,4 +1,4 @@
-import { access, lstat } from "node:fs/promises";
+import { access, lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext, type UiFileDiff } from "tau/host-extension";
 import { diffBlobs, diffHistory, readHistory } from "./history.js";
@@ -16,15 +16,28 @@ import { readLocalFile } from "./sync/local.js";
 import { isSyncPath } from "./sync/paths.js";
 import type { CompareResult, DriftRow, MirrorInfo, SyncChange } from "./sync/protocol.js";
 import { unmergedDriftPaths, unmergedDriftReason, type DriftState } from "./drift-protocol.js";
+import type { DeploymentRecord } from "./deploy-protocol.js";
 import { readDeployments } from "./journal.js";
 import { isTargetLevel, readTargetFile, updateTargetFile } from "./target-settings.js";
 import { readTrust } from "./trust.js";
 import {
   PENDING_ROW_CAP, SERVERS_STATUS_EVENT, SERVERS_STATUS_TOPIC,
-  type HistoryEntry, type LiveConfigRow, type PendingUploadRow, type ServerGitInfo, type ServerHistory, type ServersStatus, type ServersStatusEvent, type TargetStatus,
+  HISTORY_FILE_CAP, type HistoryDeployment, type HistoryEntry, type LiveConfigRow, type PendingUploadRow, type ServerGitInfo, type ServerHistory, type ServersStatus, type ServersStatusEvent, type TargetStatus,
 } from "./view-protocol.js";
 
 type Project = { root: string; workspaceId: string };
+
+/** The boundaries a history cleanup set in the shadow repository (Git's `shallow` file). */
+async function readShallow(dir: string): Promise<Set<string>> {
+  const text = await readFile(join(dir, "shallow"), "utf8").catch(() => "");
+  return new Set(text.split("\n").filter((line) => /^[0-9a-f]{40,64}$/u.test(line)));
+}
+
+async function parentOf(git: GitCall, mirror: Mirror, commit: string): Promise<{ parent?: string }> {
+  const out = await git(["rev-parse", "--verify", "--quiet", `${commit}^`], { cwd: mirror.dir, env: mirror.gitEnv() }).catch(() => undefined);
+  const parent = out?.code === 0 ? out.stdout.toString("utf8").trim() : "";
+  return parent ? { parent } : {};
+}
 
 export interface ServerStatusOptions {
   store: ServersStore;
@@ -185,6 +198,8 @@ export class ServerStatusService {
         liveConfigs: record.liveConfigs,
         uncommittedThreads: await this.options.uncommittedThreads?.(key, project.root).catch(() => []) ?? [],
       };
+      const journal = await readDeployments(this.options.store, key).catch(() => []);
+      if (journal.length) status.deployments = journal.map((entry) => `${entry.seq}:${entry.status}`).join(" ");
       if (record.mirror) status.mirror = record.mirror;
       if (driftRows) status.drift = driftRows;
       if (drifted?.check) status.driftCheckedAt = drifted.check.at;
@@ -280,28 +295,59 @@ export class ServerStatusService {
     const target = targets.find((candidate) => candidate.id === targetId);
     if (!target) throw new HostCommandError("sftp.json no longer names this server.");
     const key: TargetKey = { workspaceId: project.workspaceId, targetId };
-    return { workspace, target, key, mirror: new Mirror(this.options.store.mirrorDir(key), { git: this.git }) };
+    return { workspace, project, target, key, mirror: new Mirror(this.options.store.mirrorDir(key), { git: this.git }) };
   }
 
   async history(raw: unknown): Promise<ServerHistory> {
-    const { target, key, mirror } = await this.resolve(raw);
-    const records = new Map((await readDeployments(this.options.store, key)).map((record) => [record.mirrorCommit, record]));
-    const entries = (await readHistory(this.git, mirror)).map((entry): HistoryEntry => {
-      const record = records.get(entry.commit);
-      if (!record) return entry;
+    const { project, target, key, mirror } = await this.resolve(raw);
+    // Marks what HEAD holds as committed first, so the history shows it.
+    await this.options.uncommittedThreads?.(key, project.root).catch(() => undefined);
+    const records = await readDeployments(this.options.store, key);
+    const described = (record: DeploymentRecord): HistoryDeployment => {
+      const undone = records.filter((other) => other.kind === "rollback" && other.rollbackOf === record.seq).at(-1);
       return {
-        ...entry,
-        deployment: {
-          seq: record.seq,
-          kind: record.kind,
-          status: record.status,
-          ...(record.checkout.branch ? { branch: record.checkout.branch } : {}),
-          ...(record.origin.threadId ? { threadId: record.origin.threadId } : {}),
-          failed: record.failed.length,
-        },
+        seq: record.seq,
+        kind: record.kind,
+        ...(record.rollbackOf !== undefined ? { rollbackOf: record.rollbackOf } : {}),
+        ...(undone ? { rolledBackBy: undone.seq } : {}),
+        status: record.status,
+        ...(record.checkout.branch ? { branch: record.checkout.branch } : {}),
+        ...(record.origin.threadId ? { threadId: record.origin.threadId } : {}),
+        failed: record.failed.length,
+        ...(record.note ? { note: record.note } : {}),
       };
+    };
+    const byMirror = new Map(records.map((record) => [record.mirrorCommit, record]));
+    const limit = 30;
+    const boundaries = await readShallow(mirror.dir);
+    const logged = await readHistory(this.git, mirror, limit);
+    // The commit a cleanup made the boundary stays only for the diff of the one after it.
+    const entries: HistoryEntry[] = logged.filter((entry) => !boundaries.has(entry.commit)).map((entry) => {
+      const record = byMirror.get(entry.commit);
+      return record ? { ...entry, deployment: described(record) } : entry;
     });
-    return { targetId: target.id, entries };
+    const truncated = logged.some((entry) => boundaries.has(entry.commit));
+    // Deployments outside the log (recorded after a crash) join it by time.
+    const shown = new Set(entries.map((entry) => entry.commit));
+    const oldest = logged.length >= limit ? logged.at(-1)?.at : undefined;
+    for (const record of records) {
+      if (shown.has(record.mirrorCommit) || shown.has(record.commit) || (oldest && record.at < oldest)) continue;
+      const count = (op: string) => record.files.filter((file) => file.op === op).length;
+      entries.push({
+        commit: record.commit,
+        at: record.at,
+        subject: `${record.kind === "rollback" ? "Rollback" : "Deployment"} ${record.seq}`,
+        kind: "change",
+        added: count("add"),
+        modified: count("modify"),
+        deleted: count("delete"),
+        files: record.files.slice(0, HISTORY_FILE_CAP).map((file) => ({ path: file.path, change: file.op === "add" ? "added" : file.op === "delete" ? "deleted" : "modified" })),
+        deployment: described(record),
+        ...await parentOf(this.git, mirror, record.commit),
+      });
+    }
+    entries.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    return { targetId: target.id, entries, ...(truncated ? { truncated } : {}) };
   }
 
   async diff(raw: unknown): Promise<UiFileDiff> {

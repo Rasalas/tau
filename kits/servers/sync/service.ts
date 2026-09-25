@@ -125,6 +125,11 @@ export class SyncService {
     return { workspace, target, localDir, key, ignore, mirror, signal: this.stopped.signal, connect: () => this.options.transport({ cwd: input.cwd, targetId: input.targetId }) };
   }
 
+  /** Runs `run` alone on the target's queue, for work that needs no session (the history cleanup). */
+  queue<T>(key: TargetKey, run: () => Promise<T>): Promise<T> {
+    return this.serial(key, run);
+  }
+
   /** Runs `run` alone on the target's queue, with the session the sync commands use. */
   async exclusive<T>(input: { cwd: string; targetId: string }, run: (session: SyncSession) => Promise<T>): Promise<T> {
     const session = await this.open(decodeInput(input));
