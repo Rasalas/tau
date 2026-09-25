@@ -856,7 +856,8 @@ Two `read` methods, answered only when asked; nothing is pushed or polled.
 A runtime's state comes from the runtime catalogs (`runtime-catalogs`) and
 from `sign-in-state` of the kit that registered the backend (with `target` for
 an instance), which adds `account` and marks a signed-out program
-`sign-in-required` where its catalog could not tell. A catalog or a report not
+`sign-in-required` where its catalog could not tell. A Read-only device, which
+may not call `sign-in-state`, gets no `account`. A catalog or a report not
 on hand within 5 s is left out: the runtime is then `checking`. `invisible` is an X display whose server (the pid in
 `/tmp/.X<n>-lock`) is `Xvfb`.
 

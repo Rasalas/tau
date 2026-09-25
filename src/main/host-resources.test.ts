@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { runtimeBackendOwner, type HostRuntimeBackendProvider } from "./host-extensions.js";
+import type { HostMethodContext } from "./host-jobs.js";
 import { activateHostKit } from "./test-support/host-kit-harness.js";
 import { gitHasMergeTree, parseGitVersion } from "../shared/host-resources.js";
 import {
@@ -317,6 +318,19 @@ describe("the two host methods", () => {
     const methods = createResourceMethods({ resources: () => resources, runtimes: async () => NO_RUNTIMES, readiness: fixed() });
     expect(await methods["host-resources"]!([])).toMatchObject({ cpuCount: 2 });
     expect(await methods.readiness!([])).toMatchObject({ checkedAt: 42, git: { mergeTree: true } });
+    // Accounts are for devices that may ask sign-in-state themselves.
+    const signedIn: ReadinessRuntimes = {
+      runtimeBackends: () => [CODEX],
+      runtimeCatalogs: async () => [catalog("codex", 1)],
+      runtimeCatalog: async () => undefined,
+      runtimeBackendOwner: () => "tau.codex",
+      invokeHostExtension: async () => ({ methods: [], account: { signedIn: true, label: "me@example.com" } }),
+    };
+    const withAccounts = createResourceMethods({ runtimes: async () => signedIn, readiness: fixed() });
+    const context = (principal: HostMethodContext["principal"]): HostMethodContext => ({ progress: () => undefined, signal: new AbortController().signal, principal });
+    expect(await withAccounts.readiness!([], context({ kind: "workbench-client", connection: "c", pairedClient: "d" }))).toMatchObject({ runtimes: [{ account: "me@example.com" }] });
+    const readOnly = await withAccounts.readiness!([], context({ kind: "workbench-client", connection: "c", pairedClient: "d", readOnly: true })) as { runtimes: object[] };
+    expect(readOnly.runtimes[0]).toEqual({ kind: "codex", label: "Codex", version: "0.50.0", state: "ready", models: 1 });
     const none = createResourceMethods({ runtimes: async () => NO_RUNTIMES });
     await expect(none["host-resources"]!([])).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
   });

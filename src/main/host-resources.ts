@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { SIGN_IN_COMMANDS, type SignInReport } from "../shared/sign-in.js";
+import type { HostMethodContext } from "./host-jobs.js";
 import {
   gitHasMergeTree,
   parseGitVersion,
@@ -310,7 +311,7 @@ export async function checkReadiness(runtimes: ReadinessRuntimes, options: Readi
   };
 }
 
-type Method = (params: readonly unknown[]) => Promise<unknown>;
+type Method = (params: readonly unknown[], context?: HostMethodContext) => Promise<unknown>;
 
 /**
  * `host-resources` and `readiness`. Both only read, and another machine's host
@@ -328,6 +329,12 @@ export function createResourceMethods(deps: {
       if (!sampler) throw Object.assign(new Error("This host does not report its machine's load; a host in the window's process does not."), { code: HOST_ERROR.unsupported });
       return sampler.sample();
     },
-    "readiness": async () => checkReadiness(await deps.runtimes(), deps.readiness),
+    "readiness": async (_params, context) => {
+      const readiness = await checkReadiness(await deps.runtimes(), deps.readiness);
+      const principal = context?.principal;
+      // A Read-only device may not call `sign-in-state`, so it does not learn the accounts here either.
+      if (principal?.kind !== "workbench-client" || !principal.readOnly) return readiness;
+      return { ...readiness, runtimes: readiness.runtimes.map(({ account: _account, ...runtime }) => runtime) };
+    },
   };
 }
