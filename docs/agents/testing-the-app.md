@@ -277,7 +277,7 @@ This is about not restarting between passes of the same task, not about leaving 
 | --- | --- |
 | `snapshot` | A compact text outline: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state, active dock panels. |
 | `eval <expr>` | Runs an async JS expression in the renderer with `all`, `byText`, `rect`, `setValue`, `sleep`, `toasts` in scope. |
-| `click <expr>` | Resolves `expr` to an element, scrolls it into view (a button below a short window's fold was clicked in empty space before) and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
+| `click <expr>` | Resolves `expr` to an element, scrolls it into view (a button below a short window's fold was clicked in empty space before) and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. `click <expr> <x> <y>` clicks at that fraction of the element instead (a button inside a Preview picture). |
 | `hover <expr>` | Moves the mouse onto the element's center and nowhere else, so a tooltip opens after its delay. |
 | `rightclick <expr>` | A right-click at the element's center. Where the page asks for the OS's menu (`useContextMenu`), that menu is a native window CDP cannot reach: read it with `screencapture -l <id>` of a window your instance's PID owns, and `stop` closes it with the instance. |
 | `type <expr> <text>` | Sets a textarea's value through its native setter and fires `input`. |
@@ -468,12 +468,14 @@ node scripts/tau-test-host.mjs start --name rex --kits --tls --fresh   # prints 
 node scripts/tau-test-host.mjs status --name rex
 node scripts/tau-test-host.mjs list                                    # every test host of this worktree, with running true/false
 npm run cdp:mobile -- host connections-list --test-host=rex            # an owner call on rex over its loopback host token
-node scripts/tau-test-host.mjs stop --name rex                         # or stop --all
+node scripts/tau-test-host.mjs window --name rex                       # rex's own Tau window: prints pid and CDP port
+node scripts/tau-test-host.mjs stop --name rex                         # or stop --all; stops the window too
 ```
 
 - A named host calls itself by its name (`TAU_MACHINE_NAME`), so pairing and Settings → Machines show "rex", not this Mac's name.
 - Its Pi agent dir is prepared like an instance's (`scripts/pi-agent-shadow.mjs`): the login linked, settings copied with GPT-5.6 Luna as the default model. `--no-login` leaves Pi signed out. No other runtime is ever signed in on a test host; nothing is copied from the real `~/.codex`, `~/.claude` or `~/.pi`.
 - It listens on 127.0.0.1 with a random port, or the one `--port <n>` names; `--kits` loads the kits (off by default), `--tls` gives it a self-signed certificate to pin. `--cpus <n>` makes it report that many cores (`TAU_TEST_CPU_COUNT`), so "rex with 2 cores" holds on this Mac, for example to see sub-agents queue behind a machine's budget.
+- A test host has no window, so it has no window halves: Preview has nowhere to draw ("rex has no display"). `window` starts one on this Mac that is the host's own (its token over loopback, its pinned key, `TAU_NO_FOCUS`, userData `window-userdata/` in the host's folder), so Preview pages and captures happen there; drive it with `npm run cdp -- <port> …`. Its pid and port are in `window.json` there.
 - `stop` signals only the pid in that host's `state.json`, and only while it still runs this worktree's `headless.js`. To bring back a host another host paired with, start it again without `--fresh` and with its old `--port`: its key, the pairing and its threads are still there.
 
 ### A fixture project with a local "origin"

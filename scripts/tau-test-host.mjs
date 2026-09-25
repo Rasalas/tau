@@ -7,8 +7,13 @@
 //
 //   node scripts/tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--cpus <n>] [--workspace <path>]
 //   node scripts/tau-test-host.mjs status [--name <name>] | stop [--name <name> | --all] | list
+//   node scripts/tau-test-host.mjs window [--name <name>] [--port <cdp port>]
+//
+// `window` starts a Tau window on this Mac that is the host's own window (its
+// token, over loopback): it runs the window halves, so the host has a display.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { preparePiAgentDir } from "./pi-agent-shadow.mjs";
@@ -224,22 +229,95 @@ export async function startTestHost(flags = {}, { machineName, env: extraEnv = {
 /** Stops the host `name` by the pid in its own state file, and only if that pid still runs this worktree's host. */
 export async function stopTestHost(name) {
   const statePath = join(testHostDir(name), "state.json");
-  if (!existsSync(statePath)) return { stopped: null };
+  const window = await stopTestWindow(name);
+  if (!existsSync(statePath)) return { stopped: null, ...(window ? { window } : {}) };
   const { pid } = JSON.parse(readFileSync(statePath, "utf8"));
   const running = alive(pid) && ownHost(pid);
   if (running) await stopProcess(pid);
   rmSync(statePath, { force: true });
-  return { ...(name ? { name } : {}), stopped: running ? pid : null };
+  return { ...(name ? { name } : {}), stopped: running ? pid : null, ...(window ? { window } : {}) };
+}
+
+/** The environment of a window that is the test host's own: its token and key, its own userData, never focused. */
+export function testWindowEnv({ base = process.env, dir, state }) {
+  const env = {
+    ...testHostEnv({ base, dir }),
+    TAU_USER_DATA: join(dir, "window-userdata"),
+    TAU_HOST_URL: state.url,
+    TAU_NO_FOCUS: "1",
+  };
+  if (state.publicKey) env.TAU_HOST_PUBLIC_KEY = state.publicKey;
+  for (const variable of ["TAU_HOST_LISTEN", "TAU_NO_EXTENSIONS", "TAU_HOST_TLS", "TAU_MACHINE_NAME"]) delete env[variable];
+  return env;
+}
+
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolvePort(port));
+    });
+  });
+}
+
+function ownWindow(pid) {
+  try {
+    const command = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });
+    return command.includes(join(ROOT, "node_modules", "electron")) && command.includes("--remote-debugging-port=");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Starts a Tau window for the running test host `name`, as the window on that
+ * machine: `npm run cdp -- <port> …` drives it. One per host; `stop` ends it too.
+ */
+export async function startTestWindow(flags = {}) {
+  const dir = testHostDir(flags.name);
+  const state = readTestHost(flags.name);
+  const windowPath = join(dir, "window.json");
+  if (existsSync(windowPath)) {
+    const previous = JSON.parse(readFileSync(windowPath, "utf8"));
+    if (alive(previous.pid) && ownWindow(previous.pid)) throw new Error(`the window of this test host is already running (pid ${previous.pid}, port ${previous.port})`);
+  }
+  // Loaded only here: importing the package may download Electron.
+  const { default: electron } = await import("electron");
+  const port = flags.port ?? await freePort();
+  const env = testWindowEnv({ dir, state });
+  delete env.ELECTRON_RUN_AS_NODE;
+  const logPath = join(dir, "window.log");
+  rmSync(logPath, { force: true });
+  const log = openSync(logPath, "a");
+  const child = spawn(electron, [".", `--remote-debugging-port=${port}`], { cwd: ROOT, env, detached: true, stdio: ["ignore", log, log] });
+  child.unref();
+  const described = { pid: child.pid, port, userData: env.TAU_USER_DATA, log: logPath, startedAt: new Date().toISOString() };
+  writeFileSync(windowPath, `${JSON.stringify(described, null, 2)}\n`);
+  return described;
+}
+
+/** Stops the window `startTestWindow` started for `name`, by its recorded pid only. */
+export async function stopTestWindow(name) {
+  const windowPath = join(testHostDir(name), "window.json");
+  if (!existsSync(windowPath)) return null;
+  const { pid } = JSON.parse(readFileSync(windowPath, "utf8"));
+  const running = alive(pid) && ownWindow(pid);
+  if (running) await stopProcess(pid);
+  rmSync(windowPath, { force: true });
+  return running ? pid : null;
 }
 
 async function main() {
   const { command, flags } = parseArgs(process.argv.slice(2));
   if (command === "start") return startTestHost(flags);
+  if (command === "window") return startTestWindow(flags);
   if (command === "stop" && flags.all) return Promise.all(listTestHosts().map((host) => stopTestHost(host.name ?? undefined)));
   if (command === "stop") return stopTestHost(flags.name);
   if (command === "status") return readTestHost(flags.name);
   if (command === "list") return listTestHosts();
-  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--cpus <n>] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list");
+  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--cpus <n>] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list | window [--name <name>] [--port <n>]");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

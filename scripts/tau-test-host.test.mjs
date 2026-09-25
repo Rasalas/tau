@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, parseHostOutput, remoteWorkDir, testHostDir, testHostEnv } from "./tau-test-host.mjs";
+import { parseArgs, parseHostOutput, remoteWorkDir, testHostDir, testHostEnv, testWindowEnv } from "./tau-test-host.mjs";
 
 describe("testHostEnv", () => {
   const base = { PATH: "/bin", HOME: "/Users/me", TAU_HOST_TLS: "1", TAU_HOST_URL: "wss://far", ELECTRON_RUN_AS_NODE: "1" };
@@ -102,5 +102,20 @@ describe("testHostDir and parseArgs", () => {
     for (const bad of ["1", "80", "70000", "x"]) expect(() => parseArgs(["start", "--port", bad])).toThrow("--port needs a port");
     expect(parseArgs(["start", "--name", "rex", "--cpus", "2"]).flags.cpus).toBe(2);
     for (const bad of ["0", "x", "1.5"]) expect(() => parseArgs(["start", "--cpus", bad])).toThrow("--cpus needs a count");
+  });
+});
+
+describe("testWindowEnv", () => {
+  it("makes the host's own window: its token and pinned key, its own userData, never focused, no listener of its own", () => {
+    const dir = testHostDir("rex", "/w");
+    const env = testWindowEnv({ base: { PATH: "/bin", TAU_MACHINE_NAME: "Mac" }, dir, state: { url: "wss://127.0.0.1:5000", publicKey: "AB:CD" } });
+    expect(env.TAU_HOST_URL).toBe("wss://127.0.0.1:5000");
+    expect(env.TAU_HOST_PUBLIC_KEY).toBe("AB:CD");
+    expect(env.TAU_HOST_TOKEN_FILE).toBe(`${dir}/host-token`);
+    expect(env.TAU_USER_DATA).toBe(`${dir}/window-userdata`);
+    expect(env.HOME).toBe(`${dir}/home`);
+    expect(env.TAU_NO_FOCUS).toBe("1");
+    expect(env.TAU_NO_NATIVE_DIALOGS).toBe("1");
+    for (const name of ["TAU_HOST_LISTEN", "TAU_NO_EXTENSIONS", "TAU_HOST_TLS", "TAU_MACHINE_NAME"]) expect(env[name]).toBeUndefined();
   });
 });

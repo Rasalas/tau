@@ -282,8 +282,11 @@ async function runCommand(session, command, args) {
     return evaluate(session, args[0]);
   }
   if (command === "click") {
-    if (args.length !== 1) throw new Error("usage: click <expr>");
-    const point = await evaluate(session, `(() => { const el = (${args[0]}); if (!el) return null; el.scrollIntoView({ block: "center", inline: "center" }); return rect(el); })()`);
+    if (args.length !== 1 && args.length !== 3) throw new Error("usage: click <expr> [x y as fractions of the element]");
+    // A point inside the element (a spot in a picture), or its center.
+    const at = args.length === 3 ? [Number(args[1]), Number(args[2])] : undefined;
+    if (at && at.some((value) => !Number.isFinite(value) || value < 0 || value > 1)) throw new Error("click: x and y are fractions from 0 to 1");
+    const point = await evaluate(session, `(() => { const el = (${args[0]}); if (!el) return null; el.scrollIntoView({ block: "center", inline: "center" }); ${at ? `const r = el.getBoundingClientRect(); return { x: r.x + r.width * ${at[0]}, y: r.y + r.height * ${at[1]} };` : "return rect(el);"} })()`);
     if (!point) throw new Error(`click: expression did not resolve to an element: ${args[0]}`);
     await dispatchClick(session, point.x, point.y);
     return { clicked: args[0], at: point };
