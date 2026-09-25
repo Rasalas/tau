@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { CodexAppServer } from "../../kits/codex/app-server.ts";
@@ -205,7 +205,8 @@ describe("isolation", () => {
     expect(assertOwnedRoot(join(realpathSync("/tmp"), name, "nested"), APPS.tau)).toBe(join(realpathSync("/tmp"), name, "nested"));
     expect(() => assertOwnedRoot("/tmp", APPS.tau)).toThrow(/refusing/u);
     expect(() => assertOwnedRoot(`${realpathSync("/tmp")}-other/${name}`, APPS.tau)).toThrow(/refusing/u);
-    expect(() => assertOwnedRoot(join(homedir(), name), APPS.tau)).toThrow(/refusing/u);
+    // Not the home folder: a test's HOME is a temporary one, and on Linux that lies under /tmp.
+    expect(() => assertOwnedRoot(join("/usr", name), APPS.tau)).toThrow(/refusing/u);
   });
 
   it("finds open files inside forbidden directories from lsof output", () => {
