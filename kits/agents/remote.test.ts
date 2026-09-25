@@ -131,7 +131,8 @@ function fakeRemoteWork() {
       link.thread = `rex-thread-${id}`;
       link.transfer = `t${id.replace(/\D/gu, "")}`;
       link.worktree = `/rex/worktrees/work/${link.transfer}`;
-      report(link, "running", 0);
+      // As rex reports it: the last answer stays while a new turn runs.
+      report(link, "running", link.there?.turns ?? 0, link.there?.lastMessage ? { lastMessage: link.there.lastMessage } : {});
     }),
     finish: (id: string, text: string, outcome: "completed" | "failed" = "completed") => update(id, (link) => {
       report(link, outcome === "failed" ? "failed" : "idle", (link.there?.turns ?? 0) + 1, { lastMessage: text, outcome, ...(outcome === "failed" ? { error: text } : {}) });
@@ -378,6 +379,8 @@ describe("Agents Kit: sub-agents on another machine", () => {
     const b = await bench();
     const handle = String((await b.call("tau_spawn_thread", { prompt: "survive", title: "Survivor", machine: "rex" })).threadId);
     b.remoteWork.run("link-1");
+    b.remoteWork.finish("link-1", "first answer");
+    b.remoteWork.run("link-1");
     await until(async () => JSON.parse(await readFile(b.linksPath, "utf8").catch(() => "{}")) as { links?: unknown[] }, (file) => (file.links?.length ?? 0) > 0, "the links file");
     const stored = JSON.parse(await readFile(b.linksPath, "utf8")) as { links: Array<Record<string, unknown>> };
     expect(stored.links[0]).toMatchObject({ parentThreadId: "parent", title: "Survivor", remote: { id: handle, machine: { id: "rex-id", name: "rex", link: "link-1" } } });
@@ -386,7 +389,7 @@ describe("Agents Kit: sub-agents on another machine", () => {
     // A second host on the same file and the same Remote Work links.
     const again = await bench({ linksPath: b.linksPath, links: b.remoteWork.links });
     const restored = await until(() => again.state(), (state) => state.links[0]?.machine?.thread === "rex-thread-link-1", "the restored child");
-    expect(restored.links[0]).toMatchObject({ id: handle, status: "running", title: "Survivor" });
+    expect(restored.links[0]).toMatchObject({ id: handle, status: "running", title: "Survivor", result: "first answer" });
     again.remoteWork.finish("link-1", "still here");
     await until(() => linkOf(again, handle), (link) => link.status === "completed" && link.result === "still here", "its answer after the restart");
   });

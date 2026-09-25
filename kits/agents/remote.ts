@@ -272,7 +272,11 @@ export class RemoteChildren {
 
     const turns = there?.turns ?? 0;
     const seen = this.turns.get(id);
-    if (initial || seen === undefined && !there) this.turns.set(id, turns);
+    if (initial || seen === undefined && !there) {
+      this.turns.set(id, turns);
+      // Read back after a restart: the answer the panel showed before it.
+      if (initial && there?.lastMessage && !before.result) moved = book.noteResult(id, truncate(there.lastMessage, PANEL_RESULT_LIMIT)) || moved;
+    }
     else if (there && turns > (seen ?? 0) && !BUSY_THERE.has(there.state)) {
       this.turns.set(id, turns);
       const answer = there.lastMessage ?? (there.state === "failed" ? there.error : undefined);
