@@ -4,7 +4,7 @@ export type { PricedUsage, UsageTally, UsageTurn } from "./usage-pricing.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
-import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
  * The wire between the main process and an isolated host extension. Only plain
@@ -168,6 +168,8 @@ export interface WorkerHostServices {
     read(path: string): Promise<WorkerSessionSnapshot>;
     /** Starts a thread for a project and delivers its first prompt, off screen. */
     start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+    /** Takes over a session another machine wrote; plain data both ways. */
+    import(options: HostThreadImportOptions): Promise<HostImportedThread>;
     /** Moves a thread to the trash; `threadDeleted` runs when it is purged. */
     remove(sessionId: string): Promise<void>;
     restore(sessionId: string): Promise<void>;

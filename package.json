@@ -33,6 +33,7 @@
     "start:report": "node scripts/start-report.mjs",
     "smoke:remote-host": "node scripts/remote-host-smoke.mjs",
     "smoke:window-host": "node scripts/window-host-smoke.mjs",
+    "smoke:remote-work": "node scripts/remote-work-smoke.mjs",
     "smoke:display": "node scripts/display-smoke.mjs",
     "smoke:extension-install": "node scripts/extension-install-smoke.mjs",
     "smoke:attached": "node scripts/attached-smoke.mjs",

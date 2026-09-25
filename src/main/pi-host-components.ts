@@ -65,6 +65,7 @@ import { WorkspaceIdentity } from "./workspace-identity.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { ProjectHistory } from "./project-history.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
+import { importSessionFile } from "./session-import.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
@@ -433,6 +434,12 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     refreshExtensionPackages: () => packages?.refresh() ?? Promise.resolve(),
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
+    importThread: async (request) => {
+      const imported = await importSessionFile(request, { sessionsDir: sessionsDirOverride });
+      deps.log("thread.imported", `${imported.sessionId.slice(0, 8)} · from ${request.origin.hostId}`);
+      await index.refresh("changes");
+      return imported;
+    },
     removeThread: (sessionId) => deps.removeThread(sessionId),
     restoreThread: (sessionId) => deps.restoreThread(sessionId),
     purgeThread: (sessionId) => deps.purgeThread(sessionId),

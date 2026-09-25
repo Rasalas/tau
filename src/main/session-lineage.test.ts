@@ -3,7 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writePersistedJson } from "./persisted-json.js";
-import { PARENT_LINK_ENTRY, SessionLineageIndex, parentLinkEntry, parentThreadIdFromEntries, readSessionParent } from "./session-lineage.js";
+import {
+  ORIGIN_ENTRY,
+  PARENT_LINK_ENTRY,
+  SessionLineageIndex,
+  originEntry,
+  parentLinkEntry,
+  parentThreadIdFromEntries,
+  readSessionLineage,
+  readSessionParent,
+} from "./session-lineage.js";
 import { readSessionFileStamp } from "./session-usage.js";
 
 const header = (id: string) =>
@@ -11,6 +20,9 @@ const header = (id: string) =>
 
 const parentEntry = (parentThreadId: string) =>
   JSON.stringify({ type: "custom", customType: PARENT_LINK_ENTRY, id: "e1", parentId: null, timestamp: "2026-09-06T10:00:01.000Z", data: parentLinkEntry(parentThreadId, { depth: 1 }) });
+
+const originLine = (hostId: string, threadId: string) =>
+  JSON.stringify({ type: "custom", customType: ORIGIN_ENTRY, id: "o1", parentId: null, timestamp: "2026-09-06T10:00:00.500Z", data: originEntry({ hostId, threadId }) });
 
 const message = (id: string, text: string) =>
   JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-09-06T10:00:02.000Z", message: { role: "user", content: [{ type: "text", text }] } });
@@ -59,6 +71,35 @@ describe("a spawned thread's own session file", () => {
     await expect(readSessionParent(join(directory, "missing.jsonl"))).resolves.toBeUndefined();
     const path = await session("broken", [header("broken"), "{not json"]);
     await expect(readSessionParent(path)).resolves.toBeUndefined();
+  });
+});
+
+describe("an imported thread's own session file", () => {
+  it("names the machine it came from on the line after the header", async () => {
+    const path = await session("imported", [header("imported"), originLine("host-a", "thread-a"), message("m1", "work")]);
+    await expect(readSessionLineage(path)).resolves.toEqual({ origin: { hostId: "host-a", threadId: "thread-a" } });
+  });
+
+  it("still finds a parent link right after the origin", async () => {
+    const path = await session("both", [header("both"), originLine("host-a", "thread-a"), parentEntry("parent"), message("m1", "work")]);
+    await expect(readSessionLineage(path)).resolves.toEqual({ parentThreadId: "parent", origin: { hostId: "host-a", threadId: "thread-a" } });
+  });
+
+  it("is cached with the file, and survives a reload of the cache", async () => {
+    const cachePath = join(directory, "session-lineage.json");
+    const path = await session("imported", [header("imported"), originLine("host-a", "thread-a"), message("m1", "work")]);
+    const first = new SessionLineageIndex({ path: cachePath });
+    await first.load();
+    await expect(first.resolve([await stamped(path)])).resolves.toEqual(new Map());
+    expect(first.originOf(path)).toEqual({ hostId: "host-a", threadId: "thread-a" });
+    await first.dispose();
+
+    // A known origin never changes: the next run answers from the cache alone.
+    await writeFile(path, `${header("imported")}\n`);
+    const second = new SessionLineageIndex({ path: cachePath });
+    await second.load();
+    await second.resolve([await stamped(path)]);
+    expect(second.originOf(path)).toEqual({ hostId: "host-a", threadId: "thread-a" });
   });
 });
 

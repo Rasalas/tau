@@ -72,6 +72,27 @@ describe("session index reconciliation", () => {
     expect(sessionShellEqual(mapped!, { ...mapped!, parentThreadId: undefined })).toBe(false);
   });
 
+  it("carries where an imported session came from, and keeps it once the thread is live", async () => {
+    const origin = { hostId: "host-a", threadId: "thread-a" };
+    const [mapped] = await mapSessions([{
+      id: "imported",
+      path: "/sessions/imported.jsonl",
+      cwd: "/project",
+      modified: new Date(2_000),
+      messageCount: 2,
+      firstMessage: "Say one word",
+      allMessagesText: "Say one word",
+    }] as Parameters<typeof mapSessions>[0], "/fallback", async () => "main", undefined, undefined, undefined, undefined, () => origin);
+
+    expect(mapped?.origin).toEqual(origin);
+    expect(sessionShellEqual(mapped!, { ...mapped!, origin: undefined })).toBe(false);
+    const live = reconcileActiveThreadShell({
+      id: mapped!.id, path: mapped!.path, derivedTitle: "Say one word", now: 3_000,
+      projectPath: "/project", projectName: "project", messageCount: 3,
+    }, mapped, true);
+    expect(live.origin).toEqual(origin);
+  });
+
   it("does not rename or reorder an existing shell merely because it was selected", () => {
     const existing = { ...shell("selected", 100, "Stable title"), modelProvider: "anthropic" };
     const selected = reconcileActiveThreadShell({

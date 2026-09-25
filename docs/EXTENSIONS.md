@@ -1347,7 +1347,9 @@ the seam's own signatures speak (`UiMessage`, `UiToolRun`, `UiThreadUsage`,
 rather than discarded when it will not parse — how a package keeps its own state
 beside Tau's), and `PARENT_LINK_ENTRY` / `parentLinkEntry` (the custom entry
 `sessions.start({ parent })` writes on a spawned thread and the thread index
-reads back as `UiSession.parentThreadId`), and, for the package manager, the row shape and the scope name as types: `InstalledPackage`,
+reads back as `UiSession.parentThreadId`), `ORIGIN_ENTRY` / `originEntry` (new in
+API 1.15.0: the custom entry `sessions.import` writes after an imported
+session's header, read back as `UiSession.origin`), and, for the package manager, the row shape and the scope name as types: `InstalledPackage`,
 `PackageRemoval` and `PackageScope`.
 
 A package that owns whole threads — a runtime backend — gets four more values:
@@ -1713,6 +1715,24 @@ thread's running turn, as the stop button does; what the thread had queued
 then waits for the user. Agents Kit's `tau_send_to_thread` and
 `tau_cancel_thread` are built on these two, and so is the message that wakes a
 parent when a child it was not waiting for finished.
+
+`services.sessions.import({ cwd, jsonl, title?, origin })` (new in API 1.15.0,
+`sessions`; absent on an older host) takes over a Pi session another machine
+wrote. The file gets a new id and `cwd` — a folder that must exist on this
+machine — in its header; Pi's `parentSession` path is dropped. Right after the
+header comes a `tau.remote-work/origin` entry (`ORIGIN_ENTRY`) with
+`origin.hostId`, `origin.threadId` and whatever `origin.details` carries; an
+origin or `tau.agents/parent` entry the file already had belonged to its old
+machine and is dropped, its children moving up. Every other entry is copied as
+it was, so paths inside tool results stay text. A `title` becomes the thread's
+name. Refused, with nothing written: a format version other than the one this
+Pi writes (3), an entry over 16 MB, a file over 96 MB, and lines that are not
+session entries. The file lands where Pi keeps the project's sessions (or in
+`PI_CODING_AGENT_SESSION_DIR`), appears whole, and is indexed at once with
+`UiSession.origin` (the sweep's `HostSessionSummary.origin` too); the call
+answers `{ sessionId, path, cwd }`. The thread is not opened: `sessions.send`
+continues it, with the model its history last used. Plain data both ways, so a
+worker may call it.
 
 #### Signing in from the window (new in API 1.12.0)
 
@@ -2615,7 +2635,7 @@ the port — nothing that hands out a live object. From
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
-| `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
+| `sessions.list`, `sessions.read` (entries as data), `sessions.import`, `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 | `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |
 | `observeConfigChanges` (one change per call, plain data) | |

@@ -147,9 +147,13 @@ npm run cdp:mobile -- stop
 
 - Commands: `tap`, `longpress`, `swipe <expr> <dx>`, `type`, `insert`, `press`, `keyboard <px|off>`, `wake sleep|offline|online|foreground`, `eval`, `wait-for`, `snapshot`, `screenshot`, `link`, `host <method> [json]` (an owner call), `freeze-host <ms>`, `device <name>`.
 - On touch, Return adds a line; tap the send button.
-- `node scripts/tau-test-host.mjs start --proxy` is a headless host with the proxy listener; `--test-host` points `pair`, `host` and `freeze-host` at it. Never turn on the instance's Tailscale switch.
+- `node scripts/tau-test-host.mjs start --proxy` is a headless host with the proxy listener; `--test-host` points `pair`, `host` and `freeze-host` at it (`--test-host=<name>` at a named one). Never turn on the instance's Tailscale switch.
 - The iOS app: `node mobile/scripts/sim-device.mjs up` / `down` (one simulator, load below 40, deleted at the end).
 - What needs the user's own phone is in `docs/mobile-device-checklist.md`; point the user there instead of testing on a device.
+
+## Recipe: another machine ("rex")
+
+"rex" in a test is always a second headless host on 127.0.0.1 from this worktree, never the real machine: `node scripts/tau-test-host.mjs start --name rex --kits --tls --fresh`, then `status|stop --name rex`, `list`, `stop --all`. Each name has its own `.tau-dev/test-host-<name>/` (home, userData, token, Pi agent dir with Luna as default, sessions) and calls itself by that name. A fixture project with a local bare origin: `node scripts/remote-work-fixture.mjs --fresh` (`file://` clones work only below `.tau-dev/remote-work`). No login needed on a scripted host: `scripts/fake-model-server.mjs`. End to end: `npm run smoke:remote-work`. Details: `docs/agents/testing-the-app.md`, "Another machine: named test hosts" and the sections after it.
 
 ## Known traps
 
