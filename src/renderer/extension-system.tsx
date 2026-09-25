@@ -474,6 +474,12 @@ export interface ComposerGateContext {
   model?: UiModel;
   /** The runtime the thread runs on, or the one a thread that does not exist yet will start on. */
   runtime?: ThreadBackendKind;
+  /**
+   * The action is in a new thread's draft (new in API 1.14.0). Its `snapshot`
+   * names the draft's project, model and runtime, but still carries the
+   * messages of the thread it was opened from, so ask this, not `messages`.
+   */
+  newThread?: boolean;
   snapshot?: HostSnapshot;
 }
 
