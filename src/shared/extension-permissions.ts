@@ -70,6 +70,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   cwd: "workspace:read",
   projectName: "workspace:read",
   describeProjects: "workspace:read",
+  // Limits on what a project's commands reach: a fact about the folder, read and provided alike.
+  executionPolicy: "workspace:read",
   knownWorkspacePath: "workspace:read",
   admitWorkspace: "workspace:write",
   rememberProjectName: "workspace:write",

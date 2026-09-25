@@ -131,6 +131,7 @@ const UNAVAILABLE = new Set([
   "mcp",
   // A provider is a live object the host calls back into.
   "turnAttachments",
+  "executionPolicy",
   // A window half belongs to an in-process kit: an isolated one has no id the
   // window registry would trust and no way to hold the view it creates.
   "callClient",

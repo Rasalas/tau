@@ -543,6 +543,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     runtimeExtensionNames: () => seam.runtimeExtensions.map((entry) => entry.name),
     runtimeModes: () => runtimeExtensionModes(seam.runtimeExtensions),
     priceUsage,
+    executionPolicy: (cwd) => seam.executionPolicy(cwd),
     threadLifecycle,
     turnObservers,
     clientTurns,

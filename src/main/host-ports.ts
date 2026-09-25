@@ -31,6 +31,7 @@ import {
 } from "./extension-installer.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
+import { ExecutionPolicyRegistry, type HostExecutionPolicy } from "./host-execution-policy.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { defaultGlobalThemesDir } from "./user-themes.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
@@ -213,6 +214,8 @@ export interface HostExtensionSeam {
   sessionFile(manager: SessionManager): HostSessionFile;
   /** The local MCP endpoint the `mcp` services front; the host closes it when it stops. */
   readonly mcp: McpEndpoint;
+  /** What a folder's commands may reach, as the providers of `services.executionPolicy` merge. */
+  executionPolicy(cwd: string): Promise<HostExecutionPolicy>;
 }
 
 /** One extension's entries of `options` and `values`, without its id in front. */
@@ -248,6 +251,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   // A closed runtime's process is gone; its credential goes with it.
   port.registerTurnObserver({ closed: async (threadId) => { mcp.revoke(threadId); } });
   const turnAttachments = new TurnAttachmentRegistry((label, detail) => port.log(label, detail));
+  const executionPolicy = new ExecutionPolicyRegistry((label, detail) => port.log(label, detail));
 
   const sessionFile = (manager: SessionManager): HostSessionFile => {
     const path = manager.getSessionFile();
@@ -388,8 +392,9 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       },
       connect: (thread, options) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread, options),
     },
-    // `extensionServices` binds the extension id in front of these three.
+    // `extensionServices` binds the extension id in front of these four.
     turnAttachments: turnAttachments as unknown as HostExtensionServices["turnAttachments"],
+    executionPolicy: executionPolicy as unknown as HostExtensionServices["executionPolicy"],
     settings: ((extensionId: string, cwd?: string) => extensionSettings(port, extensionId, cwd)) as unknown as HostExtensionServices["settings"],
     callClient: ((extensionId: string, command: string, input?: unknown, options?: HostClientCallOptions) => port.platform.callClient
       ? port.platform.callClient(extensionId, command, input, options)
@@ -431,5 +436,6 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     permissionLevel: () => permissionLevelProvider?.() ?? "full",
     sessionFile,
     mcp,
+    executionPolicy: (cwd) => executionPolicy.for(cwd),
   };
 }
