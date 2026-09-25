@@ -65,6 +65,8 @@ const SCAN_CAP = 500;
 const OPS: Record<SyncChange, UploadOp> = { added: "add", modified: "modify", deleted: "delete" };
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+const lostConnection = (error: unknown) => error instanceof Error && error.name === "SshConnectError";
+
 /** A regular file inside the target's folder; nothing through a link, nothing in `.git`. */
 async function readLocalFile(localDir: string, path: string): Promise<Buffer | undefined> {
   if (hasGitSegment(path)) return undefined;
@@ -255,13 +257,16 @@ export class ServerStatusService {
           if (result.drift) { record.drift = result.drift.rows; record.driftMethod = result.drift.method; }
           else { delete record.drift; delete record.driftMethod; }
         } catch (error) {
+          // A connection that was up and has gone: the server stopped answering.
+          if (lostConnection(error)) { record.unreachable = message(error); return; }
           record.error = message(error);
         }
         record.serverGit = await readServerGit(fs, Boolean(fs.probe?.commands.includes("git")), this.stopped.signal)
           .catch((error: unknown) => ({ repository: false as const, reason: message(error) }));
+        // When the server last answered; an unreachable one keeps the time it last did.
+        record.checkedAt = new Date(this.now()).toISOString();
       } finally {
         record.checking = false;
-        record.checkedAt = new Date(this.now()).toISOString();
         void this.publish(workspace);
       }
     });

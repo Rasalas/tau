@@ -157,6 +157,11 @@ describe.skipIf(!posix)("the server view's status", () => {
     expect(status.pending.map((row) => row.path)).toEqual(["index.php"]);
     w.reachable = true;
     expect(only(await w.call<ServersStatus>("check", { cwd: w.local, targetId: TARGET_ID })).state).toBe("pending");
+    // A connection that drops after the login: the listing fails the way ssh does.
+    const lost = Object.assign(new Error("SFTP did not start on site: Connection refused"), { name: "SshConnectError" });
+    const fail = async () => { throw lost; };
+    Object.assign(w.fs, { list: fail, execStream: fail, exec: fail });
+    expect(only(await w.call<ServersStatus>("check", { cwd: w.local, targetId: TARGET_ID }))).toMatchObject({ state: "unreachable", unreachable: lost.message });
   });
 
   it("diffs a pending file against the mirror state and lists the recorded reads", async () => {

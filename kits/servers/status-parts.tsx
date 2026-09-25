@@ -25,9 +25,14 @@ export function openTarget(actions: Pick<WorkbenchActions, "openStageTab">, work
   return actions.openStageTab(SERVER_TARGET_TAB, params);
 }
 
-export function useServersStatus(store: ServersStatusStore, cwd: string | undefined): StatusEntry {
+/** `fresh`: a view the user opened compares the local side again rather than show what another view loaded. */
+export function useServersStatus(store: ServersStatusStore, cwd: string | undefined, options: { fresh?: boolean } = {}): StatusEntry {
   const entry = useSyncExternalStore(store.subscribe, () => store.get(cwd));
-  useEffect(() => { store.ensure(cwd); }, [store, cwd]);
+  const fresh = options.fresh === true;
+  useEffect(() => {
+    if (fresh && cwd) void store.load(cwd, true);
+    else store.ensure(cwd);
+  }, [store, cwd, fresh]);
   return entry;
 }
 

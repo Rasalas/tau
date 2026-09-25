@@ -180,7 +180,7 @@ export function progressWords(progress: SyncProgress | undefined): string {
  */
 export default function ServerView({ params, handle, actions, parts }: { params: TargetTabParams; handle: StageTabHandle; actions: WorkbenchActions; parts: ServerViewParts }) {
   const cwd = params.workspace;
-  const entry = useServersStatus(parts.store, cwd);
+  const entry = useServersStatus(parts.store, cwd, { fresh: true });
   const target = entry.status?.targets.find((candidate) => candidate.targetId === params.targetId);
   const [tab, setTab] = useState<Tab>("pending");
   const [diff, setDiff] = useState<ServerDiffSource>();

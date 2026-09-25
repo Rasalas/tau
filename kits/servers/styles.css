@@ -70,6 +70,8 @@
 .servers-head-meta code, .servers-compact-meta code { color: var(--ink-2); font: 11px var(--mono); overflow-wrap: anywhere; }
 .servers-git { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .servers-git.muted { color: var(--faint); }
+.servers-git > span:not(.servers-git-commit) { white-space: nowrap; }
+.servers-compact-meta .servers-git { flex-wrap: wrap; row-gap: 0; }
 .servers-git-commit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 11px var(--mono); }
 .servers-banner { display: flex; align-items: flex-start; gap: 7px; margin: 2px 0 0; padding: 7px 10px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.45; }
 .servers-banner > svg { flex: none; margin-top: 2px; }

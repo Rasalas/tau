@@ -145,7 +145,7 @@ function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts
 export function createCompactPanel(parts: ServerViewParts) {
   return function ServersSheet({ actions }: PanelProps) {
     const cwd = useThreadCwd();
-    const entry = useServersStatus(parts.store, cwd);
+    const entry = useServersStatus(parts.store, cwd, { fresh: true });
     if (!cwd) return <Empty icon={<Server size={18} />} title="No project open" description="Open a thread in a project to see its servers." />;
     if (entry.error && !entry.status) return <Empty icon={<AlertTriangle size={18} />} title="Could not read the server status" description={entry.error} />;
     if (!entry.status) return <div className="servers-compact" aria-busy="true"><Skeleton shape="card" /></div>;
