@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -34,7 +35,7 @@ import {
   titleFromPrompt,
   writeAgentLinks,
 } from "./host.js";
-import type { AgentGitRunner } from "../workspace/agent-worktrees.js";
+import { captureWorktreeTree, runAgentGit, type AgentGitRunner } from "../workspace/agent-worktrees.js";
 import { priorityPrefix, readAgentPriority } from "./priority.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
 
@@ -465,7 +466,7 @@ describe("Agents Kit", () => {
       if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
       if (command.startsWith("rev-parse --verify HEAD")) return "headcommit\n";
       if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
-      if (command.startsWith("rev-parse --verify --quiet refs/tau/checkpoints")) return "treeid\n";
+      if (command === "rev-parse headcommit^{tree}") return "headtree\n";
       if (command.startsWith("commit-tree")) return "snapshotcommit\n";
       if (command.startsWith("config --get")) return "snapshotcommit\n";
       if (command.startsWith("write-tree")) return "childtree\n";
@@ -476,12 +477,6 @@ describe("Agents Kit", () => {
       return "";
     };
     const bench = await activated({ runGit });
-    // The parent recorded a checkpoint, so the child starts from that tree.
-    bench.threads.get("parent")!.entries.push({
-      type: "custom",
-      customType: "tau.turn-checkpoint.v1",
-      data: { afterSnapshotId: "refs/tau/checkpoints/parent/turn-1/after" },
-    });
     const parent = bench.runtime("parent", project);
 
     const spawned = await parent.call("tau_spawn_thread", { prompt: "Write the answer" }) as { threadId: string; branch: string; workspace: string };
@@ -489,7 +484,8 @@ describe("Agents Kit", () => {
     expect(spawned.branch).toMatch(/^tau\/agent-/u);
     // The thread runs in the worktree, not in the parent's checkout.
     expect(bench.started[0]?.cwd).toBe(join(root, "project-worktrees", spawned.branch.replace("/", "-")));
-    expect(calls.some(([, ...args]) => args[0] === "commit-tree")).toBe(true);
+    // The parent's working copy differs from HEAD, so the child starts from a state commit on it.
+    expect(calls.some(([, ...args]) => args.join(" ").startsWith("commit-tree childtree -p headcommit"))).toBe(true);
     expect(calls.some(([, ...args]) => args.join(" ").startsWith(`worktree add -b ${spawned.branch}`))).toBe(true);
 
     bench.threads.get(spawned.threadId)!.streaming = false;
@@ -506,6 +502,52 @@ describe("Agents Kit", () => {
     expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${spawned.branch}`)).toBe(true);
     // Its worktree is gone, so there is nothing left to take.
     await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/already applied/u);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("starts a child from HEAD and the uncommitted work, so a commit made after the parent's last turn survives the merge", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-base-"));
+    const project = join(root, "project");
+    await mkdir(project);
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" }).toString().trim();
+    git(project, "init", "-q", "-b", "main");
+    git(project, "config", "user.name", "Here");
+    git(project, "config", "user.email", "here@example.invalid");
+    await writeFile(join(project, "fruit.txt"), "kiwi\n");
+    git(project, "add", "-A");
+    git(project, "commit", "-qm", "kiwi");
+    // The parent's turn left an uncommitted draft, and its checkpoint holds that working copy.
+    await writeFile(join(project, "draft.txt"), "the parent's draft\n");
+    const bench = await activated({ runGit: runAgentGit });
+    bench.setProject(project);
+    const checkpoint = await captureWorktreeTree(project);
+    git(project, "update-ref", "refs/tau/checkpoints/parent/turn-1/after", checkpoint);
+    bench.threads.get("parent")!.entries.push({
+      type: "custom",
+      customType: "tau.turn-checkpoint.v1",
+      data: { afterSnapshotId: "refs/tau/checkpoints/parent/turn-1/after" },
+    });
+    // Between that turn and the spawn, the user commits.
+    await writeFile(join(project, "fruit.txt"), "pear\n");
+    git(project, "commit", "-qm", "pear", "--", "fruit.txt");
+
+    const parent = bench.runtime("parent", project);
+    const spawned = await parent.call("tau_spawn_thread", { prompt: "Add a basket" }) as { threadId: string; branch: string };
+    const there = bench.started[0]!.cwd;
+    expect(await readFile(join(there, "fruit.txt"), "utf8")).toBe("pear\n");
+    expect(await readFile(join(there, "draft.txt"), "utf8")).toBe("the parent's draft\n");
+    await writeFile(join(there, "basket.txt"), "a basket\n");
+    git(there, "add", "basket.txt");
+    git(there, "commit", "-qm", "basket");
+
+    bench.threads.get(spawned.threadId)!.streaming = false;
+    await bench.notify("ended", spawned.threadId);
+    await parent.call("tau_apply_thread_changes", { threadId: spawned.threadId });
+    expect(await readFile(join(project, "fruit.txt"), "utf8")).toBe("pear\n");
+    expect(await readFile(join(project, "basket.txt"), "utf8")).toBe("a basket\n");
+    expect(await readFile(join(project, "draft.txt"), "utf8")).toBe("the parent's draft\n");
+    expect(git(project, "log", "--format=%s", "-1", "--", "fruit.txt")).toBe("pear");
     await rm(root, { recursive: true, force: true });
   });
 

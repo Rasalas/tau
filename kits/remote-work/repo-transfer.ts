@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError } from "tau/host-extension";
-import { branchBaseConfigKey, captureWorktreeTree } from "../workspace/agent-worktrees.js";
+import { branchBaseConfigKey, captureStartingState } from "../workspace/agent-worktrees.js";
 import { asAgentRunner, gitMessage, type GitRunner } from "./git.js";
 import { RESULT_PATHS_MAX, transferRef } from "./protocol.js";
 
@@ -34,24 +34,18 @@ export async function withIdentity(git: GitRunner, cwd: string): Promise<GitRunn
 
 /**
  * The checkout's state as one commit, like a spawned thread's start
- * (`createAgentWorktree`): the working copy through a private index —
- * uncommitted and untracked files alike, ignored ones not — or a checkpoint
- * tree, as a commit on HEAD. The user's index and files stay as they are.
+ * (`captureStartingState`): HEAD and the working copy through a private
+ * index — uncommitted and untracked files alike, ignored ones not — as a
+ * commit on HEAD. The user's index and files stay as they are.
  */
-export async function captureTransferState(options: { root: string; transfer: string; machineName: string; snapshotRef?: string; git: GitRunner }): Promise<CapturedState> {
+export async function captureTransferState(options: { root: string; transfer: string; machineName: string; git: GitRunner }): Promise<CapturedState> {
   const { root, transfer, git } = options;
-  const head = (await git(root, ["rev-parse", "--verify", "HEAD"])).trim();
-  const tree = options.snapshotRef
-    ? (await git(root, ["rev-parse", "--verify", "--quiet", `${options.snapshotRef}^{tree}`]).catch(() => "")).trim()
-    : await captureWorktreeTree(root, asAgentRunner(git));
-  if (!tree) throw new HostCommandError(`${options.snapshotRef} names no tree in this repository.`);
-  const headTree = (await git(root, ["rev-parse", `${head}^{tree}`])).trim();
-  const dirty = tree !== headTree;
-  const base = dirty
-    ? (await (await withIdentity(git, root))(root, ["commit-tree", "--no-gpg-sign", tree, "-p", head, "-m", `tau: state sent to ${options.machineName}`])).trim()
-    : head;
+  const state = await captureStartingState(root, asAgentRunner(git));
+  const base = state.dirty
+    ? (await (await withIdentity(git, root))(root, ["commit-tree", "--no-gpg-sign", state.tree, "-p", state.head, "-m", `tau: state sent to ${options.machineName}`])).trim()
+    : state.head;
   await git(root, ["update-ref", "-m", "tau: transfer", transferRef(transfer), base]);
-  return { head, base, dirty };
+  return { head: state.head, base, dirty: state.dirty };
 }
 
 /** Which of `candidates` this repository has as commits. */

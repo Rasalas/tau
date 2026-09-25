@@ -52,7 +52,6 @@ import { remoteThreadsClient } from "../remote-work/threads-client.js";
 import {
   applyAgentWorktree,
   createAgentWorktree,
-  latestCheckpointSnapshotRef,
   readAgentWorktreeChanges,
   removeAgentWorktree,
   runAgentGit,
@@ -472,19 +471,13 @@ export function createAgentsHostExtension(options: {
         runGit(project, ["rev-parse", "--is-inside-work-tree"]).then((out) => out.trim() === "true").catch(() => false);
 
       /**
-       * The checkout a child works in. It starts from the parent's last
-       * checkpoint tree — its working copy as that turn left it — so the child
-       * continues the work the parent is doing rather than the last commit.
+       * The checkout a child works in. It starts from the parent's HEAD and
+       * its uncommitted work as they are now, so the child continues the work
+       * the parent is doing rather than the last commit.
        */
       const openWorktree = async (agent: AgentThreadLink): Promise<AgentWorkspace> => {
-        const snapshotRef = latestCheckpointSnapshotRef(services.thread(agent.parentThreadId)?.entries() ?? []);
-        const worktree = await createAgentWorktree({
-          parentCwd: agent.projectPath,
-          agentId: agent.id,
-          ...(snapshotRef ? { snapshotRef } : {}),
-          runGit,
-        });
-        services.log("agents.worktree", `${worktree.branch} · ${worktree.fromCheckpoint ? "from the parent's checkpoint" : "from HEAD"}`);
+        const worktree = await createAgentWorktree({ parentCwd: agent.projectPath, agentId: agent.id, runGit });
+        services.log("agents.worktree", `${worktree.branch} · ${worktree.withUncommitted ? "from HEAD and the parent's uncommitted work" : "from HEAD"}`);
         return { mode: "worktree", path: worktree.path, branch: worktree.branch };
       };
 
@@ -573,16 +566,15 @@ export function createAgentsHostExtension(options: {
 
       /**
        * Builds a child on another machine: Remote Work carries the parent's
-       * state there (its last checkpoint, as for a worktree here) and starts an
-       * ordinary thread in it. The persona rides in the first message, since
-       * that machine's Agents Kit never saw the definition.
+       * state there (HEAD and its uncommitted work, as for a worktree here)
+       * and starts an ordinary thread in it. The persona rides in the first
+       * message, since that machine's Agents Kit never saw the definition.
        */
       const startRemote = async (agent: AgentThreadLink): Promise<void> => {
         const machine = agent.machine!;
         try {
           const definition = definitions.get(agent.id);
           const prompt = prompts.get(agent.id) ?? agent.title;
-          const snapshotRef = latestCheckpointSnapshotRef(services.thread(agent.parentThreadId)?.entries() ?? []);
           await remote.start(agent.id, {
             machine: machine.id,
             cwd: agent.projectPath,
@@ -592,7 +584,6 @@ export function createAgentsHostExtension(options: {
             ...(definition?.runtime ? { backend: definition.runtime } : {}),
             parentThreadId: agent.parentThreadId,
             ...(definition ? { agent: definition.name } : {}),
-            ...(snapshotRef ? { snapshotRef } : {}),
             agentDepth: agent.depth,
           });
           prompts.delete(agent.id);
