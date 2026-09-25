@@ -9,11 +9,14 @@
 //  - `direct-tcpip` (ProxyJump) reaches loopback only.
 // Every connection, authentication, command and SFTP operation is appended to
 // `<state>/calls.log`, an SFTP path outside the fake root and HOME with
-// `outside: true`. It is not a sandbox: commands and absolute paths run as the
-// user on this machine, so tests keep to the state folder.
+// `outside: true`. Without `--sandbox` it is no sandbox: commands and absolute
+// paths run as the user on this machine, so tests keep to the state folder.
+// `--sandbox` (macOS only) runs `exec`, the shell and `sftp-server` under
+// `sandbox-exec`: writes only below the fake root and HOME, no network but
+// loopback, the real HOME unreadable. Use it whenever a model sends commands.
 //
 // CLI: fake-ssh-server.mjs [start] [--dir <state>] [--port <n>] [--otp <code>]
-//        [--no-password] [--read-only] [--trust-host-key]
+//        [--no-password] [--read-only] [--trust-host-key] [--sandbox]
 //      fake-ssh-server.mjs stop [--dir <state>]
 // `start` prints one JSON line ({ port, pid, fingerprint }), writes it to
 // `<state>/fake-ssh.json` and points `Host fake` in `<state>/ssh_config` at the port.
@@ -21,6 +24,7 @@ import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
+import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ssh2 from "ssh2";
@@ -87,6 +91,34 @@ async function loadPty() {
   try { return (await import("node-pty")).default; } catch { return undefined; }
 }
 
+const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
+
+/**
+ * The `sandbox-exec` profile of a sandboxed fake: everything as usual, except
+ * writes outside `writable`, reads of the real HOME outside it, and any
+ * network but loopback.
+ */
+export function sandboxProfile(writable, realHome = homedir()) {
+  const quote = (path) => {
+    if (/["\\\n]/u.test(path)) throw new Error(`sandbox: cannot quote ${path}`);
+    return `"${path}"`;
+  };
+  const folders = [...new Set(writable)].map((path) => `(subpath ${quote(path)})`).join(" ");
+  return [
+    "(version 1)",
+    "(allow default)",
+    "(deny file-write*)",
+    `(allow file-write* ${folders} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/"))`,
+    `(deny file-read* (subpath ${quote(realHome)}))`,
+    `(allow file-read* ${folders})`,
+    "(deny network*)",
+    // Not `network* (local ip …)`: an outbound socket matches that too and gets out.
+    '(allow network-outbound (remote ip "localhost:*"))',
+    '(allow network-bind (local ip "localhost:*"))',
+    '(allow network-inbound (local ip "localhost:*"))',
+  ].join("\n");
+}
+
 /** Waits for a stream's buffered data to leave before the exit status is sent after it. */
 function drained(stream) {
   return stream.writableNeedDrain ? new Promise((resolvePromise) => stream.once("drain", resolvePromise)) : Promise.resolve();
@@ -106,9 +138,11 @@ export async function startFakeSshServer({
   otp,
   readOnly = false,
   trustHostKey = false,
+  sandbox = false,
   sftpServer = findSftpServer(),
 } = {}) {
   if (!dir) throw new Error("startFakeSshServer needs the state folder (dir)");
+  if (sandbox && (process.platform !== "darwin" || !existsSync(SANDBOX_EXEC))) throw new Error("the fake's sandbox needs macOS sandbox-exec");
   assertLoopback(host);
   const p = prepareServersDir(dir);
   const log = (record) => appendCall(dir, { tool: "ssh", ...record });
@@ -120,6 +154,9 @@ export async function startFakeSshServer({
   const pty = await loadPty();
   // sftp-server logs real paths (/private/tmp on macOS), a caller may name either form.
   const allowed = [p.root, p.home, realpathSync(p.root), realpathSync(p.home)];
+  const profile = sandbox ? sandboxProfile(allowed) : undefined;
+  /** `[command, args]`, inside the sandbox when there is one. */
+  const jailed = (command, args) => (profile ? [SANDBOX_EXEC, ["-p", profile, command, ...args]] : [command, args]);
 
   const server = new Server({ hostKeys: [hostKey.private], ident: "TauFakeSSH_1.0" }, (client, info) => {
     const remote = `${info.ip}:${info.port}`;
@@ -235,7 +272,8 @@ export async function startFakeSshServer({
         log({ event: "subsystem", name: "sftp", ok: true });
         const channel = accept();
         const args = ["-e", "-l", "INFO", "-d", p.root, ...(readOnly ? ["-R"] : [])];
-        const child = spawn(sftpServer, args, { cwd: p.home, env: sessionEnv(p.home, env), stdio: ["pipe", "pipe", "pipe"] });
+        const [command, argv] = jailed(sftpServer, args);
+        const child = spawn(command, argv, { cwd: p.home, env: sessionEnv(p.home, env), stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
         channel.pipe(child.stdin);
         child.stdout.pipe(channel);
@@ -257,7 +295,8 @@ export async function startFakeSshServer({
     function run(channel, args, env, ptyInfo, onExit) {
       const childEnv = sessionEnv(p.home, env);
       if (ptyInfo && pty) {
-        const terminal = pty.spawn("/bin/sh", args, { cwd: p.home, env: { TERM: ptyInfo.term || "xterm", ...childEnv }, cols: ptyInfo.cols || 80, rows: ptyInfo.rows || 24 });
+        const [command, argv] = jailed("/bin/sh", args);
+        const terminal = pty.spawn(command, argv, { cwd: p.home, env: { TERM: ptyInfo.term || "xterm", ...childEnv }, cols: ptyInfo.cols || 80, rows: ptyInfo.rows || 24 });
         const handle = { kill: (signal) => terminal.kill(signal), resize: (cols, rows) => terminal.resize(cols, rows) };
         children.add(handle);
         terminal.onData((data) => channel.write(data));
@@ -272,7 +311,8 @@ export async function startFakeSshServer({
         });
         return handle;
       }
-      const child = spawn("/bin/sh", args, { cwd: p.home, env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+      const [command, argv] = jailed("/bin/sh", args);
+      const child = spawn(command, argv, { cwd: p.home, env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
       children.add(child);
       channel.pipe(child.stdin);
       child.stdout.pipe(channel, { end: false });
@@ -300,8 +340,8 @@ export async function startFakeSshServer({
   const knownHostsLine = `${hostPattern(bound)} ${hostPublic.type} ${hostPublic.getPublicSSH().toString("base64")}`;
   if (trustHostKey) writeFileSync(p.knownHosts, `${readFileSync(p.knownHosts, "utf8")}${knownHostsLine}\n`, { mode: 0o600 });
   writeSshConfig(dir, { sshPort: bound });
-  const state = { port: bound, host, pid: process.pid, fingerprint: fingerprint(hostPublic), knownHostsLine, sftpServer: sftpServer ?? null };
-  log({ event: "listen", port: bound, fingerprint: state.fingerprint });
+  const state = { port: bound, host, pid: process.pid, fingerprint: fingerprint(hostPublic), knownHostsLine, sftpServer: sftpServer ?? null, sandbox };
+  log({ event: "listen", port: bound, fingerprint: state.fingerprint, sandbox });
 
   return {
     ...state,
@@ -345,6 +385,7 @@ async function cli(args) {
     password: args.includes("--no-password") ? null : TEST_PASSWORD,
     readOnly: args.includes("--read-only"),
     trustHostKey: args.includes("--trust-host-key"),
+    sandbox: args.includes("--sandbox"),
   });
   const { close, dir: _dir, ...state } = server;
   writeFileSync(paths(dir).sshState, `${JSON.stringify(state, null, 2)}\n`);

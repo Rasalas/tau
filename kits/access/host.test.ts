@@ -74,6 +74,24 @@ describe("Access Kit host extension", () => {
     await expect(stranger!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "child", level: "full" })).rejects.toThrow();
   });
 
+  it("tells Servers Kit the level a thread runs at, and nobody else", async () => {
+    const registry = await activateHostKit(createAccessHostExtension(), { log: vi.fn(), registerRuntimeExtension: () => () => undefined, setPermissionLevel: () => undefined });
+    let agents: HostExtensionContext | undefined;
+    let servers: HostExtensionContext | undefined;
+    let stranger: HostExtensionContext | undefined;
+    await registry.activate({ id: "tau.agents", name: "Agents", activate: (context) => { agents = context; } });
+    await registry.activate({ id: "tau.servers", name: "Servers", activate: (context) => { servers = context; } });
+    await registry.activate({ id: "tau.other", name: "Other", activate: (context) => { stranger = context; } });
+
+    await expect(servers!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level-of", { threadId: "t1" })).resolves.toBe("full");
+    await agents!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "t1", level: "ask" });
+    await expect(servers!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level-of", { threadId: "t1" })).resolves.toBe("ask");
+    await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "read-only" });
+    await expect(servers!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level-of", { threadId: "t2" })).resolves.toBe("read-only");
+    await expect(servers!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level-of", {})).rejects.toThrow("threadId");
+    await expect(stranger!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level-of", { threadId: "t1" })).rejects.toThrow();
+  });
+
   it("gates Tau's tools over MCP with the same decision as Pi's, thread levels included", async () => {
     const gates: HostMcpToolGate[] = [];
     const registry = await activateHostKit(createAccessHostExtension(), {

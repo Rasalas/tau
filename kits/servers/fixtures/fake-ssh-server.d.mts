@@ -13,6 +13,8 @@ export interface FakeSshServerOptions {
   readOnly?: boolean;
   /** Writes the fresh host key into the state folder's known_hosts. */
   trustHostKey?: boolean;
+  /** macOS: exec, shell and sftp-server under sandbox-exec (writes only in root/ and home/, loopback only). */
+  sandbox?: boolean;
   sftpServer?: string;
 }
 
@@ -24,9 +26,11 @@ export interface FakeSshServer {
   fingerprint: string;
   knownHostsLine: string;
   sftpServer: string | null;
+  sandbox: boolean;
   dir: string;
   close(): Promise<void>;
 }
 
 export function findSftpServer(env?: NodeJS.ProcessEnv): string | undefined;
+export function sandboxProfile(writable: readonly string[], realHome?: string): string;
 export function startFakeSshServer(options: FakeSshServerOptions): Promise<FakeSshServer>;

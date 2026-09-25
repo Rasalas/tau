@@ -33,7 +33,8 @@ describe("Servers network limit", () => {
       registerRuntimeExtension: (name: string) => { runtimeExtensions.push(name); return unregister; },
       workspaceRef: () => ({ workspaceId: "ws" }) as never,
     });
-    expect(runtimeExtensions).toEqual(["tau-servers-network"]);
+    // The tools come first: the network hook rewrites bash, the bypass check reads it as written.
+    expect(runtimeExtensions).toEqual(["tau-servers-tools", "tau-servers-network"]);
     // The folder has no sftp.json and no targets: nothing limits it.
     expect(await provider!(process.cwd())).toBeUndefined();
     await registry.dispose();
