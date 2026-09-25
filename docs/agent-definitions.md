@@ -28,6 +28,7 @@ Saved as `.tau/agents/reviewer.md`, this is the agent `reviewer`.
 | `tools` | every tool | The only tools the thread keeps, as Pi names them (`read`, `grep`, `find`, `ls`, `bash`, `edit`, `write`, the `tau_*` tools — `mcp__tau__tau_*` reads the same — an extension's tools). A name the runtime does not have is ignored. See below for other runtimes. |
 | `access` | the workbench's level | `read-only`, `ask` or `full`. It can narrow the level Access Kit gives the thread, never widen it. Pi only. |
 | `workspace` | `worktree` in a Git repository | `worktree` for a checkout of its own, branched from the parent's state; `shared` to work in the parent's checkout — for an agent that only reads. |
+| `machine` | Settings → Agents (this computer unless the user chose otherwise) | Where the thread runs: another machine this computer's agents reach, by name or host id (`rex`); `local` for this computer; `auto` to let Tau pick by load. On another machine it works in a worktree there with the parent's state, and its work comes back here as a branch. A definition that sets `tools` or a narrower `access` cannot run elsewhere, since that machine never sees the definition. |
 
 The body below the second `---` is required. It is the agent's system prompt:
 on Pi, Agents Kit appends it to the system prompt Pi builds, on every turn of
@@ -65,7 +66,7 @@ On every runtime Tau's own tools over MCP are only the `tau_*` names listed.
 
 - **From a thread.** `tau_spawn_thread` takes `agent`, the definition's name.
   A thread that may still spawn is told which definitions exist in its system
-  prompt. A call's own `model` and `workspace` win over the definition's.
+  prompt. A call's own `model`, `workspace` and `machine` win over the definition's.
 - **From the Agents panel.** The panel lists the definitions of the checkout on
   screen above the running agents, each with what it runs already. **Start**
   asks for a task and starts the agent as a child of the thread on screen, the
