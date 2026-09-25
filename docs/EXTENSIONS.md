@@ -2287,8 +2287,9 @@ nothing creates it until the package writes there. `TAU_USER_DATA` moves it
 with everything else, so a dev instance's state is its own — Agents Kit keeps
 its link index there. What belongs in the *user's* `~/.tau` instead is
 configuration the user edits: Agents Kit reads its running budget
-(`maxRunningAgents`) and whether sub-agents run at low priority (`lowPriority`,
-on unless `false`) from `~/.tau/agents.json` and never writes it.
+(`maxRunningAgents`) and how far sub-agents' commands yield (`priority`:
+`"low"` by default, `"background"` or `"normal"`; `"lowPriority": false` means
+`"normal"`) from `~/.tau/agents.json` and never writes it.
 
 `services.themesDir` is the folder of the user's own themes — `~/.tau/themes`,
 or what `TAU_THEMES_DIR` names (a dev instance points it under `.tau-dev/`). It

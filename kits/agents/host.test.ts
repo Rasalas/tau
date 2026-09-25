@@ -35,7 +35,7 @@ import {
   writeAgentLinks,
 } from "./host.js";
 import type { AgentGitRunner } from "../workspace/agent-worktrees.js";
-import { backgroundPriorityPrefix, readLowPriority } from "./priority.js";
+import { priorityPrefix, readAgentPriority } from "./priority.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
 
 interface FakeTool {
@@ -342,33 +342,47 @@ describe("Agents Kit status", () => {
 describe("Agents Kit priority", () => {
   const prefixFor = (bench: Awaited<ReturnType<typeof activated>>, session: { sessionId: string; cwd: string; parentThreadId?: string }) =>
     bench.runtimeExtensions[0]!.shellCommandPrefix?.(session);
+  const withSettings = async (settings: unknown, check: (path: string) => Promise<void>) => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-settings-"));
+    const path = join(directory, "agents.json");
+    await writeFile(path, JSON.stringify(settings), "utf8");
+    try { await check(path); } finally { await rm(directory, { recursive: true, force: true }); }
+  };
 
   it("puts a spawned thread's commands at low priority and leaves the user's own threads alone", async () => {
     const bench = await activated();
     expect(prefixFor(bench, { sessionId: "parent", cwd: "/project" })).toBeUndefined();
-    expect(prefixFor(bench, { sessionId: "child", cwd: "/project", parentThreadId: "parent" })).toBe(backgroundPriorityPrefix());
+    expect(prefixFor(bench, { sessionId: "child", cwd: "/project", parentThreadId: "parent" })).toBe(priorityPrefix("low"));
   });
 
-  it("keeps a spawned thread at normal priority when the user turned it off", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "tau-agents-settings-"));
-    const path = join(directory, "agents.json");
-    await writeFile(path, JSON.stringify({ lowPriority: false }), "utf8");
-    try {
-      await expect(readAgentsSettings(path)).resolves.toEqual({ maxRunning: DEFAULT_MAX_RUNNING_AGENTS, lowPriority: false });
+  it("takes the level the user set, and reads the old switch as normal", async () => {
+    await withSettings({ priority: "background" }, async (path) => {
+      await expect(readAgentsSettings(path)).resolves.toEqual({ maxRunning: DEFAULT_MAX_RUNNING_AGENTS, priority: "background" });
+      const bench = await activated({ settingsPath: path });
+      expect(prefixFor(bench, { sessionId: "child", cwd: "/project", parentThreadId: "parent" })).toBe(priorityPrefix("background"));
+    });
+    await withSettings({ lowPriority: false }, async (path) => {
       const bench = await activated({ settingsPath: path });
       expect(prefixFor(bench, { sessionId: "child", cwd: "/project", parentThreadId: "parent" })).toBeUndefined();
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    });
+  });
+
+  it("reads the level, the alias and anything else", () => {
+    expect(readAgentPriority(undefined)).toBe("low");
+    expect(readAgentPriority({ priority: "idle" })).toBe("low");
+    expect(readAgentPriority({ priority: "normal" })).toBe("normal");
+    expect(readAgentPriority({ lowPriority: false })).toBe("normal");
+    expect(readAgentPriority({ lowPriority: true })).toBe("low");
+    expect(readAgentPriority({ priority: "background", lowPriority: false })).toBe("background");
   });
 
   it("lowers the shell itself, silently, on the platforms that have the tools", () => {
-    expect(backgroundPriorityPrefix("darwin")).toBe("{ /usr/sbin/taskpolicy -b -p $$; renice -n 10 -p $$; } >/dev/null 2>&1");
-    expect(backgroundPriorityPrefix("linux")).toBe("{ renice -n 10 -p $$; ionice -c 3 -p $$; } >/dev/null 2>&1");
-    expect(backgroundPriorityPrefix("win32")).toBeUndefined();
-    expect(readLowPriority(undefined)).toBe(true);
-    expect(readLowPriority({ lowPriority: "no" })).toBe(true);
-    expect(readLowPriority({ lowPriority: false })).toBe(false);
+    expect(priorityPrefix("low", "darwin")).toBe("renice -n 10 -p $$ >/dev/null 2>&1");
+    expect(priorityPrefix("background", "darwin")).toBe("{ /usr/sbin/taskpolicy -b -p $$; renice -n 10 -p $$; } >/dev/null 2>&1");
+    expect(priorityPrefix("low", "linux")).toBe("{ renice -n 10 -p $$; ionice -c 2 -n 7 -p $$; } >/dev/null 2>&1");
+    expect(priorityPrefix("background", "linux")).toBe("{ renice -n 10 -p $$; ionice -c 3 -p $$; } >/dev/null 2>&1");
+    expect(priorityPrefix("normal", "linux")).toBeUndefined();
+    expect(priorityPrefix("low", "win32")).toBeUndefined();
   });
 });
 
@@ -628,7 +642,7 @@ describe("Agents Kit", () => {
     const path = join(directory, "agents.json");
     await writeFile(path, JSON.stringify({ maxRunningAgents: 2 }), "utf8");
     try {
-      await expect(readAgentsSettings(path)).resolves.toEqual({ maxRunning: 2, lowPriority: true });
+      await expect(readAgentsSettings(path)).resolves.toEqual({ maxRunning: 2, priority: "low" });
       const bench = await activated({ settingsPath: path });
       await expect(bench.state()).resolves.toMatchObject({ maxRunning: 2 });
       const parent = bench.runtime("parent");

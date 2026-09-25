@@ -38,7 +38,7 @@ import {
   sameTools,
   type AgentPersona,
 } from "./persona.js";
-import { backgroundPriorityPrefix, readLowPriority } from "./priority.js";
+import { DEFAULT_AGENT_PRIORITY, priorityPrefix, readAgentPriority, type AgentPriority } from "./priority.js";
 // Worktrees are Workspace Kit's, in every kit that needs one: this is the one
 // leaf module it lends, and nothing else of that kit is reachable from here.
 import {
@@ -188,15 +188,15 @@ export async function readAgentLinksWithMigration(path: string, legacy = legacyA
 export interface AgentsSettings {
   /** How many children of one thread may run at a time. */
   maxRunning: number;
-  /** Whether a sub-agent's commands run at low priority. */
-  lowPriority: boolean;
+  /** How hard a sub-agent's commands yield to the user's work. */
+  priority: AgentPriority;
 }
 
 /** The user's `~/.tau/agents.json`; a bad file is not an error. */
 export async function readAgentsSettings(path = agentsSettingsPath()): Promise<AgentsSettings> {
   let value: unknown;
   try { value = JSON.parse(await readFile(path, "utf8")) as unknown; } catch { value = undefined; }
-  return { maxRunning: readMaxRunningAgents(value), lowPriority: readLowPriority(value) };
+  return { maxRunning: readMaxRunningAgents(value), priority: readAgentPriority(value) };
 }
 
 /** A title the panel can show before the thread has said anything. */
@@ -932,11 +932,11 @@ export function createAgentsHostExtension(options: {
         for (const tool of agentTools(session)) pi.registerTool(tool);
       };
 
-      let lowPriority = true;
+      let priority: AgentPriority = DEFAULT_AGENT_PRIORITY;
       const disposers = [
         services.registerRuntimeExtension("tau-agents", runtimeExtension, {
           // A spawned thread's commands yield to the user's own work.
-          shellCommandPrefix: (session) => session.parentThreadId && lowPriority ? backgroundPriorityPrefix() : undefined,
+          shellCommandPrefix: (session) => session.parentThreadId ? priorityPrefix(priority) : undefined,
         }),
         services.mcp.registerTools(agentTools),
         services.registerTurnObserver({
@@ -1052,7 +1052,7 @@ export function createAgentsHostExtension(options: {
       // the desktop half asks for already holds every link from the last run.
       const settings = await readAgentsSettings(options.settingsPath);
       book.setMaxRunning(settings.maxRunning);
-      lowPriority = settings.lowPriority;
+      priority = settings.priority;
       for (const link of await readAgentLinksWithMigration(linksPath)) {
         if (!book.has(link.threadId)) book.add({ ...link, id: link.threadId });
       }
