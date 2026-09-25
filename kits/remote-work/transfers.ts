@@ -63,7 +63,17 @@ export interface RepoTransfersOptions {
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
+function size(bytes: number): string {
+  const units = ["KB", "MB", "GB", "TB"];
+  if (bytes < 1024) return `${bytes} B`;
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return unit === 0 ? `${Math.ceil(value)} KB` : `${value.toFixed(1)} ${units[unit]}`;
+}
 
 /**
  * The sending side of remote work: moves a checkout's state to another

@@ -16,7 +16,7 @@ const SKIPPED: Record<string, string> = { build: "dependencies or build output",
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
 export function formatAge(at: number, now: number): string {
@@ -100,12 +100,13 @@ function TransferRow({ transfer, host, allowed, now, onNotify }: { transfer: Rep
   const hasBranch = transfer.result?.state === "branch";
   const merged = transfer.applied?.state === "merged" || transfer.applied?.state === "already-merged";
   const ready = transfer.state === "ready";
+  const files = ready ? transfer.applied?.files ?? [] : [];
   return (
     <SettingRow
       title={<>{transfer.machineName}{transfer.name ? ` · ${transfer.name}` : ""} <small className="remote-work-age">{formatAge(transfer.createdAt, now)}</small></>}
       description={<span className={`remote-work-summary ${transfer.state}`}>{transferSummary(transfer)}</span>}
-      status={(transfer.applied && transfer.applied.files.length > 0) || transfer.state === "sending" || transfer.state === "failed" ? <>
-        {transfer.applied && transfer.applied.files.length > 0 ? <ul className="remote-work-files">{transfer.applied.files.map((file) => <li key={file}><code>{file}</code></li>)}</ul> : null}
+      status={files.length > 0 || transfer.state === "sending" || transfer.state === "failed" ? <>
+        {files.length > 0 ? <ul className="remote-work-files">{files.map((file) => <li key={file}><code>{file}</code></li>)}</ul> : null}
         {transfer.state === "sending" || transfer.state === "failed" ? <Steps steps={transfer.steps} /> : null}
       </> : undefined}
       disabledReason={allowed ? undefined : READ_ONLY_REASON}
@@ -155,12 +156,6 @@ export function createRemoteWorkPage(host: HostExtensionClient) {
       <div className="settings-page remote-work-page">
         <h3>Remote work</h3>
         <SettingsSection title="Ignored files that go along">
-          <p className="settings-note">
-            A project goes to another machine as its commits and its uncommitted work. Ignored files stay here unless you tick them; Tau offers
-            small text files, <code>.env</code> files and note or issue folders, never dependencies, builds or caches. They travel over Tau&apos;s
-            encrypted connection and your choice is remembered for this project on this machine.
-          </p>
-          {problem ? <p className="settings-note problem" role="alert">{problem}</p> : null}
           {!view && !problem ? <Skeleton shape="card" /> : null}
           {view && view.candidates.length === 0 ? <Empty size="compact" title="Nothing to offer" description="This project has no ignored files Tau would send along." /> : null}
           {view?.candidates.map((candidate) => {
@@ -177,15 +172,22 @@ export function createRemoteWorkPage(host: HostExtensionClient) {
             );
           })}
           {view && view.skipped.length > 0 ? (
-            <p className="settings-note remote-work-skipped">
-              Never sent: {view.skipped.slice(0, 6).map((entry) => `${entry.path} (${SKIPPED[entry.why] ?? entry.why})`).join(", ")}{view.skipped.length > 6 ? ` and ${view.skipped.length - 6} more` : ""}.
-            </p>
+            <SettingRow
+              title="Never sent"
+              description={`${view.skipped.slice(0, 6).map((entry) => `${entry.path} (${SKIPPED[entry.why] ?? entry.why})`).join(", ")}${view.skipped.length > 6 ? ` and ${view.skipped.length - 6} more` : ""}`}
+            />
           ) : null}
         </SettingsSection>
+        {problem ? <div className="settings-note" data-level="error" role="alert">{problem}</div> : null}
         <SettingsSection title="Transfers">
           {transfers.length === 0 ? <Empty size="compact" title="No transfers yet" description="Work this project sends to another machine shows here, with what came back." /> : null}
           {transfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} host={host} allowed={canAct} now={now} onNotify={onNotify} />)}
         </SettingsSection>
+        <p className="settings-note">
+          A project goes to another machine as its commits and its uncommitted work. Ignored files stay here unless you tick them:
+          Tau offers small text files, <code>.env</code> files and note or issue folders, never dependencies, builds or caches. They
+          travel over Tau&apos;s encrypted connection, and your choice is remembered for this project on this machine.
+        </p>
       </div>
     );
   };

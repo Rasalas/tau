@@ -63,7 +63,7 @@ describe("Settings → Remote work", () => {
     const scratch = screen.getByRole("switch", { name: "Send .scratch/ along" });
     expect(scratch.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByText(/Notes or issues · 3 files · 2 KB/u)).toBeTruthy();
-    expect(screen.getByText(/Never sent: node_modules\/ \(dependencies or build output\)/u)).toBeTruthy();
+    expect(screen.getByText("node_modules/ (dependencies or build output)")).toBeTruthy();
     await act(async () => { fireEvent.click(scratch); });
     expect(invoke).toHaveBeenCalledWith(ID, "set-ignored-files", { cwd: "/work/app", paths: [".env", ".scratch/"] });
     expect(screen.getByRole("switch", { name: "Send .scratch/ along" }).getAttribute("aria-checked")).toBe("true");
