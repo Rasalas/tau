@@ -708,7 +708,12 @@ than copying it, because the clipboard belongs to the client.
 `desktop-extensions` is the one method both sides implement: the host compiles
 the desktop halves and answers with their code, the window publishes that code
 under `tau-ext:` and hands the renderer URLs. That is how a window at a host in
-another process — or on another machine — loads kits at all.
+another process — or on another machine — loads kits at all. The host answers
+it while it is still starting: the bundles are files, and a workspace the
+starting host already knows needs nothing else. A shipped kit's code carries a
+`file:` link to its source map rather than the map itself. A host that a
+window spawned starts as soon as it listens, instead of at that window's first
+`bootstrap`, so the window loads its kits while the host starts.
 
 The window's own process keeps a connection to the host beside its renderer's
 (bundles, calls into the window, shutdown). It says hello with
