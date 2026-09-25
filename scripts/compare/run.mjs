@@ -201,7 +201,16 @@ async function measureRun(app, root, options, turn) {
       return entry ? round(paints.timeOrigin + entry.startTime - spawnedAt) : null;
     };
     const ready = await waitFor(session, app.ready(THREADS), { timeoutMs: 90_000, pollMs: 10 });
-    const startup = { firstPaintMs: paintAt("first-paint"), firstContentfulPaintMs: paintAt("first-contentful-paint"), interactiveMs: ready.at - spawnedAt, pageTargetMs: stages.connected };
+    const firstPaintMs = paintAt("first-paint");
+    const interactiveMs = ready.at - spawnedAt;
+    const startup = {
+      firstPaintMs,
+      firstContentfulPaintMs: paintAt("first-contentful-paint"),
+      interactiveMs,
+      // What the app does once it shows: the launch before first paint is mostly Electron's own.
+      paintToReadyMs: firstPaintMs === null ? null : round(interactiveMs - firstPaintMs),
+      pageTargetMs: stages.connected,
+    };
     await evaluate(session, INSTALL_PROBE);
     await setViewport(session);
     await session.send("Network.enable");
@@ -420,6 +429,7 @@ export function markdownTable(report) {
   const rows = [
     ["first paint (ms)", "startup.firstPaintMs"],
     ["rail + composer ready (ms)", "startup.interactiveMs"],
+    ["first paint → rail + composer ready (ms)", "startup.paintToReadyMs"],
     ["memory idle, whole tree (MiB)", "idleMemory.totalMiB"],
     ["memory idle, host/server process (MiB)", "idleMemory.byRoleMiB.backend"],
     ["footprint idle, whole tree (MiB, macOS)", "idleMemory.footprintMiB"],
