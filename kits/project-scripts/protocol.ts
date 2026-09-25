@@ -156,8 +156,8 @@ export function createProjectScriptsHostClient(invoke: (command: string, input?:
 }
 
 /**
- * Workspace Kit calls this after it created a worktree; only it may
- * (`callers`). The answer says what ran; a script that fails is reported in
+ * Workspace Kit calls this after it created a worktree, and Remote Work Kit
+ * after it made one for another machine's transfer; only they may (`callers`). The answer says what ran; a script that fails is reported in
  * its run, never thrown, so the worktree stays.
  */
 export const WORKTREE_CREATED_COMMAND = "worktree-created";

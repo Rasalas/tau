@@ -1,0 +1,18 @@
+{
+  "id": "tau.remote-work",
+  "name": "Remote Work",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.14.0"
+  },
+  "permissions": [
+    "machines",
+    "workspace:read",
+    "workspace:write",
+    "process"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}
