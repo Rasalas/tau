@@ -86,7 +86,7 @@ describe("the password source in Settings → Servers", () => {
     await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Check" })[0]!); });
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "check-credential", { cwd: "/work/site", targetId: APP.id, kind: "password" });
-    expect(props.onNotify).toHaveBeenCalledWith("app: password from VS Code's keychain item tester@127.0.0.1 (app).");
+    expect(props.onNotify).toHaveBeenCalledWith("app: found the password. Source: VS Code's keychain item tester@127.0.0.1 (app).");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Withdraw" })); });
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "forget-credential-approvals", { cwd: "/work/site" });

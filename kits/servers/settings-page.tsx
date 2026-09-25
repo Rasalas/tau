@@ -135,7 +135,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
     const check = (target: ServerTargetRow, kind: SecretKind) => run(context.host.invoke("check-credential", { cwd, targetId: target.id, kind }), (value) => {
       const result = value as CredentialCheck;
       const what = kind === "password" ? "password" : "passphrase";
-      onNotify(result.found ? `${target.label}: ${what} from ${result.source ?? "a store"}.` : `${target.label}: no ${what} stored. ${result.message ?? ""}`.trim());
+      onNotify(result.found ? `${target.label}: found the ${what}. Source: ${result.source ?? "a store"}.` : `${target.label}: no ${what} stored. ${result.message ?? ""}`.trim());
     });
     const forget = (target: ServerTargetRow) => run(context.host.invoke("forget-credential", { cwd, targetId: target.id }), () => onNotify(`Tau forgot what it kept for ${target.label}.`));
     const withdraw = () => run(context.host.invoke("forget-credential-approvals", { cwd }), () => onNotify("Tau will ask again before it runs a command or reads VS Code's items."));
