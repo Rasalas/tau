@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Server } from "lucide-react";
-import { Spinner, type DesktopExtensionContext, type RegionProps } from "tau";
-import { createCompactGlyph, createCompactPanel } from "./compact-panel.js";
+import { Spinner, type DesktopExtensionContext, type PanelProps, type RegionProps } from "tau";
+import { createCompactGlyph } from "./compact-glyph.js";
 import { DEPLOY_EVENT } from "./deploy-protocol.js";
 import { DRIFT_EVENT } from "./drift-protocol.js";
 import type { DriftFeed } from "./drift-view.js";
@@ -13,8 +13,14 @@ import {
 import { ServersStatusStore } from "./status-store.js";
 import { SERVER_TARGET_TAB, SERVERS_COMPACT_PANEL } from "./view-protocol.js";
 
-// Opened on demand; its code stays out of the kit's first evaluation.
+// Opened on demand; their code stays out of the kit's first evaluation.
 const ServerView = lazy(() => import("./server-view.js"));
+const CompactPanel = lazy(() => import("./compact-panel.js").then((module) => ({
+  default: function ServersSheetLoaded({ parts, ...props }: PanelProps & { parts: ServerViewParts }) {
+    const [Sheet] = useState(() => module.createCompactPanel(parts));
+    return <Sheet {...props} />;
+  },
+})));
 const TERMINAL_RUN_SERVICE = "tau.terminal/run";
 
 const isParams = (params: Record<string, unknown>): params is TargetTabParams => typeof params.workspace === "string" && typeof params.targetId === "string";
@@ -30,10 +36,17 @@ export function registerServerSurfaces(context: DesktopExtensionContext, drift: 
   let workspace: WorkspaceStoreSlice | undefined;
   const parts: ServerViewParts = { store, host: context.host, drift, terminal: () => terminal };
 
+  function CompactSheet(props: PanelProps) {
+    return (
+      <Suspense fallback={<div className="servers-compact" role="status"><Spinner size="sm" label="Loading the servers" /></div>}>
+        <CompactPanel parts={parts} {...props} />
+      </Suspense>
+    );
+  }
   let sheet: (() => void) | undefined;
   const showSheet = (shown: boolean) => {
     if (shown && !sheet) {
-      sheet = context.registerPanel({ id: SERVERS_COMPACT_PANEL, label: "Servers", Icon: createCompactGlyph(store), order: 30, profiles: ["compact"], Component: createCompactPanel(parts) });
+      sheet = context.registerPanel({ id: SERVERS_COMPACT_PANEL, label: "Servers", Icon: createCompactGlyph(store), order: 30, profiles: ["compact"], Component: CompactSheet });
     } else if (!shown && sheet) {
       sheet();
       sheet = undefined;

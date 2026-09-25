@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostExtensionClient, PanelProps, StageTabHandle, UiFileDiff, WorkbenchActions } from "tau";
+import type { DesktopExtensionContext, HostExtensionClient, PanelProps, RegionProps, StageTabHandle, UiFileDiff, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { HostClientProvider, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
@@ -10,7 +10,8 @@ import { DriftFeed } from "./drift-view.js";
 import ServerView, { type ServerViewParts } from "./server-view.js";
 import { createChangesSection, createRowMark, createTitleChip } from "./status-parts.js";
 import { ServersStatusStore } from "./status-store.js";
-import { SERVER_TARGET_TAB, SERVERS_STATUS_EVENT, type ServersStatus, type TargetStatus } from "./view-protocol.js";
+import { registerServerSurfaces } from "./surfaces.js";
+import { SERVER_TARGET_TAB, SERVERS_COMPACT_PANEL, SERVERS_STATUS_EVENT, type ServersStatus, type TargetStatus } from "./view-protocol.js";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -285,4 +286,31 @@ describe("the servers on a compact client", () => {
     await flush();
     expect((screen.getByRole("button", { name: "Roll back…" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("is offered for a project with servers and loads its code when it opens", async () => {
+    const h = harness(BASE);
+    const panels: Array<{ id: string; Component: React.ComponentType<PanelProps> }> = [];
+    const regions = new Map<string, React.ComponentType<RegionProps>>();
+    const context = {
+      host: h.host,
+      events: { on: () => () => undefined },
+      registerStageTab: () => () => undefined,
+      registerCommand: () => () => undefined,
+      useService: () => () => undefined,
+      registerRegion: (region: { id: string; Component: React.ComponentType<RegionProps> }) => { regions.set(region.id, region.Component); return () => undefined; },
+      registerPanel: (panel: { id: string; Component: React.ComponentType<PanelProps> }) => { panels.push(panel); return () => undefined; },
+    } as unknown as DesktopExtensionContext;
+    const stop = registerServerSurfaces(context, h.parts.drift);
+    const Offer = regions.get("servers.compact-sheet")!;
+    render(h.wrap(<Offer {...({ snapshot: { cwd: "/work/site" } } as unknown as RegionProps)} />));
+    await flush();
+    expect(panels.map((panel) => panel.id)).toEqual([SERVERS_COMPACT_PANEL]);
+    cleanup();
+    const Sheet = panels[0]!.Component;
+    const props = { active: true, placement: "stage", extensionName: "Servers", actions: h.actions } as PanelProps;
+    render(h.wrap(<WorkbenchShellContext.Provider value={{ snapshot: { cwd: "/work/site" }, registry: {} } as never}><Sheet {...props} /></WorkbenchShellContext.Provider>));
+    expect(await screen.findByRole("heading", { name: "site" })).toBeTruthy();
+    stop();
+  });
 });
+
