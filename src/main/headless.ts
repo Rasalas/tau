@@ -330,6 +330,8 @@ async function main(): Promise<void> {
 
   const shutdown = (): void => {
     void (async () => {
+      // A host on its way out starts no window on the display.
+      clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
       compactor.dispose();
       keepAwake.dispose();

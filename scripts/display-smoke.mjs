@@ -6,9 +6,10 @@
 // call; uninstalled, nothing is left running.
 // Linux with Xvfb only; elsewhere it says why and passes.
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,7 +18,6 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MAIN = join(ROOT, "dist-electron", "main");
 const HOST_ENTRY = join(MAIN, "headless.js");
 const PROTOCOL = 1;
-const WINDOW_START_MS = 90_000;
 let steps = 0;
 
 function step(name, detail = "") {
@@ -41,11 +41,16 @@ async function waitFor(predicate, message, timeoutMs = 30_000) {
   fail(`timed out waiting for ${message}`);
 }
 
+/** A zombie counts as gone: under an init that never reaps (a container's `sleep`), a stopped process stays one. */
 function alive(pid) {
   if (!pid) return false;
   try {
     process.kill(pid, 0);
-    return true;
+  } catch {
+    return false;
+  }
+  try {
+    return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.[0] !== "Z";
   } catch {
     return false;
   }
@@ -118,7 +123,8 @@ if (!existsSync(HOST_ENTRY)) {
   console.log("Building (npm run build)…");
   execFileSync(process.execPath, [join(ROOT, "scripts", "build.mjs")], { cwd: ROOT, stdio: "inherit" });
 }
-const electronPath = join(ROOT, "node_modules", "electron", "dist", readFileSync(join(ROOT, "node_modules", "electron", "path.txt"), "utf8").trim());
+// Resolving the package downloads its binary if npm did not.
+const electronPath = createRequire(import.meta.url)("electron");
 
 const { HostServiceManager } = await import(pathToFileURL(join(MAIN, "host-service.js")).href);
 const { readHostDescriptor } = await import(pathToFileURL(join(MAIN, "host-process-supervisor.js")).href);
@@ -185,24 +191,29 @@ try {
   if (!alive(unitPid(windowUnit))) fail("the preview opened without the window unit running");
   step("a preview call started the window unit", `${((Date.now() - started) / 1000).toFixed(1)} s, page ${opened?.url ?? "?"}`);
 
+  let lastError;
   const frame = async () => {
     let shot = null;
-    await waitFor(async () => { shot = await preview("mini-frame"); return shot?.data; }, "a frame of the page", 30_000);
+    await waitFor(async () => {
+      shot = await preview("mini-frame").catch((error) => { if (error.message !== lastError) console.log(`  (no frame yet: ${error.message})`); lastError = error.message; return null; });
+      return shot?.data;
+    }, "a frame of the page", 30_000);
     return shot;
   };
   const shot = await frame();
   const bytes = Buffer.from(shot.data, "base64");
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || shot.width <= 0 || shot.height <= 0) fail(`the frame is no picture: ${shot.width}×${shot.height}, ${bytes.length} bytes`);
+  if (process.env.TAU_SMOKE_FRAME) writeFileSync(process.env.TAU_SMOKE_FRAME, bytes);
   step("the window on the display drew the page", `${shot.width}×${shot.height} JPEG, ${bytes.length} bytes`);
 
   const firstWindow = unitPid(windowUnit);
   await manager.stopWindow();
   await waitFor(() => !alive(firstWindow), "the window to stop");
-  const reopened = await preview("open", { url: pageUrl });
+  // A frame, as a device watching the page asks: the preview rebuilds its view in the new window.
+  const again = await frame();
   const secondWindow = unitPid(windowUnit);
   if (!alive(secondWindow) || secondWindow === firstWindow) fail("the next call did not start the window again");
-  const again = await frame();
-  step("stopped, the window starts again on the next call", `pid ${firstWindow} → ${secondWindow}, ${again.width}×${again.height}, ${reopened?.url ?? "?"}`);
+  step("stopped, the window starts again on the next frame, with the page", `pid ${firstWindow} → ${secondWindow}, ${again.width}×${again.height}`);
 
   client.close();
   client = undefined;
@@ -216,6 +227,7 @@ try {
   passed = true;
 } catch (error) {
   console.error(`✗ ${error instanceof SmokeFailure ? error.message : error?.stack ?? error}`);
+  try { console.error(`--- fake service manager calls\n${readFileSync(join(units, ".fake-calls.log"), "utf8")}`); } catch { /* none */ }
   for (const log of ["display-window.log", "display-xvfb.log", "host-service.log"]) {
     try { console.error(`--- ${log}\n${readFileSync(join(userData, "logs", log), "utf8").split("\n").slice(-25).join("\n")}`); } catch { /* none */ }
   }
@@ -225,7 +237,10 @@ try {
   // Anything the fake started and nobody stopped, by pid.
   for (const entry of Object.values(fakeState())) if (entry?.pid && alive(entry.pid)) process.kill(entry.pid, "SIGTERM");
   const gone = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
-  await rm(userData, gone);
-  await rm(home, gone);
+  if (process.env.TAU_SMOKE_KEEP === "1") console.log(`kept ${userData} and ${home}`);
+  else {
+    await rm(userData, gone);
+    await rm(home, gone);
+  }
   process.exit(passed ? 0 : 1);
 }
