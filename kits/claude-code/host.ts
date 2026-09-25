@@ -270,6 +270,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
               projectName: thread.projectName,
               branch: thread.projectLabel,
               permissionLevel: thread.permissionLevel,
+              ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               mcpServer: (only) => services.mcp.connect({ sessionId: threadId, cwd }, only ? { tools: only } : undefined),
               ...(tools ? { tools } : {}),
               onMessage: thread.onMessage,

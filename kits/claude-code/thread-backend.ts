@@ -1,11 +1,13 @@
 import type { ModelInfo, PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
+  executionPolicyRefusal,
   clientMessageFingerprint,
   knownSkillNames,
   prepareSkillPrompt,
   validatePreparedPrompt,
   type BackendPrompt,
   type ExtensionUiAnswer,
+  type HostExecutionPolicy,
   type HostMcpConnection,
   type PreparedPrompt,
   type RuntimePermissionLevel,
@@ -45,7 +47,7 @@ import {
   resumeDialogResult,
 } from "./approvals.js";
 import { EFFORT_LEVELS, apiKeyBilling, probeBilling, uiModel, versionedModelName, type EffortLevel } from "./probe.js";
-import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeTurnHooks } from "./runtime-adapter.js";
+import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeNetworkLimit, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -101,6 +103,10 @@ export interface ClaudeThreadBackendOptions {
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
+  /** What the thread's project lets its commands reach (API 1.14.0); asked before every prompt. */
+  executionPolicy?(): Promise<HostExecutionPolicy>;
+  /** The platform the CLI runs on; this machine's by default. */
+  platform?: NodeJS.Platform;
   /** Tau's tools for this thread over MCP, asked each time a session starts; `tools` narrows them. */
   mcpServer?(tools?: readonly string[]): Promise<HostMcpConnection | undefined>;
   /** A thread being created keeps only these tools, as Pi names them. */
@@ -119,6 +125,8 @@ export interface ClaudeThreadBackendOptions {
 interface LiveSession {
   session: ClaudeSdkSession;
   mode: PermissionMode;
+  /** The network limit the session was started with; `""` for none. */
+  network: string;
   /** The session resumed an earlier one rather than creating it. */
   resumed: boolean;
   /** The first result of this session flips the store to "started". */
@@ -364,6 +372,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
     const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
     assertClaudePermissionPolicySupported({ permissionMode: mode }, { canAsk: this.options.ask !== undefined });
+    const network = await this.networkLimit();
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     this.assertPreparedPrompt(input.text, prepared, await this.skills());
     const clientMessageId = input.identity?.clientMessageId;
@@ -397,7 +406,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (input.delivery === "steer" && this.turns.length > 0) {
       // A steer joins the running turn and returns once it is on its way; the
       // turn's own result clears it from the queue the composer shows.
-      const live = await this.ensureSession(permissionLevel, mode, false);
+      const live = await this.ensureSession(permissionLevel, mode, false, network);
       this.deliverMessage(user);
       input.onAdmitted?.(true);
       this.steering.push(prepared.visibleText);
@@ -410,7 +419,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     let echoed = false;
     for (let attempt = 0; ; attempt += 1) {
-      const live = await this.ensureSession(permissionLevel, mode, attempt > 0);
+      const live = await this.ensureSession(permissionLevel, mode, attempt > 0, network);
       const running = this.turns.length > 0;
       const turn: Turn = { translator: new SdkTurnTranslator(this.now), text: prepared.visibleText };
       this.turns.push(turn);
@@ -454,8 +463,25 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
   }
 
+  /**
+   * The project's network limit, for the session's sandbox. Claude's sandbox
+   * does not hold on Windows here, so a limited prompt is refused there.
+   */
+  private async networkLimit(): Promise<ClaudeNetworkLimit | undefined> {
+    const policy = await this.options.executionPolicy?.();
+    if (policy?.network !== "loopback") return undefined;
+    if ((this.options.platform ?? process.platform) === "win32") throw new Error(executionPolicyRefusal(policy, "The Agent SDK runtime on Windows"));
+    return { allowHosts: policy.allowHosts };
+  }
+
   /** The thread's live session, opened on the first turn and after a close; `create` forces a fresh session under the stored id. */
-  private async ensureSession(permissionLevel: RuntimePermissionLevel, mode: PermissionMode, create: boolean): Promise<LiveSession> {
+  private async ensureSession(permissionLevel: RuntimePermissionLevel, mode: PermissionMode, create: boolean, network?: ClaudeNetworkLimit): Promise<LiveSession> {
+    const limit = network ? JSON.stringify(network.allowHosts) : "";
+    // The sandbox is fixed when the CLI starts: a changed limit resumes the session in a new one, between turns.
+    if (this.live && !this.live.session.closed && this.live.network !== limit && this.turns.length === 0) {
+      await this.live.session.close();
+      this.live = undefined;
+    }
     if (this.live && !this.live.session.closed) {
       if (this.live.mode !== mode) {
         await this.live.session.setPermissionMode(mode);
@@ -472,7 +498,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.record = await this.store.get(this.threadId);
     // Without the endpoint the thread still runs, only without Tau's tools.
     const mcpServer = await this.options.mcpServer?.(this.tools).catch(() => undefined);
-    const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, resumed, confirmed: false, stderr: "" };
+    const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, network: limit, resumed, confirmed: false, stderr: "" };
     live.session = this.runtimeAdapter.openSession({
       cwd: this.cwd,
       claudeSessionId: record.claudeSessionId,
@@ -483,6 +509,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(this.turnHooks() ? { hooks: this.turnHooks() } : {}),
       ...(mcpServer ? { mcpServer } : {}),
       ...(this.tools ? { tools: this.tools } : {}),
+      ...(network ? { network } : {}),
       onMessage: (frame) => this.onFrame(frame),
       onExit: (error) => this.onExit(live, error),
       onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
