@@ -1,0 +1,18 @@
+{
+  "id": "tau.servers",
+  "name": "Servers",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.13.0"
+  },
+  "permissions": [
+    "process",
+    "network",
+    "sessions",
+    "runtime:extend",
+    "workspace:read"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}
