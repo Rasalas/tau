@@ -16,6 +16,7 @@
     "*/window.cjs",
     "*/window.cjs.map",
     "*/desktop.js",
+    "*/desktop.js.map",
     "*/styles.css",
     "*/pi.cjs",
     "*/pi.cjs.map"

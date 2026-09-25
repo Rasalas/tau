@@ -331,7 +331,8 @@ export async function loadBundledKitDesktopHalves(
 }
 
 async function desktopHalf(kit: BundledKit, entry: string, options: BundleOptions): Promise<string> {
-  if (kit.prebuilt) return readFile(entry, "utf8");
+  // The page imports a copy from `tau-ext:`, so the link has to name the shipped map.
+  if (kit.prebuilt) return absoluteSourceMapLink(await readFile(entry, "utf8"), entry);
   const info = await stat(entry);
   const key = `${info.mtimeMs}:${info.size}:${JSON.stringify(options.sharedExports)}`;
   const cached = desktopCache.get(entry);

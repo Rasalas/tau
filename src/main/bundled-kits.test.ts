@@ -1,8 +1,9 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { NO_BUNDLED_KITS, inspectBundledKits, readKitDistribution } from "./bundled-kits.js";
+import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, readKitDistribution } from "./bundled-kits.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -43,6 +44,14 @@ describe("the bundled distribution", () => {
     await writeFile(join(root, "kits", "package.json"), JSON.stringify({ name: "@tau/kits", version: "9.9.9" }), "utf8");
     expect(await readKitDistribution({ directory: join(root, "kits"), prebuilt: false }))
       .toEqual({ name: "@tau/kits", version: "9.9.9" });
+  });
+
+  it("sends a prebuilt desktop half with a link to its map, not the map itself", async () => {
+    const root = await appPath();
+    const entry = join(root, "dist-kits", kit.id, "desktop.js");
+    await writeFile(entry, "export default {};\n//# sourceMappingURL=desktop.js.map\n", "utf8");
+    const { bundles } = await loadBundledKitDesktopHalves({ appPath: root, sharedExports: {} });
+    expect(bundles[0].code).toBe(`export default {};\n//# sourceMappingURL=${pathToFileURL(`${entry}.map`).href}\n`);
   });
 
   it("says nothing about a distribution in safe mode", () => {

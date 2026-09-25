@@ -100,7 +100,8 @@ async function buildKits() {
     await writeFile(join(OUTPUT, relative), contents, "utf8");
   };
   // A half that runs in Node keeps its map in a file of its own; see linkSourceMap.
-  const writeNodeBundle = async (relative, code) => {
+  // So does a desktop half: its map was two thirds of the bytes every window start moved.
+  const writeLinkedBundle = async (relative, code) => {
     const linked = linkSourceMap(code, `${basename(relative)}.map`);
     if (linked.map !== undefined) await write(`${relative}.map`, linked.map);
     await write(relative, linked.code);
@@ -111,17 +112,17 @@ async function buildKits() {
     await mkdir(join(OUTPUT, manifest.id), { recursive: true });
     const shippedManifest = { ...manifest };
     if (hostEntry) {
-      await writeNodeBundle(`${manifest.id}/host.cjs`, await bundleHostExtension(hostEntry));
+      await writeLinkedBundle(`${manifest.id}/host.cjs`, await bundleHostExtension(hostEntry));
       shippedManifest.host = "./host.cjs";
     }
     // The window half runs in the process the user's window lives in, so it
     // compiles like a host half: CommonJS, Electron external.
     if (windowEntry) {
-      await writeNodeBundle(`${manifest.id}/window.cjs`, await bundleHostExtension(windowEntry));
+      await writeLinkedBundle(`${manifest.id}/window.cjs`, await bundleHostExtension(windowEntry));
       shippedManifest.window = "./window.cjs";
     }
     if (desktopEntry) {
-      await write(`${manifest.id}/desktop.js`, await bundleDesktopExtension(desktopEntry, { sharedExports }));
+      await writeLinkedBundle(`${manifest.id}/desktop.js`, await bundleDesktopExtension(desktopEntry, { sharedExports }));
       shippedManifest.desktop = "./desktop.js";
     }
     if (stylesEntry) {
@@ -132,7 +133,7 @@ async function buildKits() {
     // The Pi half is required by Tau's bridge from inside an attached Pi
     // process, which has no toolchain and cannot resolve `tau/*`.
     if (piEntry) {
-      await writeNodeBundle(`${manifest.id}/pi.cjs`, await bundlePiExtension(piEntry));
+      await writeLinkedBundle(`${manifest.id}/pi.cjs`, await bundlePiExtension(piEntry));
       shippedManifest.pi = "./pi.cjs";
     }
     await write(`${manifest.id}/${MANIFEST_FILE}`, `${JSON.stringify(shippedManifest, null, 2)}\n`);
