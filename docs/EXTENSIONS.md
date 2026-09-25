@@ -2157,6 +2157,28 @@ core's own sections; `page` is `"connections"` so far. The component gets
 section changed something it shows (a new endpoint in the address list). It is
 profile-scoped like a panel.
 
+### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
+
+A host keeps a key of its own for each machine its owner let this machine's
+agents work on ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)).
+`services.machines` is how a host half acts there. It needs the `machines`
+permission and is absent on a host in the window's process and in a worker.
+
+| Member | What it does |
+|---|---|
+| `list()` | `HostMachine[]`: `id` (that machine's host id), `name`, `status` (`connecting`, `connected`, `offline`, `refused`), `detail`, `roundTripMs`, `lastSeenAt`, `address`, `hostVersion`, and `readOnly` when its owner let the agents in Read only. Never a token. |
+| `subscribe(listener)` | Calls `listener` with the whole list when a machine is added, removed or changes status. Returns the way to stop. |
+| `call(machine, extensionId, command, input?, { timeoutMs? })` | Runs a kit command on that machine, as `host-extension` from the agents' own device. The other host checks it like any call of a paired device: its preset, `access: "read"`, and an entry in its Connections audit. |
+| `request(machine, method, params?, { timeoutMs? })` | Calls one of the core methods in `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`): `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`, `follow-up`. Any other name is refused with `forbidden` before it leaves. |
+| `watch(machine, topic, listener, { extension? })` | Events that kit emits there with `emit(name, payload, { topic })` (see [topics](#what-reaches-which-client-emit--topic--and-watch-new-in-api-1130)), as `{ name, payload }`, until the returned function runs. The kit is your own counterpart on that machine unless `extension` names another. The topic survives reconnects; nothing arrives while the machine is offline. |
+
+`machine` is a host id, or a name when exactly one machine has it. A call to
+an unknown, offline or refusing machine rejects with a sentence that says
+which. `refused` is final until the owner here turns the agents on again:
+the other owner revoked their device, or its access expired. Machines Kit
+(`kits/environments/host.ts`) is the shipped caller: it lists the machines for
+Settings → Machines and answers `whoami` for another machine's agents.
+
 ### Reaching the user outside the window: `context.attention`
 
 `context.attention` on the desktop half is the client's `Platform.attention`
@@ -2208,12 +2230,13 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `pair({ text, deviceName? })` or `pair({ nearby })` | Adds a machine from a pairing link, its QR code's text, or an address; or (new in API 1.13.0) one the last `discover()` found, by its host id: it asks without a link, pinned to the fingerprint the record carried. Resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
 | `discover()` | New in API 1.13.0. `UiDiscoveredHosts`: the machines that announce themselves on this network, looked for a few seconds by the window's own host, whichever machine the page shows. A saved machine found with its pinned fingerprint takes the addresses it has now. Look only when the user asks: looking makes macOS ask about local network access. `NearbyMachineList` draws the result with an action slot per host. |
 | `shownElsewhere`, `showLocal()` | New in API 1.13.0. The id of the machine the page shows when it is not the window's own (from the page's address, so known before the list loads), and the way back. Core offers "Back to this computer" in the palette whenever `shownElsewhere` is set, whatever kits that machine serves. |
+| `pair({ …, agents })`, `setAgents?(id, on)` | New in API 1.15.0 ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)). A pairing asks for this machine's agents as a second device under the same approval unless `agents` is `false`, and the result's `agents` says whether their key reached this machine's host (`{ added: false, message }` when the other Tau issues none). `setAgents` turns the agents on for a saved machine (a pairing for them alone, with the digits as `pairing`) or off; it answers `{ state: "on" \| "off" \| "denied" \| "expired" \| "cancelled" }` or `{ state: "failed", message }`. |
 | `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
 
 The window's process answers all of it through client-side methods
 (`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
-`-open`, `-take-arrival`, `-discover`, `-set-preferences`) and the `environments` window event; a host refuses the
+`-open`, `-take-arrival`, `-discover`, `-set-preferences`, `-set-agents`) and the `environments` window event; a host refuses the
 methods with `unsupported`. Every kit a page loads comes from the machine it shows,
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
@@ -2256,6 +2279,7 @@ A package's `permissions` array draws from a fixed list
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
+| `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
