@@ -78,12 +78,14 @@ const secretOf = (stdout: string, firstLine = false) => (firstLine ? stdout.spli
 
 export class CredentialError extends HostCommandError {}
 
-type SourceKind = "session" | "command" | "provider" | "own" | "foreign" | "sibling" | "file" | "typed" | "hop";
+type SourceKind = "command" | "provider" | "own" | "foreign" | "sibling" | "file" | "typed" | "hop";
 
 interface Answer {
   value: string;
   source: SourceKind;
   item?: SecretItem;
+  /** Served from this session's memory; `source` still says where it first came from. */
+  cached?: boolean;
 }
 
 interface Plan {
@@ -147,7 +149,7 @@ export interface ServerCredentialsOptions {
  * the servers accepted and foreign items they turned down.
  */
 export class ServerCredentials {
-  private readonly session = new Map<string, string>();
+  private readonly session = new Map<string, Answer>();
   private readonly turnedDown = new Set<string>();
   private readonly asking = new Map<string, Promise<boolean>>();
   private readonly env: NodeJS.ProcessEnv;
@@ -225,7 +227,7 @@ export class ServerCredentials {
     // Once the server turned an answer down, only the user can say better.
     if (!how.retry) {
       const cached = this.session.get(this.cacheKey(project, target, kind));
-      if (cached !== undefined) return { value: cached, source: "session" };
+      if (cached) return { ...cached, cached: true };
       const found = await this.stored(project, target, kind, spec, plan, how.signal);
       if (found) return found;
     }
@@ -337,9 +339,11 @@ export class ServerCredentials {
   }
 
   private async keep(project: CredentialProject, target: CredentialTarget, kind: SecretKind, answer: Answer): Promise<void> {
-    if (answer.source === "hop") return;
-    this.session.set(this.cacheKey(project, target, kind), answer.value);
-    if (answer.source !== "typed" && answer.source !== "sibling") return;
+    if (answer.source === "hop" || answer.cached) return;
+    // Once kept, a typed secret is Tau's own: refused later, it is Tau's to forget.
+    const kept = answer.source === "typed" || answer.source === "sibling" ? "own" : answer.source;
+    this.session.set(this.cacheKey(project, target, kind), { value: answer.value, source: kept, ...(answer.item && kept !== "own" ? { item: answer.item } : {}) });
+    if (kept !== "own" || answer.source === "own") return;
     const spec = this.spec(target, kind);
     const plan = this.plan(spec, kind, target);
     if (plan.off) return;
@@ -557,8 +561,8 @@ export class ServerCredentials {
   }
 
   private sourceWords(answer: Answer, kind: SecretKind): string {
+    if (answer.cached) return "Held in memory since the last connection";
     switch (answer.source) {
-      case "session": return "Held in memory since the last connection";
       case "command": return `The ${kind} command in sftp.json`;
       case "provider": return "The password manager sftp.json names";
       case "own": return `Tau's own item (${OWN_SERVICE[kind]})`;
@@ -616,4 +620,58 @@ export function registerCredentialCommands(context: HostExtensionContext, creden
     await credentials.forgetApprovals(project);
     return { ok: true };
   }, { audit: { label: "withdrew the server password approvals" } });
+}
+
+/** What an askpass bridge hands a credential source (I05's `AskpassRequest`, structurally). */
+export interface AskpassSecretRequest {
+  kind: string;
+  prompt?: string;
+  target: { id: string; workspace?: string };
+  /** Per ssh call and kind; 2 and up means the answer before was refused. */
+  attempt: number;
+  signal: AbortSignal;
+}
+
+/** The fork's test for "the server turned us away", as opposed to not answering. */
+export function isAuthFailure(message: string): boolean {
+  return /permission denied|authentication fail|all configured authentication methods failed|login (?:incorrect|failed)|not logged in|\b530\b/iu.test(message);
+}
+
+/**
+ * Plugs the chain into an askpass bridge: a password or passphrase question
+ * for an sftp.json target is answered here (dialogs included), anything else
+ * passes on. `settled` tells it how the login ended.
+ */
+export class CredentialAskpassSource {
+  private readonly open = new Map<string, CredentialAttempt>();
+
+  constructor(private readonly credentials: ServerCredentials, private readonly lookup: TargetLookup) {}
+
+  async answer(request: AskpassSecretRequest): Promise<string | null | undefined> {
+    if (request.kind !== "password" && request.kind !== "passphrase") return undefined;
+    const workspace = request.target.workspace;
+    if (!workspace) return undefined;
+    let found: { project: CredentialProject; target: CredentialTarget };
+    try { found = await this.lookup(workspace, request.target.id); } catch { return undefined; }
+    const key = `${workspace}\0${request.target.id}`;
+    let attempt = this.open.get(key);
+    if (!attempt || request.attempt <= 1) {
+      attempt = this.credentials.attempt(found.project, found.target);
+      this.open.set(key, attempt);
+    }
+    // `user@host's password:` names a jump host when it is not the target's.
+    const host = /@([^@']+)'s password/u.exec(request.prompt ?? "")?.[1];
+    const value = await attempt.secret(request.kind, { signal: request.signal, ...(host ? { host } : {}) });
+    return value ?? null;
+  }
+
+  /** After a login: keep what worked, or forget what the server refused (not a network failure). */
+  async settled(target: { id: string; workspace?: string }, outcome: { ok: true } | { ok: false; message: string }): Promise<void> {
+    const key = `${target.workspace ?? ""}\0${target.id}`;
+    const attempt = this.open.get(key);
+    if (!attempt) return;
+    this.open.delete(key);
+    if (outcome.ok) await attempt.accepted();
+    else if (isAuthFailure(outcome.message)) await attempt.rejected();
+  }
 }

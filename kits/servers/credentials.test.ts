@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FOREIGN_SERVICE, OWN_SERVICE, ServerCredentials, itemLabel, loginAccount, providerCall, secretAccount, type CredentialProject } from "./credentials.js";
+import { CredentialAskpassSource, FOREIGN_SERVICE, OWN_SERVICE, ServerCredentials, isAuthFailure, itemLabel, loginAccount, providerCall, secretAccount, type CredentialProject } from "./credentials.js";
 import { SecurityKeychain, SecretToolStore, runProcess, type ProcessRunner } from "./keychain.js";
 import type { ServerPrompts } from "./prompts.js";
 import type { ServerPromptAnswer, ServerPromptRequest } from "./protocol.js";
@@ -324,5 +324,40 @@ describe("forgetting", () => {
     expect((await store.status(project(), site)).password.foreignItem).toEqual({ label: "tester@127.0.0.1 (site)", allowed: true });
     await store.forgetApprovals(project());
     expect((await store.status(project(), site)).password.foreignItem).toEqual({ label: "tester@127.0.0.1 (site)", allowed: false });
+  });
+});
+
+describe("the askpass source", () => {
+  it("answers ssh's password question, keeps it once the login worked and passes other questions on", async () => {
+    const site = await target({ passwordManager: "vscode" });
+    const store = credentials();
+    const source = new CredentialAskpassSource(store, async (cwd) => {
+      if (cwd !== root) throw new Error("unknown");
+      return { project: project(), target: site };
+    });
+    const signal = new AbortController().signal;
+    const ask = (attempt: number, kind = "password") => source.answer({ kind, prompt: "tester@127.0.0.1's password: ", target: { id: site.id, workspace: root }, attempt, signal });
+    expect(await ask(1, "host-key")).toBeUndefined();
+    expect(await source.answer({ kind: "password", target: { id: site.id }, attempt: 1, signal })).toBeUndefined();
+    script = [type("wrong")];
+    expect(await ask(1)).toBe("wrong");
+    script = [type(PASSWORD)];
+    expect(await ask(2)).toBe(PASSWORD);
+    expect(asked[1]!.message).toMatch(/did not accept/u);
+    await source.settled({ id: site.id, workspace: root }, { ok: true });
+    expect(await keychain().get({ service: OWN_SERVICE.password, account: "sftp://tester@127.0.0.1:2222/site" })).toBe(PASSWORD);
+    // The next login: no question at all.
+    expect(await ask(1)).toBe(PASSWORD);
+    // Refused from memory: the item it came from goes too, and the next login asks.
+    await source.settled({ id: site.id, workspace: root }, { ok: false, message: "tester@127.0.0.1: Permission denied (password)." });
+    expect(await keychain().has({ service: OWN_SERVICE.password, account: "sftp://tester@127.0.0.1:2222/site" })).toBe(false);
+    script = [decline];
+    expect(await ask(1)).toBeNull();
+    expect(asked).toHaveLength(3);
+  });
+
+  it("tells a refused login from a network failure", () => {
+    expect(isAuthFailure("tester@127.0.0.1: Permission denied (publickey,password).")).toBe(true);
+    expect(isAuthFailure("ssh: connect to host 127.0.0.1 port 2222: Connection refused")).toBe(false);
   });
 });
