@@ -828,7 +828,12 @@ of the connection move the view's `revision`; the page hears the view as the
 When a watch begins, and when the connection comes back while one lasts, the
 window calls `sync-extension-ui` there, so a dialog asked before is heard again.
 `environments-transcript-page [machine, sessionId, cursor?]` is `transcript-page`
-sent on that connection, with the window's key there. `environments-open [id,
+sent on that connection, with the window's key there.
+`environments-extension-read [machine, extensionId, command, input?]` (`read`)
+is `host-extension` sent on that connection, for a command that machine's
+`host-extensions` lists in `readCommands` only; the window refuses any other,
+since its key there could change things. A look-in tab reads another machine's
+Preview this way. `environments-open [id,
 { threadId }]` opens a thread by its id, found in that machine's index.
 
 ### A host that reaches other machines for its agents
