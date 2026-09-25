@@ -94,3 +94,67 @@ export function decodeServerTargetsState(value: unknown): ServerTargetsState | u
   if (typeof state.workspace !== "string" || !Array.isArray(state.targets) || !Array.isArray(state.issues)) return undefined;
   return state as ServerTargetsState;
 }
+
+/** Open questions of the host half (`{ prompts: ServerPrompt[] }`); the `prompts` command answers the same. */
+export const SERVERS_PROMPTS_EVENT = "prompts";
+
+/** A Tau dialog the host half asks. `secret` has a hidden field; `detail` is shown verbatim (a command). */
+export interface ServerPromptRequest {
+  kind: "confirm" | "secret";
+  title: string;
+  message: string;
+  detail?: string;
+  /** The hidden field's label, for `secret`. */
+  field?: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  /** A second way forward, such as "Try other items on this login". */
+  alternativeLabel?: string;
+}
+
+export interface ServerPrompt extends ServerPromptRequest {
+  id: string;
+}
+
+export type ServerPromptAnswer =
+  | { action: "confirm"; value?: string }
+  | { action: "alternative" }
+  | { action: "cancel" };
+
+export function decodeServerPrompts(value: unknown): ServerPrompt[] {
+  const prompts = (value as { prompts?: unknown } | undefined)?.prompts;
+  if (!Array.isArray(prompts)) return [];
+  return prompts.filter((prompt): prompt is ServerPrompt => Boolean(prompt) && typeof (prompt as ServerPrompt).id === "string"
+    && typeof (prompt as ServerPrompt).title === "string" && ((prompt as ServerPrompt).kind === "confirm" || (prompt as ServerPrompt).kind === "secret"));
+}
+
+export type SecretKind = "password" | "passphrase";
+
+/** Where one secret of a target comes from and what Tau holds of it; never the value. */
+export interface CredentialSecretStatus {
+  /** Where Tau looks, in words. */
+  source: string;
+  /** Tau's own item exists (true), is absent (false) or the store cannot say without reading it (undefined). */
+  saved?: boolean;
+  /** Held in memory for this session. */
+  session: boolean;
+  /** A command from sftp.json (or a password manager's CLI) is involved: whether this project allowed it. */
+  command?: "allowed" | "needs-approval";
+  /** VS Code's item in the keychain: whether the user allowed Tau to read it. */
+  foreignItem?: { label: string; allowed: boolean };
+  /** Why Tau cannot use the store this target names here. */
+  unavailable?: string;
+}
+
+export interface CredentialStatus {
+  targetId: string;
+  password: CredentialSecretStatus;
+  passphrase?: CredentialSecretStatus;
+}
+
+export interface CredentialCheck {
+  found: boolean;
+  /** Where the secret came from, in words. */
+  source?: string;
+  message?: string;
+}
