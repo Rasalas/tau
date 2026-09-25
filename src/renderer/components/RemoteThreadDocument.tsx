@@ -1,8 +1,12 @@
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bot, MessageCircleQuestionMark, Server } from "lucide-react";
 import type { UiEnvironmentThreadView } from "../../shared/environments";
 import { formatCost } from "../cost-format";
 import { errorMessage } from "../../workbench/error-message";
+import { answerTimestampAfter } from "../../workbench/transcript-folding";
+import type { ExtensionRegistry } from "../extension-system";
+import type { TranscriptActivity } from "./transcript-activity";
+import { WorkGroup } from "./WorkRows";
 import { usePlatform } from "../platform-context";
 import { usePreferences } from "../renderer-services-context";
 import { useEnvironmentThread, useEnvironmentTranscript } from "../use-environment-thread";
@@ -41,7 +45,12 @@ function statusNote(view: UiEnvironmentThreadView | undefined, canWatch: boolean
  * window receives the thread's stream only while the tab is open. Answering
  * or taking it over happens there: "Open on <machine>" moves the window.
  */
-export function RemoteThreadDocument({ machine, sessionId }: { machine: string; sessionId: string }) {
+export function RemoteThreadDocument({ machine, sessionId, registry }: {
+  machine: string;
+  sessionId: string;
+  /** Draws the tool runs with this page's tool cards; without it the tab shows messages only. */
+  registry?: ExtensionRegistry;
+}) {
   const environments = usePlatform().environments;
   const view = useEnvironmentThread(environments, machine, sessionId);
   const transcript = useEnvironmentTranscript(environments, view);
@@ -52,6 +61,28 @@ export function RemoteThreadDocument({ machine, sessionId }: { machine: string; 
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const detail = preferences.transcriptDetailFor(sessionId);
+
+  const activities = useMemo<readonly TranscriptActivity[]>(() => !registry ? [] : transcript.activity
+    .filter((entry) => entry.tools.length > 0)
+    .map((entry) => {
+      const answerAt = answerTimestampAfter(transcript.messages, entry.anchorMessageId);
+      return {
+        id: entry.id,
+        afterMessageId: entry.anchorMessageId,
+        fallbackToTail: entry.status === "running",
+        content: <WorkGroup
+          id={entry.id}
+          tools={entry.tools}
+          registry={registry}
+          detail={detail}
+          status={entry.status}
+          // The run there, not this page's: a tool that waits on a dialog is not stalled.
+          streaming={entry.status === "running" ? true : undefined}
+          waiting={Boolean(view?.asking)}
+          {...(answerAt === undefined ? {} : { answerAt })}
+        />,
+      };
+    }), [detail, registry, transcript.activity, transcript.messages, view?.asking]);
 
   const canWatch = Boolean(environments?.watchThread && environments.transcriptPage);
   const name = view?.machineName ?? machine;
@@ -118,6 +149,7 @@ export function RemoteThreadDocument({ machine, sessionId }: { machine: string; 
                   messages={transcript.messages}
                   scrollRef={scrollRef}
                   isStreaming={running}
+                  activities={activities}
                   sessionKey={`${machine}:${sessionId}`}
                   detail={detail}
                 />

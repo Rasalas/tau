@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { UiMessage } from "../shared/contracts";
+import type { UiMessage, UiTurnActivityEntry } from "../shared/contracts";
 import type { UiEnvironmentThreadView } from "../shared/environments";
 import type { PlatformEnvironments } from "../workbench/environments";
 import { errorMessage } from "../workbench/error-message";
@@ -16,6 +16,8 @@ export function useEnvironmentThread(environments: PlatformEnvironments | undefi
 
 export interface EnvironmentTranscript {
   messages: UiMessage[];
+  /** Each turn's tool runs, the running turn's too: what the stream has shown there so far. */
+  activity: readonly UiTurnActivityEntry[];
   loaded: boolean;
   error?: string;
 }
@@ -29,7 +31,7 @@ export function useEnvironmentTranscript(
   environments: PlatformEnvironments | undefined,
   view: UiEnvironmentThreadView | undefined,
 ): EnvironmentTranscript {
-  const [state, setState] = useState<EnvironmentTranscript>({ messages: [], loaded: false });
+  const [state, setState] = useState<EnvironmentTranscript>({ messages: [], activity: [], loaded: false });
   const reading = useRef<{ key: string; busy: boolean; again: boolean }>({ key: "", busy: false, again: false });
   const machine = view?.machine;
   const sessionId = view?.sessionId;
@@ -40,7 +42,7 @@ export function useEnvironmentTranscript(
     const key = `${machine ?? ""}\n${sessionId ?? ""}`;
     if (reading.current.key !== key) {
       reading.current = { key, busy: false, again: false };
-      setState({ messages: [], loaded: false });
+      setState({ messages: [], activity: [], loaded: false });
     }
   }, [machine, sessionId]);
 
@@ -53,7 +55,7 @@ export function useEnvironmentTranscript(
       current.busy = true;
       current.again = false;
       load(machine, sessionId).then(
-        (page) => { if (reading.current === current) setState({ messages: [...page.messages], loaded: true }); },
+        (page) => { if (reading.current === current) setState({ messages: [...page.messages], activity: page.turnActivityHistory ?? [], loaded: true }); },
         (error: unknown) => { if (reading.current === current) setState((previous) => ({ ...previous, loaded: true, error: errorMessage(error) })); },
       ).finally(() => {
         current.busy = false;

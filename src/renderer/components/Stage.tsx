@@ -121,7 +121,7 @@ export function Stage({
         actions={actions}
       />
     ) : current.kind === "thread" && lookIn ? (
-      <RemoteThreadDocument key={current.id} machine={lookIn} sessionId={current.sessionId} />
+      <RemoteThreadDocument key={current.id} machine={lookIn} sessionId={current.sessionId} {...(registry ? { registry } : {})} />
     ) : current.kind === "thread" ? (
       <ThreadDocument
         key={current.id}

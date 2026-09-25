@@ -471,7 +471,7 @@ export class WindowEnvironments {
       this.lookIns.unwatch(id, sessionId);
       return undefined;
     }
-    if (this.watched.has(id)) this.lookIns.watch(id, sessionId);
+    if (this.watched.has(id) && this.lookIns.watch(id, sessionId)) this.askOpenDialogs(id);
     return this.threadView(id, sessionId);
   }
 
@@ -484,6 +484,13 @@ export class WindowEnvironments {
       throw new Error(watched.state.status === "refused" ? `${this.machineName(id)} refuses this window: ${watched.state.detail ?? ""}`.trim() : `${this.machineName(id)} is not reachable right now.`);
     }
     return watched.monitor.call<TranscriptPage>("transcript-page", cursor ? [sessionId, cursor] : [sessionId]);
+  }
+
+  /** A dialog asked before the watch began is heard again: the machine replays its open ones. */
+  private askOpenDialogs(id: string): void {
+    const watched = this.watched.get(id);
+    if (watched?.state.status !== "connected") return;
+    watched.monitor.call("sync-extension-ui").catch((error: unknown) => this.options.logger.warn("environment.look-in.replay-failed", { id, error: error instanceof Error ? error.message : String(error) }));
   }
 
   /** A machine by its host id, or by its name when no other machine has it. */
@@ -604,8 +611,10 @@ export class WindowEnvironments {
       onPush: (event) => { if (this.watched.get(id) === entry) this.lookIns.onPush(id, event); },
       onChange: (state) => {
         if (this.watched.get(id) !== entry) return;
+        const reached = state.status === "connected" && entry.state.status !== "connected";
         entry.state = state;
         this.lookIns.onStatus(id, state.status);
+        if (reached && this.lookIns.threads(id).length > 0) this.askOpenDialogs(id);
         if (state.status === "connected") for (const waiter of [...this.connectedWaiters.get(id) ?? []]) waiter();
         if (state.index) {
           entry.kept = {

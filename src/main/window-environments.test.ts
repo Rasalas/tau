@@ -420,7 +420,8 @@ describe("looking in on another machine's thread", () => {
     expect(monitor.resubscribed).toBe(1);
     const page = await environments.transcriptPage("host-studio", "t9");
     expect(page.messages).toHaveLength(1);
-    expect(monitor.calls).toEqual([{ method: "transcript-page", params: ["t9"] }]);
+    // A dialog asked before the watch began is replayed there, once.
+    expect(monitor.calls).toEqual([{ method: "sync-extension-ui", params: [] }, { method: "transcript-page", params: ["t9"] }]);
     environments.watchThread("host-studio", "t9", false);
     expect(monitor.options.threads!()).toEqual([]);
     expect(monitor.resubscribed).toBe(2);
