@@ -96,12 +96,9 @@ function projectPath(value: unknown): string {
   return raw;
 }
 
-/**
- * The line server_exec sends. Grouped, so a `;` in it cannot run past a failed
- * `cd` the transport puts in front; the lock setting keeps `git status` from writing index.lock.
- */
+/** The line server_exec sends; the lock setting keeps `git status` from writing index.lock. */
 export function serverExecCommand(command: string): string {
-  return `export GIT_OPTIONAL_LOCKS=0 && {\n${command}\n}`;
+  return `export GIT_OPTIONAL_LOCKS=0\n${command}`;
 }
 
 const noCommands = (label: string) => `${label} is an FTP server: it runs no commands, so server_exec cannot work there. Read it with server_read, server_list and server_diff, and test locally.`;

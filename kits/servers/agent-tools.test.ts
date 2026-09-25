@@ -23,6 +23,7 @@ import type { SftpJsonTarget } from "./sftp-json";
 import { ServerStatusService } from "./status";
 import { ServersStore } from "./store";
 import { gitCall } from "./sync/git";
+import { commandIn } from "./transport-ssh";
 import { SyncService } from "./sync/service";
 
 const posix = process.platform !== "win32";
@@ -224,7 +225,7 @@ describe.skipIf(!posix)("the agent's server tools", () => {
     const listing = await run(hooks, SERVER_TOOLS.exec, { command: "ls" });
     expect(listing).toMatch(/^\[site · sftp:\/\/tester@127\.0\.0\.1:2222\/srv\/site\] \/srv\/site\n\$ ls\nexit 0\n/u);
     expect(listing).toContain("index.php");
-    expect(w.fs.calls).toContain("exec export GIT_OPTIONAL_LOCKS=0 && {\nls\n}");
+    expect(w.fs.calls).toContain("exec export GIT_OPTIONAL_LOCKS=0\nls");
 
     // The thread's own level narrows a target at full.
     w.levels.thread = "ask";
@@ -328,10 +329,10 @@ describe.skipIf(!posix)("the agent's server tools", () => {
 
   it("runs a command only once its folder is entered", () => {
     const marker = join(w.dir, "ran.txt");
-    const line = `cd ${join(w.dir, "missing")} && ${serverExecCommand(`true; touch ${marker}\n# a comment`)}`;
+    const line = commandIn(join(w.dir, "missing"), serverExecCommand(`true; touch ${marker}\n# a comment`));
     expect(() => execFileSync("/bin/sh", ["-c", line], { stdio: "ignore" })).toThrow();
     expect(existsSync(marker)).toBe(false);
-    execFileSync("/bin/sh", ["-c", `cd ${w.dir} && ${serverExecCommand(`true; touch ${marker}`)}`]);
+    execFileSync("/bin/sh", ["-c", commandIn(w.dir, serverExecCommand(`true; touch ${marker}`))]);
     expect(existsSync(marker)).toBe(true);
   });
 });
