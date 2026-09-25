@@ -77,6 +77,8 @@ const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_vers
 const serviceKind = process.env[HOST_SERVICE_ENV] || undefined;
 /** Started by a window's supervisor (which names the version) or by a service manager, not by hand. */
 const supervised = Boolean(process.env.TAU_HOST_VERSION || serviceKind);
+/** Spawned by a window's own supervisor: a client is already on its way. */
+const windowSpawned = Boolean(process.env.TAU_HOST_VERSION) && !serviceKind;
 // A service runs from the home folder and nobody names a workspace for it: it opens the last project.
 const workspace = requestedWorkspace ?? (serviceKind ? undefined : process.cwd());
 // The built browser client, when there is one; `npm run build:web` writes it.
@@ -418,6 +420,9 @@ async function main(): Promise<void> {
   if (!web) console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   // A host started by hand in a terminal asks there; a supervised one has a window to ask in.
   if (process.stdin.isTTY) terminalPairing = promptPairingsOnTerminal(access, { input: process.stdin, output: process.stdout });
+  // A window that spawned this host asks for its bootstrap next; the start need not wait for that call.
+  // A failed start reaches that call too, so the error is not lost here.
+  if (windowSpawned) void started.require().catch(() => undefined);
 
   if (proxyListen) {
     const { host, port } = parseListen(proxyListen);
