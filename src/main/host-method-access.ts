@@ -2,7 +2,7 @@ import { methodAccess } from "../shared/host-method-access.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { isHostOwner, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 
-export { HOST_METHOD_ACCESS, methodAccess, type MethodAccess } from "../shared/host-method-access.js";
+export { HOST_METHOD_ACCESS, MACHINE_REQUEST_METHODS, isMachineRequestMethod, methodAccess, type MethodAccess } from "../shared/host-method-access.js";
 
 export function readOnlyRefusal(action: string): Error {
   return Object.assign(new Error(`This device is paired Read only, so it may not ${action}.`), { code: HOST_ERROR.forbidden });
@@ -70,6 +70,7 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "environments-open": { label: "opened a machine" },
   "environments-discover": { label: "looked for machines" },
   "environments-set-preferences": { label: "changed machine preferences" },
+  "environments-set-agents": { label: "changed where this machine's agents may work" },
   "cancel-job": { label: "cancelled a job" },
 };
 

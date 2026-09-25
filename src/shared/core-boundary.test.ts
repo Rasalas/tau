@@ -73,6 +73,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-process-supervisor.js",   "./host-start.js",
   // The host as a system service of its machine, and keeping that machine awake (API 1.13.0).
   "./host-service.js",   "./host-service-units.js",   "./keep-awake.js",
+  // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
+  "./host-machines.js",
   "./host-push-coalescer.js",   "./host-push-log.js",   "./host-push-scope.js",   "./host-report.js",   "./host-text.js",   "./host-tls.js",   "./host-tls-trust.js",   "./host-token.js",   "./host-uplink.js",
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
