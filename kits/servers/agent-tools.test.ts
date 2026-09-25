@@ -8,6 +8,9 @@ import type {
   HostCommandCall, HostExtensionCommandHandler, HostExtensionContext, HostExtensionServices, HostMcpInstructionsProvider, HostMcpTool, HostMcpToolGate,
   HostMcpToolProvider, RuntimeExtensionFactory,
 } from "tau/host-extension";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { kitMcpEndpoint } from "../../src/main/test-support/host-kit-harness.js";
 import { SERVER_TOOLS, parseServerMark, parseUploadProposal } from "./agent-protocol";
 import { SERVER_INSTRUCTIONS, ServerAgentTools, registerServerAgentTools, serverExecCommand } from "./agent-tools";
 import { DeployService } from "./deploy";
@@ -57,7 +60,7 @@ interface World {
   instructions: HostMcpInstructionsProvider;
 }
 
-function world(): World {
+function world(options: { mcp?: HostExtensionServices["mcp"] } = {}): World {
   const dir = mkdtempSync(join(tmpdir(), "tau-agent-tools-"));
   const server = join(dir, "server");
   const local = join(dir, "local");
@@ -84,7 +87,7 @@ function world(): World {
     noteSubprocess: () => undefined,
     registerRuntimeExtension: (_name: string, factory: RuntimeExtensionFactory) => { pi = factory; return () => undefined; },
     registerThreadLifecycle: () => () => undefined,
-    mcp: {
+    mcp: options.mcp ?? {
       registerTools: (provider: HostMcpToolProvider) => { mcpTools = provider; return () => undefined; },
       gate: (gate: HostMcpToolGate) => { mcpGate = gate; return () => undefined; },
       registerInstructions: (provider: HostMcpInstructionsProvider) => { instructions = provider; return () => undefined; },
@@ -331,4 +334,51 @@ describe.skipIf(!posix)("the agent's server tools", () => {
     execFileSync("/bin/sh", ["-c", `cd ${w.dir} && ${serverExecCommand(`true; touch ${marker}`)}`]);
     expect(existsSync(marker)).toBe(true);
   });
+});
+
+// Stands in for a runtime Tau does not own (the Agent SDK's): it reaches the tools only over MCP.
+describe.skipIf(!posix)("the agent's server tools over Tau's MCP endpoint", () => {
+  it("lists them for a server project's thread, asks before a command, refuses Git writes, never uploads", async () => {
+    let answer = false;
+    const questions: string[] = [];
+    const endpoint = kitMcpEndpoint((_thread, title, message) => { questions.push(`${title} ${message.split("\n")[0]}`); return answer; });
+    const w = world({ mcp: endpoint.mcp });
+    const client = new Client({ name: "fake-runtime", version: "1.0.0" });
+    try {
+      await downloaded(w);
+      put(w.local, "index.php", "<?php echo 'home, new';\n", 1_700_000_100);
+      await w.agent.isServerProject(w.local);
+      const connection = (await endpoint.mcp.connect({ sessionId: "sdk-thread", cwd: w.local }))!;
+      await client.connect(new StreamableHTTPClientTransport(new URL(connection.url), { requestInit: { headers: { ...connection.headers } } }));
+      expect(client.getInstructions()).toContain("<server_targets>");
+      expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual(Object.values(SERVER_TOOLS).sort());
+      const call = async (name: string, args: Record<string, unknown>) => {
+        const result = await client.callTool({ name, arguments: args }) as { content: Array<{ text?: string }>; isError?: boolean };
+        return { text: result.content.map((part) => part.text ?? "").join(""), isError: result.isError === true };
+      };
+
+      expect(await call(SERVER_TOOLS.read, { path: "index.php" })).toMatchObject({ isError: false, text: expect.stringContaining("home") });
+      expect(questions).toEqual([]);
+      const declined = await call(SERVER_TOOLS.exec, { command: "ls" });
+      expect(declined).toMatchObject({ isError: true, text: expect.stringContaining("did not allow server_exec") });
+      expect(questions).toEqual(["Run on the server site? ls"]);
+      answer = true;
+      expect(await call(SERVER_TOOLS.exec, { command: "ls" })).toMatchObject({ isError: false, text: expect.stringContaining("index.php") });
+      expect(await call(SERVER_TOOLS.exec, { command: "git commit -m x" })).toMatchObject({ isError: true, text: expect.stringContaining("`git commit`") });
+      expect(questions).toHaveLength(2);
+
+      const writes = writesIn(w.fs.calls).length;
+      const proposal = parseUploadProposal((await call(SERVER_TOOLS.proposeUpload, {})).text)!;
+      expect(proposal.threadId).toBe("sdk-thread");
+      expect(proposal.files.map((file) => [file.path, file.outcome])).toEqual([["index.php", "upload"]]);
+      expect(writesIn(w.fs.calls).length).toBe(writes);
+      expect(readFileSync(join(w.server, "index.php"), "utf8")).toBe("<?php echo 'home';\n");
+    } finally {
+      await client.close().catch(() => undefined);
+      await w.status.idle();
+      w.status.dispose();
+      await endpoint.close();
+      rmSync(w.dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
