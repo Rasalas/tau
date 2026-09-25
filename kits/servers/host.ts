@@ -1,7 +1,8 @@
 import type { HostExtension } from "tau/host-extension";
-import { ServerCredentials, registerCredentialCommands } from "./credentials.js";
+import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
 import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
+import { ServerSsh } from "./ssh-service.js";
 import { ServersStore } from "./store.js";
 import { ServerTargets } from "./targets.js";
 
@@ -29,8 +30,18 @@ export function createServersHostExtension(): HostExtension {
         logger,
         log: (event, message) => services.log(event, message),
       });
-      registerCredentialCommands(context, credentials, prompts, (cwd, targetId) => targets.target(cwd, targetId), (cwd) => targets.list(cwd));
-      return () => prompts.dispose();
+      const lookup = (cwd: unknown, targetId: unknown) => targets.target(cwd, targetId);
+      registerCredentialCommands(context, credentials, prompts, lookup, (cwd) => targets.list(cwd));
+      const ssh = new ServerSsh(context, {
+        prompts,
+        credentialSources: [new CredentialAskpassSource(credentials, lookup)],
+        lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
+      });
+      ssh.register();
+      return async () => {
+        prompts.dispose();
+        await ssh.dispose();
+      };
     },
   };
 }
