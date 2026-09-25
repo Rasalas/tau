@@ -79,12 +79,13 @@ describe("ServersStore", () => {
     await expect(store.targets("../escape")).resolves.toEqual([]);
   });
 
-  it("refuses ids that would leave the targets folder", () => {
+  it("refuses ids that would leave the targets folder", async () => {
     const store = new ServersStore("/state", quiet);
     for (const bad of ["", ".", "..", "../x", "a/b", "a\\b", ".hidden", "x".repeat(129)]) {
       expect(() => store.targetDir({ ...KEY, targetId: bad }), bad).toThrow();
       expect(() => store.targetDir({ ...KEY, workspaceId: bad }), bad).toThrow();
     }
+    await expect(store.write({ ...KEY, targetId: ".." }, NOTE, { text: "x" })).rejects.toThrow("Not a target id");
   });
 });
 

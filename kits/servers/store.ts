@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readdir, realpath, rm } from "node:fs/promises";
+import { readdir, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
 
@@ -60,10 +60,11 @@ export class ServersStore {
     return read?.data;
   }
 
-  async write<T extends Record<string, unknown>>(key: TargetKey, spec: TargetFileSpec<T>, data: T): Promise<void> {
-    const dir = this.targetDir(key);
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    await writePersistedJson(join(dir, spec.name), spec.version, data, { logger: this.logger });
+  /** Queued in call order per file, so the last call's data is what stays; creates the folders at 0700. */
+  write<T extends Record<string, unknown>>(key: TargetKey, spec: TargetFileSpec<T>, data: T): Promise<void> {
+    let path: string;
+    try { path = join(this.targetDir(key), spec.name); } catch (error) { return Promise.reject(error); }
+    return writePersistedJson(path, spec.version, data, { logger: this.logger });
   }
 
   /** The target ids a workspace has a folder for. */
