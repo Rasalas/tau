@@ -37,6 +37,8 @@ const GUARD_MS = 240_000;
 const IMPORT_PROBE = "test.session-import-probe";
 // A test-only package on both hosts that sends a file with services.machines.upload and takes it with services.blobs; H05's kit replaces it.
 const BLOB_PROBE = "test.blob-probe";
+// Remote Work Kit, on both hosts: it sends the fixture's state to rex and brings the result back.
+const REMOTE_WORK = "tau.remote-work";
 const installBlobProbe = (env) => cpSync(join(ROOT, "scripts", "fixtures", "blob-probe"), join(env.HOME, ".tau", "extensions", "blob-probe"), { recursive: true });
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +67,9 @@ function ownerUplink(host) {
 function pinnedSocket(host) {
   return (url) => new WebSocket(url, host.publicKey ? { createConnection: pinnedTlsConnect({ publicKey: host.publicKey }) } : {});
 }
+
+/** Git in a checkout, without the caller's hooks. */
+const gitIn = (cwd, ...args) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
 /** A git repo with one commit, for a host's own workspace. */
 function initWorkspace(dir) {
@@ -266,19 +271,32 @@ export const STEPS = [
     },
   },
   {
-    title: "A's agents device revoked on rex → refused, A's own device still in",
+    title: "the fixture's state (commits + uncommitted change) reaches a mirror and worktree on rex as a bundle",
     async run(ctx) {
-      await ctx.rexOwner.request("connections-revoke-client", [ctx.pairing.companion.clientId]);
-      await waitFor(async () => (await ctx.aOwner.request("machines-list")).machines.some((machine) => machine.id === ctx.rexHostId && machine.status === "refused"), "A's host to see rex refuse its agents");
-      const refused = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]).then(() => "answered", (error) => String(error.message));
-      if (!/refuses this computer's agents/u.test(refused)) throw new Error(`a call after the revocation ended: ${refused}`);
-      const device = new HostUplink({ url: ctx.rex.url, token: ctx.pairing.token, trust: { pin: { publicKey: ctx.rex.publicKey } } });
-      ctx.closers.push(() => device.close());
-      await device.hello();
-      return refused;
+      const cwd = ctx.fixture.work;
+      const offered = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "ignored-files", { cwd }]);
+      const paths = offered.candidates.map((candidate) => candidate.path);
+      if (paths.join(",") !== ".env,.scratch/" || !offered.skipped.some((entry) => entry.path === "node_modules/" && entry.why === "build")) throw new Error(`A offers ${JSON.stringify(offered)}`);
+      await ctx.aOwner.request("host-extension", [REMOTE_WORK, "set-ignored-files", { cwd, paths: [".env", ".scratch/"] }]);
+      const remembered = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "ignored-files", { cwd }]);
+      if (remembered.selected.join(",") !== ".env,.scratch/") throw new Error(`A remembers ${JSON.stringify(remembered.selected)}`);
+      const statusBefore = gitIn(cwd, "status", "--porcelain");
+
+      const transfer = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "send", { machine: REX.machineName, cwd, name: "smoke" }]);
+      if (transfer.state !== "ready") throw new Error(`the transfer ended ${JSON.stringify(transfer)}`);
+      const step = (id) => transfer.steps.find((entry) => entry.id === id);
+      if (step("mirror")?.detail !== "Cloned from origin" || !/^1 commit, /u.test(step("bundle")?.detail ?? "")) throw new Error(`rex did not clone origin, or the bundle carried more than the state: ${JSON.stringify(transfer.steps)}`);
+      const there = transfer.remote.path;
+      const root = join(ctx.rex.home, ".tau", "remote-work");
+      if (!there.startsWith(join(root, "worktrees") + "/") || !existsSync(join(root, "repos", `${transfer.repo.key}.git`, "HEAD"))) throw new Error(`the worktree is at ${there}, the mirror not under ${root}`);
+      if (!readFileSync(join(there, "README.md"), "utf8").includes("An uncommitted line.") || !existsSync(join(there, "notes", "draft.md"))) throw new Error("the worktree on rex lacks A's uncommitted work");
+      if (readFileSync(join(there, ".env"), "utf8") !== "FIXTURE_SECRET=not-a-secret\n" || !existsSync(join(there, ".scratch", "issues", "01-fixture.md")) || existsSync(join(there, "node_modules"))) throw new Error("the ignored files on rex are not the ones ticked");
+      if (gitIn(there, "rev-parse", "HEAD") !== transfer.base || gitIn(there, "status", "--porcelain") !== "") throw new Error("the worktree on rex is not exactly the state that went");
+      if (gitIn(cwd, "status", "--porcelain") !== statusBefore || gitIn(cwd, "branch", "--list") !== "* main") throw new Error("sending changed A's checkout");
+      ctx.transfers = [transfer];
+      return `${transfer.id} → rex:${there.slice(root.length + 1)} (${step("bundle").detail}, ignored ${step("files").detail})`;
     },
   },
-  { title: "the fixture's state (commits + uncommitted change) reaches a mirror and worktree on rex as a bundle", pending: "H05" },
   {
     title: "a Pi session from A is imported on rex with rex's cwd and its origin, and continues there",
     async run(ctx) {
@@ -317,8 +335,64 @@ export const STEPS = [
     },
   },
   { title: "A starts a thread on rex with the fake model and follows its status to idle, with a cost", pending: "H06" },
-  { title: "the result comes back as tau/rex/<slug> on A, merge-tree is clean, merge --no-ff lands it", pending: "H05" },
-  { title: "a conflicting second run leaves A's checkout untouched", pending: "H05" },
+  {
+    title: "the result comes back as tau/rex/<slug> on A, merge-tree is clean, merge --no-ff lands it",
+    async run(ctx) {
+      const [transfer] = ctx.transfers;
+      const there = transfer.remote.path;
+      // rex's work, as a thread there would leave it (H06 starts one): one file changed, one new, nothing committed.
+      writeFileSync(join(there, "src", "app.js"), "export const greeting = \"hello from rex\";\nexport const farewell = \"bye\";\n");
+      writeFileSync(join(there, "CHANGELOG.md"), "- rex says hello\n");
+      const back = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "fetch-result", { transfer: transfer.id }]);
+      if (back.result?.state !== "branch" || back.result.branch !== "tau/rex/smoke") throw new Error(`the result came back as ${JSON.stringify(back.result)}`);
+      const cwd = ctx.fixture.work;
+      if (gitIn(cwd, "config", "branch.tau/rex/smoke.tau-base") !== transfer.base) throw new Error("tau/rex/smoke does not record the state it started from");
+      const preview = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "preview", { transfer: transfer.id }]);
+      if (!preview.clean) throw new Error(`merge-tree sees conflicts: ${preview.conflicts.join(", ")}`);
+      const applied = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "apply", { transfer: transfer.id }]);
+      if (applied.applied?.state !== "merged") throw new Error(`apply answered ${JSON.stringify(applied.applied)}`);
+      const parents = gitIn(cwd, "rev-list", "--parents", "-n", "1", "HEAD").split(" ").length - 1;
+      if (parents !== 2 || gitIn(cwd, "status", "--porcelain") !== "") throw new Error(`A's checkout after the merge: ${parents} parents, status ${gitIn(cwd, "status", "--porcelain")}`);
+      if (!readFileSync(join(cwd, "src", "app.js"), "utf8").includes("hello from rex") || !existsSync(join(cwd, "CHANGELOG.md"))) throw new Error("rex's work is not in A's checkout");
+      return `${back.result.branch}: ${back.result.commits} commit, ${back.result.files} files; merged as ${applied.applied.commit.slice(0, 8)}, A's status clean`;
+    },
+  },
+  {
+    title: "a conflicting second run leaves A's checkout untouched",
+    async run(ctx) {
+      const cwd = ctx.fixture.work;
+      const transfer = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "send", { machine: REX.machineName, cwd, name: "smoke" }]);
+      if (transfer.state !== "ready") throw new Error(`the second transfer ended ${JSON.stringify(transfer)}`);
+      writeFileSync(join(transfer.remote.path, "src", "app.js"), "export const greeting = \"rex again\";\nexport const farewell = \"bye\";\n");
+      writeFileSync(join(cwd, "src", "app.js"), "export const greeting = \"mini meanwhile\";\nexport const farewell = \"bye\";\n");
+      gitIn(cwd, "-c", "user.name=Smoke", "-c", "user.email=smoke@example.invalid", "commit", "-qam", "change the greeting on A");
+      const head = gitIn(cwd, "rev-parse", "HEAD");
+      const back = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "fetch-result", { transfer: transfer.id }]);
+      if (back.result?.branch !== "tau/rex/smoke-2") throw new Error(`the second result came back as ${JSON.stringify(back.result)}`);
+      const applied = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "apply", { transfer: transfer.id }]);
+      if (applied.applied?.state !== "conflict" || applied.applied.files.join(",") !== "src/app.js") throw new Error(`apply answered ${JSON.stringify(applied.applied)}`);
+      if (gitIn(cwd, "rev-parse", "HEAD") !== head || gitIn(cwd, "status", "--porcelain") !== "") throw new Error("the conflict changed A's checkout");
+      if (!readFileSync(join(cwd, "src", "app.js"), "utf8").includes("mini meanwhile")) throw new Error("A's file changed");
+      const gone = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "discard", { transfer: transfer.id }]);
+      if (gone.state !== "discarded" || existsSync(transfer.remote.path)) throw new Error("the second worktree on rex is still there after discard");
+      if (!gitIn(cwd, "rev-parse", "--verify", "tau/rex/smoke-2")) throw new Error("the conflicting branch is gone");
+      return `conflict in ${applied.applied.files.join(", ")}; HEAD ${head.slice(0, 8)} and status unchanged; tau/rex/smoke-2 kept, rex's worktree removed`;
+    },
+  },
+  // Last: it cuts A's agents off from rex.
+  {
+    title: "A's agents device revoked on rex → refused, A's own device still in",
+    async run(ctx) {
+      await ctx.rexOwner.request("connections-revoke-client", [ctx.pairing.companion.clientId]);
+      await waitFor(async () => (await ctx.aOwner.request("machines-list")).machines.some((machine) => machine.id === ctx.rexHostId && machine.status === "refused"), "A's host to see rex refuse its agents");
+      const refused = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]).then(() => "answered", (error) => String(error.message));
+      if (!/refuses this computer's agents/u.test(refused)) throw new Error(`a call after the revocation ended: ${refused}`);
+      const device = new HostUplink({ url: ctx.rex.url, token: ctx.pairing.token, trust: { pin: { publicKey: ctx.rex.publicKey } } });
+      ctx.closers.push(() => device.close());
+      await device.hello();
+      return refused;
+    },
+  },
 ];
 
 /** Stops what this run started, by the pids in the hosts' own state files, then checks nothing listens. */
