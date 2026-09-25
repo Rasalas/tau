@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { ExecutionPolicyRegistry } from "../../src/main/host-execution-policy.js";
 import { createServersHostExtension } from "./host.js";
 import { SERVERS_EXTENSION_ID, SERVERS_SETTINGS_SCOPE } from "./protocol.js";
 
@@ -17,6 +18,24 @@ describe("Servers host half", () => {
     expect(extension.isolation).toBe(manifest.isolation);
     const registry = await activateHostKit(extension);
     await registry.dispose();
+  });
+});
+
+describe("Servers network limit", () => {
+  it("provides the limit as a policy and holds Pi's bash to it, and withdraws both when it stops", async () => {
+    const policies = new ExecutionPolicyRegistry();
+    const runtimeExtensions: string[] = [];
+    const unregister = vi.fn();
+    const registry = await activateHostKit(createServersHostExtension(), {
+      executionPolicy: policies as never,
+      registerRuntimeExtension: (name: string) => { runtimeExtensions.push(name); return unregister; },
+      workspaceRef: () => ({ workspaceId: "ws" }) as never,
+    });
+    expect(runtimeExtensions).toEqual(["tau-servers-network"]);
+    // The folder has no sftp.json and no targets: nothing limits it.
+    expect((await policies.for(process.cwd())).network).toBe("any");
+    await registry.dispose();
+    expect(unregister).toHaveBeenCalled();
   });
 });
 
