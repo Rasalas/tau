@@ -18,6 +18,7 @@ import {
   parsePmset,
   parseVmStat,
   runtimeReadiness,
+  testResourceOs,
   worktreesFolder,
   type ReadinessRuntimes,
   type ResourceOs,
@@ -107,6 +108,18 @@ describe("the machine's load, read when asked", () => {
     const { os } = fakeOs();
     const resources = new HostResourceSampler({ os, sleep: async () => undefined, availableMemory: async () => undefined, battery: async () => undefined });
     expect(await resources.sample()).not.toHaveProperty("cpuUtilization");
+  });
+});
+
+describe("a test host that plays a smaller machine", () => {
+  it("keeps only TAU_TEST_CPU_COUNT of the CPUs, and nothing changes without it", async () => {
+    const os = { platform: () => "linux" as const, cpus: () => Array.from({ length: 12 }, () => ({ times: { user: 1, nice: 0, sys: 1, idle: 8, irq: 0 } })), totalmem: () => 8e9, freemem: () => 4e9 };
+    expect(testResourceOs({}, os)).toBeUndefined();
+    expect(testResourceOs({ TAU_TEST_CPU_COUNT: "0" }, os)).toBeUndefined();
+    const small = testResourceOs({ TAU_TEST_CPU_COUNT: "2" }, os)!;
+    expect(small.cpus()).toHaveLength(2);
+    const reading = new HostResourceSampler({ os: small, sleep: async () => undefined, availableMemory: async () => undefined, battery: async () => undefined });
+    expect((await reading.sample()).cpuCount).toBe(2);
   });
 });
 
