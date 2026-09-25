@@ -1,5 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { connect as netConnect, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
@@ -327,6 +328,42 @@ describe("socket host transport on a network that drops peers", () => {
     expect(await closed(asleep)).toBe(1006);
     await vi.waitFor(() => expect(clients.count()).toBe(1));
     expect(awake.socket.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("keeps a peer whose large frame is still arriving, though it answers no ping behind it", async () => {
+    let tick = (): void => undefined;
+    const started = await listenWith({ schedulePings: (next) => { tick = next; return () => undefined; } });
+    let arriving: Socket | undefined;
+    started.server.once("upgrade", (_request, stream: Socket) => { arriving = stream; });
+    let raw: Socket | undefined;
+    const slow = connect(started.port, {
+      autoPong: false,
+      perMessageDeflate: false,
+      createConnection: ((options: { port?: number }) => (raw = netConnect({ host: "127.0.0.1", port: Number(options.port) }))) as unknown as typeof netConnect,
+    });
+    await opened(slow);
+    slow.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+    await nextFrame(slow);
+    // A text frame announced at 1 MB (masked with a zero key), sent a little at a time.
+    const header = Buffer.alloc(14);
+    header[0] = 0x81;
+    header[1] = 0x80 | 127;
+    header.writeBigUInt64BE(1_000_000n, 2);
+    const trickle = async (bytes: Buffer) => {
+      const before = arriving!.bytesRead;
+      raw!.write(bytes);
+      await vi.waitFor(() => expect(arriving!.bytesRead).toBeGreaterThanOrEqual(before + bytes.length));
+    };
+    await trickle(header);
+    tick();
+    await trickle(Buffer.alloc(4_096, 0x20));
+    tick();
+    // `terminate` destroys the host's end at once.
+    expect(arriving!.destroyed).toBe(false);
+    // Nothing more arrives: the next round drops it.
+    tick();
+    expect(arriving!.destroyed).toBe(true);
+    expect(await closed(slow)).toBe(1006);
   });
 });
 

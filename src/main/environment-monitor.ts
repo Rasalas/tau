@@ -34,6 +34,8 @@ export interface MonitorSocket {
   send(data: string): void;
   close(code?: number): void;
   terminate?(): void;
+  /** Bytes sent but not yet on the wire (`ws`); a large frame going out slowly still counts as a live link. */
+  readonly bufferedAmount?: number;
   on(event: "open", listener: () => void): void;
   on(event: "message", listener: (data: unknown) => void): void;
   on(event: "close", listener: (code: number) => void): void;
@@ -320,12 +322,23 @@ export class EnvironmentMonitor {
     this.clear(this.pingTimer);
     this.pingTimer = this.timer(() => {
       if (this.socket !== socket) return;
+      this.clear(this.deadline);
       this.pingSentAt = this.now();
       this.write(socket, { type: "ping", id: `p${this.now()}` });
       // Any frame clears it; a half-open link to a machine that slept answers none.
-      this.deadline = this.timer(() => {
-        if (this.socket === socket) this.fail(socket, "It stopped answering.");
-      }, PING_DEADLINE_MS);
+      // The ping waits behind a large frame of ours (a file piece), so a draining buffer earns another round.
+      let buffered = socket.bufferedAmount ?? 0;
+      const expire = (): void => {
+        if (this.socket !== socket) return;
+        const now = socket.bufferedAmount ?? 0;
+        if (now > 0 && now < buffered) {
+          buffered = now;
+          this.deadline = this.timer(expire, PING_DEADLINE_MS);
+          return;
+        }
+        this.fail(socket, "It stopped answering.");
+      };
+      this.deadline = this.timer(expire, PING_DEADLINE_MS);
       this.schedulePing(socket);
     }, PING_EVERY_MS);
   }
