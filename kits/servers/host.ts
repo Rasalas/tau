@@ -7,6 +7,7 @@ import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
 import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
+import { createServerStatus } from "./status-host.js";
 import { ServersStore } from "./store.js";
 import { gitCall } from "./sync/git.js";
 import { SyncService } from "./sync/service.js";
@@ -44,11 +45,12 @@ export function createServersHostExtension(): HostExtension {
         lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
       });
       ssh.register();
+      const git = gitCall("git", () => services.noteSubprocess());
       const sync = new SyncService(context, {
         store,
         target: (cwd, targetId) => targets.target(cwd, targetId),
         transport: (input) => ssh.transport(input),
-        git: gitCall("git", () => services.noteSubprocess()),
+        git,
       });
       sync.register();
       const drift = new DriftService(context, {
@@ -56,9 +58,11 @@ export function createServersHostExtension(): HostExtension {
         list: (cwd) => targets.list(cwd),
         sync,
         workspace: (command, input) => context.invokeHostExtension(WORKSPACE_KIT_ID, command, input),
-        git: gitCall("git", () => services.noteSubprocess()),
+        git,
       });
       drift.register();
+      const status = createServerStatus(context, { store, targets, sync, ssh, drift, git });
+      status.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
       const sandbox = new NetworkSandbox({
         load: () => services.loadDependency("@anthropic-ai/sandbox-runtime"),
@@ -80,6 +84,7 @@ export function createServersHostExtension(): HostExtension {
         ? services.registerRuntimeExtension("tau-servers-network", createPiNetworkExtension({ policy: (cwd) => policies.for(cwd), sandbox }))
         : undefined;
       return async () => {
+        status.dispose();
         drift.dispose();
         stopProjects();
         sync.dispose();

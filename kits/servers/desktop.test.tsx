@@ -57,6 +57,25 @@ describe("Settings → Servers", () => {
     expect(screen.getByText("sftp://tester@127.0.0.1:2222/srv/app")).toBeTruthy();
   });
 
+  it("sets what the agent may run on a server, per target", async () => {
+    const { invoke } = setup((command, input) => {
+      if (command === "targets") return STATE;
+      if (command === "target-levels") return { levels: { [APP.id]: "ask", [STATIC.id]: "read-only" } };
+      if (command === "set-target-level") return { level: (input as { level: string }).level };
+      return undefined;
+    });
+    await flush();
+    const app = screen.getByRole("combobox", { name: "What the agent may run on app" }) as HTMLSelectElement;
+    expect(app.value).toBe("ask");
+    expect((screen.getByRole("combobox", { name: "What the agent may run on static" }) as HTMLSelectElement).value).toBe("read-only");
+    await act(async () => { fireEvent.change(app, { target: { value: "full" } }); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-target-level", { cwd: "/work/site", targetId: APP.id, level: "full" });
+    expect(app.value).toBe("full");
+    expect(screen.getByText(/runs commands on the server without asking/u)).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Keep the history for" })).toBeTruthy();
+  });
+
   it("says when there is no project or no sftp.json", async () => {
     setup(() => undefined, null);
     await flush();
