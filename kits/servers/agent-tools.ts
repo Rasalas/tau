@@ -95,6 +95,14 @@ function projectPath(value: unknown): string {
   return raw;
 }
 
+/**
+ * The line server_exec sends. Grouped, so a `;` in it cannot run past a failed
+ * `cd` the transport puts in front; the lock setting keeps `git status` from writing index.lock.
+ */
+export function serverExecCommand(command: string): string {
+  return `export GIT_OPTIONAL_LOCKS=0 && {\n${command}\n}`;
+}
+
 /** Renders a parsed diff back as a unified patch the model reads. */
 function patchText(diff: Awaited<ReturnType<typeof diffBlobs>>): string {
   if (diff.note) return diff.note;
@@ -337,8 +345,7 @@ export class ServerAgentTools {
           if (!fs.exec) throw new Error(`${resolved.label} offers no shell (SFTP or FTP only), so commands cannot run there.`);
           const where = input.cwd === "tmp" ? "tmp" : "project";
           const seconds = Math.min(MAX_TIMEOUT_S, Math.max(1, typeof input.timeoutSeconds === "number" ? Math.round(input.timeoutSeconds) : DEFAULT_TIMEOUT_S));
-          // `git status` would otherwise refresh the index and write index.lock.
-          const run = await fs.exec(`GIT_OPTIONAL_LOCKS=0; export GIT_OPTIONAL_LOCKS; ${command}`, { cwd: where, timeoutMs: seconds * 1000, maxOutputBytes: OUTPUT_CAP, ...(signal ? { signal } : {}) });
+          const run = await fs.exec(serverExecCommand(command), { cwd: where, timeoutMs: seconds * 1000, maxOutputBytes: OUTPUT_CAP, ...(signal ? { signal } : {}) });
           const status = run.timedOut ? `timed out after ${seconds} s` : run.signal ? `ended by ${run.signal}` : `exit ${run.code ?? "?"}`;
           const parts = [
             `${this.mark(resolved)} ${where === "tmp" ? "~/tmp" : resolved.target.remotePath}`,

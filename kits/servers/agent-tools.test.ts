@@ -9,7 +9,7 @@ import type {
   HostMcpToolProvider, RuntimeExtensionFactory,
 } from "tau/host-extension";
 import { SERVER_TOOLS, parseServerMark, parseUploadProposal } from "./agent-protocol";
-import { SERVER_INSTRUCTIONS, ServerAgentTools, registerServerAgentTools } from "./agent-tools";
+import { SERVER_INSTRUCTIONS, ServerAgentTools, registerServerAgentTools, serverExecCommand } from "./agent-tools";
 import { DeployService } from "./deploy";
 import type { DeployResult } from "./deploy-protocol";
 import { DriftService } from "./drift";
@@ -221,7 +221,7 @@ describe.skipIf(!posix)("the agent's server tools", () => {
     const listing = await run(hooks, SERVER_TOOLS.exec, { command: "ls" });
     expect(listing).toMatch(/^\[site · sftp:\/\/tester@127\.0\.0\.1:2222\/srv\/site\] \/srv\/site\n\$ ls\nexit 0\n/u);
     expect(listing).toContain("index.php");
-    expect(w.fs.calls).toContain("exec GIT_OPTIONAL_LOCKS=0; export GIT_OPTIONAL_LOCKS; ls");
+    expect(w.fs.calls).toContain("exec export GIT_OPTIONAL_LOCKS=0 && {\nls\n}");
 
     // The thread's own level narrows a target at full.
     w.levels.thread = "ask";
@@ -321,5 +321,14 @@ describe.skipIf(!posix)("the agent's server tools", () => {
   it("never upload: no tool reaches the deploy command", () => {
     const source = readFileSync(fileURLToPath(new URL("./agent-tools.ts", import.meta.url)), "utf8");
     expect(source).not.toMatch(/["'](deploy|deploy-resolve)["']|\.deploy\(|invokeHostExtension/u);
+  });
+
+  it("runs a command only once its folder is entered", () => {
+    const marker = join(w.dir, "ran.txt");
+    const line = `cd ${join(w.dir, "missing")} && ${serverExecCommand(`true; touch ${marker}\n# a comment`)}`;
+    expect(() => execFileSync("/bin/sh", ["-c", line], { stdio: "ignore" })).toThrow();
+    expect(existsSync(marker)).toBe(false);
+    execFileSync("/bin/sh", ["-c", `cd ${w.dir} && ${serverExecCommand(`true; touch ${marker}`)}`]);
+    expect(existsSync(marker)).toBe(true);
   });
 });
