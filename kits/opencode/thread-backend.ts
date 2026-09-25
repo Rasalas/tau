@@ -1,4 +1,5 @@
 import {
+  executionPolicyRefusal,
   DEFAULT_THREAD_MODE as DEFAULT_MODE,
   clientMessageFingerprint,
   knownSkillNames,
@@ -6,6 +7,7 @@ import {
   validatePreparedPrompt,
   type BackendPrompt,
   type ExtensionUiAnswer,
+  type HostExecutionPolicy,
   type PreparedPrompt,
   type RuntimePermissionLevel,
   type ThreadBackendCapabilities,
@@ -60,6 +62,11 @@ export interface OpenCodeThreadBackendOptions {
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
   permissionLevel?: () => RuntimePermissionLevel;
+  /**
+   * What the thread's project lets its commands reach (API 1.14.0). OpenCode
+   * has no sandbox Tau can set, so a limited project's prompt is refused.
+   */
+  executionPolicy?(): Promise<HostExecutionPolicy>;
   tools?: readonly string[];
   now?(): number;
   timeouts?: { interruptMs?: number };
@@ -315,6 +322,8 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported OpenCode delivery.");
+    const refusal = executionPolicyRefusal(await this.options.executionPolicy?.(), "OpenCode");
+    if (refusal) throw new Error(refusal);
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     validatePreparedPrompt(input.text, prepared, this.bound());
     const clientMessageId = input.identity?.clientMessageId;

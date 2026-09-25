@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type RuntimePermissionLevel, type ThreadRuntimeEvent } from "tau/host-extension";
+import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type HostExecutionPolicy, type RuntimePermissionLevel, type ThreadRuntimeEvent } from "tau/host-extension";
 import { ALLOW, DENY, rulesForLevel } from "./approvals.js";
 import { storedModels } from "./catalog.js";
 import type { OpenCodeProviderList } from "./client.js";
@@ -32,7 +32,7 @@ async function scratch(script?: FakeScript) {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => ExtensionUiAnswer; resume?: boolean; tools?: string[]; activity?: TurnActivityStore; threadId?: string } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => ExtensionUiAnswer; resume?: boolean; tools?: string[]; activity?: TurnActivityStore; threadId?: string; policy?: () => Promise<HostExecutionPolicy> } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new OpenCodeThreadRuntimeBackend(options.threadId ?? "tau-1", space.dir, {
@@ -48,6 +48,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
     ...(options.activity ? { activity: options.activity } : {}),
+    ...(options.policy ? { executionPolicy: options.policy } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");
@@ -224,6 +225,20 @@ describe("OpenCodeThreadRuntimeBackend against a fake OpenCode server", () => {
     const { backend } = await open(space, { activity });
     await backend.capabilities.activityHistory!.save({ id: "activity-1", status: "completed", tools: [{ id: "a", name: "bash", args: {}, status: "done", startedAt: 1 }] });
     expect((await backend.capabilities.activityHistory!.load()).map((entry) => entry.id)).toEqual(["activity-1"]);
+  });
+});
+
+describe("an OpenCode thread in a project that limits its network", () => {
+  it("refuses the prompt before OpenCode hears of it, and runs once the limit is lifted", async () => {
+    const space = await scratch();
+    let policy: HostExecutionPolicy = { network: "loopback", allowHosts: [], reasons: ["This project deploys to a server."], sources: ["tau.servers"] };
+    const { backend } = await open(space, { policy: async () => policy });
+    await expect(backend.prompt({ text: "hi", delivery: "prompt" })).rejects.toThrow(/OpenCode cannot enforce that limit/u);
+    expect(prompts(space.fake)).toEqual([]);
+    expect(space.connects).toEqual([]);
+    policy = { network: "any", allowHosts: [], reasons: [], sources: [] };
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    expect(prompts(space.fake)).toHaveLength(1);
   });
 });
 

@@ -137,6 +137,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             projectName: thread.projectName,
             branch: thread.projectLabel,
             permissionLevel: thread.permissionLevel,
+            ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
             onMessage: thread.onMessage,
             onEvent: thread.onEvent,
             ask: thread.ask,

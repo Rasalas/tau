@@ -239,6 +239,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
               billing: billing(id),
               ...(grokHome ? { grokHome } : {}),
               permissionLevel: thread.permissionLevel,
+              ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
               ask: thread.ask,
