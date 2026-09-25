@@ -19,7 +19,7 @@ const servers: DesktopExtension = {
       Icon: Server,
       order: 47,
       profiles: ["desktop", "web"],
-      keywords: ["sftp", "ftp", "ssh", "sftp.json", "deploy", "profile", "password", "keychain"],
+      keywords: ["sftp", "ftp", "ssh", "sftp.json", "deploy", "profile", "password", "keychain", "network", "sandbox", "localhost"],
       Component: createServersSettingsPage(context),
     });
     // Workspace Kit's base folder for new projects, when it is there.

@@ -1,4 +1,5 @@
 import {
+  executionPolicyRefusal,
   clientMessageFingerprint,
   knownSkillNames,
   prepareSkillPrompt,
@@ -6,6 +7,7 @@ import {
   type AgentRuntimeAdapter,
   type BackendPrompt,
   type ExtensionUiAnswer,
+  type HostExecutionPolicy,
   type PreparedPrompt,
   type RuntimePermissionLevel,
   type ThreadBackendCapabilities,
@@ -61,6 +63,11 @@ export interface AcpThreadBackendOptions {
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
   permissionLevel?: () => RuntimePermissionLevel;
+  /**
+   * What the thread's project lets its commands reach (API 1.14.0). An ACP
+   * agent has no sandbox Tau can set, so a limited project's prompt is refused.
+   */
+  executionPolicy?(): Promise<HostExecutionPolicy>;
   now?(): number;
 }
 
@@ -219,6 +226,8 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
 
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error(`Unsupported ${this.agent} delivery.`);
+    const refusal = executionPolicyRefusal(await this.base.executionPolicy?.(), this.agent);
+    if (refusal) throw new Error(refusal);
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     validatePreparedPrompt(input.text, prepared, this.bound());
     const clientMessageId = input.identity?.clientMessageId;

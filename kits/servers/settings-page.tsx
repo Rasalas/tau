@@ -6,6 +6,7 @@ import {
   SERVERS_EXTENSION_ID, decodeServerTargetsState,
   type CredentialCheck, type CredentialSecretStatus, type CredentialStatus, type SecretKind, type ServerTargetIssue, type ServerTargetRow, type ServerTargetsState,
 } from "./protocol.js";
+import { NetworkSection } from "./network-settings.js";
 
 const ISSUE_ICONS = { error: OctagonAlert, warning: AlertTriangle, info: Info } as const;
 
@@ -175,6 +176,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
             onCheck={(kind) => check(target, kind)}
             onForget={() => forget(target)}
           />)}
+        <NetworkSection context={context} cwd={cwd} onNotify={onNotify} />
         {approvals ? <SettingsSection title="Approvals">
           <SettingRow
             title="Commands and VS Code's keychain items"

@@ -17,8 +17,16 @@ const LABEL_MAX = 600;
  * ask: every command outside Codex's known-safe list and every edit asks
  * first; what is allowed runs inside the workspace sandbox.
  * full: no sandbox and no questions, as a Pi thread at full access runs.
+ * With `network: "none"` Codex's sandbox holds at every level and has no
+ * network; its seatbelt and Landlock rules offer no host list, so the package
+ * sources a limit allows stay out of reach too.
  */
-export function policyForLevel(level: RuntimePermissionLevel): CodexPolicy {
+export function policyForLevel(level: RuntimePermissionLevel, options: { network?: "any" | "none" } = {}): CodexPolicy {
+  // A project that limits its network gets Codex's sandbox without network at every level.
+  if (options.network === "none") {
+    if (level === "read-only") return { approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly", networkAccess: false } };
+    return { approvalPolicy: level === "ask" ? "untrusted" : "never", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false } };
+  }
   switch (level) {
     case "read-only": return { approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly" } };
     case "ask": return { approvalPolicy: "untrusted", sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite" } };

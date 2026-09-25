@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BackendPrompt, ExtensionUiAnswer, RuntimePermissionLevel, ThreadRuntimeEvent } from "tau/host-extension";
+import type { BackendPrompt, ExtensionUiAnswer, HostExecutionPolicy, RuntimePermissionLevel, ThreadRuntimeEvent } from "tau/host-extension";
 import { fakeAgent, until, type FakeAgent } from "../_acp/fake.js";
 import { createCursorRuntimeAdapter } from "./runtime-adapter.js";
 import { openCursorSession } from "./session.js";
@@ -62,7 +62,7 @@ async function agentAsks(agent: FakeAgent, id: number, method: string, params: o
   return (answer.result ?? answer.error) as Record<string, unknown>;
 }
 
-function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { level?: RuntimePermissionLevel; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> } = {}) {
+function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { level?: RuntimePermissionLevel; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer>; policy?: () => Promise<HostExecutionPolicy> } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   let opened = 0;
   const backend = new CursorThreadRuntimeBackend("thread", "/repo", {
@@ -76,6 +76,7 @@ function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { lev
     onEvent: (event) => events.push(event),
     ...(settings.ask ? { ask: settings.ask } : {}),
     permissionLevel: () => settings.level ?? "full",
+    ...(settings.policy ? { executionPolicy: settings.policy } : {}),
     now: (() => { let clock = 1_000; return () => clock++; })(),
   });
   return { backend, events };
@@ -235,6 +236,14 @@ describe("CursorThreadRuntimeBackend", () => {
     expect(await steer).toEqual({ assistantText: "steered" });
     expect(events.filter((event) => event.type === "turn-settled").map((event) => (event as { status: string }).status)).toEqual(["interrupted", "completed"]);
     await backend.dispose();
+  });
+
+  it("refuses a prompt in a project that limits its network, before Cursor starts", async () => {
+    const policy: HostExecutionPolicy = { network: "loopback", allowHosts: [], reasons: ["This project deploys to a server."], sources: ["tau.servers"] };
+    const { backend } = harness(await scratchStore(), [], { policy: async () => policy });
+    await backend.start("create");
+    await expect(backend.prompt({ text: "hi", delivery: "prompt" })).rejects.toThrow("This project deploys to a server. Cursor cannot enforce that limit, so it does not run here.");
+    expect(await backend.transcript()).toEqual([]);
   });
 
   it("maps thread mode and access level onto Cursor's modes", () => {

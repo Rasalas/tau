@@ -30,6 +30,7 @@ import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
+import { ExecutionPolicyRegistry, type HostExecutionPolicy, type HostExecutionPolicyServices } from "./host-execution-policy.js";
 import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
 
 export interface DirectoryPickerOptions {
@@ -90,6 +91,14 @@ export interface HostBackendOpenContext {
    * each read. Absent before API 1.12.0.
    */
   priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
+  /**
+   * What the thread's project lets its commands reach, merged from every
+   * provider (`services.executionPolicy`). Ask before each turn: the user can
+   * lift or set a limit while the thread lives. A backend that cannot hold its
+   * commands to a limit refuses the prompt (`executionPolicyRefusal`). New in
+   * API 1.14.0.
+   */
+  executionPolicy?(): Promise<HostExecutionPolicy>;
 }
 
 /** A backend's question; the host names the prompt and its thread. */
@@ -851,6 +860,12 @@ export interface HostExtensionServices {
   /** Media extensions attach to a thread's turns (`sessions`). Absent before API 1.12.0 and in a worker. */
   readonly turnAttachments?: HostTurnAttachmentServices;
   /**
+   * What each project's agent commands may reach (`workspace:read`): kits
+   * provide rules per folder, the strictest wins, and whoever runs commands
+   * reads the result. New in API 1.14.0; absent before and in a worker.
+   */
+  readonly executionPolicy?: HostExecutionPolicyServices;
+  /**
    * This extension's own settings as the levels resolve them: the project's
    * `.tau/config.json` over this machine's, for `cwd`, else this machine's
    * alone. Ungated. Absent before API 1.12.0.
@@ -957,6 +972,14 @@ export interface HostExtensionInvocationContext {
 // shape and the scope name; both are plain data, so they travel as types only.
 export type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 export type { PackageScope } from "./extension-sources.js";
+export type {
+  HostExecutionPolicy,
+  HostExecutionPolicyChange,
+  HostExecutionPolicyProvider,
+  HostExecutionPolicyRule,
+  HostExecutionPolicyServices,
+  HostNetworkReach,
+} from "./host-execution-policy.js";
 
 export interface HostExtensionContext {
   readonly id: string;
@@ -1044,6 +1067,10 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
       if (prop === "turnAttachments") {
         const raw: unknown = Reflect.get(target, prop, receiver);
         return raw instanceof TurnAttachmentRegistry ? raw.forExtension(extension.id) : raw;
+      }
+      if (prop === "executionPolicy") {
+        const raw: unknown = Reflect.get(target, prop, receiver);
+        return raw instanceof ExecutionPolicyRegistry ? raw.forExtension(extension.id) : raw;
       }
       if (prop === "stateDir" && stateDir) return stateDir;
       if (prop === "network") {

@@ -1,6 +1,8 @@
 import type { HostExtension } from "tau/host-extension";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
 import { registerServerProjects } from "./projects.js";
+import { ServerNetwork } from "./network-policy.js";
+import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
 import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
@@ -49,11 +51,33 @@ export function createServersHostExtension(): HostExtension {
       });
       sync.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
+      const sandbox = new NetworkSandbox({
+        load: () => services.loadDependency("@anthropic-ai/sandbox-runtime"),
+        ripgrep: () => services.findCommand("rg"),
+        log: (label, detail) => services.log(label, detail),
+      });
+      const policies = services.executionPolicy;
+      const network = new ServerNetwork({
+        services,
+        store,
+        logger,
+        ...(policies ? { changed: (cwd: string) => policies.changed(cwd) } : {}),
+        piEnforcement: () => sandbox.availability(),
+      });
+      network.register(context);
+      // An older host has no policy seam; nothing there would read the limit.
+      const withdraw = policies?.provide((cwd) => network.rule(cwd));
+      const unregisterPi = policies
+        ? services.registerRuntimeExtension("tau-servers-network", createPiNetworkExtension({ policy: (cwd) => policies.for(cwd), sandbox }))
+        : undefined;
       return async () => {
         stopProjects();
         sync.dispose();
+        withdraw?.();
+        unregisterPi?.();
         prompts.dispose();
         await ssh.dispose();
+        await sandbox.dispose();
       };
     },
   };
