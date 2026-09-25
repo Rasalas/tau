@@ -567,7 +567,7 @@ export interface RuntimeExtensionOptions {
    * Shell lines Pi runs before every `bash` command of this runtime, the user's
    * `!` commands included. They run outside whatever a `tool_call` handler
    * rewrote the command to, so a wrapper there (a sandbox) cannot undo them.
-   * Asked once per runtime; `undefined` adds nothing. New in API 1.14.0.
+   * Asked once per runtime; `undefined` adds nothing. New in API 1.15.0.
    */
   shellCommandPrefix?: (session: RuntimeSessionInfo) => string | undefined;
 }

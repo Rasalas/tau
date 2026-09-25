@@ -73,7 +73,7 @@ members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 
 The factory's second argument says which session it serves: `sessionId`, `cwd`
 and, for a thread another one spawned (`sessions.start({ parent })`),
-`parentThreadId`. The option `shellCommandPrefix(session)` (API 1.14.0) gives
+`parentThreadId`. The option `shellCommandPrefix(session)` (API 1.15.0) gives
 that runtime shell lines Pi runs before every `bash` command, the user's `!`
 commands included, ahead of the user's own `shellCommandPrefix` from Pi's
 settings. They run in the shell Pi starts, outside whatever a `tool_call`
