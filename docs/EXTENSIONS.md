@@ -979,9 +979,9 @@ there). Instead of "Take over" it offers "Open on <machine>", which moves the
 window there with the thread open (ADR 0025). A client without a window process
 shows the tab with a note and nothing else; an older core ignores `machine`, so
 a kit that must not open a local thread of the same id checks
-`context.environments?.watchThread` first. Machines Kit's rail and Remote Work
-Kit's question notice open such tabs; so do the Agents panel's rows of
-sub-agents on another machine. A thread reads whether or
+`context.environments?.watchThread` first. Machines Kit's rail, Remote Work
+Kit's question notice and Handoff Kit's "Continues on" banner open such tabs;
+so do the Agents panel's rows of sub-agents on another machine. A thread reads whether or
 not the host still holds a runtime for it: runtimes are capped, idle ones are
 released oldest first, and one nobody used for ten minutes is released too, so a
 released thread's transcript is projected from its session file, with the same
