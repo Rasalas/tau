@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
@@ -320,6 +321,58 @@ describe("shell command prefixes of runtime extensions", () => {
       expect(text).toBe("prefix:no\ncommand:yes\n");
       session.dispose();
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("temperature and max tokens from Tau's config", () => {
+  /** A model on 127.0.0.1 speaking OpenAI's streamed chat completions; it keeps each request body. */
+  async function fakeModel() {
+    const bodies: Array<Record<string, unknown>> = [];
+    const server = createServer((request, response) => {
+      let raw = "";
+      request.on("data", (chunk: Buffer) => { raw += chunk.toString("utf8"); });
+      request.on("end", () => {
+        bodies.push(JSON.parse(raw) as Record<string, unknown>);
+        const chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
+        const base = { id: "c1", object: "chat.completion.chunk", created: 0, model: "fake-1" };
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write(chunk({ ...base, choices: [{ index: 0, delta: { role: "assistant", content: "ok" }, finish_reason: null }] }));
+        response.write(chunk({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+        response.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as { port: number };
+    return { baseUrl: `http://127.0.0.1:${port}/v1`, bodies, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  }
+
+  it("reach the provider request of a real turn, also after a reload, and a later edit applies to the next turn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-sampling-"));
+    const model = await fakeModel();
+    try {
+      const models = { providers: { "tau-fake": { baseUrl: model.baseUrl, api: "openai-completions", apiKey: "fake", models: [{ id: "fake-1", name: "Fake 1", reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 4_096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } };
+      await writeFile(join(dir, "models.json"), JSON.stringify(models));
+      await writeFile(join(dir, "settings.json"), JSON.stringify({ defaultProvider: "tau-fake", defaultModel: "fake-1" }));
+      await mkdir(join(dir, ".tau"));
+      await writeFile(join(dir, ".tau", "config.json"), JSON.stringify({ temperature: 0.2, maxTokens: 1234 }));
+      const { lifecycle } = makeLifecycle({ agentDir: dir });
+      const create = (lifecycle as unknown as { create: (options: unknown) => Promise<{ session: any }> }).create;
+      const { session } = await create({ cwd: dir, agentDir: dir, sessionManager: SessionManager.inMemory(dir) });
+
+      await session.prompt("hello");
+      expect(model.bodies.at(-1)).toMatchObject({ model: "fake-1", temperature: 0.2, max_completion_tokens: 1234 });
+
+      // Pi rebuilds its settings from the files on every reload.
+      await session.reload();
+      await writeFile(join(dir, ".tau", "config.json"), JSON.stringify({ temperature: 0.7 }));
+      await session.prompt("again");
+      // Cleared, the limit is the model's own again.
+      expect(model.bodies.at(-1)).toMatchObject({ temperature: 0.7, max_completion_tokens: 4096 });
+      session.dispose();
+    } finally {
+      await model.close();
       await rm(dir, { recursive: true, force: true });
     }
   });
