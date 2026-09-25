@@ -39,6 +39,7 @@ import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import { UnavailableThreadBackend } from "./unavailable-thread-backend.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
+import { withConfiguredSampling } from "./configured-sampling.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
 
@@ -153,17 +154,6 @@ export class ThreadRuntimeLifecycle {
 
     const settingsStartedAt = performance.now();
     const settingsManager = SettingsManager.create(cwd, agentDir);
-    try {
-      const config = defaultHostConfigManager.readSync(cwd);
-      if (config.temperature !== undefined || config.maxTokens !== undefined) {
-        settingsManager.applyOverrides({
-          ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
-          ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
-        } as unknown as Parameters<typeof settingsManager.applyOverrides>[0]);
-      }
-    } catch {
-      // ignore
-    }
     const parentThreadId = parentThreadIdFromEntries(sessionManager.getEntries());
     const extensions = this.port.runtimeExtensions(settingsManager, { sessionId: sessionManager.getSessionId(), cwd, ...(parentThreadId ? { parentThreadId } : {}) });
     if (extensions.some((extension) => extension.shellCommandPrefix)) {
@@ -210,6 +200,9 @@ export class ThreadRuntimeLifecycle {
 
     const sessionStartedAt = performance.now();
     const created = await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent });
+    // Pi's settings know neither key; its providers read them from the stream options.
+    const agent = created.session.agent;
+    agent.streamFunction = withConfiguredSampling(agent.streamFunction, () => defaultHostConfigManager.read(cwd));
     this.port.logRuntimePhase("session", sessionStartedAt, reason, cwd);
     this.port.logRuntimePhase("total", totalStartedAt, reason, cwd);
     if (ownsMeasurement) this.port.lifecycleMetrics.end();
