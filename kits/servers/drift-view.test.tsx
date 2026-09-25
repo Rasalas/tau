@@ -45,19 +45,19 @@ describe("server drift gate", () => {
     registry.activate(servers);
     const control = registry.getComposerControls().find((entry) => entry.id === "servers.drift-refresh")!;
     const gate = registry.getComposerGates().find((entry) => entry.id === "servers.drift")!;
-    const draft = { cwd: CWD, messages: [] } as unknown as HostSnapshot;
-    const { rerender } = render(<control.Component snapshot={draft} />);
+    const draft = { activeThread: () => ({ cwd: CWD, draftPending: false }) } as never;
+    const { rerender } = render(<control.Component actions={draft} />);
     await flush();
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "check-drift", { cwd: CWD, targetId: "sftp-site-1" });
     // The colleague's change the check found makes the gate ask.
     expect(gate.check(gateContext())).toBe(true);
-    rerender(<control.Component snapshot={{ ...draft }} />);
+    rerender(<control.Component actions={{ activeThread: () => ({ cwd: CWD, draftPending: true }) } as never} />);
     await flush();
     expect(invoke.mock.calls.filter(([, command]) => command === "check-drift")).toHaveLength(1);
-    // A thread with messages checks nothing.
+    // A thread that exists checks nothing.
     cleanup();
-    render(<control.Component snapshot={{ cwd: "/work/other", messages: [{ id: "m1" }] } as unknown as HostSnapshot} />);
+    render(<control.Component actions={{ activeThread: () => ({ sessionId: "s1", cwd: "/work/other", draftPending: false }) } as never} />);
     await flush();
     expect(invoke.mock.calls.filter(([, command]) => command === "check-drift")).toHaveLength(1);
   });
@@ -72,6 +72,8 @@ describe("server drift gate", () => {
     await flush();
     expect(gate.check(gateContext())).toBe(true);
     expect(gate.check(gateContext([{ id: "m1" }]))).toBe(false);
+    // A new thread's draft carries the messages of the thread it was opened from.
+    expect(gate.check({ ...gateContext([{ id: "m1" }]), newThread: true })).toBe(true);
     expect(gate.check({ ...gateContext(), action: "model" })).toBe(false);
 
     const proceed = vi.fn();

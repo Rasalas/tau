@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { GitBranch, GitMerge, RefreshCw } from "lucide-react";
 import {
   DiffView, Empty, READ_ONLY_REASON, Spinner, errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed,
-  type ComposerGateContext, type ComposerGateProps, type DesktopExtensionContext, type HostSnapshot, type UiFileDiff,
+  type ComposerGateContext, type ComposerGateProps, type DesktopExtensionContext, type UiFileDiff, type WorkbenchActions,
 } from "tau";
 import {
   DRIFT_EVENT, decodeDriftState, undecidedDrift,
@@ -114,11 +114,12 @@ function ago(iso: string): string {
 /** Whether the first prompt of a thread should wait for a word about drift. */
 /** Renders nothing: a new thread's draft in a server project checks the server again for its gate. */
 export function createDriftRefresh(feed: DriftFeed) {
-  return function DriftRefresh({ snapshot }: { snapshot?: HostSnapshot }) {
-    const cwd = snapshot?.cwd;
-    const draft = Boolean(cwd) && (snapshot?.messages.length ?? 0) === 0 && !snapshot?.olderCursor;
-    const state = useDrift(feed, draft ? cwd : undefined);
-    useEffect(() => { if (draft && cwd && state) feed.refresh(cwd); }, [feed, draft, cwd, state]);
+  return function DriftRefresh({ actions }: { actions?: Pick<WorkbenchActions, "activeThread"> }) {
+    // A new thread's draft has no id yet; the composer's snapshot is still the thread it came from.
+    const active = actions?.activeThread();
+    const cwd = active && !active.sessionId ? active.cwd : undefined;
+    const state = useDrift(feed, cwd);
+    useEffect(() => { if (cwd && state) feed.refresh(cwd); }, [feed, cwd, state]);
     return null;
   };
 }
@@ -126,7 +127,9 @@ export function createDriftRefresh(feed: DriftFeed) {
 export function driftGateAsks(feed: DriftFeed, context: ComposerGateContext): boolean {
   const snapshot = context.snapshot;
   if (context.action !== "prompt" || !snapshot?.cwd) return false;
-  if (snapshot.messages.length > 0 || snapshot.olderCursor) return false;
+  // A new thread's draft still carries the messages of the thread it came from.
+  const first = context.newThread ?? (snapshot.messages.length === 0 && !snapshot.olderCursor);
+  if (!first) return false;
   if (!hostCommandAllowed(SERVERS_EXTENSION_ID, "import-drift")) return false;
   const undecided = undecidedDrift(feed.ensure(snapshot.cwd));
   return undecided.files > 0 || undecided.imports.length > 0;
