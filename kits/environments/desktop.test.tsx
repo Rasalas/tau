@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveredHost, EnvironmentPairResult, HostReadiness, HostResources, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
-import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachinesRailSection, createShownMachine } from "./rail.js";
@@ -47,6 +49,12 @@ function fakeEnvironments(initial: UiEnvironments) {
   } satisfies PlatformEnvironments;
   const set = (next: UiEnvironments) => { snapshot = next; act(() => listeners.forEach((listener) => listener())); };
   return { environments, set };
+}
+
+/** The providers a settings row needs; `client` holds the config levels it reads and writes. */
+function withSettings(node: ReactElement, client?: unknown) {
+  const { preferences } = createKitHarness();
+  return <HostClientProvider client={client as never}><RendererServicesProvider services={{ preferences }}>{node}</RendererServicesProvider></HostClientProvider>;
 }
 
 function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
@@ -204,7 +212,7 @@ describe("Settings → Machines", () => {
     let finish: (value: Awaited<ReturnType<PlatformEnvironments["pair"]>>) => void = () => undefined;
     environments.pair.mockImplementation(() => new Promise<EnvironmentPairResult>((resolve) => { finish = resolve; }));
     const Page = createMachinesPage(environments);
-    render(<Page />);
+    render(withSettings(<Page />));
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local:7788" } });
     fireEvent.click(screen.getByRole("button", { name: "Add machine" }));
     expect(environments.pair).toHaveBeenCalledWith({ text: "studio.local:7788" });
@@ -218,7 +226,7 @@ describe("Settings → Machines", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
     environments.pair.mockResolvedValue({ state: "denied" });
     const Page = createMachinesPage(environments);
-    render(<Page />);
+    render(withSettings(<Page />));
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
     expect(screen.getByRole("status").textContent).toMatch(/declined/u);
@@ -231,7 +239,7 @@ describe("Settings → Machines", () => {
     });
     environments.discover.mockResolvedValue({ serviceType: "_tau-test._tcp", hosts: [host("attic-id", "Attic"), host("studio", "Studio"), host("laptop", "Laptop", { self: true })] });
     const Page = createMachinesPage(environments);
-    render(<Page />);
+    render(withSettings(<Page />));
     // Nothing is looked for until asked: looking is what makes macOS ask about the local network.
     expect(environments.discover).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Find Machines" })); });
@@ -245,7 +253,7 @@ describe("Settings → Machines", () => {
   it("keeps the choice to show the last machine again at start", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
     const Page = createMachinesPage(environments);
-    render(<Page />);
+    render(withSettings(<Page />));
     fireEvent.click(screen.getByRole("switch", { name: "Show the last machine again" }));
     expect(environments.setPreferences).toHaveBeenCalledWith({ reopenShown: true });
   });
@@ -253,7 +261,7 @@ describe("Settings → Machines", () => {
   it("removes a machine after asking", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Page = createMachinesPage(environments);
-    render(<Page />);
+    render(withSettings(<Page />));
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1)!);
     expect(environments.remove).toHaveBeenCalledWith("studio");
@@ -280,7 +288,7 @@ describe("Settings → Machines: this computer's agents", () => {
     const setAgents = vi.fn(() => new Promise<{ state: "on" }>((resolve) => { finish = resolve; }));
     const { host, emit } = agentsHost([]);
     const Page = createMachinesPage({ ...environments, setAgents }, host);
-    render(<Page />);
+    render(withSettings(<Page />));
     await act(async () => undefined);
     const toggle = screen.getByRole("switch", { name: "This computer's agents may work on studio" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
@@ -301,7 +309,7 @@ describe("Settings → Machines: this computer's agents", () => {
     const setAgents = vi.fn(async () => ({ state: "off" as const }));
     const { host } = agentsHost([{ id: "studio", name: "studio", status: "refused", detail: "revoked there" }]);
     const Page = createMachinesPage({ ...environments, setAgents }, host);
-    render(<Page />);
+    render(withSettings(<Page />));
     await act(async () => undefined);
     expect(screen.getByText(/refused: revoked there/u)).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("switch", { name: "This computer's agents may work on studio" })); });
@@ -313,7 +321,7 @@ describe("Settings → Machines: this computer's agents", () => {
     environments.pair.mockResolvedValue({ state: "added", environment: studio, agents: { added: false, message: "studio runs a Tau that pairs no agents." } });
     const { host } = agentsHost([]);
     const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
-    render(<Page />);
+    render(withSettings(<Page />));
     await act(async () => undefined);
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
@@ -347,7 +355,7 @@ describe("Settings → Machines: this computer's agents", () => {
       { id: "attic", name: "attic", status: "refused", detail: "revoked" },
     ], { resources, readiness });
     const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
-    render(<Page />);
+    render(withSettings(<Page />));
     await act(async () => undefined);
     const studioHealth = within(screen.getByRole("group", { name: "How studio is doing" }));
     expect(studioHealth.getByText("2 cores · CPU 14 % · 5.2 GB of 8.0 GB free · 1 turn running")).toBeTruthy();
@@ -373,7 +381,7 @@ describe("Settings → Machines: this computer's agents", () => {
       readiness: () => { throw new Error("readiness: unknown method"); },
     });
     const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
-    render(<Page />);
+    render(withSettings(<Page />));
     await act(async () => undefined);
     const health = within(screen.getByRole("group", { name: "How studio is doing" }));
     expect(health.getByText("Load unknown: rex is offline.")).toBeTruthy();
@@ -384,7 +392,7 @@ describe("Settings → Machines: this computer's agents", () => {
     const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
     const { host } = agentsHost([]);
     const Page = createMachinesPage({ ...environments, shownElsewhere: "studio", setAgents: vi.fn() }, host);
-    render(<Page />);
+    render(withSettings(<Page />));
     await act(async () => undefined);
     expect(screen.queryByRole("switch", { name: /agents/u })).toBeNull();
     expect(host.invoke).not.toHaveBeenCalled();
@@ -493,5 +501,140 @@ describe("Run on for a thread nothing was sent in", () => {
     const Control = createRunOnControl(environments);
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
     expect(screen.getByRole("button", { name: "Run on laptop" })).toBeTruthy();
+  });
+});
+
+describe("Run on: Automatic", () => {
+  const luna = { provider: "openai-codex", id: "gpt-5.6-luna" };
+  const withApi = machine("studio", { projects: [{ name: "api", lastOpenedAt: 1, workspaceId: "ws-api" }] });
+  const answer = { machine: "studio", reason: "studio has the most room: 45 (weight 50 · 2 cores · CPU 10 % · 50 % memory free); this computer 40.", machines: [] };
+  const chooser = (reply: unknown = answer) => ({ invoke: vi.fn(async () => reply), onEvent: vi.fn(() => () => undefined) });
+  const draft = { draftPending: true, cwd: "/work/api", backendKind: "pi", model: luna };
+  let storage = createMemoryStorage();
+  afterEach(() => { autoRunOn.set(false); setClientStorage(undefined); });
+  const useStorage = () => { storage = createMemoryStorage(); setClientStorage(storage); };
+
+  it("is chosen in the chip, stays for the next drafts, and says where the thread would go now", async () => {
+    useStorage();
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, withApi], secureStorage: true });
+    const host = chooser();
+    const Control = createRunOnControl(environments, host);
+    render(<Control actions={fakeActions({ activeThread: () => draft })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Automatic/u }));
+    expect(storage.get(RUN_ON_KEY)).toBe("auto");
+    const chip = screen.getByRole("button", { name: "Run on Automatic" });
+    await vi.waitFor(() => expect(chip.getAttribute("data-tooltip")).toMatch(/\nNow: studio\. studio has the most room: 45/u));
+    expect(host.invoke).toHaveBeenCalledWith("choose-machine", { purpose: "thread", cwd: "/work/api", backend: "pi", model: "openai-codex/gpt-5.6-luna", machines: ["studio"] });
+    // Picking a machine ends it.
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitem", { name: /laptop/u }));
+    expect(storage.get(RUN_ON_KEY)).toBeNull();
+    expect(screen.getByRole("button", { name: "Run on laptop" })).toBeTruthy();
+  });
+
+  it("is not offered while the window shows another machine, whose host does not choose for this one", () => {
+    useStorage();
+    const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, withApi], secureStorage: true });
+    const Control = createRunOnControl({ ...environments, shownElsewhere: "studio" }, chooser());
+    render(<Control actions={fakeActions({ activeThread: () => draft })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on studio" }));
+    expect(screen.queryByRole("menuitem", { name: /Automatic/u })).toBeNull();
+  });
+
+  const claim = (patch: Record<string, unknown> = {}) => ({
+    prompt: "Fix the parser", projectPath: "/work/api", workspaceId: "ws-here", preparing: vi.fn(), alternate: false, model: luna, runtime: "pi", attachments: 0, ...patch,
+  });
+
+  it("chooses when the first prompt is sent, and carries it to the machine chosen, which sends it", async () => {
+    useStorage();
+    autoRunOn.set(true);
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, withApi], secureStorage: true });
+    const host = chooser();
+    const hook = createAutoRunOnHook(environments, host);
+    const event = claim();
+    expect(await hook.claimNewThread!(event, fakeActions())).toBe(true);
+    expect(event.preparing).toHaveBeenCalledWith("Choosing a machine…");
+    expect(environments.open).toHaveBeenCalledWith("studio", { newThread: { draft: "Fix the parser", send: true, workspaceId: "ws-api", model: luna } });
+  });
+
+  it("leaves the prompt here when this computer is chosen, and when it cannot go", async () => {
+    useStorage();
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, withApi], secureStorage: true });
+    const notify = vi.fn();
+    // Not chosen: nothing is asked.
+    const idle = chooser();
+    expect(await createAutoRunOnHook(environments, idle).claimNewThread!(claim(), fakeActions({ notify }))).toBe(false);
+    expect(idle.invoke).not.toHaveBeenCalled();
+    autoRunOn.set(true);
+    expect(await createAutoRunOnHook(environments, chooser({ ...answer, machine: null })).claimNewThread!(claim(), fakeActions({ notify }))).toBe(false);
+    // No other machine has the project.
+    const none = chooser();
+    expect(await createAutoRunOnHook(environments, none).claimNewThread!(claim({ projectPath: "/work/web" }), fakeActions({ notify }))).toBe(false);
+    expect(none.invoke).not.toHaveBeenCalled();
+    expect(await createAutoRunOnHook(environments, chooser()).claimNewThread!(claim({ attachments: 1 }), fakeActions({ notify }))).toBe(false);
+    expect(notify).toHaveBeenLastCalledWith("Attachments stay on this computer, so Automatic starts this thread here.");
+    environments.open.mockRejectedValueOnce(new Error("studio is not connected"));
+    expect(await createAutoRunOnHook(environments, chooser()).claimNewThread!(claim(), fakeActions({ notify }))).toBe(false);
+    expect(notify).toHaveBeenLastCalledWith("Could not move to the chosen machine (studio is not connected); this thread starts here.");
+    expect(environments.open).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends an arriving prompt as the new thread's first, on the model it had", async () => {
+    let pending = false;
+    const setModel = vi.fn(async () => true);
+    const submitPrompt = vi.fn(async () => true);
+    const setComposerDraft = vi.fn();
+    const actions = fakeActions({ newSession: vi.fn(() => { pending = true; }), activeThread: () => pending ? { draftPending: true, workspaceId: "ws-api" } : undefined, setModel, submitPrompt, setComposerDraft });
+    expect(await followArrival({ newThread: { draft: "Fix the parser", workspaceId: "ws-api", send: true, model: luna } }, { actions, wait: async () => undefined })).toBe(true);
+    expect(setModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-luna");
+    expect(submitPrompt).toHaveBeenCalledWith("Fix the parser");
+    expect(setComposerDraft).not.toHaveBeenCalled();
+    expect(readPendingArrival(JSON.stringify({ machine: "studio", target: { newThread: { draft: "x", send: true, model: luna } } }))?.target).toEqual({ newThread: { draft: "x", send: true, model: luna } });
+  });
+
+  it("keeps an arriving prompt in the composer when it could not be sent", async () => {
+    let text = "";
+    const notify = vi.fn();
+    const actions = fakeActions({
+      activeThread: () => ({ draftPending: true }),
+      submitPrompt: vi.fn(async () => false),
+      setComposerDraft: vi.fn((value: string) => { text = value; }),
+      composerDraft: () => text,
+      notify,
+    });
+    expect(await followArrival({ newThread: { draft: "Fix the parser", send: true } }, { actions, wait: async () => undefined })).toBe(true);
+    expect(text).toBe("Fix the parser");
+    expect(notify).toHaveBeenCalledWith("The prompt did not go out here; it waits in the composer.");
+  });
+});
+
+describe("Settings → Machines → Automatic", () => {
+  it("weighs this computer and each machine its agents reach, 20 and 50 unless set", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+    const host = {
+      invoke: vi.fn(async (command: string) => (command === "agents" ? { available: true, machines: [{ id: "studio", name: "studio", status: "connected" }] } : new Promise(() => undefined))),
+      onEvent: vi.fn(() => () => undefined),
+    };
+    let values: Record<string, string> = { "tau.environments.weights": JSON.stringify({ studio: 70 }) };
+    const updateConfig = vi.fn(async (patch: { values?: Record<string, string> }) => { values = { ...values, ...patch.values }; return { values }; });
+    const client = { hasCapability: () => true, isReadOnly: () => false, onConnectionState: () => () => undefined, getConfigLayers: async () => ({ host: { values } }), updateConfig, clearConfig: vi.fn() };
+    const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
+    render(withSettings(<Page />, client));
+    await vi.waitFor(() => expect((screen.getByRole("spinbutton", { name: "Weight of studio" }) as HTMLInputElement).value).toBe("70"));
+    const here = screen.getByRole("spinbutton", { name: "Weight of laptop" }) as HTMLInputElement;
+    expect(here.value).toBe("20");
+    // attic's agents are not let in, so it cannot be measured.
+    expect(screen.queryByRole("spinbutton", { name: "Weight of attic" })).toBeNull();
+    fireEvent.change(here, { target: { value: "0" } });
+    fireEvent.blur(here);
+    await vi.waitFor(() => expect(updateConfig).toHaveBeenCalled());
+    expect(JSON.stringify(updateConfig.mock.calls[0])).toContain(JSON.stringify(JSON.stringify({ studio: 70, laptop: 0 })));
+    await vi.waitFor(() => expect(screen.getByText("Never chosen automatically.")).toBeTruthy());
+    // Out of range goes back.
+    const other = screen.getByRole("spinbutton", { name: "Weight of studio" }) as HTMLInputElement;
+    fireEvent.change(other, { target: { value: "140" } });
+    fireEvent.blur(other);
+    expect(other.value).toBe("70");
   });
 });

@@ -71,9 +71,18 @@ export interface ArrivalPorts {
   shown?(): boolean;
 }
 
+async function settled<T, F>(run: () => T | Promise<T>, failed: F): Promise<T | F> {
+  try {
+    return await run();
+  } catch {
+    return failed;
+  }
+}
+
 /**
  * Opens what the page was sent to this machine for. The page may still be
- * starting, so each step is tried again until the workbench has it.
+ * starting, so each step is tried again until the workbench has it. A draft
+ * marked `send` goes out as the new thread's first prompt.
  */
 export async function followArrival(target: EnvironmentTarget, ports: ArrivalPorts): Promise<boolean> {
   // A machine seen for the first time may show its first-start steps before the workbench.
@@ -88,11 +97,19 @@ export async function followArrival(target: EnvironmentTarget, ports: ArrivalPor
     }
     return false;
   }
-  const { draft, workspaceId } = target.newThread;
+  const { draft, workspaceId, model } = target.newThread;
+  let send = target.newThread.send === true && Boolean(draft?.trim()) && actions.submitPrompt !== undefined;
   for (let attempt = 0; attempt < tries; attempt += 1) {
     if (away()) return false;
     const active = actions.activeThread();
     if (active?.draftPending && (!workspaceId || active.workspaceId === workspaceId)) {
+      if (send && draft) {
+        send = false;
+        const picked = model && actions.setModel ? await settled<boolean | void, false>(() => actions.setModel!(model.provider, model.id), false) : true;
+        if (picked !== false && await settled(() => actions.submitPrompt!(draft), false)) return true;
+        // Not sent here: the text waits in the composer instead of being lost.
+        actions.notify(picked === false ? `${model!.provider}/${model!.id} is not here; the prompt waits in the composer.` : "The prompt did not go out here; it waits in the composer.");
+      }
       // The draft's composer may mount after the draft and restore an empty text; set it until it holds.
       if (!draft || !actions.setComposerDraft || actions.composerDraft() === draft) {
         actions.focusComposer();
@@ -119,7 +136,7 @@ export interface PendingArrival {
 export function readPendingArrival(raw: string | null | undefined): PendingArrival | undefined {
   if (!raw) return undefined;
   try {
-    const value = JSON.parse(raw) as { machine?: unknown; target?: { thread?: { path?: unknown }; newThread?: { draft?: unknown; workspaceId?: unknown } } };
+    const value = JSON.parse(raw) as { machine?: unknown; target?: { thread?: { path?: unknown }; newThread?: { draft?: unknown; workspaceId?: unknown; send?: unknown; model?: { provider?: unknown; id?: unknown } } } };
     if (typeof value.machine !== "string" || !value.target) return undefined;
     const { thread, newThread } = value.target;
     if (thread && typeof thread.path === "string") return { machine: value.machine, target: { thread: { path: thread.path } } };
@@ -130,6 +147,8 @@ export function readPendingArrival(raw: string | null | undefined): PendingArriv
         newThread: {
           ...(typeof newThread.draft === "string" ? { draft: newThread.draft } : {}),
           ...(typeof newThread.workspaceId === "string" ? { workspaceId: newThread.workspaceId } : {}),
+          ...(newThread.send === true ? { send: true } : {}),
+          ...(typeof newThread.model?.provider === "string" && typeof newThread.model.id === "string" ? { model: { provider: newThread.model.provider, id: newThread.model.id } } : {}),
         },
       },
     };

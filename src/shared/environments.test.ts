@@ -116,6 +116,9 @@ describe("an arrival target", () => {
   it("is a thread by path or a new thread's draft, and nothing else", () => {
     expect(decodeEnvironmentTarget({ thread: { path: "/s/a.jsonl" } })).toEqual({ thread: { path: "/s/a.jsonl" } });
     expect(decodeEnvironmentTarget({ newThread: { draft: "hi", workspaceId: "ws" } })).toEqual({ newThread: { draft: "hi", workspaceId: "ws" } });
+    expect(decodeEnvironmentTarget({ newThread: { draft: "hi", send: true, model: { provider: "p", id: "m" } } })).toEqual({ newThread: { draft: "hi", send: true, model: { provider: "p", id: "m" } } });
+    // Nothing to send without a draft; a model needs both halves.
+    expect(decodeEnvironmentTarget({ newThread: { draft: " ", send: true, model: { provider: "p" } } })).toEqual({ newThread: { draft: " " } });
     expect(decodeEnvironmentTarget({ thread: { path: 3 } })).toBeUndefined();
     expect(decodeEnvironmentTarget("x")).toBeUndefined();
   });
