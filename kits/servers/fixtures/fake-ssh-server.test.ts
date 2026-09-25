@@ -154,3 +154,48 @@ describe.skipIf(!hasSsh)("the fake SSH server with a one-time code", () => {
     expect(result.code).toBe(255);
   });
 });
+
+describe.skipIf(!hasSsh || process.platform !== "darwin" || !existsSync("/usr/bin/sandbox-exec"))("the fake SSH server in its sandbox", () => {
+  let dir: string;
+  let outside: string;
+  let server: Started;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "tau-fake-ssh-jail-"));
+    outside = mkdtempSync(join(tmpdir(), "tau-fake-ssh-outside-"));
+    server = await startFakeSshServer({ dir, trustHostKey: true, sandbox: true });
+  });
+
+  afterAll(async () => {
+    await server?.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("writes below the fake HOME and root, and nowhere else", async () => {
+    expect(server.sandbox).toBe(true);
+    const inside = await ssh(dir, ["-o", "BatchMode=yes", "fake", `echo a > tmp/a.txt && echo b > ${paths(dir).root}/b.txt && cat tmp/a.txt`]);
+    expect(inside.code, inside.stderr).toBe(0);
+    expect(inside.stdout).toBe("a\n");
+    const escape = await ssh(dir, ["-o", "BatchMode=yes", "fake", `echo x > ${outside}/x.txt`]);
+    expect(escape.code).not.toBe(0);
+    expect(escape.stderr).toMatch(/not permitted/iu);
+    expect(existsSync(join(outside, "x.txt"))).toBe(false);
+  });
+
+  it("reaches loopback but no other host", async () => {
+    const listener: Server = createServer((socket) => socket.end("hi\n"));
+    await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+    const port = (listener.address() as { port: number }).port;
+    try {
+      const local = await ssh(dir, ["-o", "BatchMode=yes", "fake", `/usr/bin/nc -w 2 127.0.0.1 ${port} </dev/null`]);
+      expect(local.stdout).toBe("hi\n");
+      // TEST-NET: without the sandbox this would wait for a timeout, inside it is refused at once.
+      const remote = await ssh(dir, ["-o", "BatchMode=yes", "fake", "/usr/bin/nc -v -z -w 2 192.0.2.1 9"]);
+      expect(remote.code).not.toBe(0);
+      expect(remote.stderr).toMatch(/not permitted/iu);
+    } finally {
+      listener.close();
+    }
+  });
+});
