@@ -17,10 +17,12 @@ import {
   handoffRequest,
   mergeBackRequest,
   messagesAfter,
+  modelName,
+  summaryBody,
+  titleOf,
+  whereFrom,
   withoutBlocks,
   writeSummary,
-  type ConversationMessage,
-  type WrittenSummary,
 } from "./handoff.js";
 import {
   HANDOFF_EXTENSION_ID,
@@ -28,14 +30,17 @@ import {
   LINEAGE_EVENT,
   MERGE_BACK_TAG,
   NATIVE_FORK_RUNTIMES,
+  REMOTE_MERGE_BACK_COMMAND,
   formatBlock,
   type CreateTransferResult,
   type HandoffStrategy,
   type LineageLink,
   type LineageState,
   type PrepareMergeBackResult,
+  type RemoteContinuation,
   type ResolveTransferResult,
 } from "./protocol.js";
+import { RemoteContinuations, type RemoteRecord } from "./remote.js";
 
 const STATE_VERSION = 1;
 /** A fork nobody sent a first prompt to is forgotten after a week. */
@@ -76,6 +81,8 @@ interface ThreadRecord {
   mergedAt?: number;
   /** A merge-back in a parent's composer, committed once a prompt carries it there. */
   pendingMerge?: { parentThreadId: string; through: string };
+  /** The thread continues on another machine too. */
+  remote?: RemoteRecord;
 }
 
 interface Stored extends Record<string, unknown> {
@@ -112,27 +119,6 @@ function decode(value: unknown): Stored {
   return { transfers, threads };
 }
 
-function modelName(model: { provider: string; id: string } | undefined): string | undefined {
-  return model ? `${model.provider}/${model.id}` : undefined;
-}
-
-function titleOf(thread: HostThread, messages: readonly ConversationMessage[]): string {
-  const named = thread.sessionName()?.trim();
-  if (named) return named;
-  const first = messages.find((message) => message.role === "user" && message.text.trim());
-  const words = first ? withoutBlocks(first.text).replace(/\s+/gu, " ").trim() : "";
-  return words ? (words.length > 60 ? `${words.slice(0, 57)}…` : words) : "Untitled thread";
-}
-
-function whereFrom(title: string, backend: string, model: string | undefined): string {
-  return `“${title}” (${[backend, model].filter(Boolean).join(" · ")})`;
-}
-
-function summaryBody(written: WrittenSummary): string {
-  if (!written.fallback) return written.text;
-  return `_No summary was written (${written.fallback}); these are the latest turns._\n\n${written.text}`;
-}
-
 /**
  * Handoff Kit's host half. It keeps the links between a thread and the forks
  * it was continued in, writes the handoff and merge-back summaries on a small
@@ -144,7 +130,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
   return {
     id: HANDOFF_EXTENSION_ID,
     name: "Handoff",
-    permissions: ["sessions"],
+    permissions: ["sessions", "machines"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const file = join(services.stateDir, "lineage.json");
@@ -171,6 +157,17 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
             ...(thread.mergedAt ? { mergedAt: thread.mergedAt } : {}),
           }]
           : []),
+        remotes: Object.entries(state.threads).flatMap(([threadId, thread]): RemoteContinuation[] => thread.remote
+          ? [{
+            threadId,
+            link: thread.remote.link,
+            machine: thread.remote.machine,
+            machineName: thread.remote.machineName,
+            strategy: thread.remote.strategy,
+            createdAt: thread.remote.createdAt,
+            ...(thread.remote.broughtAt ? { broughtAt: thread.remote.broughtAt } : {}),
+          }]
+          : []),
       });
       const changed = () => {
         persist();
@@ -190,6 +187,36 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
 
       context.registerCommand("state", () => lineage(), { access: "read" });
 
+      const remote = new RemoteContinuations({
+        context,
+        now,
+        openThread,
+        get: (threadId) => state.threads[threadId]?.remote,
+        set: (threadId, value) => {
+          const { remote: _old, ...rest } = state.threads[threadId] ?? { files: [] };
+          state.threads[threadId] = { ...rest, files: rest.files ?? [], ...(value ? { remote: value } : {}) };
+          changed();
+        },
+      });
+      context.registerCommand("continue-targets", (input) => (record(input).refresh === true ? remote.refresh(true) : remote.targets()), { access: "read" });
+      context.registerCommand("continue-on", (input) => {
+        const prompt = record(input).prompt;
+        return remote.continueOn({ threadId: required(input, "threadId"), machine: required(input, "machine"), ...(typeof prompt === "string" ? { prompt } : {}) });
+      }, { long: true, audit: { label: "continued a thread on another machine" } });
+      context.registerCommand("bring-back-remote", (input) => remote.bringBack(required(input, "threadId")), { long: true, audit: { label: "brought a thread back from another machine" } });
+      context.registerCommand("settle-remote", (input) => {
+        const how = record(input).how;
+        if (how !== "apply" && how !== "discard") throw new HostCommandError('how is "apply" or "discard".');
+        return remote.settle(required(input, "threadId"), how);
+      }, { long: true, audit: { label: "settled a thread's work from another machine" } });
+      // There: what the machine a thread came from asks when it brings the thread back.
+      context.registerCommand(REMOTE_MERGE_BACK_COMMAND, (input) => {
+        const raw = record(input);
+        const files = Array.isArray(raw.files) ? raw.files.filter((entry): entry is string => typeof entry === "string").slice(0, 200) : [];
+        const through = text(raw.through).trim();
+        return remote.mergeBackHere({ threadId: required(input, "threadId"), files, again: raw.again === true, ...(through ? { through } : {}) });
+      }, { audit: { label: "summarized a thread for the machine it came from", automatic: true } });
+
       context.registerCommand("create-transfer", async (input): Promise<CreateTransferResult> => {
         const target = required(input, "target");
         const thread = openThread(required(input, "threadId"));
@@ -201,7 +228,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         const transfer: Transfer = {
           id: newId(),
           sourceThreadId: thread.sessionId,
-          sourceTitle: titleOf(thread, messages),
+          sourceTitle: titleOf(thread.sessionName(), messages),
           sourceBackend: thread.backendKind,
           ...(thread.model ? { sourceModel: { provider: thread.model.provider, id: thread.model.id } } : {}),
           targetBackend: target,
@@ -281,7 +308,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
           throw new HostCommandError(known?.mergedThrough ? "Nothing new since it was last brought back." : "The thread has no answer to bring back yet.");
         }
         const files = known?.files ?? [];
-        const title = titleOf(thread, messages);
+        const title = titleOf(thread.sessionName(), messages);
         const source = whereFrom(title, thread.backendKind, modelName(thread.model));
         const model = await smallCompletionModel(services, thread.model);
         const written = await writeSummary(
@@ -304,7 +331,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
       // A prompt carrying a merge-back reached the parent: the threads brought back to it start after that point next time.
       context.registerCommand("commit-merge-back", (input) => {
         const parentThreadId = required(input, "parentThreadId");
-        let committed = false;
+        let committed = remote.commit(parentThreadId);
         for (const [threadId, thread] of Object.entries(state.threads)) {
           if (thread.pendingMerge?.parentThreadId !== parentThreadId) continue;
           const { pendingMerge, ...rest } = thread;
@@ -344,7 +371,9 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
           },
         }),
       ];
+      remote.open();
       return async () => {
+        remote.close();
         for (const dispose of disposers) dispose();
         await saving;
       };

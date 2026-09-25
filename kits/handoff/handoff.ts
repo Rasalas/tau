@@ -4,6 +4,8 @@ import { HANDOFF_TAG, MERGE_BACK_TAG } from "./protocol.js";
 /** A visible message as the kit reads it; `id` marks how far a merge-back reached. */
 export interface ConversationMessage {
   id?: string;
+  /** The session entry behind it, where the id is another one; a copied session keeps the entry ids. */
+  sourceEntryId?: string;
   role: string;
   text: string;
 }
@@ -74,8 +76,42 @@ export function conversationText(messages: readonly ConversationMessage[], maxCh
 /** The messages after the one a previous merge-back ended at; all of them when it is unknown. */
 export function messagesAfter<T extends ConversationMessage>(messages: readonly T[], through: string | undefined): T[] {
   if (!through) return [...messages];
-  const index = messages.findIndex((message) => message.id === through);
+  const index = messages.findIndex((message) => message.id === through || message.sourceEntryId === through);
   return index < 0 ? [...messages] : messages.slice(index + 1);
+}
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type: "text"; text: string } => Boolean(part) && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")
+    .map((part) => part.text)
+    .join("");
+}
+
+/**
+ * A Pi session's visible conversation, read from its entries: for a thread
+ * whose runtime is not open, where no transcript can be asked for.
+ */
+export function messagesFromEntries(entries: readonly unknown[]): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  for (const entry of entries) {
+    const value = entry as { type?: unknown; id?: unknown; message?: { role?: unknown; content?: unknown } };
+    const role = value?.type === "message" ? value.message?.role : undefined;
+    if (role !== "user" && role !== "assistant") continue;
+    messages.push({ ...(typeof value.id === "string" ? { id: value.id } : {}), role, text: contentText(value.message?.content) });
+  }
+  return messages;
+}
+
+/** The name the session was last given, from its `session_info` entries. */
+export function nameFromEntries(entries: readonly unknown[]): string | undefined {
+  let name: string | undefined;
+  for (const entry of entries) {
+    const value = entry as { type?: unknown; name?: unknown };
+    if (value?.type === "session_info" && typeof value.name === "string" && value.name.trim()) name = value.name.trim();
+  }
+  return name;
 }
 
 /** Workspace files an edit or a write touched, relative to `cwd` where they lie inside it. */
@@ -167,4 +203,26 @@ export async function writeSummary(
   } catch (error) {
     return { text: fallback(), fallback: error instanceof Error ? error.message : String(error) };
   }
+}
+
+export function modelName(model: { provider: string; id: string } | undefined): string | undefined {
+  return model ? `${model.provider}/${model.id}` : undefined;
+}
+
+/** The thread's name, else its first request shortened. */
+export function titleOf(name: string | undefined, messages: readonly ConversationMessage[]): string {
+  const named = name?.trim();
+  if (named) return named;
+  const first = messages.find((message) => message.role === "user" && message.text.trim());
+  const words = first ? withoutBlocks(first.text).replace(/\s+/gu, " ").trim() : "";
+  return words ? (words.length > 60 ? `${words.slice(0, 57)}…` : words) : "Untitled thread";
+}
+
+export function whereFrom(title: string, backend: string, model: string | undefined): string {
+  return `“${title}” (${[backend, model].filter(Boolean).join(" · ")})`;
+}
+
+export function summaryBody(written: WrittenSummary): string {
+  if (!written.fallback) return written.text;
+  return `_No summary was written (${written.fallback}); these are the latest turns._\n\n${written.text}`;
 }

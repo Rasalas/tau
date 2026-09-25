@@ -1,5 +1,6 @@
 import type { ThreadStore, UiRuntimeBackend } from "tau";
-import { EMPTY_LINEAGE, type LineageLink, type LineageState } from "./protocol.js";
+import type { RemoteThreadLink } from "../remote-work/protocol.js";
+import { EMPTY_LINEAGE, type ContinueTarget, type LineageLink, type LineageState, type RemoteContinuation } from "./protocol.js";
 
 /** A draft that continues another thread; the handoff is written when it is sent. */
 export interface DraftHandoff {
@@ -23,6 +24,10 @@ export interface HandoffView {
   drafts: Readonly<Record<string, DraftHandoff>>;
   /** A merge-back waiting for its parent to be on screen, to go into that composer. */
   mergeDraft?: { parentThreadId: string; text: string };
+  /** Machines a thread may continue on. */
+  targets: readonly ContinueTarget[];
+  /** Remote Work Kit's links of the threads that continue elsewhere, by link id. */
+  remoteLinks: Readonly<Record<string, RemoteThreadLink>>;
 }
 
 /** A continuation made a moment ago; the next new draft takes it. */
@@ -39,7 +44,7 @@ export function parseSaved(value: unknown): SavedHandoff | undefined {
  * plus the bookkeeping between a send and the thread it created.
  */
 export class HandoffStore {
-  private view: HandoffView = { lineage: EMPTY_LINEAGE, runtimes: [], drafts: {} };
+  private view: HandoffView = { lineage: EMPTY_LINEAGE, runtimes: [], drafts: {}, targets: [], remoteLinks: {} };
   private readonly listeners = new Set<() => void>();
   private armed: (SavedHandoff & { at: number }) | undefined;
   /** Transfers whose first prompt was accepted, oldest first, waiting for their thread's id. */
@@ -64,8 +69,30 @@ export class HandoffStore {
   }
 
   setLineage(value: unknown): void {
-    const links = value && typeof value === "object" && Array.isArray((value as LineageState).links) ? (value as LineageState).links : undefined;
-    if (links) this.update({ lineage: { links: links.filter((link): link is LineageLink => Boolean(link?.threadId && link.parentThreadId)) } });
+    const state = value && typeof value === "object" ? value as LineageState : undefined;
+    if (!Array.isArray(state?.links)) return;
+    const remotes = Array.isArray(state.remotes) ? state.remotes.filter((remote): remote is RemoteContinuation => Boolean(remote?.threadId && remote.link)) : [];
+    this.update({ lineage: { links: state.links.filter((link): link is LineageLink => Boolean(link?.threadId && link.parentThreadId)), remotes } });
+  }
+
+  remote(threadId: string | undefined): RemoteContinuation | undefined {
+    return threadId ? this.view.lineage.remotes?.find((entry) => entry.threadId === threadId) : undefined;
+  }
+
+  setTargets(value: unknown): void {
+    if (Array.isArray(value)) this.update({ targets: value.filter((target): target is ContinueTarget => typeof target?.id === "string" && typeof target.name === "string") });
+  }
+
+  /** Keeps a link only while a thread here continues through it. */
+  setRemoteLink(value: unknown): void {
+    const link = value && typeof value === "object" ? value as RemoteThreadLink : undefined;
+    if (typeof link?.id !== "string" || !this.view.lineage.remotes?.some((remote) => remote.link === link.id)) return;
+    this.update({ remoteLinks: { ...this.view.remoteLinks, [link.id]: link } });
+  }
+
+  /** Links of the lineage no event brought yet. */
+  missingLinks(): string[] {
+    return (this.view.lineage.remotes ?? []).map((remote) => remote.link).filter((id) => !this.view.remoteLinks[id]);
   }
 
   link(threadId: string | undefined): LineageLink | undefined {
@@ -137,7 +164,7 @@ export class HandoffStore {
     this.awaiting.length = 0;
     this.clearers.clear();
     this.threads = undefined;
-    this.view = { lineage: EMPTY_LINEAGE, runtimes: [], drafts: {} };
+    this.view = { lineage: EMPTY_LINEAGE, runtimes: [], drafts: {}, targets: [], remoteLinks: {} };
     for (const listener of [...this.listeners]) listener();
   }
 }
