@@ -24,7 +24,8 @@ export default defineConfig({
     setupFiles: ["./src/test-setup.ts"],
     // Several suites spawn their own bounded subprocess pools. Letting Vitest
     // occupy every core at the same time starves jsdom timers and makes the
-    // integration assertions depend on host load.
+    // integration assertions depend on host load. Fewer do not pay off on a
+    // two-CPU runner either: two workers took a fifth longer there than four.
     maxWorkers: 4,
     // A budget, not a performance assertion. The suites that spawn real `git`
     // or activate every kit need a couple of seconds each when nothing else
