@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readFile, readdir, statfs } from "node:fs/promises";
 import * as nodeOs from "node:os";
 import { dirname, join } from "node:path";
@@ -9,6 +9,7 @@ import type { HostMethodContext } from "./host-jobs.js";
 import {
   gitHasMergeTree,
   parseGitVersion,
+  READINESS_MODEL_IDS_MAX,
   type HostDisplayKind,
   type HostReadiness,
   type HostResources,
@@ -36,14 +37,71 @@ export interface HostResourceSamplerOptions {
   baselineMaxAgeMs?: number;
 }
 
+/** `ps`'s cumulative CPU time, `[[dd-]hh:]mm:ss[.cc]`, in ms. */
+export function parsePsTime(text: string): number | undefined {
+  const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/u.exec(text.trim());
+  if (!match) return undefined;
+  const [, days = "0", hours = "0", minutes = "0", seconds = "0"] = match;
+  return (((Number(days) * 24 + Number(hours)) * 60 + Number(minutes)) * 60 + Number(seconds)) * 1000;
+}
+
+/** CPU ms spent by `root` and every process below it, from `ps -A -o pid=,ppid=,time=`. */
+export function processTreeCpuMs(psOutput: string, root: number): number {
+  const children = new Map<number, number[]>();
+  const time = new Map<number, number>();
+  for (const line of psOutput.split("\n")) {
+    const [pid, ppid, cpu] = line.trim().split(/\s+/u);
+    if (!pid || !ppid || !cpu) continue;
+    time.set(Number(pid), parsePsTime(cpu) ?? 0);
+    children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), Number(pid)]);
+  }
+  let total = 0;
+  const seen = new Set<number>();
+  const stack = [root];
+  while (stack.length > 0) {
+    const pid = stack.pop()!;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    total += time.get(pid) ?? 0;
+    stack.push(...(children.get(pid) ?? []));
+  }
+  return total;
+}
+
+export interface TestResourcePorts {
+  /** CPU ms this host's process tree has used so far. */
+  treeCpuMs(): number;
+  now(): number;
+}
+
+const processTreePorts: TestResourcePorts = {
+  treeCpuMs: () => processTreeCpuMs(execFileSync("ps", ["-A", "-o", "pid=,ppid=,time="], { encoding: "utf8", timeout: 5_000 }), process.pid),
+  now: () => Date.now(),
+};
+
 /**
- * A test host that plays a smaller machine: `TAU_TEST_CPU_COUNT` keeps only
- * that many of the CPUs `os.cpus()` lists. Undefined without the variable.
+ * A test host that plays a smaller machine: `TAU_TEST_CPU_COUNT` cores whose
+ * only work is this host's own process tree, its terminals included. Load
+ * started there shows; the rest of this computer does not. Undefined without
+ * the variable.
  */
-export function testResourceOs(env: NodeJS.ProcessEnv = process.env, os: ResourceOs = nodeOs): ResourceOs | undefined {
+export function testResourceOs(env: NodeJS.ProcessEnv = process.env, os: ResourceOs = nodeOs, ports: TestResourcePorts = processTreePorts): ResourceOs | undefined {
   const count = Number(env.TAU_TEST_CPU_COUNT);
   if (!Number.isInteger(count) || count < 1) return undefined;
-  return { platform: () => os.platform(), cpus: () => os.cpus().slice(0, count), totalmem: () => os.totalmem(), freemem: () => os.freemem() };
+  // Counters only grow: a child that exits takes its CPU time with it, and a tree busier than `count` cores is full.
+  let last = { at: ports.now(), cpu: ports.treeCpuMs() };
+  let busy = 0;
+  let idle = 0;
+  const cpus = () => {
+    const next = { at: ports.now(), cpu: ports.treeCpuMs() };
+    const capacity = Math.max(0, next.at - last.at) * count;
+    const used = Math.min(capacity, Math.max(0, next.cpu - last.cpu));
+    busy += used;
+    idle += capacity - used;
+    last = next;
+    return Array.from({ length: count }, () => ({ times: { user: busy / count, nice: 0, sys: 0, idle: idle / count, irq: 0 } }));
+  };
+  return { platform: () => os.platform(), cpus, totalmem: () => os.totalmem(), freemem: () => os.freemem() };
 }
 
 /** The ticket's 5 s: long enough that one busy burst does not decide. */
@@ -227,7 +285,10 @@ export function runtimeReadiness(backend: UiRuntimeBackend, catalog: UiRuntimeCa
   if (catalog.status) return { ...base, state: catalog.status, ...note };
   if (backend.kind === "pi" && catalog.models.length === 0) return { ...base, state: "sign-in-required", note: "No model provider is signed in or has a key." };
   if (signedOut) return { ...base, ...signedOut };
-  return { ...base, state: "ready", ...(catalog.models.length > 0 ? { models: catalog.models.length } : {}), ...note };
+  const models = catalog.models.length > 0
+    ? { models: catalog.models.length, modelIds: catalog.models.slice(0, READINESS_MODEL_IDS_MAX).map((model) => `${model.provider}/${model.id}`) }
+    : {};
+  return { ...base, state: "ready", ...models, ...note };
 }
 
 /** `promise`'s value, or undefined once `ms` passed or it failed. */

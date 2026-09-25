@@ -34,9 +34,13 @@ export interface RuntimeReadiness {
   account?: string;
   /** Models a new thread may pick; absent where the runtime names them only once a thread runs. */
   models?: number;
+  /** Those models as `provider/id`, at most `READINESS_MODEL_IDS_MAX`; absent where `models` is. */
+  modelIds?: string[];
   /** Why it is not ready, in the runtime's words. */
   note?: string;
 }
+
+export const READINESS_MODEL_IDS_MAX = 1_000;
 
 /** `screen`: a desktop session. `invisible`: Xvfb. `none`: nothing a GUI program could open a window on. */
 export type HostDisplayKind = "screen" | "x11" | "wayland" | "invisible" | "none";
