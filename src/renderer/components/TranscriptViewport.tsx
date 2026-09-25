@@ -148,6 +148,8 @@ export interface TranscriptViewportProps {
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
   onEditMessage?: (message: UiMessage) => void;
+  /** Sends the prompt of a failed last answer again. */
+  onRetryMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
   /** The reader scrolls toward the start and is near it; the caller loads older turns. */
   onReachStart?: () => void;
@@ -169,6 +171,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   onCopyMessage,
   onForkMessage,
   onEditMessage,
+  onRetryMessage,
   onFocusComposer,
   onReachStart,
 }: TranscriptViewportProps) {
@@ -433,6 +436,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
           onCopyMessage={onCopyMessage}
           onForkMessage={onForkMessage}
           onEditMessage={onEditMessage}
+          onRetryMessage={onRetryMessage}
           onFocusComposer={onFocusComposer}
         />
         {liveStatus}

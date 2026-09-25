@@ -11,7 +11,8 @@ import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHost";
+import { ComposerHost, LiveStatus } from "./components/ComposerHost";
+import { retryPrompt, TurnErrorLine } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { QueuedMessages } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
@@ -826,7 +827,17 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
-  const turnError = pendingNewThread || running ? undefined : shell?.turnError;
+  // An answer that carries its error shows it in place; the line is for runtimes whose failure has no answer.
+  const failedAnswer = messages.at(-1)?.error !== undefined;
+  const turnError = pendingNewThread || running || failedAnswer ? undefined : shell?.turnError;
+  // Stable across deltas, like the callbacks above.
+  const latestMessages = useRef(messages);
+  latestMessages.current = messages;
+  const { submit } = composer;
+  const retry = useCallback((failed?: UiMessage) => {
+    const prompt = retryPrompt(latestMessages.current, failed);
+    if (prompt) void submit(prompt.text, prompt.attachments);
+  }, [submit]);
   // A provider limit replaces the failure line: it says when, and offers to continue.
   const limit = pendingNewThread || running ? undefined : shell?.limit;
   const queueHeld = shell?.queueHeld === true;
@@ -835,10 +846,10 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       ? <LiveStatus label={liveStatusLabel} />
       : showRunClock ? <LiveStatus startedAt={runStartedAt} />
       : limit && conversationSnapshot ? <Suspense fallback={null}><LazyLimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} /></Suspense>
-      : turnError ? <TurnErrorLine message={turnError} /> : undefined;
+      : turnError ? <TurnErrorLine message={turnError} onRetry={readOnly ? undefined : () => retry()} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
+  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     scrollRef={transcriptRef}
@@ -863,6 +874,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       // A Read-only device may not rewind or fork; the buttons are left out.
       onForkMessage={readOnly ? undefined : onForkMessage}
       onEditMessage={readOnly ? undefined : onEditMessage}
+      onRetryMessage={readOnly || limit ? undefined : retry}
       onReachStart={loadOlderOnReach}
     />}
   </TranscriptHistoryBoundary>;

@@ -328,3 +328,25 @@ describe("Message skill invocations", () => {
     expect(view.container.querySelector(".message-shell")?.className).toContain("excluded-from-context");
   });
 });
+
+describe("A failed answer", () => {
+  const failed = { id: "a1", role: "assistant" as const, text: "", timestamp: 0, error: "400: {\"message\":\"Unsupported parameter: temperature\",\"type\":\"invalid_request_error\"}" };
+
+  it("shows the provider's words where the answer would be, the full text on hover, and a retry", () => {
+    const onRetry = vi.fn();
+    render(<Message message={failed} onCopy={() => undefined} onRetry={onRetry} />);
+    const line = screen.getByText("400 · Unsupported parameter: temperature");
+    expect(line.getAttribute("title")).toBe(failed.error);
+    // Nothing to copy or fork in an answer that never came.
+    expect(screen.queryByRole("button", { name: /copy/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledWith(failed);
+  });
+
+  it("offers no retry where the transcript gives none", () => {
+    render(<Message message={{ ...failed, text: "Partial answer" }} />);
+    expect(screen.getByText("Partial answer")).toBeTruthy();
+    expect(screen.getByText("400 · Unsupported parameter: temperature")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+});
