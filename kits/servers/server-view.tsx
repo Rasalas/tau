@@ -5,13 +5,13 @@ import {
   type HostExtensionClient, type StageTabHandle, type UiFileDiff, type WorkbenchActions,
 } from "tau";
 import { DriftPanel, type DriftFeed } from "./drift-view.js";
-import { PendingList } from "./pending-list.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
 import { StatusDot, openTarget, useServersStatus, type TargetTabParams } from "./status-parts.js";
 import type { ServersStatusStore } from "./status-store.js";
+import { UploadPanel } from "./upload-panel.js";
 import { SYNC_PROGRESS_EVENT, SYNC_PROGRESS_TOPIC, type SyncProgress } from "./sync/protocol.js";
-import { SERVERS_SETTINGS_PAGE, type HistoryEntry, type ServerDiffSource, type ServerGitInfo, type ServerHistory, type TargetStatus } from "./view-protocol.js";
+import { SERVERS_SETTINGS_PAGE, type HistoryDeployment, type HistoryEntry, type ServerDiffSource, type ServerGitInfo, type ServerHistory, type TargetStatus } from "./view-protocol.js";
 
 /** Terminal Kit's `tau.terminal/run`, named here: a kit never imports another. */
 export const TERMINAL_RUN_SERVICE = "tau.terminal/run";
@@ -67,6 +67,18 @@ export function ServerGitLine({ git }: { git: ServerGitInfo | undefined }) {
   );
 }
 
+const DEPLOYMENT_STATUS: Record<HistoryDeployment["status"], string> = { uploaded: "not committed", verified: "checked", committed: "committed", "rolled-back": "rolled back" };
+
+export function historyTitle(entry: HistoryEntry, first: boolean): string {
+  if (entry.deployment) return entry.deployment.kind === "rollback" ? `Rollback ${entry.deployment.seq}` : `Deployment ${entry.deployment.seq}`;
+  if (entry.kind === "read") return first ? "First read of the server" : "Read from the server";
+  return entry.subject;
+}
+
+export function deploymentMeta(deployment: HistoryDeployment): string {
+  return [DEPLOYMENT_STATUS[deployment.status], deployment.branch ? `from ${deployment.branch}` : "", deployment.failed ? `${deployment.failed} failed` : ""].filter(Boolean).join(" · ");
+}
+
 function HistoryList({ entries, active, onFile }: { entries: readonly HistoryEntry[]; active: ServerDiffSource | undefined; onFile(entry: HistoryEntry, path: string): void }) {
   const [open, setOpen] = useState<string | undefined>(entries[0]?.commit);
   return (
@@ -79,10 +91,10 @@ function HistoryList({ entries, active, onFile }: { entries: readonly HistoryEnt
           <li key={entry.commit} className="servers-history-entry">
             <button type="button" className="servers-history-head" aria-expanded={expanded} onClick={() => setOpen(expanded ? undefined : entry.commit)}>
               <ChevronRight size={12} className="chev" aria-hidden="true" />
-              <span className="servers-history-title">{entry.kind === "read" ? (first ? "First read of the server" : "Read from the server") : entry.subject}</span>
+              <span className="servers-history-title">{historyTitle(entry, first)}</span>
               <time dateTime={entry.at} {...tooltipProps(new Date(entry.at).toLocaleString())}>{ago(entry.at)}</time>
             </button>
-            <p className="servers-history-meta">{first ? `${entry.added} files` : counts}</p>
+            <p className="servers-history-meta">{first ? `${entry.added} files` : counts}{entry.deployment ? <> · {deploymentMeta(entry.deployment)}</> : null}</p>
             {expanded && !first ? (
               <ul className="servers-files">
                 {entry.files.map((file) => {
@@ -293,7 +305,7 @@ export default function ServerView({ params, handle, actions, parts }: { params:
           ) : (
             <div className="servers-split">
               <aside className="servers-aside" aria-label="Files not uploaded">
-                <PendingList rows={target.pending} total={target.pendingTotal} withheld={target.withheld} {...(pendingDiff ? { active: pendingDiff.path } : {})} onOpen={(path) => setDiff({ source: "pending", path })} />
+                <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(pendingDiff ? { active: pendingDiff.path } : {})} onOpen={(path) => setDiff({ source: "pending", path })} />
               </aside>
               <main className="servers-main"><FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={pendingDiff} /></main>
             </div>

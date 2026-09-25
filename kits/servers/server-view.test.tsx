@@ -68,8 +68,9 @@ describe("the server view", () => {
     expect(screen.getByText(/Server Git: live/u)).toBeTruthy();
     const deleted = screen.getByRole("region", { name: "Will be deleted on the server" });
     expect(within(deleted).getByText("about.php")).toBeTruthy();
-    expect(within(deleted).getByRole("img", { name: "Chosen for the upload: about.php" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Not chosen for the upload: wp-config.php" })).toBeTruthy();
+    expect((within(deleted).getByRole("checkbox", { name: "Chosen for the upload: about.php" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Not chosen for the upload: wp-config.php" }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted…" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Never uploaded" }).textContent).toContain("wp-config-local.php");
     expect(screen.getByText(/Live credentials on the server: wp-config.php/u)).toBeTruthy();
     // The first file's diff shows at once; another opens on a click.
