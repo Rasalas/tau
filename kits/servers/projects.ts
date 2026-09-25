@@ -71,7 +71,7 @@ async function localFolder(value: unknown): Promise<string> {
 function parseAddress(address: string): { host: string; port: number; username?: string } {
   const parsed = parseManualTarget(address, "/");
   if (!parsed.target) throw new HostCommandError(parsed.error ?? "Enter a host name or address.");
-  if (parsed.target.protocol !== "sftp") throw new HostCommandError("FTP servers cannot make a project yet; Tau reaches them over SSH only for now.");
+  if (parsed.target.protocol !== "sftp") throw new HostCommandError("A new project from an address goes over SSH; for an FTP server, open a folder with its sftp.json instead.");
   return { host: parsed.target.host, port: parsed.target.port, ...(parsed.target.username ? { username: parsed.target.username } : {}) };
 }
 
@@ -221,12 +221,8 @@ export class ServerProjects {
   private async linkTargets(path: string): Promise<{ workspaceId: string; targets: SftpJsonTarget[] }> {
     const { project, targets } = await this.options.targets.list(path);
     if (targets.length === 0) throw new HostCommandError("The sftp.json names no server.");
-    const unusable = targets.find((target) => !target.usable || target.protocol !== "sftp");
-    if (unusable) {
-      throw new HostCommandError(unusable.protocol !== "sftp"
-        ? `${unusable.name ?? unusable.host} is an FTP server; Tau reaches servers over SSH only for now.`
-        : `${unusable.name ?? unusable.host} cannot be reached as sftp.json names it.`);
-    }
+    const unusable = targets.find((target) => !target.usable);
+    if (unusable) throw new HostCommandError(`${unusable.name ?? unusable.host} cannot be reached as sftp.json names it.`);
     return { workspaceId: project.workspaceId, targets };
   }
 

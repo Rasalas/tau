@@ -101,7 +101,8 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
           {target.profiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
         </select>}
       /> : null}
-      <SettingRow
+      {/* FTP runs no commands: nothing to allow. */}
+      {target.protocol === "ftp" ? null : <SettingRow
         title="Commands on the server"
         description={`${level ? LEVEL_WORDS[level].description : "Loading…"} Uploads are always yours.`}
         disabledReason={levelAllowed ? undefined : READ_ONLY_REASON}
@@ -114,7 +115,7 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
         >
           {TARGET_LEVELS.map((entry) => <option key={entry} value={entry}>{LEVEL_WORDS[entry].label}</option>)}
         </select>}
-      />
+      />}
       <SecretRow title="Password" spec={target.password} status={credential?.password} busy={busy} allowed={allowed} onCheck={() => onCheck("password")} onForget={onForget} />
       {target.privateKeyPath ? <SettingRow title="Key" description={<code>{target.privateKeyPath}</code>} /> : null}
       {target.passphrase || target.privateKeyPath ? <SecretRow title="Key passphrase" spec={target.passphrase ?? "Asked when the key needs one"} status={credential?.passphrase} busy={busy} allowed={allowed} onCheck={() => onCheck("passphrase")} onForget={onForget} /> : null}

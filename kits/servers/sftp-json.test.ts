@@ -221,3 +221,21 @@ describe("files", () => {
     expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 });
+
+describe("FTPS secureOptions", () => {
+  const pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+  const read = (config: Record<string, unknown>) => readSftpJson(JSON.stringify({ protocol: "ftp", host: "h", username: "u", ...config })).targets[0]!;
+
+  it("passes on the TLS options Tau understands and says what it ignores", () => {
+    const target = read({ secure: true, secureOptions: { ca: pem, servername: "ftp.example.com", minVersion: "TLSv1.2", rejectUnauthorized: false, pfx: "x" } });
+    expect(target.secureOptions).toEqual({ ca: [pem], servername: "ftp.example.com", minVersion: "TLSv1.2", rejectUnauthorized: false });
+    expect(target.issues.filter((issue) => issue.code === "ftp-secure-options").map((issue) => issue.message).join(" "))
+      .toMatch(/still checks.*ignores these secureOptions: pfx/su);
+  });
+
+  it("reads no secureOptions for plain FTP or SFTP", () => {
+    expect(read({ secureOptions: { ca: pem } }).secureOptions).toBeUndefined();
+    expect(read({ protocol: "sftp", secure: true, secureOptions: { ca: pem } }).secureOptions).toBeUndefined();
+    expect(codes(read({ secure: "control" }))).toContain("ftp-secure-control");
+  });
+});
