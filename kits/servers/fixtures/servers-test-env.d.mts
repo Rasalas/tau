@@ -45,3 +45,6 @@ export function recordedSshPort(dir: string): number | undefined;
 export function prepareServersDir(dir: string): ServersPaths;
 export function serversInstanceEnv(dir: string): Record<string, string>;
 export function startTestSshAgent(dir: string, options?: { sshAgent?: string; sshAdd?: string }): Promise<TestSshAgent>;
+/** An ed25519 pair ssh2 can read back; it now and then writes one it cannot. */
+export function readableKeyPair(options?: { comment?: string; passphrase?: string; cipher?: string }): { private: string; public: string };
+export function canReadKey(privateKey: string, passphrase?: string): boolean;

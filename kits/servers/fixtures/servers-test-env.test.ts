@@ -81,3 +81,12 @@ describe("the servers test folder", () => {
     expect(process.env.TAU_SERVERS_LOOPBACK_ONLY).toBe("1");
   });
 });
+
+describe("readableKeyPair", () => {
+  it("only hands out keys ssh2 can read back, with and without a passphrase", async () => {
+    const { canReadKey, readableKeyPair } = await import("./servers-test-env.mjs");
+    for (let index = 0; index < 400; index += 1) expect(canReadKey(readableKeyPair({ comment: "probe" }).private)).toBe(true);
+    const locked = readableKeyPair({ comment: "probe", passphrase: "pw", cipher: "aes256-ctr" });
+    expect(canReadKey(locked.private, "pw")).toBe(true);
+  });
+});
