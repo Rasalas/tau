@@ -33,6 +33,7 @@ import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
+import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { usePanelLayout } from "./use-panel-layout";
@@ -438,7 +439,11 @@ export default function App() {
   });
   const openPanel = panelLayout.openPanel;
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
-  const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => { setStage((current) => openThreadTab(current, sessionId, options)); setChatFocused(false); }, []);
+  const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
+    const machine = lookInMachine(options?.machine, platform.environments);
+    setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
+    setChatFocused(false);
+  }, [platform]);
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
   }, [threadStore, uiPrompts]);

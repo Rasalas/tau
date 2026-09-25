@@ -278,6 +278,9 @@ describe("an agent on another machine", () => {
     expect(within(row).getByText(/\$0\.25/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Apply changes of Word on rex" }));
     await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "h-1" } }]));
+    // The row reads its thread there in a stage tab, over the window's connection to rex.
+    fireEvent.click(row);
+    expect(await screen.findByRole("region", { name: "Thread Thread on rex-id" })).toBeTruthy();
   });
 });
 

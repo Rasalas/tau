@@ -49,7 +49,7 @@ function decodeTab(value: unknown): StageTab | undefined {
   if (typeof tab.kind !== "string" || !tab.kind) return undefined;
   if (typeof tab.preview !== "boolean") return undefined;
   if (tab.kind === "file" && (typeof tab.path !== "string" || (tab.view !== "source" && tab.view !== "diff"))) return undefined;
-  if (tab.kind === "thread" && typeof tab.sessionId !== "string") return undefined;
+  if (tab.kind === "thread" && (typeof tab.sessionId !== "string" || (tab.machine !== undefined && typeof tab.machine !== "string"))) return undefined;
   if (tab.kind === "panel" && (typeof tab.panelId !== "string" || !tab.panelId)) return undefined;
   return tab as unknown as StageTab;
 }
@@ -122,7 +122,8 @@ export interface StagePruneOptions {
 export function pruneStageState(state: StageState, options: StagePruneOptions): StageState {
   const tabs = state.tabs.filter((tab) => {
     if (tab.kind === "file") return !options.workspacePath || isInside(options.workspacePath, tab.path);
-    if (tab.kind === "thread") return !options.knownThreadIds || options.knownThreadIds.has(tab.sessionId);
+    // Another machine's thread is not in this index; its tab says itself when it is gone.
+    if (tab.kind === "thread") return tab.machine !== undefined || !options.knownThreadIds || options.knownThreadIds.has(tab.sessionId);
     return true;
   });
   if (tabs.length === state.tabs.length) return state;

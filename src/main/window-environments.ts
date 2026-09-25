@@ -3,18 +3,23 @@ import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import type {
   EnvironmentAgentsOutcome,
   EnvironmentAgentsResult,
+  EnvironmentOpenTarget,
   EnvironmentPairInput,
   EnvironmentPreferences,
   EnvironmentPairResult,
   EnvironmentTarget,
   UiEnvironment,
   UiEnvironmentPairing,
+  UiEnvironmentThreadView,
   UiEnvironments,
 } from "../shared/environments.js";
+import type { TranscriptPage } from "../shared/host-protocol.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
 import { EnvironmentCatalog, endpointTrust, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
+import { EnvironmentThreadWatches } from "./environment-thread-watch.js";
 import { pairEnvironment, type NearbyMachine, type PairEnvironmentOptions, type PairEnvironmentResult } from "./environment-pairing.js";
 import type { HostLogger } from "./host-log.js";
 import {
@@ -47,6 +52,8 @@ export interface WindowEnvironmentsOptions {
   local: { id: string; name: string };
   /** The list changed; the page hears it as the `environments` window event. */
   publish(environments: UiEnvironments): void;
+  /** A thread a tab looks in on changed there; the page hears it as the `environment-thread` window event. */
+  publishThread?(view: UiEnvironmentThreadView): void;
   /**
    * Point the page at another machine, or back at this one (`undefined`).
    * The window's process attaches its uplink and loads the page again.
@@ -104,9 +111,15 @@ export class WindowEnvironments {
   private readonly resolved = new Map<string, string>();
   /** Catalog writes nobody awaits: a remembered machine, a migrated pin, fresh addresses. */
   private readonly writes = new Set<Promise<void>>();
+  /** Threads of other machines the page looks in on, each subscribed on that machine's connection. */
+  private readonly lookIns: EnvironmentThreadWatches;
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
+    this.lookIns = new EnvironmentThreadWatches({
+      resubscribe: (machine) => this.watched.get(machine)?.monitor.resubscribe(),
+      publish: (machine, sessionId) => this.options.publishThread?.(this.threadView(machine, sessionId)),
+    });
   }
 
   async start(): Promise<void> {
@@ -341,7 +354,12 @@ export class WindowEnvironments {
    * open on arrival. The page of the machine already shown handles its own
    * targets; this is only for crossing to another one.
    */
-  async open(id: string, target?: EnvironmentTarget): Promise<void> {
+  async open(id: string, target?: EnvironmentOpenTarget): Promise<void> {
+    if (target && "threadId" in target) {
+      const session = this.watched.get(id)?.state.index?.sessions.find((entry) => entry.id === target.threadId);
+      if (!session) throw new Error(`${this.machineName(id)} does not list that thread${this.watched.get(id)?.state.index ? "" : " yet"}.`);
+      return this.open(id, { thread: { path: session.path } });
+    }
     if (id === this.options.local.id) {
       this.shownId = id;
       this.arrival = target;
@@ -442,6 +460,83 @@ export class WindowEnvironments {
     }));
   }
 
+  /**
+   * A thread of a machine, by its id or unique name, looked in on from a tab
+   * (API 1.15.0): renews the lease that keeps its stream coming over the
+   * window's connection to that machine, or ends it.
+   */
+  watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined {
+    const id = this.resolveMachine(machine) ?? machine;
+    if (!on) {
+      this.lookIns.unwatch(id, sessionId);
+      return undefined;
+    }
+    if (this.watched.has(id) && this.lookIns.watch(id, sessionId)) this.askOpenDialogs(id);
+    return this.threadView(id, sessionId);
+  }
+
+  /** A page of a machine's thread, read over the window's connection to it with the window's key there. */
+  async transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    const id = this.resolveMachine(machine);
+    const watched = id ? this.watched.get(id) : undefined;
+    if (!id || !watched) throw new Error("Tau does not know that machine.");
+    if (watched.state.status !== "connected") {
+      throw new Error(watched.state.status === "refused" ? `${this.machineName(id)} refuses this window: ${watched.state.detail ?? ""}`.trim() : `${this.machineName(id)} is not reachable right now.`);
+    }
+    return watched.monitor.call<TranscriptPage>("transcript-page", cursor ? [sessionId, cursor] : [sessionId]);
+  }
+
+  /** A dialog asked before the watch began is heard again: the machine replays its open ones. */
+  private askOpenDialogs(id: string): void {
+    const watched = this.watched.get(id);
+    if (watched?.state.status !== "connected") return;
+    watched.monitor.call("sync-extension-ui").catch((error: unknown) => this.options.logger.warn("environment.look-in.replay-failed", { id, error: error instanceof Error ? error.message : String(error) }));
+  }
+
+  /** A machine by its host id, or by its name when no other machine has it. */
+  private resolveMachine(machine: string): string | undefined {
+    if (machine === this.options.local.id || this.catalog?.get(machine)) return machine;
+    const named = [
+      { id: this.options.local.id, name: this.options.local.name },
+      ...(this.catalog?.list() ?? []),
+    ].filter((entry) => entry.name.toLowerCase() === machine.toLowerCase());
+    return named.length === 1 ? named[0]!.id : undefined;
+  }
+
+  private machineName(id: string): string {
+    return id === this.options.local.id ? this.options.local.name : this.catalog?.get(id)?.name ?? "That machine";
+  }
+
+  private threadView(machine: string, sessionId: string): UiEnvironmentThreadView {
+    const known = machine === this.options.local.id || this.catalog?.get(machine) !== undefined;
+    const state = this.watched.get(machine)?.state;
+    const watch = this.lookIns.get(machine, sessionId);
+    const session = state?.index?.sessions.find((entry) => entry.id === sessionId);
+    return {
+      machine,
+      sessionId,
+      machineName: known ? this.machineName(machine) : machine,
+      status: known ? state?.status ?? "connecting" : "unknown",
+      ...(state?.detail ? { detail: state.detail } : {}),
+      ...(state?.status !== "connected" && state?.lastSeenAt !== undefined ? { lastSeenAt: state.lastSeenAt } : {}),
+      indexed: state?.index !== undefined,
+      ...(session ? {
+        thread: {
+          title: session.title || "Untitled thread",
+          path: session.path,
+          projectName: session.projectName,
+          modifiedAt: session.modifiedAt,
+          messageCount: session.messageCount,
+          running: state?.running.has(sessionId) ?? false,
+          ...(session.usage ? { usage: session.usage } : {}),
+          ...(session.parentThreadId ? { parentThreadId: session.parentThreadId } : {}),
+        },
+      } : {}),
+      ...(watch?.asking ? { asking: watch.asking } : {}),
+      revision: watch?.revision ?? 0,
+    };
+  }
+
   /** Resolves once the catalog writes started in the background are on disk. */
   async settled(): Promise<void> {
     while (this.writes.size > 0) await Promise.all(this.writes);
@@ -455,6 +550,7 @@ export class WindowEnvironments {
   close(): void {
     this.closed = true;
     this.pairingAbort?.abort();
+    this.lookIns.close();
     for (const watched of this.watched.values()) watched.monitor.close();
     this.watched.clear();
     if (this.publishTimer) clearTimeout(this.publishTimer);
@@ -511,9 +607,14 @@ export class WindowEnvironments {
     entry.monitor = (this.options.monitor ?? ((monitorOptions) => new EnvironmentMonitor(monitorOptions)))({
       ...options,
       logger: this.options.logger,
+      threads: () => this.lookIns.threads(id),
+      onPush: (event) => { if (this.watched.get(id) === entry) this.lookIns.onPush(id, event); },
       onChange: (state) => {
         if (this.watched.get(id) !== entry) return;
+        const reached = state.status === "connected" && entry.state.status !== "connected";
         entry.state = state;
+        this.lookIns.onStatus(id, state.status);
+        if (reached && this.lookIns.threads(id).length > 0) this.askOpenDialogs(id);
         if (state.status === "connected") for (const waiter of [...this.connectedWaiters.get(id) ?? []]) waiter();
         if (state.index) {
           entry.kept = {

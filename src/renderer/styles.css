@@ -1666,6 +1666,20 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 /* A thread read in the stage: core's transcript, in a column that narrow. */
 .thread-document .transcript { padding: 18px 20px 12px; }
 .thread-document .stage-pane-header > strong { font-family: var(--sans); }
+/* Another machine's thread: which machine, and why what shows may be stale. */
+.remote-thread-machine {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px;
+  border-radius: var(--radius-xs); background: var(--chip); color: var(--muted); font: 11px var(--sans);
+}
+.remote-thread-band {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 16px;
+  border-bottom: 1px solid var(--line); color: var(--muted); font: 12px var(--sans);
+}
+.remote-thread-band > svg, .remote-thread-band > small { flex: none; }
+.remote-thread-band > .remote-thread-question { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-thread-band > small { color: var(--muted); font-size: 11px; }
+.remote-thread-band[data-level="question"] { background: var(--warn-chip); color: var(--ink); }
+.remote-thread-band[data-level="error"] { background: var(--danger-bg); color: var(--danger); }
 .source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: calc(12px * var(--code-font-scale, 1))/1.75 var(--code-font-family, var(--mono)); }
 .source-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; flex: 1; position: relative; isolation: isolate; }
 .source-line-mark {
