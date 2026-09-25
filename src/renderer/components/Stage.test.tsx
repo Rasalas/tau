@@ -447,6 +447,26 @@ describe("a thread of another machine", () => {
     expect(screen.getByText("First words.")).toBeTruthy();
   });
 
+  it("lends kits a look-in region that names the machine and thread, and whether it is reached", async () => {
+    const { platform, push } = lookIn();
+    const registry = new ExtensionRegistry();
+    registry.activate({
+      id: "acme.peek",
+      name: "Peek",
+      activate: (plugin) => {
+        plugin.registerRegion({
+          id: "acme.peek",
+          placement: "look-in",
+          Component: ({ lookIn: shown }) => <p>{shown ? `${shown.machineName} ${shown.machine} ${shown.sessionId} ${shown.connected ? "reached" : "away"}` : "no look-in"}</p>,
+        });
+      },
+    });
+    render(<PlatformProvider platform={platform}><Harness registry={registry} initial={openThreadTab(EMPTY_STAGE, SESSION, { pin: true, machine: "host-rex" })} /></PlatformProvider>);
+    expect(await screen.findByText(`rex host-rex ${SESSION} reached`)).toBeTruthy();
+    await push({ ...base, status: "offline", revision: 1 });
+    expect(screen.getByText(`rex host-rex ${SESSION} away`)).toBeTruthy();
+  });
+
   it("shows this machine's own thread as any tab, and says so on a client that reaches no other machine", async () => {
     const { platform } = lookIn();
     const first = render(<PlatformProvider platform={platform}><Harness

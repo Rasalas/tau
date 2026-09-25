@@ -4,7 +4,8 @@ import type { UiEnvironmentThreadView } from "../../shared/environments";
 import { formatCost } from "../cost-format";
 import { errorMessage } from "../../workbench/error-message";
 import { answerTimestampAfter } from "../../workbench/transcript-folding";
-import type { ExtensionRegistry } from "../extension-system";
+import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
+import { Region } from "./Regions";
 import type { TranscriptActivity } from "./transcript-activity";
 import { WorkGroup } from "./WorkRows";
 import { usePlatform } from "../platform-context";
@@ -45,9 +46,11 @@ function statusNote(view: UiEnvironmentThreadView | undefined, canWatch: boolean
  * window receives the thread's stream only while the tab is open. Answering
  * or taking it over happens there: "Open on <machine>" moves the window.
  */
-export function RemoteThreadDocument({ machine, sessionId, registry }: {
+export function RemoteThreadDocument({ machine, sessionId, registry, actions }: {
   machine: string;
   sessionId: string;
+  /** For the kits' `look-in` region; without it the tab has none. */
+  actions?: WorkbenchActions;
   /** Draws the tool runs with this page's tool cards; without it the tab shows messages only. */
   registry?: ExtensionRegistry;
 }) {
@@ -135,6 +138,12 @@ export function RemoteThreadDocument({ machine, sessionId, registry }: {
     ) : null}
     {note ? <div className="remote-thread-band" role="status"><span>{note}</span></div> : null}
     {problem ? <div className="remote-thread-band" data-level="error" role="alert"><span>{problem}</span></div> : null}
+    {registry && actions && view && view.status !== "unknown" ? <Region
+      registry={registry}
+      placement="look-in"
+      actions={actions}
+      lookIn={{ machine: view.machine, machineName: name, sessionId, connected: view.status === "connected" }}
+    /> : null}
     {!canWatch || view?.status === "unknown"
       ? null
       : transcript.error && transcript.messages.length === 0

@@ -118,6 +118,7 @@ export type {
   ComposerTriggerItem,
   TranscriptRow,
   TranscriptRowsHandle,
+  LookInRegionContext,
   RegionPlacement,
   RegionProps,
   RegionContribution,

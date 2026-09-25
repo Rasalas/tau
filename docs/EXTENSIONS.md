@@ -654,7 +654,12 @@ under the list, shown while any listed model wears the badge.
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. The other placements are `title-bar`,
 `composer-above`, `composer-below`, `transcript-header` and
-`transcript-footer`.
+`transcript-footer`. New in API 1.15.0, `look-in` draws under the header of a
+tab that shows a thread of another machine (`openThread(id, { machine })`); its
+props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
+it shows comes from that machine through `context.environments.readExtension`.
+Preview Kit puts that machine's page there, small and view only. An older core
+never draws the placement.
 
 #### Rows in the command palette
 
@@ -2354,6 +2359,7 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `pair({ …, agents })`, `setAgents?(id, on)` | New in API 1.15.0 ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)). A pairing asks for this machine's agents as a second device under the same approval unless `agents` is `false`, and the result's `agents` says whether their key reached this machine's host (`{ added: false, message }` when the other Tau issues none). `setAgents` turns the agents on for a saved machine (a pairing for them alone, with the digits as `pairing`) or off; it answers `{ state: "on" \| "off" \| "denied" \| "expired" \| "cancelled" }` or `{ state: "failed", message }`. |
 | `open(id, { threadId })` | New in API 1.15.0. Names a thread there by its id instead of its path; the window finds it in that machine's index, and rejects when it does not list it. |
 | `watchThread?(machine, sessionId, listener)`, `transcriptPage?(machine, sessionId, cursor?)` | New in API 1.15.0: a thread of another machine read without moving the window, what `openThread(id, { machine })` draws. While a listener is left, the window's connection to that machine subscribes to the thread (a lease the page renews every 20 s; the window lets it go a minute after the last renewal), and the listener hears a `UiEnvironmentThreadView` at once and at every change: `status` of the connection (`unknown` for a machine the window does not know), the thread's index entry (`title`, `path`, `running`, `usage`, …) once `indexed`, the dialog it waits on there (`asking`, when the window saw it asked), and a `revision` that grows with every change of its stream, a few times a second at most. `transcriptPage` reads its newest page there, with the window's key; read again when `revision` grows. |
+| `readExtension?(machine, extensionId, command, input?)` | New in API 1.15.0: runs a kit's host command on another machine without showing it, over the window's own connection there, and answers what the command answers. Only a command that machine lists as registered `access: "read"` runs; any other is refused before it is sent, so a look-in can watch but never change anything. The window asks that machine's list once per connection and again, at most every 10 s, when a command is missing from it. |
 | `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
 

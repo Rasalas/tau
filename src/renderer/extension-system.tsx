@@ -272,13 +272,26 @@ export interface TranscriptRowsHandle {
  * Places the workbench lends to extensions. Core renders the region, never its
  * content: above or below the composer (Pi's widgets), at the head or foot of
  * the transcript, before the thread's title, or as the status line at the
- * bottom, Pi's footer.
+ * bottom, Pi's footer. `look-in` sits under the header of a tab that shows a
+ * thread of another machine (API 1.15.0); its props carry `lookIn`.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "composer-above" | "composer-below" | "transcript-header" | "transcript-footer";
+export type RegionPlacement = "title-bar" | "thread-title" | "composer-above" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
+
+/** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
+export interface LookInRegionContext {
+  /** The machine's host id; `environments.readExtension` takes it. */
+  machine: string;
+  machineName: string;
+  sessionId: string;
+  /** The window reaches the machine now. */
+  connected: boolean;
+}
 
 export interface RegionProps {
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
+  /** Set only in the `look-in` placement. */
+  lookIn?: LookInRegionContext;
 }
 
 export interface RegionContribution extends ProfileScoped {

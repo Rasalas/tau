@@ -2256,3 +2256,4 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   overflow-wrap: anywhere;
   user-select: text;
 }
+.remote-thread-document > .region-look-in { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--line); }
