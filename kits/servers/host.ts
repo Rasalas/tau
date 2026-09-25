@@ -1,5 +1,6 @@
 import type { HostExtension } from "tau/host-extension";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
+import { registerServerProjects } from "./projects.js";
 import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
@@ -16,7 +17,7 @@ export function createServersHostExtension(): HostExtension {
   return {
     id: SERVERS_EXTENSION_ID,
     name: "Servers",
-    permissions: ["process", "network", "sessions", "runtime:extend", "workspace:read"],
+    permissions: ["process", "network", "sessions", "runtime:extend", "workspace:read", "workspace:write"],
     isolation: "in-process",
     activate(context) {
       const { services } = context;
@@ -47,7 +48,9 @@ export function createServersHostExtension(): HostExtension {
         git: gitCall("git", () => services.noteSubprocess()),
       });
       sync.register();
+      const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
       return async () => {
+        stopProjects();
         sync.dispose();
         prompts.dispose();
         await ssh.dispose();

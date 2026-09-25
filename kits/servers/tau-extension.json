@@ -10,7 +10,8 @@
     "network",
     "sessions",
     "runtime:extend",
-    "workspace:read"
+    "workspace:read",
+    "workspace:write"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
