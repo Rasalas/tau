@@ -179,7 +179,7 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
       if (inspection.hasGit) return;
       const summaries: Record<string, ScanSummary | { error: string }> = {};
       const defaults: Record<string, string[]> = {};
-      for (const target of inspection.targets.filter((entry) => entry.usable && entry.protocol === "sftp")) {
+      for (const target of inspection.targets.filter((entry) => entry.usable)) {
         try {
           const summary = await host.invoke("link-scan", { path: inspection.path, targetId: target.id }) as ScanSummary;
           summaries[target.id] = summary;
@@ -313,7 +313,7 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
     }
 
     const { inspection, summaries } = step;
-    const reachable = inspection.targets.filter((target) => target.usable && target.protocol === "sftp");
+    const reachable = inspection.targets.filter((target) => target.usable);
     const blocked = inspection.targets.length === 0 || reachable.length !== inspection.targets.length;
     const scanned = reachable.every((target) => summaries[target.id] && !("error" in summaries[target.id]!));
     return (
@@ -328,8 +328,8 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
           return (
             <section key={target.id} className="servers-source-target">
               <h3>{target.label} <small>{target.host}:{target.remotePath}{target.context ? ` → ${target.context}/` : ""}</small></h3>
-              {!target.usable || target.protocol !== "sftp"
-                ? <p className="servers-source-note">{target.protocol !== "sftp" ? "An FTP server: Tau reaches servers over SSH only for now." : target.issues.map((issue) => issue.message).join(" ")}</p>
+              {!target.usable
+                ? <p className="servers-source-note">{target.issues.map((issue) => issue.message).join(" ")}</p>
                 : !summary ? <p className="servers-source-note">{spinner("inspect")}Sizing the server folder…</p>
                   : "error" in summary ? <p className="servers-source-error">{summary.error}</p>
                     : <>
