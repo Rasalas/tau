@@ -13,6 +13,7 @@ import type {
   UiComposerCommand,
   UiMessage,
   UiModel,
+  UiThreadOrigin,
   UiThreadUsage,
   UiToolRun,
 } from "../shared/contracts.js";
@@ -228,6 +229,8 @@ export interface HostSessionSummary {
   cwd: string;
   /** The thread that spawned this one, as the index read it from the session file. */
   parentThreadId?: string;
+  /** The machine and thread an imported session came from; only the sweep reads it. */
+  origin?: UiThreadOrigin;
 }
 
 /** A thread an extension asks the host to run for it, off screen. */
@@ -259,6 +262,27 @@ export interface HostThreadStartOptions {
    * the kit that asked for the thread.
    */
   parent?: { threadId: string; details?: Record<string, unknown> };
+}
+
+/** A session from another machine, taken over as a thread here (new in API 1.15.0). */
+export interface HostThreadImportOptions {
+  /** The project folder on this machine the thread continues in; it must exist. */
+  cwd: string;
+  /** The session file as the other machine wrote it (Pi's JSONL, format 3). */
+  jsonl: string;
+  title?: string;
+  /**
+   * Where it came from, written as the `tau.remote-work/origin` entry right
+   * after the header; `details` is stored beside it for the kit that imports.
+   */
+  origin: { hostId: string; threadId: string; details?: Record<string, unknown> };
+}
+
+export interface HostImportedThread {
+  sessionId: string;
+  /** The new session file on this machine. */
+  path: string;
+  cwd: string;
 }
 
 export interface HostStartedThread {
@@ -298,6 +322,15 @@ export interface HostSessionServices {
    * they are reading; it resolves once the thread exists, not when it answers.
    */
   start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  /**
+   * Takes over a Pi session another machine wrote: a new id, `cwd` in its
+   * header, and the origin entry after it; every other entry is copied as it
+   * was, so paths in tool results stay text. A format version other than this
+   * Pi's, an entry over 16 MB or a file over 96 MB is refused. The thread is
+   * indexed but not opened; `send` continues it. New in API 1.15.0; absent on
+   * an older host.
+   */
+  import?(options: HostThreadImportOptions): Promise<HostImportedThread>;
   /**
    * Deletes a persisted thread into the trash, the verb behind a rail's
    * "delete thread": its runtime is released, a Pi session file moves to

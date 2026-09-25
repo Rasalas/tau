@@ -54,6 +54,8 @@ import type {
   HostStartedThread,
   HostThread,
   HostThreadStartOptions,
+  HostThreadImportOptions,
+  HostImportedThread,
   HostTrashedThread,
   HostConfigChange,
   HostThreadLifecycle,
@@ -138,6 +140,8 @@ export interface ExtensionServicesPort {
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   /** Creates a thread for a project, indexes it and delivers its first prompt, all off screen. */
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  /** Writes a session another machine made as a thread of this one and indexes it. */
+  importThread(options: HostThreadImportOptions): Promise<HostImportedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
   /** Moves a persisted thread to the trash; the `threadDeleted` hooks run when it is purged. */
@@ -334,6 +338,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         options,
       ),
       start: (options) => port.startThread(options),
+      import: (options) => port.importThread(options),
       remove: (sessionId) => port.removeThread(sessionId),
       restore: (sessionId) => port.restoreThread(sessionId),
       trash: () => port.trashedThreads(),

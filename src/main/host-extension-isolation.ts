@@ -22,6 +22,7 @@ import type {
   HostThread,
   HostThreadLifecycle,
   HostThreadStartOptions,
+  HostThreadImportOptions,
   HostTurnObserver,
 } from "./host-extensions.js";
 import {
@@ -312,6 +313,10 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "sessions.list": return services.sessions.list();
       case "sessions.read": return readSession(String(args[0]));
       case "sessions.start": return services.sessions.start(args[0] as HostThreadStartOptions);
+      case "sessions.import": {
+        if (!services.sessions.import) throw new Error("This host cannot import sessions.");
+        return services.sessions.import(args[0] as HostThreadImportOptions);
+      }
       case "sessions.remove": return services.sessions.remove(String(args[0]));
       case "sessions.restore": return services.sessions.restore(String(args[0]));
       case "sessions.trash": return services.sessions.trash();

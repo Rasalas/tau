@@ -1,11 +1,13 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
+import type { UiThreadOrigin } from "../shared/contracts.js";
 import type { SessionFileStamp } from "./session-usage.js";
 
 /**
- * Which thread spawned the thread a session file holds, read from the file
- * itself rather than from the kit that made the link.
+ * Which thread spawned the thread a session file holds, and which machine an
+ * imported one came from, read from the file itself rather than from the kit
+ * that made the link.
  *
  * A spawned thread carries the link as the first entry after its header, so
  * two lines answer the question. Pi's own header field for this
@@ -34,6 +36,33 @@ export function parentLinkEntry(parentThreadId: string, details: Record<string, 
   return { version: 1, ...details, parentThreadId };
 }
 
+/**
+ * The custom entry an imported session carries right after its header: the
+ * machine and thread it came from. `sessions.import` writes it and this index
+ * reads it; the name is Remote Work Kit's, the record is core's.
+ */
+export const ORIGIN_ENTRY = "tau.remote-work/origin";
+
+/** The origin data an imported session carries. */
+export function originEntry(origin: UiThreadOrigin, details: Record<string, unknown> = {}): Record<string, unknown> {
+  return { version: 1, ...details, hostId: origin.hostId, threadId: origin.threadId };
+}
+
+function originFromData(data: unknown): UiThreadOrigin | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const { hostId, threadId } = data as { hostId?: unknown; threadId?: unknown };
+  return typeof hostId === "string" && hostId && typeof threadId === "string" && threadId ? { hostId, threadId } : undefined;
+}
+
+function originOfLine(line: string): UiThreadOrigin | undefined {
+  let value: unknown;
+  try { value = JSON.parse(line); } catch { return undefined; }
+  if (!value || typeof value !== "object") return undefined;
+  const entry = value as { type?: unknown; customType?: unknown; data?: unknown };
+  if (entry.type !== "custom" || entry.customType !== ORIGIN_ENTRY) return undefined;
+  return originFromData(entry.data);
+}
+
 function parentThreadIdOf(line: string): string | undefined {
   let value: unknown;
   try { value = JSON.parse(line); } catch { return undefined; }
@@ -58,15 +87,23 @@ export function parentThreadIdFromEntries(entries: Iterable<unknown>): string | 
   return undefined;
 }
 
+/** What a session file says about where its thread came from. */
+export interface SessionLineage {
+  parentThreadId?: string;
+  origin?: UiThreadOrigin;
+}
+
 /**
- * The thread that spawned this session, or undefined. Reads the header and the
- * line after it; `deep` keeps reading, which is what finds a child written
- * before the link moved to the front of the file.
+ * The thread that spawned this session and the machine it was imported from.
+ * Reads the header and the marker lines right after it; `deep` keeps reading,
+ * which is what finds a child written before the link moved to the front of
+ * the file.
  */
-export async function readSessionParent(
+export async function readSessionLineage(
   path: string,
   options: { deep?: boolean; logger?: PersistedJsonLogger } = {},
-): Promise<string | undefined> {
+): Promise<SessionLineage> {
+  const found: SessionLineage = {};
   const stream = createReadStream(path, { encoding: "utf8" });
   try {
     const lines = createInterface({ input: stream, crlfDelay: Infinity });
@@ -74,11 +111,17 @@ export async function readSessionParent(
     for await (const line of lines) {
       index += 1;
       if (index === 1) continue;
-      if (line.includes(PARENT_LINK_ENTRY)) {
-        const parent = parentThreadIdOf(line);
-        if (parent) return parent;
+      let marker = false;
+      if (!found.origin && line.includes(ORIGIN_ENTRY)) {
+        const origin = originOfLine(line);
+        if (origin) { found.origin = origin; marker = true; }
       }
-      if (!options.deep) return undefined;
+      if (!found.parentThreadId && line.includes(PARENT_LINK_ENTRY)) {
+        const parent = parentThreadIdOf(line);
+        if (parent) { found.parentThreadId = parent; marker = true; }
+      }
+      if (found.origin && found.parentThreadId) break;
+      if (!marker && !options.deep) break;
     }
   } catch (error) {
     // A missing file is expected (the thread may not exist yet); other errors
@@ -87,16 +130,25 @@ export async function readSessionParent(
     if (code !== "ENOENT" && code !== "ENOTDIR") {
       options.logger?.warn("session-lineage.read.failed", `${path}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    return undefined;
   } finally {
     stream.destroy();
   }
-  return undefined;
+  return found;
+}
+
+/** The thread that spawned this session, or undefined; see `readSessionLineage`. */
+export async function readSessionParent(
+  path: string,
+  options: { deep?: boolean; logger?: PersistedJsonLogger } = {},
+): Promise<string | undefined> {
+  return (await readSessionLineage(path, options)).parentThreadId;
 }
 
 interface CacheEntry extends SessionFileStamp {
   path: string;
   parentThreadId?: string;
+  /** Absent in a cache written before imports existed, which is right: no file had one. */
+  origin?: UiThreadOrigin;
 }
 
 function decodeEntry(value: unknown): CacheEntry | undefined {
@@ -108,6 +160,7 @@ function decodeEntry(value: unknown): CacheEntry | undefined {
     size: candidate.size,
     mtimeMs: candidate.mtimeMs,
     ...(typeof candidate.parentThreadId === "string" ? { parentThreadId: candidate.parentThreadId } : {}),
+    ...(originFromData(candidate.origin) ? { origin: originFromData(candidate.origin)! } : {}),
   };
 }
 
@@ -175,9 +228,9 @@ export class SessionLineageIndex {
     const read = async (index: number): Promise<void> => {
       const file = pending[index];
       if (!file || this.disposed) return;
-      const parentThreadId = await readSessionParent(file.path, { deep, ...(this.options.logger ? { logger: this.options.logger } : {}) });
+      const { parentThreadId, origin } = await readSessionLineage(file.path, { deep, ...(this.options.logger ? { logger: this.options.logger } : {}) });
       if (file.stamp) {
-        this.entries.set(file.path, { path: file.path, ...file.stamp, ...(parentThreadId ? { parentThreadId } : {}) });
+        this.entries.set(file.path, { path: file.path, ...file.stamp, ...(parentThreadId ? { parentThreadId } : {}), ...(origin ? { origin } : {}) });
         this.markDirty();
       }
       await read(index + width);
@@ -194,11 +247,16 @@ export class SessionLineageIndex {
     return parents;
   }
 
+  /** Where an imported session came from, once `resolve` has read or cached its file. */
+  originOf(path: string): UiThreadOrigin | undefined {
+    return this.entries.get(path)?.origin;
+  }
+
   /** A link the host wrote itself; the child's file may not exist yet. */
   record(path: string, stamp: SessionFileStamp | undefined, parentThreadId: string): void {
     const existing = this.entries.get(path);
     if (existing?.parentThreadId === parentThreadId && (!stamp || (existing.size === stamp.size && existing.mtimeMs === stamp.mtimeMs))) return;
-    this.entries.set(path, { path, size: stamp?.size ?? -1, mtimeMs: stamp?.mtimeMs ?? -1, parentThreadId });
+    this.entries.set(path, { path, size: stamp?.size ?? -1, mtimeMs: stamp?.mtimeMs ?? -1, parentThreadId, ...(existing?.origin ? { origin: existing.origin } : {}) });
     this.markDirty();
   }
 
@@ -231,13 +289,14 @@ export class SessionLineageIndex {
   }
 
   /**
-   * A known parent answers whatever the file looks like now: a thread's parent
-   * never changes. Anything else is only trusted while the stamp still matches.
+   * A known parent or origin answers whatever the file looks like now: neither
+   * changes once written. Anything else is only trusted while the stamp still matches.
    */
   private cached(path: string, stamp: SessionFileStamp | undefined): string | null | undefined {
     const entry = this.entries.get(path);
     if (!entry) return undefined;
     if (entry.parentThreadId) return entry.parentThreadId;
+    if (entry.origin) return null;
     if (!stamp) return null;
     return entry.size === stamp.size && entry.mtimeMs === stamp.mtimeMs ? null : undefined;
   }
