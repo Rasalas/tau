@@ -2,6 +2,7 @@ import { HostCommandError, type HostExtensionContext } from "tau/host-extension"
 import { AskpassBridge, AskpassDialogs, type CredentialSource } from "./askpass.js";
 import { ASKPASS_ANSWER_COMMAND, ASKPASS_PENDING_COMMAND } from "./askpass-protocol.js";
 import { ServerPathError, type ServerEntry } from "./server-fs.js";
+import { SftpError } from "./sftp-client.js";
 import type { SshTarget } from "./ssh-target.js";
 import { isStoreSegment } from "./store.js";
 import { SshConnectError, SshConnections, SshTransport } from "./transport-ssh.js";
@@ -73,7 +74,8 @@ export class ServerSsh {
     try {
       await transport.connect();
     } catch (error) {
-      throw commandError(error);
+      // A failed login or a refused target is an answer about the server, not a broken command.
+      throw error instanceof Error ? new HostCommandError(error.message) : error;
     }
     return transport;
   }
@@ -82,6 +84,7 @@ export class ServerSsh {
     const { context } = this;
     context.registerCommand(ASKPASS_ANSWER_COMMAND, (input) => this.dialogs.respond(input), { audit: { label: "answered a server login question" } });
     context.registerCommand(ASKPASS_PENDING_COMMAND, () => this.dialogs.pending(), { access: "read" });
+    // `long`: a login may wait on the user's answer in a dialog.
     context.registerCommand("ssh-connect", async (input) => {
       const { cwd, target } = (input ?? {}) as { cwd?: unknown; target?: unknown };
       const transport = await this.transport(cwd, decodeClientTarget(target));
@@ -89,7 +92,7 @@ export class ServerSsh {
       if (transport.scratch) state.scratch = transport.scratch;
       if (transport.probe?.os) state.os = transport.probe.os;
       return state;
-    }, { audit: { label: "connected to a server" } });
+    }, { long: true, audit: { label: "connected to a server" } });
     context.registerCommand("ssh-list", async (input) => {
       const { cwd, target, path } = (input ?? {}) as { cwd?: unknown; target?: unknown; path?: unknown };
       const transport = await this.transport(cwd, decodeClientTarget(target));
@@ -98,7 +101,7 @@ export class ServerSsh {
       } catch (error) {
         throw commandError(error);
       }
-    }, { audit: { label: "listed a server folder" } });
+    }, { long: true, audit: { label: "listed a server folder" } });
     this.unhook = context.services.registerThreadLifecycle({
       afterWorkspaceClose: (cwd) => this.connections.closeWorkspace(cwd),
     });
@@ -112,5 +115,6 @@ export class ServerSsh {
   }
 }
 
+/** What the server or the user answered is not a broken command; the registry counts only those. */
 const commandError = (error: unknown) =>
-  error instanceof SshConnectError || error instanceof ServerPathError ? new HostCommandError(error.message) : error;
+  error instanceof SshConnectError || error instanceof ServerPathError || error instanceof SftpError ? new HostCommandError(error.message) : error;

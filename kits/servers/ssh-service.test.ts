@@ -88,6 +88,8 @@ describe.skipIf(!ready)("ServerSsh against the fake server", () => {
       const entries = await call("ssh-list", { cwd: "/project", target, path: "" }) as Array<{ name: string }>;
       expect(entries.map((entry) => entry.name)).toContain("index.php");
       await expect(call("ssh-list", { cwd: "/project", target, path: "/etc" })).rejects.toThrow(/outside/u);
+      await expect(call("ssh-list", { cwd: "/project", target, path: "missing" })).rejects.toMatchObject({ name: "HostCommandError" });
+      await expect(call("ssh-connect", { cwd: "/project", target: { id: "bad", alias: "-oProxyCommand=x", remotePath: "/" } })).rejects.toMatchObject({ name: "HostCommandError" });
       expect(readCalls(dir).filter((entry) => entry.event === "authenticated")).toHaveLength(1);
       await lifecycles[0]!.afterWorkspaceClose!("/project", "switch");
       // Closed with the project: the next call logs in again.
