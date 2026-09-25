@@ -27,6 +27,7 @@ import {
   HOSTED_COMMANDS,
   REMOTE_WORK_EXTENSION_ID as ID,
   THREAD_LINK_EVENT,
+  type HostedThreadReport,
   type RemoteThreadLink,
   type RemoteThreadWaitResult,
 } from "./protocol.js";
@@ -58,6 +59,8 @@ interface FakeThread {
   prompts: string[];
   jsonl?: string;
   origin?: { hostId: string; threadId: string; details?: Record<string, unknown> };
+  /** Holds transcript reads, as a slow session file would. */
+  transcriptGate?: Promise<void>;
 }
 
 /**
@@ -91,7 +94,10 @@ function fakeSessions() {
     model: { provider: "tau-fake", id: "fake-1" },
     isStreaming: () => thread.streaming,
     isIdle: () => !thread.open,
-    transcript: async () => thread.messages,
+    transcript: async () => {
+      await thread.transcriptGate;
+      return thread.messages;
+    },
   }) as unknown as HostThread;
   const services: Partial<HostExtensionServices> = {
     thread: (id?: string) => { const thread = id ? threads.get(id) : undefined; return thread ? view(thread) : undefined; },
@@ -538,5 +544,21 @@ describe("Remote Work Kit: a thread started here runs on another machine", () =>
     const gone = await until(() => linkOf(hosts, link.id), (value) => value.status === "gone", "gone");
     expect((await hosts.call<RemoteThreadWaitResult>("thread-wait", { link: link.id })).reason).toBe("gone");
     await expect(hosts.call("thread-send", { link: gone.id, text: "x" })).rejects.toThrow(/deleted/u);
+  });
+
+  it("there: a turn still reads running while its answer is read, so a report never says idle without it", async () => {
+    const hosts = await twoHosts();
+    const link = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, prompt: "hi" });
+    const thread = hosts.sessions.threads.get((await started(hosts, link.id)).thread!)!;
+    const report = async () => ((await hosts.rex.invoke(ID, HOSTED_COMMANDS.reports, { protocol: 1, threads: [thread.id] }, hosts.paired)) as { reports: HostedThreadReport[] }).reports[0]!;
+    const before = await report();
+    let release!: () => void;
+    thread.transcriptGate = new Promise((resolve) => { release = resolve; });
+    const finishing = hosts.sessions.finish(thread, "apple");
+    // A reconnect asks now: the same revision must be the same state (usage is read live).
+    expect(await report()).toMatchObject({ state: "running", turns: 0, revision: before.revision });
+    release();
+    await finishing;
+    expect(await report()).toMatchObject({ state: "idle", outcome: "completed", lastMessage: "apple", revision: before.revision + 1 });
   });
 });

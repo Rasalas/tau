@@ -138,10 +138,11 @@ export class RemoteThreads {
   private async commit(link: RemoteThreadLink): Promise<RemoteThreadLink> {
     link.updatedAt = this.now();
     this.links.set(link.id, link);
-    await this.save();
+    // Published at the change, not after the write: a slow disk must not merge or reorder events.
     const copy = clone(link);
     this.options.emit(copy);
     for (const wake of this.waiters.get(link.id) ?? []) wake();
+    await this.save();
     return copy;
   }
 
