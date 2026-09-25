@@ -4,6 +4,8 @@ import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
 import { ServersStore } from "./store.js";
+import { gitCall } from "./sync/git.js";
+import { SyncService } from "./sync/service.js";
 import { ServerTargets } from "./targets.js";
 
 /**
@@ -38,7 +40,15 @@ export function createServersHostExtension(): HostExtension {
         lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
       });
       ssh.register();
+      const sync = new SyncService(context, {
+        store,
+        target: (cwd, targetId) => targets.target(cwd, targetId),
+        transport: (input) => ssh.transport(input),
+        git: gitCall("git", () => services.noteSubprocess()),
+      });
+      sync.register();
       return async () => {
+        sync.dispose();
         prompts.dispose();
         await ssh.dispose();
       };
