@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   ConfirmDialog,
+  type HostExtensionClient,
   NearbyMachineList,
   SettingRow,
   SettingsSection,
@@ -11,17 +12,105 @@ import {
   type PlatformEnvironments,
   type UiDiscoveredHosts,
   type UiEnvironment,
+  type UiEnvironmentPairing,
   type UiEnvironments,
 } from "tau";
 import { formatDigits, statusText } from "./machines.js";
+import { AGENTS_EVENT, type AgentMachine, type AgentMachines } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 
-function MachineRow({ machine, shown, environments, now, onRemove }: {
+/** The machines this computer's host holds the agents' key for, as its Machines host half reports them. */
+function useAgentMachines(host: HostExtensionClient | undefined): AgentMachines | undefined {
+  const [agents, setAgents] = useState<AgentMachines>();
+  useEffect(() => {
+    if (!host) return undefined;
+    let live = true;
+    const stop = host.onEvent(AGENTS_EVENT, (payload) => { if (live) setAgents(payload as AgentMachines); });
+    host.invoke("agents").then((value) => { if (live) setAgents(value as AgentMachines); }, () => undefined);
+    return () => { live = false; stop(); };
+  }, [host]);
+  return agents;
+}
+
+function agentsText(agent: AgentMachine | undefined, name: string): string {
+  if (!agent) return `This computer's agents may not work on ${name}.`;
+  const reach = agent.status === "connected" ? `connected${agent.roundTripMs !== undefined ? ` · ${agent.roundTripMs} ms` : ""}`
+    : agent.status === "refused" ? `refused: ${agent.detail ?? "their key was revoked there"}`
+    : agent.status === "offline" ? `offline${agent.detail ? `: ${agent.detail}` : ""}` : "connecting…";
+  return `This computer's agents may work here${agent.readOnly ? " (Read only)" : ""} · ${reach}`;
+}
+
+/** The digits to compare while the other owner decides, with the way out. */
+function PairingStatus({ pairing, environments }: { pairing: UiEnvironmentPairing; environments: PlatformEnvironments }) {
+  return (
+    <div className="machine-pairing" role="status" aria-live="polite">
+      {pairing.state === "waiting" && pairing.verification ? (
+        <>
+          <strong>Allow this computer on the other machine</strong>
+          <p>Its window asks now. Allow it only if it shows the same code:</p>
+          <code className="machine-pairing-code">{formatDigits(pairing.verification)}</code>
+        </>
+      ) : (
+        <p>Connecting to {pairing.address}…</p>
+      )}
+      <button type="button" className="text-button" onClick={() => void environments.cancelPairing()}>Cancel</button>
+    </div>
+  );
+}
+
+/**
+ * The switch that lets this computer's agents work on a machine (ADR 0027).
+ * On asks that machine's owner once more, for the agents alone; off forgets
+ * their key here.
+ */
+function AgentsSwitch({ machine, agent, environments, pairing }: {
+  machine: UiEnvironment;
+  agent: AgentMachine | undefined;
+  environments: PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>;
+  pairing: UiEnvironmentPairing | undefined;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string>();
+  const on = agent !== undefined;
+  const toggle = () => {
+    setBusy(true);
+    setProblem(undefined);
+    environments.setAgents(machine.id, !on).then((result) => {
+      if (result.state === "failed") setProblem(result.message);
+      else if (result.state === "denied") setProblem(`${machine.name}'s owner declined.`);
+      else if (result.state === "expired") setProblem(`Nobody answered on ${machine.name} in time.`);
+    }, (error: unknown) => setProblem(errorMessage(error))).finally(() => setBusy(false));
+  };
+  return (
+    <div className="machine-agents">
+      <div className="machine-agents-line">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label={`This computer's agents may work on ${machine.name}`}
+          className={`switch ${on ? "on" : ""}`}
+          disabled={busy || (!on && (machine.status !== "connected" || machine.readOnly === true))}
+          title={!on && machine.readOnly ? `${machine.name} paired this computer Read only.` : undefined}
+          onClick={toggle}
+        ><i /></button>
+        <small title={agent?.detail}>{agentsText(agent, machine.name)}</small>
+      </div>
+      {busy && pairing ? <PairingStatus pairing={pairing} environments={environments} /> : null}
+      {problem ? <p className="machine-add-result problem" role="status">{problem}</p> : null}
+    </div>
+  );
+}
+
+function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing }: {
   machine: UiEnvironment;
   shown: boolean;
   environments: PlatformEnvironments;
   now: number;
   onRemove(): void;
+  /** Absent where this page cannot set up agents: another machine shown, or a host that keeps none. */
+  agents?: AgentMachines;
+  pairing?: UiEnvironmentPairing;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
@@ -54,6 +143,9 @@ function MachineRow({ machine, shown, environments, now, onRemove }: {
           </strong>
         )}
         <small title={machine.detail}>{details.join(" · ")}</small>
+        {agents && !machine.local && environments.setAgents ? (
+          <AgentsSwitch machine={machine} agent={agents.machines.find((entry) => entry.id === machine.id)} environments={environments as PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>} pairing={pairing} />
+        ) : null}
       </div>
       {machine.local ? null : (
         <>
@@ -75,7 +167,11 @@ type AddState =
 
 function pairOutcome(result: EnvironmentPairResult): AddState {
   switch (result.state) {
-    case "added": return { kind: "done", tone: "ok", message: `${result.environment.name} was added. Its threads are listed at the foot of the thread rail.` };
+    case "added":
+      if (result.agents && !result.agents.added) {
+        return { kind: "done", tone: "problem", message: `${result.environment.name} was added, but not this computer's agents: ${result.agents.message}` };
+      }
+      return { kind: "done", tone: "ok", message: `${result.environment.name} was added${result.agents?.added ? ", and this computer's agents may work there" : ""}. Its threads are listed at the foot of the thread rail.` };
     case "denied": return { kind: "done", tone: "problem", message: "The other machine's owner declined." };
     case "expired": return { kind: "done", tone: "problem", message: "Nobody answered on the other machine in time. Try again and allow it there." };
     case "cancelled": return { kind: "idle" };
@@ -133,15 +229,16 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
   );
 }
 
-function AddMachine({ environments, busyElsewhere }: { environments: PlatformEnvironments; busyElsewhere: boolean }) {
+function AddMachine({ environments, busyElsewhere, offerAgents }: { environments: PlatformEnvironments; busyElsewhere: boolean; offerAgents: boolean }) {
   const [text, setText] = useState("");
+  const [withAgents, setWithAgents] = useState(true);
   const [state, setState] = useState<AddState>({ kind: "idle" });
   const list = useEnvironments(environments);
   const pairing = list?.pairing;
   const run = (input: EnvironmentPairInput) => {
     if (state.kind === "busy") return;
     setState({ kind: "busy" });
-    void environments.pair(input).then((result) => {
+    void environments.pair(offerAgents ? { ...input, agents: withAgents } : input).then((result) => {
       if (result.state === "added" && input.text) setText("");
       setState(pairOutcome(result));
     }, (error: unknown) => setState({ kind: "done", tone: "problem", message: errorMessage(error) }));
@@ -167,20 +264,24 @@ function AddMachine({ environments, busyElsewhere }: { environments: PlatformEnv
           onChange={(event) => setText(event.target.value)}
         />
       </label>
-      {pairing ? (
-        <div className="machine-pairing" role="status" aria-live="polite">
-          {pairing.state === "waiting" && pairing.verification ? (
-            <>
-              <strong>Allow this computer on the other machine</strong>
-              <p>Its window asks now. Allow it only if it shows the same code:</p>
-              <code className="machine-pairing-code">{formatDigits(pairing.verification)}</code>
-            </>
-          ) : (
-            <p>Connecting to {pairing.address}…</p>
+      {offerAgents ? (
+        <SettingRow
+          title="This computer's agents may work there"
+          description="The same approval lets in this computer's host as a second device, so its agents can start threads there while no window is open. Either device can be revoked there alone."
+          control={(
+            <button
+              type="button"
+              role="switch"
+              aria-checked={withAgents}
+              aria-label="This computer's agents may work there"
+              className={`switch ${withAgents ? "on" : ""}`}
+              disabled={busy}
+              onClick={() => setWithAgents(!withAgents)}
+            ><i /></button>
           )}
-          <button type="button" className="text-button" onClick={() => void environments.cancelPairing()}>Cancel</button>
-        </div>
+        />
       ) : null}
+      {pairing && state.kind === "busy" ? <PairingStatus pairing={pairing} environments={environments} /> : null}
       {state.kind === "done" ? <p className={`machine-add-result ${state.tone}`} role="status">{state.message}</p> : null}
       <div className="machine-add-actions">
         <button type="submit" className="primary" disabled={busy || !text.trim()}>{busy ? "Waiting…" : "Add machine"}</button>
@@ -193,9 +294,12 @@ function AddMachine({ environments, busyElsewhere }: { environments: PlatformEnv
  * Settings → Machines: the computers this window shows threads of, and adding
  * one. Adding one asks that machine's owner, who compares a code (ADR 0024).
  */
-export function createMachinesPage(environments: PlatformEnvironments) {
+export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient) {
   return function MachinesPage() {
     const list = useEnvironments(environments);
+    // Agents are this computer's host's: only while the page shows this computer, and on a host that keeps machines.
+    const agentMachines = useAgentMachines(environments.shownElsewhere ? undefined : host);
+    const agents = agentMachines?.available ? agentMachines : undefined;
     const [now, setNow] = useState(() => Date.now());
     const [removing, setRemoving] = useState<UiEnvironment>();
     useEffect(() => {
@@ -215,7 +319,16 @@ export function createMachinesPage(environments: PlatformEnvironments) {
       <div className="settings-page machines-page">
         <SettingsSection title="Machines">
           {list.environments.map((machine) => (
-            <MachineRow key={machine.id} machine={machine} shown={machine.id === list.shown} environments={environments} now={now} onRemove={() => setRemoving(machine)} />
+            <MachineRow
+              key={machine.id}
+              machine={machine}
+              shown={machine.id === list.shown}
+              environments={environments}
+              now={now}
+              onRemove={() => setRemoving(machine)}
+              {...(agents ? { agents } : {})}
+              {...(list.pairing ? { pairing: list.pairing } : {})}
+            />
           ))}
         </SettingsSection>
         <SettingsSection title="Add a machine">
@@ -227,7 +340,7 @@ export function createMachinesPage(environments: PlatformEnvironments) {
           {list.secureStorage ? null : (
             <p className="settings-group-note machine-warning">This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.</p>
           )}
-          <AddMachine environments={environments} busyElsewhere={!list.secureStorage} />
+          <AddMachine environments={environments} busyElsewhere={!list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} />
         </SettingsSection>
         <SettingsSection title="At start">
           <SettingRow
@@ -248,7 +361,7 @@ export function createMachinesPage(environments: PlatformEnvironments) {
         {removing ? (
           <ConfirmDialog
             title={`Remove ${removing.name}?`}
-            message="This computer forgets the machine and its key. Its threads stay on it; add it again to see them here."
+            message="This computer forgets the machine, its key and its agents' key. Its threads stay on it, and it lists this computer's devices until its owner revokes them; add it again to see them here."
             confirmLabel="Remove"
             destructive
             onConfirm={() => {
