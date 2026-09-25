@@ -94,3 +94,31 @@ neither the persisted session file nor a live thread of that session claims it,
 and one written in the last ten minutes is kept whatever the journals say —
 publishing the pair and appending its entry are two steps, and no lease spans
 the gap once capture has released.
+
+## Server target
+
+A server a project is deployed to, reached over SSH/SFTP or FTP: a host, a
+user, a port and a `remotePath` (ADR 0028). It comes from `.vscode/sftp.json`,
+an SSH config alias or the user's own entry. It belongs to the project's main
+checkout, so its worktrees share it. The agent works on the local copy and never
+runs on the server. Not to be confused with the Tau host or a remote host.
+
+## Mirror state
+
+What Tau last read of a server target: the tree of its non-ignored files, kept
+in a shadow repository in Tau's own data, never in the project. Pending changes
+are the working tree against the mirror state; server drift is the server now
+against it.
+
+## Server drift
+
+Changes made on a server target that the mirror state does not know, such as a
+colleague's live edit. Tau commits them on a branch `server-drift/<date>` and
+merges them only when the user asks.
+
+## Deployment
+
+One upload the user started to a server target: the files it wrote or deleted,
+with the server's previous contents kept as a backup, the checkout, branch and
+HEAD it came from, and its status (uploaded, verified, committed, rolled back).
+It can be rolled back on its own, and a rollback is itself a deployment.
