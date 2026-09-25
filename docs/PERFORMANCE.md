@@ -1290,6 +1290,49 @@ What is left is the host's own start, about 430 ms from listening to the bootstr
 
 Checks that catch a regression: `src/main/host-start.test.ts` (bundles answered during a start), `kits/computer-use/host.test.ts` (activation does not wait for the package), `src/main/bundled-kits.test.ts` (a prebuilt desktop half carries a link, not its map), `src/renderer/runtime-extensions.test.ts` (imports start together, activation keeps its order), and `kitDesktopJavascriptBytes` in `npm run build:budget`. The comparison's timings stay ungated, as before.
 
+### Servers at start-up (2026-09-25)
+
+Wave I's comparison (`reports/compare-20260925-wave-i.json`) put "first paint → rail + composer ready" at 659 ms against G05's 477 (ticket I17). The suspect was Servers Kit's host half, 714 KB with basic-ftp, the SSH client, sync, deploy and the agent tools. The measurement said otherwise.
+
+How it was measured: a probe launched the comparison's Tau profile the way the harness does, attached to the page before its first script (`Target.setAutoAttach` with `waitForDebuggerOnStart`), recorded every host-socket frame and merged them with the host's and the window's logs. Each run alternated three `dist-kits/` on the same app build: wave I's, wave I's without `tau.servers`, and this ticket's. A CPU profile of the host process (`NODE_OPTIONS=--cpu-prof`) and one of the page (CDP `Profiler`) filled in the rest.
+
+What the kit cost, per phase of the host's start (median of 8 runs each, load 3.9 to 6.3):
+
+| host phase (ms) | without Servers | wave I | after I17 |
+| --- | ---: | ---: | ---: |
+| listening → first kit activated (requiring the host halves) | 100 | 108 | 109 |
+| activating the kits | 252 | 250 | 251 |
+| last kit activated → the first runtime starts | 62 | 121 | 61 |
+| of which the thread's `beforeOpen` hooks | 47 | 80 | 45 |
+| the runtime's resources (Pi extension factories) | 6 | 22 | 7 |
+| listening → bootstrap answered | 500 | 567 | 508 |
+| probe: first paint → rail + composer ready | 387 | 446 | 400 |
+
+- **Git, 24 times.** Before the first runtime, Servers' `beforeWorkspace` and `beforeOpen` hooks and its Pi runtime extension each asked whether the project has servers. Each ask resolved the project's main checkout with `git worktree list` and `git rev-parse --show-toplevel`. So did the network policy, the drift check a project's opening starts, and the window's first `status` ask. For a project without servers that was 24 git processes, three pairs of them on the start's critical path: about 60 ms.
+- **Requiring the host half:** 10 to 12 ms under Node, 6.5 of it compiling. basic-ftp and typebox are 3.5 ms of that, and only leaving the file would save it: a kit's host half is one CommonJS file, where a dynamic `import()` defers evaluation but not the compile.
+- **Activating it:** about 1 ms. It registers commands, hooks and two runtime extensions; the history cleanup's first sweep waits five minutes.
+- **The desktop half:** about 1 ms of the page's script time up to "ready". Its bundle is 188 KB.
+
+What changed, in the kit only:
+
+- A folder with a `.git` directory is its own main checkout, so Git is not asked; a linked worktree's answer is asked once and kept for the host's life (`MainCheckouts` in `kits/servers/store.ts`, shared by the targets, the network policy and everything built on them). An answer Git could not give is asked again.
+- `targets` looks for `.vscode/sftp.json` before it reads the profile choices, and the drift state asks Git for the branch only when there are servers.
+- The compact client's Servers sheet loads on demand. It imported the server view, the upload and the history panels statically, so the server view's lazy import had been evaluating them at activation anyway.
+
+Heavy host modules were not split out. Moving basic-ftp and typebox out of the file would save the 3.5 ms above at most, and deferring their evaluation inside it saves less. Beyond its require and a few file checks, the start no longer waits for the kit. A larger saving for every kit sits in core: Node's compile cache (`module.enableCompileCache`) took requiring all 40 host halves from 132 ms to 54 ms in a Node loop (Claude Code 61 → 33 ms, Servers 12 → 3 ms).
+
+The comparison, Tau alone, on the same machine and fixture in one session (load at run start 3.6 to 6.6). The G05 row is `2cf97b5d64` built in a copy; "wave I" is this build with `t3/wave-i`'s kits (`8cb5367b`); runs pooled from two to four invocations of five runs each:
+
+| metric (median / p95, ms) | G05 | wave I | after I17 |
+| --- | ---: | ---: | ---: |
+| first paint | 1,819 / 1,862 | 1,844 / 1,903 | 1,842 / 1,948 |
+| rail and composer ready | 2,401 / 2,444 | 2,486 / 2,509 | 2,430 / 2,540 |
+| first paint → ready | 565 / 598 | 631 / 651 | 586 / 619 |
+
+After I17 the start is 21 ms from G05's, down from 66 ms. That this session's absolute numbers sit about 90 ms above G05's report is not the build: G05's own commit measured 565 ms in the same session. A turn still sends 12 messages, and the host's idle footprint is 159 MiB (157 for G05). Reports: `reports/compare-20260925-i17-g05-baseline.json`, `reports/compare-20260925-i17-before.json` and `reports/compare-20260925-i17-after.json` (the last with `--check`, which passed).
+
+Checks that catch a regression: `kits/servers/startup-cost.test.ts` runs the start-up hooks, the runtime extensions, the policy and the window's first asks for a project without servers and fails on any process the kit starts. `kits/servers/store.test.ts` holds a worktree to one Git ask, and `kits/servers/server-view.test.tsx` checks that the compact sheet still opens after loading lazily.
+
 ### Screen by screen
 
 `scripts/compare/screens/` reuses the harness above for a visual comparison (gap analysis §2.3, ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau`, `/tmp/compare-screens-t3`), so a screen pass never shares a profile with a benchmark run.
