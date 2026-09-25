@@ -38,6 +38,8 @@ const RUNTIME_PROPERTIES = [
   "--page-zoom",
   // How long a panel takes to open or close (Appearance Kit); unset, it does at once.
   "--panel-motion",
+  // The on-screen keyboard's height on a touch layout (touch/TouchLayer.tsx).
+  "--tau-keyboard-inset",
 ];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */
