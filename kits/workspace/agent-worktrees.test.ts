@@ -7,12 +7,10 @@ import {
   agentBranchName,
   applyAgentWorktree,
   createAgentWorktree,
-  latestCheckpointSnapshotRef,
   readAgentWorktreeChanges,
   removeAgentWorktree,
   worktreeSetupCommand,
 } from "./agent-worktrees.js";
-import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
 
 const created: string[] = [];
 
@@ -36,30 +34,44 @@ afterEach(async () => {
 });
 
 describe("a spawned thread's worktree", () => {
-  it("starts from the parent's checkpoint tree, and from HEAD without one", async () => {
+  it("starts from HEAD and the parent's uncommitted work, and from HEAD alone when there is none", async () => {
     const parent = await repository();
     const git = (...args: string[]) => execFileSync("git", args, { cwd: parent, stdio: "pipe" }).toString();
-    // A checkpoint ref is a tree of the parent's working copy, uncommitted work included.
+    const plain = await createAgentWorktree({ parentCwd: parent, agentId: "99999999" });
+    expect(plain.withUncommitted).toBe(false);
+    expect(plain.baseCommit).toBe(git("rev-parse", "--verify", "HEAD").trim());
+
     await writeFile(join(parent, "draft.txt"), "work in progress\n");
-    git("add", "-A");
-    const tree = git("write-tree").trim();
-    git("update-ref", "refs/tau/checkpoints/session/turn/after", tree);
-    git("reset", "-q");
-
-    const worktree = await createAgentWorktree({
-      parentCwd: parent,
-      agentId: "abcdef1234",
-      snapshotRef: "refs/tau/checkpoints/session/turn/after",
-    });
-
+    const worktree = await createAgentWorktree({ parentCwd: parent, agentId: "abcdef1234" });
     expect(worktree.branch).toBe(agentBranchName("abcdef1234"));
-    expect(worktree.fromCheckpoint).toBe(true);
+    expect(worktree.withUncommitted).toBe(true);
     // The parent's uncommitted file is there, because the child continues its work.
     await expect(readFile(join(worktree.path, "draft.txt"), "utf8")).resolves.toBe("work in progress\n");
+    expect(git("rev-parse", `${worktree.baseCommit}^`).trim()).toBe(git("rev-parse", "HEAD").trim());
+    // The parent's index is untouched.
+    expect(git("status", "--porcelain")).toBe("?? draft.txt\n");
+  });
 
-    const plain = await createAgentWorktree({ parentCwd: parent, agentId: "99999999" });
-    expect(plain.fromCheckpoint).toBe(false);
-    expect(plain.baseCommit).toBe(git("rev-parse", "--verify", "HEAD").trim());
+  it("keeps a commit the user made after the parent's last checkpoint when the child's work merges back", async () => {
+    const parent = await repository();
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+    await writeFile(join(parent, "fruit.txt"), "kiwi\n");
+    git(parent, "add", "-A");
+    git(parent, "commit", "-qm", "kiwi");
+    // A checkpoint ref of that state still exists; nothing may start from it once HEAD moved.
+    git(parent, "update-ref", "refs/tau/checkpoints/session/turn/after", git(parent, "write-tree"));
+    await writeFile(join(parent, "fruit.txt"), "pear\n");
+    git(parent, "commit", "-qam", "pear");
+
+    const child = await createAgentWorktree({ parentCwd: parent, agentId: "44444444" });
+    await expect(readFile(join(child.path, "fruit.txt"), "utf8")).resolves.toBe("pear\n");
+    await writeFile(join(child.path, "basket.txt"), "a basket\n");
+    git(child.path, "add", "-A");
+    git(child.path, "commit", "-qm", "basket");
+
+    expect((await applyAgentWorktree({ parentCwd: parent, worktree: child })).strategy).toBe("merge");
+    await expect(readFile(join(parent, "fruit.txt"), "utf8")).resolves.toBe("pear\n");
+    await expect(readFile(join(parent, "basket.txt"), "utf8")).resolves.toBe("a basket\n");
   });
 
   it("reports what the child changed and applies it to the parent", async () => {
@@ -99,18 +111,6 @@ describe("a spawned thread's worktree", () => {
     await expect(applyAgentWorktree({ parentCwd: parent, worktree: colliding }))
       .rejects.toThrow(/do not apply to this checkout/u);
     await expect(readFile(join(parent, "README.md"), "utf8")).resolves.toBe("parent version\n");
-  });
-
-  it("finds the newest checkpoint ref a session recorded", () => {
-    const entry = (afterSnapshotId: string) => ({ type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: { afterSnapshotId } });
-    expect(latestCheckpointSnapshotRef([
-      entry("refs/tau/checkpoints/s/1/after"),
-      { type: "message" },
-      entry("refs/tau/checkpoints/s/2/after"),
-    ])).toBe("refs/tau/checkpoints/s/2/after");
-    expect(latestCheckpointSnapshotRef([{ type: "custom", customType: "other", data: {} }])).toBeUndefined();
-    // A ref outside the checkpoint namespace is never taken from an entry.
-    expect(latestCheckpointSnapshotRef([entry("refs/heads/main")])).toBeUndefined();
   });
 });
 

@@ -4,7 +4,6 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gitExecutable } from "tau/host-extension";
-import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
@@ -58,10 +57,10 @@ export async function readBranchBase(
 export interface AgentWorktree {
   path: string;
   branch: string;
-  /** What it started from: the parent's checkpoint tree, or the parent's HEAD. */
+  /** What it started from: the parent's HEAD, or a state commit on it with the uncommitted work. */
   baseCommit: string;
-  /** Whether that state came from a checkpoint snapshot rather than from HEAD. */
-  fromCheckpoint: boolean;
+  /** Whether the parent had uncommitted work, so the base is a state commit rather than HEAD. */
+  withUncommitted: boolean;
 }
 
 /** What a child changed, as the parent's tools and the Agents panel read it. */
@@ -75,24 +74,6 @@ export interface AgentWorktreeChanges {
   /** Files the child has not committed. */
   uncommitted: number;
   paths: string[];
-}
-
-/**
- * The newest checkpoint the parent's session recorded. Its `after` ref holds
- * the tree of the parent's working copy at the end of that turn, which is a
- * closer starting point for a child than HEAD: the parent's uncommitted work
- * is what it just asked the child to build on.
- */
-export function latestCheckpointSnapshotRef(entries: readonly unknown[]): string | undefined {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (!entry || typeof entry !== "object") continue;
-    const item = entry as { type?: unknown; customType?: unknown; data?: unknown };
-    if (item.type !== "custom" || item.customType !== TURN_CHECKPOINT_CUSTOM_TYPE) continue;
-    const after = (item.data as { afterSnapshotId?: unknown } | undefined)?.afterSnapshotId;
-    if (typeof after === "string" && after.startsWith("refs/tau/checkpoints/")) return after;
-  }
-  return undefined;
 }
 
 /**
@@ -224,30 +205,44 @@ export async function captureWorktreeTree(cwd: string, runGit: AgentGitRunner = 
   }
 }
 
+/** A checkout's HEAD and its whole working copy as a tree; `dirty` when the two differ. */
+export interface StartingState {
+  head: string;
+  tree: string;
+  dirty: boolean;
+}
+
+/**
+ * Where a spawned thread or a transfer to another machine starts: HEAD and
+ * everything uncommitted, read now. Never a turn checkpoint's tree — one
+ * captured before the user's latest commit would, set on the new HEAD,
+ * silently revert that commit.
+ */
+export async function captureStartingState(cwd: string, runGit: AgentGitRunner = runAgentGit): Promise<StartingState> {
+  const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"]).catch(() => "")).trim();
+  if (!head) throw new Error("This project has no commit yet, so a worktree cannot start from it.");
+  const tree = await captureWorktreeTree(cwd, runGit);
+  const headTree = (await runGit(cwd, ["rev-parse", `${head}^{tree}`])).trim();
+  return { head, tree, dirty: tree !== headTree };
+}
+
 /**
  * The checkout a spawned thread works in. It starts from the parent's current
  * state, not from origin: the child continues the work the parent is doing, so
- * a checkpoint tree (or HEAD) becomes one commit on a branch of its own.
+ * HEAD and the uncommitted work become one commit on a branch of its own.
  */
 export async function createAgentWorktree(options: {
   parentCwd: string;
   agentId: string;
-  /** `refs/tau/checkpoints/…/after` of the parent's last turn, when it has one. */
-  snapshotRef?: string;
   runGit?: AgentGitRunner;
   worktreeParent?: string;
 }): Promise<AgentWorktree> {
   const runGit = options.runGit ?? runAgentGit;
   const { parentCwd } = options;
-  const head = (await runGit(parentCwd, ["rev-parse", "--verify", "HEAD"]).catch(() => "")).trim();
-  if (!head) throw new Error("This project has no commit yet, so a worktree cannot start from it.");
-  const tree = options.snapshotRef
-    ? (await runGit(parentCwd, ["rev-parse", "--verify", "--quiet", `${options.snapshotRef}^{tree}`]).catch(() => "")).trim()
-    : "";
-  const fromCheckpoint = Boolean(tree);
-  const baseCommit = fromCheckpoint
-    ? (await runGit(parentCwd, ["commit-tree", tree, "-p", head, "-m", `tau: state of ${basename(parentCwd)} for a spawned thread`])).trim()
-    : head;
+  const state = await captureStartingState(parentCwd, runGit);
+  const baseCommit = state.dirty
+    ? (await runGit(parentCwd, ["commit-tree", state.tree, "-p", state.head, "-m", `tau: state of ${basename(parentCwd)} for a spawned thread`])).trim()
+    : state.head;
   const branch = agentBranchName(options.agentId);
   const parent = options.worktreeParent ?? await worktreeParentOf(parentCwd, runGit);
   const path = join(parent, branch.replace(/[^a-z0-9._-]+/giu, "-"));
@@ -256,7 +251,7 @@ export async function createAgentWorktree(options: {
   // The base is the child's own starting point, so its diff is exactly what it
   // changed — never what the parent had already changed before it started.
   await runGit(parentCwd, ["config", branchBaseConfigKey(branch), baseCommit]).catch(() => "");
-  return { path, branch, baseCommit, fromCheckpoint };
+  return { path, branch, baseCommit, withUncommitted: state.dirty };
 }
 
 function parseNumstat(stdout: string): { files: number; added: number; removed: number; paths: string[] } {
@@ -318,6 +313,14 @@ export async function applyAgentWorktree(options: {
   }
   const summary = `${changes.files} file${changes.files === 1 ? "" : "s"}, +${changes.added} −${changes.removed}`;
   if (changes.commits > 0 && changes.uncommitted === 0) {
+    // The child's base carries the parent's uncommitted work, which `git merge` would refuse to overwrite.
+    const parentDirty = (await runGit(parentCwd, ["status", "--porcelain"])).trim().length > 0;
+    const base = parentDirty ? await readBranchBase(worktree.path, worktree.branch, runGit) : undefined;
+    if (base) {
+      const outcome = await mergeBranchIntoCheckout({ cwd: parentCwd, branch: worktree.branch, base, runGit });
+      if (outcome.state !== "merged" && outcome.state !== "already-merged") throw new Error(`${worktree.branch} does not merge cleanly: ${outcome.detail}`);
+      return { branch: worktree.branch, strategy: "merge", files: changes.files, added: changes.added, removed: changes.removed, detail: `Merged ${worktree.branch} (${summary}).` };
+    }
     try {
       await runGit(parentCwd, ["merge", "--no-ff", "--no-edit", worktree.branch]);
     } catch (error) {

@@ -409,6 +409,41 @@ describe("Remote Work Kit: a thread started here runs on another machine", () =>
     expect(await hosts.call<RemoteThreadLink[]>("threads", { active: true })).toEqual([]);
   });
 
+  it("starts from HEAD and the working copy, so a commit made after the last checkpoint survives the merge back", async () => {
+    const hosts = await twoHosts();
+    await put(hosts.work, "fruit.txt", "kiwi\n");
+    git(hosts.work, "add", "fruit.txt");
+    git(hosts.work, "commit", "-qm", "kiwi");
+    // A parent turn left a draft and a checkpoint of that working copy; then the user committed.
+    await put(hosts.work, "draft.txt", "a draft\n");
+    git(hosts.work, "add", "-A");
+    git(hosts.work, "update-ref", "refs/tau/checkpoints/parent/turn-1/after", git(hosts.work, "write-tree"));
+    git(hosts.work, "reset", "-q");
+    await put(hosts.work, "fruit.txt", "pear\n");
+    git(hosts.work, "commit", "-qm", "pear", "--", "fruit.txt");
+
+    // A sub-agent's start (which named that checkpoint before H18) and a "Continue on" alike.
+    for (const [index, input] of [
+      { prompt: "Add a basket", title: "Basket", parentThreadId: "parent", snapshotRef: "refs/tau/checkpoints/parent/turn-1/after" },
+      { prompt: "Add a bowl", title: "Bowl", parentThreadId: "parent" },
+    ].entries()) {
+      const link = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, ...input });
+      const thread = hosts.sessions.threads.get((await started(hosts, link.id)).thread!)!;
+      expect(await readFile(join(thread.cwd, "fruit.txt"), "utf8")).toBe("pear\n");
+      expect(await readFile(join(thread.cwd, "draft.txt"), "utf8")).toBe("a draft\n");
+      await put(thread.cwd, `made-${index}.txt`, `${input.title}\n`);
+      git(thread.cwd, "add", "-A");
+      git(thread.cwd, "commit", "-qm", input.title);
+      await hosts.sessions.finish(thread, "done");
+      await hosts.call("thread-wait", { link: link.id });
+      const settled = await hosts.call<RemoteThreadLink>("thread-settle", { link: link.id, how: "apply" });
+      expect(settled.applied).toMatchObject({ state: "merged" });
+      expect(await readFile(join(hosts.work, "fruit.txt"), "utf8")).toBe("pear\n");
+      expect(await readFile(join(hosts.work, `made-${index}.txt`), "utf8")).toBe(`${input.title}\n`);
+    }
+    expect(await readFile(join(hosts.work, "draft.txt"), "utf8")).toBe("a draft\n");
+  });
+
   it("moves a sub-agent's thread into rex's trash on settle, and tells rex's Agents Kit how deep it started", async () => {
     const hosts = await twoHosts();
     const clients = new Map<string, RemoteThreadsService>();

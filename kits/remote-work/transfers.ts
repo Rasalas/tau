@@ -283,7 +283,7 @@ export class RepoTransfers {
     return this.exclusive(transfer.id, async () => {
       try {
         await set("state", "running");
-        const state = await captureTransferState({ root: identity.root, transfer: transfer.id, machineName: machine.name, snapshotRef: input.snapshotRef, git: this.git });
+        const state = await captureTransferState({ root: identity.root, transfer: transfer.id, machineName: machine.name, git: this.git });
         transfer.base = state.base;
         transfer.head = state.head;
         await set("state", "done", state.dirty ? "HEAD and the uncommitted work" : "HEAD; nothing uncommitted");

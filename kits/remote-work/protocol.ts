@@ -62,8 +62,6 @@ export interface SendRepoInput {
   cwd: string;
   /** Names the branch the result comes back on (`tau/<machine>/<slug of name>`). */
   name?: string;
-  /** A checkpoint tree (`refs/tau/checkpoints/…/after`) to send instead of the working copy. */
-  snapshotRef?: string;
   /** Ignored files that go along, relative to the checkout; the project's remembered choice without it. */
   ignored?: string[];
 }
@@ -351,8 +349,6 @@ export interface RemoteThreadStartInput {
   parentThreadId?: string;
   /** An agent definition's name, kept in the link for the kit that spawned it. */
   agent?: string;
-  /** A checkpoint tree to send instead of the working copy (`SendRepoInput.snapshotRef`). */
-  snapshotRef?: string;
   /** Ignored files that go along; the project's remembered choice without it. */
   ignored?: string[];
   /**

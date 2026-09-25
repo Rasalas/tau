@@ -154,7 +154,7 @@ function fakeMachinesKit(answer: { machine?: string | null; reason: string }): H
   };
 }
 
-async function bench(options: { setting?: string; cores?: number; rex?: Partial<HostMachine>; extra?: HostExtension[]; linksPath?: string; links?: ReadonlyMap<string, RemoteThreadLink> } = {}) {
+async function bench(options: { setting?: string; cores?: number; rex?: Partial<HostMachine>; extra?: HostExtension[]; linksPath?: string; links?: ReadonlyMap<string, RemoteThreadLink>; parentEntries?: unknown[] } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "tau-agents-remote-"));
   made.push(dir);
   const remoteWork = fakeRemoteWork();
@@ -180,7 +180,7 @@ async function bench(options: { setting?: string; cores?: number; rex?: Partial<
   const thread = (sessionId: string): HostThread => ({
     sessionId, cwd: "/project", backendKind: "pi", sessionFile: `/sessions/${sessionId}.jsonl`,
     isStreaming: () => !idle.has(sessionId), isIdle: () => idle.has(sessionId), waitForIdle: async () => undefined,
-    transcript: async () => [], entries: () => [], appendEntry: () => undefined,
+    transcript: async () => [], entries: () => (sessionId === "parent" ? options.parentEntries ?? [] : []), appendEntry: () => undefined,
   }) as unknown as HostThread;
   const services: Partial<HostExtensionServices> = {
     stateDir: join(dir, "state"),
@@ -253,11 +253,15 @@ describe("resolveMachine", () => {
 
 describe("Agents Kit: sub-agents on another machine", () => {
   it("spawns on rex, follows it there and wakes the parent with its answer", async () => {
-    const b = await bench();
+    // The parent's last turn left a checkpoint, which may predate a commit of the user's.
+    const checkpoint = { type: "custom", customType: "tau.turn-checkpoint.v1", data: { afterSnapshotId: "refs/tau/checkpoints/parent/turn-1/after" } };
+    const b = await bench({ parentEntries: [checkpoint] });
     const spawned = await b.call("tau_spawn_thread", { prompt: "Write one word into a.txt", title: "Word A", machine: "rex" });
     expect(spawned).toMatchObject({ status: "running", title: "Word A", machine: "rex", workspace: "worktree" });
     expect(b.started).toEqual([]);
     expect(b.remoteWork.started[0]).toMatchObject({ machine: "rex-id", cwd: "/project", prompt: "Write one word into a.txt", title: "Word A", parentThreadId: "parent", agentDepth: 1 });
+    // So the state that goes is HEAD and the working copy as they are now, never that checkpoint.
+    expect(b.remoteWork.started[0]).not.toHaveProperty("snapshotRef");
     const handle = String(spawned.threadId);
     expect((await linkOf(b, handle)).machine).toMatchObject({ id: "rex-id", name: "rex", link: "link-1" });
 
