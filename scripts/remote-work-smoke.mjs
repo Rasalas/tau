@@ -8,7 +8,7 @@
 // `pending` and names its ticket; the run stays green and lists it. A ticket
 // replaces its pending entries with real steps. Teardown stops only the pids
 // this run started and then checks that none of their ports still listens.
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -32,6 +32,8 @@ const { pairWithHost } = await import(pathToFileURL(join(DIST, "shared", "host-p
 const A = { name: "smoke-a", machineName: "mini" };
 const REX = { name: "smoke-rex", machineName: "rex" };
 const GUARD_MS = 240_000;
+// A test-only package on rex that exposes sessions.import/send as commands; H06's kit replaces it.
+const IMPORT_PROBE = "test.session-import-probe";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -69,6 +71,22 @@ function initWorkspace(dir) {
   git("-c", "user.name=Tau Smoke", "-c", "user.email=smoke@example.invalid", "commit", "-q", "-m", "chore: start");
 }
 
+/** Session files under a host's sessions folder, with their parsed entries. */
+function sessionFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true })
+    .filter((file) => String(file).endsWith(".jsonl"))
+    .map((file) => {
+      const path = join(dir, String(file));
+      const text = readFileSync(path, "utf8");
+      return { path, text, entries: text.trim().split("\n").map((line) => JSON.parse(line)) };
+    });
+}
+
+const assistantTexts = (entries) => entries
+  .filter((entry) => entry.type === "message" && entry.message?.role === "assistant")
+  .map((entry) => (entry.message.content ?? []).map((part) => part.text ?? "").join(""));
+
 /**
  * The steps. `run(ctx)` returns a detail line or throws; `pending: "<ticket>"`
  * marks what a later ticket fills in.
@@ -96,7 +114,11 @@ export const STEPS = [
         startTestHost({ name: A.name, kits: true, fresh: true, login: false, workspace: ctx.fixture.work }, { machineName: A.machineName, prepare: fakePi }),
         startTestHost({ name: REX.name, kits: true, tls: true, fresh: true, login: false }, {
           machineName: REX.machineName,
-          prepare: (env) => { fakePi(env); initWorkspace(env.TAU_WORKSPACE); },
+          prepare: (env) => {
+            fakePi(env);
+            initWorkspace(env.TAU_WORKSPACE);
+            cpSync(join(ROOT, "scripts", "fixtures", "session-import-probe"), join(env.HOME, ".tau", "extensions", "session-import-probe"), { recursive: true });
+          },
         }),
       ]);
       ctx.a = a;
@@ -191,7 +213,43 @@ export const STEPS = [
   { title: "A's host keeps rex in host-machines.json and calls it through services.machines", pending: "H01" },
   { title: "A's agents device revoked on rex → refused", pending: "H01" },
   { title: "the fixture's state (commits + uncommitted change) reaches a mirror and worktree on rex as a bundle", pending: "H05" },
-  { title: "a Pi session from A is imported on rex with rex's cwd", pending: "H04/H06" },
+  {
+    title: "a Pi session from A is imported on rex with rex's cwd and its origin, and continues there",
+    async run(ctx) {
+      const aHost = (await ctx.aOwner.hello()).host;
+      const known = new Set(sessionFiles(ctx.a.sessionsDir).map((file) => file.path));
+      await ctx.aOwner.request("new-session", ["say one word"]);
+      let source;
+      await waitFor(() => {
+        source = sessionFiles(ctx.a.sessionsDir).find((file) => !known.has(file.path) && assistantTexts(file.entries).includes("ok"));
+        return Boolean(source);
+      }, "the turn's answer in A's session file");
+
+      await ctx.rexOwner.request("extension-grant", [IMPORT_PROBE, true]);
+      await waitFor(async () => (await ctx.rexOwner.request("host-extensions")).some((entry) => entry.id === IMPORT_PROBE && entry.active), "the import probe on rex");
+      const origin = { hostId: aHost.id, threadId: source.entries[0].id };
+      const oldFormat = source.text.replace('"version":3', '"version":2');
+      const refused = await ctx.rexOwner.request("host-extension", [IMPORT_PROBE, "import", { cwd: ctx.rex.workspace, jsonl: oldFormat, origin }])
+        .then(() => "imported", (error) => String(error.message));
+      if (!/session format 2/u.test(refused)) throw new Error(`rex took a session of format 2: ${refused}`);
+
+      const imported = await ctx.rexOwner.request("host-extension", [IMPORT_PROBE, "import", { cwd: ctx.rex.workspace, jsonl: source.text, title: "From A", origin }]);
+      await ctx.rexOwner.request("host-extension", [IMPORT_PROBE, "send", { sessionId: imported.sessionId, text: "say one more word" }]);
+      let target;
+      await waitFor(() => {
+        target = sessionFiles(ctx.rex.sessionsDir).find((file) => file.path === imported.path);
+        return Boolean(target) && assistantTexts(target.entries).length >= 2;
+      }, "the continued turn on rex");
+      const [header, first] = target.entries;
+      if (header.id !== imported.sessionId || header.cwd !== ctx.rex.workspace || header.id === origin.threadId) throw new Error(`the header on rex is ${JSON.stringify(header)}`);
+      if (first.customType !== "tau.remote-work/origin" || first.data?.hostId !== aHost.id || first.data?.threadId !== origin.threadId) throw new Error(`the entry after the header is ${JSON.stringify(first)}`);
+      if (!target.text.includes("say one word") || !target.text.includes("say one more word")) throw new Error("the session on rex lacks the old history or the new prompt");
+      const { threadIndex } = await ctx.rexOwner.request("bootstrap");
+      const shell = threadIndex.sessions.find((session) => session.id === imported.sessionId);
+      if (shell?.origin?.hostId !== aHost.id || shell.projectPath !== ctx.rex.workspace) throw new Error(`rex's index shows ${JSON.stringify(shell)}`);
+      return `${imported.sessionId.slice(0, 8)} on rex: ${target.entries.length} entries, ${assistantTexts(target.entries).length} answers, origin ${aHost.id.slice(0, 8)}`;
+    },
+  },
   { title: "A starts a thread on rex with the fake model and follows its status to idle, with a cost", pending: "H06" },
   { title: "the result comes back as tau/rex/<slug> on A, merge-tree is clean, merge --no-ff lands it", pending: "H05" },
   { title: "a conflicting second run leaves A's checkout untouched", pending: "H05" },
