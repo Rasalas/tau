@@ -29,7 +29,8 @@ afterEach(async () => {
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "tau-provider-error-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  // Pi may still finish a write into its agent dir after the host is gone.
+  cleanups.push(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const model = await refusingModel();
   cleanups.push(model.close);
   const agentDir = join(root, "agent");
