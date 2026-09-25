@@ -81,6 +81,9 @@ const PANEL_RESULT_LIMIT = 240;
 /** How much of each finished child's answer the message that wakes its parent carries. */
 const WAKE_RESULT_LIMIT = 1_500;
 
+/** A wake the parent refused (it was starting a turn) is tried again after this. */
+const WAKE_RETRY_MS = 2_000;
+
 /** Retry keys a thread's tools remember; the oldest goes first. */
 const MAX_REMEMBERED_REQUESTS = 500;
 
@@ -794,33 +797,52 @@ export function createAgentsHostExtension(options: {
        * once it is idle, as T3's orchestrator follows a delegated task up with
        * its result. A busy parent hears when its own turn ends.
        */
+      /** Parents a wake is on its way to: the turn it starts ends with the next flush. */
+      const waking = new Set<string>();
       const flushWakes = async (parentThreadId: string, afterTurn = false): Promise<void> => {
         const parent = services.thread(parentThreadId);
         if (afterTurn) await parent?.waitForIdle().catch(() => undefined);
-        if (parent && (parent.isStreaming() || !parent.isIdle())) return;
+        if (waking.has(parentThreadId) || (parent && (parent.isStreaming() || !parent.isIdle()))) return;
         const ids = [...(unreported.get(parentThreadId) ?? [])];
         unreported.delete(parentThreadId);
         const send = services.sessions.send;
         if (ids.length === 0 || !send) return;
-        const children = (await Promise.all(ids.map(async (id) => {
-          const link = book.linkFor(id);
-          if (!link) return [];
-          const answer = await answerOf(link);
-          return [{
-            threadId: link.threadId ?? link.id,
-            title: link.title,
-            status: link.status,
-            ...(answer ? { answer } : {}),
-            ...(link.error ? { error: link.error } : {}),
-            ...(link.machine ? { machine: link.machine.name } : {}),
-          }];
-        }))).flat();
-        if (children.length === 0) return;
+        waking.add(parentThreadId);
+        let sent = false;
         try {
+          const children = (await Promise.all(ids.map(async (id) => {
+            const link = book.linkFor(id);
+            if (!link) return [];
+            const answer = await answerOf(link);
+            return [{
+              threadId: link.threadId ?? link.id,
+              title: link.title,
+              status: link.status,
+              ...(answer ? { answer } : {}),
+              ...(link.error ? { error: link.error } : {}),
+              ...(link.machine ? { machine: link.machine.name } : {}),
+            }];
+          }))).flat();
+          if (children.length === 0) return;
           await send(parentThreadId, wakeMessage(children));
+          sent = true;
           services.log("agents.parent-woken", `${parentThreadId.slice(0, 8)} · ${children.length}`);
         } catch (error) {
+          // A prompt refused because the parent was starting a turn: those children wait for the next flush.
+          const pending = unreported.get(parentThreadId) ?? new Set<string>();
+          for (const id of ids) if (book.has(id)) pending.add(id);
+          unreported.set(parentThreadId, pending);
           services.log("agents.wake-failed", `${parentThreadId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          waking.delete(parentThreadId);
+        }
+        // What finished while this wake was on its way, or what it could not deliver, goes once the parent is idle.
+        if (unreported.has(parentThreadId)) {
+          if (sent) void flushWakes(parentThreadId, true);
+          else {
+            const retry = setTimeout(() => { void flushWakes(parentThreadId, true); }, WAKE_RETRY_MS);
+            retry.unref?.();
+          }
         }
       };
 

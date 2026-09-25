@@ -62,6 +62,8 @@ function harness() {
   const sent: Array<{ sessionId: string; text: string; delivery: string; from?: string }> = [];
   const aborted: string[] = [];
   let steerRefused = false;
+  /** Prompts refused the way a runtime refuses one while it starts a turn. */
+  let promptRefusals = 0;
   /** Threads of a runtime without a journal, as a Codex parent is. */
   const noJournal = new Set<string>();
   let nextThread = 0;
@@ -152,6 +154,10 @@ function harness() {
       send: async (sessionId, text, sendOptions) => {
         const delivery = sendOptions?.delivery ?? "prompt";
         if (steerRefused && delivery === "steer") throw new Error("This runtime cannot steer.");
+        if (promptRefusals > 0 && delivery === "prompt") {
+          promptRefusals -= 1;
+          throw new Error("The prompt was rejected before it started.");
+        }
         sent.push({ sessionId, text, delivery, ...(sendOptions?.from ? { from: sendOptions.from } : {}) });
         const thread = threads.get(sessionId);
         if (thread && delivery === "prompt") thread.streaming = true;
@@ -243,7 +249,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -1293,6 +1299,22 @@ describe("Agents Kit orchestration", () => {
     await bench.notify("ended", "parent", "completed");
     await vi.waitFor(() => expect(bench.sent.map((entry) => entry.sessionId)).toEqual(["parent"]));
     expect(bench.sent[0]!.text).toContain("two");
+  });
+
+  it("keeps a child whose wake the parent refused, and tells it with the next one", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const first = handleOf(await parent.call("tau_spawn_thread", { prompt: "One", title: "First" }));
+    const second = handleOf(await parent.call("tau_spawn_thread", { prompt: "Two", title: "Second" }));
+    bench.refusePrompts(1);
+    await finish(bench, first, "one");
+    await settle();
+    expect(bench.sent).toEqual([]);
+    await finish(bench, second, "two");
+    await vi.waitFor(() => expect(bench.sent).toHaveLength(1));
+    expect(bench.sent[0]!.text).toContain("2 threads you started have finished.");
+    expect(bench.sent[0]!.text).toContain('"First"');
+    expect(bench.sent[0]!.text).toContain('"Second"');
   });
 
   it("does not wake a parent that already read the answer", async () => {
