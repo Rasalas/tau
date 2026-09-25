@@ -97,6 +97,8 @@ describe("testHostDir and parseArgs", () => {
     expect(parseArgs(["stop", "--all"]).flags.all).toBe(true);
     expect(() => parseArgs(["start", "--name"])).toThrow("--name needs a value");
     expect(() => parseArgs(["start", "--name", "../etc"])).toThrow("test host name");
-    expect(() => parseArgs(["start", "--port", "1"])).toThrow("unknown flag");
+    expect(() => parseArgs(["start", "--bind", "1"])).toThrow("unknown flag");
+    expect(parseArgs(["start", "--name", "rex", "--port", "47001"]).flags.port).toBe(47001);
+    for (const bad of ["1", "80", "70000", "x"]) expect(() => parseArgs(["start", "--port", bad])).toThrow("--port needs a port");
   });
 });

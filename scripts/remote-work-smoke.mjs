@@ -33,7 +33,7 @@ const { pairWithHost } = await import(pathToFileURL(join(DIST, "shared", "host-p
 const A = { name: "smoke-a", machineName: "mini" };
 const REX = { name: "smoke-rex", machineName: "rex" };
 const GUARD_MS = 240_000;
-// A test-only package on rex that exposes sessions.import/send as commands; H06's kit replaces it.
+// A test-only package on rex that exposes sessions.import/send as commands, to check the seam itself (format refusal).
 const IMPORT_PROBE = "test.session-import-probe";
 // A test-only package on both hosts that sends a file with services.machines.upload and takes it with services.blobs; H05's kit replaces it.
 const BLOB_PROBE = "test.blob-probe";
@@ -95,6 +95,21 @@ function sessionFiles(dir) {
 const assistantTexts = (entries) => entries
   .filter((entry) => entry.type === "message" && entry.message?.role === "assistant")
   .map((entry) => (entry.message.content ?? []).map((part) => part.text ?? "").join(""));
+
+/** A thread link on A, as its clients read it. */
+const threadOf = (ctx, id) => ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread", { link: id }]);
+
+/** `thread-wait` with room for the transfer and a fake turn. */
+const threadWait = (ctx, id) => ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-wait", { link: id, timeoutMs: 90_000 }]);
+
+/** The statuses A pushed to its clients for one link, in order, repeats folded. */
+function linkStatuses(ctx, id) {
+  const seen = ctx.aOwner.pushes
+    .map((push) => push.event ?? push)
+    .filter((event) => event?.type === "extension-event" && event.extensionId === REMOTE_WORK && event.name === "thread-link" && event.payload?.id === id)
+    .map((event) => event.payload.status);
+  return seen.filter((status, index) => status !== seen[index - 1]);
+}
 
 /**
  * The steps. `run(ctx)` returns a detail line or throws; `pending: "<ticket>"`
@@ -311,6 +326,7 @@ export const STEPS = [
 
       await ctx.rexOwner.request("extension-grant", [IMPORT_PROBE, true]);
       await waitFor(async () => (await ctx.rexOwner.request("host-extensions")).some((entry) => entry.id === IMPORT_PROBE && entry.active), "the import probe on rex");
+      ctx.aSession = { threadId: source.entries[0].id, path: source.path };
       const origin = { hostId: aHost.id, threadId: source.entries[0].id };
       const oldFormat = source.text.replace('"version":3', '"version":2');
       const refused = await ctx.rexOwner.request("host-extension", [IMPORT_PROBE, "import", { cwd: ctx.rex.workspace, jsonl: oldFormat, origin }])
@@ -334,13 +350,12 @@ export const STEPS = [
       return `${imported.sessionId.slice(0, 8)} on rex: ${target.entries.length} entries, ${assistantTexts(target.entries).length} answers, origin ${aHost.id.slice(0, 8)}`;
     },
   },
-  { title: "A starts a thread on rex with the fake model and follows its status to idle, with a cost", pending: "H06" },
   {
     title: "the result comes back as tau/rex/<slug> on A, merge-tree is clean, merge --no-ff lands it",
     async run(ctx) {
       const [transfer] = ctx.transfers;
       const there = transfer.remote.path;
-      // rex's work, as a thread there would leave it (H06 starts one): one file changed, one new, nothing committed.
+      // rex's work, as a thread there would leave it: one file changed, one new, nothing committed.
       writeFileSync(join(there, "src", "app.js"), "export const greeting = \"hello from rex\";\nexport const farewell = \"bye\";\n");
       writeFileSync(join(there, "CHANGELOG.md"), "- rex says hello\n");
       const back = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "fetch-result", { transfer: transfer.id }]);
@@ -377,6 +392,95 @@ export const STEPS = [
       if (gone.state !== "discarded" || existsSync(transfer.remote.path)) throw new Error("the second worktree on rex is still there after discard");
       if (!gitIn(cwd, "rev-parse", "--verify", "tau/rex/smoke-2")) throw new Error("the conflicting branch is gone");
       return `conflict in ${applied.applied.files.join(", ")}; HEAD ${head.slice(0, 8)} and status unchanged; tau/rex/smoke-2 kept, rex's worktree removed`;
+    },
+  },
+  {
+    title: "A starts a thread on rex with the fake model and follows its status to idle, with a cost",
+    async run(ctx) {
+      const cwd = ctx.fixture.work;
+      const started = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-start", { machine: REX.machineName, cwd, prompt: "write rex-note.txt hello", title: "Smoke thread" }]);
+      if (started.status !== "sending" || started.machineName !== REX.machineName) throw new Error(`thread-start answered ${JSON.stringify(started)}`);
+      const done = await threadWait(ctx, started.id);
+      if (done.reason !== "idle") throw new Error(`the thread ended ${done.reason}: ${JSON.stringify(done.link)}`);
+      const link = done.link;
+      if (!(link.usage?.costUsd > 0) || link.there?.turns !== 1 || link.there.outcome !== "completed" || link.there.lastMessage !== "done") throw new Error(`the link reads ${JSON.stringify(link)}`);
+      const statuses = linkStatuses(ctx, link.id);
+      if (statuses.at(-1) !== "idle" || !statuses.includes("sending")) throw new Error(`A's clients saw ${statuses.join(" → ")}`);
+      if (readFileSync(join(link.worktree, "rex-note.txt"), "utf8") !== "hello\n") throw new Error("the thread did not write in its worktree on rex");
+      const session = sessionFiles(ctx.rex.sessionsDir).find((file) => file.entries[0].id === link.thread);
+      if (session?.entries[0].cwd !== link.worktree) throw new Error(`rex's session for ${link.thread} works in ${session?.entries[0].cwd}`);
+      const book = JSON.parse(readFileSync(join(ctx.a.userData, "kit-state", REMOTE_WORK, "remote-links.json"), "utf8"));
+      if (book[0]?.id !== link.id || book[0].thread !== link.thread) throw new Error("A's book does not hold the link");
+      ctx.thread = link;
+      return `${statuses.join(" → ")}; ${link.there.turns} turn, $${link.usage.costUsd.toFixed(5)}, thread ${link.thread.slice(0, 8)} in ${link.worktree.split("/").slice(-2).join("/")}`;
+    },
+  },
+  {
+    title: "a turn on rex is stopped from A while it runs",
+    async run(ctx) {
+      const { id } = ctx.thread;
+      const before = ctx.model.requests.length;
+      await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-send", { link: id, text: "wait 30000" }]);
+      await waitFor(async () => (await threadOf(ctx, id)).status === "running" && ctx.model.requests.length > before, "the waiting turn to run on rex");
+      const started = Date.now();
+      await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-abort", { link: id }]);
+      const done = await threadWait(ctx, id);
+      if (done.reason !== "idle" || done.link.there?.outcome !== "aborted" || Date.now() - started > 20_000) throw new Error(`after the abort: ${done.reason}, ${JSON.stringify(done.link.there)}`);
+      return `running → idle (aborted) in ${Date.now() - started} ms`;
+    },
+  },
+  {
+    title: "rex stopped by pid reads offline on A; back on its port, the status is right again",
+    async run(ctx) {
+      const { id } = ctx.thread;
+      const port = Number(new URL(ctx.rex.url).port);
+      const stopped = await stopTestHost(REX.name);
+      if (!stopped.stopped) throw new Error("rex was not running");
+      await waitFor(async () => (await threadOf(ctx, id)).status === "offline", "A to read rex offline");
+      const offline = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-wait", { link: id, timeoutMs: 5_000 }]);
+      if (offline.reason !== "offline") throw new Error(`thread-wait answered ${offline.reason} while rex was down`);
+      const refused = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-send", { link: id, text: "hello?" }]).then(() => "sent", (error) => String(error.message));
+      if (!/offline|Connecting/u.test(refused)) throw new Error(`a send to an offline rex ended: ${refused}`);
+
+      ctx.rexOwner.close();
+      ctx.rex = await startTestHost({ name: REX.name, kits: true, tls: true, login: false, port }, {
+        machineName: REX.machineName,
+        prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, ctx.model.baseUrl),
+      });
+      ctx.rexOwner = ownerUplink(ctx.rex);
+      await waitFor(async () => (await threadOf(ctx, id)).status === "idle", "A to read the thread idle after rex is back", 90_000);
+      await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-send", { link: id, text: "say one word" }]);
+      const done = await threadWait(ctx, id);
+      if (done.reason !== "idle" || done.link.there?.lastMessage !== "ok") throw new Error(`after the restart the thread ended ${done.reason}: ${JSON.stringify(done.link.there)}`);
+      return `offline, then idle on port ${port} (pid ${ctx.rex.pid}); a new turn answered "${done.link.there.lastMessage}"`;
+    },
+  },
+  {
+    title: "the thread's work comes back as tau/rex/<slug>, merges, and its worktree on rex goes",
+    async run(ctx) {
+      const cwd = ctx.fixture.work;
+      const settled = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-settle", { link: ctx.thread.id, how: "apply" }]);
+      if (settled.status !== "settled" || settled.result?.branch !== "tau/rex/smoke-thread" || settled.applied?.state !== "merged") throw new Error(`thread-settle answered ${JSON.stringify(settled)}`);
+      if (readFileSync(join(cwd, "rex-note.txt"), "utf8") !== "hello\n" || gitIn(cwd, "status", "--porcelain") !== "") throw new Error("rex's file is not merged into A's clean checkout");
+      if (existsSync(ctx.thread.worktree)) throw new Error("the worktree on rex is still there");
+      return `${settled.result.branch}: ${settled.applied.detail}`;
+    },
+  },
+  {
+    title: "a Pi session from A continues on rex through thread-start({ session })",
+    async run(ctx) {
+      const aHost = (await ctx.aOwner.hello()).host;
+      const started = await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-start", {
+        machine: REX.machineName, cwd: ctx.fixture.work, session: { threadId: ctx.aSession.threadId }, prompt: "say another word", title: "From A",
+      }]);
+      const done = await threadWait(ctx, started.id);
+      if (done.reason !== "idle") throw new Error(`the continued thread ended ${done.reason}: ${JSON.stringify(done.link)}`);
+      const target = sessionFiles(ctx.rex.sessionsDir).find((file) => file.entries[0].id === done.link.thread);
+      const origin = target?.entries[1];
+      if (origin?.customType !== "tau.remote-work/origin" || origin.data?.hostId !== aHost.id || origin.data?.threadId !== ctx.aSession.threadId) throw new Error(`the session on rex starts ${JSON.stringify(target?.entries.slice(0, 2))}`);
+      if (!target.text.includes("say one word") || !target.text.includes("say another word")) throw new Error("the session on rex lacks A's history or the new prompt");
+      await ctx.aOwner.request("host-extension", [REMOTE_WORK, "thread-settle", { link: started.id, how: "discard" }]);
+      return `${done.link.thread.slice(0, 8)} on rex: ${assistantTexts(target.entries).length} answers, origin ${aHost.id.slice(0, 8)}`;
     },
   },
   // Last: it cuts A's agents off from rex.
@@ -458,7 +562,7 @@ async function main() {
   }
   clearTimeout(guard);
   if (failed) process.exit(1);
-  console.log(`remote-work smoke passed; ${pending.length} step(s) pending: ${[...new Set(pending.map((step) => step.pending))].join(", ")}`);
+  console.log(pending.length === 0 ? "remote-work smoke passed" : `remote-work smoke passed; ${pending.length} step(s) pending: ${[...new Set(pending.map((step) => step.pending))].join(", ")}`);
   // Sockets of the uplinks may linger a moment; nothing else is left to wait for.
   process.exit(0);
 }

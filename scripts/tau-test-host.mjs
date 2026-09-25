@@ -96,7 +96,11 @@ export function parseArgs(argv) {
     else if (arg === "--fresh") flags.fresh = true;
     else if (arg === "--no-login") flags.login = false;
     else if (arg === "--all") flags.all = true;
-    else if (arg === "--name" || arg === "--workspace") {
+    else if (arg === "--port") {
+      const port = Number(rest[++index]);
+      if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("--port needs a port from 1024 to 65535");
+      flags.port = port;
+    } else if (arg === "--name" || arg === "--workspace") {
       const value = rest[++index];
       if (!value) throw new Error(`${arg} needs a value`);
       flags[arg.slice(2)] = value;
@@ -171,6 +175,8 @@ export async function startTestHost(flags = {}, { machineName, env: extraEnv = {
   if (!existsSync(entry) || !existsSync(join(ROOT, "dist-web", "index.html"))) throw new Error("build first: npm run build");
   const workspace = flags.workspace ? resolve(flags.workspace) : undefined;
   const env = { ...testHostEnv({ dir, name: flags.name, machineName, workspace, proxy: flags.proxy, tls: flags.tls, kits: flags.kits }), ...extraEnv };
+  // The same port again: a machine that paired with this host finds it after a restart.
+  if (flags.port) env.TAU_HOST_LISTEN = `127.0.0.1:${flags.port}`;
   for (const path of [env.HOME, env.TAU_USER_DATA, env.TAU_WORKSPACE, env.CODEX_HOME, env.TAU_OPENCODE_HOME, env.TAU_CURSOR_HOME, env.TAU_GROK_HOME]) mkdirSync(path, { recursive: true });
   // Pi as in an instance: the login linked, settings copied with the test model; --no-login leaves it signed out.
   if (flags.login !== false) preparePiAgentDir(env.PI_CODING_AGENT_DIR);
@@ -227,7 +233,7 @@ async function main() {
   if (command === "stop") return stopTestHost(flags.name);
   if (command === "status") return readTestHost(flags.name);
   if (command === "list") return listTestHosts();
-  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list");
+  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
