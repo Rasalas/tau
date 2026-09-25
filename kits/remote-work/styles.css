@@ -46,3 +46,24 @@
   gap: 6px;
 }
 
+
+.remote-work-thread-status {
+  margin-right: 8px;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.remote-work-thread-status.running,
+.remote-work-thread-status.starting,
+.remote-work-thread-status.sending { color: var(--working); }
+.remote-work-thread-status.waiting { color: var(--warn); }
+.remote-work-thread-status.failed,
+.remote-work-thread-status.gone { color: var(--danger); }
+.remote-work-thread-status.offline,
+.remote-work-thread-status.settled { color: var(--ink-3); }
+
+.remote-work-thread-cost {
+  margin-right: 8px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

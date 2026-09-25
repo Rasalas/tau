@@ -2199,6 +2199,7 @@ permission and is absent on a host in the window's process and in a worker.
 
 | Member | What it does |
 |---|---|
+| `self` | `HostMachineSelf`: this host's `id`, `name` and Tau `version`, as its hello gives them to other machines. A kit names the origin of work it sends with it, and says which versions differ when the other side is too old. |
 | `list()` | `HostMachine[]`: `id` (that machine's host id), `name`, `status` (`connecting`, `connected`, `offline`, `refused`), `detail`, `roundTripMs`, `lastSeenAt`, `address`, `hostVersion`, and `readOnly` when its owner let the agents in Read only. Never a token. |
 | `subscribe(listener)` | Calls `listener` with the whole list when a machine is added, removed or changes status. Returns the way to stop. |
 | `call(machine, extensionId, command, input?, { timeoutMs? })` | Runs a kit command on that machine, as `host-extension` from the agents' own device. The other host checks it like any call of a paired device: its preset, `access: "read"`, and an entry in its Connections audit. |
@@ -2232,6 +2233,15 @@ await services.machines!.call("rex", "tau.remote-work", "receive", { blob: blob.
 context.registerCommand("receive", (input, call) =>
   services.blobs!.take(input.blob, (file) => fetchBundle(file.path), { caller: call }), { long: true });
 ```
+
+Remote Work Kit (`kits/remote-work/`) builds threads on another machine on
+this seam and offers them to other kits as the service
+`tau.remote-work/threads`: host commands `thread-start`, `thread-send`,
+`thread-abort`, `thread-wait`, `thread-result`, `thread-settle`, `threads` and
+`thread`, callable by Agents and Handoff (`callers`) and typed in
+`kits/remote-work/protocol.ts` (`RemoteThreadCommands`, `RemoteThreadLink`)
+with a small client in `threads-client.ts`. The thread there is an ordinary
+thread; here there is only a link, and the other machine never reaches back.
 
 Machines Kit
 (`kits/environments/host.ts`) is the shipped caller: it lists the machines for

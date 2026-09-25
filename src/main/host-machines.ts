@@ -9,6 +9,7 @@ import {
   type HostBlobUploadOptions,
   type HostMachine,
   type HostMachineEvent,
+  type HostMachineSelf,
   type HostMachineServices,
   type HostUploadedBlob,
 } from "./host-extensions.js";
@@ -28,6 +29,9 @@ export interface HostMachinesOptions {
   logger: HostLogger;
   /** This host's own id: a machine never adds itself. */
   ownId: string;
+  /** This host's name and Tau version, as its hello gives them; `services.machines.self` reads them. */
+  ownName?: string;
+  ownVersion?: string;
   /** Test seam. */
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
   /** Answers `request` for this host's own id, so a kit asks this machine the way it asks the others. */
@@ -64,6 +68,10 @@ export class HostMachines {
     const machines = new HostMachines(await EnvironmentCatalog.open(options.path, PLAIN, options.logger), options);
     for (const entry of machines.catalog.list()) machines.connect(entry);
     return machines;
+  }
+
+  get self(): HostMachineSelf {
+    return { id: this.options.ownId, name: this.options.ownName ?? this.options.ownId.slice(0, 8), version: this.options.ownVersion ?? "0.0.0" };
   }
 
   list(): HostMachine[] {
@@ -151,6 +159,7 @@ export class HostMachines {
   /** The seam one extension sees: `watch` names its own kit on the other machine unless told otherwise. */
   forExtension(extensionId: string): HostMachineServices {
     return {
+      self: this.self,
       list: () => this.list(),
       subscribe: (listener) => this.subscribe(listener),
       call: (machine, target, command, input, options) => this.call(machine, target, command, input, options),

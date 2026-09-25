@@ -115,6 +115,7 @@ async function twoHosts(options: { projectFile?: Record<string, unknown>; projec
   // What crosses the socket is JSON.
   const wire = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value)) as T);
   const machines: HostMachineServices = {
+    self: { id: "mini-id", name: "mini", version: "0.7.0" },
     list: () => [{ id: "rex-id", name: "rex", status: "connected" }],
     subscribe: () => () => undefined,
     call: async (_machine, extensionId, command, input) => wire(await rex.invoke(extensionId, command, wire(input), paired)),

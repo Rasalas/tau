@@ -6,6 +6,8 @@
  * reaches back.
  */
 
+import type { UiThreadUsage } from "tau";
+
 export const REMOTE_WORK_EXTENSION_ID = "tau.remote-work";
 
 /** Bumped when a command's input or answer changes shape; both sides say theirs. */
@@ -267,3 +269,189 @@ export const RECEIVING_COMMANDS = {
 // Project Scripts runs a new worktree's setup; this kit is one of its callers.
 export const PROJECT_SCRIPTS_EXTENSION_ID = "tau.project-scripts";
 export const WORKTREE_CREATED_COMMAND = "worktree-created";
+
+// ---------------------------------------------------------------------------
+// Threads on another machine (H06): the service `tau.remote-work/threads`
+
+/**
+ * Names the thread service other kits reach here, as host commands with
+ * `callers` (ADR 0020); `remoteThreadsClient` in `threads-client.ts` types it.
+ */
+export const REMOTE_THREADS_SERVICE = "tau.remote-work/threads";
+
+/** Pushed to this machine's clients with the whole `RemoteThreadLink` whenever it changes. */
+export const THREAD_LINK_EVENT = "thread-link";
+
+/** The receiving side emits a hosted thread's report under this topic; the sending side watches it. */
+export const HOSTED_THREAD_EVENT = "hosted-thread";
+export const hostedThreadTopic = (thread: string) => `hosted-thread/${thread}`;
+
+/** What a thread there is doing, as that machine derives it (`isStreaming`, `ui_prompt_*`, the last turn). */
+export type HostedThreadState = "starting" | "running" | "waiting" | "idle" | "failed" | "gone";
+
+/** How the last turn that ended went; `interrupted` when that machine stopped during it. */
+export type HostedTurnOutcome = "completed" | "failed" | "aborted" | "interrupted";
+
+/** A thread one machine runs for another, as it reports it. Its clock, not the caller's. */
+export interface HostedThreadReport {
+  /** The thread's id there. */
+  thread: string;
+  state: HostedThreadState;
+  /** Turns that ended since it started there. */
+  turns: number;
+  outcome?: HostedTurnOutcome;
+  /** The provider's error of a failed last answer, or why the thread could not go on. */
+  error?: string;
+  /** What it asks while `waiting` on a dialog. */
+  question?: string;
+  /** The last answer, shortened. */
+  lastMessage?: string;
+  usage?: UiThreadUsage;
+  model?: { provider: string; id: string };
+  title?: string;
+  updatedAt: number;
+  /** Orders reports of one run of that host: a lower revision of the same epoch is older. */
+  epoch: string;
+  revision: number;
+}
+
+/**
+ * A link's status here: its thread's state there, or what stands between.
+ * `sending` while the project's state travels, `offline` while the machine
+ * is unreachable (the thread may still run there), `settled` once its work
+ * was applied or let go.
+ */
+export type RemoteThreadStatus = "sending" | HostedThreadState | "offline" | "settled";
+
+/** Statuses a `wait` waits through. */
+export const BUSY_REMOTE_STATUSES: readonly RemoteThreadStatus[] = ["sending", "starting", "running"];
+
+export interface RemoteThreadModel {
+  provider: string;
+  id: string;
+}
+
+/** What `thread-start` takes. Either `prompt` or `session`, or both (the prompt then continues the session). */
+export interface RemoteThreadStartInput {
+  /** A machine this host holds a key for: its host id, or its name when unique. */
+  machine: string;
+  /** A folder of the checkout here whose state the thread starts from. */
+  cwd: string;
+  prompt?: string;
+  /** A Pi thread here whose session goes along (`sessions.import` there); its history stays native. */
+  session?: { threadId: string };
+  title?: string;
+  /** The runtime backend there; Pi when absent. */
+  backend?: string;
+  model?: RemoteThreadModel;
+  /** The thread here that started it; kept in the link only, the machine there never sees it. */
+  parentThreadId?: string;
+  /** An agent definition's name, kept in the link for the kit that spawned it. */
+  agent?: string;
+  /** A checkpoint tree to send instead of the working copy (`SendRepoInput.snapshotRef`). */
+  snapshotRef?: string;
+  /** Ignored files that go along; the project's remembered choice without it. */
+  ignored?: string[];
+}
+
+/** How a settled link ended. */
+export interface RemoteThreadSettled {
+  how: "applied" | "discarded";
+  at: number;
+  detail: string;
+}
+
+/** One thread started from here on another machine (`<stateDir>/remote-links.json`). */
+export interface RemoteThreadLink {
+  /** The handle other kits keep; it exists before the thread there does. */
+  id: string;
+  machine: string;
+  machineName: string;
+  cwd: string;
+  /** The checkout's top folder here. */
+  root: string;
+  title?: string;
+  parentThreadId?: string;
+  agent?: string;
+  backend?: string;
+  model?: RemoteThreadModel;
+  /** The transfer that carried the state; its worktree there is where the thread works. */
+  transfer?: string;
+  /** The commit the thread started from. */
+  base?: string;
+  /** The worktree there. */
+  worktree?: string;
+  /** The thread's id there, once it exists. */
+  thread?: string;
+  status: RemoteThreadStatus;
+  /** The last report from there; it stays while the machine is offline. */
+  there?: HostedThreadReport;
+  /** Tokens and money the thread used there, as it last reported. */
+  usage?: UiThreadUsage;
+  /** Why it failed: a start that never got there, or the last answer's error. */
+  error?: string;
+  result?: TransferResult;
+  applied?: TransferApplied;
+  settled?: RemoteThreadSettled;
+  createdAt: number;
+  updatedAt: number;
+  /** When this side last heard about it from there. */
+  seenAt?: number;
+}
+
+/** Why a `thread-wait` came back. */
+export type RemoteThreadWaitReason = "idle" | "waiting" | "failed" | "gone" | "settled" | "offline" | "timeout";
+
+export interface RemoteThreadWaitResult {
+  reason: RemoteThreadWaitReason;
+  link: RemoteThreadLink;
+}
+
+export type RemoteThreadDelivery = "prompt" | "steer" | "queue";
+
+/**
+ * The typed surface of `tau.remote-work/threads`. The commands of the same
+ * names take these inputs, from this machine's clients and from `callers`.
+ */
+export interface RemoteThreadCommands {
+  "thread-start": { input: RemoteThreadStartInput; output: RemoteThreadLink };
+  threads: { input: { machine?: string; parentThreadId?: string; active?: boolean } | undefined; output: RemoteThreadLink[] };
+  thread: { input: { link: string }; output: RemoteThreadLink };
+  "thread-send": { input: { link: string; text: string; delivery?: RemoteThreadDelivery }; output: RemoteThreadLink };
+  "thread-abort": { input: { link: string }; output: RemoteThreadLink };
+  /** Waits until the thread is no longer busy, the machine goes offline, or `timeoutMs` (30 s by default, at most 30 min). */
+  "thread-wait": { input: { link: string; timeoutMs?: number }; output: RemoteThreadWaitResult };
+  /** Brings the worktree's state back as `tau/<machine>/<slug>`; refused while the thread runs. */
+  "thread-result": { input: { link: string }; output: RemoteThreadLink };
+  /** `apply` merges the result when clean and then lets the worktree there go; `discard` lets it go at once. */
+  "thread-settle": { input: { link: string; how: "apply" | "discard" }; output: RemoteThreadLink };
+}
+
+export const DEFAULT_REMOTE_WAIT_MS = 30_000;
+export const MAX_REMOTE_WAIT_MS = 30 * 60_000;
+
+// Receiving side (B): what the sending side's host calls there for threads.
+
+export interface HostedHello {
+  protocol: number;
+}
+
+export interface HostedThreadStartInput {
+  protocol: number;
+  /** The transfer whose worktree the thread works in; only the device that sent it may start one. */
+  transfer: string;
+  prompt?: string;
+  /** A Pi session file from the sending side, with the thread it continues there. */
+  session?: { jsonl: string; origin: { hostId: string; threadId: string } };
+  title?: string;
+  backend?: string;
+  model?: RemoteThreadModel;
+}
+
+export const HOSTED_COMMANDS = {
+  hello: "hosted-hello",
+  start: "hosted-thread-start",
+  send: "hosted-thread-send",
+  abort: "hosted-thread-abort",
+  reports: "hosted-threads",
+} as const;

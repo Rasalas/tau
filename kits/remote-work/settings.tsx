@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Circle, FolderSync, Loader2, Minus, X } from "lucide-react";
-import { Empty, READ_ONLY_REASON, SettingRow, SettingsSection, Skeleton, errorMessage, useCommandAllowed, type HostExtensionClient, type SettingsPageProps } from "tau";
+import { Empty, READ_ONLY_REASON, SettingRow, SettingsSection, Skeleton, errorMessage, formatCost, useCommandAllowed, type HostExtensionClient, type SettingsPageProps, type UiThreadUsage } from "tau";
 import {
   REMOTE_WORK_EXTENSION_ID as ID,
+  THREAD_LINK_EVENT,
   TRANSFER_EVENT,
   type IgnoredCandidate,
   type IgnoredFilesView,
+  type RemoteThreadLink,
+  type RemoteThreadStatus,
   type RepoTransfer,
   type TransferStep,
 } from "./protocol.js";
@@ -121,6 +124,88 @@ function TransferRow({ transfer, host, allowed, now, onNotify }: { transfer: Rep
   );
 }
 
+const STATUS_LABELS: Record<RemoteThreadStatus, string> = {
+  sending: "Sending",
+  starting: "Starting",
+  running: "Running",
+  waiting: "Waiting for an answer",
+  idle: "Idle",
+  failed: "Failed",
+  gone: "Deleted there",
+  offline: "Offline · may still be running",
+  settled: "Settled",
+};
+
+/** Money it cost there; a subscription's share reads "plan", with what the API would have charged. */
+export function remoteCost(usage: UiThreadUsage | undefined): string | undefined {
+  if (!usage) return undefined;
+  const money = formatCost(usage.costUsd);
+  const plan = usage.subscription && usage.subscription.totalTokens > 0 ? `plan${formatCost(usage.subscription.apiValueUsd) ? ` ≈${formatCost(usage.subscription.apiValueUsd)}` : ""}` : undefined;
+  return [money, plan].filter(Boolean).join(" + ") || undefined;
+}
+
+/** What a thread link's row says under its title. */
+export function threadSummary(link: RemoteThreadLink): string {
+  if (link.settled) return link.settled.detail;
+  if (link.applied && link.applied.state !== "merged" && link.applied.state !== "already-merged") return link.applied.detail;
+  if (link.status === "failed" || link.status === "gone") return link.error ?? "It stopped there.";
+  if (link.there?.question && link.status === "waiting") return `Asks: ${link.there.question}`;
+  if (link.status === "offline") return `${link.machineName} is unreachable; the thread may still run there.`;
+  if (link.result?.state === "branch") return `${link.result.branch}: ${link.result.commits} commit${link.result.commits === 1 ? "" : "s"}, ${link.result.files} file${link.result.files === 1 ? "" : "s"}`;
+  return link.there?.lastMessage ?? (link.status === "sending" ? `Sending this project's state to ${link.machineName}…` : `Works in ${link.worktree ?? "a worktree there"}`);
+}
+
+function useThreadLinks(host: HostExtensionClient, root: string | undefined) {
+  const [links, setLinks] = useState<RemoteThreadLink[]>([]);
+  useEffect(() => {
+    if (!root) return undefined;
+    let live = true;
+    host.invoke("threads", {}).then((value) => { if (live && Array.isArray(value)) setLinks((value as RemoteThreadLink[]).filter((link) => link.root === root)); }, () => undefined);
+    const stop = host.onEvent(THREAD_LINK_EVENT, (payload) => {
+      const link = payload as RemoteThreadLink;
+      if (!live || !link?.id || link.root !== root) return;
+      setLinks((current) => [link, ...current.filter((entry) => entry.id !== link.id)].sort((left, right) => right.createdAt - left.createdAt));
+    });
+    return () => { live = false; stop(); };
+  }, [host, root]);
+  return links;
+}
+
+function ThreadLinkRow({ link, host, allowed, now, onNotify }: { link: RemoteThreadLink; host: HostExtensionClient; allowed: boolean; now: number; onNotify(message: string): void }) {
+  const [busy, setBusy] = useState<string>();
+  const run = (command: "thread-abort" | "thread-result" | "thread-settle", input: Record<string, unknown>, label: string) => {
+    setBusy(`${command}${String(input.how ?? "")}`);
+    // A settled link's summary says what happened already.
+    host.invoke(command, { link: link.id, ...input }).then((value) => {
+      const next = value as RemoteThreadLink;
+      onNotify(next.settled || next.applied ? threadSummary(next) : `${label}: ${threadSummary(next)}`);
+    }, (error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
+  };
+  const working = link.status === "running" || link.status === "starting";
+  const quiet = link.status === "idle" || link.status === "waiting" || link.status === "failed";
+  const cost = remoteCost(link.usage);
+  const open = link.status !== "settled" && link.status !== "gone";
+  return (
+    <SettingRow
+      title={<>{link.machineName} · {link.title ?? "Thread"} <small className="remote-work-age">{formatAge(link.createdAt, now)}</small></>}
+      description={<>
+        <span className={`remote-work-thread-status ${link.status}`}>{STATUS_LABELS[link.status]}</span>
+        {cost ? <span className="remote-work-thread-cost" aria-label="Cost there">{cost}</span> : null}
+        <span className={`remote-work-summary ${link.status}`}>{threadSummary(link)}</span>
+      </>}
+      disabledReason={allowed ? undefined : READ_ONLY_REASON}
+      control={open ? (
+        <span className="remote-work-actions">
+          {working ? <button type="button" className="chrome-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-abort", {}, "Stopped")}>{busy === "thread-abort" ? "Stopping…" : "Stop"}</button> : null}
+          {quiet && link.transfer ? <button type="button" className="chrome-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-result", {}, "Brought back")}>{busy === "thread-result" ? "Bringing back…" : link.result ? "Bring back again" : "Bring back"}</button> : null}
+          {quiet && link.transfer ? <button type="button" className="chrome-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-settle", { how: "apply" }, "Merged")}>{busy === "thread-settleapply" ? "Merging…" : "Merge"}</button> : null}
+          {link.status !== "sending" ? <button type="button" className="text-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-settle", { how: "discard" }, "Let go")}>Let go</button> : null}
+        </span>
+      ) : undefined}
+    />
+  );
+}
+
 /**
  * Settings → Remote work, for the open project: which ignored files go along
  * when its work moves to another machine (chosen once, remembered by this
@@ -130,6 +215,9 @@ export function createRemoteWorkPage(host: HostExtensionClient) {
   return function RemoteWorkPage({ cwd, onNotify }: SettingsPageProps) {
     const { view, setView, problem, setProblem } = useIgnoredFiles(host, cwd);
     const transfers = useTransfers(host, cwd, view?.root);
+    const threads = useThreadLinks(host, view?.root);
+    // A thread's transfer is steered from its own row.
+    const ownTransfers = transfers.filter((transfer) => !threads.some((link) => link.transfer === transfer.id));
     const canChoose = useCommandAllowed(ID, "set-ignored-files");
     const canAct = useCommandAllowed(ID, "apply");
     const [now, setNow] = useState(() => Date.now());
@@ -179,9 +267,14 @@ export function createRemoteWorkPage(host: HostExtensionClient) {
           ) : null}
         </SettingsSection>
         {problem ? <div className="settings-note" data-level="error" role="alert">{problem}</div> : null}
+        {threads.length > 0 ? (
+          <SettingsSection title="Threads on other machines">
+            {threads.map((link) => <ThreadLinkRow key={link.id} link={link} host={host} allowed={canAct} now={now} onNotify={onNotify} />)}
+          </SettingsSection>
+        ) : null}
         <SettingsSection title="Transfers">
-          {transfers.length === 0 ? <Empty size="compact" title="No transfers yet" description="Work this project sends to another machine shows here, with what came back." /> : null}
-          {transfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} host={host} allowed={canAct} now={now} onNotify={onNotify} />)}
+          {ownTransfers.length === 0 ? <Empty size="compact" title="No transfers yet" description="Work this project sends to another machine shows here, with what came back." /> : null}
+          {ownTransfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} host={host} allowed={canAct} now={now} onNotify={onNotify} />)}
         </SettingsSection>
         <p className="settings-note">
           A project goes to another machine as its commits and its uncommitted work. Ignored files stay here unless you tick them:

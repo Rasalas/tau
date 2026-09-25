@@ -9,7 +9,9 @@
     "machines",
     "workspace:read",
     "workspace:write",
-    "process"
+    "process",
+    "sessions",
+    "runtime:extend"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

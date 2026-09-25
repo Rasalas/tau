@@ -2,13 +2,17 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext } from "tau/host-extension";
+import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import { worktreeSetupCommand } from "../workspace/agent-worktrees.js";
+import { HostedThreads } from "./hosted-threads.js";
 import { REPO_KEY } from "./identity.js";
 import { writeIgnoredFiles } from "./ignored-files.js";
 import { MirrorStore, TRANSFER_ID } from "./mirror.js";
 import { Operations, type OperationStep } from "./operations.js";
 import {
+  DEFAULT_REMOTE_WAIT_MS,
+  HOSTED_COMMANDS,
+  HOSTED_THREAD_EVENT,
   OPERATION_EVENT,
   PROJECT_SCRIPTS_EXTENSION_ID,
   RECEIVING_COMMANDS,
@@ -16,15 +20,22 @@ import {
   REMOTE_WORK_PROTOCOL,
   TRANSFER_CALLERS,
   TRANSFER_EVENT,
+  THREAD_LINK_EVENT,
   WORKTREE_CREATED_COMMAND,
+  hostedThreadTopic,
   operationTopic,
+  type HostedThreadStartInput,
   type IgnoredFilePayload,
   type ReceiveResult,
+  type RemoteThreadDelivery,
+  type RemoteThreadModel,
+  type RemoteThreadStartInput,
   type RepoIdentity,
   type SendRepoInput,
   type SetupRun,
   type TransferStep,
 } from "./protocol.js";
+import { RemoteThreads } from "./threads.js";
 import { RepoTransfers } from "./transfers.js";
 
 const execFileAsync = promisify(execFile);
@@ -75,6 +86,89 @@ function decodeRepo(value: unknown): RepoIdentity {
     source: raw.source === "root-commit" ? "root-commit" : "origin",
     ...(text(raw.origin) ? { origin: text(raw.origin) } : {}),
   };
+}
+
+function decodeModel(value: unknown): RemoteThreadModel | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") {
+    const at = value.indexOf("/");
+    if (at > 0 && at < value.length - 1) return { provider: value.slice(0, at), id: value.slice(at + 1) };
+  }
+  const raw = fields(value);
+  const provider = text(raw.provider);
+  const id = text(raw.id);
+  if (!provider || !id) throw new HostCommandError('model is "provider/model-id" or { provider, id }.');
+  return { provider, id };
+}
+
+function optionalText(raw: Fields, key: string): string | undefined {
+  if (raw[key] !== undefined && raw[key] !== null && typeof raw[key] !== "string") throw new HostCommandError(`${key} is text.`);
+  return text(raw[key]);
+}
+
+function decodeThreadStart(input: unknown): RemoteThreadStartInput {
+  const raw = fields(input);
+  const prompt = optionalText(raw, "prompt");
+  const session = raw.session === undefined ? undefined : { threadId: required(fields(raw.session), "threadId") };
+  if (!prompt && !session) throw new HostCommandError("A thread needs a prompt or a session to start from.");
+  const ignored = raw.ignored;
+  if (ignored !== undefined && (!Array.isArray(ignored) || ignored.some((path) => typeof path !== "string"))) throw new HostCommandError("ignored is a list of paths.");
+  const model = decodeModel(raw.model);
+  const optional = Object.fromEntries((["title", "backend", "parentThreadId", "agent", "snapshotRef"] as const)
+    .map((key) => [key, optionalText(raw, key)] as const)
+    .filter((entry): entry is readonly [typeof entry[0], string] => Boolean(entry[1])));
+  return {
+    machine: required(raw, "machine"),
+    cwd: required(raw, "cwd"),
+    ...(prompt ? { prompt } : {}),
+    ...(session ? { session } : {}),
+    ...(model ? { model } : {}),
+    ...(Array.isArray(ignored) ? { ignored: ignored as string[] } : {}),
+    ...optional,
+  };
+}
+
+const DELIVERIES: readonly RemoteThreadDelivery[] = ["prompt", "steer", "queue"];
+
+function decodeDelivery(value: unknown): RemoteThreadDelivery {
+  if (value === undefined || value === null) return "prompt";
+  if (!DELIVERIES.includes(value as RemoteThreadDelivery)) throw new HostCommandError(`delivery is one of ${DELIVERIES.join(", ")}.`);
+  return value as RemoteThreadDelivery;
+}
+
+const linkId = (input: unknown) => required(fields(input), "link");
+
+function decodeHostedStart(input: Fields): HostedThreadStartInput {
+  const prompt = optionalText(input, "prompt");
+  const rawSession = input.session === undefined ? undefined : fields(input.session);
+  // Byte for byte: a session file is not trimmed.
+  if (rawSession && (typeof rawSession.jsonl !== "string" || !rawSession.jsonl)) throw new HostCommandError("session.jsonl is missing.");
+  const session = rawSession ? {
+    jsonl: rawSession.jsonl as string,
+    origin: { hostId: required(fields(rawSession.origin), "hostId"), threadId: required(fields(rawSession.origin), "threadId") },
+  } : undefined;
+  if (!prompt && !session) throw new HostCommandError("A thread needs a prompt or a session to start from.");
+  const model = decodeModel(input.model);
+  const title = optionalText(input, "title");
+  const backend = optionalText(input, "backend");
+  return {
+    protocol: REMOTE_WORK_PROTOCOL,
+    transfer: transferId(input),
+    ...(prompt ? { prompt } : {}),
+    ...(session ? { session } : {}),
+    ...(title ? { title } : {}),
+    ...(backend ? { backend } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+/** A Pi thread's session file here, the one `thread-start({ session })` sends along. */
+async function readPiSession(services: HostExtensionServices, threadId: string): Promise<string> {
+  const live = services.thread(threadId);
+  if (live && live.backendKind !== "pi") throw new HostCommandError("Only a Pi thread's session goes along; start the thread there with a prompt instead.");
+  const path = live?.sessionFile ?? (await services.sessions.list()).find((session) => session.sessionId === threadId)?.path;
+  if (!path?.endsWith(".jsonl")) throw new HostCommandError(`This machine has no Pi session for thread ${threadId}.`);
+  return readFile(path, "utf8");
 }
 
 function checkProtocol(input: Fields): void {
@@ -146,9 +240,9 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
   return {
     id: REMOTE_WORK_EXTENSION_ID,
     name: "Remote Work",
-    permissions: ["machines", "workspace:read", "workspace:write", "process"],
+    permissions: ["machines", "workspace:read", "workspace:write", "process", "sessions", "runtime:extend"],
     isolation: "in-process",
-    activate(context) {
+    async activate(context) {
       const { services } = context;
       const transfers = new RepoTransfers({
         machines: () => services.machines,
@@ -159,6 +253,11 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       });
       const mirrors = new MirrorStore({ stateDir: services.stateDir, ...(options.root ? { root: options.root } : {}), ...(options.env ? { env: options.env } : {}) });
       const operations = new Operations({ emit: (snapshot) => context.emit(OPERATION_EVENT, snapshot, { topic: operationTopic(snapshot.id) }) });
+      const hosted = new HostedThreads({
+        services,
+        stateDir: services.stateDir,
+        emit: (report) => context.emit(HOSTED_THREAD_EVENT, report, { topic: hostedThreadTopic(report.thread) }),
+      });
 
       // Here: the sending side, for this machine's clients and the kits that start work elsewhere.
       const kits = { callers: TRANSFER_CALLERS };
@@ -243,11 +342,94 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       }, { access: "read" });
 
       context.registerCommand(RECEIVING_COMMANDS.remove, async (input, call) => {
-        await mirrors.remove(transferId(input), device(call));
+        const transfer = transferId(input);
+        if (hosted.busy(transfer)) throw new HostCommandError("A thread still works in that worktree; stop it first.");
+        await mirrors.remove(transfer, device(call));
         return { removed: true };
       }, { audit: { label: "removed a worktree another machine had worked in" } });
 
       context.registerCommand(RECEIVING_COMMANDS.operation, (input, call) => operations.get(required(fields(input), "id"), device(call)), { access: "read" });
+
+      // Threads, here: the service other kits and this machine's clients start and steer them with (H06).
+      const threads = new RemoteThreads({
+        machines: () => services.machines,
+        transfers,
+        readSession: (threadId) => readPiSession(services, threadId),
+        stateDir: services.stateDir,
+        emit: (link) => context.emit(THREAD_LINK_EVENT, link),
+        log: (label, detail) => services.log(label, detail),
+      });
+      context.registerCommand("thread-start", (input) => threads.start(decodeThreadStart(input)), { long: true, ...kits, audit: { label: "started a thread on another machine" } });
+      context.registerCommand("threads", (input) => {
+        const raw = fields(input);
+        return threads.list({ ...(text(raw.machine) ? { machine: text(raw.machine) } : {}), ...(text(raw.parentThreadId) ? { parentThreadId: text(raw.parentThreadId) } : {}), ...(raw.active === true ? { active: true } : {}) });
+      }, { access: "read", ...kits });
+      context.registerCommand("thread", (input) => threads.get(linkId(input)), { access: "read", ...kits });
+      context.registerCommand("thread-send", (input) => {
+        const raw = fields(input);
+        return threads.send(linkId(input), required(raw, "text"), decodeDelivery(raw.delivery));
+      }, { long: true, ...kits, audit: { label: "sent a message to a thread on another machine" } });
+      context.registerCommand("thread-abort", (input) => threads.abort(linkId(input)), { long: true, ...kits, audit: { label: "stopped a thread on another machine" } });
+      context.registerCommand("thread-wait", (input) => {
+        const timeout = fields(input).timeoutMs;
+        const ms = timeout === undefined ? DEFAULT_REMOTE_WAIT_MS : Number(timeout);
+        if (!Number.isFinite(ms) || ms <= 0) throw new HostCommandError("timeoutMs is a positive number of milliseconds.");
+        return threads.wait(linkId(input), ms);
+      }, { long: true, access: "read", ...kits });
+      context.registerCommand("thread-result", (input) => threads.fetchResult(linkId(input)), { long: true, ...kits, audit: { label: "brought back a thread's work from another machine" } });
+      context.registerCommand("thread-settle", (input) => {
+        const how = fields(input).how;
+        if (how !== "apply" && how !== "discard") throw new HostCommandError('how is "apply" or "discard".');
+        return threads.settle(linkId(input), how);
+      }, { long: true, ...kits, audit: { label: "settled a thread's work from another machine" } });
+
+      // Threads, there: what the sending side's host calls for the threads it starts here.
+      context.registerCommand(HOSTED_COMMANDS.hello, () => ({ protocol: REMOTE_WORK_PROTOCOL }), { access: "read" });
+      context.registerCommand(HOSTED_COMMANDS.start, async (input, call) => {
+        const raw = fields(input);
+        checkProtocol(raw);
+        const start = decodeHostedStart(raw);
+        const entry = await mirrors.get(start.transfer, device(call));
+        return hosted.start(start, entry.worktree, device(call));
+      }, { audit: { label: "started a thread for another machine" } });
+      context.registerCommand(HOSTED_COMMANDS.send, (input, call) => {
+        const raw = fields(input);
+        checkProtocol(raw);
+        return hosted.send(required(raw, "thread"), required(raw, "text"), decodeDelivery(raw.delivery), device(call));
+      }, { audit: { label: "sent another machine's message to a thread" } });
+      context.registerCommand(HOSTED_COMMANDS.abort, (input, call) => {
+        const raw = fields(input);
+        checkProtocol(raw);
+        return hosted.abort(required(raw, "thread"), device(call));
+      }, { audit: { label: "stopped a thread for another machine" } });
+      context.registerCommand(HOSTED_COMMANDS.reports, (input, call) => {
+        const raw = fields(input);
+        checkProtocol(raw);
+        if (!Array.isArray(raw.threads) || raw.threads.some((thread) => typeof thread !== "string") || raw.threads.length > 500) throw new HostCommandError("threads is a list of up to 500 thread ids.");
+        return { reports: hosted.reports(raw.threads as string[], device(call)) };
+      }, { access: "read" });
+
+      const disposers = [
+        services.registerTurnObserver({
+          accepted: (sessionId) => hosted.accepted(sessionId),
+          ended: (sessionId, _turnId, outcome) => hosted.ended(sessionId, outcome),
+          cancelled: async (sessionId) => hosted.cancelled(sessionId),
+          closed: async (sessionId) => hosted.closed(sessionId),
+        }),
+        // A dialog the thread opens is answered there; the sending side learns that it waits and on what.
+        services.registerRuntimeExtension("tau-remote-work", (pi, session) => {
+          pi.on("ui_prompt_start", (event) => hosted.prompt(session.sessionId, event.title ?? event.kind));
+          pi.on("ui_prompt_end", () => hosted.prompt(session.sessionId, undefined));
+        }),
+        services.registerThreadLifecycle({ threadDeleted: async (sessionId) => hosted.deleted(sessionId) }),
+      ];
+      await hosted.load();
+      await threads.open();
+      return async () => {
+        threads.close();
+        for (const dispose of disposers) dispose();
+        await Promise.all([threads.flush(), hosted.flush()]);
+      };
     },
   };
 }

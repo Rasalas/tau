@@ -5,7 +5,7 @@ import type { SettingsPageProps } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import remoteWork, { REMOTE_WORK_SETTINGS_PAGE } from "./desktop.js";
-import { REMOTE_WORK_EXTENSION_ID as ID, TRANSFER_EVENT, type IgnoredFilesView, type RepoTransfer } from "./protocol.js";
+import { REMOTE_WORK_EXTENSION_ID as ID, THREAD_LINK_EVENT, TRANSFER_EVENT, type IgnoredFilesView, type RemoteThreadLink, type RepoTransfer } from "./protocol.js";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -47,7 +47,8 @@ function setup(answer: (command: string, input?: unknown) => unknown, cwd: strin
   const props: SettingsPageProps = { onNotify: vi.fn(), ...(cwd ? { cwd } : {}) };
   render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
   const push = (transfer: RepoTransfer) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ID, name: TRANSFER_EVENT, payload: transfer }));
-  return { invoke, props, push };
+  const pushLink = (link: RemoteThreadLink) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ID, name: THREAD_LINK_EVENT, payload: link }));
+  return { invoke, props, push, pushLink };
 }
 
 describe("Settings → Remote work", () => {
@@ -95,6 +96,38 @@ describe("Settings → Remote work", () => {
     expect(invoke).toHaveBeenCalledWith(ID, "apply", { transfer: TRANSFER.id });
     expect(props.onNotify).toHaveBeenLastCalledWith("tau/rex/tidy conflicts with this checkout in 1 file; nothing was applied.");
     expect(screen.getAllByText(/rex · Tidy/u)).toHaveLength(1);
+  });
+
+  it("shows the project's threads on other machines with their status and cost, and stops one", async () => {
+    const link: RemoteThreadLink = {
+      id: "link1", machine: "rex-id", machineName: "rex", cwd: "/work/app", root: "/work/app", title: "Say one word",
+      transfer: TRANSFER.id, thread: "t1", status: "running", createdAt: Date.now(), updatedAt: Date.now(),
+      usage: { inputTokens: 100, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 105, costUsd: 0.02, turns: 1 },
+    };
+    const { invoke, pushLink } = setup((command) => {
+      if (command === "ignored-files") return { ...VIEW, candidates: [], selected: [] };
+      if (command === "transfers") return [TRANSFER];
+      if (command === "threads") return [link, { ...link, id: "elsewhere", root: "/work/other" }];
+      if (command === "thread-abort") return { ...link, status: "idle", there: { thread: "t1", state: "idle", turns: 1, outcome: "aborted", updatedAt: 1, epoch: "e", revision: 2 } };
+      return undefined;
+    });
+    await flush();
+    expect(screen.getByText("Threads on other machines")).toBeTruthy();
+    expect(screen.getByText("Running")).toBeTruthy();
+    expect(screen.getByLabelText("Cost there").textContent).toBe("$0.02");
+    // Its transfer is steered from the thread's row, not listed twice.
+    expect(screen.getByText("No transfers yet")).toBeTruthy();
+    expect(screen.getAllByText(/rex · Say one word/u)).toHaveLength(1);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Stop" })); });
+    expect(invoke).toHaveBeenCalledWith(ID, "thread-abort", { link: "link1" });
+
+    pushLink({ ...link, status: "offline" });
+    expect(screen.getByText("Offline · may still be running")).toBeTruthy();
+    expect(screen.getByText("rex is unreachable; the thread may still run there.")).toBeTruthy();
+    pushLink({ ...link, status: "failed", error: "429 You exceeded your current quota." });
+    expect(screen.getByText("429 You exceeded your current quota.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
 
   it("says what to do without an open project", () => {

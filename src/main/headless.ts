@@ -191,6 +191,8 @@ async function main(): Promise<void> {
     path: join(userData, "host-machines.json"),
     logger: hostLog,
     ownId: hostId,
+    ownName: machineName,
+    ownVersion: hostVersion,
     local: async (method, params) => {
       const handler = localMethods?.[method];
       if (!handler) throw new Error(`${method}: this host is still starting.`);
