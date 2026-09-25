@@ -74,7 +74,7 @@ function SecretDialog({ question, onAnswer }: { question: AskpassQuestion; onAns
   const [value, setValue] = useState("");
   const retry = question.attempt > 1;
   return (
-    <Dialog className="confirm-dialog" label={TITLES[question.kind]} onClose={() => onAnswer(undefined)}>
+    <Dialog className="confirm-dialog servers-askpass" label={TITLES[question.kind]} onClose={() => onAnswer(undefined)}>
       <h2>{TITLES[question.kind]}</h2>
       <p>{secretMessage(question)}</p>
       {retry ? <p role="alert">That was not accepted. Try again.</p> : null}
@@ -101,7 +101,7 @@ function AskpassDialog({ question, onAnswer }: { question: AskpassQuestion; onAn
     return (
       <ConfirmDialog
         title={TITLES["host-key"]}
-        message={<>Tau has not connected to {question.host ?? question.target} before. Connect only if its {question.keyType ?? "host"} key fingerprint is <code>{question.fingerprint ?? "unknown"}</code>.</>}
+        message={<>Tau has not connected to {question.host ?? question.target} before. Connect only if its {question.keyType ?? "host"} key fingerprint is <code className="servers-fingerprint">{question.fingerprint ?? "unknown"}</code></>}
         confirmLabel="Trust and connect"
         onConfirm={() => onAnswer("yes")}
         onCancel={() => onAnswer("no")}
