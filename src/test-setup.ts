@@ -15,6 +15,8 @@ afterAll(() => {
 // ~/.pi: real files, real edits, and one more set of handles per suite. A test
 // about watching builds its watcher directly.
 process.env.TAU_NO_WATCH = "1";
+// The Servers kit refuses any target but loopback, as in an isolated instance.
+process.env.TAU_SERVERS_LOOPBACK_ONLY = "1";
 
 // Every process a test starts inherits this run's tag; the global teardown
 // (src/test-global-setup.ts) fails the run on any that outlive it.
