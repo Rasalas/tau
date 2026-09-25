@@ -1382,6 +1382,22 @@ Protocol, whose client, thread backend (`AcpThreadBackend`: turn queue, steer,
 replay filtering, transcript) and session store they share as `kits/_acp/` (a
 folder of shared code, not a kit).
 
+The context also carries `executionPolicy()` (new in API 1.14.0): what the
+thread's project lets its commands reach, merged from every provider of
+`services.executionPolicy` (below). Ask it before every turn — the user can set
+or lift a limit while the thread lives. A backend that can hold its commands to
+a `loopback` policy applies it to its own sandbox; one that cannot refuses the
+prompt with `executionPolicyRefusal(policy, "<runtime>")` from
+`tau/host-extension`, which names the providers' reasons. Codex runs a limited
+project in its own sandbox without network (`workspaceWrite`,
+`networkAccess: false`: its sandbox has no host list, so the allowed hosts stay
+out of reach too, and on macOS loopback does as well), the Agent SDK runtime
+starts the session with Claude's sandbox (`sandbox.network.allowedDomains`,
+`allowLocalBinding`, `allowUnsandboxedCommands: false`, WebFetch off) and a new
+session when the limit changes, and OpenCode, Antigravity, Cursor and Grok
+refuse; so do Codex and the Agent SDK runtime on Windows. A backend that never
+reads the policy is not held to it: core enforces nothing itself.
+
 A backend whose threads can be deleted answers two more members of its
 provider (new in API 1.11.0): `removeThread(threadId)` takes the thread's shell
 record out of the backend's own store and answers it as plain JSON, which the
@@ -1840,6 +1856,46 @@ Kit's local pull request (`kits/review/local-request-host.ts`) lists them for
 the threads of a checkout, gives each turn to the commit that took in its work,
 and reads the bytes back with `read` when the user uploads them with a request.
 
+### What a project's commands may reach: `services.executionPolicy` (new in API 1.14.0)
+
+A kit that knows a project must not reach the network — a project that
+deploys to a live server, say — says so per folder, and whoever runs the
+agent's commands reads the result. Core merges and hands out; it enforces
+nothing and knows no reason for a limit. It needs `workspace:read` and is
+in-process only, since a provider is a live object. Absent on an older host,
+so read it as `services.executionPolicy?.…`.
+
+A provider answers a folder with a rule, or `undefined` for no opinion:
+`{ network: "any" | "loopback", allowHosts?, reason? }`. `loopback` means this
+machine only; `allowHosts` names what is reachable anyway, as host names or
+`*.example.com` (subdomains only; `normalizeAllowedHost` from
+`tau/host-extension` says what counts); `reason` is one sentence for the user
+that says why and where the limit is lifted. The merged
+`HostExecutionPolicy` is `{ network, allowHosts, reasons, sources }`: the
+strictest rule wins — `loopback` as soon as one provider says so, and only
+the hosts every limiting provider allows. A provider that throws limits the
+folder to loopback with no hosts; a limit that cannot be read is not lifted.
+
+| Member | What it does |
+|---|---|
+| `provide((cwd) => rule \| undefined)` | This extension's rules; may answer a promise, is asked on every read, and a second call replaces the first. Returns the withdrawal. |
+| `changed(cwd?)` | Tells the readers that this extension's answer changed, for one folder or for all. |
+| `for(cwd)` | The merged policy for a folder, asked fresh. |
+| `observe(({ source, cwd? }) => …)` | Hears every `provide`, withdrawal and `changed`. |
+
+A runtime backend gets the same answer for its thread from the open context
+(`executionPolicy()`, above). Pi has no sandbox of its own, so the kit that
+provides a limit holds Pi's `bash` to it in a runtime extension: Servers
+(`kits/servers/pi-network.ts`) rewrites the call in the `tool_call` hook to run
+under `@anthropic-ai/sandbox-runtime` — `sandbox-exec` on macOS, bubblewrap
+(with socat and ripgrep) on Linux — loopback open, other hosts only through its
+proxy and only when allowed, files untouched; PowerShell, Windows and a
+sandbox that cannot start refuse the call instead. On Linux the sandbox has a
+network namespace of its own, so a service on the machine's loopback (a local
+database on TCP) is out of reach there too; Unix sockets still work. The
+Terminal Kit prints the reasons above a new shell and says that the shell is
+the user's own and not limited.
+
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
 A host half reads its own entries of `options` and `values` the way the
@@ -2158,7 +2214,7 @@ A package's `permissions` array draws from a fixed list
 
 | Permission | Lets the package… |
 |---|---|
-| `workspace:read` | read the current project's path, name and file contents through the host services. |
+| `workspace:read` | read the current project's path, name and file contents through the host services, and provide and read what a project's commands may reach (`executionPolicy`, API 1.14.0). |
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
@@ -2514,7 +2570,7 @@ the port — nothing that hands out a live object. From
 | `cwd`, `log`, `safeMode` | `attachedRuntime` (a live Pi terminal) |
 | `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef`, `admitWorkspace` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency`, `mcp` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
-| `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
+| `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex`, `executionPolicy` (a provider is a live object) |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
