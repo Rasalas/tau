@@ -8,6 +8,7 @@ import type {
   UiModel,
   UiSession,
   UiThreadUsage,
+  UiThreadOrigin,
   UiToolRun,
   UiTurnActivity,
   UiTurnActivityEntry,
@@ -493,6 +494,8 @@ export async function mapSessions(
   usageFor: (session: SessionInfo) => UiThreadUsage | undefined = () => undefined,
   /** The thread that spawned this one, already resolved from the session file. */
   parentOf: (session: SessionInfo) => string | undefined = () => undefined,
+  /** The machine an imported session came from, already read from its file. */
+  originOf: (session: SessionInfo) => UiThreadOrigin | undefined = () => undefined,
 ): Promise<UiSession[]> {
   const recent = [...sessions]
     .sort((a, b) => b.modified.getTime() - a.modified.getTime());
@@ -532,6 +535,8 @@ export async function mapSessions(
     if (usage) shell.usage = usage;
     const parentThreadId = parentOf(session);
     if (parentThreadId && parentThreadId !== session.id) shell.parentThreadId = parentThreadId;
+    const origin = originOf(session);
+    if (origin) shell.origin = origin;
     return shell;
   });
 }
@@ -551,6 +556,7 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
     left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
     left.modelProvider === right.modelProvider && left.parentThreadId === right.parentThreadId &&
+    left.origin?.hostId === right.origin?.hostId && left.origin?.threadId === right.origin?.threadId &&
     threadUsageEqual(left.usage, right.usage);
 }
 
@@ -610,6 +616,7 @@ export function reconcileActiveThreadShell(
     ...(input.parentThreadId ?? existing?.parentThreadId
       ? { parentThreadId: input.parentThreadId ?? existing?.parentThreadId }
       : {}),
+    ...(existing?.origin ? { origin: existing.origin } : {}),
   };
 }
 

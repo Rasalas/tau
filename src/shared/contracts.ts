@@ -362,6 +362,16 @@ export interface UiSession {
    * (ADR 0013, amended). Absent for a thread the user started.
    */
   parentThreadId?: string;
+  /** The machine and thread an imported session came from, as its file records it. */
+  origin?: UiThreadOrigin;
+}
+
+/** Where a thread taken over from another machine came from (`sessions.import`). */
+export interface UiThreadOrigin {
+  /** The id of the host it ran on. */
+  hostId: string;
+  /** Its thread id on that host. */
+  threadId: string;
 }
 
 export interface UiProject {
