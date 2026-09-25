@@ -1,32 +1,13 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ChevronRight, Download, RefreshCw, Server, SquareTerminal } from "lucide-react";
-import { DiffView, Empty, READ_ONLY_REASON, Skeleton, Spinner, errorMessage, tooltipProps, useWorkbenchShell, type PanelProps, type UiFileDiff } from "tau";
+import { DiffView, Empty, READ_ONLY_REASON, Skeleton, Spinner, errorMessage, tooltipProps, type PanelProps, type UiFileDiff } from "tau";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
+import { useThreadCwd } from "./compact-glyph.js";
 import { StatusDot, useServersStatus } from "./status-parts.js";
-import type { ServersStatusStore } from "./status-store.js";
 import { HistoryPanel } from "./history-panel.js";
 import { ServerGitLine, progressWords, useTargetActions, type ServerViewParts } from "./server-view.js";
 import { UploadPanel } from "./upload-panel.js";
 import type { ServerDiffSource, TargetStatus } from "./view-protocol.js";
-import { worstState } from "./status-model.js";
-
-/** The thread's project on a compact client; outside the workbench there is none. */
-export function useThreadCwd(): string | undefined {
-  try {
-    return useWorkbenchShell().snapshot?.cwd;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The sheet's glyph in the title bar, with the project's worst state as a dot. */
-export function createCompactGlyph(store: ServersStatusStore) {
-  return function ServersGlyph({ size = 16 }: { size?: number }) {
-    const { status } = useServersStatus(store, useThreadCwd());
-    const state = worstState((status?.targets ?? []).map((target) => target.state));
-    return <span className="servers-glyph"><Server size={size} />{state ? <StatusDot state={state} /> : null}</span>;
-  };
-}
 
 function CompactDiff({ parts, cwd, targetId, source }: { parts: ServerViewParts; cwd: string; targetId: string; source: ServerDiffSource }) {
   const key = JSON.stringify(source);

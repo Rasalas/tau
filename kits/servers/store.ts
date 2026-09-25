@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readdir, realpath, rm } from "node:fs/promises";
+import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
 
@@ -101,15 +101,43 @@ const runGit: GitRunner = (cwd, args) => new Promise((done, fail) => {
  * repository's ignored files, such as a project about to get its own Git).
  */
 export async function mainCheckoutOf(cwd: string, git: GitRunner = runGit): Promise<string> {
+  return (await findMainCheckout(cwd, git)).root;
+}
+
+/** `sure` is false when Git could not answer, so the folder stood in for itself. */
+async function findMainCheckout(cwd: string, git: GitRunner): Promise<{ root: string; sure: boolean }> {
   const own = await realpath(cwd).catch(() => resolve(cwd));
-  const listing = await git(cwd, ["worktree", "list", "--porcelain"]).catch(() => "");
-  const first = /^worktree (.+)$/mu.exec(listing)?.[1];
-  if (!first) return own;
+  // A `.git` folder (not a linked worktree's `.git` file) makes this the top of a main checkout.
+  if ((await lstat(join(cwd, ".git")).catch(() => undefined))?.isDirectory()) return { root: own, sure: true };
+  const listing = await git(cwd, ["worktree", "list", "--porcelain"]).catch(() => undefined);
+  const first = listing === undefined ? undefined : /^worktree (.+)$/mu.exec(listing)?.[1];
+  if (!first) return { root: own, sure: false };
   const main = await realpath(resolve(cwd, first)).catch(() => resolve(cwd, first));
   const top = (await git(cwd, ["rev-parse", "--show-toplevel"]).catch(() => "")).trim();
   const below = top ? relative(await realpath(top).catch(() => top), own) : "";
-  if (!below || below.startsWith("..") || isAbsolute(below)) return main;
-  return realpath(join(main, below)).catch(() => own);
+  if (!below || below.startsWith("..") || isAbsolute(below)) return { root: main, sure: true };
+  return { root: await realpath(join(main, below)).catch(() => own), sure: true };
+}
+
+/**
+ * `mainCheckoutOf` with Git asked once per folder: a checkout's main checkout
+ * does not move while the host runs. An answer Git could not give is asked again.
+ */
+export class MainCheckouts {
+  private readonly known = new Map<string, Promise<{ root: string; sure: boolean }>>();
+
+  constructor(private readonly git: GitRunner = runGit) {}
+
+  async of(cwd: string): Promise<string> {
+    let answer = this.known.get(cwd);
+    if (!answer) {
+      const pending = findMainCheckout(cwd, this.git);
+      answer = pending;
+      this.known.set(cwd, pending);
+      void pending.then(({ sure }) => { if (!sure && this.known.get(cwd) === pending) this.known.delete(cwd); }, () => this.known.delete(cwd));
+    }
+    return (await answer).root;
+  }
 }
 
 /** The key's workspace id for `cwd`, minted by the host for the main checkout. */

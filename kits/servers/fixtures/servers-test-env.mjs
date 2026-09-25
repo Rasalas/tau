@@ -58,9 +58,22 @@ export function readCalls(dir) {
   return readFileSync(join(dir, "calls.log"), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
+export function canReadKey(privateKey, passphrase) {
+  return !(ssh2.utils.parseKey(privateKey, passphrase) instanceof Error);
+}
+
+/** ssh2 now and then writes an ed25519 key it cannot read back (about 1 in 250); draw again until it can. */
+export function readableKeyPair(options = {}) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const pair = ssh2.utils.generateKeyPairSync("ed25519", options);
+    if (canReadKey(pair.private, options.passphrase)) return pair;
+  }
+  throw new Error("ssh2 wrote no readable ed25519 key in 20 attempts");
+}
+
 function writeKeyPair(path, options) {
   if (existsSync(path) && existsSync(`${path}.pub`)) return;
-  const pair = ssh2.utils.generateKeyPairSync("ed25519", options);
+  const pair = readableKeyPair(options);
   writeFileSync(path, pair.private, { mode: 0o600 });
   writeFileSync(`${path}.pub`, `${pair.public}\n`, { mode: 0o644 });
 }

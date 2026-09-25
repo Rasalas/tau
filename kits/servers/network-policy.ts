@@ -12,7 +12,7 @@ import {
 } from "tau/host-extension";
 import type { ServerNetworkState } from "./protocol.js";
 import { SFTP_JSON_PATH } from "./sftp-json.js";
-import { isStoreSegment, mainCheckoutOf, type GitRunner, type ServersStore } from "./store.js";
+import { MainCheckouts, isStoreSegment, type GitRunner, type ServersStore } from "./store.js";
 
 /**
  * Package sources a server project's agent reaches without asking (the user's
@@ -55,6 +55,8 @@ export interface ServerNetworkOptions {
   store: ServersStore;
   logger: PersistedJsonLogger;
   git?: GitRunner;
+  /** Shared with the kit's other readers, so Git is asked once per folder. */
+  checkouts?: MainCheckouts;
   /** Tells the readers of the policy that a project's answer changed. */
   changed?(cwd: string): void;
   /** Whether Pi's commands can be held to the limit here, for Settings to say. */
@@ -77,23 +79,17 @@ async function exists(path: string): Promise<boolean> {
  * on this machine, never in the project.
  */
 export class ServerNetwork {
-  /** A folder's main checkout does not move; asking Git on every command would. */
-  private readonly projects = new Map<string, Promise<Project>>();
+  private readonly checkouts: MainCheckouts;
 
-  constructor(private readonly options: ServerNetworkOptions) {}
+  constructor(private readonly options: ServerNetworkOptions) {
+    this.checkouts = options.checkouts ?? new MainCheckouts(options.git);
+  }
 
-  private project(cwd: string): Promise<Project> {
-    let project = this.projects.get(cwd);
-    if (!project) {
-      project = mainCheckoutOf(cwd, this.options.git).then((root) => {
-        let workspaceId: string | undefined;
-        try { workspaceId = this.options.services.workspaceRef(root).workspaceId; } catch { /* a folder the host has no id for keeps no settings */ }
-        return { root, ...(workspaceId && isStoreSegment(workspaceId) ? { workspaceId } : {}) };
-      });
-      this.projects.set(cwd, project);
-      project.catch(() => { if (this.projects.get(cwd) === project) this.projects.delete(cwd); });
-    }
-    return project;
+  private async project(cwd: string): Promise<Project> {
+    const root = await this.checkouts.of(cwd);
+    let workspaceId: string | undefined;
+    try { workspaceId = this.options.services.workspaceRef(root).workspaceId; } catch { /* a folder the host has no id for keeps no settings */ }
+    return { root, ...(workspaceId && isStoreSegment(workspaceId) ? { workspaceId } : {}) };
   }
 
   private networkPath(workspaceId: string): string {

@@ -13,7 +13,7 @@ import { SERVERS_EXTENSION_ID, TARGET_LEVELS, type TargetLevel } from "./protoco
 import { RollbackService } from "./rollback.js";
 import { ServerSsh } from "./ssh-service.js";
 import { createServerStatus } from "./status-host.js";
-import { ServersStore } from "./store.js";
+import { MainCheckouts, ServersStore } from "./store.js";
 import { gitCall } from "./sync/git.js";
 import { readTargetFile } from "./target-settings.js";
 import { SyncService } from "./sync/service.js";
@@ -35,7 +35,9 @@ export function createServersHostExtension(): HostExtension {
       const { services } = context;
       const logger = { warn: (message: string) => services.log("servers.store", message) };
       const store = new ServersStore(services.stateDir, logger);
-      const targets = new ServerTargets({ services, store });
+      // One answer per folder for every reader: Git is asked once, not at each start-up hook.
+      const checkouts = new MainCheckouts();
+      const targets = new ServerTargets({ services, store, checkouts });
       targets.register(context);
       const prompts = new ServerPrompts((event, payload) => context.emit(event, payload));
       const credentials = new ServerCredentials({
@@ -114,6 +116,7 @@ export function createServersHostExtension(): HostExtension {
         services,
         store,
         logger,
+        checkouts,
         ...(policies ? { changed: (cwd: string) => policies.changed(cwd) } : {}),
         piEnforcement: () => sandbox.availability(),
       });

@@ -28,7 +28,7 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ssh2 from "ssh2";
-import { appendCall, assertLoopback, isLoopback, paths, prepareServersDir, serversStateDir, TEST_PASSWORD, TEST_USER, writeSshConfig } from "./servers-test-env.mjs";
+import { appendCall, assertLoopback, isLoopback, paths, prepareServersDir, readableKeyPair, serversStateDir, TEST_PASSWORD, TEST_USER, writeSshConfig } from "./servers-test-env.mjs";
 
 const { Server, utils } = ssh2;
 
@@ -147,7 +147,7 @@ export async function startFakeSshServer({
   const p = prepareServersDir(dir);
   const log = (record) => appendCall(dir, { tool: "ssh", ...record });
   const authorized = [p.key, p.passphraseKey].map((key) => utils.parseKey(readFileSync(`${key}.pub`, "utf8")));
-  const hostKey = utils.generateKeyPairSync("ed25519", { comment: "tau-fake-ssh-host" });
+  const hostKey = readableKeyPair({ comment: "tau-fake-ssh-host" });
   const hostPublic = utils.parseKey(hostKey.public);
   const children = new Set();
   const clients = new Set();

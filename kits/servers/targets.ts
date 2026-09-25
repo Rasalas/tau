@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
@@ -9,7 +10,7 @@ import {
   type CredentialSpec, type SftpJsonDraft, type SftpJsonIssue, type SftpJsonTarget,
 } from "./sftp-json.js";
 import { listSshHosts, resolveSshHost, type ResolvedSshHost } from "./ssh-hosts.js";
-import { isStoreSegment, mainCheckoutOf, type GitRunner, type ServersStore } from "./store.js";
+import { MainCheckouts, isStoreSegment, type GitRunner, type ServersStore } from "./store.js";
 
 const MANAGER_LABELS: Record<string, string> = {
   keychain: "Keychain",
@@ -33,6 +34,8 @@ export function describeCredential(spec: CredentialSpec | undefined): string {
   }
   return spec.value === "plain" ? "Plain text in sftp.json" : "Asked once, then kept in the keychain";
 }
+
+const hasSftpJson = (root: string) => access(join(root, SFTP_JSON_PATH)).then(() => true, () => false);
 
 const issueRow = (issue: SftpJsonIssue): ServerTargetIssue => ({ code: issue.code, level: issue.level, message: issue.message });
 
@@ -63,6 +66,8 @@ export interface ServerTargetsOptions {
   services: HostExtensionServices;
   store: ServersStore;
   git?: GitRunner;
+  /** Shared with the kit's other readers, so Git is asked once per folder. */
+  checkouts?: MainCheckouts;
   env?: NodeJS.ProcessEnv;
   home?: string;
 }
@@ -72,13 +77,17 @@ export interface ServerTargetsOptions {
  * the tickets after this one. Everything is keyed by the main checkout.
  */
 export class ServerTargets {
-  constructor(private readonly options: ServerTargetsOptions) {}
+  private readonly checkouts: MainCheckouts;
+
+  constructor(private readonly options: ServerTargetsOptions) {
+    this.checkouts = options.checkouts ?? new MainCheckouts(options.git);
+  }
 
   /** The main checkout behind `cwd` and the key of its state. */
   async project(cwd: unknown): Promise<{ root: string; workspaceId: string; choicesPath: string }> {
     if (typeof cwd !== "string" || !cwd) throw new HostCommandError("Open a project first.");
     const known = await this.options.services.knownWorkspacePath(cwd);
-    const root = await mainCheckoutOf(known, this.options.git);
+    const root = await this.checkouts.of(known);
     const { workspaceId } = this.options.services.workspaceRef(root);
     if (!isStoreSegment(workspaceId)) throw new HostCommandError("This project has no id the servers store can keep.");
     return { root, workspaceId, choicesPath: join(this.options.store.targetsDir, workspaceId, "profiles.json") };
@@ -86,6 +95,7 @@ export class ServerTargets {
 
   async state(cwd: unknown): Promise<ServerTargetsState> {
     const { root, choicesPath } = await this.project(cwd);
+    if (!await hasSftpJson(root)) return { workspace: root, targets: [], issues: [] };
     const profileChoices = await readProfileChoices(choicesPath);
     const read = await readSftpJsonFile(root, { profileChoices });
     if (!read) return { workspace: root, targets: [], issues: [] };
@@ -95,6 +105,8 @@ export class ServerTargets {
   /** The project's targets as they read now, profiles applied; for connecting and for their secrets. */
   async list(cwd: unknown): Promise<{ project: { root: string; workspaceId: string }; targets: SftpJsonTarget[] }> {
     const { root, workspaceId, choicesPath } = await this.project(cwd);
+    // Most projects have no servers; they are answered without reading the profile choices.
+    if (!await hasSftpJson(root)) return { project: { root, workspaceId }, targets: [] };
     const read = await readSftpJsonFile(root, { profileChoices: await readProfileChoices(choicesPath) });
     return { project: { root, workspaceId }, targets: read?.targets ?? [] };
   }
