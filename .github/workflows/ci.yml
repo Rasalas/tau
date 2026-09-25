@@ -48,3 +48,6 @@ jobs:
         run: npm run smoke:remote-host
       - name: Smoke — extension install
         run: npm run smoke:extension-install
+      # Passes with a note where Xvfb is missing; the Linux runner has it (performance.yml).
+      - name: Smoke — invisible display
+        run: npm run smoke:display
