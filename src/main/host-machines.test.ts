@@ -148,6 +148,13 @@ describe("another machine, reached by this host for its agents", () => {
     expect(machines.list()).toEqual([]);
   });
 
+  it("names this host to a kit by the id, name and version its hello gives", async () => {
+    const machines = await HostMachines.open({ path: join(tempDir(), "host-machines.json"), logger, ownId: "mini-id", ownName: "mini", ownVersion: "0.7.0" });
+    cleanups.push(() => machines.close());
+    expect(machines.forExtension("tau.remote-work").self).toEqual({ id: "mini-id", name: "mini", version: "0.7.0" });
+    expect(machines.services.self.id).toBe("mini-id");
+  });
+
   it("follows a topic a kit there emits, across the hello, and lets go of it", async () => {
     const rex = await startRex({});
     const paired = await pairWithAgents(rex);

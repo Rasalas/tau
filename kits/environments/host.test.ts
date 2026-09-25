@@ -7,6 +7,7 @@ import { AGENTS_EVENT, ENVIRONMENTS_EXTENSION_ID } from "./protocol.js";
 function fakeMachines(list: HostMachine[]) {
   let listener: ((machines: readonly HostMachine[]) => void) | undefined;
   const machines: HostMachineServices = {
+    self: { id: "mini-id", name: "mini", version: "0.7.0" },
     list: () => list,
     subscribe: (next) => { listener = next; return () => { listener = undefined; }; },
     call: vi.fn(async () => ({ device: "agents-device", owner: false })),

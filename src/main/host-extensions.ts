@@ -518,6 +518,15 @@ export interface HostMachine {
   readOnly?: boolean;
 }
 
+/** This host, as its hello names it to other machines. */
+export interface HostMachineSelf {
+  /** The host id; `request` with it asks this host itself. */
+  id: string;
+  name: string;
+  /** Tau's version here, as `HostMachine.hostVersion` reads on the other side. */
+  version: string;
+}
+
 /** An extension event another machine's kit emitted under a topic this host watches. */
 export interface HostMachineEvent {
   name: string;
@@ -531,6 +540,8 @@ export interface HostMachineEvent {
  * the machine is unknown, offline or refuses this host.
  */
 export interface HostMachineServices {
+  /** This host as the other machines know it: what a kit tells them it came from. New in API 1.15.0. */
+  readonly self: HostMachineSelf;
   list(): HostMachine[];
   /** Called with the whole list whenever a machine is added, removed or changes status. */
   subscribe(listener: (machines: readonly HostMachine[]) => void): () => void;
