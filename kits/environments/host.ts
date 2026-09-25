@@ -1,5 +1,18 @@
 import type { HostExtension, HostMachineServices, HostReadiness, HostResources } from "tau/host-extension";
-import { AGENTS_EVENT, ENVIRONMENTS_EXTENSION_ID, type AgentMachine, type AgentMachines, type MachineIdentity, type MachineProbe } from "./protocol.js";
+import { readWeights } from "./choice.js";
+import { createMachineChooser } from "./chooser.js";
+import {
+  AGENTS_EVENT,
+  AGENTS_KIT_ID,
+  CHOOSE_MACHINE_COMMAND,
+  ENVIRONMENTS_EXTENSION_ID,
+  WEIGHTS_SETTING,
+  type AgentMachine,
+  type AgentMachines,
+  type ChooseMachineInput,
+  type MachineIdentity,
+  type MachineProbe,
+} from "./protocol.js";
 
 function view(machines: HostMachineServices | undefined): AgentMachines {
   if (!machines) return { available: false, machines: [] };
@@ -25,12 +38,25 @@ function machineOf(input: unknown, command: string): string {
   return machine;
 }
 
+function chooseInput(input: unknown): ChooseMachineInput {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const text = (key: string) => (typeof raw[key] === "string" && raw[key] ? { [key]: raw[key] as string } : {});
+  return {
+    purpose: raw.purpose === "thread" ? "thread" : "sub-agent",
+    ...text("cwd"),
+    ...text("backend"),
+    ...text("model"),
+    ...(Array.isArray(raw.machines) ? { machines: raw.machines.filter((id): id is string => typeof id === "string") } : {}),
+  };
+}
+
 /**
  * Machines Kit's host half (ADR 0027): which machines this host's agents
  * reach and how each connection is doing, for Settings → Machines, and a
  * round trip to the same kit on one of them, which answers with the device
  * its key stands for there. `resources` and `readiness` ask a machine (this
  * one by its own id) how busy it is and what it could run, only when called.
+ * `choose-machine` picks where new work goes by those and Settings → Machines' weights.
  */
 export function createEnvironmentsHostExtension(): HostExtension {
   return {
@@ -56,6 +82,11 @@ export function createEnvironmentsHostExtension(): HostExtension {
       }, { access: "read" });
       ask<HostResources>("resources", "host-resources");
       ask<HostReadiness>("readiness", "readiness");
+      const choose = createMachineChooser({
+        machines: () => machines,
+        weights: async () => readWeights((await context.services.settings?.().catch(() => undefined))?.values[WEIGHTS_SETTING]),
+      });
+      context.registerCommand(CHOOSE_MACHINE_COMMAND, (input) => choose(chooseInput(input)), { access: "read", callers: [AGENTS_KIT_ID] });
       const stop = machines?.subscribe(() => context.emit(AGENTS_EVENT, view(machines)));
       return () => stop?.();
     },
