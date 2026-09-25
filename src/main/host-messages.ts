@@ -88,6 +88,14 @@ export function thinkingFromContent(content: unknown): string | undefined {
   return value || undefined;
 }
 
+/** The provider's reason a Pi answer stopped with `stopReason: "error"`, bounded; undefined for any other stop. */
+export function assistantError(message: unknown): string | undefined {
+  const value = message as { stopReason?: unknown; errorMessage?: unknown } | undefined;
+  if (value?.stopReason !== "error") return undefined;
+  const text = typeof value.errorMessage === "string" ? value.errorMessage.trim().slice(0, 2_000) : "";
+  return text || "The model stopped with an error.";
+}
+
 export const EMPTY_PINS: ReadonlySet<string> = new Set();
 
 export interface MessageMappingOptions {
@@ -142,6 +150,7 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
   }
 
   if (value.role === "assistant") {
+    const error = assistantError(value);
     return {
       id: value.tauEntryId ?? `assistant-${value.timestamp ?? index}-${index}`,
       sourceEntryId: value.tauEntryId,
@@ -150,6 +159,7 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
       text: textFromContent(value.content),
       thinking: thinkingFromContent(value.content),
       timestamp: value.timestamp ?? Date.now(),
+      ...(error ? { error } : {}),
     };
   }
 
@@ -234,7 +244,7 @@ export function historyCompletenessForBridgeSnapshot(
 /** Text-empty assistant messages are omitted unless an extension pinned their entry. */
 export function isVisibleMessage(message: UiMessage | undefined, pinned?: ReadonlySet<string>): message is UiMessage {
   if (!message) return false;
-  if (message.text || message.skill) return true;
+  if (message.text || message.skill || message.error) return true;
   return Boolean(pinned && (pinned.has(message.id) || (message.sourceEntryId !== undefined && pinned.has(message.sourceEntryId))));
 }
 
@@ -430,7 +440,7 @@ export function turnActivityHistoryFromMessages(messages: unknown[]): UiTurnActi
     }
     if (!active) return;
     const mapped = mapMessage(message, index);
-    if (mapped && (mapped.role === "user" || mapped.text.trim())) lastVisibleMessageId = mapped.id;
+    if (mapped && (mapped.role === "user" || mapped.text.trim() || mapped.error)) lastVisibleMessageId = mapped.id;
     if (message.stopReason === "aborted" || message.stopReason === "cancelled") active.interrupted = true;
     if (message.stopReason === "error") active.error = true;
 

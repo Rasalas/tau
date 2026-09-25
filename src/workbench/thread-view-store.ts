@@ -219,7 +219,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     }
     case "assistant-end": {
       const { message } = event;
-      const transcript = !message.text
+      const transcript = !message.text && !message.error
         ? removeMessage(state.transcript, message.id)
         : hasMessage(state.transcript, message.id)
           ? replaceMessage(state.transcript, message.id, message)

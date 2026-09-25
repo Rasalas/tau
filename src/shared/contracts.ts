@@ -76,6 +76,8 @@ export interface UiMessage {
   timestamp: number;
   /** True when the entry was executed locally and excluded from model context (e.g. !! command). */
   excludedFromContext?: boolean;
+  /** Why the runtime stopped this answer, in the provider's words; the answer's text may be empty. */
+  error?: string;
 }
 
 /** Bounded image payload selected in the desktop composer. Data is raw base64. */
