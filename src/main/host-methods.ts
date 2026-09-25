@@ -195,6 +195,15 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
   // A client names a workspace by its id; one that still speaks paths sends a path.
   const workspace = async (method: string, name: string, value: unknown): Promise<string> =>
     (await host()).resolveWorkspacePath(decodeString(method, name, value));
+  // Kit bundles are files on disk: a host that exists names the workspace while its start still runs.
+  const workspaceWhileStarting = async (method: string, name: string, value: unknown): Promise<string> => {
+    const named = decodeString(method, name, value);
+    const starting = deps.host();
+    if (starting) {
+      try { return starting.resolveWorkspacePath(named); } catch { /* an id the start has yet to learn */ }
+    }
+    return (await host()).resolveWorkspacePath(named);
+  };
   const optionalWorkspace = async (method: string, name: string, value: unknown): Promise<string | undefined> => {
     const named = decodeOptionalString(method, name, value);
     return named === undefined ? undefined : (await host()).resolveWorkspacePath(named);
@@ -346,7 +355,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       (await host()).prepareWorkbenchReload(decodeWorkbenchReloadMode("prepare-workbench-reload", "mode", params[0])),
     "release-workbench-reload": async () => (await host()).releaseWorkbenchReload(),
     "desktop-extensions": async (params) => platform.loadDesktopExtensions(
-      await workspace("desktop-extensions", "cwd", params[0]),
+      await workspaceWhileStarting("desktop-extensions", "cwd", params[0]),
       decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
       decodeOptionalExtensionIds("desktop-extensions", "only", params[2]),
     ),

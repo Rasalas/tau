@@ -54,6 +54,34 @@ describe("HostStart", () => {
     expect(order.slice(1).sort()).toEqual(["bootstrap", "desktop-extensions /repo/app", "thinking high"]);
   });
 
+  it("answers kit bundles while a start it did not ask for is still running", async () => {
+    const { methods, start, create, order } = startingHost();
+    // The host process starts itself before the window's first call arrives.
+    const bootstrap = invokeHostMethod(methods, "bootstrap", []);
+    await expect(invokeHostMethod(methods, "desktop-extensions", ["ws:app", {}])).resolves.toMatchObject({ bundles: [] });
+    expect(order).toEqual(["desktop-extensions /repo/app"]);
+    start.resolve();
+    await bootstrap;
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for the start when the starting host cannot name the workspace yet", async () => {
+    const { methods, start, fake, order } = startingHost();
+    const bootstrap = invokeHostMethod(methods, "bootstrap", []);
+    const known = new Set<string>();
+    fake.resolveWorkspacePath = (value: string) => {
+      if (!known.has(value)) throw new Error("This host does not know that workspace.");
+      return value.replace("ws:", "/repo/");
+    };
+    const bundles = invokeHostMethod(methods, "desktop-extensions", ["ws:app", {}]);
+    await Promise.resolve();
+    expect(order).toEqual([]);
+    known.add("ws:app");
+    start.resolve();
+    await Promise.all([bundles, bootstrap]);
+    expect(order).toContain("desktop-extensions /repo/app");
+  });
+
   it("does not wait for a start that nothing asked for", async () => {
     const { methods, create } = startingHost();
     await expect(invokeHostMethod(methods, "abort", [])).resolves.toBeUndefined();
