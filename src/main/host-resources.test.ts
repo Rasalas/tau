@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
+import { runtimeBackendOwner, type HostRuntimeBackendProvider } from "./host-extensions.js";
+import { activateHostKit } from "./test-support/host-kit-harness.js";
 import { gitHasMergeTree, parseGitVersion } from "../shared/host-resources.js";
 import {
   HostResourceSampler,
@@ -180,6 +182,56 @@ describe("which runtimes could run a thread", () => {
     // Some runtimes name their models only once a thread runs.
     expect(runtimeReadiness(CLAUDE, catalog("claude-code", 0))).toEqual({ kind: "claude-code", label: "Claude Code", state: "ready" });
     expect(runtimeReadiness(CLAUDE, undefined)).toMatchObject({ state: "checking" });
+  });
+
+  it("takes the kit's sign-in report: a signed-out program is not ready, a signed-in one names its account", () => {
+    const antigravity: UiRuntimeBackend = { kind: "antigravity", label: "Antigravity" };
+    const unknown = catalog("antigravity", 0, { note: "Antigravity names its models once a thread has started." });
+    expect(runtimeReadiness(antigravity, unknown, { methods: [], account: { signedIn: false } }))
+      .toEqual({ kind: "antigravity", label: "Antigravity", state: "sign-in-required", note: "Antigravity is not signed in." });
+    expect(runtimeReadiness(CODEX, catalog("codex", 4), { methods: [], account: { signedIn: true, label: "me@example.com", detail: "ChatGPT Pro" } }))
+      .toEqual({ kind: "codex", label: "Codex", version: "0.50.0", account: "me@example.com · ChatGPT Pro", state: "ready", models: 4 });
+    // The catalog's reason stands where it has one.
+    expect(runtimeReadiness(CODEX, catalog("codex", 0, { status: "not-installed" }), { methods: [], account: { signedIn: false } })).toMatchObject({ state: "not-installed" });
+    expect(runtimeReadiness(CODEX, undefined, { methods: [], account: { signedIn: false, detail: "Codex did not report its account within 20 s." } }))
+      .toMatchObject({ state: "sign-in-required", note: "Codex did not report its account within 20 s." });
+  });
+
+  it("asks the kit that registered each backend, for its instance, and not for Pi", async () => {
+    const invoked: unknown[][] = [];
+    const runtimes: ReadinessRuntimes = {
+      runtimeBackends: () => [PI, { kind: "codex@work", label: "Codex (work)" }, CLAUDE, { kind: "zeta", label: "Zeta" }],
+      runtimeCatalogs: async () => [catalog("pi", 1), catalog("codex@work", 2), catalog("claude-code", 0), catalog("zeta", 1)],
+      runtimeCatalog: async () => undefined,
+      runtimeBackendOwner: (kind) => ({ "codex@work": "tau.codex", "claude-code": "tau.claude-code", zeta: "acme.zeta" } as Record<string, string>)[kind],
+      invokeHostExtension: async (extensionId, command, input) => {
+        invoked.push([extensionId, command, input]);
+        if (extensionId === "acme.zeta") throw new Error("unknown command");
+        return extensionId === "tau.claude-code" ? { methods: [], account: { signedIn: false } } : { methods: [], account: { signedIn: true, label: "work@example.com" } };
+      },
+    };
+    const readiness = await checkReadiness(runtimes, fixed());
+    expect(invoked).toEqual([["tau.codex", "sign-in-state", { target: "work" }], ["tau.claude-code", "sign-in-state", undefined], ["acme.zeta", "sign-in-state", undefined]]);
+    expect(readiness.runtimes.map((runtime) => [runtime.kind, runtime.state, runtime.account])).toEqual([
+      ["pi", "ready", undefined],
+      ["codex@work", "ready", "work@example.com"],
+      ["claude-code", "sign-in-required", undefined],
+      ["zeta", "ready", undefined],
+    ]);
+  });
+
+  it("knows which extension registered a backend", async () => {
+    const provider = { kind: "zeta" } as HostRuntimeBackendProvider;
+    const registered: HostRuntimeBackendProvider[] = [];
+    await activateHostKit({
+      id: "acme.zeta",
+      name: "Zeta",
+      permissions: ["runtime:extend"],
+      activate: (context) => { context.services.registerRuntimeBackend(provider); },
+    }, { registerRuntimeBackend: (entry) => { registered.push(entry); return () => undefined; } });
+    expect(registered).toEqual([provider]);
+    expect(runtimeBackendOwner(provider)).toBe("acme.zeta");
+    expect(runtimeBackendOwner({ kind: "other" } as HostRuntimeBackendProvider)).toBeUndefined();
   });
 
   it("asks a runtime with no answer on hand, and does not wait long for it", async () => {

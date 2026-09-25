@@ -307,7 +307,7 @@ describe("Settings → Machines: this computer's agents", () => {
     const readiness = (): HostReadiness => ({
       checkedAt: 1,
       runtimes: [
-        { kind: "pi", label: "Pi", state: "ready", models: 3 },
+        { kind: "pi", label: "Pi", state: "ready", models: 3, account: "me@example.com" },
         { kind: "codex", label: "Codex", state: "sign-in-required", note: "Codex is not signed in." },
         { kind: "claude-code", label: "Claude Code", state: "not-installed" },
       ],
@@ -324,7 +324,7 @@ describe("Settings → Machines: this computer's agents", () => {
     await act(async () => undefined);
     const studioHealth = within(screen.getByRole("group", { name: "How studio is doing" }));
     expect(studioHealth.getByText("2 cores · CPU 14 % · 5.2 GB of 8.0 GB free · 1 turn running")).toBeTruthy();
-    expect(studioHealth.getByRole("img", { name: "Pi · ready (3 models)" })).toBeTruthy();
+    expect(studioHealth.getByRole("img", { name: "Pi · ready (3 models) · me@example.com" })).toBeTruthy();
     expect(studioHealth.getByRole("img", { name: "Codex · not signed in" })).toBeTruthy();
     expect(studioHealth.getByRole("img", { name: "Claude Code · not installed" })).toBeTruthy();
     expect(studioHealth.getByText("1 of 3 ready · Git 2.34.1 · 41.0 GB free for worktrees · Invisible display :99")).toBeTruthy();

@@ -2225,8 +2225,9 @@ answer arrived. Answers within 5 s of each other are the same answer.
 `readiness` answers `HostReadiness`: each runtime a new thread could start on
 with `state` (`ready`, `sign-in-required`, `not-installed`, `unavailable`, or
 `checking` while it has not answered since the host started), read from the
-runtime catalog the kits fill, with Pi `sign-in-required` while no model
-provider has a key or a login; `git` (`version`, and `mergeTree` from Git
+runtime catalog the kits fill and from the `sign-in-state` of the kit that
+registered the backend (which also gives `account`), with Pi
+`sign-in-required` while no model provider has a key or a login; `git` (`version`, and `mergeTree` from Git
 2.38); `disk` (free space where new worktrees go: `TAU_WORKTREES_DIR`, else
 `~/.tau`); `display` (`screen` on macOS and Windows, `x11`, `wayland`,
 `invisible` for an Xvfb server, `none`). Nothing is polled; a caller that

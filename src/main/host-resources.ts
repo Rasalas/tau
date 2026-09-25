@@ -4,6 +4,7 @@ import * as nodeOs from "node:os";
 import { dirname, join } from "node:path";
 import type { UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
+import { SIGN_IN_COMMANDS, type SignInReport } from "../shared/sign-in.js";
 import {
   gitHasMergeTree,
   parseGitVersion,
@@ -179,6 +180,9 @@ export interface ReadinessRuntimes {
   runtimeCatalogs(revalidate?: boolean): Promise<UiRuntimeCatalog[]>;
   /** One catalog, asked and awaited when none is on hand. */
   runtimeCatalog(kind: string): Promise<UiRuntimeCatalog | undefined>;
+  /** The extension that registered a backend; its `sign-in-state` says whether the program is signed in. */
+  runtimeBackendOwner?(kind: string): string | undefined;
+  invokeHostExtension?(extensionId: string, command: string, input?: unknown): Promise<unknown>;
 }
 
 export interface ReadinessOptions {
@@ -190,32 +194,54 @@ export interface ReadinessOptions {
   statfs?(path: string): Promise<{ bavail: number; bsize: number; blocks: number }>;
   /** The name of the process serving an X display (`Xvfb`, `Xorg`), when this machine can tell. */
   xServer?(display: string): Promise<string | undefined>;
-  /** How long a runtime that has never answered is waited for before it counts as `checking`. */
+  /** How long a runtime that has never answered, or its kit's `sign-in-state`, is waited for. */
   catalogWaitMs?: number;
 }
 
-const CATALOG_WAIT_MS = 3_000;
+const CATALOG_WAIT_MS = 5_000;
 
-/** One runtime's readiness from its catalog. Pi with no model has no provider signed in. */
-export function runtimeReadiness(backend: UiRuntimeBackend, catalog: UiRuntimeCatalog | undefined): RuntimeReadiness {
-  const base = { kind: backend.kind, label: backend.label, ...(backend.version?.installed ? { version: backend.version.installed } : {}) };
-  if (!catalog) return { ...base, state: "checking" };
+/**
+ * One runtime's readiness from its catalog and its kit's sign-in report. Pi
+ * with no model has no provider signed in; a kit that says its program is
+ * signed out overrules a catalog that could not tell (one that names its
+ * models only once a thread runs).
+ */
+export function runtimeReadiness(backend: UiRuntimeBackend, catalog: UiRuntimeCatalog | undefined, signIn?: SignInReport): RuntimeReadiness {
+  const account = signIn?.account;
+  const label = account?.signedIn ? [account.label, account.detail].filter(Boolean).join(" · ") : "";
+  const base = { kind: backend.kind, label: backend.label, ...(backend.version?.installed ? { version: backend.version.installed } : {}), ...(label ? { account: label } : {}) };
+  const signedOut = account?.signedIn === false ? { state: "sign-in-required" as const, note: account.detail ?? `${backend.label} is not signed in.` } : undefined;
+  if (!catalog) return { ...base, ...(signedOut ?? { state: "checking" }) };
   const note = catalog.note ? { note: catalog.note } : {};
   if (catalog.status) return { ...base, state: catalog.status, ...note };
   if (backend.kind === "pi" && catalog.models.length === 0) return { ...base, state: "sign-in-required", note: "No model provider is signed in or has a key." };
+  if (signedOut) return { ...base, ...signedOut };
   return { ...base, state: "ready", ...(catalog.models.length > 0 ? { models: catalog.models.length } : {}), ...note };
+}
+
+/** `promise`'s value, or undefined once `ms` passed or it failed. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => { timer = setTimeout(resolve, ms, undefined); });
+  return Promise.race([promise.catch(() => undefined), late]).finally(() => clearTimeout(timer));
+}
+
+async function signInReport(source: ReadinessRuntimes, kind: string, waitMs: number): Promise<SignInReport | undefined> {
+  const owner = kind === "pi" ? undefined : source.runtimeBackendOwner?.(kind);
+  if (!owner || !source.invokeHostExtension) return undefined;
+  const at = kind.indexOf("@");
+  // A kit without sign-in refuses the command; its catalog alone then speaks.
+  return within(source.invokeHostExtension(owner, SIGN_IN_COMMANDS.state, at < 0 ? undefined : { target: kind.slice(at + 1) }) as Promise<SignInReport>, waitMs);
 }
 
 async function runtimesReadiness(source: ReadinessRuntimes, waitMs: number): Promise<RuntimeReadiness[]> {
   const held = new Map((await source.runtimeCatalogs(true)).map((catalog) => [catalog.kind, catalog]));
   return Promise.all(source.runtimeBackends().map(async (backend) => {
-    let catalog = held.get(backend.kind);
-    if (!catalog) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const late = new Promise<undefined>((resolve) => { timer = setTimeout(resolve, waitMs, undefined); });
-      catalog = await Promise.race([source.runtimeCatalog(backend.kind).catch(() => undefined), late]).finally(() => clearTimeout(timer));
-    }
-    return runtimeReadiness(backend, catalog);
+    const [catalog, signIn] = await Promise.all([
+      held.get(backend.kind) ?? within(source.runtimeCatalog(backend.kind), waitMs),
+      signInReport(source, backend.kind, waitMs),
+    ]);
+    return runtimeReadiness(backend, catalog, signIn);
   }));
 }
 

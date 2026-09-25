@@ -168,7 +168,7 @@ const RUNTIME_STATE: Record<RuntimeReadinessState, string> = {
 /** "Codex · not signed in"; a runtime's tooltip and name for assistive technology. */
 export function runtimeText(runtime: RuntimeReadiness): string {
   const models = runtime.state === "ready" && runtime.models ? ` (${runtime.models} ${runtime.models === 1 ? "model" : "models"})` : "";
-  return `${runtime.label} · ${RUNTIME_STATE[runtime.state]}${models}${runtime.version ? ` · ${runtime.version}` : ""}`;
+  return [`${runtime.label} · ${RUNTIME_STATE[runtime.state]}${models}`, runtime.account, runtime.version].filter(Boolean).join(" · ");
 }
 
 const DISPLAY_TEXT: Record<HostDisplayKind, string> = {

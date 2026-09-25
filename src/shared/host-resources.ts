@@ -30,6 +30,8 @@ export interface RuntimeReadiness {
   state: RuntimeReadinessState;
   /** The program's version, when the host asked it. */
   version?: string;
+  /** Who it is signed in as, from its kit's `sign-in-state`: "me@example.com · ChatGPT Pro". */
+  account?: string;
   /** Models a new thread may pick; absent where the runtime names them only once a thread runs. */
   models?: number;
   /** Why it is not ready, in the runtime's words. */
