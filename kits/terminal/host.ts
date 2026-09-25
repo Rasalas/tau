@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { basename } from "node:path";
-import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import type { HostExecutionPolicy, HostExtension, HostExtensionContext } from "tau/host-extension";
 import {
   TERMINAL_DATA_EVENT,
   terminalOutputTopic,
@@ -51,6 +51,13 @@ const DEFAULT_ROWS = 24;
 export const MAX_SESSIONS_PER_WORKSPACE = 8;
 export const NO_PTY = "Terminals need node-pty, which this host does not have.";
 
+/** The terminal is the user's own: a project that limits its agent's network says so, and that this shell is not limited. */
+export function terminalNetworkNotice(policy: HostExecutionPolicy | undefined): string | undefined {
+  if (!policy || policy.network === "any") return undefined;
+  const why = policy.reasons.length ? policy.reasons.join(" ") : "The agent's commands in this project reach only this machine.";
+  return `${why} This terminal is yours and not limited.`;
+}
+
 export interface OpenTerminalInput {
   /** The identity the client sent; the record carries it back so the panel can group by it. */
   workspaceId?: string;
@@ -61,6 +68,8 @@ export interface OpenTerminalInput {
   /** The workspace root the session is filed under: capacity and closing count by it, not by the shell's directory. */
   root: string;
   label?: string;
+  /** A line the terminal shows before the shell's first output: why the agent is limited here and the shell is not. */
+  notice?: string;
 }
 
 interface Session {
@@ -68,6 +77,7 @@ interface Session {
   root: string;
   /** The label was made from the directory, so it follows the directory. */
   derivedLabel: boolean;
+  notice?: string;
   cwd: CwdTracker;
   /** Gone once the shell exited; the record stays so the user can read the end and restart. */
   pty?: PtyProcess;
@@ -125,8 +135,9 @@ export class TerminalSessions {
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
     };
-    const session: Session = { record, root: input.root, derivedLabel: !input.label?.trim(), cwd: new CwdTracker(this.machine), pty, scrollback: new Scrollback(), offset: 0 };
+    const session: Session = { record, root: input.root, derivedLabel: !input.label?.trim(), ...(input.notice ? { notice: input.notice } : {}), cwd: new CwdTracker(this.machine), pty, scrollback: new Scrollback(), offset: 0 };
     this.sessions.set(id, session);
+    if (input.notice) this.recordData(id, `\x1b[2m${input.notice}\x1b[0m\r\n`);
     pty.onData((data) => this.recordData(id, data));
     pty.onExit((exitCode) => this.exited(id, exitCode));
     this.emitSessions();
@@ -146,6 +157,7 @@ export class TerminalSessions {
       cwd: record.cwd ?? root,
       root,
       ...(session.derivedLabel ? {} : { label: record.label }),
+      ...(session.notice ? { notice: session.notice } : {}),
     });
   }
 
@@ -408,12 +420,15 @@ export function createTerminalHostExtension(
         const thread = sessionId ? context.services.thread(sessionId) : undefined;
         // A split starts where the shell beside it is now, as that shell reported it.
         const beside = typeof input.from === "string" ? sessions.currentDirectory(input.from) : undefined;
+        const cwd = beside ?? thread?.cwd ?? start;
+        const notice = terminalNetworkNotice(await context.services.executionPolicy?.for(cwd).catch(() => undefined));
         const session = sessions.open({
           ...(workspaceId ? { workspaceId } : {}),
           ...(sessionId ? { sessionId } : {}),
-          cwd: beside ?? thread?.cwd ?? start,
+          cwd,
           root,
           ...(typeof input.label === "string" ? { label: input.label } : {}),
+          ...(notice ? { notice } : {}),
         });
         context.services.noteSubprocess();
         return session;

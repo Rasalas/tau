@@ -337,6 +337,31 @@ describe("terminal host commands", () => {
   });
 });
 
+describe("a terminal in a project that limits its agent's network", () => {
+  it("says so above the shell's first output, again after a restart, and not in an unlimited project", async () => {
+    const { spawn, processes } = fakePtys();
+    let network: "any" | "loopback" = "loopback";
+    const executionPolicy = { for: vi.fn(async () => ({ network, allowHosts: [], reasons: network === "any" ? [] : ["This project deploys to a server."], sources: ["tau.servers"] })) };
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services({ executionPolicy: executionPolicy as never }));
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      const session = await client.open({ workspaceId: "workspace-one", sessionId: "thread-one" });
+      expect(executionPolicy.for).toHaveBeenCalledWith("/project/.worktrees/one");
+      const notice = "\x1b[2mThis project deploys to a server. This terminal is yours and not limited.\x1b[0m\r\n";
+      processes[0].output("$ ");
+      expect((await client.replay({ id: session.id }))?.data).toBe(`${notice}$ `);
+      processes[0].exit(0);
+      const restarted = await client.restart({ id: session.id });
+      expect((await client.replay({ id: restarted.id }))?.data).toBe(notice);
+      network = "any";
+      const open = await client.open({ workspaceId: "workspace-one" });
+      expect((await client.replay({ id: open.id }))?.data ?? "").toBe("");
+    } finally {
+      await registry.dispose();
+    }
+  });
+});
+
 describe("loadNodePty", () => {
   it("wraps the module the host resolved and maps its events", async () => {
     const term = { write: vi.fn(), resize: vi.fn(), kill: vi.fn(), onData: vi.fn(), onExit: vi.fn() };
