@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { createReadStream, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import { HOST_ERROR } from "../shared/host-transport.js";
 import { MACHINE_REQUEST_METHODS } from "../shared/host-method-access.js";
 import type { HostMachine } from "./host-extensions.js";
 import { HostAccess } from "./host-access.js";
+import { HostBlobStore, createBlobMethods } from "./host-blobs.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import type { HostLogger } from "./host-log.js";
 import { HostMachines, createMachineMethods, decodeMachineEntry, type HostMachineEntry } from "./host-machines.js";
@@ -163,6 +165,58 @@ describe("another machine, reached by this host for its agents", () => {
     expect(await again.machines.remove("rex-id")).toBe(true);
     expect(again.machines.list()).toEqual([]);
     expect(readFileSync(path, "utf8")).not.toContain("secret");
+  });
+});
+
+describe("a file sent to another machine", () => {
+  it("arrives through the agents' device in pieces, with progress, the same sum, and once", async () => {
+    const blobsDir = join(tempDir(), "blobs");
+    const store = await HostBlobStore.open({ dir: blobsDir, scheduleSweep: () => () => undefined });
+    cleanups.push(() => store.close());
+    const rex = await startRex(createBlobMethods(() => store));
+    const paired = await pairWithAgents(rex);
+    const { machines } = await openMachines();
+    await machines.add(rexEntry(rex.url, paired.companion!.token));
+    await until(machines, (list) => list[0]?.status === "connected");
+
+    const bytes = randomBytes(9 * 1024 * 1024);
+    const file = join(tempDir(), "random.bin");
+    writeFileSync(file, bytes);
+    const progress: number[] = [];
+    const sent = await machines.forExtension("tau.remote").upload("rex", createReadStream(file), { size: bytes.length, onProgress: (step) => progress.push(step.sent) });
+    const sum = createHash("sha256").update(bytes).digest("hex");
+    expect(sent).toMatchObject({ size: bytes.length, sha256: sum });
+    expect(progress).toEqual([8 * 1024 * 1024, bytes.length]);
+    const taken = await store.take(sent.id, (blob) => ({ sum: createHash("sha256").update(readFileSync(blob.path)).digest("hex"), device: blob.device }));
+    expect(taken).toEqual({ sum, device: paired.companion!.clientId });
+    expect(readdirSync(blobsDir)).toEqual([]);
+    await expect(store.take(sent.id, () => undefined)).rejects.toThrow(/taken already/u);
+    // One audit line for the file, none for its pieces.
+    expect(rex.access.overview().clients.find((client) => client.id === paired.companion!.clientId)?.lastAction?.action).toBe("blob-commit");
+  });
+
+  it("is refused when rex's owner made the agents' device Read only, and nothing stays there", async () => {
+    const blobsDir = join(tempDir(), "blobs");
+    const store = await HostBlobStore.open({ dir: blobsDir, scheduleSweep: () => () => undefined });
+    cleanups.push(() => store.close());
+    const rex = await startRex(createBlobMethods(() => store));
+    const paired = await pairWithAgents(rex);
+    const { machines } = await openMachines();
+    await machines.add(rexEntry(rex.url, paired.companion!.token));
+    await until(machines, (list) => list[0]?.status === "connected");
+    // The preset changes while the agents stay connected: rex refuses the first piece.
+    await rex.access.updateClient(paired.companion!.clientId, { access: "read-only" });
+    await expect(machines.upload("rex", Buffer.from("not allowed"))).rejects.toMatchObject({ code: HOST_ERROR.forbidden, message: expect.stringMatching(/Read only; sending a file there needs Full access/u) });
+    expect(readdirSync(blobsDir)).toEqual([]);
+  });
+
+  it("says so when the other machine's Tau cannot take files", async () => {
+    const rex = await startRex({});
+    const paired = await pairWithAgents(rex);
+    const { machines } = await openMachines();
+    await machines.add(rexEntry(rex.url, paired.companion!.token));
+    await until(machines, (list) => list[0]?.status === "connected");
+    await expect(machines.upload("rex", Buffer.from("x"))).rejects.toMatchObject({ code: HOST_ERROR.unsupported, message: expect.stringMatching(/cannot take files yet/u) });
   });
 });
 

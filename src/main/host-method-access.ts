@@ -17,9 +17,10 @@ export function ownerRefusal(): Error {
  * How a change reads in Settings → Connections, for every method that is not
  * `read` (a test holds it complete). `thread` is the index of the param that
  * names the thread; `automatic` marks a call a client makes on its own as part
- * of something else, so it never replaces the device's last change.
+ * of something else, so it never replaces the device's last change; `quiet`
+ * leaves an allowed call out of the log (a refused one is still recorded).
  */
-export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?: number; automatic?: true }>> = {
+export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?: number; automatic?: true; quiet?: true }>> = {
   "prepare-prompt": { label: "prepared a prompt", thread: 1, automatic: true },
   "prompt": { label: "sent a prompt", thread: 2 },
   "run-shell-action": { label: "ran a shell command" },
@@ -72,6 +73,10 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "environments-set-preferences": { label: "changed machine preferences" },
   "environments-set-agents": { label: "changed where this machine's agents may work" },
   "cancel-job": { label: "cancelled a job" },
+  // One entry per file, not per 8 MB piece.
+  "blob-put": { label: "sent part of a file", automatic: true, quiet: true },
+  "blob-commit": { label: "sent a file" },
+  "blob-abort": { label: "cancelled sending a file", automatic: true },
 };
 
 /** The audit record of a core method call: its label and the thread its params name. */
@@ -105,5 +110,6 @@ export function authorizeMethod(principal: HostInvocationPrincipal, method: stri
     principal.audit?.(auditedMethodCall(method, params), false);
     throw readOnlyRefusal(`call ${method}`);
   }
+  if (HOST_METHOD_AUDIT[method]?.quiet) return;
   principal.audit?.(auditedMethodCall(method, params), true);
 }

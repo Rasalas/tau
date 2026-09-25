@@ -42,6 +42,7 @@ import type {
   HostExtensionServices,
   HostNetworkServices,
   HostMachineServices,
+  HostBlobServices,
   HostExtensionSettings,
   HostMcpInstructionsProvider,
   HostMcpToolGate,
@@ -156,6 +157,7 @@ export interface ExtensionServicesPort {
   readonly clients: HostClientServices;
   readonly network?: HostNetworkServices;
   readonly machines?: HostMachineServices;
+  readonly blobs?: HostBlobServices;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
@@ -358,6 +360,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     clients: port.clients,
     ...(port.network ? { network: port.network } : {}),
     ...(port.machines ? { machines: port.machines } : {}),
+    ...(port.blobs ? { blobs: port.blobs } : {}),
     registerThreadLifecycle: (lifecycle) => port.registerThreadLifecycle(lifecycle),
     registerTurnObserver: (observer) => port.registerTurnObserver(observer),
     pinTranscriptEntries: (provider) => {
