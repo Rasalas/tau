@@ -3,6 +3,7 @@ import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands 
 import { ServerPrompts } from "./prompts.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { ServerSsh } from "./ssh-service.js";
+import { createServerStatus } from "./status-host.js";
 import { ServersStore } from "./store.js";
 import { gitCall } from "./sync/git.js";
 import { SyncService } from "./sync/service.js";
@@ -40,14 +41,18 @@ export function createServersHostExtension(): HostExtension {
         lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
       });
       ssh.register();
+      const git = gitCall("git", () => services.noteSubprocess());
       const sync = new SyncService(context, {
         store,
         target: (cwd, targetId) => targets.target(cwd, targetId),
         transport: (input) => ssh.transport(input),
-        git: gitCall("git", () => services.noteSubprocess()),
+        git,
       });
       sync.register();
+      const status = createServerStatus(context, { store, targets, sync, ssh, git });
+      status.register();
       return async () => {
+        status.dispose();
         sync.dispose();
         prompts.dispose();
         await ssh.dispose();
