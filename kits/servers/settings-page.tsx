@@ -102,7 +102,7 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
         </select>}
       /> : null}
       <SettingRow
-        title="Agent commands"
+        title="Commands on the server"
         description={`${level ? LEVEL_WORDS[level].description : "Loading…"} Uploads are always yours.`}
         disabledReason={levelAllowed ? undefined : READ_ONLY_REASON}
         control={<select
