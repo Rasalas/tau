@@ -464,7 +464,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   /**
-   * The project's network limit, for the session's sandbox. Claude's sandbox
+   * The project's network limit, for the session's sandbox. The SDK's sandbox
    * does not hold on Windows here, so a limited prompt is refused there.
    */
   private async networkLimit(): Promise<ClaudeNetworkLimit | undefined> {

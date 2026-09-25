@@ -307,7 +307,7 @@ describe("thread runtime backends", () => {
     await again.dispose();
   });
 
-  it("starts a limited project's session in Claude's sandbox, and a new one when the limit changes between turns", async () => {
+  it("starts a limited project's session in the SDK's sandbox, and a new one when the limit changes between turns", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("ok"));
     let policy: HostExecutionPolicy = { network: "loopback", allowHosts: ["pypi.org"], reasons: ["Limited."], sources: ["tau.servers"] };

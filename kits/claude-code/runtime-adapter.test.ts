@@ -114,7 +114,7 @@ describe("Claude Code runtime adapter", () => {
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
   });
 
-  it("holds Bash to Claude's sandbox in a project that limits its network, and switches WebFetch off", () => {
+  it("holds Bash to the SDK's sandbox in a project that limits its network, and switches WebFetch off", () => {
     const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("sandbox");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("disallowedTools");

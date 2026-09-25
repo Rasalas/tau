@@ -1392,7 +1392,7 @@ prompt with `executionPolicyRefusal(policy, "<runtime>")` from
 project in its own sandbox without network (`workspaceWrite`,
 `networkAccess: false`: its sandbox has no host list, so the allowed hosts stay
 out of reach too, and on macOS loopback does as well), the Agent SDK runtime
-starts the session with Claude's sandbox (`sandbox.network.allowedDomains`,
+starts the session with the SDK's own sandbox (`sandbox.network.allowedDomains`,
 `allowLocalBinding`, `allowUnsandboxedCommands: false`, WebFetch off) and a new
 session when the limit changes, and OpenCode, Antigravity, Cursor and Grok
 refuse; so do Codex and the Agent SDK runtime on Windows. A backend that never

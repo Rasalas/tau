@@ -128,7 +128,7 @@ export interface ClaudeNetworkLimit {
 }
 
 /**
- * Claude's own sandbox around every Bash command: loopback and the allowed
+ * The SDK's own sandbox around every Bash command: loopback and the allowed
  * hosts only, never a command outside it, and still a question per command at
  * the ask level. Files stay as open as without it. WebFetch runs in the CLI's
  * own process, outside any sandbox, so it is switched off.

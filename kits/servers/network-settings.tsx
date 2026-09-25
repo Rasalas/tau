@@ -5,7 +5,7 @@ import type { DesktopExtensionContext } from "tau";
 import { SERVERS_EXTENSION_ID, decodeServerNetworkState, type ServerNetworkState } from "./protocol.js";
 
 /** What each runtime does in a limited project, in the order the runtime lists use. */
-export const RUNTIME_ENFORCEMENT = "Pi runs them in a sandbox that reaches this machine and the allowed hosts; the Agent SDK runtime in Claude's own sandbox with the same list; Codex in its sandbox without any network. OpenCode, Cursor, Grok and Antigravity cannot be held to it and do not run here. The terminal stays yours.";
+export const RUNTIME_ENFORCEMENT = "Pi runs them in a sandbox that reaches this machine and the allowed hosts; the Agent SDK runtime in the SDK's own sandbox with the same list; Codex in its sandbox without any network. OpenCode, Cursor, Grok and Antigravity cannot be held to it and do not run here. The terminal stays yours.";
 
 /**
  * The network limit of a server project's agent (Settings → Servers): package
