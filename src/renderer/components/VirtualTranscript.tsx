@@ -1,4 +1,4 @@
-import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
+import { measureElement, observeElementOffset, useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
@@ -202,6 +202,11 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     // remain bounded without paying for a large hidden DOM on every update.
     overscan: messages.length >= 200 ? 0 : 3,
     useAnimationFrameWithResizeObserver: true,
+    // virtual-core reports a settled scroll at the last scroll event's offset; useLeadingRowAnchor
+    // may have moved scrollTop since, and the stale offset would pick rows the reader no longer sees.
+    observeElementOffset: (instance, report) => observeElementOffset(instance, (offset, isScrolling) => {
+      report(isScrolling ? offset : instance.scrollElement?.scrollTop ?? offset, isScrolling);
+    }),
   });
   // Not a `useVirtualizer` option in virtual-core 3.x. Its own compensation
   // writes scrollTop a frame before the rows move; useLeadingRowAnchor does it in the same commit.

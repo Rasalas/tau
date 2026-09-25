@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtension, HostMcpToolProvider, HostThreadLifecycle, HostTurnObserver, RuntimeExtensionContribution, TurnAttachmentProvider } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createEvidenceHostExtension } from "./host.js";
@@ -64,15 +64,12 @@ async function activate() {
   }, (event) => events.push(event));
   await kit.activate(fakePreview(page));
   const invoke = (command: string, input?: unknown) => kit.invoke(EVIDENCE_EXTENSION_ID, command, input);
-  /** Waits, by turns of the event loop, until the kit's disk work shows what the test expects. */
-  const until = async (check: (thread: EvidenceThread) => boolean, threadId = "thread") => {
-    for (let round = 0; round < 2_000; round += 1) {
-      const thread = await invoke("list", { threadId }) as EvidenceThread;
-      if (check(thread)) return thread;
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-    throw new Error("The kit never got there.");
-  };
+  /** Waits until the kit's disk work shows what the test expects; a count of loop turns ran out on a slow disk. */
+  const until = (check: (thread: EvidenceThread) => boolean, threadId = "thread") => vi.waitFor(async () => {
+    const thread = await invoke("list", { threadId }) as EvidenceThread;
+    if (!check(thread)) throw new Error("The kit never got there.");
+    return thread;
+  }, { interval: 5 });
   const frames = (thread: EvidenceThread) => thread.turns.flatMap((turn) => turn.frames);
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   return { page, observers, lifecycles, runtime, mcp, events, provider: () => provider, announced, invoke, settle, until, frames };

@@ -19,14 +19,23 @@ import { HOST_CORE_PRINCIPAL } from "./host-invocation.js";
 
 const directories: string[] = [];
 const sockets: WebSocket[] = [];
+const accesses: HostAccess[] = [];
 let transport: SocketHostTransport | undefined;
 
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.close();
   await transport?.close();
   transport = undefined;
+  // A connect or disconnect writes the store in the background; let it land before the directory goes.
+  await Promise.all(accesses.splice(0).map((access) => access.flush().catch(() => undefined)));
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
+
+async function openTracked(options: Parameters<typeof HostAccess.open>[0]): Promise<HostAccess> {
+  const access = await HostAccess.open(options);
+  accesses.push(access);
+  return access;
+}
 
 const DAY = 24 * 60 * 60_000;
 
@@ -35,7 +44,7 @@ async function openAccess(now: () => number = Date.now, directory = mkdtempSync(
   const tokenFile = new HostTokenFile(join(directory, "tau", "host-token"));
   const storePath = join(directory, "user-data", "paired-clients.json");
   let changes = 0;
-  const access = await HostAccess.open({ tokenFile, storePath, now, onChange: () => { changes += 1; }, ...(audit ? { audit } : {}) });
+  const access = await openTracked({ tokenFile, storePath, now, onChange: () => { changes += 1; }, ...(audit ? { audit } : {}) });
   return { access, tokenFile, storePath, directory, changes: () => changes };
 }
 
@@ -310,7 +319,7 @@ describe("client tokens", () => {
     mkdirSync(join(directory, "legacy"), { recursive: true });
     const storePath = join(directory, "legacy", "paired-clients.json");
     writeFileSync(storePath, JSON.stringify({ version: 1, clients: [{ id: "a".repeat(24), label: "Old phone", secretHash: "b".repeat(64), pairedAt: new Date().toISOString(), device: { kind: "phone" } }] }));
-    const access = await HostAccess.open({ tokenFile: new HostTokenFile(join(directory, "tau", "host-token")), storePath });
+    const access = await openTracked({ tokenFile: new HostTokenFile(join(directory, "tau", "host-token")), storePath });
     expect(access.overview().clients).toMatchObject([{ label: "Old phone", access: "full", idleTimeoutDays: 90 }]);
   });
 });
@@ -359,7 +368,7 @@ describe("the owner's changes to a device", () => {
     directories.push(directory);
     const tokenFile = new HostTokenFile(join(directory, "host.token"));
     const storePath = join(directory, "paired-clients.json");
-    const access = await HostAccess.open({ tokenFile, storePath, audit: (entry) => entries.push(entry), threadTitle: (id) => titles.get(id) });
+    const access = await openTracked({ tokenFile, storePath, audit: (entry) => entries.push(entry), threadTitle: (id) => titles.get(id) });
     const clientId = (await pair(access, { name: "Phone" })).split(".")[1]!;
     const connection = access.attach({ kind: "client", clientId }, peer, () => undefined);
     access.audit(connection, { action: "prompt", label: "sent a prompt", threadId: "s-1" }, true);
@@ -372,7 +381,7 @@ describe("the owner's changes to a device", () => {
     await access.updateClient(clientId, { label: "Phone" });
     const stored = JSON.parse(readFileSync(storePath, "utf8")) as { clients: Array<{ lastAction?: unknown }> };
     expect(stored.clients[0]!.lastAction).toEqual({ action: "prompt", label: "sent a prompt", threadId: "s-1", at: expect.any(String) });
-    const reopened = await HostAccess.open({ tokenFile, storePath, threadTitle: () => undefined });
+    const reopened = await openTracked({ tokenFile, storePath, threadTitle: () => undefined });
     expect(reopened.overview().clients[0]!.lastAction).toEqual({ action: "prompt", label: "sent a prompt", at: expect.any(String) });
   });
 });

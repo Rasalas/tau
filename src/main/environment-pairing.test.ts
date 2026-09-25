@@ -15,9 +15,13 @@ import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 let transport: SocketHostTransport | undefined;
 const directories: string[] = [];
 
+const accesses: HostAccess[] = [];
+
 afterEach(async () => {
   await transport?.close();
   transport = undefined;
+  // Closing the transport detaches its devices, which writes the store in the background.
+  await Promise.all(accesses.splice(0).map((access) => access.flush().catch(() => undefined)));
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -30,6 +34,7 @@ async function machine(endpoints: Array<{ url: string; kind?: "lan" | "mdns" }> 
     storePath: join(directory, "paired-clients.json"),
     onChange: () => onChange(),
   });
+  accesses.push(access);
   const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
   transport = await startSocketHostTransport({
     listen: "127.0.0.1:0", methods: {}, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], access, tls,

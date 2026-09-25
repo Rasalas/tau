@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { createWorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 
@@ -62,22 +62,14 @@ describe("workspace checkpoint leases", { timeout: 60_000 }, () => {
           turnId: "turn",
           onState: (state) => { if (state === "waiting") secondWaiting = true; },
         }).then((lease) => { order.push("second"); return lease; });
-        // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- secondWaiting flips inside the onState callback above.
-        for (let attempt = 0; attempt < 100 && !secondWaiting; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2));
-        }
-        expect(secondWaiting).toBe(true);
+        await vi.waitFor(() => expect(secondWaiting).toBe(true));
         let thirdWaiting = false;
         const thirdPromise = thirdManager.acquire(cwd, {
           sessionId: `third-${round}`,
           turnId: "turn",
           onState: (state) => { if (state === "waiting") thirdWaiting = true; },
         }).then((lease) => { order.push("third"); return lease; });
-        // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- thirdWaiting flips inside the onState callback above.
-        for (let attempt = 0; attempt < 100 && !thirdWaiting; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2));
-        }
-        expect(thirdWaiting).toBe(true);
+        await vi.waitFor(() => expect(thirdWaiting).toBe(true));
 
         await first.release();
         const second = await secondPromise;

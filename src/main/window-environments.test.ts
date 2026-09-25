@@ -12,8 +12,10 @@ import { WindowEnvironments, type EnvironmentConnection, type WindowEnvironments
 
 const directories: string[] = [];
 const opened: WindowEnvironments[] = [];
-afterEach(() => {
-  for (const environments of opened.splice(0)) environments.close();
+afterEach(async () => {
+  const closing = opened.splice(0);
+  for (const environments of closing) environments.close();
+  await Promise.all(closing.map((environments) => environments.settled()));
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -156,7 +158,7 @@ describe("the machines of a window", () => {
     const reply = { protocol: 1, hostVersion: "t", capabilities: [], resync: false, missed: [], nextSeq: 1 };
     // A CA let this one in: it proves nothing about the host's own key.
     monitor.options.onReached!("wss://192.168.1.4:7788/", reply, { presented: { fingerprint: OTHER, publicKey: OTHER }, via: "authority" });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await environments.settled();
     expect(monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { fingerprint: PIN } });
 
     monitor.options.onReached!("wss://192.168.1.4:7788/", reply, { presented: { fingerprint: PIN, publicKey: KEY }, via: "pin" });
@@ -174,7 +176,7 @@ describe("the machines of a window", () => {
     const serve = { url: "https://studio.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
     const hello = (id: string, endpoints: PairingEndpoint[]) => ({ protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0, host: { id, name: "studio", endpoints } });
     monitor.options.onReached!("wss://192.168.1.4:7788/", hello("someone-else", [serve]));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await environments.settled();
     expect(monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/"]);
 
     monitor.options.onReached!("wss://192.168.1.4:7788/", hello("host-studio", [{ url: "https://100.64.0.9:7788/", kind: "tailscale" }, serve]));
@@ -201,7 +203,7 @@ describe("the machines of a window", () => {
       protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0,
       host: { id: "someone-else", name: "x", endpoints: [{ url: "https://10.9.9.9:7788/", kind: "lan" }] },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await environments.settled();
     expect(monitor.options.urls()).not.toContain("wss://10.9.9.9:7788/");
   });
 
@@ -259,7 +261,7 @@ describe("the machines of a window", () => {
     first.monitors.get("wss://192.168.1.4:7788/")!.set({ status: "connected" });
     await first.environments.open("host-studio");
     first.environments.close();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await first.environments.settled();
 
     const monitors = new Map<string, EnvironmentMonitorOptions>();
     const shown: Array<EnvironmentConnection | undefined> = [];
@@ -288,7 +290,7 @@ describe("the machines of a window", () => {
     first.monitors.get("wss://192.168.1.4:7788/")!.set({ status: "connected" });
     await first.environments.open("host-studio");
     first.environments.close();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await first.environments.settled();
     const again = await setup(undefined, { directory: first.directory, reopenWaitMs: 30 });
     expect(again.environments.shown).toBe("host-laptop");
     expect(again.shown).toEqual([]);

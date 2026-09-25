@@ -9,13 +9,19 @@ import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
 import { HostTokenFile } from "./host-token.js";
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
+const accesses: HostAccess[] = [];
+afterEach(async () => {
+  // Letting a device in writes the store in the background.
+  await Promise.all(accesses.splice(0).map((access) => access.flush().catch(() => undefined)));
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 async function setup() {
   const directory = mkdtempSync(join(tmpdir(), "tau-terminal-pairing-"));
   directories.push(directory);
   let next = () => undefined as void;
   const access = await HostAccess.open({ tokenFile: new HostTokenFile(join(directory, "t")), storePath: join(directory, "p.json"), onChange: () => next() });
+  accesses.push(access);
   const input = new PassThrough();
   const output = new PassThrough();
   let written = "";

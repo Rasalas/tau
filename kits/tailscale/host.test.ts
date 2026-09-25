@@ -240,17 +240,27 @@ describe("the fake Serve in front of the proxy listener", () => {
     const network = fakeNetwork();
     network.services.state = () => ({ settings: { lan: false, tailscale: false, announce: false, port: 7788, proxyPort: backendPort }, listeners: [{ host: "127.0.0.1", port: backendPort, kind: "proxy" }], problems: [], tailscaleUp: true });
     const { invoke } = await kit(network);
-    await invoke("serve-on", { httpsPort: 48443, name: NAME });
-    await expect.poll(() => get(48443, { host: `${NAME}:48443`, "tailscale-user-login": "mallory@example.com", "x-forwarded-for": "6.6.6.6" }).catch(() => undefined), { timeout: 5_000 }).toBe("tau");
+    // The fake Serve listens on the port itself; a fixed one meets another test run on the machine.
+    const httpsPort = await freePort();
+    await invoke("serve-on", { httpsPort, name: NAME });
+    await expect.poll(() => get(httpsPort, { host: `${NAME}:${httpsPort}`, "tailscale-user-login": "mallory@example.com", "x-forwarded-for": "6.6.6.6" }).catch(() => undefined), { timeout: 5_000 }).toBe("tau");
     expect(seen.at(-1)).toMatchObject({
-      host: `${NAME}:48443`,
-      "x-forwarded-host": `${NAME}:48443`,
+      host: `${NAME}:${httpsPort}`,
+      "x-forwarded-host": `${NAME}:${httpsPort}`,
       "x-forwarded-proto": "https",
       "x-forwarded-for": "100.101.102.103",
       "tailscale-user-login": "=?utf-8?q?j=C3=BCrgen@example.com?=",
     });
   });
 });
+
+async function freePort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = probe.address() as { port: number };
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+}
 
 function get(port: number, headers: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
