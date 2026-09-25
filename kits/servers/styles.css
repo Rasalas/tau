@@ -298,3 +298,15 @@
 .servers-three-way.active { border-color: var(--line-field); color: var(--ink); background: var(--chip); }
 .servers-banner-stack { flex-wrap: wrap; }
 .servers-banner-stack > .text-button { flex: 1 1 100%; padding-left: 20px; text-align: left; }
+
+/* ------------------------------------------------ agent: upload proposal card */
+.servers-proposal { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line-card); border-radius: 10px; background: var(--chrome); }
+.servers-proposal > header { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--ink-2); font-size: 12.5px; }
+.servers-proposal > header > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.servers-proposal-host { display: inline-flex; align-items: center; gap: 4px; max-width: 45%; overflow: hidden; color: var(--faint); font: 10.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.servers-proposal-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.servers-proposal .servers-files { margin: 0 -10px; }
+.servers-proposal .servers-file { padding-left: 10px; }
+.servers-proposal > footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.servers-proposal-hint { flex: 1; min-width: 0; color: var(--faint); font-size: 11.5px; }
+.servers-proposal.compact > footer > button { min-height: 44px; }

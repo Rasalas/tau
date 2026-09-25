@@ -6,6 +6,8 @@ import {
   ACCESS_LEVEL_EVENT,
   ACCESS_THREAD_LEVEL_CALLERS,
   ACCESS_THREAD_LEVEL_COMMAND,
+  ACCESS_THREAD_LEVEL_OF_CALLERS,
+  ACCESS_THREAD_LEVEL_OF_COMMAND,
   DEFAULT_ACCESS_LEVEL,
   ACCESS_LEVEL_KEY as LEVEL_KEY,
   isAccessLevel,
@@ -67,6 +69,11 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         else throw new Error("Access level must be read-only, ask or full.");
         return strictestAccessLevel(level, threadLevels.get(fields.threadId));
       }, { callers: ACCESS_THREAD_LEVEL_CALLERS });
+      context.registerCommand(ACCESS_THREAD_LEVEL_OF_COMMAND, (input) => {
+        const threadId = input && typeof input === "object" ? (input as { threadId?: unknown }).threadId : undefined;
+        if (typeof threadId !== "string" || !threadId) throw new Error('thread-level-of needs "threadId".');
+        return levelFor(threadId);
+      }, { callers: ACCESS_THREAD_LEVEL_OF_CALLERS });
       return () => { stopConfig(); releaseMcpGate(); services.setPermissionLevel(undefined); };
     },
   };
