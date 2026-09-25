@@ -1,0 +1,19 @@
+{
+    "name": "Blog",
+    "protocol": "sftp",
+    "port": 22,
+    "username": "blog",
+    "remotePath": "/var/www/blog",
+    "ignore": [".git", "node_modules"],
+    "profiles": {
+        "dev": {
+            "host": "dev.blog.example.com",
+            "remotePath": "/var/www/blog-dev"
+        },
+        "prod": {
+            "host": "blog.example.com",
+            "ignore": ["uploads"]
+        }
+    },
+    "defaultProfile": "dev"
+}

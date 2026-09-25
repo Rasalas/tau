@@ -1,0 +1,11 @@
+{
+    "name": "My Server",
+    "host": "example.com",
+    "protocol": "sftp",
+    "port": 22,
+    "username": "deploy",
+    "password": "hunter2",
+    "remotePath": "/var/www/site",
+    "uploadOnSave": true,
+    "ignore": [".vscode", ".git", ".DS_Store"]
+}

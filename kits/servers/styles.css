@@ -1,0 +1,8 @@
+/* Servers: Settings → Servers. */
+.servers-issues { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: var(--space-4) var(--space-6); list-style: none; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.settings-section .servers-issues { border-top: 1px solid var(--line-card); }
+.servers-issue { display: flex; align-items: flex-start; gap: 6px; }
+.servers-issue > svg { flex: none; margin-top: 3px; }
+.servers-issue.error > svg { color: var(--danger); }
+.servers-issue.warning > svg { color: var(--warn); }
+.servers-issue.info > svg { color: var(--info); }

@@ -1,0 +1,25 @@
+[
+    {
+        "name": "app",
+        "context": "app",
+        "protocol": "sftp",
+        "host": "127.0.0.1",
+        "port": 2222,
+        "username": "tester",
+        "remotePath": "/srv/app",
+        "profiles": {
+            "staging": { "remotePath": "/srv/app-staging" },
+            "production": { "remotePath": "/srv/app" }
+        },
+        "defaultProfile": "staging"
+    },
+    {
+        "name": "static",
+        "context": "public",
+        "protocol": "sftp",
+        "host": "127.0.0.1",
+        "port": 2222,
+        "username": "tester",
+        "remotePath": "/srv/static"
+    }
+]
