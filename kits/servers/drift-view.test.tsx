@@ -90,7 +90,7 @@ describe("server drift gate", () => {
 describe("drift panel", () => {
   it("shows the server's changes and a branch waiting for its merge, with a diff per file", async () => {
     const both: DriftState = { ...DRIFTING, targets: [target({ ...DRIFTING.targets[0], imports: [{ ...BRANCH, branch: "server-drift/2026-09-24", status: "later" }] })] };
-    const invoke = vi.fn(async (_id: string, command: string) => {
+    const invoke = vi.fn(async (_id: string, command: string, _input?: unknown) => {
       if (command === "drift") return both;
       if (command === "drift-diff") return { path: "index.php", added: 1, removed: 1, hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "removed", oldLine: 1, text: "old" }, { kind: "added", newLine: 1, text: "new" }] }] };
       return both;
