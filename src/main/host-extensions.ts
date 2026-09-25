@@ -675,6 +675,8 @@ export interface HostExtensionSettings {
 export interface RuntimeSessionInfo {
   sessionId: string;
   cwd: string;
+  /** The thread that spawned this one (`sessions.start({ parent })`); set for a Pi runtime only. */
+  parentThreadId?: string;
 }
 
 /** A Pi extension factory that also learns which session it serves. */
@@ -701,6 +703,13 @@ export interface RuntimeExtensionOptions {
    * mode from its session (`threadModeFromEntries`) and does what it means.
    */
   modes?: readonly string[];
+  /**
+   * Shell lines Pi runs before every `bash` command of this runtime, the user's
+   * `!` commands included. They run outside whatever a `tool_call` handler
+   * rewrote the command to, so a wrapper there (a sandbox) cannot undo them.
+   * Asked once per runtime; `undefined` adds nothing. New in API 1.15.0.
+   */
+  shellCommandPrefix?: (session: RuntimeSessionInfo) => string | undefined;
 }
 
 export interface RuntimeExtensionContribution extends RuntimeExtensionOptions {
@@ -1030,7 +1039,8 @@ export interface HostExtensionServices {
   /**
    * Runs a command in this extension's window half — the part of a kit that
    * needs the process the user's window lives in (ADR 0021). Rejects when the
-   * host has no such client, so a kit can fall back or say so.
+   * host has no such client, so a kit can fall back or say so; a Linux service
+   * host with an invisible display starts its window first (API 1.15.0).
    */
   callClient(command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
   /**

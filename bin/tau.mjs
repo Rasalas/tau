@@ -21,6 +21,7 @@ export const SERVICE_ACTIONS = ["install", "status", "uninstall", "restart"];
 
 export const USAGE = `Usage: tau app [path]
        tau service <install|status|uninstall|restart>
+       tau service install --display | --no-display
 
 tau app opens a folder in the running Tau with a new thread, and brings its
 window to the front. Without a running Tau it starts the app on that folder.
@@ -29,7 +30,10 @@ window to the front. Without a running Tau it starts the app on that folder.
 
 tau service runs Tau's host as a service of this machine: a LaunchAgent on
 macOS, a systemd user unit on Linux, a Task Scheduler task on Windows. It
-starts at login and keeps threads running without a window.
+starts at login and keeps threads running without a window. On Linux,
+--display gives it an invisible display (Xvfb): agents' shells get its
+DISPLAY, and a Tau window starts there when a thread needs the preview.
+--no-display removes it.
 
 TAU_USER_DATA names the instance, as it does for the app itself.`;
 
@@ -40,8 +44,11 @@ export function parseArgs(argv) {
     const [action, ...extra] = rest.filter((arg) => arg !== "--");
     if (!action || action === "-h" || action === "--help") return { help: true };
     if (!SERVICE_ACTIONS.includes(action)) throw new Error(`Unknown service action "${action}". ${USAGE}`);
-    if (extra.length > 0) throw new Error(`tau service ${action} takes no arguments.`);
-    return { command, action };
+    const flags = action === "install" ? extra.filter((arg) => arg === "--display" || arg === "--no-display") : [];
+    if (extra.length > flags.length || flags.length > 1) {
+      throw new Error(action === "install" ? "tau service install takes --display or --no-display." : `tau service ${action} takes no arguments.`);
+    }
+    return { command, action, flags };
   }
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
   const paths = rest.filter((arg) => arg !== "--");
@@ -190,8 +197,8 @@ export function serviceLauncher(self = fileURLToPath(import.meta.url), platform 
   return existsSync(command) ? { command, entry } : undefined;
 }
 
-function runServiceCli(launcher, action, env) {
-  const result = spawnSync(launcher.command, [launcher.entry, action], { stdio: "inherit", env, windowsHide: true });
+function runServiceCli(launcher, action, env, flags = []) {
+  const result = spawnSync(launcher.command, [launcher.entry, action, ...flags], { stdio: "inherit", env, windowsHide: true });
   if (result.error) throw result.error;
   return result.status ?? 1;
 }
@@ -216,7 +223,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     if (!launcher) throw new Error("This copy of the command line cannot find Tau's app. Run it from a built checkout (npm run build) or an installed Tau.");
     // The binary runs as Node; the userData is named, so the unit serves the same instance the app does.
     const childEnv = { ...env, ELECTRON_RUN_AS_NODE: "1", TAU_USER_DATA: userDataDir(env) };
-    return (io.runService ?? runServiceCli)(launcher, options.action, childEnv);
+    return (io.runService ?? runServiceCli)(launcher, options.action, childEnv, options.flags);
   }
   const folder = resolve(io.cwd ?? process.cwd(), options.path ?? ".");
   if (!existsSync(folder) || !statSync(folder).isDirectory()) throw new Error(`${folder} is not a folder.`);

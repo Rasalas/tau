@@ -3,6 +3,7 @@ import type { HostClientCall } from "../shared/host-transport.js";
 import type { DirectoryPickerOptions } from "./host-extensions.js";
 import { currentCaller } from "./host-invocation.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
+import { DISPLAY_WINDOW_ATTACH_TIMEOUT_MS } from "./display-window.js";
 
 /** A client half that never answers must not hold a tool call forever. */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -40,6 +41,13 @@ export interface ClientCallOptions {
 /** The message a call to a pinned window that went away rejects with. */
 export const PINNED_WINDOW_GONE = "The window this was pinned to is gone.";
 
+/** Starts a window on this machine when a call finds none: the invisible display's (`display-window.ts`). */
+export interface ClientWindowLauncher {
+  ensure(): Promise<void>;
+  /** A call went to a window on this machine. */
+  activity(): void;
+}
+
 interface PendingCall {
   /** The one connection whose answer counts. */
   addressee: string;
@@ -62,6 +70,10 @@ export class ClientCalls {
   private readonly pending = new Map<string, PendingCall>();
   /** In attach order, so the newest window on this machine is found last. */
   private readonly peers = new Map<string, ClientPeer>();
+  private launcher: ClientWindowLauncher | undefined;
+  private attachTimeoutMs = DISPLAY_WINDOW_ATTACH_TIMEOUT_MS;
+  /** Calls waiting for a window the launcher started. */
+  private readonly arrivals = new Set<() => void>();
 
   /** `send` answers false when the connection can no longer be written to. */
   constructor(
@@ -72,6 +84,13 @@ export class ClientCalls {
   attach(connection: string, peer: ClientPeer): void {
     this.peers.delete(connection);
     this.peers.set(connection, peer);
+    if (onHostMachine(peer) && peer.windowHalves?.length) for (const arrived of [...this.arrivals]) arrived();
+  }
+
+  /** Without one, a call that finds no window fails at once. */
+  setWindowLauncher(launcher: ClientWindowLauncher | undefined, attachTimeoutMs: number = DISPLAY_WINDOW_ATTACH_TIMEOUT_MS): void {
+    this.launcher = launcher;
+    this.attachTimeoutMs = attachTimeoutMs;
   }
 
   /** A connection that went away cannot answer; what it was asked fails now. */
@@ -87,8 +106,11 @@ export class ClientCalls {
     const addressee = this.addressee(extensionId, caller, options);
     if (!addressee) {
       const pinned = options.window !== undefined && options.window !== "host";
-      return Promise.reject(new Error(pinned ? PINNED_WINDOW_GONE : noWindow(extensionId, caller !== undefined && options.callerOnly === true)));
+      const callerOnly = caller !== undefined && options.callerOnly === true;
+      if (this.launcher && !pinned && !callerOnly && !this.localWindowAttached()) return this.launchThenCall(extensionId, command, input, options, caller);
+      return Promise.reject(new Error(pinned ? PINNED_WINDOW_GONE : noWindow(extensionId, callerOnly)));
     }
+    if (this.launcher && onHostMachine(this.peers.get(addressee)!)) this.launcher.activity();
     const callId = randomUUID();
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     return new Promise<unknown>((resolve, reject) => {
@@ -132,6 +154,7 @@ export class ClientCalls {
     const call = this.pending.get(callId);
     if (!call || from === undefined || call.addressee !== from) return;
     this.pending.delete(callId);
+    if (this.launcher && this.peers.has(from) && onHostMachine(this.peers.get(from)!)) this.launcher.activity();
     clearTimeout(call.timer);
     if (error) call.reject(new Error(error));
     else call.resolve(result);
@@ -140,6 +163,33 @@ export class ClientCalls {
   /** Every waiting call fails at once; used when the host stops. */
   dispose(): void {
     for (const [callId, call] of this.pending) this.settle(callId, undefined, "The host stopped waiting for this client.", call.addressee);
+  }
+
+  private localWindowAttached(): boolean {
+    for (const peer of this.peers.values()) if (onHostMachine(peer) && peer.windowHalves?.length) return true;
+    return false;
+  }
+
+  /** Starts the display's window, waits for it to say hello, then asks it; one without the half says so. */
+  private async launchThenCall(extensionId: string, command: string, input: unknown, options: ClientCallOptions, caller: string | undefined): Promise<unknown> {
+    let arrived!: () => void;
+    const attached = new Promise<void>((resolve) => { arrived = resolve; });
+    this.arrivals.add(arrived);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await this.launcher!.ensure();
+      if (!this.localWindowAttached()) {
+        await Promise.race([attached, new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`The window on this machine's invisible display did not connect within ${Math.round(this.attachTimeoutMs / 1000)} s.`)), this.attachTimeoutMs);
+          timer.unref?.();
+        })]);
+      }
+    } finally {
+      this.arrivals.delete(arrived);
+      clearTimeout(timer);
+    }
+    if (!this.addressee(extensionId, caller, options)) throw new Error(noWindow(extensionId, false));
+    return this.call(extensionId, command, input, options, caller);
   }
 
   private addressee(extensionId: string, caller: string | undefined, options: ClientCallOptions): string | undefined {

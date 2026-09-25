@@ -34,6 +34,15 @@ describe("window calls pinned to one window", () => {
     expect(host.sent.map((entry) => entry.options?.window)).toEqual(["w1", "w1", "w2"]);
   });
 
+  it("lets the kit rebuild its view in the new window before the call that noticed", async () => {
+    const host = services(["w1"]);
+    const calls: ReturnType<typeof pinnedWindowCalls> = pinnedWindowCalls(host, { onMoved: async () => { await calls.call("open-view"); } });
+    await calls.call("open-view");
+    host.windows.splice(0, 1, "w2");
+    await calls.call("capture");
+    expect(host.sent.map((entry) => `${entry.command}@${entry.options?.window}`)).toEqual(["open-view@w1", "capture@w1", "open-view@w2", "capture@w2"]);
+  });
+
   it("asks the host's window unpinned on a host that names none", async () => {
     const host = services([]);
     const calls = pinnedWindowCalls(host);

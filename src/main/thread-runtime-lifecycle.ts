@@ -28,6 +28,7 @@ import { mapMessage } from "./host-messages.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
 import { PhaseTimer, externalThreadFromPath } from "./pi-host-support.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
+import { parentThreadIdFromEntries } from "./session-lineage.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
 import { RuntimeResourceCache, runtimeResourceFingerprint } from "./runtime-resource-cache.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
@@ -40,6 +41,19 @@ import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
+
+/** A runtime extension bound to one session, with the shell lines it asked for there. */
+export interface SessionRuntimeExtension {
+  name: string;
+  factory: ExtensionFactory;
+  shellCommandPrefix?: string | undefined;
+}
+
+/** The extensions' lines first, then the user's own `shellCommandPrefix`; undefined when neither adds one. */
+export function composeShellCommandPrefix(extensions: readonly SessionRuntimeExtension[], userPrefix: string | undefined): string | undefined {
+  const lines = [...extensions.map((extension) => extension.shellCommandPrefix), userPrefix].filter((line): line is string => Boolean(line?.trim()));
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
 
 /** Longest a shutdown waits for a run to stop before the runtime is dropped anyway. */
 const SHUTDOWN_ABORT_MS = 3_000;
@@ -55,7 +69,7 @@ export interface ThreadRuntimeLifecyclePort {
   permissionLevel(): RuntimePermissionLevel;
   sessionFile(manager: SessionManager): HostSessionFile;
   /** Runtime extensions host extensions contribute, filtered by the session's settings. */
-  runtimeExtensions(settingsManager: SettingsManager, session: RuntimeSessionInfo): Array<{ name: string; factory: ExtensionFactory }>;
+  runtimeExtensions(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[];
   runtimeExtensionNames(): string[];
   /** The interaction modes runtime extensions give Pi threads. */
   runtimeModes(): readonly string[];
@@ -150,6 +164,13 @@ export class ThreadRuntimeLifecycle {
     } catch {
       // ignore
     }
+    const parentThreadId = parentThreadIdFromEntries(sessionManager.getEntries());
+    const extensions = this.port.runtimeExtensions(settingsManager, { sessionId: sessionManager.getSessionId(), cwd, ...(parentThreadId ? { parentThreadId } : {}) });
+    if (extensions.some((extension) => extension.shellCommandPrefix)) {
+      // Not `applyOverrides`: Pi rebuilds its settings from the files on every reload.
+      const userPrefix = settingsManager.getShellCommandPrefix.bind(settingsManager);
+      settingsManager.getShellCommandPrefix = () => composeShellCommandPrefix(extensions, userPrefix());
+    }
     this.port.logRuntimePhase("settings", settingsStartedAt, reason, cwd);
 
     const modelsStartedAt = performance.now();
@@ -169,7 +190,7 @@ export class ThreadRuntimeLifecycle {
         ...(cachedResources ? cachedResourceOptions(cachedResources) : {}),
         noExtensions: this.port.safeMode,
         // Host extensions add theirs through the services facade; none in safe mode.
-        extensionFactories: this.port.runtimeExtensions(settingsManager, { sessionId: sessionManager.getSessionId(), cwd }),
+        extensionFactories: extensions.map((extension) => ({ name: extension.name, factory: extension.factory })),
         ...(cachedResources ? {} : {
           systemPromptOverride: (base) => promptOverrides.customPrompt?.content ?? base,
           appendSystemPromptOverride: (base) => [

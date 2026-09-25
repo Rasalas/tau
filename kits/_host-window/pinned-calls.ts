@@ -16,7 +16,16 @@ export interface PinnedWindowCalls {
  * caller would reach; once that window is gone, the next newest takes over.
  * A host older than 1.13.0 ignores the options and asks as it always did.
  */
-export function pinnedWindowCalls(services: Pick<HostExtensionServices, "callClient" | "clientWindow">): PinnedWindowCalls {
+export interface PinnedWindowOptions {
+  /**
+   * The pinned window went away and the next call goes to another one, which
+   * holds none of the old one's views: rebuild them here, through `calls`,
+   * before the call that noticed runs there.
+   */
+  onMoved?(): Promise<void>;
+}
+
+export function pinnedWindowCalls(services: Pick<HostExtensionServices, "callClient" | "clientWindow">, options: PinnedWindowOptions = {}): PinnedWindowCalls {
   let pin: string | undefined;
   const target = (): HostClientCallOptions => {
     pin ??= services.clientWindow?.();
@@ -24,12 +33,13 @@ export function pinnedWindowCalls(services: Pick<HostExtensionServices, "callCli
   };
   return {
     async call(command, input) {
-      const options = target();
+      const pinned = target();
       try {
-        return await services.callClient(command, input, options);
+        return await services.callClient(command, input, pinned);
       } catch (error) {
-        if (options.window === "host" || !(error instanceof Error) || !GONE.test(error.message)) throw error;
+        if (pinned.window === "host" || !(error instanceof Error) || !GONE.test(error.message)) throw error;
         pin = undefined;
+        await options.onMoved?.();
         return services.callClient(command, input, target());
       }
     },

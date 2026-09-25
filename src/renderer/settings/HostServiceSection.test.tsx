@@ -99,3 +99,29 @@ describe("Settings → Connections → Background", () => {
     expect(await screen.findByRole("switch", { name: "Keep this machine awake while turns run" })).toBeTruthy();
   });
 });
+
+describe("Settings → Connections → Background, invisible display", () => {
+  const display = { supported: true, installed: true, display: ":99", xvfbRunning: true, windowRunning: false, idleMinutes: 10 };
+  const linux = (overrides: Partial<UiHostService> = {}) => service({ manager: "systemd", label: "tau-host.service", installed: true, running: true, ...overrides });
+
+  it("shows the display of a Linux service and removes it only after asking", async () => {
+    let current = linux({ display });
+    const installService = vi.fn(async () => { current = linux({ display: { ...display, installed: false, display: undefined, xvfbRunning: false } }); return current; });
+    const notify = renderSection({ serviceStatus: async () => current, installService });
+
+    expect(await screen.findByText(":99 · window starts when needed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove…" }));
+    expect(installService).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Display" }));
+
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("The invisible display is removed"));
+    expect(installService).toHaveBeenCalledWith({ display: false });
+    expect(screen.getByRole("button", { name: "Add…" })).toBeTruthy();
+  });
+
+  it("is not offered on macOS or without a service", async () => {
+    renderSection({ serviceStatus: async () => service({ installed: true, running: true, display: { ...display, supported: false, installed: false, reason: "macOS has no invisible display." } }) });
+    expect(await screen.findByText("Running")).toBeTruthy();
+    expect(screen.queryByText("Invisible display")).toBeNull();
+  });
+});

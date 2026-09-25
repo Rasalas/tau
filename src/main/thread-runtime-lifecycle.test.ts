@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { ThreadRuntimeLifecycle, type ThreadRuntimeLifecyclePort } from "./thread-runtime-lifecycle.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SessionManager, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { ThreadRuntimeLifecycle, composeShellCommandPrefix, type ThreadRuntimeLifecyclePort } from "./thread-runtime-lifecycle.js";
+import { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
+import type { RuntimeSessionInfo } from "./host-extensions.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { UNLIMITED_EXECUTION_POLICY, type HostExecutionPolicy } from "./host-execution-policy.js";
@@ -264,5 +270,57 @@ describe("ThreadRuntimeLifecycle", () => {
     expect(full.fingerprint("/repo")).toBe(full.fingerprint("/repo"));
     expect(full.fingerprint("/repo")).not.toBe(safe.fingerprint("/repo"));
     expect(full.fingerprint("/repo")).not.toBe(full.fingerprint("/other"));
+  });
+});
+
+describe("shell command prefixes of runtime extensions", () => {
+  const noop: ExtensionFactory = () => undefined;
+
+  it("puts the extensions' lines before the user's own and adds nothing when none asks", () => {
+    expect(composeShellCommandPrefix([], undefined)).toBeUndefined();
+    expect(composeShellCommandPrefix([{ name: "a", factory: noop, shellCommandPrefix: " " }], "")).toBeUndefined();
+    expect(composeShellCommandPrefix([{ name: "a", factory: noop }], "shopt -s expand_aliases")).toBe("shopt -s expand_aliases");
+    expect(composeShellCommandPrefix(
+      [{ name: "a", factory: noop, shellCommandPrefix: "renice -n 10 -p $$" }, { name: "b", factory: noop }],
+      "shopt -s expand_aliases",
+    )).toBe("renice -n 10 -p $$\nshopt -s expand_aliases");
+  });
+
+  it.skipIf(process.platform === "win32")("runs them in the shell outside a command a tool_call handler wrapped", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-shell-prefix-"));
+    try {
+      // A sandbox-like wrapper: the command runs in a shell of its own, which it marks.
+      const wrap: ExtensionFactory = (pi) => {
+        pi.on("tool_call", (event) => {
+          const input = event.input as { command: string };
+          input.command = `/bin/bash -c 'WRAPPED=yes; ${input.command.replaceAll("'", "'\\''")}'`;
+          return undefined;
+        });
+      };
+      const sessions: RuntimeSessionInfo[] = [];
+      const { lifecycle } = makeLifecycle({
+        runtimeExtensions: (_settings, session) => {
+          sessions.push(session);
+          return [{ name: "wrap", factory: wrap }, { name: "prefix", factory: noop, shellCommandPrefix: "echo prefix:${WRAPPED:-no}" }];
+        },
+      });
+      const sessionManager = SessionManager.inMemory(dir);
+      sessionManager.appendCustomEntry(PARENT_LINK_ENTRY, parentLinkEntry("parent-thread"));
+      const create = (lifecycle as unknown as { create: (options: unknown) => Promise<{ session: any }> }).create;
+      const { session } = await create({ cwd: dir, agentDir: dir, sessionManager });
+      expect(sessions).toEqual([{ sessionId: sessionManager.getSessionId(), cwd: dir, parentThreadId: "parent-thread" }]);
+      // Pi re-reads its settings files on every reload; the line has to outlive that.
+      await session.settingsManager.reload();
+      expect(session.settingsManager.getShellCommandPrefix()).toBe("echo prefix:${WRAPPED:-no}");
+
+      const args = { command: "echo command:$WRAPPED" };
+      await session.agent.beforeToolCall({ toolCall: { id: "call-1", name: "bash" }, args });
+      const result = await session.getToolDefinition("bash").execute("call-1", args, undefined, undefined, undefined);
+      const text = result.content.map((part: { text?: string }) => part.text ?? "").join("");
+      expect(text).toBe("prefix:no\ncommand:yes\n");
+      session.dispose();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

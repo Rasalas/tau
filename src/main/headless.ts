@@ -48,6 +48,7 @@ import { IdleHeapCompactor } from "./host-idle-compaction.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { KeepAwake } from "./keep-awake.js";
 import { HostServiceManager } from "./host-service.js";
+import { DisplayWindow } from "./display-window.js";
 import { HostMachines } from "./host-machines.js";
 import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
@@ -246,6 +247,14 @@ async function main(): Promise<void> {
       if (token) await retireHost(running, token);
     },
   });
+  // A systemd service host with an invisible display starts its window when a call needs one.
+  if (serviceKind === "systemd" && await service.installedDisplay()) {
+    const window = new DisplayWindow({ start: () => service.startWindow(), stop: () => service.stopWindow() }, {
+      log: (event, detail) => hostLog.info(event, detail),
+    });
+    clientCalls.setWindowLauncher(window);
+    hostLog.info("host.display", { display: process.env.DISPLAY });
+  }
   let listening: HostListenInfo | undefined;
   let network: HostNetworkAccess | undefined;
   let mainTls: HostTlsReloader | undefined;
@@ -331,6 +340,8 @@ async function main(): Promise<void> {
 
   const shutdown = (): void => {
     void (async () => {
+      // A host on its way out starts no window on the display.
+      clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
       machines.close();
       blobs.close();
