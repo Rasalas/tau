@@ -128,7 +128,9 @@ jobs:
             artifact: linux
           - name: Windows x64
             runner: windows-latest
-            platform: --win --x64
+            # node-pty ships N-API binaries for Windows, which Electron loads as they are; rebuilding it
+            # from source fails when node-gyp's Visual Studio lookup overflows its output buffer.
+            platform: --win --x64 -c.npmRebuild=false
             artifact: windows
     steps:
       - uses: actions/checkout@v4
