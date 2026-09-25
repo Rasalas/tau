@@ -1,0 +1,21 @@
+[
+    {
+        "name": "theme",
+        "context": "wp-content/themes/site",
+        "protocol": "sftp",
+        "host": "example.com",
+        "username": "deploy",
+        "remotePath": "/var/www/html/wp-content/themes/site"
+    },
+    {
+        "name": "legacy",
+        "context": "/legacy",
+        "protocol": "ftp",
+        "host": "ftp.example.com",
+        "username": "legacy",
+        "passwordManager": false,
+        "secure": "control",
+        "remoteTimeOffsetInHours": -2,
+        "remotePath": "/htdocs"
+    }
+]

@@ -1,0 +1,24 @@
+// Natizyskunk adds useTempFile/openSsh; comments and trailing commas are JSONC, which Tau tolerates.
+{
+    "name": "Shop",
+    "host": "shop.example.com",
+    "protocol": "sftp",
+    "port": 2222,
+    "username": "shop",
+    "privateKeyPath": "~/.ssh/id_ed25519",
+    "passphrase": true,
+    "remotePath": "/home/shop/public_html",
+    "uploadOnSave": false,
+    "useTempFile": true,
+    "openSsh": true,
+    "watcher": {
+        "files": "dist/**/*.{js,css}",
+        "autoUpload": true,
+        "autoDelete": false,
+    },
+    "syncOption": { "delete": true },
+    "filePerm": 644,
+    "dirPerm": 755,
+    /* the extension's default is 4 */
+    "concurrency": 2,
+}
