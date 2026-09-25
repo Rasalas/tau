@@ -348,7 +348,7 @@ Three helpers, each touching only what it started (recorded under `.tau-dev/`, c
 | Helper | What it is |
 | --- | --- |
 | `npm run cdp:mobile -- …` (`scripts/tau-mobile-cdp.mjs`) | A headless Chromium as an iPhone, iPad or Android phone: device metrics, safe-area insets, a coarse pointer, an iOS user agent and real touch events (`Input.dispatchTouchEvent`). Its profile, and so the paired token, lives in `.tau-dev/mobile/chrome-profile`. |
-| `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host`, on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
+| `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host` (`--name <name>`: `.tau-dev/test-host-<name>`), on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
 | `node mobile/scripts/sim-device.mjs …` | A simulator of this worktree's own: create, boot, install, launch and the automation bridge in one step, and `down` deletes exactly that device. |
 
 The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1.
@@ -446,6 +446,23 @@ node mobile/scripts/sim-device.mjs down                            # shut down a
 ```
 
 The simulator shares the Mac's loopback, so the app reaches the instance on 127.0.0.1, where the app accepts plaintext only because it runs in a simulator. A fresh simulator's first boot keeps the machine busy for a minute or two; run `down` as soon as the check is done. `mobile/README.md` has the bridge's helpers (`tap`, `type`, `text`, …) and the Android emulator. Never install on a real device and never sign with the user's account.
+
+## Another machine: named test hosts ("rex")
+
+Work that moves to another machine (host to host, remote work) is tested against a second headless host on this Mac, never against the real rex or any other real machine. `--name` starts one of several, each under `.tau-dev/test-host-<name>/` with its own home, userData, host token, host id, Pi agent dir and session store, and the runtime homes (`CODEX_HOME`, OpenCode, Cursor, Grok) empty and signed out:
+
+```
+node scripts/tau-test-host.mjs start --name rex --kits --tls --fresh   # prints url, fingerprint, publicKey, tokenFile, userData, sessionsDir
+node scripts/tau-test-host.mjs status --name rex
+node scripts/tau-test-host.mjs list                                    # every test host of this worktree, with running true/false
+npm run cdp:mobile -- host connections-list --test-host=rex            # an owner call on rex over its loopback host token
+node scripts/tau-test-host.mjs stop --name rex                         # or stop --all
+```
+
+- A named host calls itself by its name (`TAU_MACHINE_NAME`), so pairing and Settings → Machines show "rex", not this Mac's name.
+- Its Pi agent dir is prepared like an instance's (`scripts/pi-agent-shadow.mjs`): the login linked, settings copied with GPT-5.6 Luna as the default model. `--no-login` leaves Pi signed out. No other runtime is ever signed in on a test host; nothing is copied from the real `~/.codex`, `~/.claude` or `~/.pi`.
+- It listens on 127.0.0.1 with a random port; `--kits` loads the kits (off by default), `--tls` gives it a self-signed certificate to pin.
+- `stop` signals only the pid in that host's `state.json`, and only while it still runs this worktree's `headless.js`.
 
 ## Tearing down
 

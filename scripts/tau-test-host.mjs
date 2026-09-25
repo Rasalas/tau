@@ -1,23 +1,37 @@
 #!/usr/bin/env node
-// A headless Tau host for remote-access tests, everything under this
-// worktree's .tau-dev/test-host: its own home, userData, token and sessions,
-// loopback only. `--proxy` adds the listener a reverse proxy such as
-// Tailscale Serve forwards to; `--tls` makes the main listener TLS.
+// Headless Tau hosts for remote-access and remote-work tests, each under this
+// worktree's .tau-dev: `test-host/` without a name, `test-host-<name>/` with
+// one. Each has its own home, userData, token, sessions and runtime homes,
+// and listens on loopback only. `--proxy` adds the listener a reverse proxy
+// such as Tailscale Serve forwards to; `--tls` makes the main listener TLS.
 //
-//   node scripts/tau-test-host.mjs start [--proxy] [--tls] [--kits] [--fresh] [--workspace <path>]
-//   node scripts/tau-test-host.mjs status | stop
+//   node scripts/tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--workspace <path>]
+//   node scripts/tau-test-host.mjs status [--name <name>] | stop [--name <name> | --all] | list
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { preparePiAgentDir } from "./pi-agent-shadow.mjs";
 import { stopProcess } from "./tau-cdp.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const TEST_HOST_DIR = join(ROOT, ".tau-dev", "test-host");
-const STATE_PATH = join(TEST_HOST_DIR, "state.json");
+const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/u;
+
+/** `.tau-dev/test-host` for the unnamed host, `.tau-dev/test-host-<name>` for a named one. */
+export function testHostDir(name, root = ROOT) {
+  if (name === undefined) return join(root, ".tau-dev", "test-host");
+  if (typeof name !== "string" || !NAME.test(name)) throw new Error(`a test host name is lowercase letters, digits and dashes, got ${JSON.stringify(name)}`);
+  return join(root, ".tau-dev", `test-host-${name}`);
+}
+
+/** Where fixture repos and their bare "origin" live; the only folder a `file://` clone may come from in tests. */
+export function remoteWorkDir(root = ROOT) {
+  return join(root, ".tau-dev", "remote-work");
+}
 
 /** The host's environment: nothing in it points outside `dir`, and nothing listens beyond loopback. */
-export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_DIR, workspace, proxy = false, tls = false, kits = false }) {
+export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_DIR, name, workspace, proxy = false, tls = false, kits = false }) {
   const env = {
     ...base,
     HOME: join(dir, "home"),
@@ -32,6 +46,11 @@ export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_D
     TAU_IMPORT_ROOTS: join(dir, "import-roots"),
     PI_CODING_AGENT_DIR: join(dir, "pi-agent"),
     PI_CODING_AGENT_SESSION_DIR: join(dir, "pi-sessions"),
+    // The other runtimes' homes: none of them signed in, never the caller's.
+    CODEX_HOME: join(dir, "codex-home"),
+    TAU_OPENCODE_HOME: join(dir, "opencode-home"),
+    TAU_CURSOR_HOME: join(dir, "cursor-home"),
+    TAU_GROK_HOME: join(dir, "grok-home"),
     TAU_WEB_CLIENT: join(root, "dist-web"),
     TAU_HOST_LISTEN: "127.0.0.1:0",
     TAU_BONJOUR_SERVICE_TYPE: "_tau-test._tcp",
@@ -43,8 +62,11 @@ export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_D
     // Servers kit, when kits run: loopback targets only, projects only below `dir`.
     TAU_SERVERS_LOOPBACK_ONLY: "1",
     TAU_SERVERS_PROJECTS_ROOT: join(dir, "projects"),
+    // Fixture repos clone from their bare "origin" here; nowhere else takes `file://`.
+    TAU_TEST_CLONE_ROOT: remoteWorkDir(root),
   };
-  for (const name of ["TAU_HOST_URL", "TAU_HOST_TLS", "TAU_HOST_TLS_CERT", "TAU_HOST_TLS_KEY", "TAU_HOST_PROXY_LISTEN", "TAU_NO_EXTENSIONS", "ELECTRON_RUN_AS_NODE"]) delete env[name];
+  for (const variable of ["TAU_HOST_URL", "TAU_HOST_TLS", "TAU_HOST_TLS_CERT", "TAU_HOST_TLS_KEY", "TAU_HOST_PROXY_LISTEN", "TAU_NO_EXTENSIONS", "TAU_MACHINE_NAME", "ELECTRON_RUN_AS_NODE"]) delete env[variable];
+  if (name) env.TAU_MACHINE_NAME = name;
   if (proxy) env.TAU_HOST_PROXY_LISTEN = "127.0.0.1:0";
   if (tls) env.TAU_HOST_TLS = "1";
   if (!kits) env.TAU_NO_EXTENSIONS = "1";
@@ -60,6 +82,28 @@ export function parseHostOutput(text, { proxy = false, tls = false } = {}) {
   const link = text.match(/(?:web client|pairing link): (\S+:\/\/\S+)/u)?.[1];
   if (!url || (tls && !fingerprint) || (proxy && !proxyUrl)) return undefined;
   return { url, ...(fingerprint ? { fingerprint } : {}), ...(publicKey ? { publicKey } : {}), ...(proxyUrl ? { proxyUrl } : {}), ...(link ? { link } : {}) };
+}
+
+/** Parses the CLI; throws on an unknown flag rather than starting a host nobody asked for. */
+export function parseArgs(argv) {
+  const [command, ...rest] = argv;
+  const flags = { proxy: false, tls: false, kits: false, fresh: false, login: true, all: false };
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg === "--proxy") flags.proxy = true;
+    else if (arg === "--tls") flags.tls = true;
+    else if (arg === "--kits") flags.kits = true;
+    else if (arg === "--fresh") flags.fresh = true;
+    else if (arg === "--no-login") flags.login = false;
+    else if (arg === "--all") flags.all = true;
+    else if (arg === "--name" || arg === "--workspace") {
+      const value = rest[++index];
+      if (!value) throw new Error(`${arg} needs a value`);
+      flags[arg.slice(2)] = value;
+    } else throw new Error(`unknown flag ${JSON.stringify(arg)}`);
+  }
+  if (flags.name !== undefined) testHostDir(flags.name);
+  return { command, flags };
 }
 
 function alive(pid) {
@@ -79,27 +123,55 @@ function ownHost(pid) {
   }
 }
 
-export function readTestHost() {
-  if (!existsSync(STATE_PATH)) throw new Error("no test host; start one with: node scripts/tau-test-host.mjs start");
-  const state = JSON.parse(readFileSync(STATE_PATH, "utf8"));
-  if (!alive(state.pid) || !ownHost(state.pid)) throw new Error(`the test host (pid ${state.pid}) is gone; start one with: node scripts/tau-test-host.mjs start`);
+function startHint(name) {
+  return `node scripts/tau-test-host.mjs start${name ? ` --name ${name}` : ""}`;
+}
+
+/** The running test host `name` (the unnamed one without it); throws when it is not running. */
+export function readTestHost(name) {
+  const statePath = join(testHostDir(name), "state.json");
+  if (!existsSync(statePath)) throw new Error(`no test host${name ? ` "${name}"` : ""}; start one with: ${startHint(name)}`);
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  if (!alive(state.pid) || !ownHost(state.pid)) throw new Error(`the test host${name ? ` "${name}"` : ""} (pid ${state.pid}) is gone; start one with: ${startHint(name)}`);
   return state;
 }
 
-async function start(flags) {
-  if (existsSync(STATE_PATH)) {
-    const previous = JSON.parse(readFileSync(STATE_PATH, "utf8"));
-    if (alive(previous.pid) && ownHost(previous.pid)) throw new Error(`a test host is already running (pid ${previous.pid}); stop it first`);
+/** Every test host of this worktree that has a state file, running or not. */
+export function listTestHosts(root = ROOT) {
+  const devDir = join(root, ".tau-dev");
+  if (!existsSync(devDir)) return [];
+  const hosts = [];
+  for (const entry of readdirSync(devDir)) {
+    const name = entry === "test-host" ? undefined : entry.startsWith("test-host-") ? entry.slice("test-host-".length) : null;
+    if (name === null) continue;
+    const statePath = join(devDir, entry, "state.json");
+    if (!existsSync(statePath)) continue;
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    hosts.push({ name: name ?? null, ...state, running: alive(state.pid) && ownHost(state.pid) });
+  }
+  return hosts;
+}
+
+/** Starts a host and resolves with its state once it listens; `flags` as `parseArgs` gives them. */
+export async function startTestHost(flags = {}) {
+  const dir = testHostDir(flags.name);
+  const statePath = join(dir, "state.json");
+  if (existsSync(statePath)) {
+    const previous = JSON.parse(readFileSync(statePath, "utf8"));
+    if (alive(previous.pid) && ownHost(previous.pid)) throw new Error(`the test host${flags.name ? ` "${flags.name}"` : ""} is already running (pid ${previous.pid}); stop it first`);
   }
   // A device paired in an earlier run would still be listed; --fresh starts without any.
-  if (flags.fresh) rmSync(TEST_HOST_DIR, { recursive: true, force: true });
-  mkdirSync(TEST_HOST_DIR, { recursive: true });
+  if (flags.fresh) rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
   const entry = join(ROOT, "dist-electron", "main", "headless.js");
   if (!existsSync(entry) || !existsSync(join(ROOT, "dist-web", "index.html"))) throw new Error("build first: npm run build");
   const workspace = flags.workspace ? resolve(flags.workspace) : undefined;
-  const env = testHostEnv({ workspace, proxy: flags.proxy, tls: flags.tls, kits: flags.kits });
-  for (const path of [env.HOME, env.TAU_USER_DATA, env.TAU_WORKSPACE, env.PI_CODING_AGENT_DIR]) mkdirSync(path, { recursive: true });
-  const logPath = join(TEST_HOST_DIR, "host.log");
+  const env = testHostEnv({ dir, name: flags.name, workspace, proxy: flags.proxy, tls: flags.tls, kits: flags.kits });
+  for (const path of [env.HOME, env.TAU_USER_DATA, env.TAU_WORKSPACE, env.CODEX_HOME, env.TAU_OPENCODE_HOME, env.TAU_CURSOR_HOME, env.TAU_GROK_HOME]) mkdirSync(path, { recursive: true });
+  // Pi as in an instance: the login linked, settings copied with the test model; --no-login leaves it signed out.
+  if (flags.login !== false) preparePiAgentDir(env.PI_CODING_AGENT_DIR);
+  else mkdirSync(env.PI_CODING_AGENT_DIR, { recursive: true });
+  const logPath = join(dir, "host.log");
   rmSync(logPath, { force: true });
   const log = openSync(logPath, "a");
   const child = spawn(process.execPath, [entry], { cwd: ROOT, env, detached: true, stdio: ["ignore", log, log] });
@@ -115,33 +187,41 @@ async function start(flags) {
     if (alive(child.pid)) process.kill(child.pid, "SIGKILL");
     throw new Error(`the test host did not start; see ${logPath}`);
   }
-  const state = { pid: child.pid, ...printed, tokenFile: env.TAU_HOST_TOKEN_FILE, userData: env.TAU_USER_DATA, log: logPath, startedAt: new Date().toISOString() };
-  writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`);
+  const state = {
+    ...(flags.name ? { name: flags.name } : {}),
+    pid: child.pid,
+    ...printed,
+    tokenFile: env.TAU_HOST_TOKEN_FILE,
+    userData: env.TAU_USER_DATA,
+    workspace: env.TAU_WORKSPACE,
+    home: env.HOME,
+    sessionsDir: env.PI_CODING_AGENT_SESSION_DIR,
+    log: logPath,
+    startedAt: new Date().toISOString(),
+  };
+  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
   return state;
 }
 
-async function stop() {
-  if (!existsSync(STATE_PATH)) return { stopped: null };
-  const { pid } = JSON.parse(readFileSync(STATE_PATH, "utf8"));
+/** Stops the host `name` by the pid in its own state file, and only if that pid still runs this worktree's host. */
+export async function stopTestHost(name) {
+  const statePath = join(testHostDir(name), "state.json");
+  if (!existsSync(statePath)) return { stopped: null };
+  const { pid } = JSON.parse(readFileSync(statePath, "utf8"));
   const running = alive(pid) && ownHost(pid);
   if (running) await stopProcess(pid);
-  rmSync(STATE_PATH, { force: true });
-  return { stopped: running ? pid : null };
+  rmSync(statePath, { force: true });
+  return { ...(name ? { name } : {}), stopped: running ? pid : null };
 }
 
 async function main() {
-  const [command, ...rest] = process.argv.slice(2);
-  const flags = {
-    proxy: rest.includes("--proxy"),
-    tls: rest.includes("--tls"),
-    kits: rest.includes("--kits"),
-    fresh: rest.includes("--fresh"),
-    ...(rest.includes("--workspace") ? { workspace: rest[rest.indexOf("--workspace") + 1] } : {}),
-  };
-  if (command === "start") return start(flags);
-  if (command === "stop") return stop();
-  if (command === "status") return readTestHost();
-  throw new Error("usage: tau-test-host.mjs start [--proxy] [--tls] [--kits] [--fresh] [--workspace <path>] | status | stop");
+  const { command, flags } = parseArgs(process.argv.slice(2));
+  if (command === "start") return startTestHost(flags);
+  if (command === "stop" && flags.all) return Promise.all(listTestHosts().map((host) => stopTestHost(host.name ?? undefined)));
+  if (command === "stop") return stopTestHost(flags.name);
+  if (command === "status") return readTestHost(flags.name);
+  if (command === "list") return listTestHosts();
+  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

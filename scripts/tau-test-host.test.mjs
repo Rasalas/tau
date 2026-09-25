@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHostOutput, testHostEnv } from "./tau-test-host.mjs";
+import { parseArgs, parseHostOutput, remoteWorkDir, testHostDir, testHostEnv } from "./tau-test-host.mjs";
 
 describe("testHostEnv", () => {
   const base = { PATH: "/bin", HOME: "/Users/me", TAU_HOST_TLS: "1", TAU_HOST_URL: "wss://far", ELECTRON_RUN_AS_NODE: "1" };
@@ -18,6 +18,19 @@ describe("testHostEnv", () => {
     expect(env.TAU_NO_RUNTIME_UPDATES).toBe("1");
     expect(env.TAU_SERVERS_LOOPBACK_ONLY).toBe("1");
     expect(env.PATH).toBe("/bin");
+  });
+
+  it("gives each named host its own folder, runtime homes and machine name", () => {
+    const rex = testHostEnv({ base, root: "/w", dir: testHostDir("rex", "/w"), name: "rex" });
+    const other = testHostEnv({ base: { ...base, CODEX_HOME: "/Users/me/.codex", TAU_MACHINE_NAME: "Mac" }, root: "/w", dir: testHostDir("mini", "/w") });
+    expect(rex.TAU_USER_DATA).toBe("/w/.tau-dev/test-host-rex/userdata");
+    expect(rex.TAU_HOST_TOKEN_FILE).toBe("/w/.tau-dev/test-host-rex/host-token");
+    expect(rex.CODEX_HOME).toBe("/w/.tau-dev/test-host-rex/codex-home");
+    expect(rex.TAU_MACHINE_NAME).toBe("rex");
+    expect(other.CODEX_HOME).toBe("/w/.tau-dev/test-host-mini/codex-home");
+    expect(other.TAU_MACHINE_NAME).toBeUndefined();
+    expect(rex.TAU_TEST_CLONE_ROOT).toBe(remoteWorkDir("/w"));
+    expect(remoteWorkDir("/w")).toBe("/w/.tau-dev/remote-work");
   });
 
   it("drops what the caller's shell set for another host", () => {
@@ -65,5 +78,24 @@ describe("parseHostOutput", () => {
 
   it("is not ready before the host listens", () => {
     expect(parseHostOutput("tau-host starting")).toBeUndefined();
+  });
+});
+
+describe("testHostDir and parseArgs", () => {
+  it("keeps the unnamed host where it was and refuses names that leave .tau-dev", () => {
+    expect(testHostDir(undefined, "/w")).toBe("/w/.tau-dev/test-host");
+    expect(testHostDir("rex", "/w")).toBe("/w/.tau-dev/test-host-rex");
+    for (const bad of ["", "../x", "Rex", "a/b", "-x", "x".repeat(33)]) expect(() => testHostDir(bad, "/w")).toThrow("test host name");
+  });
+
+  it("reads the flags and refuses unknown ones", () => {
+    expect(parseArgs(["start", "--name", "rex", "--tls", "--kits", "--no-login"])).toEqual({
+      command: "start",
+      flags: { proxy: false, tls: true, kits: true, fresh: false, login: false, all: false, name: "rex" },
+    });
+    expect(parseArgs(["stop", "--all"]).flags.all).toBe(true);
+    expect(() => parseArgs(["start", "--name"])).toThrow("--name needs a value");
+    expect(() => parseArgs(["start", "--name", "../etc"])).toThrow("test host name");
+    expect(() => parseArgs(["start", "--port", "1"])).toThrow("unknown flag");
   });
 });

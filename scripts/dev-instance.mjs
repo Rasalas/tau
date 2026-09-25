@@ -11,6 +11,10 @@ import { fileURLToPath } from "node:url";
 // package's default export is the real binary's path, not the app API.
 import electronBinaryPath from "electron";
 import { prepareServersDir, serversInstanceEnv, startTestSshAgent } from "../kits/servers/fixtures/servers-test-env.mjs";
+import { preparePiAgentDir } from "./pi-agent-shadow.mjs";
+
+// Shared with the headless test hosts, which must not load the electron package.
+export { preparePiAgentDir, withTestDefaultModel } from "./pi-agent-shadow.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEV_DIR = join(ROOT, ".tau-dev");
@@ -46,48 +50,6 @@ export function prepareCodexHome(codexHome, realHome = join(homedir(), ".codex")
   let linked = false;
   try { linked = lstatSync(link) !== undefined; } catch { /* not there yet */ }
   if (!linked && existsSync(join(realHome, "auth.json"))) symlinkSync(join(realHome, "auth.json"), link);
-}
-
-/**
- * A Pi agent directory of the instance's own. Pi writes into its agent dir on
- * its own (`lastChangelogVersion`, the default model when one is picked), and
- * Settings → Keybindings writes keybindings.json, so an instance must not run
- * on the user's. The login, model list, packages and extensions are linked;
- * settings, the model store, trust and keybindings are copied once and then
- * belong to the instance.
- */
-export function preparePiAgentDir(agentDir, realDir = join(homedir(), ".pi", "agent")) {
-  mkdirSync(agentDir, { recursive: true });
-  for (const name of ["auth.json", "models.json", "npm", "extensions"]) {
-    const link = join(agentDir, name);
-    let present = false;
-    try { present = lstatSync(link) !== undefined; } catch { /* not there yet */ }
-    if (!present && existsSync(join(realDir, name))) symlinkSync(join(realDir, name), link);
-  }
-  // Older instances linked keybindings.json; a save would reach the real file through the link.
-  const keys = join(agentDir, "keybindings.json");
-  let linkedKeys = false;
-  try { linkedKeys = lstatSync(keys).isSymbolicLink(); } catch { /* not there */ }
-  if (linkedKeys) {
-    const content = existsSync(keys) ? readFileSync(keys) : undefined;
-    rmSync(keys);
-    if (content) writeFileSync(keys, content);
-  }
-  for (const name of ["settings.json", "models-store.json", "trust.json", "keybindings.json"]) {
-    const copy = join(agentDir, name);
-    if (!existsSync(copy) && existsSync(join(realDir, name))) {
-      const content = readFileSync(join(realDir, name));
-      writeFileSync(copy, name === "settings.json" ? withTestDefaultModel(content) : content);
-    }
-  }
-}
-
-/** Test prompts, and the automatic ones a new draft sends (titles, commit messages), run on the cheapest model. */
-export function withTestDefaultModel(content) {
-  let settings;
-  try { settings = JSON.parse(String(content)); } catch { return content; }
-  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return content;
-  return `${JSON.stringify({ ...settings, defaultProvider: "openai-codex", defaultModel: "gpt-5.6-luna" }, null, 2)}\n`;
 }
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
@@ -313,6 +275,8 @@ async function main() {
     // Always the test agent's socket, even when it failed to start: a login shell only fills unset variables.
     ...serversInstanceEnv(serversDir),
     TAU_SERVERS_PROJECTS_ROOT: projectsRoot,
+    // Fixture repos (scripts/remote-work-fixture.mjs) clone from their bare "origin" here; nowhere else takes `file://`.
+    TAU_TEST_CLONE_ROOT: join(DEV_DIR, "remote-work"),
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),

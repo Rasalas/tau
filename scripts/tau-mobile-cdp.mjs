@@ -45,7 +45,7 @@ const USAGE = `usage: tau-mobile-cdp.mjs <command> [...args]
   host <method> [json params array]        an owner call on the instance's host
   freeze-host <ms>                         SIGSTOP, then SIGCONT, the instance's host
   stop
-host options, instead of the instance's host: --test-host (scripts/tau-test-host.mjs), or
+host options, instead of the instance's host: --test-host[=<name>] (scripts/tau-test-host.mjs), or
   --host <ws url> --token-file <path> [--host-pid <pid>] for a host started by hand`;
 
 /** `[command, positional, flags]`; a repeated flag collects its values. */
@@ -61,7 +61,8 @@ export function parseArgs(argv) {
       continue;
     }
     const [name, inline] = arg.slice(2).split(/=(.*)/su);
-    const value = booleans.has(name) ? true : inline ?? argv[(index += 1)];
+    // `--test-host=rex` names one of several test hosts; a bare flag is the unnamed one.
+    const value = booleans.has(name) ? inline ?? true : inline ?? argv[(index += 1)];
     if (value === undefined) throw new Error(`--${name} needs a value`);
     if (repeated.has(name)) flags[name] = [...(flags[name] ?? []), value];
     else flags[name] = value;
@@ -413,7 +414,7 @@ export function instanceHost({ devDir = DEV_DIR, readFile = (path) => readFileSy
 
 function hostFromFlags(flags) {
   if (flags["test-host"]) {
-    const state = readTestHost();
+    const state = readTestHost(flags["test-host"] === true ? undefined : flags["test-host"]);
     return { url: state.url, tokenFile: state.tokenFile, pid: state.pid };
   }
   if (flags.host || flags["token-file"]) {
