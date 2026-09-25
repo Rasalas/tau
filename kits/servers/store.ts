@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readdir, realpath, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
 
 /**
@@ -89,13 +89,21 @@ const runGit: GitRunner = (cwd, args) => new Promise((done, fail) => {
 /**
  * The folder whose workspace id keys a project's targets: the main checkout of
  * a Git repository (a linked worktree resolves to it, a bare repository to
- * itself), else the folder itself. Git lists the main worktree first.
+ * itself), else the folder itself. Git lists the main worktree first. A folder
+ * below a checkout's top keeps its place in the main checkout, and is its own
+ * key where the main checkout has no such folder (a folder inside another
+ * repository's ignored files, such as a project about to get its own Git).
  */
 export async function mainCheckoutOf(cwd: string, git: GitRunner = runGit): Promise<string> {
+  const own = await realpath(cwd).catch(() => resolve(cwd));
   const listing = await git(cwd, ["worktree", "list", "--porcelain"]).catch(() => "");
   const first = /^worktree (.+)$/mu.exec(listing)?.[1];
-  const folder = first ? resolve(cwd, first) : resolve(cwd);
-  return realpath(folder).catch(() => folder);
+  if (!first) return own;
+  const main = await realpath(resolve(cwd, first)).catch(() => resolve(cwd, first));
+  const top = (await git(cwd, ["rev-parse", "--show-toplevel"]).catch(() => "")).trim();
+  const below = top ? relative(await realpath(top).catch(() => top), own) : "";
+  if (!below || below.startsWith("..") || isAbsolute(below)) return main;
+  return realpath(join(main, below)).catch(() => own);
 }
 
 /** The key's workspace id for `cwd`, minted by the host for the main checkout. */

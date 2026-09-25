@@ -107,6 +107,8 @@ export interface SyncIgnoreOptions {
   projectDir?: string;
   /** Left out for this run only (folders or files deselected before a download). */
   exclude?: readonly string[];
+  /** False: no Git rules, for a folder that gets its own repository only afterwards. */
+  gitRules?: boolean;
   git?: GitCall;
   home?: string;
 }
@@ -161,7 +163,8 @@ export class SyncIgnore {
       lines.push(...(await readFile(file, "utf8").catch(() => "")).split(/\r?\n/u));
     }
     const exclude = (options.exclude ?? []).map((path) => path.replace(/^\/+|\/+$/gu, "")).filter(Boolean);
-    return new SyncIgnore(parseIgnorePatterns(lines), exclude, await findGitScope(options.localDir, git), git);
+    const scope = options.gitRules === false ? undefined : await findGitScope(options.localDir, git);
+    return new SyncIgnore(parseIgnorePatterns(lines), exclude, scope, git);
   }
 
   /** Whether the local checkout's `.gitignore` rules take part. */
