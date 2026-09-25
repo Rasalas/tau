@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 // Required from plain Node (not from inside Electron itself), the "electron"
 // package's default export is the real binary's path, not the app API.
 import electronBinaryPath from "electron";
+import { prepareServersDir, serversInstanceEnv, startTestSshAgent } from "../kits/servers/fixtures/servers-test-env.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEV_DIR = join(ROOT, ".tau-dev");
@@ -235,6 +236,11 @@ async function main() {
   if (options.fresh) rmSync(configFile, { force: true });
   seedConfigFile(configFile);
 
+  // Servers kit: test keys, the ssh_config (`-F`) and stubs for the keychain,
+  // all under .tau-dev/servers. Never ~/.ssh, the real agent or keychain.
+  const serversDir = join(DEV_DIR, "servers");
+  prepareServersDir(serversDir);
+
   if (!options.workspace) initScratchWorkspace(workspace);
   else if (!existsSync(workspace)) throw new Error(`--workspace ${workspace} does not exist`);
 
@@ -255,6 +261,13 @@ async function main() {
   mkdirSync(join(DEV_DIR, "logs"), { recursive: true });
   const logPath = join(DEV_DIR, "logs", `instance-${port}.log`);
   const logFd = openSync(logPath, "a");
+
+  let sshAgent;
+  try {
+    sshAgent = await startTestSshAgent(serversDir);
+  } catch (error) {
+    console.warn(`[dev-instance] no test ssh-agent: ${error.message}`);
+  }
 
   const env = {
     ...process.env,
@@ -283,6 +296,8 @@ async function main() {
     // service manager: never a real LaunchAgent, systemd unit or scheduled task.
     TAU_SERVICE_UNIT_DIR: join(DEV_DIR, "service-units"),
     TAU_SERVICE_CONTROL: join(ROOT, "scripts", "fake-service-manager.mjs"),
+    // Always the test agent's socket, even when it failed to start: a login shell only fills unset variables.
+    ...serversInstanceEnv(serversDir),
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
@@ -291,6 +306,7 @@ async function main() {
   // instead (app.whenReady never exists); each script that spawns Electron
   // must drop it itself.
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.SSH_AGENT_PID;
 
   const child = spawn(electronBin, [".", `--remote-debugging-port=${port}`], {
     cwd: ROOT,
@@ -308,6 +324,8 @@ async function main() {
     agentDir: agentDir ?? null,
     hostPid: hostDescriptor?.pid ?? null,
     hostUrl: hostDescriptor?.url ?? null,
+    serversDir,
+    sshAgentPid: sshAgent?.owned ? sshAgent.pid : null,
     logPath,
     startedAt: new Date().toISOString(),
   });
@@ -338,6 +356,8 @@ async function main() {
   const exitCode = await new Promise((resolvePromise) => {
     child.on("exit", (code, signal) => resolvePromise(code ?? (signal ? 1 : 0)));
   });
+  // Only the agent this run started, by its PID.
+  if (sshAgent?.owned) sshAgent.stop();
   process.exitCode = exitCode;
 }
 

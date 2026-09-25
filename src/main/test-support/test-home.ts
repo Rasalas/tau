@@ -13,6 +13,9 @@ const HOME_VARIABLES = [
   "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "ZDOTDIR",
   "TAU_USER_DATA", "TAU_CONFIG_FILE", "TAU_WORKTREES_DIR", "TAU_HOST_TOKEN_FILE", "TAU_THEMES_DIR", "TAU_SERVICE_UNIT_DIR",
   "TAU_OPENCODE_HOME", "TAU_CURSOR_HOME", "TAU_GROK_HOME",
+  // The developer's own ssh-agent, and an instance's servers fakes, never reach a test.
+  "SSH_AUTH_SOCK", "SSH_AGENT_PID", "FAKE_SERVERS_STATE",
+  "TAU_SERVERS_SECURITY_COMMAND", "TAU_SERVERS_SECRET_TOOL_COMMAND", "TAU_SERVERS_SSH_CONFIG",
 ];
 
 /** fs functions that change the file system, with the positions of the paths they change. */
