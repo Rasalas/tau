@@ -182,8 +182,9 @@ export class RuntimeExtensions {
     others: readonly RuntimeExtensionRecord[],
     stillCurrent: () => boolean,
     beforeActivate?: () => void,
+    imported: Promise<unknown> = this.importModule(bundle),
   ): Promise<RuntimeExtensionRecord | undefined> {
-    const module = await (this.host.importModule ?? importBundle)(bundle);
+    const module = await imported;
     if (!stillCurrent()) return undefined;
     const extension = (module as { default?: unknown } | null)?.default;
     if (!isDesktopExtension(extension)) {
@@ -205,6 +206,10 @@ export class RuntimeExtensions {
     this.registry.noteLoadFailure(bundle.path, undefined);
     this.host.log("desktop-extension.loaded", `${extension.name} · ${bundle.scope} · ${bundle.path}`);
     return { extension, bundle };
+  }
+
+  private importModule(bundle: DesktopExtensionBundle): Promise<unknown> {
+    return (this.host.importModule ?? importBundle)(bundle);
   }
 
   async sync(cwd: string): Promise<readonly RuntimeExtensionRecord[]> {
@@ -233,9 +238,16 @@ export class RuntimeExtensions {
     // A theme is only a stylesheet, and a stylesheet's rules are ordered by
     // where its <link> lands: last, so a theme's tokens beat core's and every
     // kit's without any of them raising their specificity.
-    for (const bundle of [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false))) {
+    const ordered = [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false));
+    // Fetched and compiled side by side, activated one after another in this order.
+    const imports = ordered.map((bundle) => {
+      const imported = this.importModule(bundle);
+      imported.catch(() => undefined);
+      return imported;
+    });
+    for (const [index, bundle] of ordered.entries()) {
       try {
-        const record = await this.activateBundle(bundle, next, () => generation === this.generation);
+        const record = await this.activateBundle(bundle, next, () => generation === this.generation, undefined, imports[index]);
         if (!record) return this.loaded;
         next.push(record);
       } catch (error) {

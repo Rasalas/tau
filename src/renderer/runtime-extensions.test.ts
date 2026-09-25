@@ -340,6 +340,24 @@ describe("overlapping syncs", () => {
     };
   }
 
+  it("imports every bundle at once and activates them in the order they came", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: h, imports } = deferredHost(["/x/a.tsx", "/x/b.tsx"]);
+    const runtime = new RuntimeExtensions(registry, { ...h, load: async () => result([bundle("/x/a.tsx"), bundle("/x/b.tsx")]) });
+    const activated: string[] = [];
+    const a = extension("x.a");
+    a.activate = () => { activated.push("a"); };
+    const b = extension("x.b");
+    b.activate = () => { activated.push("b"); };
+
+    const syncing = runtime.sync("/work");
+    await Promise.all(imports.map((gate) => gate.started.promise));
+    imports[1].resolve({ default: b });
+    imports[0].resolve({ default: a });
+    await syncing;
+    expect(activated).toEqual(["a", "b"]);
+  });
+
   it.each(["resolve", "reject"] as const)("an obsolete import that %ss leaves the newer sync's extensions alone", async (settlement) => {
     const registry = new ExtensionRegistry();
     const { host: h, imports } = deferredHost(["/x/old.tsx", "/x/new.tsx"]);
@@ -378,13 +396,14 @@ describe("overlapping syncs", () => {
 
   it.each(["resolve", "reject"] as const)("the next sync cleans partial activations before an obsolete import %ss", async (settlement) => {
     const registry = new ExtensionRegistry();
-    const { host: h, imports } = deferredHost(["/x/a.tsx", "/x/b.tsx", "/x/keep.tsx"]);
+    const { host: h, imports } = deferredHost(["/x/a.tsx", "/x/b.tsx", "/x/unactivated.tsx", "/x/keep.tsx"]);
     const runtime = new RuntimeExtensions(registry, {
       ...h,
       load: async (cwd) => cwd === "/old"
-        ? result([bundle("/x/a.tsx"), bundle("/x/b.tsx"), bundle("/x/unreached.tsx")])
+        ? result([bundle("/x/a.tsx"), bundle("/x/b.tsx"), bundle("/x/unactivated.tsx")])
         : result([bundle("/x/keep.tsx")]),
     });
+    const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
     const oldDispose = vi.fn();
     const old = extension("x.shared", "Old");
     old.activate = () => oldDispose;
@@ -394,20 +413,23 @@ describe("overlapping syncs", () => {
 
     const first = runtime.sync("/old");
     await imports[0].started.promise;
+    // All three imports start at once; only the first has arrived.
+    await imports[2].started.promise;
     imports[0].resolve({ default: old });
-    await imports[1].started.promise;
+    await settled();
     expect(registry.isActive("x.shared")).toBe(true);
     expect(oldDispose).not.toHaveBeenCalled();
 
     const second = runtime.sync("/new");
-    await imports[2].started.promise;
+    await imports[3].started.promise;
     expect(oldDispose).toHaveBeenCalledTimes(1);
     expect(registry.isActive("x.shared")).toBe(false);
-    imports[2].resolve({ default: current });
+    imports[3].resolve({ default: current });
     const winner = await second;
 
     if (settlement === "resolve") imports[1].resolve({ default: extension("x.stale", "Stale") });
     else imports[1].reject(new Error("obsolete import failed"));
+    imports[2].resolve({ default: extension("x.never", "Never") });
     expect(await first).toBe(winner);
     expect(runtime.list()).toBe(winner);
     expect(winner.map((record) => record.extension)).toEqual([current]);
@@ -416,7 +438,8 @@ describe("overlapping syncs", () => {
     expect(oldDispose).toHaveBeenCalledTimes(1);
     expect(newDispose).not.toHaveBeenCalled();
     expect(current.activate).toHaveBeenCalledTimes(1);
-    expect(h.importModule.mock.calls.map(([entry]) => entry.path)).toEqual(["/x/a.tsx", "/x/b.tsx", "/x/keep.tsx"]);
+    expect(registry.isActive("x.never")).toBe(false);
+    expect(h.importModule.mock.calls.map(([entry]) => entry.path)).toEqual(["/x/a.tsx", "/x/b.tsx", "/x/unactivated.tsx", "/x/keep.tsx"]);
     expect(h.notify).not.toHaveBeenCalled();
   });
 });
