@@ -94,6 +94,10 @@ export const HOST_METHOD_ACCESS = {
   "connections-reload-certificate": "owner",
   "connections-discover": "owner",
   "host.shutdown": "owner",
+  // The machines this host's agents reach (ADR 0027): their keys are the owner's, like the host token.
+  "machines-list": "owner",
+  "machines-add": "owner",
+  "machines-remove": "owner",
   // The host's machine running it as a service: whether it does is anyone's to see, changing it the owner's.
   "service-status": "read",
   "service-install": "owner",
@@ -109,6 +113,7 @@ export const HOST_METHOD_ACCESS = {
   "environments-open": "write",
   "environments-discover": "write",
   "environments-set-preferences": "write",
+  "environments-set-agents": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.
@@ -119,6 +124,25 @@ export const HOST_METHOD_ACCESS = {
 
 export function methodAccess(method: string): MethodAccess {
   return (HOST_METHOD_ACCESS as Record<string, MethodAccess | undefined>)[method] ?? "write";
+}
+
+/**
+ * What a host may ask another machine's host on its threads' behalf
+ * (`services.machines.request`, ADR 0027): reading a thread there and steering
+ * or stopping its run. A kit's own commands go through `call`; access
+ * management, jobs, subscriptions and a window's methods never go.
+ */
+export const MACHINE_REQUEST_METHODS = [
+  "transcript-page",
+  "thread-tree",
+  "tool-output",
+  "abort",
+  "steer",
+  "follow-up",
+] as const satisfies readonly (keyof typeof HOST_METHOD_ACCESS)[];
+
+export function isMachineRequestMethod(method: string): boolean {
+  return (MACHINE_REQUEST_METHODS as readonly string[]).includes(method);
 }
 
 /** What a Read-only device's control says where it is disabled, and what a call it may not make is refused with before it is sent (API 1.13.0). */

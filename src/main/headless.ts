@@ -49,6 +49,7 @@ import { defaultHostConfigManager } from "./host-config.js";
 import { KeepAwake } from "./keep-awake.js";
 import { HostServiceManager } from "./host-service.js";
 import { DisplayWindow } from "./display-window.js";
+import { HostMachines } from "./host-machines.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
 
@@ -178,6 +179,8 @@ async function main(): Promise<void> {
   // What packages add to network access; it waits for the listeners below.
   const networkContributions = new NetworkContributions({ storePath: join(userData, "network-kept.json"), logger: hostLog });
   await networkContributions.load();
+  // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
+  const machines = await HostMachines.open({ path: join(userData, "host-machines.json"), logger: hostLog, ownId: hostId });
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
@@ -191,6 +194,7 @@ async function main(): Promise<void> {
       workspaceIdentity,
       clients,
       network: networkContributions.services,
+      machines: machines.services,
       appPath: appRoot,
       kitStateDir: join(userData, "kit-state"),
       turnsInFlightPath: join(userData, "turns-in-flight.json"),
@@ -294,6 +298,7 @@ async function main(): Promise<void> {
     clientCalls,
     connections: () => connectionsService(),
     service: () => service,
+    machines: () => machines,
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -333,6 +338,7 @@ async function main(): Promise<void> {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
+      machines.close();
       compactor.dispose();
       keepAwake.dispose();
       clearInterval(networkPoll);

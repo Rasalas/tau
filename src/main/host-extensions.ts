@@ -498,6 +498,57 @@ export interface HostNetworkServices {
   publishEndpoints(endpoints: readonly UiHostEndpoint[]): () => void;
 }
 
+/** How this host's own connection to another machine is doing (ADR 0027). */
+export type HostMachineStatus = "connecting" | "connected" | "offline" | "refused";
+
+/** Another machine this host holds a key for, for its agents. Never the key. */
+export interface HostMachine {
+  /** That machine's host id. */
+  id: string;
+  name: string;
+  status: HostMachineStatus;
+  /** Why it is offline or refused, written for the user. */
+  detail?: string;
+  roundTripMs?: number;
+  lastSeenAt?: number;
+  /** The socket URL in use, or the one last used. */
+  address?: string;
+  hostVersion?: string;
+  /** Its owner let this machine's agents in Read only. */
+  readOnly?: boolean;
+}
+
+/** An extension event another machine's kit emitted under a topic this host watches. */
+export interface HostMachineEvent {
+  name: string;
+  payload?: unknown;
+}
+
+/**
+ * The machines this host's agents may work on, and the calls they may make
+ * there (`machines` permission, ADR 0027). A machine is named by its host id,
+ * or by its name when that is unique. Every call rejects with a reason when
+ * the machine is unknown, offline or refuses this host.
+ */
+export interface HostMachineServices {
+  list(): HostMachine[];
+  /** Called with the whole list whenever a machine is added, removed or changes status. */
+  subscribe(listener: (machines: readonly HostMachine[]) => void): () => void;
+  /** A command of a kit on that machine (`host-extension`), as a Full or Read-only device of its own. */
+  call(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
+  /** One of the core methods `MACHINE_REQUEST_METHODS` lists; any other is refused before it leaves. */
+  request(machine: string, method: string, params?: readonly unknown[], options?: { timeoutMs?: number }): Promise<unknown>;
+  /**
+   * Events that machine's kit emits under `topic`, until the returned function
+   * runs. The kit is this extension's counterpart there unless `extension`
+   * names another. Survives reconnects; nothing arrives while it is offline.
+   */
+  watch(machine: string, topic: string, listener: (event: HostMachineEvent) => void, options?: { extension?: string }): () => void;
+}
+
+/** Binds `watch`'s default kit to the extension that asks; the registry calls it. */
+export const BIND_MACHINES_EXTENSION = Symbol("bind-machines-extension");
+
 /** Who is attached right now, and word when that changes. */
 export interface HostClientServices {
   observe(observer: HostClientObserver): () => void;
@@ -870,6 +921,11 @@ export interface HostExtensionServices {
   readonly clients: HostClientServices;
   /** Network access and what a package adds to it; gated by `network` (API 1.13.0). */
   readonly network?: HostNetworkServices;
+  /**
+   * Other machines this host's agents may work on (`machines`, ADR 0027).
+   * Absent on a host in the window's process and in a worker. New in API 1.15.0.
+   */
+  readonly machines?: HostMachineServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   /** Follows the turns of every thread the host drives. */
@@ -1107,6 +1163,10 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
         return raw instanceof ExecutionPolicyRegistry ? raw.forExtension(extension.id) : raw;
       }
       if (prop === "stateDir" && stateDir) return stateDir;
+      if (prop === "machines") {
+        const raw = Reflect.get(target, prop, receiver) as (HostMachineServices & { [BIND_MACHINES_EXTENSION]?: (id: string) => HostMachineServices }) | undefined;
+        return raw?.[BIND_MACHINES_EXTENSION]?.(extension.id) ?? raw;
+      }
       if (prop === "network") {
         const raw = Reflect.get(target, prop, receiver) as (HostNetworkServices & { [BIND_NETWORK_EXTENSION]?: (id: string) => HostNetworkServices }) | undefined;
         return raw?.[BIND_NETWORK_EXTENSION]?.(extension.id) ?? raw;

@@ -23,6 +23,8 @@ export interface PairEnvironmentOptions {
   nearby?: NearbyMachine;
   /** How this window names itself to the owner. */
   deviceName: string;
+  /** Asks for this machine's agents as a second device under the same approval, named so (ADR 0027). */
+  companion?: string;
   onConnecting?(address: string): void;
   onWaiting?(waiting: { address: string; verification: string; expiresAt: string }): void;
   signal?: AbortSignal;
@@ -32,7 +34,8 @@ export interface PairEnvironmentOptions {
 }
 
 export type PairEnvironmentResult =
-  | { state: "approved"; environment: SavedEnvironment }
+  /** `agentsToken`: the companion's own token; absent when none was asked for, or the machine's Tau knows no companions. */
+  | { state: "approved"; environment: SavedEnvironment; agentsToken?: string }
   | { state: "denied" | "expired" | "cancelled" }
   | { state: "failed"; message: string };
 
@@ -103,6 +106,7 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
       url,
       ...(payload?.code ? { code: payload.code } : {}),
       name: options.deviceName,
+      ...(options.companion ? { companion: { name: options.companion } } : {}),
       // Bound digits need a key both sides see; a plaintext loopback socket has none, which both sides agree on.
       ...(bindCertificate !== undefined ? { fingerprint: bindCertificate } : { publicKey: bindKey ?? "" }),
       createSocket: (target) => createSocket(target, trust),
@@ -132,7 +136,7 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
       lastUrl: endpoint.url,
       ...(result.access === "read-only" ? { readOnly: true } : {}),
     };
-    return { state: "approved", environment };
+    return { state: "approved", environment, ...(result.companion ? { agentsToken: result.companion.token } : {}) };
   }
   return { state: "failed", message: lastProblem };
 }

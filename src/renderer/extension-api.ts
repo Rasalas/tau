@@ -183,6 +183,8 @@ export type { PreferencesStore } from "./preferences";
 export type { PlatformAttention, SystemNotification, SystemNotificationOutcome } from "../workbench/platform";
 export type { PlatformEnvironments } from "../workbench/environments";
 export type {
+  EnvironmentAgentsOutcome,
+  EnvironmentAgentsResult,
   EnvironmentPairInput,
   EnvironmentPairResult,
   EnvironmentPreferences,

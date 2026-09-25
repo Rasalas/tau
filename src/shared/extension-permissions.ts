@@ -7,6 +7,7 @@ export const EXTENSION_PERMISSIONS = [
   "process",
   "network",
   "packages",
+  "machines",
 ] as const;
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number];
@@ -35,6 +36,9 @@ export const PERMISSION_NETWORK = "network" as const;
 
 /** Install, update and remove other extension packages. Tau's own Packages kit holds it. */
 export const PERMISSION_PACKAGES = "packages" as const;
+
+/** Act on other machines this host holds a key for, as this machine's agents (`services.machines`, ADR 0027). */
+export const PERMISSION_MACHINES = "machines" as const;
 
 /**
  * The one line Settings shows a package that asked to run in the host process.
@@ -103,6 +107,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   installPackage: "packages",
   removePackage: "packages",
   updatePackages: "packages",
+  // Another machine's host, with the key its owner gave this machine's agents.
+  machines: "machines",
   // The skill catalog is what a runtime offers a thread; the permission that
   // lets a package register a runtime backend is the one that lets it read it.
   skills: "runtime:extend",

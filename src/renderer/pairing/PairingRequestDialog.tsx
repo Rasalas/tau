@@ -27,6 +27,9 @@ export function PairingRequestDialog({ request, busy, onAllow, onDeny, onClose }
       <p>{details.join(" · ")}</p>
       <output className="pairing-code" aria-label="Pairing code">{formatVerification(request.verification)}</output>
       <p>Allow it only if the device shows this code. A device you let in can use this machine as you can, within what you pick below.</p>
+      {request.companion ? (
+        <p>Its agents come in too, as a second device “{request.companion.name}” with the same access, so they can work here while no window of it is open. Revoke either one alone later.</p>
+      ) : null}
       <div className="segmented pairing-access" role="group" aria-label="Access">
         {ACCESS_CHOICES.map((choice) => (
           <button key={choice.value} type="button" title={choice.hint} className={choice.value === access ? "active" : ""} aria-pressed={choice.value === access} onClick={() => setAccess(choice.value)}>

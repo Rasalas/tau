@@ -1,6 +1,6 @@
 import type { HostEvent } from "../shared/contracts";
 import type { UiDiscoveredHosts } from "../shared/discovery";
-import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
+import type { EnvironmentAgentsResult, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostClient } from "./host-client";
 
 /**
@@ -41,6 +41,12 @@ export interface PlatformEnvironments {
    */
   discover(): Promise<UiDiscoveredHosts>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
+  /**
+   * Lets this computer's agents work on a saved machine, or stops them (ADR
+   * 0027). On asks that machine's owner once more, for the agents alone, and
+   * shows the digits as `pairing`. New in API 1.15.0.
+   */
+  setAgents?(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
 }
 
 export function createPlatformEnvironments(client: HostClient, options: { shownElsewhere?: string } = {}): PlatformEnvironments {
@@ -87,5 +93,6 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
     },
     discover: () => client.discoverEnvironments(),
     setPreferences: (preferences) => client.setEnvironmentPreferences(preferences),
+    setAgents: (id, on) => client.setEnvironmentAgents(id, on),
   };
 }

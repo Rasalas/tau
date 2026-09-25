@@ -73,7 +73,7 @@ export const environmentsExtension: DesktopExtension = {
       order: 45,
       profiles: ["desktop"],
       keywords: ["environments", "computers", "remote", "hosts", "add machine", "pair"],
-      Component: createMachinesPage(environments),
+      Component: createMachinesPage(environments, context.host),
     });
     context.registerCommand({
       id: "environments.add",

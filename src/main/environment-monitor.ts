@@ -51,6 +51,14 @@ export interface EnvironmentMonitorOptions {
   onReached?(url: string, reply: HostHelloReply, certificate?: ReachedCertificate): void;
   logger?: HostLogger;
   createSocket?(url: string, trust: EndpointTrust | undefined, onPresented: (certificate: ReachedCertificate) => void): MonitorSocket;
+  /** Reads the thread index after each hello; a host watching another host for its agents does not need it (ADR 0027). */
+  bootstrap?: boolean;
+  /** Extension topics (`<extensionId>/<topic>`) to receive, read at every hello; `resubscribe` sends a change. */
+  topics?(): string[];
+  /** Every push the machine sends, after the monitor read what it follows itself. */
+  onPush?(event: unknown): void;
+  /** What a refused token reads as; a window's wording by default. */
+  unauthorizedDetail?: string;
   now?(): number;
   /** Timers, injectable so tests need not wait. */
   setTimer?(callback: () => void, ms: number): unknown;
@@ -61,6 +69,7 @@ const HELLO_TIMEOUT_MS = 10_000;
 const PING_EVERY_MS = 20_000;
 const PING_DEADLINE_MS = 10_000;
 const BOOTSTRAP_TIMEOUT_MS = 30_000;
+const CALL_TIMEOUT_MS = 30_000;
 /** An unreachable machine is tried less and less often, but never less than twice a minute. */
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
@@ -107,13 +116,32 @@ export class EnvironmentMonitor {
   private deadline: unknown;
   private pingSentAt: number | undefined;
   private counter = 0;
-  private readonly pending = new Map<string, (result: { value?: unknown; error?: string }) => void>();
+  private readonly pending = new Map<string, (result: { value?: unknown; error?: string; code?: string }) => void>();
 
   constructor(private readonly options: EnvironmentMonitorOptions) {
     this.connect();
   }
 
   get current(): MonitorState { return this.state; }
+
+  /** Asks the machine over this connection; rejects at once when it is not connected. */
+  call<T>(method: string, params: readonly unknown[] = [], timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
+    const socket = this.socket;
+    if (!socket || this.state.status !== "connected") return Promise.reject(new Error(this.state.detail ?? "The machine is not connected."));
+    return this.request<T>(socket, method, timeoutMs, params);
+  }
+
+  /** Sends the topics again after `topics()` changed; the next hello reads them anyway. */
+  resubscribe(): void {
+    const socket = this.socket;
+    if (!socket || this.state.status !== "connected") return;
+    void this.request(socket, "subscribe", CALL_TIMEOUT_MS, [this.subscription()])
+      .catch((error: unknown) => this.options.logger?.warn("environment.subscribe.failed", { error: error instanceof Error ? error.message : String(error) }));
+  }
+
+  private subscription(): { threads: string[]; topics: string[] } {
+    return { threads: [], topics: this.options.topics?.() ?? [] };
+  }
 
   /** Tries now instead of at the next scheduled attempt. */
   retryNow(): void {
@@ -178,7 +206,7 @@ export class EnvironmentMonitor {
       this.write(socket, {
         type: "hello",
         id: "hello",
-        hello: { protocol: HOST_TRANSPORT_VERSION, token: this.options.token, auxiliary: true, subscription: { threads: [], topics: [] } },
+        hello: { protocol: HOST_TRANSPORT_VERSION, token: this.options.token, auxiliary: true, subscription: this.subscription() },
       });
     });
     socket.on("message", (data) => {
@@ -204,7 +232,7 @@ export class EnvironmentMonitor {
       if (this.socket !== socket || settled) return;
       settled = true;
       if (code === HOST_CLOSE_CODE.unauthorized) {
-        this.refuse("It no longer accepts this window's key: the device was revoked there or its access expired. Remove it and add it again.");
+        this.refuse(this.options.unauthorizedDetail ?? "It no longer accepts this window's key: the device was revoked there or its access expired. Remove it and add it again.");
         return;
       }
       if (code === HOST_CLOSE_CODE.forbiddenOrigin) {
@@ -237,6 +265,7 @@ export class EnvironmentMonitor {
       });
       this.options.onReached?.(url, reply, certificate);
       if (reply.capabilities.includes(HOST_CAPABILITY.heartbeat)) this.schedulePing(socket);
+      if (this.options.bootstrap === false) return;
       void this.request<HostBootstrap>(socket, "bootstrap", BOOTSTRAP_TIMEOUT_MS)
         .then((bootstrap) => { if (this.socket === socket) this.set({ index: bootstrap.threadIndex, lastSeenAt: this.now() }); })
         .catch((error: unknown) => this.options.logger?.warn("environment.bootstrap.failed", { url, error: error instanceof Error ? error.message : String(error) }));
@@ -251,10 +280,11 @@ export class EnvironmentMonitor {
       const settle = this.pending.get(frame.response.id);
       if (!settle) return;
       this.pending.delete(frame.response.id);
-      settle(frame.response.error ? { error: frame.response.error.message } : { value: frame.response.result });
+      settle(frame.response.error ? { error: frame.response.error.message, code: frame.response.error.code } : { value: frame.response.result });
       return;
     }
     if (frame.type !== "push") return;
+    this.options.onPush?.(frame.push.event);
     const event = frame.push.event as { type?: unknown; threadIndex?: unknown; sessionId?: unknown; running?: unknown; update?: unknown };
     if (event.type === "thread-index" && event.threadIndex && typeof event.threadIndex === "object") {
       this.set({ index: event.threadIndex as ThreadIndexSnapshot, lastSeenAt: this.now() });
@@ -269,7 +299,7 @@ export class EnvironmentMonitor {
     }
   }
 
-  private request<T>(socket: MonitorSocket, method: string, timeoutMs: number): Promise<T> {
+  private request<T>(socket: MonitorSocket, method: string, timeoutMs: number, params: readonly unknown[] = []): Promise<T> {
     this.counter += 1;
     const id = `m${this.counter}`;
     return new Promise<T>((resolve, reject) => {
@@ -277,12 +307,12 @@ export class EnvironmentMonitor {
         this.pending.delete(id);
         reject(new Error(`${method}: no answer in ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, ({ value, error }) => {
+      this.pending.set(id, ({ value, error, code }) => {
         this.clear(timer);
-        if (error !== undefined) reject(new Error(error));
+        if (error !== undefined) reject(Object.assign(new Error(error), code ? { code } : {}));
         else resolve(value as T);
       });
-      this.write(socket, { type: "request", request: { id, method, params: [] } });
+      this.write(socket, { type: "request", request: { id, method, params } });
     });
   }
 

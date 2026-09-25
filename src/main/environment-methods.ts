@@ -1,6 +1,7 @@
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import {
   decodeEnvironmentTarget,
+  type EnvironmentAgentsResult,
   type EnvironmentPairInput,
   type EnvironmentPreferences,
   type EnvironmentPairResult,
@@ -22,6 +23,7 @@ export interface EnvironmentsService {
   takeArrival(): EnvironmentTarget | undefined;
   discover(): Promise<UiDiscoveredHosts>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
+  setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -45,8 +47,9 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
   return {
     "environments-list": async () => require().snapshot(),
     "environments-pair": async (params) => {
-      const input = params[0] as { text?: unknown; nearby?: unknown; deviceName?: unknown } | undefined;
+      const input = params[0] as { text?: unknown; nearby?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
       return require().pair({
+        ...(input?.agents === false ? { agents: false } : {}),
         ...(input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text) }),
         ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
       });
@@ -60,6 +63,12 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       await require().setPreferences({ reopenShown: input.reopenShown });
     },
     "environments-cancel-pairing": async () => { require().cancelPairing(); },
+    "environments-set-agents": async (params) => {
+      if (typeof params[1] !== "boolean") {
+        throw Object.assign(new Error("environments-set-agents: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().setAgents(text("environments-set-agents", "id", params[0], 200), params[1]);
+    },
     "environments-rename": async (params) => ({
       renamed: await require().rename(text("environments-rename", "id", params[0], 200), text("environments-rename", "name", params[1], 80)),
     }),

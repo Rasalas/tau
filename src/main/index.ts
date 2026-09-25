@@ -600,6 +600,11 @@ async function startEnvironments(local: WindowHost): Promise<void> {
     show: showEnvironment,
     // Looks from this machine's host, whichever machine the page shows.
     discover: () => local.request("connections-discover", [{}]),
+    // The agents' keys live with this machine's host, which reaches the machines without a window (ADR 0027).
+    agents: {
+      add: async (entry) => { await local.request("machines-add", [entry]); },
+      remove: async (id) => { await local.request("machines-remove", [id]); },
+    },
   });
   environments.setLocalHost(local.hostUrl, local.hostToken);
   installEnvironmentSession(session.defaultSession, environments, () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : undefined);

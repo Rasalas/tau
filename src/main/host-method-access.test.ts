@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { HOST_ERROR } from "../shared/host-transport.js";
-import { HOST_METHOD_ACCESS, HOST_METHOD_AUDIT, auditedMethodCall, authorizeMethod, methodAccess } from "./host-method-access.js";
+import { HOST_METHOD_ACCESS, HOST_METHOD_AUDIT, MACHINE_REQUEST_METHODS, auditedMethodCall, authorizeMethod, isMachineRequestMethod, methodAccess } from "./host-method-access.js";
 import { createHostMethods, createUnsupportedHostMethods, invokeHostMethod } from "./host-methods.js";
 import { HostJobRunner } from "./host-jobs.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
@@ -99,5 +99,24 @@ describe("the access every host method needs", () => {
 
   it("leaves the host's own calls alone", () => {
     expect(() => authorizeMethod({ kind: "host-core" }, "prompt")).not.toThrow();
+  });
+});
+
+describe("what one host may ask another for its agents (ADR 0027)", () => {
+  it("is a short list of thread methods, never access management, jobs, subscriptions or a kit command", () => {
+    for (const method of MACHINE_REQUEST_METHODS) expect(HOST_METHOD_ACCESS[method], method).not.toBe("owner");
+    for (const method of ["connections-approve", "connections-list", "machines-add", "host.shutdown", "start-job", "subscribe", "host-extension", "environments-open", "prompt"]) {
+      expect(isMachineRequestMethod(method), method).toBe(false);
+    }
+    expect(isMachineRequestMethod("transcript-page")).toBe(true);
+    expect(isMachineRequestMethod("abort")).toBe(true);
+  });
+
+  it("keeps the machines' keys to the host token on this machine", () => {
+    for (const method of ["machines-list", "machines-add", "machines-remove"]) {
+      expect(methodAccess(method), method).toBe("owner");
+      expect(() => authorizeMethod(full, method), method).toThrow(/host token/u);
+      expect(() => authorizeMethod(owner, method), method).not.toThrow();
+    }
   });
 });

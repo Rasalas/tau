@@ -83,3 +83,9 @@
 .machine-nearby { display: flex; flex-direction: column; gap: 6px; }
 .machine-nearby-head { display: flex; align-items: center; justify-content: space-between; font: 500 12px var(--sans); color: var(--ink-2); }
 .machine-nearby-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+/* This computer's agents on a machine (ADR 0027): a switch under the row's details. */
+.machine-agents { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.machine-agents-line { display: flex; align-items: center; gap: 8px; }
+.machine-agents-line .switch { flex: none; }
+.machine-agents .machine-add-result { margin: 0; }

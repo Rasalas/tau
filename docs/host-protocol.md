@@ -326,11 +326,11 @@ background does not expire. Heartbeat pings (below) do not count on their own.
 A device without a token asks on the socket, before any hello:
 
 ```
-→ { type: "pair", id, pair: { code?, name?, commitment? } }
+→ { type: "pair", id, pair: { code?, name?, commitment?, binding?, companion?: { name? } } }
 ← { type: "pair-reply", id, reply: { state: "challenge", requestId, hostNonce } }   // only with a commitment
 → { type: "pair-reveal", id, nonce }
 ← { type: "pair-reply", id, reply: { state: "waiting", requestId, verification, expiresAt } }
-← { type: "pair-reply", id, reply: { state: "approved", token, clientId, access } }   // or denied / expired
+← { type: "pair-reply", id, reply: { state: "approved", token, clientId, access, companion?: { token, clientId } } }   // or denied / expired
 ```
 
 `code` comes from a pairing link and is spent by the attempt; without one the
@@ -367,6 +367,15 @@ listener), then a backoff doubling up to a minute. Each listener kind counts
 apart, and behind a proxy the address is the one it forwarded.
 
 `POST /pair` of the web client's server answers 410.
+
+**A second device under the same approval** ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)).
+A window asking for itself and for its machine's agents sends `companion`
+(with the name the agents' device goes by, `<name> · Agents` by default). The
+owner sees one request naming both; `connections-approve` then writes two
+records, each with its own token and the same preset, and answers the second
+token as `companion`. The agents' record carries `companionOf` (the window's
+record id) in `connections-list`, and each is revoked on its own. A host older
+than this ignores the field and answers one token.
 
 ### Pairing links
 
@@ -803,6 +812,35 @@ record with the pinned key (or, for an old pin, fingerprint) does the same.
 
 `environments-set-preferences [{ reopenShown }]` keeps whether the window shows
 the machine it showed last again at start; the catalog remembers which one.
+
+### A host that reaches other machines for its agents
+
+A host keeps machines of its own too, so its agents can work on another
+machine while no window is open ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)).
+`environments-pair` asks for the agents as a `companion` unless its input says
+`agents: false`, and the window's process hands the second token to its own
+host; `environments-set-agents [id, on]` pairs the agents alone for a saved
+machine (the same digits as `pairing`), or takes their key back. It answers
+`{ state: "on" | "off" | "denied" | "expired" | "cancelled" }` or
+`{ state: "failed", message }`.
+
+The host keeps the keys in `<userData>/host-machines.json` (0600, in the clear
+like `host-token`: a host has no keychain) and holds the same kind of connection
+per machine as a window, without the `bootstrap`, subscribed to the topics its
+kits watch there. Its methods are the owner's alone:
+
+| Method | Params | Result |
+|---|---|---|
+| `machines-list` | – | `{ machines }`: id, name, status, detail, round trip, address, version, `readOnly`; never a token |
+| `machines-add` | `{ id, name, endpoints, publicKey?, fingerprint?, token, lastUrl?, readOnly? }` | `{ added }`; replaces a machine with the same id |
+| `machines-remove` | `id` | `{ removed }`; the other machine lists the device until its owner revokes it |
+
+A host in the window's process keeps no machines and answers `unsupported`.
+Kits reach the machines through `services.machines`: a kit command there goes
+as `host-extension`, and `request` sends only the methods in
+`MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`:
+`transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`,
+`follow-up`); every other name is refused before it leaves.
 
 ## Workspace identity
 
