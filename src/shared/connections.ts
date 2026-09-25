@@ -58,6 +58,8 @@ export interface UiPairedClient {
    * made on its own after that (a title after a prompt) does not replace it.
    */
   lastAction?: { action: string; label?: string; thread?: string; at: string };
+  /** Paired under the same approval as this device, as its machine's agents (ADR 0027); revoked on its own. */
+  companionOf?: string;
 }
 
 /**
@@ -75,6 +77,8 @@ export interface UiPairingRequest {
   verification: string;
   /** From the link, or Full; the owner may change it when allowing. */
   access: DeviceAccess;
+  /** A second device the same approval lets in: the asking machine's agents, with the name it will be listed under (ADR 0027). */
+  companion?: { name: string };
   createdAt: string;
   expiresAt: string;
 }

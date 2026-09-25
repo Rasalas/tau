@@ -41,7 +41,7 @@ import type { SystemNotification, SystemNotificationOutcome } from "../shared/sy
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { UiDiscoveredHosts } from "../shared/discovery";
-import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
+import type { EnvironmentAgentsResult, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 import { ReadCommands, readOnlyMayCall, readOnlyRefusal } from "./read-only-guard";
@@ -251,6 +251,7 @@ export interface HostClient {
   /** A Bonjour search from the window's own host, whichever machine the page shows. */
   discoverEnvironments(): Promise<UiDiscoveredHosts>;
   setEnvironmentPreferences(preferences: EnvironmentPreferences): Promise<void>;
+  setEnvironmentAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
 }
 
 /**
@@ -433,5 +434,6 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     takeEnvironmentArrival: async () => (await call<EnvironmentTarget | null>("environments-take-arrival")) ?? undefined,
     discoverEnvironments: () => call<UiDiscoveredHosts>("environments-discover"),
     setEnvironmentPreferences: (preferences) => call<void>("environments-set-preferences", [preferences]),
+    setEnvironmentAgents: (id, on) => call<EnvironmentAgentsResult>("environments-set-agents", [id, on]),
   };
 }

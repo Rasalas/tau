@@ -233,6 +233,78 @@ describe("Settings → Machines", () => {
   });
 });
 
+describe("Settings → Machines: this computer's agents", () => {
+  function agentsHost(machines: Array<{ id: string; name: string; status: "connected" | "refused"; detail?: string }>) {
+    let emit: ((payload: unknown) => void) | undefined;
+    const host = {
+      invoke: vi.fn(async () => ({ available: true, machines })),
+      onEvent: vi.fn((_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; }),
+    };
+    return { host, emit: (payload: unknown) => act(() => emit?.(payload)) };
+  }
+
+  it("shows whether they may work on each machine, and turns them on there with a code to compare", async () => {
+    const { environments, set } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    let finish: (value: { state: "on" }) => void = () => undefined;
+    const setAgents = vi.fn(() => new Promise<{ state: "on" }>((resolve) => { finish = resolve; }));
+    const { host, emit } = agentsHost([]);
+    const Page = createMachinesPage({ ...environments, setAgents }, host);
+    render(<Page />);
+    await act(async () => undefined);
+    const toggle = screen.getByRole("switch", { name: "This computer's agents may work on studio" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    // This computer has no switch of its own.
+    expect(screen.queryByRole("switch", { name: /work on laptop/u })).toBeNull();
+    fireEvent.click(toggle);
+    expect(setAgents).toHaveBeenCalledWith("studio", true);
+    set({ shown: "laptop", environments: [laptop, studio], secureStorage: true, pairing: { address: "studio", state: "waiting", verification: "112233" } });
+    expect(screen.getByText("112 233")).toBeTruthy();
+    await act(async () => { finish({ state: "on" }); });
+    emit({ available: true, machines: [{ id: "studio", name: "studio", status: "connected", roundTripMs: 7 }] });
+    expect(screen.getByRole("switch", { name: "This computer's agents may work on studio" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText(/agents may work here · connected · 7 ms/u)).toBeTruthy();
+  });
+
+  it("says when the other machine refuses them, and turns them off", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const setAgents = vi.fn(async () => ({ state: "off" as const }));
+    const { host } = agentsHost([{ id: "studio", name: "studio", status: "refused", detail: "revoked there" }]);
+    const Page = createMachinesPage({ ...environments, setAgents }, host);
+    render(<Page />);
+    await act(async () => undefined);
+    expect(screen.getByText(/refused: revoked there/u)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("switch", { name: "This computer's agents may work on studio" })); });
+    expect(setAgents).toHaveBeenCalledWith("studio", false);
+  });
+
+  it("asks for them when adding a machine unless told not to, and says when they were not let in", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    environments.pair.mockResolvedValue({ state: "added", environment: studio, agents: { added: false, message: "studio runs a Tau that pairs no agents." } });
+    const { host } = agentsHost([]);
+    const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
+    render(<Page />);
+    await act(async () => undefined);
+    fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
+    expect(environments.pair).toHaveBeenLastCalledWith({ text: "studio.local", agents: true });
+    expect(screen.getByRole("status").textContent).toMatch(/not this computer's agents: studio runs a Tau/u);
+    fireEvent.click(screen.getByRole("switch", { name: "This computer's agents may work there" }));
+    fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "attic.local" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
+    expect(environments.pair).toHaveBeenLastCalledWith({ text: "attic.local", agents: false });
+  });
+
+  it("offers nothing about agents while the page shows another machine", async () => {
+    const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
+    const { host } = agentsHost([]);
+    const Page = createMachinesPage({ ...environments, shownElsewhere: "studio", setAgents: vi.fn() }, host);
+    render(<Page />);
+    await act(async () => undefined);
+    expect(screen.queryByRole("switch", { name: /agents/u })).toBeNull();
+    expect(host.invoke).not.toHaveBeenCalled();
+  });
+});
+
 describe("a machine's status", () => {
   it("reads as the dot's tooltip, and says why its threads cannot open", () => {
     const now = 3 * 60 * 60_000;

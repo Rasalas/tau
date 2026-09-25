@@ -8,7 +8,7 @@
 // `pending` and names its ticket; the run stays green and lists it. A ticket
 // replaces its pending entries with real steps. Teardown stops only the pids
 // this run started and then checks that none of their ports still listens.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -129,6 +129,7 @@ export const STEPS = [
       const [aHello, rexHello] = await Promise.all([ctx.aOwner.hello(), ctx.rexOwner.hello()]);
       if (aHello.host?.name !== A.machineName || rexHello.host?.name !== REX.machineName) throw new Error(`the hosts call themselves ${aHello.host?.name} and ${rexHello.host?.name}`);
       if (aHello.host.id === rexHello.host.id) throw new Error("both hosts have the same host id");
+      ctx.rexHostId = rexHello.host.id;
       return `A ${a.url} (pid ${a.pid}), rex ${rex.url} (pid ${rex.pid})`;
     },
   },
@@ -167,14 +168,14 @@ export const STEPS = [
     },
   },
   {
-    title: "A pairs with rex; rex's owner allows it over its loopback host token",
+    // The smoke is A's window process here: it pairs for itself and A's agents, and hands their key to A's host (ADR 0027).
+    title: "A pairs with rex for itself and its agents; rex's owner allows both at once over its loopback host token",
     async run(ctx) {
       let asked;
       const result = await pairWithHost({
         url: ctx.rex.url,
         name: A.machineName,
         publicKey: ctx.rex.publicKey,
-        // Hosts before H01 drop the field; with it, rex answers a second token for A's agents.
         companion: { name: `${A.machineName} · Agents` },
         createSocket: pinnedSocket(ctx.rex),
         onWaiting: ({ verification }) => {
@@ -192,8 +193,10 @@ export const STEPS = [
       const { clients } = await ctx.rexOwner.request("connections-list");
       const devices = clients.filter((client) => client.label?.startsWith(A.machineName));
       if (!devices.some((client) => client.id === result.clientId && client.access === "full")) throw new Error(`rex does not list A as a full device: ${JSON.stringify(clients)}`);
-      if (result.companion && devices.length !== 2) throw new Error(`a companion token came back, but rex lists ${devices.length} device(s)`);
-      return result.companion ? "two devices: A and A's agents" : "one device (A's agents come with H01)";
+      if (!result.companion) throw new Error("rex answered no token for A's agents");
+      const agents = devices.find((client) => client.id === result.companion.clientId);
+      if (devices.length !== 2 || agents?.companionOf !== result.clientId) throw new Error(`rex does not list A and A's agents apart: ${JSON.stringify(devices)}`);
+      return `two devices: ${devices.map((client) => client.label).join(", ")}`;
     },
   },
   {
@@ -210,8 +213,36 @@ export const STEPS = [
       return "tau.files/stat README.md answered; connections-list refused";
     },
   },
-  { title: "A's host keeps rex in host-machines.json and calls it through services.machines", pending: "H01" },
-  { title: "A's agents device revoked on rex → refused", pending: "H01" },
+  {
+    title: "A's host keeps rex in host-machines.json and calls it through services.machines",
+    async run(ctx) {
+      const page = ctx.rex.url.replace(/^ws/u, "http");
+      await ctx.aOwner.request("machines-add", [{
+        id: ctx.rexHostId, name: REX.machineName, endpoints: [{ url: page, kind: "loopback" }], publicKey: ctx.rex.publicKey, token: ctx.pairing.companion.token,
+      }]);
+      const file = join(ctx.a.userData, "host-machines.json");
+      const mode = statSync(file).mode & 0o777;
+      if (mode !== 0o600) throw new Error(`host-machines.json has mode ${mode.toString(8)}`);
+      await waitFor(async () => (await ctx.aOwner.request("machines-list")).machines.some((machine) => machine.id === ctx.rexHostId && machine.status === "connected"), "A's host to reach rex");
+      // Machines Kit on A calls the same kit on rex through services.machines; rex names the device it came as.
+      const probe = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]);
+      if (probe.device !== ctx.pairing.companion.clientId) throw new Error(`rex saw ${JSON.stringify(probe)}, not A's agents device`);
+      return `probe as A's agents device in ${probe.ms} ms`;
+    },
+  },
+  {
+    title: "A's agents device revoked on rex → refused, A's own device still in",
+    async run(ctx) {
+      await ctx.rexOwner.request("connections-revoke-client", [ctx.pairing.companion.clientId]);
+      await waitFor(async () => (await ctx.aOwner.request("machines-list")).machines.some((machine) => machine.id === ctx.rexHostId && machine.status === "refused"), "A's host to see rex refuse its agents");
+      const refused = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]).then(() => "answered", (error) => String(error.message));
+      if (!/refuses this computer's agents/u.test(refused)) throw new Error(`a call after the revocation ended: ${refused}`);
+      const device = new HostUplink({ url: ctx.rex.url, token: ctx.pairing.token, trust: { pin: { publicKey: ctx.rex.publicKey } } });
+      ctx.closers.push(() => device.close());
+      await device.hello();
+      return refused;
+    },
+  },
   { title: "the fixture's state (commits + uncommitted change) reaches a mirror and worktree on rex as a bundle", pending: "H05" },
   {
     title: "a Pi session from A is imported on rex with rex's cwd and its origin, and continues there",

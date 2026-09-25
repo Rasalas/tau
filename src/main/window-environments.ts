@@ -1,6 +1,8 @@
 import { lookup } from "node:dns/promises";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import type {
+  EnvironmentAgentsOutcome,
+  EnvironmentAgentsResult,
   EnvironmentPairInput,
   EnvironmentPreferences,
   EnvironmentPairResult,
@@ -9,11 +11,11 @@ import type {
   UiEnvironmentPairing,
   UiEnvironments,
 } from "../shared/environments.js";
-import { environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
+import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
 import { EnvironmentCatalog, endpointTrust, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
-import { pairEnvironment, type NearbyMachine, type PairEnvironmentOptions } from "./environment-pairing.js";
+import { pairEnvironment, type NearbyMachine, type PairEnvironmentOptions, type PairEnvironmentResult } from "./environment-pairing.js";
 import type { HostLogger } from "./host-log.js";
 import {
   CERTIFICATE_ACCEPT,
@@ -52,6 +54,14 @@ export interface WindowEnvironmentsOptions {
   show(connection: EnvironmentConnection | undefined): Promise<void>;
   /** A Bonjour search from the window's own host (`connections-discover`); absent where it has none. */
   discover?(): Promise<UiDiscoveredHosts>;
+  /**
+   * This machine's host, which keeps a key of its own per machine for its
+   * agents (ADR 0027). Absent where the window has no host of its own.
+   */
+  agents?: {
+    add(entry: SavedEnvironment): Promise<void>;
+    remove(id: string): Promise<void>;
+  };
   /** How long a start waits for the machine shown last before it shows this one. */
   reopenWaitMs?: number;
   /** Resolves a `.local` name for the page, whose Chromium cannot; the system's resolver by default. */
@@ -197,29 +207,16 @@ export class WindowEnvironments {
   async pair(input: EnvironmentPairInput): Promise<EnvironmentPairResult> {
     if (!this.catalog) throw new Error("The machine list is not ready yet.");
     if (!this.catalog.secure) return { state: "failed", message: "This machine offers Tau no encrypted storage (no keychain or secret service), so it cannot keep another machine's key." };
-    this.pairingAbort?.abort();
-    const abort = new AbortController();
-    this.pairingAbort = abort;
-    const setPairing = (pairing: UiEnvironmentPairing | undefined) => {
-      if (this.pairingAbort !== abort) return;
-      this.pairing = pairing;
-      this.schedulePublish();
-    };
     const nearby = input.nearby ? this.nearby.get(input.nearby) : undefined;
     if (input.nearby && !nearby) return { state: "failed", message: "That machine is no longer in the list. Search again." };
-    setPairing({ address: (nearby?.name ?? input.text ?? "").trim().slice(0, 200), state: "connecting" });
-    const result = await (this.options.pair ?? pairEnvironment)({
+    const deviceName = input.deviceName?.trim() || this.options.deviceName;
+    // One approval over there lets in this window and, as a device of their own, this machine's agents (ADR 0027).
+    const withAgents = input.agents !== false && this.options.agents !== undefined;
+    const result = await this.runPairing((nearby?.name ?? input.text ?? "").trim().slice(0, 200), {
       ...(nearby ? { nearby } : { text: input.text ?? "" }),
-      deviceName: input.deviceName?.trim() || this.options.deviceName,
-      signal: abort.signal,
-      onConnecting: (address) => setPairing({ address, state: "connecting" }),
-      onWaiting: ({ address, verification, expiresAt }) => setPairing({ address, state: "waiting", verification, expiresAt }),
+      deviceName,
+      ...(withAgents ? { companion: agentsDeviceName(deviceName) } : {}),
     });
-    if (this.pairingAbort === abort) {
-      this.pairingAbort = undefined;
-      this.pairing = undefined;
-      this.schedulePublish();
-    }
     if (result.state !== "approved") return result;
     if (result.environment.id === this.options.local.id) {
       return { state: "failed", message: "That address is this machine; its threads are listed already." };
@@ -232,7 +229,72 @@ export class WindowEnvironments {
     this.options.logger.info("environment.added", { id: result.environment.id, name: result.environment.name, endpoints: result.environment.endpoints.length });
     this.watchSaved(result.environment);
     this.schedulePublish();
-    return { state: "added", environment: this.snapshot().environments.find((entry) => entry.id === result.environment.id)! };
+    const agents = withAgents ? await this.handOverAgents(result.environment, result.agentsToken) : undefined;
+    return { state: "added", environment: this.snapshot().environments.find((entry) => entry.id === result.environment.id)!, ...(agents ? { agents } : {}) };
+  }
+
+  /**
+   * Lets this machine's agents work on a saved machine, or stops them. On
+   * asks that machine's owner once more, for the agents alone; off forgets
+   * their key here, and the other machine lists the device until its owner
+   * revokes it.
+   */
+  async setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult> {
+    const agents = this.options.agents;
+    if (!agents) return { state: "failed", message: "This window has no host of its own to keep a key for its agents." };
+    const saved = this.catalog?.get(id);
+    if (!saved) return { state: "failed", message: "Tau does not know that machine." };
+    if (!on) {
+      await agents.remove(id);
+      this.options.logger.info("environment.agents", { id, on });
+      return { state: "off" };
+    }
+    const result = await this.runPairing(saved.name, {
+      nearby: { hostId: saved.id, name: saved.name, fingerprint: saved.fingerprint ?? "", ...(saved.publicKey ? { publicKey: saved.publicKey } : {}), endpoints: saved.endpoints },
+      deviceName: agentsDeviceName(this.options.deviceName),
+    });
+    if (result.state !== "approved") return result;
+    if (result.environment.id !== saved.id) return { state: "failed", message: `That address answered as another machine than ${saved.name}.` };
+    const outcome = await this.handOverAgents(saved, result.environment.token);
+    this.options.logger.info("environment.agents", { id, on, added: outcome.added });
+    return outcome.added ? { state: "on" } : { state: "failed", message: outcome.message };
+  }
+
+  /** Gives this machine's host the agents' key for a machine; the window keeps its own. */
+  private async handOverAgents(machine: SavedEnvironment, token: string | undefined): Promise<EnvironmentAgentsOutcome> {
+    if (!token) return { added: false, message: `${machine.name} runs a Tau that pairs no agents; update it there, then turn them on here.` };
+    try {
+      await this.options.agents!.add({ ...machine, token });
+      return { added: true };
+    } catch (error: unknown) {
+      this.options.logger.warn("environment.agents.failed", { id: machine.id, error: error instanceof Error ? error.message : String(error) });
+      return { added: false, message: `This computer's host did not take the agents' key: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  /** One pairing at a time: its progress is published as `pairing`, and `cancelPairing` ends it. */
+  private async runPairing(address: string, options: Omit<PairEnvironmentOptions, "signal" | "onConnecting" | "onWaiting">): Promise<PairEnvironmentResult> {
+    this.pairingAbort?.abort();
+    const abort = new AbortController();
+    this.pairingAbort = abort;
+    const setPairing = (pairing: UiEnvironmentPairing | undefined) => {
+      if (this.pairingAbort !== abort) return;
+      this.pairing = pairing;
+      this.schedulePublish();
+    };
+    setPairing({ address, state: "connecting" });
+    const result = await (this.options.pair ?? pairEnvironment)({
+      ...options,
+      signal: abort.signal,
+      onConnecting: (url) => setPairing({ address: url, state: "connecting" }),
+      onWaiting: ({ address: url, verification, expiresAt }) => setPairing({ address: url, state: "waiting", verification, expiresAt }),
+    });
+    if (this.pairingAbort === abort) {
+      this.pairingAbort = undefined;
+      this.pairing = undefined;
+      this.schedulePublish();
+    }
+    return result;
   }
 
   cancelPairing(): void {
@@ -251,6 +313,8 @@ export class WindowEnvironments {
     this.watched.get(id)?.monitor.close();
     this.watched.delete(id);
     await this.catalog.remove(id);
+    // Its agents' key goes with it; the other machine lists both devices until its owner revokes them.
+    await this.options.agents?.remove(id).catch((error: unknown) => this.options.logger.warn("environment.agents.remove-failed", { id, error: error instanceof Error ? error.message : String(error) }));
     this.options.logger.info("environment.removed", { id });
     this.schedulePublish();
     if (this.shownId === id) await this.open(this.options.local.id);

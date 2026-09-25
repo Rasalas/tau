@@ -246,6 +246,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         ))}
         {data.clients.map((paired) => (
           <ClientRow key={paired.id} paired={paired} now={now} busy={busy === `client:${paired.id}`}
+            {...(paired.companionOf ? { companionOf: data.clients.find((other) => other.id === paired.companionOf)?.label ?? "a device since revoked" } : {})}
             onEdit={() => setEditing(paired)}
             onRevoke={() => void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} can no longer connect`)} />
         ))}
@@ -333,6 +334,7 @@ function LinkRow({ link, now, busy, onRevoke }: { link: UiPairingLink; now: numb
 
 function RequestRow({ request, now, busy, onReview, onDeny }: { request: UiPairingRequest; now: number; busy: boolean; onReview(): void; onDeny(): void }) {
   const details = [describeDevice(request.device), request.address, request.link ? "with a pairing link" : "without a pairing link",
+    request.companion ? `and its agents as “${request.companion.name}”` : undefined,
     formatExpiresIn(request.expiresAt, now).replace("Expires", "expires")].filter(Boolean);
   return (
     <div className="connection-row connection-request" role="group" aria-label={`${requestTitle(request)} wants to connect`}>
@@ -347,9 +349,9 @@ function RequestRow({ request, now, busy, onReview, onDeny }: { request: UiPairi
   );
 }
 
-function ClientRow({ paired, now, busy, onEdit, onRevoke }: { paired: UiPairedClient; now: number; busy: boolean; onEdit(): void; onRevoke(): void }) {
+function ClientRow({ paired, companionOf, now, busy, onEdit, onRevoke }: { paired: UiPairedClient; companionOf?: string; now: number; busy: boolean; onEdit(): void; onRevoke(): void }) {
   const live = paired.connections > 0;
-  const details = [describeDevice(paired.device), paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
+  const details = [describeDevice(paired.device), companionOf ? `agents of ${companionOf}` : undefined, paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
     live ? "connected" : paired.lastSeenAt ? `last active ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet",
     paired.lastAction ? describeLastChange(paired.lastAction, now) : undefined].filter(Boolean);
   // Unused tokens run out; the owner hears of it a week ahead, the device only when it is refused.

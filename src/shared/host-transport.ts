@@ -49,6 +49,7 @@ export const CLIENT_SIDE_METHODS = [
   "environments-take-arrival",
   "environments-discover",
   "environments-set-preferences",
+  "environments-set-agents",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>
@@ -482,11 +483,14 @@ function decodePairRequest(value: unknown): HostPairRequest | undefined {
   if (item.name !== undefined && !(typeof item.name === "string" && item.name.length <= MAX_DEVICE_NAME)) return undefined;
   if (item.commitment !== undefined && !isPairingCommitment(item.commitment)) return undefined;
   if (item.binding !== undefined && item.binding !== "key") return undefined;
+  const companion = item.companion === undefined ? undefined : record(item.companion);
+  if (item.companion !== undefined && (!companion || (companion.name !== undefined && !(typeof companion.name === "string" && companion.name.length <= MAX_DEVICE_NAME)))) return undefined;
   return {
     ...(typeof item.code === "string" ? { code: item.code } : {}),
     ...(typeof item.name === "string" && item.name.trim() ? { name: item.name } : {}),
     ...(typeof item.commitment === "string" ? { commitment: item.commitment } : {}),
     ...(item.binding === "key" ? { binding: "key" as const } : {}),
+    ...(companion ? { companion: typeof companion.name === "string" && companion.name.trim() ? { name: companion.name } : {} } : {}),
   };
 }
 
@@ -502,9 +506,17 @@ export function decodePairReply(value: unknown): HostPairReply | undefined {
     case "waiting":
       return nonEmptyString(item.requestId) && /^\d{6}$/u.test(String(item.verification)) && typeof item.expiresAt === "string"
         ? { state: "waiting", requestId: item.requestId, verification: String(item.verification), expiresAt: item.expiresAt } : undefined;
-    case "approved":
-      return nonEmptyString(item.token) && nonEmptyString(item.clientId) && (item.access === "full" || item.access === "read-only")
-        ? { state: "approved", token: item.token, clientId: item.clientId, access: item.access } : undefined;
+    case "approved": {
+      if (!(nonEmptyString(item.token) && nonEmptyString(item.clientId) && (item.access === "full" || item.access === "read-only"))) return undefined;
+      const companion = record(item.companion);
+      return {
+        state: "approved",
+        token: item.token,
+        clientId: item.clientId,
+        access: item.access,
+        ...(companion && nonEmptyString(companion.token) && nonEmptyString(companion.clientId) ? { companion: { token: companion.token, clientId: companion.clientId } } : {}),
+      };
+    }
     case "denied":
     case "expired":
       return { state: item.state };

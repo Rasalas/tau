@@ -94,12 +94,32 @@ export interface EnvironmentPairInput {
   nearby?: string;
   /** How this window names itself to the owner; the machine's name by default. */
   deviceName?: string;
+  /**
+   * Also asks for this computer's agents, as a second device under the same
+   * approval, and hands their key to this computer's host (ADR 0027). On
+   * unless false; a window without a host of its own asks for none.
+   */
+  agents?: boolean;
 }
 
+/** Whether this computer's agents got a key of their own for the machine; absent when none was asked for. */
+export type EnvironmentAgentsOutcome = { added: true } | { added: false; message: string };
+
 export type EnvironmentPairResult =
-  | { state: "added"; environment: UiEnvironment }
+  | { state: "added"; environment: UiEnvironment; agents?: EnvironmentAgentsOutcome }
   | { state: "denied" | "expired" | "cancelled" }
   | { state: "failed"; message: string };
+
+/** What turning this computer's agents on or off for a machine came to. */
+export type EnvironmentAgentsResult =
+  | { state: "on" | "off" }
+  | { state: "denied" | "expired" | "cancelled" }
+  | { state: "failed"; message: string };
+
+/** The name the agents' device goes by on the other machine. */
+export function agentsDeviceName(deviceName: string): string {
+  return `${deviceName.slice(0, 60 - " · Agents".length).trim()} · Agents`;
+}
 
 /** The window event that carries the list; the host never sends it. */
 export const ENVIRONMENTS_EVENT = "environments";

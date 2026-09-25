@@ -309,3 +309,58 @@ describe("the machines of a window", () => {
     expect(environments.isSavedSocket("wss://192.168.1.77:9999/")).toBe(false);
   });
 });
+
+describe("this computer's agents on a machine (ADR 0027)", () => {
+  const agentsHost = () => ({ add: vi.fn(async (_entry: SavedEnvironment) => undefined), remove: vi.fn(async (_id: string) => undefined) });
+
+  it("asks for the agents in the same pairing and hands their key to this machine's host, keeping its own", async () => {
+    const agents = agentsHost();
+    const { environments, pairCalls } = await setup({ state: "approved", environment: studio, agentsToken: "tauc.agents" }, { agents });
+    const added = await environments.pair({ text: "link" });
+    expect(pairCalls[0]).toMatchObject({ deviceName: "laptop", companion: "laptop · Agents" });
+    expect(added).toMatchObject({ state: "added", agents: { added: true } });
+    expect(agents.add).toHaveBeenCalledWith({ ...studio, token: "tauc.agents" });
+    // The window keeps the device token it was given, not the agents'.
+    expect(environments.connection("host-studio")?.token).toBe("tau_client_studio");
+  });
+
+  it("asks for none when told not to, or without a host of its own, and says so when the other Tau issued none", async () => {
+    const agents = agentsHost();
+    const off = await setup(undefined, { agents });
+    expect(await off.environments.pair({ text: "link", agents: false })).not.toHaveProperty("agents");
+    expect(off.pairCalls[0]).not.toHaveProperty("companion");
+    expect(agents.add).not.toHaveBeenCalled();
+
+    const windowOnly = await setup();
+    await windowOnly.environments.pair({ text: "link" });
+    expect(windowOnly.pairCalls[0]).not.toHaveProperty("companion");
+
+    const older = await setup(undefined, { agents: agentsHost() });
+    expect(await older.environments.pair({ text: "link" })).toMatchObject({ state: "added", agents: { added: false, message: expect.stringMatching(/pairs no agents/u) } });
+  });
+
+  it("turns the agents on for a saved machine with a pairing of their own, pinned as saved, and off again", async () => {
+    const agents = agentsHost();
+    const { environments, pairCalls } = await setup({ state: "approved", environment: { ...studio, token: "tauc.agents-only" } }, { agents });
+    await environments.pair({ text: "link", agents: false });
+    expect(await environments.setAgents("host-studio", true)).toEqual({ state: "on" });
+    expect(pairCalls[1]).toMatchObject({
+      deviceName: "laptop · Agents",
+      nearby: { hostId: "host-studio", fingerprint: PIN, endpoints: studio.endpoints },
+    });
+    expect(pairCalls[1]).not.toHaveProperty("companion");
+    expect(agents.add).toHaveBeenCalledWith({ ...studio, token: "tauc.agents-only" });
+
+    expect(await environments.setAgents("host-studio", false)).toEqual({ state: "off" });
+    expect(agents.remove).toHaveBeenCalledWith("host-studio");
+    expect(await environments.setAgents("host-unknown", true)).toMatchObject({ state: "failed" });
+  });
+
+  it("forgets the agents' key with the machine", async () => {
+    const agents = agentsHost();
+    const { environments } = await setup(undefined, { agents });
+    await environments.pair({ text: "link", agents: false });
+    await environments.remove("host-studio");
+    expect(agents.remove).toHaveBeenCalledWith("host-studio");
+  });
+});
