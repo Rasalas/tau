@@ -86,7 +86,7 @@ export function createServersHostExtension(): HostExtension {
       // Before the network extension: its hook rewrites bash, and the bypass check reads the command as the model wrote it.
       const stopAgentTools = registerServerAgentTools(context, new ServerAgentTools({
         list: (cwd) => targets.list(cwd),
-        transport: (input) => ssh.transport(input),
+        transport,
         status: (input) => status.status(input),
         preview: (input) => deploy.preview(input),
         targetLevel: async (key) => (await readTargetFile(store, key)).level,

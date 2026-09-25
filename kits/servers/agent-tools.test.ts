@@ -382,3 +382,37 @@ describe.skipIf(!posix)("the agent's server tools over Tau's MCP endpoint", () =
     }
   }, 30_000);
 });
+
+describe("the agent's server tools on an FTP target", () => {
+  const target = (id: string, name: string, protocol: "sftp" | "ftp") => ({
+    id, name, protocol, host: "127.0.0.1", port: protocol === "ftp" ? 21 : 22, username: "tester", remotePath: "/site", context: "", usable: true,
+  }) as unknown as SftpJsonTarget;
+  const agentFor = (targets: SftpJsonTarget[], transport: () => Promise<never>) => new ServerAgentTools({
+    list: async () => ({ project: { root: "/p", workspaceId: "ws" }, targets }),
+    transport,
+    status: async () => { throw new Error("not used"); },
+    preview: async () => { throw new Error("not used"); },
+    targetLevel: async () => "full",
+    threadLevel: async () => undefined,
+    mirrorDir: () => "/nowhere",
+    git: gitCall(),
+  });
+
+  it("offers no server_exec when every target is FTP, and refuses it on one in a mixed project without asking or connecting", async () => {
+    const connect = async (): Promise<never> => { throw new Error("must not connect"); };
+    const ftpOnly = agentFor([target("f", "files", "ftp")], connect);
+    await ftpOnly.isServerProject("/p");
+    const names = ftpOnly.tools({ sessionId: "t", cwd: "/p" }).map((tool) => tool.name);
+    expect(names).not.toContain(SERVER_TOOLS.exec);
+    expect(names).toContain(SERVER_TOOLS.putTmp);
+
+    const mixed = agentFor([target("s", "site", "sftp"), target("f", "files", "ftp")], connect);
+    await mixed.isServerProject("/p");
+    const exec = mixed.tools({ sessionId: "t", cwd: "/p" }).find((tool) => tool.name === SERVER_TOOLS.exec)!;
+    const asked: string[] = [];
+    const verdict = await mixed.gate({ sessionId: "t", cwd: "/p" }, SERVER_TOOLS.exec, { command: "ls", target: "files" }, async (title) => { asked.push(title); return true; });
+    expect(verdict).toMatchObject({ block: true, reason: expect.stringContaining("files is an FTP server: it runs no commands") });
+    expect(asked).toEqual([]);
+    await expect(exec.execute("c", { command: "ls", target: "files" }, undefined, undefined, undefined as never)).rejects.toThrow("runs no commands");
+  });
+});

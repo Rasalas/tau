@@ -29,6 +29,7 @@ export const SERVER_INSTRUCTIONS = `<server_targets>
 This project is a site that lives on a server (.vscode/sftp.json names it). The local folder is the working copy: edit, run and test locally with your normal tools.
 - Look at the server with server_status, server_list, server_read and server_diff; reading is always allowed.
 - Run commands on the server only with server_exec (cwd "project" is the site's folder on the server, "tmp" is ~/tmp for scratch work); put scratch files there with server_put_tmp. Do not reach the server with ssh, scp, sftp, rsync, lftp or curl from the local shell. Depending on the user's settings a server command first asks the user, runs, or is refused.
+- An FTP server runs no commands: server_exec is refused there; server_put_tmp and the reading tools still work.
 - Git on the server is read-only: status, log and diff work; commit, push, pull, checkout, reset, merge, stash, add, rm and clean are refused at every level. Commit in the local project instead.
 - Only the user uploads. When local changes are ready, call server_propose_upload: the user sees a card with the files and an Upload button. Nothing goes up until they click it, so never say the files are on the server.
 </server_targets>`;
@@ -103,6 +104,8 @@ export function serverExecCommand(command: string): string {
   return `export GIT_OPTIONAL_LOCKS=0 && {\n${command}\n}`;
 }
 
+const noCommands = (label: string) => `${label} is an FTP server: it runs no commands, so server_exec cannot work there. Read it with server_read, server_list and server_diff, and test locally.`;
+
 /** Renders a parsed diff back as a unified patch the model reads. */
 function patchText(diff: Awaited<ReturnType<typeof diffBlobs>>): string {
   if (diff.note) return diff.note;
@@ -116,25 +119,33 @@ function patchText(diff: Awaited<ReturnType<typeof diffBlobs>>): string {
   return lines.join("\n");
 }
 
+/** A call the target cannot take at all is refused before any question. */
+function verdictOf(request: ServerCallRequest & { refused?: string }): ServerVerdict {
+  return request.refused ? { kind: "block", reason: `Blocked by Tau: ${request.refused}` } : decideServerCall(request);
+}
+
 /**
  * The seven tools and their gate. One instance per kit; `tools(session)`
  * builds the tools a thread sees, `gate` decides a call for either door.
  */
 export class ServerAgentTools {
-  /** Whether a checkout is a server project, as last read; the MCP door asks synchronously. */
-  private readonly known = new Map<string, boolean>();
+  /** Whether a checkout is a server project and has a target that may run commands (not FTP), as last read; the MCP door asks synchronously. */
+  private readonly known = new Map<string, { server: boolean; exec: boolean }>();
 
   constructor(private readonly options: ServerAgentToolsOptions) {}
 
   async isServerProject(cwd: string): Promise<boolean> {
-    const answer = await this.options.list(cwd).then(({ targets }) => targets.length > 0, () => false);
+    const answer = await this.options.list(cwd).then(
+      ({ targets }) => ({ server: targets.length > 0, exec: targets.some((target) => target.protocol !== "ftp") }),
+      () => ({ server: false, exec: false }),
+    );
     this.known.set(cwd, answer);
-    return answer;
+    return answer.server;
   }
 
   /** Without an answer yet, a sftp.json in the checkout itself counts. */
   knownServerProject(cwd: string): boolean {
-    return this.known.get(cwd) ?? existsSync(join(cwd, SFTP_JSON_PATH));
+    return this.known.get(cwd)?.server ?? existsSync(join(cwd, SFTP_JSON_PATH));
   }
 
   private async resolve(cwd: string, ref: unknown): Promise<Resolved> {
@@ -172,12 +183,13 @@ export class ServerAgentTools {
   }
 
   /** The request a server_exec or server_put_tmp call makes, for `decideServerCall`. */
-  private async request(session: RuntimeSessionInfo, toolName: string, input: Record<string, unknown>): Promise<ServerCallRequest | undefined> {
+  private async request(session: RuntimeSessionInfo, toolName: string, input: Record<string, unknown>): Promise<(ServerCallRequest & { refused?: string }) | undefined> {
     const tool = serverToolName(toolName);
     if (tool !== SERVER_TOOLS.exec && tool !== SERVER_TOOLS.putTmp) return undefined;
     const resolved = await this.resolve(session.cwd, input.target);
     const base = { target: { label: resolved.label, address: resolved.address }, ...(await this.levels(resolved, session.sessionId)) };
     if (tool === SERVER_TOOLS.exec) {
+      if (resolved.target.protocol === "ftp") return { ...base, kind: "exec", command: String(input.command ?? ""), refused: noCommands(resolved.label) };
       return { ...base, kind: "exec", command: String(input.command ?? ""), where: input.cwd === "tmp" ? "~/tmp" : resolved.target.remotePath };
     }
     return { ...base, kind: "put-tmp", where: `~/tmp/${String(input.path ?? "")}` };
@@ -196,8 +208,7 @@ export class ServerAgentTools {
       return undefined;
     }
     if (!request) return undefined;
-    const verdict = decideServerCall(request);
-    return this.apply(verdict, toolName, confirm);
+    return this.apply(verdictOf(request), toolName, confirm);
   }
 
   private async bypassRequest(session: RuntimeSessionInfo, input: Record<string, unknown>): Promise<ServerCallRequest | undefined> {
@@ -226,11 +237,17 @@ export class ServerAgentTools {
   /** The tool refuses what the gate would refuse, should a door have been skipped. */
   private async refuseBlocked(session: RuntimeSessionInfo, toolName: string, input: Record<string, unknown>): Promise<void> {
     const request = await this.request(session, toolName, input);
-    const verdict = request ? decideServerCall(request) : undefined;
+    const verdict = request ? verdictOf(request) : undefined;
     if (verdict?.kind === "block") throw new Error(verdict.reason);
   }
 
+  /** The tools a thread sees; server_exec only where a target may run commands (FTP never does). */
   tools(session: RuntimeSessionInfo): HostMcpTool[] {
+    const offered = this.allTools(session);
+    return this.known.get(session.cwd)?.exec === false ? offered.filter((tool) => tool.name !== SERVER_TOOLS.exec) : offered;
+  }
+
+  private allTools(session: RuntimeSessionInfo): HostMcpTool[] {
     const cwd = session.cwd;
     const connect = async (resolved: Resolved) => this.options.transport({ cwd, targetId: resolved.target.id });
     return [
@@ -253,7 +270,7 @@ export class ServerAgentTools {
             const drift = (row.drift ?? []).slice(0, 30).map((file) => `    ${file.change} ${file.path}`);
             return [
               `- ${row.label} (id ${row.targetId}): ${row.address}`,
-              `  local folder: ${row.context || "."} · state: ${row.state}${row.unreachable ? ` (${row.unreachable})` : ""}${target && row.caps && !row.caps.exec ? " · no shell (server_exec unavailable)" : ""}`,
+              `  local folder: ${row.context || "."} · state: ${row.state}${row.unreachable ? ` (${row.unreachable})` : ""}${target?.protocol === "ftp" ? " · FTP: runs no commands" : row.caps && !row.caps.exec ? " · no shell (server_exec unavailable)" : ""}`,
               `  commands on the server: ${commands}${effective !== level ? " (this thread's level)" : ""} · Git there: read only`,
               `  not uploaded: ${row.pendingTotal}${pending.length ? `\n${pending.join("\n")}` : ""}`,
               ...(row.drift ? [`  changed on the server since Tau last read it: ${row.drift.length}${drift.length ? `\n${drift.join("\n")}` : ""}`] : []),
