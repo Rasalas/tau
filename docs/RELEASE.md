@@ -426,6 +426,12 @@ thread it starts open the file themselves and find nothing there:
 - **Computer use's driver app**, which is launched as a program.
 - **Every `*.node`**, the native addons Electron loads with `dlopen`.
 
+electron-builder has to stay at 26.0.14 or newer. Older versions join every
+unpacked file's absolute temp path into one glob, and minimatch refuses a
+pattern over 64 KiB. That is how the macOS build of 0.5.1 failed with
+`pattern is too long`: it had about 500 such paths under the Mac's long
+`$TMPDIR`.
+
 A hidden top-level directory needs its exclusion pattern spelled out as
 `!name/**`, not just `!name`: electron-builder only auto-adds the recursive
 suffix to a bare negated pattern when the pattern has no `.` in it, and a
