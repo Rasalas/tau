@@ -825,6 +825,8 @@ connection to that machine subscribes to the thread (`subscribe` with its id in
 `thread-shell`, a whole `thread-index`, a dialog it opens or closes, and a change
 of the connection move the view's `revision`; the page hears the view as the
 `environment-thread` push of its local connection, at most every 300 ms.
+When a watch begins, and when the connection comes back while one lasts, the
+window calls `sync-extension-ui` there, so a dialog asked before is heard again.
 `environments-transcript-page [machine, sessionId, cursor?]` is `transcript-page`
 sent on that connection, with the window's key there. `environments-open [id,
 { threadId }]` opens a thread by its id, found in that machine's index.
