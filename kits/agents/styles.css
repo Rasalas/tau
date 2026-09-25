@@ -116,3 +116,8 @@
   flex: none; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px;
   font: 10px var(--mono); color: var(--muted-2);
 }
+.agent-row-machine, .agent-spawn-machine {
+  flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 0 5px;
+  border: 1px solid var(--line); border-radius: 4px; font: 10px var(--mono); color: var(--muted);
+}
+.agent-row-machine.offline { color: var(--muted-2); border-style: dashed; }

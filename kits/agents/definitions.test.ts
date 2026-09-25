@@ -62,6 +62,14 @@ describe("the agent definition format", () => {
     expect(parse("description: d\nruntime: claude-code\naccess: ask")).toThrow('"access" only applies on the pi runtime');
   });
 
+  it("names the machine its thread runs on", () => {
+    const parse = (machine: string) => parseAgentDefinition("/x/a.md", `---\ndescription: d\nmachine: ${machine}\n---\nPrompt`).definition.machine;
+    expect(parse("rex")).toBe("rex");
+    expect(parse('"Mac mini"')).toBe("Mac mini");
+    expect(parse("auto")).toBe("auto");
+    expect(() => parse("x".repeat(129))).toThrow('"machine" must be 128 characters or fewer');
+  });
+
   it("takes tools for any runtime, Tau's own in either spelling", () => {
     const { definition } = parseAgentDefinition("/x/a.md", "---\ndescription: d\nruntime: codex\ntools: [read, mcp__tau__tau_spawn_thread, tau_list_threads]\n---\nPrompt");
     expect(definition.tools).toEqual(["read", "tau_spawn_thread", "tau_list_threads"]);

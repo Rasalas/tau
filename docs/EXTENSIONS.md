@@ -2256,6 +2256,25 @@ this seam and offers them to other kits as the service
 `kits/remote-work/protocol.ts` (`RemoteThreadCommands`, `RemoteThreadLink`)
 with a small client in `threads-client.ts`. The thread there is an ordinary
 thread; here there is only a link, and the other machine never reaches back.
+`thread-start` takes `agentDepth` for a sub-agent, which the machine there
+keeps for its own Agents Kit (`hosted-thread-depth`, caller `tau.agents`), and
+`thread-settle` takes `removeThread`, which moves the thread there into that
+machine's trash once its work is applied or let go.
+
+Agents Kit is the first caller: `tau_spawn_thread` and an agent definition take
+`machine` (a name, a host id, `local` or `auto`), and without one the setting
+`values.tau.agents.machine` (Settings → Agents) decides, this computer by
+default. A child on another machine is followed through that service into the
+same book as one here, so waiting, status, messages, cancelling, the parent's
+wake-up and `tau_apply_thread_changes` behave alike; its work comes back as
+`tau/<machine>/<slug>` and a conflict applies nothing. Each machine runs as
+many children at once as `host-resources` reports cores; the rest queue as
+`pending`. For `auto` it asks Machines Kit's `choose-machine`
+(`{ purpose: "sub-agent", cwd, backend?, model? }` → `{ machine?: hostId | null,
+reason }`, caller `tau.agents`); while no kit answers, the child runs here and
+the spawn says why. Its desktop half provides `tau.agents/remote-threads`
+(`threadsOn(hostId)`, `subscribe`), which the Machines rail uses to leave those
+threads out.
 
 Machines Kit
 (`kits/environments/host.ts`) is the shipped caller: it lists the machines for

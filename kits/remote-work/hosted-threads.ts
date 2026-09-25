@@ -41,6 +41,8 @@ interface HostedThread {
   /** An abort was asked; the turn that ends next ended because of it. */
   aborting?: boolean;
   gone?: boolean;
+  /** Its depth in a tree of sub-agents on the machine that started it. */
+  agentDepth?: number;
 }
 
 type EarlyEvent = { kind: "accepted" } | { kind: "ended"; outcome: "completed" | "failed" };
@@ -223,6 +225,7 @@ export class HostedThreads {
       ...(input.title ? { title: input.title } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.prompt && !input.session ? { starting: true } : {}),
+      ...(input.agentDepth ? { agentDepth: input.agentDepth } : {}),
     };
     this.threads.set(thread, entry);
     for (const event of this.early.get(thread) ?? []) {
@@ -253,6 +256,27 @@ export class HostedThreads {
     if (busy) entry.aborting = true;
     await abort(thread);
     return this.changed(entry);
+  }
+
+  /**
+   * Moves the thread into this machine's trash once the machine that started
+   * it is done with it, so this machine's rail keeps only its own threads.
+   */
+  async remove(thread: string, device: string | undefined): Promise<HostedThreadReport> {
+    const entry = this.entry(thread, device);
+    if (!entry.gone) {
+      const remove = this.options.services.sessions.remove;
+      if (!remove) throw new HostCommandError("This machine's Tau cannot remove a thread; update it here.");
+      await remove(thread);
+      entry.gone = true;
+      entry.open = 0;
+    }
+    return this.changed(entry);
+  }
+
+  /** A thread's depth among sub-agents, when another machine started it as one. */
+  agentDepth(thread: string): number | undefined {
+    return this.threads.get(thread)?.agentDepth;
   }
 
   // ---------------------------------------------------------------------------

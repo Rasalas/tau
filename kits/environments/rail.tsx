@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "r
 import { ChevronRight, Eye, Laptop, Plus, RefreshCw, Server } from "lucide-react";
 import { Menu, tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type WorkbenchActions } from "tau";
 import { otherMachines, shownMachine, shortAge, statusText, unavailableReason } from "./machines.js";
-import { MACHINES_SETTINGS_PAGE } from "./protocol.js";
+import { MACHINES_SETTINGS_PAGE, type RemoteAgentThreadsService } from "./protocol.js";
 
 const FIRST_ROWS = 3;
 const MORE_ROWS = 10;
@@ -13,6 +13,26 @@ function projectHue(value: string): number {
   for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) | 0;
   return Math.abs(hash) % 360;
 }
+
+/** Agents Kit's threads on other machines while that kit is on; the rail leaves them out. */
+export const agentThreadsSource = (() => {
+  const listeners = new Set<() => void>();
+  let service: RemoteAgentThreadsService | undefined;
+  let stop: (() => void) | undefined;
+  let version = 0;
+  const changed = () => { version += 1; for (const listener of [...listeners]) listener(); };
+  return {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    getVersion: () => version,
+    threadsOn: (machine: string): ReadonlySet<string> | undefined => service?.threadsOn(machine),
+    set(next: RemoteAgentThreadsService | undefined) {
+      stop?.();
+      service = next;
+      stop = next?.subscribe(changed);
+      changed();
+    },
+  };
+})();
 
 export function useEnvironments(environments: PlatformEnvironments | undefined) {
   return useSyncExternalStore(environments?.subscribe ?? noSubscription, () => environments?.getSnapshot());
@@ -88,7 +108,11 @@ function MachineGroup({ machine, environments, actions, now }: {
   // An older core drops `machine` and would open this machine's thread of that id instead.
   const lookIn = environments.watchThread ? (thread: UiEnvironmentThread) => actions.openThread(thread.id, { pin: true, machine: machine.id }) : undefined;
   const retry = machine.status === "offline" || machine.status === "refused";
-  const shown = machine.threads.slice(0, limit);
+  useSyncExternalStore(agentThreadsSource.subscribe, agentThreadsSource.getVersion);
+  // Threads this computer's sub-agents run there show in the Agents panel, not here.
+  const agents = agentThreadsSource.threadsOn(machine.id);
+  const threads = agents?.size ? machine.threads.filter((thread) => !agents.has(thread.id)) : machine.threads;
+  const shown = threads.slice(0, limit);
   return (
     <div className={`machine-group status-${machine.status}`}>
       <div className="machine-head">
@@ -119,12 +143,12 @@ function MachineGroup({ machine, environments, actions, now }: {
               now={now}
             />
           ))}
-          {machine.threads.length > limit ? (
+          {threads.length > limit ? (
             <article className="thread-row compact thread-pagination-row">
-              <button className="thread-main" onClick={() => setLimit((current) => current + MORE_ROWS)}>+ show {Math.min(MORE_ROWS, machine.threads.length - limit)} more</button>
+              <button className="thread-main" onClick={() => setLimit((current) => current + MORE_ROWS)}>+ show {Math.min(MORE_ROWS, threads.length - limit)} more</button>
             </article>
           ) : null}
-          {machine.threads.length === 0 ? (
+          {threads.length === 0 ? (
             <p className="machine-empty">{machine.status === "connected" ? "No threads yet" : reason}</p>
           ) : null}
         </div>

@@ -5,7 +5,7 @@
 // and listens on loopback only. `--proxy` adds the listener a reverse proxy
 // such as Tailscale Serve forwards to; `--tls` makes the main listener TLS.
 //
-//   node scripts/tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--workspace <path>]
+//   node scripts/tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--cpus <n>] [--workspace <path>]
 //   node scripts/tau-test-host.mjs status [--name <name>] | stop [--name <name> | --all] | list
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -100,6 +100,10 @@ export function parseArgs(argv) {
       const port = Number(rest[++index]);
       if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("--port needs a port from 1024 to 65535");
       flags.port = port;
+    } else if (arg === "--cpus") {
+      const cpus = Number(rest[++index]);
+      if (!Number.isInteger(cpus) || cpus < 1 || cpus > 256) throw new Error("--cpus needs a count from 1 to 256");
+      flags.cpus = cpus;
     } else if (arg === "--name" || arg === "--workspace") {
       const value = rest[++index];
       if (!value) throw new Error(`${arg} needs a value`);
@@ -177,6 +181,8 @@ export async function startTestHost(flags = {}, { machineName, env: extraEnv = {
   const env = { ...testHostEnv({ dir, name: flags.name, machineName, workspace, proxy: flags.proxy, tls: flags.tls, kits: flags.kits }), ...extraEnv };
   // The same port again: a machine that paired with this host finds it after a restart.
   if (flags.port) env.TAU_HOST_LISTEN = `127.0.0.1:${flags.port}`;
+  // A small machine on this one: `host-resources` counts only this many cores.
+  if (flags.cpus) env.TAU_TEST_CPU_COUNT = String(flags.cpus);
   for (const path of [env.HOME, env.TAU_USER_DATA, env.TAU_WORKSPACE, env.CODEX_HOME, env.TAU_OPENCODE_HOME, env.TAU_CURSOR_HOME, env.TAU_GROK_HOME]) mkdirSync(path, { recursive: true });
   // Pi as in an instance: the login linked, settings copied with the test model; --no-login leaves it signed out.
   if (flags.login !== false) preparePiAgentDir(env.PI_CODING_AGENT_DIR);
@@ -233,7 +239,7 @@ async function main() {
   if (command === "stop") return stopTestHost(flags.name);
   if (command === "status") return readTestHost(flags.name);
   if (command === "list") return listTestHosts();
-  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list");
+  throw new Error("usage: tau-test-host.mjs start [--name <name>] [--proxy] [--tls] [--kits] [--fresh] [--no-login] [--port <n>] [--cpus <n>] [--workspace <path>] | status [--name <name>] | stop [--name <name> | --all] | list");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

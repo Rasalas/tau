@@ -1,4 +1,5 @@
 import {
+  HOSTED_DEPTH_COMMAND,
   REMOTE_WORK_EXTENSION_ID,
   type RemoteThreadCommands,
   type RemoteThreadDelivery,
@@ -23,7 +24,9 @@ export interface RemoteThreadsService {
   abort(link: string): Promise<RemoteThreadLink>;
   wait(link: string, timeoutMs?: number): Promise<RemoteThreadWaitResult>;
   fetchResult(link: string): Promise<RemoteThreadLink>;
-  settle(link: string, how: "apply" | "discard"): Promise<RemoteThreadLink>;
+  settle(link: string, how: "apply" | "discard", options?: { removeThread?: boolean }): Promise<RemoteThreadLink>;
+  /** On the machine that runs it: how deep in a sub-agent tree a thread another machine started is. */
+  agentDepth(thread: string): Promise<number | undefined>;
 }
 
 export function remoteThreadsClient(invoke: HostInvoke): RemoteThreadsService {
@@ -37,6 +40,10 @@ export function remoteThreadsClient(invoke: HostInvoke): RemoteThreadsService {
     abort: (link) => call("thread-abort", { link }),
     wait: (link, timeoutMs) => call("thread-wait", { link, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }),
     fetchResult: (link) => call("thread-result", { link }),
-    settle: (link, how) => call("thread-settle", { link, how }),
+    settle: (link, how, options) => call("thread-settle", { link, how, ...(options?.removeThread ? { removeThread: true } : {}) }),
+    agentDepth: async (thread) => {
+      const answer = await invoke(REMOTE_WORK_EXTENSION_ID, HOSTED_DEPTH_COMMAND, { thread }) as { depth?: unknown } | undefined;
+      return typeof answer?.depth === "number" ? answer.depth : undefined;
+    },
   };
 }

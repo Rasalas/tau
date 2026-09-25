@@ -5,10 +5,10 @@ import type { DiscoveredHost, EnvironmentPairResult, HostReadiness, HostResource
 import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
-import { createMachinesRailSection, createShownMachine } from "./rail.js";
+import { agentThreadsSource, createMachinesRailSection, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
-import { WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -121,6 +121,33 @@ describe("the other machines in the rail", () => {
     const Older = createMachinesRailSection(environments);
     render(<Older actions={fakeActions({ openThread })} />);
     expect(screen.queryByRole("button", { name: "Look in on Fix the build here" })).toBeNull();
+  });
+
+  it("leaves out the threads this computer's sub-agents run there", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const { registry } = createKitHarness(undefined, undefined, { environments });
+    const listeners = new Set<() => void>();
+    let agents = new Set(["s1"]);
+    registry.activate({
+      id: "agents-stub", name: "Agents",
+      activate: (context) => {
+        context.provideService(REMOTE_AGENT_THREADS_SERVICE, {
+          threadsOn: (id: string) => (id === "studio" ? agents : new Set<string>()),
+          subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        });
+      },
+    });
+    registry.activate(environmentsExtension);
+    const Section = createMachinesRailSection(environments);
+    render(<Section actions={fakeActions()} />);
+    expect(screen.queryByRole("button", { name: "Fix the build on studio" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Write docs on studio" })).toBeTruthy();
+    // Once the agent's thread there is let go, it is the machine's own again.
+    agents = new Set();
+    act(() => listeners.forEach((listener) => listener()));
+    expect(screen.getByRole("button", { name: "Fix the build on studio" })).toBeTruthy();
+    registry.deactivate(environmentsExtension.id);
+    expect(agentThreadsSource.threadsOn("studio")).toBeUndefined();
   });
 
   it("lists this machine among the others while the window shows another", () => {

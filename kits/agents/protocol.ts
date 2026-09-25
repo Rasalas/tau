@@ -43,6 +43,8 @@ export interface AgentsHostCommands {
   "definitions": { input: { sessionId?: string }; output: AgentDefinitionsState };
   /** The user starts an agent from a definition, as a child of the thread they are reading. */
   "start": { input: { parentThreadId: string; agent: string; prompt: string }; output: { threadId: string; title: string; status: AgentThreadStatus } };
+  /** The machines this host's agents may run on, for Settings → Agents. */
+  "machines": { input: undefined; output: AgentMachinesView };
 }
 
 /** An agent definition's `access`: what Access Kit may narrow its thread to. */
@@ -62,6 +64,8 @@ export interface AgentDefinitionSummary {
   tools?: string[];
   access?: AgentAccessLevel;
   workspace?: AgentWorkspaceMode;
+  /** Where its thread runs: a machine's name or id, `local` or `auto`. */
+  machine?: string;
 }
 
 /** A file that could not be used, or a field that was ignored; Settings → Inspector lists them. */
@@ -131,6 +135,26 @@ export interface AgentWorkspace {
   settled?: "applied" | "discarded";
 }
 
+/**
+ * A child that runs on another machine (ADR 0027): an ordinary thread there,
+ * started and followed through Remote Work's `tau.remote-work/threads`.
+ */
+export interface AgentMachineRef {
+  /** That machine's host id. */
+  id: string;
+  name: string;
+  /** Remote Work's link for it; absent while the child is queued. */
+  link?: string;
+  /** The thread's id on that machine, once it exists. */
+  thread?: string;
+  /** The machine is unreachable now; the thread may still run there. */
+  offline?: boolean;
+  /** Money its thread spent there, as that machine last reported. */
+  costUsd?: number;
+  /** Why it runs there, when Tau chose the machine. */
+  reason?: string;
+}
+
 /** One agent a thread spawned, as the tools and the Agents panel see it. */
 export interface AgentThreadLink {
   /** Stable handle the tools use, valid from the moment the agent is queued. */
@@ -153,6 +177,8 @@ export interface AgentThreadLink {
   model?: string;
   /** The checkout this agent works in; absent while it shares the parent's. */
   workspace?: AgentWorkspace;
+  /** Set for an agent that runs on another machine; it then has no `threadId` here. */
+  machine?: AgentMachineRef;
   status: AgentThreadStatus;
   /** Last tool the agent ran, for the panel's progress line. */
   lastTool?: string;
@@ -193,4 +219,74 @@ export function isOpenStatus(status: AgentThreadStatus): boolean {
 
 export function isAgentsState(value: unknown): value is AgentsState {
   return Boolean(value) && typeof value === "object" && Array.isArray((value as AgentsState).links);
+}
+
+// ---------------------------------------------------------------------------
+// Sub-agents on other machines (ADR 0027)
+
+/** `machine` values that mean this computer. */
+export const LOCAL_MACHINE = "local";
+const LOCAL_ALIASES = new Set([LOCAL_MACHINE, "this", "here", "this computer", "this-computer"]);
+export const isLocalMachine = (value: string): boolean => LOCAL_ALIASES.has(value.trim().toLowerCase());
+
+/** Tau picks the machine when the agent starts (Machines Kit's `choose-machine`). */
+export const AUTO_MACHINE = "auto";
+
+/** `values.tau.agents.machine`: where a spawn that names no machine runs; this computer when unset. */
+export const MACHINE_SETTING = "machine";
+
+/**
+ * Machines Kit answers where an automatic agent goes. The command names
+ * `tau.agents` as its caller; without it, "auto" runs on this computer.
+ */
+export const MACHINES_KIT_ID = "tau.environments";
+export const CHOOSE_MACHINE_COMMAND = "choose-machine";
+
+export interface ChooseMachineInput {
+  purpose: "sub-agent";
+  /** The project the agent works in, here. */
+  cwd: string;
+  /** Runtime backend; Pi when absent. */
+  backend?: string;
+  /** `provider/model-id`. */
+  model?: string;
+}
+
+export interface ChooseMachineAnswer {
+  /** A host id from `services.machines`; absent or null for this computer. */
+  machine?: string | null;
+  /** One line on why, for the panel's tooltip and the tool's answer. */
+  reason: string;
+}
+
+/** A machine as Settings → Agents lists it. */
+export interface AgentMachineOption {
+  id: string;
+  name: string;
+  status: "connecting" | "connected" | "offline" | "refused";
+  readOnly?: boolean;
+  /** Agents that may run there at once; known once one started there. */
+  budget?: number;
+}
+
+export interface AgentMachinesView {
+  /** False on a host that keeps no other machines for its agents. */
+  available: boolean;
+  machines: AgentMachineOption[];
+}
+
+export function isAgentMachinesView(value: unknown): value is AgentMachinesView {
+  return Boolean(value) && typeof value === "object" && Array.isArray((value as AgentMachinesView).machines);
+}
+
+/**
+ * The threads other machines run as this host's sub-agents, by machine: the
+ * Machines rail leaves them out, since the Agents panel shows them here.
+ */
+export const REMOTE_AGENT_THREADS_SERVICE = "tau.agents/remote-threads";
+
+export interface RemoteAgentThreadsService {
+  /** Thread ids on that machine (its host id). */
+  threadsOn(machine: string): ReadonlySet<string>;
+  subscribe(listener: () => void): () => void;
 }

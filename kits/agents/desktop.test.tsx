@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { UiSession, UiToolRun } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { agentsExtension } from "./desktop.js";
-import { createAgentsStore, createDefinitionsStore, definitionsStore, lineageOf } from "./store.js";
-import { activityLine, agentsPanelModel, definitionRows, formatCost, formatElapsed, spawnCardModel, spawnedThreadId } from "./model.js";
+import { createAgentsStore, createDefinitionsStore, definitionsStore, lineageOf, remoteAgentThreads } from "./store.js";
+import { activityLine, agentsPanelModel, definitionRows, formatCost, formatElapsed, machineTitle, spawnCardModel, spawnedThreadId, worktreeLine } from "./model.js";
+import { machineChoiceText } from "./settings.js";
 import { panelRows } from "./panel.js";
 import type { AgentThreadLink, AgentThreadStatus, AgentsState } from "./protocol.js";
 
@@ -150,6 +151,56 @@ describe("the Agents panel model", () => {
   });
 });
 
+
+describe("agents on another machine", () => {
+  const remote = link("h1", "parent", "running", 1, {
+    threadId: undefined,
+    machine: { id: "rex-id", name: "rex", link: "l1", thread: "rex-t1", costUsd: 0.5, reason: "rex has room" },
+  });
+
+  it("gives the row the machine, its cost there and a line for an unreachable machine", () => {
+    const row = agentsPanelModel({ maxRunning: 8, links: [remote] }, "parent", [session("parent", "P", 1)]).groups[0]!.rows[0]!;
+    expect(row).toMatchObject({ machine: { id: "rex-id", name: "rex", thread: "rex-t1", reason: "rex has room" }, costUsd: 0.5 });
+    expect(machineTitle(row.machine!)).toBe("Runs on rex. rex has room");
+    expect(activityLine({ ...row, machine: { ...row.machine!, offline: true } })).toBe("rex offline · may still be running");
+    expect(machineTitle({ ...row.machine!, offline: true, reason: undefined })).toBe("rex is offline; the thread may still be running there.");
+    expect(worktreeLine({ ...row, workspace: { mode: "worktree", path: "/x", branch: "tau/rex/word", changes: { files: 2, added: 0, removed: 0, commits: 1, uncommitted: 0 } } })).toBe("tau/rex/word · 2 files");
+  });
+
+  it("names the machine on the spawn card and opens nothing here", () => {
+    const tool = { id: "call-1", name: "tau_spawn_thread", args: { prompt: "x", machine: "rex" }, status: "done", output: JSON.stringify({ threadId: "h1" }), startedAt: 0, endedAt: 1 } as unknown as UiToolRun;
+    const card = spawnCardModel([tool], { maxRunning: 8, links: [remote] }, []);
+    expect(card.rows[0]).toMatchObject({ id: "h1", machine: "rex", costUsd: 0.5 });
+    expect(card.rows[0]!.threadId).toBeUndefined();
+  });
+
+  it("tells the Machines rail which threads there are this host's agents", () => {
+    const store = createAgentsStore();
+    const service = remoteAgentThreads(store);
+    const seen = vi.fn();
+    service.subscribe(seen);
+    expect(service.threadsOn("rex-id").size).toBe(0);
+    store.set({ maxRunning: 8, links: [remote, link("local", "parent", "running", 2)] });
+    expect([...service.threadsOn("rex-id")]).toEqual(["rex-t1"]);
+    expect(service.threadsOn("other").size).toBe(0);
+    expect(seen).toHaveBeenCalled();
+  });
+
+  it("says in Settings → Agents where sub-agents go and how many run there", () => {
+    const rex = { id: "rex-id", name: "rex", status: "connected" as const, budget: 2 };
+    expect(machineChoiceText("local", [rex])).toMatch(/this computer/u);
+    expect(machineChoiceText("rex-id", [rex])).toBe("Sub-agents run on rex, 2 at a time (its cores); the rest wait. Their work comes back here as a branch.");
+    expect(machineChoiceText("rex-id", [{ ...rex, status: "offline" }])).toMatch(/rex is offline now/u);
+    expect(machineChoiceText("gone-id", [rex])).toMatch(/no longer reach/u);
+    expect(machineChoiceText("auto", [rex])).toMatch(/Tau picks/u);
+  });
+
+  it("adds Settings → Agents", () => {
+    const { registry } = createKitHarness();
+    registry.activate(agentsExtension);
+    expect(registry.getSettingsPages().map((page) => page.id)).toContain("agents.settings");
+  });
+});
 
 describe("the spawn card", () => {
   const spawn = (id: string, partial: Partial<UiToolRun> = {}): UiToolRun => ({

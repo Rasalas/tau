@@ -69,6 +69,8 @@ function fakeSessions() {
   const observers: HostTurnObserver[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
   const runtimeExtensions: RuntimeExtensionFactory[] = [];
+  /** Threads moved into rex's trash. */
+  const removed: string[] = [];
   const begin = (thread: FakeThread, text: string) => {
     thread.prompts.push(text);
     thread.streaming = true;
@@ -115,11 +117,16 @@ function fakeSessions() {
         const thread = threads.get(id)!;
         if (thread.open) await end(thread, "completed");
       },
+      remove: async (id: string) => {
+        if (threads.get(id)?.streaming) throw new Error("A running thread cannot be removed.");
+        removed.push(id);
+      },
     } as Partial<HostSessionServices> as HostSessionServices,
   };
   return {
     services,
     threads,
+    removed,
     only: () => [...threads.values()][0]!,
     finish: async (thread: FakeThread, text: string, error?: string) => {
       thread.messages.push({ role: "assistant", text, ...(error ? { error } : {}) } as UiMessage);
@@ -400,6 +407,32 @@ describe("Remote Work Kit: a thread started here runs on another machine", () =>
     // Settled: nothing more goes there.
     await expect(hosts.call("thread-send", { link: link.id, text: "more" })).rejects.toThrow(/settled/u);
     expect(await hosts.call<RemoteThreadLink[]>("threads", { active: true })).toEqual([]);
+  });
+
+  it("moves a sub-agent's thread into rex's trash on settle, and tells rex's Agents Kit how deep it started", async () => {
+    const hosts = await twoHosts();
+    const clients = new Map<string, RemoteThreadsService>();
+    await hosts.rex.activate({ id: "tau.agents", name: "Agents", activate(context) { clients.set("rex", remoteThreadsClient(context.invokeHostExtension)); } });
+    await expect(hosts.call("thread-start", { machine: "rex", cwd: hosts.work, prompt: "x", agentDepth: 0 })).rejects.toThrow(/agentDepth/u);
+    const link = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, prompt: "One word", parentThreadId: "p1", agentDepth: 2 });
+    const thread = hosts.sessions.threads.get((await started(hosts, link.id)).thread!)!;
+    // rex's own Agents Kit reads the depth; a thread rex started itself has none.
+    expect(await clients.get("rex")!.agentDepth(thread.id)).toBe(2);
+    expect(await clients.get("rex")!.agentDepth("elsewhere")).toBeUndefined();
+    await hosts.sessions.finish(thread, "done");
+    await hosts.call("thread-wait", { link: link.id });
+
+    const settled = await hosts.call<RemoteThreadLink>("thread-settle", { link: link.id, how: "apply", removeThread: true });
+    expect(settled.status).toBe("settled");
+    expect(settled.settled?.detail).toMatch(/in rex's trash/u);
+    expect(hosts.sessions.removed).toEqual([thread.id]);
+    // A thread without removeThread stays there, an ordinary thread of rex.
+    const kept = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, prompt: "Another" });
+    const other = hosts.sessions.threads.get((await started(hosts, kept.id)).thread!)!;
+    await hosts.sessions.finish(other, "ok");
+    await hosts.call("thread-wait", { link: kept.id });
+    await hosts.call("thread-settle", { link: kept.id, how: "discard" });
+    expect(hosts.sessions.removed).toEqual([thread.id]);
   });
 
   it("lets a running thread's worktree go on discard, stopping its turn first", async () => {

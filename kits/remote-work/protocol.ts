@@ -355,6 +355,12 @@ export interface RemoteThreadStartInput {
   snapshotRef?: string;
   /** Ignored files that go along; the project's remembered choice without it. */
   ignored?: string[];
+  /**
+   * How deep in a tree of sub-agents the thread starts (1 for a user's thread's
+   * child). The machine there keeps it, so its Agents Kit lets the thread nest
+   * only the levels that are left.
+   */
+  agentDepth?: number;
 }
 
 /** How a settled link ended. */
@@ -426,8 +432,11 @@ export interface RemoteThreadCommands {
   "thread-wait": { input: { link: string; timeoutMs?: number }; output: RemoteThreadWaitResult };
   /** Brings the worktree's state back as `tau/<machine>/<slug>`; refused while the thread runs. */
   "thread-result": { input: { link: string }; output: RemoteThreadLink };
-  /** `apply` merges the result when clean and then lets the worktree there go; `discard` lets it go at once. */
-  "thread-settle": { input: { link: string; how: "apply" | "discard" }; output: RemoteThreadLink };
+  /**
+   * `apply` merges the result when clean and then lets the worktree there go; `discard` lets it go at once.
+   * `removeThread` also moves the thread there into that machine's trash, so its rail keeps only its own work.
+   */
+  "thread-settle": { input: { link: string; how: "apply" | "discard"; removeThread?: boolean }; output: RemoteThreadLink };
 }
 
 export const DEFAULT_REMOTE_WAIT_MS = 30_000;
@@ -449,6 +458,7 @@ export interface HostedThreadStartInput {
   title?: string;
   backend?: string;
   model?: RemoteThreadModel;
+  agentDepth?: number;
 }
 
 export const HOSTED_COMMANDS = {
@@ -457,4 +467,15 @@ export const HOSTED_COMMANDS = {
   send: "hosted-thread-send",
   abort: "hosted-thread-abort",
   reports: "hosted-threads",
+  remove: "hosted-thread-remove",
 } as const;
+
+/**
+ * Asked on the machine that runs the thread, by its own Agents Kit: how deep
+ * in a tree of sub-agents a thread started for another machine is. Answers
+ * `{ depth }`, absent for a thread no other machine started.
+ */
+export const HOSTED_DEPTH_COMMAND = "hosted-thread-depth";
+
+/** The deepest a sub-agent tree goes; a start that claims more is refused. */
+export const MAX_AGENT_DEPTH_CLAIM = 8;
