@@ -147,13 +147,15 @@ function PlanGroups({ files, kept, force, canResolve, busy, done = false, onOpen
  * server as it is now, confirm with the count on the button, and see what
  * went through. Only this click uploads; the agent never does.
  */
-export function UploadPanel({ parts, actions, cwd, target, active, onOpen }: {
+export function UploadPanel({ parts, actions, cwd, target, active, onOpen, empty }: {
   parts: ServerViewParts;
   actions: WorkbenchActions;
   cwd: string;
   target: TargetStatus;
   active?: string;
   onOpen(path: string): void;
+  /** Drawn instead of the list while nothing is left to upload; an upload's result stays until Done. */
+  empty?: ReactNode;
 }) {
   const canDeploy = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy");
   const canResolve = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy-resolve");
@@ -229,6 +231,7 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen }: {
   });
 
   if (stage.kind === "choose") {
+    if (empty !== undefined && target.pendingTotal === 0 && target.withheld.length === 0) return <>{empty}</>;
     const label = uploadSummary(target.pending, chosen);
     return (
       <div className="servers-upload">

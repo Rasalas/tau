@@ -209,7 +209,11 @@ describe("the servers on a compact client", () => {
   };
   function withWrites(h: ReturnType<typeof harness>) {
     const base = h.invoke.getMockImplementation()!;
+    let deployed = false;
     h.invoke.mockImplementation(async (command: string, input?: unknown) => {
+      // After the upload nothing is left to upload.
+      if (deployed && (command === "status" || command === "check")) return status(BASE);
+      if (command === "deploy") deployed = true;
       if (command === "deploy-preview") return { targetId: "sftp-site-1", files: [{ path: "index.php", op: "modify", outcome: "upload" }, { path: "about.php", op: "delete", outcome: "delete" }], kept: [], warnings: [] };
       if (command === "deploy") return { targetId: "sftp-site-1", files: [], failed: [], deployment: { seq: 1, kind: "upload", files: [{ path: "index.php", op: "modify" }, { path: "about.php", op: "delete" }] } };
       if (command === "server-history") return HISTORY;
@@ -230,7 +234,11 @@ describe("the servers on a compact client", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" })); });
     await flush();
     expect(h.invoke).toHaveBeenCalledWith("deploy", expect.objectContaining({ files: [{ path: "index.php", op: "modify" }, { path: "about.php", op: "delete" }] }));
+    await flush();
+    // The result stays although nothing is left to upload, until Done.
     expect(screen.getByText(/Deployment 1: .* on the server\./u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByText("Nothing to upload.")).toBeTruthy();
   });
 
   it("rolls a deployment back on a Full device after its preview", async () => {

@@ -92,12 +92,12 @@ function CompactTarget({ parts, cwd, target, actions }: { parts: ServerViewParts
           <button type="button" className="servers-compact-toggle" aria-expanded={open === "pending"} onClick={() => toggle("pending")}>
             <ChevronRight size={14} className="chev" aria-hidden="true" />Not uploaded<span className="servers-count">{target.pendingTotal}</span>
           </button>
-          {open === "pending" ? (target.pendingTotal === 0 && target.withheld.length === 0
-            ? <p className="servers-empty-line">Nothing to upload.</p>
-            : <>
-              <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(diff?.source === "pending" ? { active: diff.path } : {})} onOpen={(path) => show({ source: "pending", path })} />
+          {open === "pending" ? (
+            <>
+              <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(diff?.source === "pending" ? { active: diff.path } : {})} onOpen={(path) => show({ source: "pending", path })} empty={<p className="servers-empty-line">Nothing to upload.</p>} />
               {diff?.source === "pending" ? shownDiff : null}
-            </>) : null}
+            </>
+          ) : null}
           {drift > 0 ? (
             <>
               <button type="button" className="servers-compact-toggle" aria-expanded={open === "drift"} onClick={() => toggle("drift")}>
