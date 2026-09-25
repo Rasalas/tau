@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettingsPageProps } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
+import type { DesktopExtensionContext } from "tau";
 import servers from "./desktop.js";
-import { SERVERS_EXTENSION_ID, type ServerTargetRow, type ServerTargetsState } from "./protocol.js";
+import { ServerPromptFeed, createServerPromptLayer } from "./prompt-dialog.js";
+import { SERVERS_EXTENSION_ID, SERVERS_PROMPTS_EVENT, type CredentialStatus, type ServerPrompt, type ServerTargetRow, type ServerTargetsState } from "./protocol.js";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -63,5 +65,64 @@ describe("Settings → Servers", () => {
     setup((command) => (command === "targets" ? { workspace: "/work/site", targets: [], issues: [] } : undefined));
     await flush();
     expect(screen.getByText("No sftp.json in this project")).toBeTruthy();
+  });
+});
+
+describe("the password source in Settings → Servers", () => {
+  const STATUS: CredentialStatus = {
+    targetId: APP.id,
+    password: { source: "Tau's keychain item, then VS Code's, then asking you", session: false, saved: false, foreignItem: { label: "tester@127.0.0.1 (app)", allowed: true } },
+  };
+
+  it("shows where the password comes from, checks it and withdraws approvals, never a value", async () => {
+    const { invoke, props } = setup((command) => {
+      if (command === "targets") return STATE;
+      if (command === "credential-status") return { targets: [STATUS] };
+      if (command === "check-credential") return { found: true, source: "VS Code's keychain item tester@127.0.0.1 (app)" };
+      return { ok: true };
+    });
+    await flush();
+    expect(screen.getByText(/VS Code's item tester@127.0.0.1 \(app\): allowed/u)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Check" })[0]!); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "check-credential", { cwd: "/work/site", targetId: APP.id, kind: "password" });
+    expect(props.onNotify).toHaveBeenCalledWith("app: password from VS Code's keychain item tester@127.0.0.1 (app).");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Withdraw" })); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "forget-credential-approvals", { cwd: "/work/site" });
+  });
+});
+
+describe("the servers' questions", () => {
+  function feedWith(prompts: ServerPrompt[]) {
+    const listeners: ((payload: unknown) => void)[] = [];
+    const invoke = vi.fn(async (command: string, _input?: unknown) => (command === "prompts" ? { prompts } : { answered: true }));
+    const context = { host: { invoke, onEvent: (name: string, listener: (payload: unknown) => void) => { if (name === SERVERS_PROMPTS_EVENT) listeners.push(listener); return () => undefined; } } } as unknown as DesktopExtensionContext;
+    const feed = new ServerPromptFeed(context);
+    feed.start();
+    const Layer = createServerPromptLayer(feed);
+    render(<TestProviders><Layer /></TestProviders>);
+    return { invoke, publish: (next: ServerPrompt[]) => act(() => { for (const listener of listeners) listener({ prompts: next }); }) };
+  }
+
+  it("asks for a password in a dialog and sends the answer to the host", async () => {
+    const { invoke, publish } = feedWith([{ id: "p1", kind: "secret", title: "Password for tester@127.0.0.1", message: "Tau keeps it.", field: "Password", confirmLabel: "Connect", alternativeLabel: "Try other keychain items on this login" }]);
+    await flush();
+    const field = screen.getByLabelText("Password") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(field, { target: { value: "typed" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Connect" })); });
+    expect(invoke).toHaveBeenCalledWith("answer-prompt", { id: "p1", action: "confirm", value: "typed" });
+    publish([]);
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("shows a command to allow verbatim and answers the other ways", async () => {
+    const { invoke } = feedWith([{ id: "c1", kind: "confirm", title: "Run a command from sftp.json?", message: "m", detail: "op read op://x", confirmLabel: "Allow for this project", cancelLabel: "Not now" }]);
+    await flush();
+    expect(screen.getByText("op read op://x")).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Not now" })); });
+    expect(invoke).toHaveBeenCalledWith("answer-prompt", { id: "c1", action: "cancel" });
   });
 });
