@@ -33,6 +33,18 @@ describe("performance report checks", () => {
     ]);
   });
 
+  it("holds the kits' desktop halves to their own budget, and leaves a build without kits alone", () => {
+    const report = {
+      initial: { javascript: { bytes: 1, gzipBytes: 1 }, css: { bytes: 1, gzipBytes: 1 } },
+      lazy: { javascript: { bytes: 1, gzipBytes: 1 } },
+      buildTimeMs: 1,
+      overlayComposition: { backdropBlur: false },
+    };
+    const kits = { desktop: { bytes: 30, gzipBytes: 10, files: 2 } };
+    expect(evaluateBuildBudgets({ ...report, kits }, { kitDesktopJavascriptBytes: 20 })).toEqual(["kits.desktop.bytes 30 > budget 20"]);
+    expect(evaluateBuildBudgets(report, { kitDesktopJavascriptBytes: 20 })).toEqual([]);
+  });
+
   it("rejects a missing build-time measurement", () => {
     const report = {
       initial: { javascript: { bytes: 1, gzipBytes: 1 }, css: { bytes: 1, gzipBytes: 1 } },

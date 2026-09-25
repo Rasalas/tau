@@ -25,7 +25,7 @@ run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cj
 run("vite/bin/vite.js", ["build"]);
 run("../scripts/prepare-customization-source.mjs", []);
 const buildTimeMs = Math.round(performance.now() - started);
-const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs });
+const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs, kitsDirectory: join(ROOT, "dist-kits") });
 await mkdir(join(ROOT, "reports"), { recursive: true });
 await writeFile(join(ROOT, "reports/build-report.json"), `${JSON.stringify(report, null, 2)}\n`);
 // The host serves this to browsers and phones; a packaged app ships it (electron-builder.yml).

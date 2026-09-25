@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = join(HERE, "..");
 const DEFAULT_DIST = join(ROOT, "dist");
+const DEFAULT_KITS = join(ROOT, "dist-kits");
 const REPORT_PATH = join(ROOT, "reports", "build-report.json");
 const BUDGET_PATH = join(HERE, "performance-budgets.json");
 
@@ -47,7 +48,23 @@ function initialAssetsFromHtml(html) {
   return assets;
 }
 
-export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTimeMs } = {}) {
+/**
+ * The kits' desktop halves: every window start moves all of them from the host
+ * and imports them, so their size is start-up time as much as `dist/` is.
+ */
+export async function collectKitReport(kitsDirectory = DEFAULT_KITS) {
+  const desktop = emptyTotals();
+  for (const name of await readdir(kitsDirectory).catch(() => [])) {
+    const code = await readFile(join(kitsDirectory, name, "desktop.js")).catch(() => undefined);
+    if (!code) continue;
+    desktop.bytes += code.length;
+    desktop.gzipBytes += gzipSync(code).length;
+    desktop.files += 1;
+  }
+  return { desktop };
+}
+
+export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTimeMs, kitsDirectory } = {}) {
   const html = await readFile(join(distDirectory, "index.html"), "utf8");
   const initialAssets = initialAssetsFromHtml(html);
   const totals = {
@@ -82,6 +99,7 @@ export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTi
     initial: totals.initial,
     lazy: totals.lazy,
     assets,
+    ...(kitsDirectory ? { kits: await collectKitReport(kitsDirectory) } : {}),
     overlayComposition: {
       strategy: overlayBlur ? "backdrop-blur" : "opaque-scrim",
       backdropBlur: overlayBlur,
@@ -101,6 +119,7 @@ export function evaluateBuildBudgets(report, budgets) {
     ["initial.css.gzipBytes", report.initial.css.gzipBytes, budgets.initialCssGzipBytes],
     ["total.javascript.bytes", report.initial.javascript.bytes + report.lazy.javascript.bytes, budgets.totalJavascriptBytes],
     ["total.javascript.gzipBytes", report.initial.javascript.gzipBytes + report.lazy.javascript.gzipBytes, budgets.totalJavascriptGzipBytes],
+    ["kits.desktop.bytes", report.kits?.desktop.bytes, budgets.kitDesktopJavascriptBytes],
     ["buildTimeMs", report.buildTimeMs, budgets.buildTimeMs],
     ["overlayCompositionMs", report.overlayComposition.backdropBlur ? budgets.overlayCompositionMs + 1 : 0, budgets.overlayCompositionMs],
   ];
@@ -119,7 +138,7 @@ async function main() {
       // The evaluator below rejects a missing measurement.
     }
   }
-  const report = await collectBuildReport(dist, { buildTimeMs });
+  const report = await collectBuildReport(dist, { buildTimeMs, kitsDirectory: DEFAULT_KITS });
   await mkdir(join(ROOT, "reports"), { recursive: true });
   await writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
   if (process.argv.includes("--check")) {
