@@ -6,6 +6,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { HostClientProvider, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import { createCompactPanel } from "./compact-panel.js";
+import { DriftFeed } from "./drift-view.js";
 import ServerView, { type ServerViewParts } from "./server-view.js";
 import { createChangesSection, createRowMark, createTitleChip } from "./status-parts.js";
 import { ServersStatusStore } from "./status-store.js";
@@ -40,12 +41,14 @@ function harness(target: TargetStatus, options: { readOnly?: boolean } = {}) {
     if (command === "server-diff") return DIFF;
     if (command === "server-history") return { targetId: target.targetId, entries: [] };
     if (command === "ssh-terminal") return { command: "ssh -t fake" };
+    if (command === "drift") return { workspace: "/work/site", branch: "main", targets: [{ targetId: target.targetId, label: target.label, context: "", check: { at: new Date().toISOString(), baseline: "mirror", files: [{ path: "css/site.css", change: "modified", certain: true }], later: false }, imports: [] }] };
     return undefined;
   });
   const host: HostExtensionClient = { invoke, onEvent: (name, listener) => { listeners.set(name, listener); return () => listeners.delete(name); }, watch: vi.fn(() => () => undefined) };
   const store = new ServersStatusStore(host);
   const run = vi.fn(async () => ({ id: "t1" }));
-  const parts: ServerViewParts = { store, host, terminal: () => ({ run }) };
+  const drift = new DriftFeed({ host, events: { on: () => () => undefined } } as never);
+  const parts: ServerViewParts = { store, host, drift, terminal: () => ({ run }) };
   const actions = { notify: vi.fn(), openStageTab: vi.fn(() => "tab"), openSettings: vi.fn(), activeThread: () => ({ cwd: "/work/site" }) } as unknown as WorkbenchActions;
   const client = createFakeHostClient({ isReadOnly: () => options.readOnly === true });
   const wrap = (node: React.ReactNode) => <HostClientProvider client={client}><TestProviders>{node}</TestProviders></HostClientProvider>;
@@ -104,7 +107,11 @@ describe("the server view", () => {
     await flush();
     expect(screen.getByText("Nothing to upload")).toBeTruthy();
     h.emit({ workspace: "/work/site", status: status({ ...BASE, state: "drift", drift: [{ path: "css/site.css", change: "modified", certain: true }] }) });
-    expect(screen.getByRole("tab", { name: "Changed on the server 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Changed on the server 1" }));
+    await flush();
+    // The tab is the drift service's panel, on the same state as the composer gate.
+    expect(h.invoke).toHaveBeenCalledWith("drift", { cwd: "/work/site" });
+    expect(screen.getByText("css/site.css")).toBeTruthy();
   });
 });
 

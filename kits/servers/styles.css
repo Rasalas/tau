@@ -104,7 +104,7 @@
 .servers-file.active { background: var(--thread-active); color: var(--ink); }
 .servers-file.muted { color: var(--faint); font: 11.5px var(--mono); }
 .servers-file.conflict .servers-file-name { color: var(--danger); }
-.servers-drift .servers-file, .servers-compact-sections > .servers-files .servers-file { font: 11.5px var(--mono); }
+.servers-compact-sections > .servers-files .servers-file { font: 11.5px var(--mono); }
 .servers-file-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .servers-file:hover:not(.muted):not(.active) { background: var(--hover); }
 .servers-file-name { flex: 1; min-width: 0; display: flex; flex-direction: column; font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -118,8 +118,6 @@
 .servers-choice.chosen { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
 .servers-choice-box { flex: none; margin: 0; accent-color: var(--acid); }
 
-.servers-drift { padding: 10px 0; }
-.servers-drift > .servers-group-note { padding-bottom: 8px; }
 .servers-history { margin: 0; padding: 6px 0; list-style: none; }
 .servers-history-entry + .servers-history-entry { border-top: 1px solid var(--line-soft); }
 .servers-history-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px 0; border: 0; background: transparent; color: var(--ink); font: 500 12px var(--sans); text-align: left; cursor: pointer; }
@@ -171,3 +169,31 @@
 .servers-host-add .settings-input { flex: 1; min-width: 0; }
 .servers-package-sources summary { cursor: pointer; }
 .servers-package-sources code { display: block; margin-top: 6px; font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* Server drift: what changed on the server, its branches, the gate before a first prompt. */
+.servers-drift { display: flex; flex-direction: column; gap: var(--space-6); height: 100%; overflow: auto; padding: var(--space-6) var(--space-7); color: var(--ink-2); font: 12.5px/1.45 var(--sans); }
+.servers-drift-target { display: flex; flex-direction: column; gap: var(--space-4); }
+.servers-drift-head, .servers-drift-group-line, .servers-drift-import-line { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+.servers-drift-head > span:not(.spacer), .servers-drift-import-line > span:not(.spacer, .servers-drift-tag), .servers-drift-import-line time { color: var(--muted); font-size: 12px; }
+.servers-drift-head strong { color: var(--ink); font-size: 13.5px; }
+.servers-drift .spacer { flex: 1; }
+.servers-drift-group-line button, .servers-drift-import-line button { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 28px; padding: 4px 10px; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
+.servers-drift-group-line button.primary, .servers-drift-import-line button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.servers-drift-group-line button:disabled, .servers-drift-import-line button:disabled { opacity: .45; cursor: default; }
+.servers-drift-group, .servers-drift-import { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5); border: 1px solid var(--line-card); border-radius: var(--radius-md); }
+.servers-drift-imports { display: flex; flex-direction: column; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.servers-drift-import.merged, .servers-drift-import.gone { opacity: .7; }
+.servers-drift-import-line strong { overflow: hidden; color: var(--ink); font: 500 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.servers-drift-files { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.servers-drift-files button { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 26px; padding: 2px var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; }
+.servers-drift-files button:hover:not(:disabled), .servers-drift-files button.active { background: var(--raised); }
+.servers-drift-files button:disabled { cursor: default; }
+.servers-drift-files.compact { max-height: 10em; overflow: auto; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-card); border-radius: var(--radius-sm); background: var(--field); }
+.servers-drift-files.compact li { display: flex; align-items: center; gap: var(--space-3); min-height: 22px; }
+.servers-drift-path { min-width: 0; overflow: hidden; font: 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.servers-drift-more { color: var(--muted); font-size: 12px; }
+.servers-drift-tag { flex: none; padding: 0 6px; border-radius: var(--radius-sm); background: var(--raised); color: var(--muted); font-size: 11px; }
+.servers-drift-note { margin: 0; color: var(--muted); }
+.servers-drift-diff { min-height: 240px; max-height: 60vh; overflow: auto; border: 1px solid var(--line-card); border-radius: var(--radius-md); }
+.servers-drift-gate { width: 520px; }
+.servers-drift-gate footer > button { display: inline-flex; align-items: center; gap: var(--space-2); }

@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect } from "react";
 import { Server } from "lucide-react";
 import { Spinner, type DesktopExtensionContext, type RegionProps } from "tau";
 import { createCompactGlyph, createCompactPanel } from "./compact-panel.js";
+import { DRIFT_EVENT } from "./drift-protocol.js";
+import type { DriftFeed } from "./drift-view.js";
 import type { ServerViewParts, TerminalRunService } from "./server-view.js";
 import {
   WORKSPACE_STORE_SERVICE, createChangesSection, createRailSection, createRowMark, createTitleChip, openTarget, useServersStatus, worstTarget,
@@ -21,11 +23,11 @@ const isParams = (params: Record<string, unknown>): params is TargetTabParams =>
  * title-bar mark, the Changes section, the rail's section and row mark, and a
  * compact client's sheet, which is only offered for a project with servers.
  */
-export function registerServerSurfaces(context: DesktopExtensionContext): () => void {
+export function registerServerSurfaces(context: DesktopExtensionContext, drift: DriftFeed): () => void {
   const store = new ServersStatusStore(context.host);
   let terminal: TerminalRunService | undefined;
   let workspace: WorkspaceStoreSlice | undefined;
-  const parts: ServerViewParts = { store, host: context.host, terminal: () => terminal };
+  const parts: ServerViewParts = { store, host: context.host, drift, terminal: () => terminal };
 
   let sheet: (() => void) | undefined;
   const showSheet = (shown: boolean) => {
@@ -98,6 +100,8 @@ export function registerServerSurfaces(context: DesktopExtensionContext): () => 
       };
     }),
     context.events.on("agent-status", (event) => { if (!event.running) store.refreshLoaded(); }),
+    // Drift is the drift service's; the status reads it again when that changes.
+    context.host.onEvent(DRIFT_EVENT, () => store.refreshLoaded()),
   ];
   return () => {
     for (const dispose of disposers.reverse()) dispose();

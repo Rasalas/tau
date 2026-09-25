@@ -1,6 +1,6 @@
 // What the server view's commands answer and emit; type imports only, so the desktop half may read it.
 import type { ServerCapabilities, ServerProtocol, TargetLevel } from "./protocol.js";
-import type { DriftRow, ListMethod, MirrorInfo, SyncChange } from "./sync/protocol.js";
+import type { DriftRow, MirrorInfo, SyncChange } from "./sync/protocol.js";
 
 /** A target's status changed (`{ workspace, status }`), for the clients that watch the topic. */
 export const SERVERS_STATUS_EVENT = "status";
@@ -68,9 +68,10 @@ export interface TargetStatus {
   pendingTotal: number;
   /** On the upload block list: never pending, never uploaded. */
   withheld: string[];
-  /** Changes on the server since the mirror state; absent until a check reached the server. */
+  /** Changes on the server since the mirror state, as the drift service last found them. */
   drift?: DriftRow[];
-  driftMethod?: ListMethod;
+  /** ISO time of that drift check. */
+  driftCheckedAt?: string;
   /** ISO time the server was last reached. */
   checkedAt?: string;
   /** Paths changed locally and on the server. */

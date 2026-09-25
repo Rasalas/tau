@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HostCommandCall, HostExtensionCommandHandler, HostExtensionContext, HostExtensionServices } from "tau/host-extension";
 import { FolderServerFs } from "./fixtures/fake-server-fs";
 import type { SftpJsonTarget } from "./sftp-json";
+import { DRIFT_FILE, DriftService } from "./drift";
 import { ServerStatusService } from "./status";
 import { ServersStore } from "./store";
 import { SyncService } from "./sync/service";
@@ -71,11 +72,14 @@ function world(options: { shell?: boolean } = {}): World {
   };
   const sync = new SyncService(context, { store, target: async () => ({ project: { root: local, workspaceId: WORKSPACE_ID }, target }), transport });
   sync.register();
+  const list = async () => ({ project: { root: local, workspaceId: WORKSPACE_ID }, targets: [target] });
+  const drift = new DriftService(context, { store, list, sync, workspace: async () => { throw new Error("no Workspace Kit here"); } });
   w.status = new ServerStatusService(context, {
     store,
-    list: async () => ({ project: { root: local, workspaceId: WORKSPACE_ID }, targets: [target] }),
+    list,
     compare: (input) => sync.compare(input),
     transport,
+    drift: { state: (cwd) => drift.state(cwd), check: (input) => drift.check(input, { quiet: true }) },
     terminalCommand: async () => "ssh -t fake",
   });
   w.status.register();
@@ -99,6 +103,7 @@ describe.skipIf(!posix)("the server view's status", () => {
     const first = only(await w.call<ServersStatus>("status", { cwd: w.local }));
     expect(first).toMatchObject({ targetId: TARGET_ID, label: "site", address: "sftp://tester@127.0.0.1:2222/srv/site", state: "never-read", level: "ask", pending: [] });
     const checked = await settle(w);
+    // Drift before the first read goes against HEAD; this project has no commit, so there is none.
     expect(checked.state).toBe("never-read");
     expect(checked.checkedAt).toBeTruthy();
     expect(checked.serverGit).toEqual({ repository: false, reason: "The folder on the server is no Git repository." });
@@ -140,6 +145,10 @@ describe.skipIf(!posix)("the server view's status", () => {
     let status = only(await w.call<ServersStatus>("check", { cwd: w.local, targetId: TARGET_ID }));
     expect(status.state).toBe("drift");
     expect(status.drift?.map((row) => [row.path, row.change])).toEqual([["about.php", "deleted"], ["css/site.css", "modified"]]);
+    // The drift service's record: what the composer gate and the drift tab read too.
+    const recorded = await w.store.read({ workspaceId: WORKSPACE_ID, targetId: TARGET_ID }, DRIFT_FILE);
+    expect(recorded?.check?.files.map((file) => file.path)).toEqual(["about.php", "css/site.css"]);
+    expect(status.driftCheckedAt).toBe(recorded?.check?.at);
     writeFileSync(join(w.local, "css/site.css"), "body{color:red}\n");
     status = only(await w.call<ServersStatus>("check", { cwd: w.local, targetId: TARGET_ID }));
     expect(status.state).toBe("conflict");
@@ -160,7 +169,7 @@ describe.skipIf(!posix)("the server view's status", () => {
     // A connection that drops after the login: the listing fails the way ssh does.
     const lost = Object.assign(new Error("SFTP did not start on site: Connection refused"), { name: "SshConnectError" });
     const fail = async () => { throw lost; };
-    Object.assign(w.fs, { list: fail, execStream: fail, exec: fail });
+    Object.assign(w.fs, { list: fail, execStream: fail, exec: fail, realpath: fail });
     expect(only(await w.call<ServersStatus>("check", { cwd: w.local, targetId: TARGET_ID }))).toMatchObject({ state: "unreachable", unreachable: lost.message });
   });
 

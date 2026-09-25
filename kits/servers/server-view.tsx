@@ -4,6 +4,7 @@ import {
   DiffView, Empty, READ_ONLY_REASON, Skeleton, Spinner, errorMessage, tooltipProps, useCommandAllowed,
   type HostExtensionClient, type StageTabHandle, type UiFileDiff, type WorkbenchActions,
 } from "tau";
+import { DriftPanel, type DriftFeed } from "./drift-view.js";
 import { PendingList } from "./pending-list.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
@@ -21,6 +22,8 @@ export interface TerminalRunService {
 export interface ServerViewParts {
   store: ServersStatusStore;
   host: HostExtensionClient;
+  /** Server drift as the drift service keeps it: the tab shows its panel. */
+  drift: DriftFeed;
   terminal(): TerminalRunService | undefined;
 }
 
@@ -61,26 +64,6 @@ export function ServerGitLine({ git }: { git: ServerGitInfo | undefined }) {
       <span>{git.changed === 0 ? "clean" : `${git.changed} uncommitted`}</span>
       {last ? <span className="servers-git-commit">{last.sha.slice(0, 7)} {last.subject}</span> : null}
     </span>
-  );
-}
-
-function DriftList({ target }: { target: TargetStatus }) {
-  const rows = target.drift ?? [];
-  if (rows.length === 0) return <Empty size="compact" icon={<Server size={16} />} title="No changes on the server" description={`The server matched the mirror state when Tau last checked, ${ago(target.checkedAt)}.`} />;
-  return (
-    <div className="servers-drift">
-      <p className="servers-group-note">Changed on the server since Tau last read it{target.driftMethod ? ` (listed ${target.driftMethod === "shell" ? "with the server's shell" : "over SFTP"})` : ""}. Your local files are untouched.</p>
-      <ul className="servers-files">
-        {rows.map((row) => (
-          <li key={row.path} className={`servers-file${target.conflicts.includes(row.path) ? " conflict" : ""}`}>
-            <span className={`servers-change ${row.change}`} aria-hidden="true">{row.change === "added" ? "A" : row.change === "deleted" ? "D" : "M"}</span>
-            <span className="servers-file-name">{row.path}</span>
-            {target.conflicts.includes(row.path) ? <span className="servers-tag danger">changed here too</span> : null}
-            {row.certain ? null : <span className="servers-tag" {...tooltipProps("Only size and time differ; the server could not hash it.")}>likely</span>}
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 
@@ -198,7 +181,6 @@ export default function ServerView({ params, handle, actions, parts }: { params:
     );
     return () => { live = false; };
   }, [tab, cwd, params.targetId, mirrorCommit, parts.host]);
-  useEffect(() => { if (tab === "drift" && !target?.drift?.length) setTab("pending"); }, [tab, target?.drift?.length]);
 
   if (entry.error && !target) return <div className="servers-view"><Empty icon={<AlertTriangle size={18} />} title="Could not read the server status" description={entry.error} /></div>;
   if (!entry.status) return <div className="servers-view" aria-busy="true"><Skeleton shape="card" /></div>;
@@ -268,7 +250,7 @@ export default function ServerView({ params, handle, actions, parts }: { params:
       <nav className="servers-tabs">
         <div className="toggle-group" role="tablist" aria-label="Server sections">
           <button role="tab" aria-selected={tab === "pending"} className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>Not uploaded {target.pendingTotal}</button>
-          {driftCount > 0 ? <button role="tab" aria-selected={tab === "drift"} className={tab === "drift" ? "active" : ""} onClick={() => setTab("drift")}>Changed on the server {driftCount}</button> : null}
+          <button role="tab" aria-selected={tab === "drift"} className={tab === "drift" ? "active" : ""} onClick={() => setTab("drift")}>Changed on the server{driftCount > 0 ? ` ${driftCount}` : ""}</button>
           <button role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
         </div>
       </nav>
@@ -296,7 +278,7 @@ export default function ServerView({ params, handle, actions, parts }: { params:
             </div>
           )
         ) : null}
-        {tab === "drift" ? <DriftList target={target} /> : null}
+        {tab === "drift" ? <DriftPanel context={{ host: parts.host }} feed={parts.drift} cwd={cwd} targetId={target.targetId} /> : null}
         {tab === "history" ? (
           history.error ? <p className="servers-error" role="alert">{history.error}</p>
             : !history.entries ? <Skeleton shape="card" />

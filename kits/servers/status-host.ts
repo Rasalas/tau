@@ -1,4 +1,5 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
+import type { DriftService } from "./drift.js";
 import type { ServerSsh } from "./ssh-service.js";
 import { ensureControlDir } from "./ssh-target.js";
 import { sshTerminalCommand } from "./ssh-terminal.js";
@@ -14,6 +15,7 @@ export function createServerStatus(context: HostExtensionContext, parts: {
   targets: ServerTargets;
   sync: SyncService;
   ssh: ServerSsh;
+  drift: DriftService;
   git: GitCall;
 }): ServerStatusService {
   const { services } = context;
@@ -23,6 +25,10 @@ export function createServerStatus(context: HostExtensionContext, parts: {
     list: (cwd) => parts.targets.list(cwd),
     compare: (input) => parts.sync.compare(input),
     transport: (input) => parts.ssh.transport(input),
+    drift: {
+      state: (cwd) => parts.drift.state(cwd),
+      check: (input) => parts.drift.check(input, { quiet: true }),
+    },
     async terminalCommand(input) {
       const transport = await parts.ssh.transport(input);
       const ssh = services.findCommand("ssh");

@@ -13,7 +13,8 @@ import type { ServersStore, TargetKey } from "./store.js";
 import { gitCall, type GitCall } from "./sync/git.js";
 import { loadMirrorState, Mirror } from "./sync/mirror.js";
 import { hasGitSegment, isInside, isSyncPath, localPath } from "./sync/paths.js";
-import type { CompareResult, DriftRow, ListMethod, MirrorInfo, SyncChange } from "./sync/protocol.js";
+import type { CompareResult, DriftRow, MirrorInfo, SyncChange } from "./sync/protocol.js";
+import type { DriftState } from "./drift-protocol.js";
 import { isTargetLevel, readTargetFile, updateTargetFile } from "./target-settings.js";
 import { readTrust } from "./trust.js";
 import {
@@ -28,6 +29,12 @@ export interface ServerStatusOptions {
   /** A project's targets as they read now. */
   list(cwd: string): Promise<{ project: Project; targets: SftpJsonTarget[] }>;
   compare(input: { cwd: string; targetId: string; pending?: boolean; drift?: boolean }): Promise<CompareResult>;
+  /** Server drift is the drift service's: the same result the composer gate and the drift tab show. */
+  drift?: {
+    state(cwd: string): Promise<DriftState>;
+    /** Records a failure in the state rather than throwing. */
+    check(input: { cwd: string; targetId: string }): Promise<DriftState>;
+  };
   /** The connected transport; throws when the server cannot be reached. */
   transport(input: { cwd: string; targetId: string }): Promise<ServerFs & { probe?: { commands: readonly string[] } | undefined }>;
   /** The line a terminal types to log in to the target, once connected. */
@@ -46,8 +53,6 @@ interface TargetRecord {
   liveConfigs: LiveConfigRow[];
   mirror?: MirrorInfo;
   pendingAt?: number;
-  drift?: DriftRow[];
-  driftMethod?: ListMethod;
   checkedAt?: string;
   unreachable?: string;
   error?: string;
@@ -135,12 +140,6 @@ export class ServerStatusService {
   private async refreshPending(workspace: string, project: Project, target: SftpJsonTarget): Promise<void> {
     const record = this.record(workspace, target.id);
     const result = await this.options.compare({ cwd: workspace, targetId: target.id, drift: false });
-    if (record.mirror && result.mirror?.commit !== record.mirror.commit) {
-      // Drift was measured against a mirror state that is gone.
-      delete record.drift;
-      delete record.driftMethod;
-      record.autoChecked = false;
-    }
     if (result.mirror) record.mirror = result.mirror; else delete record.mirror;
     const key: TargetKey = { workspaceId: project.workspaceId, targetId: target.id };
     const trust = await readTrust(this.options.store, key);
@@ -166,8 +165,12 @@ export class ServerStatusService {
   private async compose(workspace: string, project: Project, targets: readonly SftpJsonTarget[]): Promise<ServersStatus> {
     const file = join(project.root, SFTP_JSON_PATH);
     const hasFile = await access(file).then(() => true, () => false);
+    const drift = await this.options.drift?.state(workspace).catch(() => undefined);
     const rows = await Promise.all(targets.map(async (target): Promise<TargetStatus> => {
       const record = this.record(workspace, target.id);
+      const drifted = drift?.targets.find((entry) => entry.targetId === target.id);
+      const driftRows: DriftRow[] | undefined = drifted?.check?.files;
+      const error = record.error ?? drifted?.error;
       const key: TargetKey = { workspaceId: project.workspaceId, targetId: target.id };
       const { level } = await readTargetFile(this.options.store, key).catch(() => ({ level: "ask" as const }));
       const unusable = target.usable ? undefined : target.issues.find((issue) => issue.level === "error")?.message ?? "sftp.json names no server Tau can reach.";
@@ -179,21 +182,21 @@ export class ServerStatusService {
         context: target.context,
         ...(target.profile ? { profile: target.profile } : {}),
         level,
-        state: deriveState({ usable: target.usable, ...(record.unreachable ? { unreachable: record.unreachable } : {}), mirror: record.mirror, pending: record.pending, ...(record.drift ? { drift: record.drift } : {}) }),
-        checking: record.checking,
+        state: deriveState({ usable: target.usable, ...(record.unreachable ? { unreachable: record.unreachable } : {}), mirror: record.mirror, pending: record.pending, ...(driftRows ? { drift: driftRows } : {}) }),
+        checking: record.checking || drifted?.checking === true,
         pending: record.pending,
         pendingTotal: record.pendingTotal,
         withheld: record.withheld,
-        conflicts: conflictsOf(record.pending, record.drift),
+        conflicts: conflictsOf(record.pending, driftRows),
         liveConfigs: record.liveConfigs,
         uncommittedThreads: await this.options.uncommittedThreads?.(key).catch(() => []) ?? [],
       };
       if (record.mirror) status.mirror = record.mirror;
-      if (record.drift) status.drift = record.drift;
-      if (record.driftMethod) status.driftMethod = record.driftMethod;
+      if (driftRows) status.drift = driftRows;
+      if (drifted?.check) status.driftCheckedAt = drifted.check.at;
       if (record.checkedAt) status.checkedAt = record.checkedAt;
       if (record.unreachable) status.unreachable = record.unreachable;
-      if (record.error) status.error = record.error;
+      if (error) status.error = error;
       if (unusable) status.unusable = unusable;
       if (record.serverGit) status.serverGit = record.serverGit;
       if (record.caps) status.caps = record.caps;
@@ -222,14 +225,18 @@ export class ServerStatusService {
       if (stale) await this.once(`pending\0${workspace}\0${target.id}`, () => this.refreshPending(workspace, project, target)).catch((error: unknown) => { record.error = message(error); });
       if (!record.autoChecked && !this.stopped.signal.aborted) {
         record.autoChecked = true;
-        void this.check({ cwd: workspace, targetId: target.id }).catch(() => undefined);
+        void this.check({ cwd: workspace, targetId: target.id }, { drift: false }).catch(() => undefined);
       }
     }));
     return this.compose(workspace, project, targets);
   }
 
-  /** Reaches the server: whether it answers, what changed there, and its Git. */
-  async check(raw: unknown): Promise<ServersStatus> {
+  /**
+   * Reaches the server: whether it answers, its Git and, unless `drift` is
+   * false, what changed there. The check Tau starts by itself leaves drift
+   * to the drift service's own check when the project opens.
+   */
+  async check(raw: unknown, options: { drift?: boolean } = {}): Promise<ServersStatus> {
     const { cwd, targetId } = decodeRef(raw);
     const { workspace, project, targets } = await this.open(cwd);
     const target = targets.find((candidate) => candidate.id === targetId);
@@ -253,14 +260,13 @@ export class ServerStatusService {
         delete record.unreachable;
         record.caps = fs.caps;
         try {
-          const result = await this.options.compare({ cwd: workspace, targetId, pending: false });
-          if (result.drift) { record.drift = result.drift.rows; record.driftMethod = result.drift.method; }
-          else { delete record.drift; delete record.driftMethod; }
+          // A connection that was up and has gone: the master is reused, so ask the server once.
+          await fs.realpath("", { area: "project" });
         } catch (error) {
-          // A connection that was up and has gone: the server stopped answering.
           if (lostConnection(error)) { record.unreachable = message(error); return; }
           record.error = message(error);
         }
+        if (options.drift !== false) await this.options.drift?.check({ cwd: workspace, targetId }).catch((error: unknown) => { record.error = message(error); });
         record.serverGit = await readServerGit(fs, Boolean(fs.probe?.commands.includes("git")), this.stopped.signal)
           .catch((error: unknown) => ({ repository: false as const, reason: message(error) }));
         // When the server last answered; an unreachable one keeps the time it last did.
