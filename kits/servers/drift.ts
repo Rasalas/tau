@@ -349,6 +349,19 @@ export class DriftService {
     return { state, ...(imported ? { imported: { ...imported, files: imported.files.map(publicFile) } } : {}) };
   }
 
+  /**
+   * Paths whose server state is in the mirror now (uploaded, or taken from the
+   * server by hand): they leave the last check's list, which is otherwise kept.
+   */
+  async settled(key: TargetKey, root: string, paths: readonly string[]): Promise<void> {
+    if (!paths.length) return;
+    const done = new Set(paths);
+    await this.update(key, (record) => {
+      if (record.check) record.check.files = record.check.files.filter((file) => !done.has(file.path));
+    });
+    this.emit(root);
+  }
+
   private async findImport(cwd: unknown, targetId: unknown, branch: unknown) {
     if (typeof targetId !== "string" || typeof branch !== "string") throw new HostCommandError("Name the server and the branch.");
     const { project } = await this.project(cwd);

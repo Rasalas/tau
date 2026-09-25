@@ -93,6 +93,11 @@ export class Mirror {
     this.git = options.git ?? gitCall();
   }
 
+  /** The environment every git call on the shadow repository runs with. */
+  gitEnv(): Record<string, string> {
+    return this.env();
+  }
+
   // The user's config stays out: no hooks, no signing, no object format of theirs.
   private env(read = false): Record<string, string> {
     return {
@@ -133,16 +138,19 @@ export class Mirror {
     return result.code === 0 ? result.stdout.toString("utf8").trim() : undefined;
   }
 
-  /** A commit whose tree holds `entries` (blobs already written), on top of the current state; the ref is not moved. */
-  async commit(entries: Readonly<Record<string, MirrorEntry>>, message: string): Promise<string> {
+  /**
+   * A commit whose tree holds `entries` (blobs already written), on top of the
+   * current state or of `parent` (`null`: none); no ref is moved.
+   */
+  async commit(entries: Readonly<Record<string, MirrorEntry>>, message: string, parent?: string | null): Promise<string> {
     const index = join(this.dir, `tau-index-${randomBytes(6).toString("hex")}`);
     try {
       const lines = Object.entries(entries).map(([path, entry]) => `${entry.mode & 0o111 ? "100755" : "100644"} ${entry.oid}\t${path}\0`).join("");
       await this.run(["update-index", "--add", "-z", "--index-info"], { input: lines, env: { GIT_INDEX_FILE: index } });
       const tree = (await this.run(["write-tree"], { env: { GIT_INDEX_FILE: index } })).toString("utf8").trim();
-      const parent = await this.head();
+      const base = parent === undefined ? await this.head() : parent ?? undefined;
       const identity = { GIT_AUTHOR_NAME: "Tau", GIT_AUTHOR_EMAIL: "tau@localhost", GIT_COMMITTER_NAME: "Tau", GIT_COMMITTER_EMAIL: "tau@localhost" };
-      const args = ["commit-tree", "--no-gpg-sign", tree, ...(parent ? ["-p", parent] : []), "-m", message];
+      const args = ["commit-tree", "--no-gpg-sign", tree, ...(base ? ["-p", base] : []), "-m", message];
       return (await this.run(args, { env: identity })).toString("utf8").trim();
     } finally {
       await rm(index, { force: true });
@@ -151,6 +159,20 @@ export class Mirror {
 
   async setHead(commit: string, previous: string | undefined): Promise<void> {
     await this.run(["update-ref", "-m", "tau: mirror state", MIRROR_REF, commit, previous ?? ZERO_OID]);
+  }
+
+  /** Points another ref of the shadow repository (a deployment's) at `commit`. */
+  async setRef(ref: `refs/tau/${string}`, commit: string): Promise<void> {
+    await this.run(["update-ref", "-m", "tau", ref, commit]);
+  }
+
+  async deleteRef(ref: `refs/tau/${string}`): Promise<void> {
+    await this.run(["update-ref", "-d", ref]);
+  }
+
+  /** The tree id of a commit. */
+  async treeOf(commit: string): Promise<string> {
+    return (await this.run(["rev-parse", `${commit}^{tree}`])).toString("utf8").trim();
   }
 
   /** Path → blob id of a commit's tree (the current state by default). */
@@ -196,11 +218,21 @@ export async function loadMirrorState(store: ServersStore, key: TargetKey, mirro
   return { commit: index.commit, at: index.at, entries: new Map(Object.entries(index.entries)) };
 }
 
+export function sortedEntries(entries: ReadonlyMap<string, MirrorEntry>): Record<string, MirrorEntry> {
+  return Object.fromEntries([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
 export async function saveMirrorState(store: ServersStore, key: TargetKey, mirror: Mirror, entries: ReadonlyMap<string, MirrorEntry>, message: string): Promise<MirrorState> {
   await mirror.ensure();
-  const sorted = Object.fromEntries([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  const sorted = sortedEntries(entries);
   const previous = await mirror.head();
   const commit = await mirror.commit(sorted, message);
+  return recordMirrorState(store, key, mirror, entries, commit, previous);
+}
+
+/** Makes `commit` (whose tree holds `entries`) the mirror state, index first as `loadMirrorState` expects. */
+export async function recordMirrorState(store: ServersStore, key: TargetKey, mirror: Mirror, entries: ReadonlyMap<string, MirrorEntry>, commit: string, previous: string | undefined): Promise<MirrorState> {
+  const sorted = sortedEntries(entries);
   const at = new Date().toISOString();
   await store.write(key, MIRROR_INDEX_FILE, { commit, at, entries: sorted });
   await mirror.setHead(commit, previous);

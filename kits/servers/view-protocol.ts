@@ -1,5 +1,5 @@
 // What the server view's commands answer and emit; type imports only, so the desktop half may read it.
-import type { ServerCapabilities, ServerProtocol, TargetLevel } from "./protocol.js";
+import type { DeploymentStatus, ServerCapabilities, ServerProtocol, TargetLevel } from "./protocol.js";
 import type { DriftRow, MirrorInfo, SyncChange } from "./sync/protocol.js";
 
 /** A target's status changed (`{ workspace, status }`), for the clients that watch the topic. */
@@ -28,6 +28,8 @@ export interface PendingUploadRow {
   selected: boolean;
   /** Set when the local file or the server's copy holds credentials: labels of what was found, never a value. */
   credentials?: string[];
+  /** Why an upload cannot take this file now (an unmerged drift branch); the row cannot be chosen. */
+  blocked?: string;
 }
 
 export interface ServerGitCommit {
@@ -111,7 +113,17 @@ export interface HistoryFile {
   change: SyncChange;
 }
 
-/** One recorded server state: a read (download) or, later, a deployment. */
+/** The deployment a recorded state came from (`deployments.json`). */
+export interface HistoryDeployment {
+  seq: number;
+  kind: "upload" | "rollback";
+  status: DeploymentStatus;
+  branch?: string;
+  threadId?: string;
+  failed: number;
+}
+
+/** One recorded server state: a read (download), a drift import or a deployment. */
 export interface HistoryEntry {
   commit: string;
   parent?: string;
@@ -124,6 +136,7 @@ export interface HistoryEntry {
   deleted: number;
   /** Capped at `HISTORY_FILE_CAP`; the counts are complete. */
   files: HistoryFile[];
+  deployment?: HistoryDeployment;
 }
 
 export const HISTORY_FILE_CAP = 300;
