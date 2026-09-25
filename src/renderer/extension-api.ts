@@ -65,6 +65,8 @@ export type { FloatingAlign, FloatingSide } from "./components/ui/floating";
 export type { ToastAction, ToastHandle, ToastOptions, ToastType } from "../workbench/toast-store";
 export { FileKindIcon } from "./components/FileKindIcon";
 export { ThreadRow } from "./components/ThreadRow";
+// A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
+export { ProviderIconStack } from "./components/ProviderIconStack";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
 // Core's own Markdown renderer, and the highlighter behind its code blocks; highlight.js loads on first use.
 export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";
@@ -197,6 +199,8 @@ export type {
   UiEnvironments,
 } from "../shared/environments";
 export type { DiscoveredHost, UiDiscoveredHosts } from "../shared/discovery";
+/** A machine's load and readiness, as `host-resources` and `readiness` answer them (API 1.15.0). */
+export type { HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, RuntimeReadinessState } from "../shared/host-resources";
 /** The hosts one Bonjour search found, with a slot per host for an action (API 1.13.0). */
 export { NearbyMachineList } from "./settings/NearbyMachineList";
 export type { ClientStorage } from "../workbench/client-storage";

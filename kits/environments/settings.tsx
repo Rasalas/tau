@@ -15,6 +15,7 @@ import {
   type UiEnvironmentPairing,
   type UiEnvironments,
 } from "tau";
+import { MachineHealth } from "./health.js";
 import { formatDigits, statusText } from "./machines.js";
 import { AGENTS_EVENT, type AgentMachine, type AgentMachines } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
@@ -102,7 +103,7 @@ function AgentsSwitch({ machine, agent, environments, pairing }: {
   );
 }
 
-function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing }: {
+function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host }: {
   machine: UiEnvironment;
   shown: boolean;
   environments: PlatformEnvironments;
@@ -111,9 +112,14 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   /** Absent where this page cannot set up agents: another machine shown, or a host that keeps none. */
   agents?: AgentMachines;
   pairing?: UiEnvironmentPairing;
+  /** This computer's host, which asks a machine its agents reach how it is doing. */
+  host?: HostExtensionClient;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
+  const agent = agents?.machines.find((entry) => entry.id === machine.id);
+  // This computer answers its own host; another one only over its agents' connection.
+  const health = host && agents && (machine.local || agent?.status === "connected");
   const details = [
     machine.local ? "This computer" : machine.address?.replace(/^wss?:\/\//u, "").replace(/\/$/u, ""),
     statusText(machine, now),
@@ -144,8 +150,9 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
         )}
         <small title={machine.detail}>{details.join(" · ")}</small>
         {agents && !machine.local && environments.setAgents ? (
-          <AgentsSwitch machine={machine} agent={agents.machines.find((entry) => entry.id === machine.id)} environments={environments as PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>} pairing={pairing} />
+          <AgentsSwitch machine={machine} agent={agent} environments={environments as PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>} pairing={pairing} />
         ) : null}
+        {health ? <MachineHealth host={host} machine={machine.id} name={machine.name} /> : null}
       </div>
       {machine.local ? null : (
         <>
@@ -328,6 +335,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
               onRemove={() => setRemoving(machine)}
               {...(agents ? { agents } : {})}
               {...(list.pairing ? { pairing: list.pairing } : {})}
+              {...(agents && host ? { host } : {})}
             />
           ))}
         </SettingsSection>

@@ -1,4 +1,4 @@
-import type { EnvironmentTarget, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
+import type { EnvironmentTarget, HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, RuntimeReadinessState, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
 
 /** `5m`, `3h`, `2d`, then a date: the rail's own spelling. */
 export function shortAge(timestamp: number, now: number): string {
@@ -136,4 +136,61 @@ export function readPendingArrival(raw: string | null | undefined): PendingArriv
   } catch {
     return undefined;
   }
+}
+
+const GB = 1024 ** 3;
+
+function gigabytes(bytes: number): string {
+  const value = bytes / GB;
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} GB`;
+}
+
+/** "2 cores · CPU 14 % · 5.2 of 8.0 GB free · 1 turn running · on battery". */
+export function resourcesText(resources: HostResources): string {
+  const parts = [
+    `${resources.cpuCount} ${resources.cpuCount === 1 ? "core" : "cores"}`,
+    resources.cpuUtilization !== undefined ? `CPU ${Math.round(resources.cpuUtilization * 100)} %` : undefined,
+    `${gigabytes(resources.availableMemory)} of ${gigabytes(resources.totalMemory)} free`,
+    resources.runningTurns > 0 ? `${resources.runningTurns} ${resources.runningTurns === 1 ? "turn" : "turns"} running` : "idle",
+    resources.onBattery ? "on battery" : undefined,
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+const RUNTIME_STATE: Record<RuntimeReadinessState, string> = {
+  "ready": "ready",
+  "sign-in-required": "not signed in",
+  "not-installed": "not installed",
+  "unavailable": "unavailable",
+  "checking": "not checked yet",
+};
+
+/** "Codex · not signed in"; a runtime's tooltip and name for assistive technology. */
+export function runtimeText(runtime: RuntimeReadiness): string {
+  const models = runtime.state === "ready" && runtime.models ? ` (${runtime.models} ${runtime.models === 1 ? "model" : "models"})` : "";
+  return `${runtime.label} · ${RUNTIME_STATE[runtime.state]}${models}${runtime.version ? ` · ${runtime.version}` : ""}`;
+}
+
+const DISPLAY_TEXT: Record<HostDisplayKind, string> = {
+  screen: "Screen",
+  x11: "X display",
+  wayland: "Wayland display",
+  invisible: "Invisible display",
+  none: "No display",
+};
+
+/** Git, disk and display as short facts, with `problem` saying why one keeps work from moving there. */
+export function readinessFacts(readiness: HostReadiness): Array<{ text: string; title?: string; problem?: string }> {
+  const { git, disk, display } = readiness;
+  return [
+    !git.version
+      ? { text: "No Git", problem: "Git is not on its PATH." }
+      : git.mergeTree
+        ? { text: `Git ${git.version}` }
+        : { text: `Git ${git.version}`, problem: `Git ${git.version} is older than 2.38: work coming back cannot be checked for conflicts before a merge.` },
+    disk.free !== undefined
+      ? { text: `${gigabytes(disk.free)} free for worktrees`, title: disk.path, ...(disk.free < 2 * GB ? { problem: `Less than 2 GB free in ${disk.path}.` } : {}) }
+      : { text: "Free space unknown", title: disk.path, problem: `Could not look at ${disk.path}${disk.error ? `: ${disk.error}` : "."}` },
+    { text: `${DISPLAY_TEXT[display.kind]}${display.name ? ` ${display.name}` : ""}` },
+  ];
 }

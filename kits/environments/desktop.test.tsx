@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DiscoveredHost, EnvironmentPairResult, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
+import type { DiscoveredHost, EnvironmentPairResult, HostReadiness, HostResources, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
 import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
@@ -234,10 +234,14 @@ describe("Settings → Machines", () => {
 });
 
 describe("Settings → Machines: this computer's agents", () => {
-  function agentsHost(machines: Array<{ id: string; name: string; status: "connected" | "refused"; detail?: string }>) {
+  function agentsHost(machines: Array<{ id: string; name: string; status: "connected" | "refused"; detail?: string }>, answers: Record<string, (input: unknown) => unknown> = {}) {
     let emit: ((payload: unknown) => void) | undefined;
     const host = {
-      invoke: vi.fn(async () => ({ available: true, machines })),
+      invoke: vi.fn(async (command: string, input?: unknown) => {
+        if (answers[command]) return answers[command](input);
+        // Load and readiness stay unanswered unless a test gives them.
+        return command === "agents" ? { available: true, machines } : new Promise(() => undefined);
+      }),
       onEvent: vi.fn((_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; }),
     };
     return { host, emit: (payload: unknown) => act(() => emit?.(payload)) };
@@ -292,6 +296,61 @@ describe("Settings → Machines: this computer's agents", () => {
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "attic.local" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
     expect(environments.pair).toHaveBeenLastCalledWith({ text: "attic.local", agents: false });
+  });
+
+  it("shows how busy this computer and each machine its agents reach are, and what each could run", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+    const GB = 1024 ** 3;
+    const resources = (input: unknown): HostResources => (input as { machine: string }).machine === "studio"
+      ? { sampledAt: 1, cpuCount: 2, cpuUtilization: 0.14, totalMemory: 8 * GB, availableMemory: 5.2 * GB, runningTurns: 1 }
+      : { sampledAt: 1, cpuCount: 10, cpuUtilization: 0.5, totalMemory: 32 * GB, availableMemory: 20 * GB, runningTurns: 0, onBattery: true };
+    const readiness = (): HostReadiness => ({
+      checkedAt: 1,
+      runtimes: [
+        { kind: "pi", label: "Pi", state: "ready", models: 3 },
+        { kind: "codex", label: "Codex", state: "sign-in-required", note: "Codex is not signed in." },
+        { kind: "claude-code", label: "Claude Code", state: "not-installed" },
+      ],
+      git: { version: "2.34.1", mergeTree: false },
+      disk: { path: "/home/rex/.tau", free: 41 * GB, total: 100 * GB },
+      display: { kind: "invisible", name: ":99" },
+    });
+    const { host } = agentsHost([
+      { id: "studio", name: "studio", status: "connected" },
+      { id: "attic", name: "attic", status: "refused", detail: "revoked" },
+    ], { resources, readiness });
+    const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
+    render(<Page />);
+    await act(async () => undefined);
+    const studioHealth = within(screen.getByRole("group", { name: "How studio is doing" }));
+    expect(studioHealth.getByText("2 cores · CPU 14 % · 5.2 GB of 8.0 GB free · 1 turn running")).toBeTruthy();
+    expect(studioHealth.getByRole("img", { name: "Pi · ready (3 models)" })).toBeTruthy();
+    expect(studioHealth.getByRole("img", { name: "Codex · not signed in" })).toBeTruthy();
+    expect(studioHealth.getByRole("img", { name: "Claude Code · not installed" })).toBeTruthy();
+    expect(studioHealth.getByText("1 of 3 ready · Git 2.34.1 · 41.0 GB free for worktrees · Invisible display :99")).toBeTruthy();
+    expect(studioHealth.getByText(/older than 2\.38/u)).toBeTruthy();
+    // This computer answers its own host.
+    expect(within(screen.getByRole("group", { name: "How laptop is doing" })).getByText(/10 cores · CPU 50 % · 20.0 GB of 32.0 GB free · idle · on battery/u)).toBeTruthy();
+    // A machine whose agents' key is refused is not asked.
+    expect(screen.queryByRole("group", { name: "How attic is doing" })).toBeNull();
+    expect(host.invoke).not.toHaveBeenCalledWith("resources", { machine: "attic" });
+    const asked = host.invoke.mock.calls.length;
+    await act(async () => { studioHealth.getByRole("button", { name: "Check again" }).click(); });
+    expect(host.invoke.mock.calls.slice(asked)).toEqual([["resources", { machine: "studio" }], ["readiness", { machine: "studio" }]]);
+  });
+
+  it("says what it could not learn about a machine", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const { host } = agentsHost([{ id: "studio", name: "studio", status: "connected" }], {
+      resources: () => { throw new Error("rex is offline."); },
+      readiness: () => { throw new Error("readiness: unknown method"); },
+    });
+    const Page = createMachinesPage({ ...environments, setAgents: vi.fn() }, host);
+    render(<Page />);
+    await act(async () => undefined);
+    const health = within(screen.getByRole("group", { name: "How studio is doing" }));
+    expect(health.getByText("Load unknown: rex is offline.")).toBeTruthy();
+    expect(health.getByText("Readiness unknown: readiness: unknown method")).toBeTruthy();
   });
 
   it("offers nothing about agents while the page shows another machine", async () => {

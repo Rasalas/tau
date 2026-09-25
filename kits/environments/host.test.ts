@@ -42,4 +42,24 @@ describe("Machines Kit on the host", () => {
     const paired = { kind: "workbench-client" as const, connection: "c1", pairedClient: "d1" };
     expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "whoami", undefined, paired)).toEqual({ device: "d1", owner: false });
   });
+
+  it("asks a machine how busy it is and what it could run, only when called", async () => {
+    const { machines } = fakeMachines([]);
+    machines.request = vi.fn(async (_machine: string, method: string) => ({ method }));
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines });
+    expect(machines.request).not.toHaveBeenCalled();
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "resources", { machine: "rex" })).toEqual({ method: "host-resources" });
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "readiness", { machine: "mini-id" })).toEqual({ method: "readiness" });
+    expect(machines.request).toHaveBeenCalledWith("rex", "host-resources", [], { timeoutMs: 20_000 });
+    expect(machines.request).toHaveBeenCalledWith("mini-id", "readiness", [], { timeoutMs: 20_000 });
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "resources", {})).rejects.toThrow(/name a machine/u);
+    // A paired device may look.
+    const paired = { kind: "workbench-client" as const, connection: "c1", pairedClient: "d1", readOnly: true as const };
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "readiness", { machine: "rex" }, paired)).resolves.toEqual({ method: "readiness" });
+  });
+
+  it("has nothing to ask on a host that keeps no machines", async () => {
+    const registry = await activateHostKit(createEnvironmentsHostExtension());
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "resources", { machine: "rex" })).rejects.toThrow(/keeps no machines/u);
+  });
 });

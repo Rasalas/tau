@@ -89,3 +89,18 @@
 .machine-agents-line { display: flex; align-items: center; gap: 8px; }
 .machine-agents-line .switch { flex: none; }
 .machine-agents .machine-add-result { margin: 0; }
+
+/* How busy a machine is and what it could run (`resources`, `readiness`): under the row's details. */
+.machine-health { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.machine-health-line { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.machine-health small { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.machine-health small.problem { color: var(--warn); }
+.machine-health .text-button { font-size: 11.5px; }
+.machine-runtimes { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.machine-runtime { position: relative; display: inline-flex; }
+.machine-runtime:not(.ready) .provider-icon-stack { opacity: 0.45; }
+.machine-runtime:not(.ready)::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 1.5px var(--raised);
+}
+.machine-runtime.not-installed::after, .machine-runtime.checking::after { background: var(--faint); }
