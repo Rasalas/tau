@@ -2,7 +2,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlatformEnvironments, SettingsPageProps } from "tau";
-import type { Platform } from "../../src/workbench/platform.js";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import remoteWork, { REMOTE_WORK_SETTINGS_PAGE } from "./desktop.js";
@@ -40,7 +39,7 @@ const TRANSFER: RepoTransfer = {
   remote: { path: "/home/rex/.tau/remote-work/worktrees/app/abcdef0123456789", branch: "tau/remote-abcdef0123456789" },
 };
 
-function setup(answer: (command: string, input?: unknown) => unknown, cwd: string | null = "/work/app", platform?: Partial<Platform>) {
+function setup(answer: (command: string, input?: unknown) => unknown, cwd: string | null = "/work/app", platform?: Parameters<typeof createKitHarness>[2]) {
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown) => answer(command, input));
   const { registry, preferences } = createKitHarness(invoke, undefined, platform);
   registry.activate(remoteWork);
