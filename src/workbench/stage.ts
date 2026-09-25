@@ -27,6 +27,11 @@ export interface StageFileTab extends StageTabBase {
 export interface StageThreadTab extends StageTabBase {
   kind: "thread";
   sessionId: string;
+  /**
+   * The machine the thread runs on, when it is not the one this page shows:
+   * the tab reads it over the window's connection there (API 1.15.0).
+   */
+  machine?: string;
 }
 
 /**
@@ -63,8 +68,8 @@ export function fileTabId(path: string): string {
   return `file:${path}`;
 }
 
-export function threadTabId(sessionId: string): string {
-  return `thread:${sessionId}`;
+export function threadTabId(sessionId: string, machine?: string): string {
+  return machine ? `thread:${machine}:${sessionId}` : `thread:${sessionId}`;
 }
 
 export function panelTabId(panelId: string): string {
@@ -133,13 +138,13 @@ export function openFileTab(state: StageState, path: string, options: { view?: S
   return openTab(state, { id, kind: "file", path, view: view ?? "source", preview: !options.pin, ...(line ? { line, reveal: 1 } : {}) });
 }
 
-export function openThreadTab(state: StageState, sessionId: string, options: { pin?: boolean } = {}): StageState {
-  const id = threadTabId(sessionId);
+export function openThreadTab(state: StageState, sessionId: string, options: { pin?: boolean; machine?: string } = {}): StageState {
+  const id = threadTabId(sessionId, options.machine);
   const existing = state.tabs.find((tab) => tab.id === id);
   if (existing?.kind === "thread") {
     return reopen(state, existing, { ...existing, preview: existing.preview && !options.pin });
   }
-  return openTab(state, { id, kind: "thread", sessionId, preview: !options.pin });
+  return openTab(state, { id, kind: "thread", sessionId, ...(options.machine ? { machine: options.machine } : {}), preview: !options.pin });
 }
 
 /**

@@ -4,6 +4,7 @@ import { EMPTY_STAGE, openFileTab, openPanelTab, openThreadTab, type StageState 
 import { stageStateKey } from "./storage-keys";
 import {
   EMPTY_DOCK,
+  decodeStageState,
   pruneStageState,
   readDockState,
   readStageState,
@@ -92,6 +93,13 @@ describe("pruneStageState", () => {
       knownThreadIds: new Set(["thread-live"]),
     });
     expect(pruned.tabs.map((tab) => tab.id)).toEqual(["file:/repo/a.ts", "thread:thread-live"]);
+  });
+
+  it("keeps another machine's thread, which this index never lists", () => {
+    const remote = openThreadTab(EMPTY_STAGE, "t9", { pin: true, machine: "host-rex" });
+    expect(pruneStageState(remote, { knownThreadIds: new Set() })).toBe(remote);
+    expect(decodeStageState(JSON.parse(JSON.stringify(remote)))).toEqual(remote);
+    expect(decodeStageState({ tabs: [{ ...remote.tabs[0], machine: 7 }] }).tabs).toEqual([]);
   });
 
   it("leaves threads alone until the index has arrived", () => {

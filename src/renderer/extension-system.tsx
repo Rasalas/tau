@@ -96,8 +96,13 @@ export interface WorkbenchActions {
   } | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
-  /** Opens a thread in the stage as a read-only tab, leaving the active thread alone. */
-  openThread(sessionId: string, options?: { pin?: boolean }): void;
+  /**
+   * Opens a thread in the stage as a read-only tab, leaving the active thread
+   * alone. `machine` (a host id, or a machine's unique name) reads a thread of
+   * another machine this window knows, live over the window's connection
+   * there, with "Open on <machine>" to move the window to it (API 1.15.0).
+   */
+  openThread(sessionId: string, options?: { pin?: boolean; machine?: string }): void;
   /**
    * Opens a tab of a kind an extension registered with `registerStageTab` and
    * answers with its tab id. Two opens with the same params are the same tab;

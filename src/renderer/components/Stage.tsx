@@ -6,6 +6,9 @@ import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";
+import { lookInMachine } from "../../workbench/look-in";
+import { usePlatform } from "../platform-context";
+import { RemoteThreadDocument } from "./RemoteThreadDocument";
 import { ThreadDocument } from "./ThreadDocument";
 import "./stage-panels.css";
 
@@ -74,6 +77,8 @@ export function Stage({
   renderPanel?(panelId: string): ReactNode;
 }) {
   const current = activeTab(stage);
+  const environments = usePlatform().environments;
+  const lookIn = current?.kind === "thread" ? lookInMachine(current.machine, environments) : undefined;
   const changedRelative = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
   const changedAbsolute = useMemo(
     () => new Set(cwd ? changes.files.map((file) => `${cwd}/${file.path}`) : []),
@@ -115,6 +120,8 @@ export function Stage({
         {...(stageTabs ? { stageTabs } : {})}
         actions={actions}
       />
+    ) : current.kind === "thread" && lookIn ? (
+      <RemoteThreadDocument key={current.id} machine={lookIn} sessionId={current.sessionId} />
     ) : current.kind === "thread" ? (
       <ThreadDocument
         key={current.id}

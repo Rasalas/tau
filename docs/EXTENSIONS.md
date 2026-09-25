@@ -967,7 +967,21 @@ puts a thread there instead — its transcript, read-only, with the title, statu
 and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
 `{ pin: true }` for a tab the next preview must not replace. Agents Kit opens a
-spawned thread that way rather than switching to it. A thread reads whether or
+spawned thread that way rather than switching to it.
+New in API 1.15.0, `openThread(sessionId, { machine })` opens a thread of
+another machine this window knows (its host id, or its unique name; the machine
+the page shows opens as above). The tab reads the transcript over the window's
+own connection to that machine (`context.environments.transcriptPage`), which
+receives the thread's stream only while the tab is open, and reads it again at
+each change; it shows the machine, the run state, the cost, a question the
+thread waits on there, and why it may be stale (offline, refused, deleted
+there). Instead of "Take over" it offers "Open on <machine>", which moves the
+window there with the thread open (ADR 0025). A client without a window process
+shows the tab with a note and nothing else; an older core ignores `machine`, so
+a kit that must not open a local thread of the same id checks
+`context.environments?.watchThread` first. Machines Kit's rail and Remote Work
+Kit's question notice open such tabs; so do the Agents panel's rows of
+sub-agents on another machine. A thread reads whether or
 not the host still holds a runtime for it: runtimes are capped, idle ones are
 released oldest first, and one nobody used for ten minutes is released too, so a
 released thread's transcript is projected from its session file, with the same
@@ -2319,12 +2333,15 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `discover()` | New in API 1.13.0. `UiDiscoveredHosts`: the machines that announce themselves on this network, looked for a few seconds by the window's own host, whichever machine the page shows. A saved machine found with its pinned fingerprint takes the addresses it has now. Look only when the user asks: looking makes macOS ask about local network access. `NearbyMachineList` draws the result with an action slot per host. |
 | `shownElsewhere`, `showLocal()` | New in API 1.13.0. The id of the machine the page shows when it is not the window's own (from the page's address, so known before the list loads), and the way back. Core offers "Back to this computer" in the palette whenever `shownElsewhere` is set, whatever kits that machine serves. |
 | `pair({ …, agents })`, `setAgents?(id, on)` | New in API 1.15.0 ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)). A pairing asks for this machine's agents as a second device under the same approval unless `agents` is `false`, and the result's `agents` says whether their key reached this machine's host (`{ added: false, message }` when the other Tau issues none). `setAgents` turns the agents on for a saved machine (a pairing for them alone, with the digits as `pairing`) or off; it answers `{ state: "on" \| "off" \| "denied" \| "expired" \| "cancelled" }` or `{ state: "failed", message }`. |
+| `open(id, { threadId })` | New in API 1.15.0. Names a thread there by its id instead of its path; the window finds it in that machine's index, and rejects when it does not list it. |
+| `watchThread?(machine, sessionId, listener)`, `transcriptPage?(machine, sessionId, cursor?)` | New in API 1.15.0: a thread of another machine read without moving the window, what `openThread(id, { machine })` draws. While a listener is left, the window's connection to that machine subscribes to the thread (a lease the page renews every 20 s; the window lets it go a minute after the last renewal), and the listener hears a `UiEnvironmentThreadView` at once and at every change: `status` of the connection (`unknown` for a machine the window does not know), the thread's index entry (`title`, `path`, `running`, `usage`, …) once `indexed`, the dialog it waits on there (`asking`, when the window saw it asked), and a `revision` that grows with every change of its stream, a few times a second at most. `transcriptPage` reads its newest page there, with the window's key; read again when `revision` grows. |
 | `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
 
 The window's process answers all of it through client-side methods
 (`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
-`-open`, `-take-arrival`, `-discover`, `-set-preferences`, `-set-agents`) and the `environments` window event; a host refuses the
+`-open`, `-take-arrival`, `-discover`, `-set-preferences`, `-set-agents`, `-watch-thread`,
+`-transcript-page`) and the `environments` and `environment-thread` window events; a host refuses the
 methods with `unsupported`. Every kit a page loads comes from the machine it shows,
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
