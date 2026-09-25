@@ -116,6 +116,7 @@
 .servers-change.deleted { color: var(--danger); }
 .servers-choice { flex: none; display: grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--line-control); border-radius: 3px; color: var(--faint); }
 .servers-choice.chosen { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.servers-choice-hit { flex: none; display: inline-grid; place-items: center; }
 .servers-choice-box { flex: none; margin: 0; accent-color: var(--acid); }
 
 /* The upload: the list with a sticky bar, the preview's groups, and what went through. */
@@ -181,10 +182,22 @@
 .servers-compact .servers-file-name small { font-size: 12px; }
 .servers-compact .servers-group-head { padding-left: 4px; font-size: 13px; }
 .servers-compact .servers-group-note { padding-left: 4px; font-size: 13px; }
-.servers-compact .servers-history-entry { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 8px; padding: 8px 2px; }
-.servers-compact .servers-history-title { font-size: 15px; color: var(--ink); }
+.servers-compact .servers-history-head { min-height: 44px; padding: 0 2px; font-size: 15px; }
 .servers-compact .servers-history time { font-size: 13px; }
-.servers-compact .servers-history-meta { grid-column: 1 / -1; padding: 0; font-size: 13px; }
+.servers-compact .servers-history-meta { padding: 0 2px 6px 20px; font-size: 13px; }
+/* Upload and rollback on a phone: every control at least 44 px, the box centred in its hit area. */
+.servers-compact .servers-choice-hit { width: 44px; height: 44px; margin: 0 -8px 0 -10px; }
+.servers-compact .servers-choice-box { width: 20px; height: 20px; }
+.servers-compact .servers-upload { min-height: 0; }
+.servers-compact .servers-upload-bar { padding: 8px 0; }
+.servers-compact .servers-upload-bar > .chrome-button, .servers-compact .servers-three-way { min-height: 44px; padding: 0 14px; font-size: 15px; }
+.servers-compact .servers-upload-head { flex-wrap: wrap; padding: 4px 0 0; }
+.servers-compact .servers-upload-head h2 { font-size: 15px; }
+.servers-compact .servers-upload-head .icon-button { width: 44px; height: 44px; }
+.servers-compact .servers-plan-actions, .servers-compact .servers-file-confirm { padding-left: 20px; font-size: 13px; }
+.servers-compact .servers-plan-actions .text-button, .servers-compact .servers-file-confirm .text-button { min-height: 44px; padding: 0 8px; font-size: 14px; }
+.servers-compact .servers-upload-note { font-size: 13px; }
+.servers-stack { display: flex; flex-direction: column; gap: 8px; }
 .servers-compact-diff { max-height: 60vh; display: flex; flex-direction: column; border: 1px solid var(--line-card); border-radius: var(--radius-sm); overflow: hidden; }
 
 /* Add project → From a server…: connect, pick the folder, size overview, local folder. */

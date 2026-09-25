@@ -296,9 +296,10 @@ function RollbackPanel({ parts, actions, cwd, targetId, entry, onOpen, onClose, 
 
 /**
  * The history tab: every recorded server state and deployment, a deployment's
- * rollback and its "checked" mark. `main` is the diff of the chosen file.
+ * rollback and its "checked" mark. `main` is the diff of the chosen file;
+ * `stacked` puts it below the list, as a phone's sheet does.
  */
-export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main }: {
+export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main, stacked = false }: {
   parts: ServerViewParts;
   actions: WorkbenchActions;
   cwd: string;
@@ -306,6 +307,7 @@ export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main
   active: ServerDiffSource | undefined;
   onFile(entry: HistoryEntry, path: string): void;
   main: ReactNode;
+  stacked?: boolean;
 }) {
   const [history, setHistory] = useState<{ entries?: HistoryEntry[]; truncated?: boolean; error?: string }>({});
   const [rolling, setRolling] = useState<HistoryEntry & { deployment: HistoryDeployment }>();
@@ -340,25 +342,25 @@ export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main
     const entry = history.entries?.find((candidate) => candidate.deployment?.seq === seq);
     if (entry?.deployment) setRolling({ ...entry, deployment: entry.deployment });
   };
+  const list = rolling ? (
+    <RollbackPanel
+      key={rolling.deployment.seq}
+      parts={parts}
+      actions={actions}
+      cwd={cwd}
+      targetId={targetId}
+      entry={rolling}
+      onOpen={(path) => onFile(rolling, path)}
+      onClose={(changed) => { setRolling(undefined); if (changed) setReload((value) => value + 1); }}
+      onOther={other}
+    />
+  ) : (
+    <HistoryList entries={history.entries} truncated={history.truncated === true} active={active} busy={busy} onFile={onFile} onRollBack={setRolling} onMark={mark} />
+  );
+  if (stacked) return <div className="servers-stack">{list}{main}</div>;
   return (
     <div className="servers-split">
-      <aside className="servers-aside">
-        {rolling ? (
-          <RollbackPanel
-            key={rolling.deployment.seq}
-            parts={parts}
-            actions={actions}
-            cwd={cwd}
-            targetId={targetId}
-            entry={rolling}
-            onOpen={(path) => onFile(rolling, path)}
-            onClose={(changed) => { setRolling(undefined); if (changed) setReload((value) => value + 1); }}
-            onOther={other}
-          />
-        ) : (
-          <HistoryList entries={history.entries} truncated={history.truncated === true} active={active} busy={busy} onFile={onFile} onRollBack={setRolling} onMark={mark} />
-        )}
-      </aside>
+      <aside className="servers-aside">{list}</aside>
       <main className="servers-main">{main}</main>
     </div>
   );

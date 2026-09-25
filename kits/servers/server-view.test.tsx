@@ -200,6 +200,65 @@ describe("the servers on a compact client", () => {
     fireEvent.click(screen.getByRole("button", { name: /History/u }));
     await flush();
     expect(h.invoke).toHaveBeenCalledWith("server-history", { cwd: "/work/site", targetId: "sftp-site-1" });
-    expect(screen.getByText("No history yet.")).toBeTruthy();
+    expect(screen.getByText("No history yet")).toBeTruthy();
+  });
+
+  const HISTORY = {
+    targetId: "sftp-site-1",
+    entries: [{ commit: "2".repeat(40), parent: "1".repeat(40), at: new Date().toISOString(), subject: "Deployment 1: 1 changed", kind: "change", added: 0, modified: 1, deleted: 0, files: [{ path: "index.php", change: "modified" }], deployment: { seq: 1, kind: "upload", status: "uploaded", branch: "main", failed: 0 } }],
+  };
+  function withWrites(h: ReturnType<typeof harness>) {
+    const base = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (command: string, input?: unknown) => {
+      if (command === "deploy-preview") return { targetId: "sftp-site-1", files: [{ path: "index.php", op: "modify", outcome: "upload" }, { path: "about.php", op: "delete", outcome: "delete" }], kept: [], warnings: [] };
+      if (command === "deploy") return { targetId: "sftp-site-1", files: [], failed: [], deployment: { seq: 1, kind: "upload", files: [{ path: "index.php", op: "modify" }, { path: "about.php", op: "delete" }] } };
+      if (command === "server-history") return HISTORY;
+      if (command === "rollback-preview") return { targetId: "sftp-site-1", seq: 1, newer: [], threeWay: false, files: [{ path: "index.php", op: "modify", outcome: "upload" }] };
+      if (command === "rollback") return { targetId: "sftp-site-1", seq: 1, newer: [], threeWay: false, rolledBack: true, failed: [], files: [{ path: "index.php", op: "modify", outcome: "upload" }], deployment: { seq: 2, kind: "rollback", rollbackOf: 1, files: [{ path: "index.php", op: "modify" }] } };
+      return base(command, input);
+    });
+  }
+
+  it("uploads on a Full device only from the preview's button", async () => {
+    const h = sheet(PENDING, false);
+    withWrites(h);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted…" }));
+    await flush();
+    expect(h.invoke).toHaveBeenCalledWith("deploy-preview", expect.objectContaining({ cwd: "/work/site", targetId: "sftp-site-1" }));
+    expect(h.invoke.mock.calls.some(([command]) => command === "deploy")).toBe(false);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" })); });
+    await flush();
+    expect(h.invoke).toHaveBeenCalledWith("deploy", expect.objectContaining({ files: [{ path: "index.php", op: "modify" }, { path: "about.php", op: "delete" }] }));
+    expect(screen.getByText(/Deployment 1: .* on the server\./u)).toBeTruthy();
+  });
+
+  it("rolls a deployment back on a Full device after its preview", async () => {
+    const h = sheet(BASE, false);
+    withWrites(h);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: /History/u }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Roll back…" }));
+    await flush();
+    expect(h.invoke).toHaveBeenCalledWith("rollback-preview", { cwd: "/work/site", targetId: "sftp-site-1", seq: 1, threeWay: false });
+    expect(h.invoke.mock.calls.some(([command]) => command === "rollback")).toBe(false);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Roll back: 1 changed" })); });
+    await flush();
+    expect(h.invoke).toHaveBeenCalledWith("rollback", expect.objectContaining({ seq: 1 }));
+    expect(screen.getByText(/Deployment 1 is undone/u)).toBeTruthy();
+  });
+
+  it("shows a Read-only device the upload and rollback disabled with the reason", async () => {
+    const h = sheet(PENDING, true);
+    withWrites(h);
+    await flush();
+    const upload = screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted…" }) as HTMLButtonElement;
+    expect(upload.disabled).toBe(true);
+    expect(upload.getAttribute("data-tooltip")).toMatch(/read only/iu);
+    expect((screen.getByRole("checkbox", { name: "Chosen for the upload: index.php" }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /History/u }));
+    await flush();
+    expect((screen.getByRole("button", { name: "Roll back…" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
