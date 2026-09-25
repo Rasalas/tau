@@ -348,7 +348,7 @@ Three helpers, each touching only what it started (recorded under `.tau-dev/`, c
 | Helper | What it is |
 | --- | --- |
 | `npm run cdp:mobile -- …` (`scripts/tau-mobile-cdp.mjs`) | A headless Chromium as an iPhone, iPad or Android phone: device metrics, safe-area insets, a coarse pointer, an iOS user agent and real touch events (`Input.dispatchTouchEvent`). Its profile, and so the paired token, lives in `.tau-dev/mobile/chrome-profile`. |
-| `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host`, on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
+| `node scripts/tau-test-host.mjs …` | A headless host with its own home, userData and token under `.tau-dev/test-host` (`--name <name>`: `.tau-dev/test-host-<name>`), on 127.0.0.1, optionally with the proxy listener (`--proxy`) or TLS (`--tls`). |
 | `node mobile/scripts/sim-device.mjs …` | A simulator of this worktree's own: create, boot, install, launch and the automation bridge in one step, and `down` deletes exactly that device. |
 
 The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.cache/ms-playwright` on Linux), else an installed Chrome or Chromium, else `TAU_MOBILE_CHROME`. It opens only loopback URLs and names that `launch --resolve` maps to 127.0.0.1.
@@ -446,6 +446,37 @@ node mobile/scripts/sim-device.mjs down                            # shut down a
 ```
 
 The simulator shares the Mac's loopback, so the app reaches the instance on 127.0.0.1, where the app accepts plaintext only because it runs in a simulator. A fresh simulator's first boot keeps the machine busy for a minute or two; run `down` as soon as the check is done. `mobile/README.md` has the bridge's helpers (`tap`, `type`, `text`, …) and the Android emulator. Never install on a real device and never sign with the user's account.
+
+## Another machine: named test hosts ("rex")
+
+Work that moves to another machine (host to host, remote work) is tested against a second headless host on this Mac, never against the real rex or any other real machine. `--name` starts one of several, each under `.tau-dev/test-host-<name>/` with its own home, userData, host token, host id, Pi agent dir and session store, and the runtime homes (`CODEX_HOME`, OpenCode, Cursor, Grok) empty and signed out:
+
+```
+node scripts/tau-test-host.mjs start --name rex --kits --tls --fresh   # prints url, fingerprint, publicKey, tokenFile, userData, sessionsDir
+node scripts/tau-test-host.mjs status --name rex
+node scripts/tau-test-host.mjs list                                    # every test host of this worktree, with running true/false
+npm run cdp:mobile -- host connections-list --test-host=rex            # an owner call on rex over its loopback host token
+node scripts/tau-test-host.mjs stop --name rex                         # or stop --all
+```
+
+- A named host calls itself by its name (`TAU_MACHINE_NAME`), so pairing and Settings → Machines show "rex", not this Mac's name.
+- Its Pi agent dir is prepared like an instance's (`scripts/pi-agent-shadow.mjs`): the login linked, settings copied with GPT-5.6 Luna as the default model. `--no-login` leaves Pi signed out. No other runtime is ever signed in on a test host; nothing is copied from the real `~/.codex`, `~/.claude` or `~/.pi`.
+- It listens on 127.0.0.1 with a random port; `--kits` loads the kits (off by default), `--tls` gives it a self-signed certificate to pin.
+- `stop` signals only the pid in that host's `state.json`, and only while it still runs this worktree's `headless.js`.
+
+### A fixture project with a local "origin"
+
+`node scripts/remote-work-fixture.mjs [--name demo] [--fresh] [--clean]` makes `.tau-dev/remote-work/<name>/origin.git` (bare) and `.tau-dev/remote-work/<name>/work`, a checkout of it whose `origin` is a `file://` URL. It has two commits with fixed dates (the same ids everywhere), a binary file, ignored files as a user has them (`.env`, `.scratch/issues/`, `node_modules/`), an uncommitted change and an untracked file. The bare repo is made with `clone --bare`, so nothing is ever pushed, and Git runs without the caller's hooks, templates or signing. Point an instance at it with `npm run dev:instance -- --workspace .tau-dev/remote-work/demo/work`.
+
+Tau clones only HTTPS and SSH URLs. Instances and test hosts set `TAU_TEST_CLONE_ROOT` to `.tau-dev/remote-work`; with it, `assertAllowedCloneSource` also accepts a `file://` URL whose path (symlinks followed) lies inside that folder, and nothing else.
+
+### A fake model instead of a login
+
+`scripts/fake-model-server.mjs` is an OpenAI-compatible model on 127.0.0.1 (`startFakeModelServer()`), and `prepareFakePiAgentDir(agentDir, baseUrl)` gives a Pi agent dir only that provider (`tau-fake/fake-1`, priced so a thread costs more than zero). It answers from the last user message: `write <path> <word>` makes a `write` tool call and then says "done", `wait <ms>` pauses mid-answer (for aborts), anything else is "ok". A test host started from a script takes it through `startTestHost(flags, { prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, baseUrl) })` with `login: false`.
+
+### The remote-work smoke
+
+`npm run smoke:remote-work` (after `npm run build`; CI runs it too) starts the fake model, the fixture, and two test hosts, `smoke-a` (calls itself "mini", workspace = the fixture) and `smoke-rex` ("rex", TLS), both with kits. It runs a fake turn on rex that writes a file, pairs A with rex over pinned TLS (allowed by rex's owner over its loopback host token), and runs a kit command on rex with A's device token. Steps whose seams are not there yet print `○ … pending (Hxx)`; each ticket turns its own into real steps in `STEPS`. At the end it stops both hosts by the pids in their state files and fails if a pid is alive or a port still accepts connections. A developer's own `rex` test host is never touched.
 
 ## Tearing down
 
