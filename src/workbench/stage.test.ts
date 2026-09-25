@@ -100,6 +100,16 @@ describe("thread tabs", () => {
     expect(state.tabs.map((tab) => tab.id)).toEqual([fileTabId(A)]);
   });
 
+  it("keeps another machine's thread apart from this machine's thread of the same id", () => {
+    let state = openThreadTab(EMPTY_STAGE, CHILD, { pin: true });
+    state = openThreadTab(state, CHILD, { pin: true, machine: "host-rex" });
+    expect(state.tabs.map((tab) => tab.id)).toEqual([threadTabId(CHILD), threadTabId(CHILD, "host-rex")]);
+    expect(activeTab(state)).toMatchObject({ kind: "thread", sessionId: CHILD, machine: "host-rex", preview: false });
+    state = openThreadTab(state, CHILD, { machine: "host-rex" });
+    expect(state.tabs).toHaveLength(2);
+    expect(state.tabs[0]).not.toHaveProperty("machine");
+  });
+
   it("keeps a pinned thread beside the files and activates it again instead of duplicating it", () => {
     let state = openFileTab(EMPTY_STAGE, A, { pin: true });
     state = openThreadTab(state, CHILD, { pin: true });

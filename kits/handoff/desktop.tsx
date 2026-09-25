@@ -159,7 +159,8 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         try {
           const thread = store.getSnapshot().remoteLinks[remote.link]?.thread;
           const listed = thread ? environments.getSnapshot()?.environments.find((entry) => entry.id === remote.machine)?.threads.find((entry) => entry.id === thread) : undefined;
-          await environments.open(remote.machine, listed ? { thread: { path: listed.path } } : undefined);
+          // A thread past the list's newest is found by its id there (API 1.15.0).
+          await environments.open(remote.machine, listed ? { thread: { path: listed.path } } : thread ? { threadId: thread } : undefined);
         } catch (error) {
           actions.notify(errorMessage(error));
         }
@@ -412,7 +413,16 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
               {conflict ? <span className="handoff-remote-status warn" {...tooltipProps(conflict.detail)}> · {conflict.state === "conflict" ? `Conflicts in ${conflict.files.length} ${conflict.files.length === 1 ? "file" : "files"}` : "Blocked"}; nothing merged</span> : null}
             </span>
             <span className="handoff-remote-actions">
-              {environments ? <button type="button" onClick={() => void openThere(remote, actions)}>Open</button> : null}
+              {environments?.watchThread && link?.thread ? (
+                <button
+                  type="button"
+                  {...tooltipProps(`Read it in a tab here; the window stays on this machine`)}
+                  onClick={() => actions.openThread(link.thread!, { pin: true, machine: remote.machine })}
+                >Look in</button>
+              ) : null}
+              {environments ? (
+                <button type="button" {...tooltipProps(`Show ${remote.machineName} in this window, at the thread, to answer or steer it there`)} onClick={() => void openThere(remote, actions)}>Open on {remote.machineName}</button>
+              ) : null}
               <button
                 type="button"
                 disabled={!mayChange || working || !link?.thread || Boolean(busy)}

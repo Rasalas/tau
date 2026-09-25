@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { ChevronRight, Laptop, Plus, RefreshCw, Server } from "lucide-react";
+import { ChevronRight, Eye, Laptop, Plus, RefreshCw, Server } from "lucide-react";
 import { Menu, tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type WorkbenchActions } from "tau";
 import { otherMachines, shownMachine, shortAge, statusText, unavailableReason } from "./machines.js";
 import { MACHINES_SETTINGS_PAGE, type RemoteAgentThreadsService } from "./protocol.js";
@@ -47,12 +47,14 @@ export function MachineDot({ environment, now }: { environment: UiEnvironment; n
   return <span className={`machine-dot ${environment.status}`} role="img" aria-label={text} {...tooltipProps(text)} />;
 }
 
-function MachineThreadRow({ thread, machine, reason, opening, onOpen, now }: {
+function MachineThreadRow({ thread, machine, reason, opening, onOpen, onLookIn, now }: {
   thread: UiEnvironmentThread;
   machine: UiEnvironment;
   reason: string | undefined;
   opening: boolean;
   onOpen(): void;
+  /** Reads the thread in a tab here, without moving the window; absent on a core without look-in. */
+  onLookIn?(): void;
   now: number;
 }) {
   const style = { "--project-hue": projectHue(thread.projectName) } as CSSProperties;
@@ -70,6 +72,17 @@ function MachineThreadRow({ thread, machine, reason, opening, onOpen, now }: {
         {thread.running ? <span className="machine-thread-working" aria-label="Working"><i /></span> : null}
         {opening ? <span className="machine-thread-opening">Opening…</span> : <time>{shortAge(thread.modifiedAt, now)}</time>}
       </button>
+      {onLookIn && !reason && !opening ? (
+        <span className="thread-row-actions">
+          <button
+            aria-label={`Look in on ${thread.title} here`}
+            {...tooltipProps(`Read it in a tab here; the window stays on this machine`)}
+            onClick={onLookIn}
+          >
+            <Eye size={13} />
+          </button>
+        </span>
+      ) : null}
     </article>
   );
 }
@@ -92,6 +105,8 @@ function MachineGroup({ machine, environments, actions, now }: {
       actions.notify(error instanceof Error ? error.message : String(error));
     });
   };
+  // An older core drops `machine` and would open this machine's thread of that id instead.
+  const lookIn = environments.watchThread ? (thread: UiEnvironmentThread) => actions.openThread(thread.id, { pin: true, machine: machine.id }) : undefined;
   const retry = machine.status === "offline" || machine.status === "refused";
   useSyncExternalStore(agentThreadsSource.subscribe, agentThreadsSource.getVersion);
   // Threads this computer's sub-agents run there show in the Agents panel, not here.
@@ -124,6 +139,7 @@ function MachineGroup({ machine, environments, actions, now }: {
               reason={reason}
               opening={opening === thread.id}
               onOpen={() => openThread(thread)}
+              {...(lookIn ? { onLookIn: () => lookIn(thread) } : {})}
               now={now}
             />
           ))}

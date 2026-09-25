@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { Bot, CornerUpLeft } from "lucide-react";
-import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
+import { HostUnavailableError, useThreadStore, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
@@ -65,7 +65,11 @@ export const agentsExtension: DesktopExtension = {
     };
     loadDefinitions(definitionsStore.refresh());
     const offWorkspace = context.events.on("workspace-changed", () => loadDefinitions(definitionsStore.refresh()));
-    context.registerPanel({ id: "agents", label: "Agents", Icon: Bot, order: 40, maximizable: true, profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
+    const canLookIn = () => Boolean(context.environments?.watchThread);
+    context.registerPanel({
+      id: "agents", label: "Agents", Icon: Bot, order: 40, maximizable: true, profiles: ["desktop", "web", "compact"],
+      Component: function Agents(props: PanelProps) { return <AgentsPanel {...props} canLookIn={canLookIn} />; },
+    });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
     // A spawn is not a tool call to skim past: the card is the way into the
     // threads it started, so it never folds with the rest of the turn.

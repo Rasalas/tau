@@ -1,7 +1,21 @@
 import type { HostEvent } from "../shared/contracts";
 import type { UiDiscoveredHosts } from "../shared/discovery";
-import type { EnvironmentAgentsResult, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
+import type {
+  EnvironmentAgentsResult,
+  EnvironmentOpenTarget,
+  EnvironmentPairInput,
+  EnvironmentPairResult,
+  EnvironmentPreferences,
+  EnvironmentTarget,
+  UiEnvironmentThreadView,
+  UiEnvironments,
+} from "../shared/environments";
+import type { TranscriptPage } from "../shared/host-protocol";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { HostClient } from "./host-client";
+
+/** How often an open look-in renews its watch; the window lets one go after a minute without. */
+export const LOOK_IN_RENEW_MS = 20_000;
 
 /**
  * The machines this window knows (ADR 0025), as a page reads them: a list
@@ -28,8 +42,10 @@ export interface PlatformEnvironments {
   /**
    * Shows another machine in this window: the page loads again there and
    * opens `target`. For the machine already shown, open the target directly.
+   * `{ threadId }` names a thread by its id there, which the window finds in
+   * that machine's index (API 1.15.0).
    */
-  open(id: string, target?: EnvironmentTarget): Promise<void>;
+  open(id: string, target?: EnvironmentOpenTarget): Promise<void>;
   /** What this page was sent to show, once; undefined when it was simply opened. */
   takeArrival(): Promise<EnvironmentTarget | undefined>;
   /** Shows the window's own machine again (API 1.13.0). */
@@ -47,12 +63,77 @@ export interface PlatformEnvironments {
    * shows the digits as `pairing`. New in API 1.15.0.
    */
   setAgents?(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
+  /**
+   * Follows a thread of a machine (its host id, or its unique name) over the
+   * window's own connection to it, without showing that machine: the
+   * listener hears what the machine's index says of the thread and whether
+   * the window reaches it, at once and at every change. While any listener
+   * is left, that connection receives the thread's stream. New in API 1.15.0.
+   */
+  watchThread?(machine: string, sessionId: string, listener: (view: UiEnvironmentThreadView) => void): () => void;
+  /** The newest page of that thread's transcript, or the one before `cursor`; again at every new `revision`. New in API 1.15.0. */
+  transcriptPage?(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+}
+
+interface LookIn {
+  machine: string;
+  sessionId: string;
+  /** The machine's id as the window answered it; the page may have named it. */
+  resolved?: string;
+  listeners: Set<(view: UiEnvironmentThreadView) => void>;
+  timer?: ReturnType<typeof setInterval>;
+  last?: UiEnvironmentThreadView;
+}
+
+/** One lease per thread, whatever number of tabs and labels read it. */
+function createLookIns(client: HostClient) {
+  const lookIns = new Map<string, LookIn>();
+  let listening = false;
+  const deliver = (entry: LookIn, view: UiEnvironmentThreadView) => {
+    entry.resolved = view.machine;
+    entry.last = view;
+    for (const listener of [...entry.listeners]) listener(view);
+  };
+  const renew = (entry: LookIn) => {
+    void client.watchEnvironmentThread(entry.machine, entry.sessionId, true).then((view) => {
+      if (view && entry.listeners.size > 0) deliver(entry, view);
+    }, () => undefined);
+  };
+  return (machine: string, sessionId: string, listener: (view: UiEnvironmentThreadView) => void): (() => void) => {
+    if (!listening) {
+      listening = true;
+      client.onHostEvent((event) => {
+        if (event.type !== "environment-thread") return;
+        for (const entry of lookIns.values()) {
+          if (entry.sessionId === event.view.sessionId && (entry.resolved ?? entry.machine) === event.view.machine) deliver(entry, event.view);
+        }
+      });
+    }
+    const key = `${machine}\n${sessionId}`;
+    let entry = lookIns.get(key);
+    if (!entry) {
+      const created: LookIn = { machine, sessionId, listeners: new Set() };
+      created.timer = setInterval(() => renew(created), LOOK_IN_RENEW_MS);
+      lookIns.set(key, created);
+      entry = created;
+      renew(created);
+    } else if (entry.last) listener(entry.last);
+    entry.listeners.add(listener);
+    const current = entry;
+    return () => {
+      if (!current.listeners.delete(listener) || current.listeners.size > 0) return;
+      clearInterval(current.timer);
+      lookIns.delete(key);
+      void client.watchEnvironmentThread(machine, sessionId, false).catch(() => undefined);
+    };
+  };
 }
 
 export function createPlatformEnvironments(client: HostClient, options: { shownElsewhere?: string } = {}): PlatformEnvironments {
   let snapshot: UiEnvironments | undefined;
   let requested = false;
   const listeners = new Set<() => void>();
+  const watchThread = createLookIns(client);
   const set = (next: UiEnvironments) => {
     snapshot = next;
     for (const listener of listeners) listener();
@@ -94,5 +175,7 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
     discover: () => client.discoverEnvironments(),
     setPreferences: (preferences) => client.setEnvironmentPreferences(preferences),
     setAgents: (id, on) => client.setEnvironmentAgents(id, on),
+    watchThread,
+    transcriptPage: (machine, sessionId, cursor) => client.loadEnvironmentTranscript(machine, sessionId, cursor),
   };
 }

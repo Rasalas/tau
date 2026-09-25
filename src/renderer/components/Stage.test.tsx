@@ -10,6 +10,10 @@ import { ThreadStoreContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
 import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
 import { StageTabController } from "../stage-tab-controller";
+import { PlatformProvider } from "../platform-context";
+import type { Platform } from "../../workbench/platform";
+import type { PlatformEnvironments } from "../../workbench/environments";
+import type { UiEnvironmentThreadView, UiEnvironments } from "../../shared/environments";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
 
@@ -372,5 +376,88 @@ describe("a tab a kit drew", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Unpin" }));
 
     await waitFor(() => expect(screen.getByRole("tab", { name: /shell t1/u }).className).toContain("preview"));
+  });
+});
+
+describe("a thread of another machine", () => {
+  const SESSION = "t9";
+  const list: UiEnvironments = { shown: "host-mini", secureStorage: true, environments: [
+    { id: "host-mini", name: "mini", local: true, status: "connected", threads: [], threadCount: 0, projects: [] },
+    { id: "host-rex", name: "rex", local: false, status: "connected", threads: [], threadCount: 0, projects: [] },
+  ] };
+  const base: UiEnvironmentThreadView = {
+    machine: "host-rex", sessionId: SESSION, machineName: "rex", status: "connected", indexed: true, revision: 0,
+    thread: { title: "Works on rex", path: "/rex/t9.jsonl", projectName: "w", modifiedAt: 1, messageCount: 2, running: true, usage: { costUsd: 0.25 } as never },
+  };
+
+  function lookIn() {
+    const listeners = new Set<(view: UiEnvironmentThreadView) => void>();
+    const reads: number[] = [];
+    let answer = "First words.";
+    const environments = {
+      getSnapshot: () => list,
+      subscribe: () => () => undefined,
+      open: vi.fn(async () => undefined),
+      watchThread: vi.fn((_machine: string, _session: string, listener: (view: UiEnvironmentThreadView) => void) => {
+        listeners.add(listener);
+        queueMicrotask(() => listener(base));
+        return () => { listeners.delete(listener); };
+      }),
+      transcriptPage: vi.fn(async () => {
+        reads.push(Date.now());
+        return { sessionId: SESSION, messages: reply(answer), hasMore: false };
+      }),
+    } as unknown as PlatformEnvironments;
+    const platform = { environments } as unknown as Platform;
+    const push = (view: UiEnvironmentThreadView) => act(() => { for (const listener of listeners) listener(view); });
+    return { environments, platform, push, listeners, reads, answer: (text: string) => { answer = text; } };
+  }
+
+  it("reads the transcript there, follows each change, and lets go when the tab closes", async () => {
+    const { platform, push, listeners, environments, answer } = lookIn();
+    const { unmount } = render(<PlatformProvider platform={platform}><Harness initial={openThreadTab(EMPTY_STAGE, SESSION, { pin: true, machine: "host-rex" })} /></PlatformProvider>);
+    expect(await screen.findByText("First words.")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Works on rex/u })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Thread Works on rex on rex" })).toBeTruthy();
+    expect(screen.getByText(/working · \$0\.25/u)).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    answer("Second words.");
+    await push({ ...base, revision: 1 });
+    expect(await screen.findByText("Second words.")).toBeTruthy();
+    expect(environments.transcriptPage).toHaveBeenCalledWith("host-rex", SESSION);
+    unmount();
+    expect(listeners.size).toBe(0);
+  });
+
+  it("opens the thread on its machine instead of taking it over, and says why it cannot", async () => {
+    const { platform, push, environments } = lookIn();
+    render(<PlatformProvider platform={platform}><Harness initial={openThreadTab(EMPTY_STAGE, SESSION, { pin: true, machine: "host-rex" })} /></PlatformProvider>);
+    await screen.findByText("First words.");
+    expect(screen.queryByRole("button", { name: /Take over/u })).toBeNull();
+    await push({ ...base, revision: 2, asking: { id: "q", title: "Which colour?" } });
+    expect(screen.getByText("Asks: Which colour?")).toBeTruthy();
+    expect(screen.getByText("Answer it on rex")).toBeTruthy();
+    expect(screen.getByText(/waiting for an answer/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open on rex" }));
+    expect(environments.open).toHaveBeenCalledWith("host-rex", { thread: { path: "/rex/t9.jsonl" } });
+    await push({ ...base, status: "offline", lastSeenAt: 5, revision: 3 });
+    expect(screen.getByText(/rex is offline/u)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Open on rex" }) as HTMLButtonElement).disabled).toBe(true);
+    // What it showed last stays.
+    expect(screen.getByText("First words.")).toBeTruthy();
+  });
+
+  it("shows this machine's own thread as any tab, and says so on a client that reaches no other machine", async () => {
+    const { platform } = lookIn();
+    const first = render(<PlatformProvider platform={platform}><Harness
+      initial={openThreadTab(EMPTY_STAGE, CHILD, { pin: true, machine: "mini" })}
+      threads={storeWith(agentSession())}
+      loadThread={async () => reply("Local answer.")}
+    /></PlatformProvider>);
+    expect(await screen.findByText("Local answer.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Take over/u })).toBeTruthy();
+    first.unmount();
+    render(<PlatformProvider platform={{} as Platform}><Harness initial={openThreadTab(EMPTY_STAGE, SESSION, { pin: true, machine: "host-rex" })} /></PlatformProvider>);
+    expect(screen.getByText(/This client reaches no other machine/u)).toBeTruthy();
   });
 });

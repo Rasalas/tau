@@ -134,7 +134,10 @@ function PanelHeader({ model, extensionName }: { model: AgentsPanelModel; extens
   );
 }
 
-export function AgentsPanel({ extensionName, actions }: PanelProps) {
+export function AgentsPanel({ extensionName, actions, canLookIn }: PanelProps & {
+  /** Whether this client reads another machine's thread in a stage tab (API 1.15.0). */
+  canLookIn?: () => boolean;
+}) {
   const { snapshot } = useWorkbenchShell();
   const threadStore = useThreadStore();
   const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
@@ -172,8 +175,10 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
   // thread that spawned it and the rail keeps hiding the child.
   const open = useCallback((row: AgentRow) => {
     if (row.path && row.threadId) actions.openThread(row.threadId);
+    // Read over the window's connection there; an older core would read the id as this machine's thread.
+    else if (row.machine?.thread && canLookIn?.()) actions.openThread(row.machine.thread, { machine: row.machine.id });
     else if (row.machine) actions.notify(`${row.title} runs on ${row.machine.name}; its transcript is there.`);
-  }, [actions]);
+  }, [actions, canLookIn]);
 
   // The same two moves tau_apply_thread_changes makes, for the user.
   const settle = useCallback((row: AgentRow, outcome: "apply" | "discard") => {

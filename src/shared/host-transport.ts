@@ -50,6 +50,8 @@ export const CLIENT_SIDE_METHODS = [
   "environments-discover",
   "environments-set-preferences",
   "environments-set-agents",
+  "environments-transcript-page",
+  "environments-watch-thread",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>

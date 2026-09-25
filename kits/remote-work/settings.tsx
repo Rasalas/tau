@@ -171,7 +171,15 @@ function useThreadLinks(host: HostExtensionClient, root: string | undefined) {
   return links;
 }
 
-function ThreadLinkRow({ link, host, allowed, now, onNotify }: { link: RemoteThreadLink; host: HostExtensionClient; allowed: boolean; now: number; onNotify(message: string): void }) {
+function ThreadLinkRow({ link, host, allowed, now, onNotify, openThere }: {
+  link: RemoteThreadLink;
+  host: HostExtensionClient;
+  allowed: boolean;
+  now: number;
+  onNotify(message: string): void;
+  /** Moves the window to the machine with the thread open; absent where the client cannot. */
+  openThere?(link: RemoteThreadLink): Promise<void>;
+}) {
   const [busy, setBusy] = useState<string>();
   const run = (command: "thread-abort" | "thread-result" | "thread-settle", input: Record<string, unknown>, label: string) => {
     setBusy(`${command}${String(input.how ?? "")}`);
@@ -185,6 +193,11 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify }: { link: RemoteThr
   const quiet = link.status === "idle" || link.status === "waiting" || link.status === "failed";
   const cost = remoteCost(link.usage);
   const open = link.status !== "settled" && link.status !== "gone";
+  // Looking works Read only too; answering there is that machine's to allow.
+  const there = openThere && link.thread && open && link.status !== "offline" ? () => {
+    setBusy("open");
+    openThere(link).catch((error: unknown) => { setBusy(undefined); onNotify(errorMessage(error)); });
+  } : undefined;
   return (
     <SettingRow
       title={<>{link.machineName} · {link.title ?? "Thread"} <small className="remote-work-age">{formatAge(link.createdAt, now)}</small></>}
@@ -196,6 +209,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify }: { link: RemoteThr
       disabledReason={allowed ? undefined : READ_ONLY_REASON}
       control={open ? (
         <span className="remote-work-actions">
+          {there ? <button type="button" className={link.status === "waiting" ? "chrome-button" : "text-button"} disabled={Boolean(busy)} onClick={there}>{busy === "open" ? "Opening…" : `Open on ${link.machineName}`}</button> : null}
           {working ? <button type="button" className="chrome-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-abort", {}, "Stopped")}>{busy === "thread-abort" ? "Stopping…" : "Stop"}</button> : null}
           {quiet && link.transfer ? <button type="button" className="chrome-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-result", {}, "Brought back")}>{busy === "thread-result" ? "Bringing back…" : link.result ? "Bring back again" : "Bring back"}</button> : null}
           {quiet && link.transfer ? <button type="button" className="chrome-button" disabled={Boolean(busy) || !allowed} onClick={() => run("thread-settle", { how: "apply" }, "Merged")}>{busy === "thread-settleapply" ? "Merging…" : "Merge"}</button> : null}
@@ -211,7 +225,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify }: { link: RemoteThr
  * when its work moves to another machine (chosen once, remembered by this
  * machine), and the transfers made from it, with their result.
  */
-export function createRemoteWorkPage(host: HostExtensionClient) {
+export function createRemoteWorkPage(host: HostExtensionClient, openThere?: (link: RemoteThreadLink) => Promise<void>) {
   return function RemoteWorkPage({ cwd, onNotify }: SettingsPageProps) {
     const { view, setView, problem, setProblem } = useIgnoredFiles(host, cwd);
     const transfers = useTransfers(host, cwd, view?.root);
@@ -269,7 +283,7 @@ export function createRemoteWorkPage(host: HostExtensionClient) {
         {problem ? <div className="settings-note" data-level="error" role="alert">{problem}</div> : null}
         {threads.length > 0 ? (
           <SettingsSection title="Threads on other machines">
-            {threads.map((link) => <ThreadLinkRow key={link.id} link={link} host={host} allowed={canAct} now={now} onNotify={onNotify} />)}
+            {threads.map((link) => <ThreadLinkRow key={link.id} link={link} host={host} allowed={canAct} now={now} onNotify={onNotify} {...(openThere ? { openThere } : {})} />)}
           </SettingsSection>
         ) : null}
         <SettingsSection title="Transfers">

@@ -1,4 +1,4 @@
-import type { ThreadIndexSnapshot } from "./contracts.js";
+import type { ThreadIndexSnapshot, UiThreadUsage } from "./contracts.js";
 import type { PairingEndpoint, UiHostEndpointKind } from "./connections.js";
 
 /**
@@ -92,6 +92,51 @@ export interface EnvironmentNewThread {
   /** The model the draft had here, picked there before it is sent (API 1.15.0). */
   model?: { provider: string; id: string };
 }
+
+/**
+ * What `open` takes besides an arrival: a thread named by its id on that
+ * machine, which the window finds in the machine's index (API 1.15.0).
+ */
+export type EnvironmentOpenTarget = EnvironmentTarget | { threadId: string };
+
+/**
+ * A thread of another machine as a look-in tab follows it (API 1.15.0): what
+ * the window's own connection to that machine knows of it. The transcript
+ * itself is read with `transcriptPage`, again whenever `revision` grows.
+ */
+export interface UiEnvironmentThreadView {
+  machine: string;
+  sessionId: string;
+  /** The machine's name, or the id the tab was opened with when the window does not know it. */
+  machineName: string;
+  /** How the window's connection to the machine is doing; `unknown` for a machine it does not know. */
+  status: EnvironmentStatus | "unknown";
+  /** Why it is offline or refused, written for the user. */
+  detail?: string;
+  /** Since when the machine is unreachable, when it was reached before. */
+  lastSeenAt?: number;
+  /** The thread as that machine's index lists it; absent before the index arrived, or once it is gone there. */
+  thread?: {
+    title: string;
+    /** What `open(machine, { thread: { path } })` takes. */
+    path: string;
+    projectName: string;
+    modifiedAt: number;
+    messageCount: number;
+    running: boolean;
+    usage?: UiThreadUsage;
+    parentThreadId?: string;
+  };
+  /** False until the machine's index arrived: before that, a missing `thread` says nothing. */
+  indexed: boolean;
+  /** The dialog the thread waits on there, when the window saw it asked. */
+  asking?: { id: string; title: string };
+  /** Grows with every change of the thread there; a reader loads the transcript again. */
+  revision: number;
+}
+
+/** The window event that carries a look-in tab's thread; the host never sends it. */
+export const ENVIRONMENT_THREAD_EVENT = "environment-thread";
 
 /**
  * A pairing link (or a QR code's text), a bare address the owner is asked
@@ -235,6 +280,13 @@ export function environmentProjects(index: ThreadIndexSnapshot): UiEnvironmentPr
 export function environmentStorageKey(key: string, environment: string | undefined, hostKeys: readonly string[]): string {
   if (!environment) return key;
   return hostKeys.some((hostKey) => key === hostKey || key.startsWith(`${hostKey}:`)) ? `${key}@${environment}` : key;
+}
+
+/** `open`'s target: an arrival, or a thread named by its id there. */
+export function decodeEnvironmentOpenTarget(value: unknown): EnvironmentOpenTarget | undefined {
+  const threadId = (value as { threadId?: unknown } | null | undefined)?.threadId;
+  if (typeof threadId === "string" && threadId && threadId.length <= 512) return { threadId };
+  return decodeEnvironmentTarget(value);
 }
 
 export function decodeEnvironmentTarget(value: unknown): EnvironmentTarget | undefined {
