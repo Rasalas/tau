@@ -97,6 +97,7 @@ export class RollbackService {
     }
     const fs = await session.connect();
     const inspected = (await inspectIntents(fs, intents, { ...(write ? { mirror: session.mirror } : {}), signal: session.signal })) as Planned["inspected"];
+    const name = `${record.kind === "rollback" ? "rollback" : "deployment"} ${record.seq}`;
     for (const item of inspected) {
       const later = laterByPath.get(item.intent.path);
       if (item.plan.outcome !== "conflict") continue;
@@ -105,8 +106,8 @@ export class RollbackService {
       if (input.threeWay) await this.mergeInto(session, record, item, write);
       else if (later) item.plan.reason = `Deployment ${later} changed this file afterwards. Roll that back first, or merge three-way.`;
       else item.plan.reason = item.now.kind === "absent"
-        ? `Deleted on the server since deployment ${record.seq}.`
-        : `Changed on the server since deployment ${record.seq}. Merge three-way, or overwrite it.`;
+        ? `Deleted on the server since ${name}.`
+        : `Changed on the server since ${name}. Merge three-way, or overwrite it.`;
     }
     const newer = [...new Set(inspected.flatMap((item) => (item.plan.newer ? [item.plan.newer] : [])))].sort((a, b) => b - a);
     return { record, state, plans, inspected, newer };
@@ -135,10 +136,11 @@ export class RollbackService {
     }
     if (write) await session.mirror.writeBlob(merged.data);
     const theirs = item.now.entry.oid;
+    const name = `${record.kind === "rollback" ? "rollback" : "deployment"} ${record.seq}`;
     item.intent = { ...item.intent, content: merged.data, expect: theirs };
     item.plan = blobId(merged.data) === theirs
-      ? { ...item.plan, outcome: "same", merged: true, reason: `The server's file no longer holds deployment ${record.seq}'s change.` }
-      : { ...item.plan, outcome: "upload", merged: true, reason: `Merged: deployment ${record.seq}'s change taken out, the later change kept.` };
+      ? { ...item.plan, outcome: "same", merged: true, reason: `The server's file no longer holds ${name}'s change.` }
+      : { ...item.plan, outcome: "upload", merged: true, reason: `Merged: ${name}'s change taken out, the later change kept.` };
   }
 
   private files(planned: Planned): RollbackFilePlan[] {

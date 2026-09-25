@@ -1,4 +1,4 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import type { DeploymentFile, DeploymentRecord } from "./deploy-protocol.js";
@@ -164,7 +164,10 @@ export async function cleanTarget(options: CleanTargetOptions): Promise<Omit<His
   const loose = Number(/^count: (\d+)$/mu.exec(await text(["count-objects", "-v"]))?.[1] ?? 0);
   if (options.force || result.removed.length || result.adopted.length || result.truncated || keepChanged || loose > 0) {
     await run(["reflog", "expire", "--expire=now", "--all"]);
-    await run(["gc", "--prune=now", "--quiet"]);
+    // Git writes no commit-graph in a shallow repository and would keep a stale one naming pruned commits.
+    await rm(join(mirror.dir, "objects", "info", "commit-graph"), { force: true });
+    await rm(join(mirror.dir, "objects", "info", "commit-graphs"), { recursive: true, force: true });
+    await run(["-c", "gc.writeCommitGraph=false", "gc", "--prune=now", "--quiet"]);
     result.gc = true;
   }
   return result;

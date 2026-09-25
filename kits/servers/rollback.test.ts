@@ -309,6 +309,8 @@ describe.skipIf(!posix)("history cleanup", () => {
     expect(undone.rolledBack).toBe(true);
     expect(read(w.server, "index.php")).toBe("<?php echo 'home';\n");
     // A second cleanup moves the boundary on and keeps the newest one only.
+    // A commit-graph an earlier gc wrote must not outlive the commits it names.
+    w.mirrorGit("commit-graph", "write", "--reachable");
     const again = await w.cleanup.sweep();
     expect(again[0]).toMatchObject({ removed: [3], truncated: true });
     expect((await w.call<ServerHistory>("server-history", ref(w))).entries.map((entry) => entry.deployment?.seq)).toEqual([4]);
