@@ -99,7 +99,6 @@ function pickerSections(backend: string, runtimes: readonly UiRuntimeBackend[], 
     return {
       id: `${MACHINE_ITEM}${target.id}`,
       label: target.name,
-      icon: <Server size={14} aria-hidden="true" />,
       description: why ?? continueOnDescription(backend),
       ...(why ? { disabled: true } : {}),
     };
