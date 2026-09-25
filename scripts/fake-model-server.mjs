@@ -3,6 +3,7 @@
 // model. It answers from the last user message:
 //   "write <path> <word>"  → a `write` tool call, then "done" after the result
 //   "wait <ms>"            → a first delta, the pause (for aborts), then "ok"
+//   "fail <status> <text>" → HTTP <status> with <text> as the provider's error
 //   anything else          → "ok"
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -17,7 +18,7 @@ function text(content) {
   return "";
 }
 
-/** What the fake says to a request body: `{ text }`, `{ toolCall }`, or `{ text, waitMs }`. */
+/** What the fake says to a request body: `{ text }`, `{ toolCall }`, `{ text, waitMs }`, or `{ status, error }`. */
 export function fakeReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const last = messages.at(-1);
@@ -25,6 +26,8 @@ export function fakeReply(body) {
   const prompt = text([...messages].reverse().find((message) => message.role === "user")?.content).trim();
   const write = prompt.match(/\bwrite\s+(\S+)\s+(\S+)/u);
   if (write) return { toolCall: { name: "write", arguments: { path: write[1], content: `${write[2]}\n` } } };
+  const fail = prompt.match(/\bfail\s+([45]\d\d)\s+(.+)$/su);
+  if (fail) return { status: Number(fail[1]), error: fail[2].trim() };
   const wait = prompt.match(/\bwait\s+(\d+)\b/u);
   if (wait) return { text: "ok", waitMs: Math.min(Number(wait[1]), 120_000) };
   return { text: "ok" };
@@ -47,6 +50,11 @@ export async function startFakeModelServer({ respond = fakeReply } = {}) {
       try { body = JSON.parse(raw); } catch { body = {}; }
       requests.push(body);
       const reply = respond(body);
+      if (reply.status) {
+        response.writeHead(reply.status, { "content-type": "application/json" })
+          .end(JSON.stringify({ error: { message: reply.error, type: "invalid_request_error" } }));
+        return;
+      }
       const id = `chatcmpl-fake-${++counter}`;
       const model = typeof body.model === "string" ? body.model : FAKE_MODEL;
       const chunk = (choice, extra = {}) => `data: ${JSON.stringify({ id, object: "chat.completion.chunk", created: 0, model, choices: choice ? [{ index: 0, ...choice }] : [], ...extra })}\n\n`;
