@@ -3,7 +3,7 @@ import type { HostExtensionClient } from "tau";
 import { ServersStatusStore } from "./status-store";
 import { SERVERS_STATUS_EVENT, SERVERS_STATUS_TOPIC, type ServersStatus } from "./view-protocol";
 
-const status = (checkedAt?: string): ServersStatus => ({ workspace: "/real/site", targets: [{ targetId: "t", ...(checkedAt ? { checkedAt } : {}) } as never] });
+const status = (checkedAt?: string): ServersStatus => ({ workspace: "/real/site", repository: true, targets: [{ targetId: "t", ...(checkedAt ? { checkedAt } : {}) } as never] });
 
 describe("the desktop's server status", () => {
   it("watches the topic while subscribed, and keeps an event that overtook the answer to an earlier ask", async () => {

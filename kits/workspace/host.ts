@@ -31,6 +31,7 @@ import { createTurnStatsFile, turnStatOf } from "./turn-stats.js";
 import { initWorktreeSubmodules } from "./worktree-submodules.js";
 import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
+import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
 
 const execFileAsync = promisify(execFile);
@@ -408,6 +409,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = requiredString(input, "branch");
         return gitWrite(project, () => mergeBranch(project, branch), (result) => `${branch} into ${result.into} ${result.commit}`, "git.merge");
       }, { long: true, callers: [SERVERS_KIT_ID] });
+      // Servers Kit keeps a server's files in its own repository; the project's Git is written here.
+      context.registerCommand("repo-from-tree", async (input) => {
+        const request = decodeRepoFromTree(input);
+        const path = await services.knownWorkspacePath(requiredString(input, "path"));
+        const result = await git.write(path, () => repoFromTree({ ...request, path }));
+        services.log("git.repo-from-tree", `${path} ${result.commit.slice(0, 7)}`);
+        return { ...result, workspace: services.workspaceRef(path) };
+      }, { long: true, callers: [SERVERS_KIT_ID], audit: { label: "made a repository from a tree" } });
       // Review Kit opens, merges and edits requests; the Git it needs is read here.
       context.registerCommand("review-request-context", async (input) => {
         // Review's Pull Requests page and its links name another project by id or path.

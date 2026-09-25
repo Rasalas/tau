@@ -202,7 +202,8 @@ export class ServerStatusService {
       if (record.caps) status.caps = record.caps;
       return status;
     }));
-    return { workspace, ...(hasFile ? { file } : {}), targets: rows };
+    const repository = Boolean(await lstat(join(workspace, ".git")).catch(() => undefined));
+    return { workspace, ...(hasFile ? { file } : {}), repository, targets: rows };
   }
 
   private async publish(workspace: string): Promise<void> {

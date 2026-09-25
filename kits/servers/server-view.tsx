@@ -107,12 +107,13 @@ function HistoryList({ entries, active, onFile }: { entries: readonly HistoryEnt
 
 /** Actions a view offers on a target: check the server, log in to it, read it the first time. */
 export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActions, cwd: string, target: TargetStatus | undefined) {
-  const [busy, setBusy] = useState<"check" | "download" | "terminal">();
+  const [busy, setBusy] = useState<"check" | "download" | "terminal" | "git">();
   const [progress, setProgress] = useState<SyncProgress>();
   const canDownload = useCommandAllowed(SERVERS_EXTENSION_ID, "download");
   const canTerminal = useCommandAllowed(SERVERS_EXTENSION_ID, "ssh-terminal");
+  const canLink = useCommandAllowed(SERVERS_EXTENSION_ID, "link-folder");
   const targetId = target?.targetId;
-  const run = useCallback((kind: "check" | "download" | "terminal", step: () => Promise<unknown>) => {
+  const run = useCallback((kind: "check" | "download" | "terminal" | "git", step: () => Promise<unknown>) => {
     setBusy(kind);
     step().catch((failure: unknown) => actions.notify(errorMessage(failure))).finally(() => { setBusy(undefined); setProgress(undefined); });
   }, [actions]);
@@ -134,6 +135,16 @@ export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActio
       await parts.store.check(cwd, targetId);
     });
   };
+  /** A folder with sftp.json and no Git: commit 1 is the server state, the files stay as they are (I08's `link-folder`). */
+  const makeGit = () => {
+    if (!targetId) return;
+    run("git", async () => {
+      const made = await parts.host.invoke("link-folder", { path: cwd, exclude: {}, download: false }) as { commit: string; files: number; branch: string };
+      actions.notify(`Git made: ${made.files} files of the server state on ${made.branch} (${made.commit.slice(0, 7)}). git status shows your local changes.`);
+      await parts.store.load(cwd, true);
+      await parts.store.check(cwd, targetId);
+    });
+  };
   const terminal = () => {
     if (!targetId || !target) return;
     const service = parts.terminal();
@@ -144,7 +155,7 @@ export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActio
     });
   };
   const sshOnly = target?.protocol === "sftp" && target.state !== "unusable";
-  return { busy, progress, check, download, terminal, canDownload, canTerminal, sshOnly };
+  return { busy, progress, check, download, terminal, makeGit, canDownload, canTerminal, canLink, sshOnly };
 }
 
 export function progressWords(progress: SyncProgress | undefined): string {
@@ -257,7 +268,17 @@ export default function ServerView({ params, handle, actions, parts }: { params:
 
       <div className="servers-body">
         {tab === "pending" ? (
-          !target.mirror ? (
+          !target.mirror && !entry.status.repository ? (
+            <Empty icon={<GitBranch size={18} />} title="This folder has no Git yet" description="Tau reads the server and makes its state the first commit, without touching your files. Git then shows exactly what differs here from the server.">
+              <button
+                type="button"
+                className="chrome-button primary"
+                disabled={!act.canLink || act.busy !== undefined || target.state === "unusable"}
+                {...(act.canLink ? {} : tooltipProps(READ_ONLY_REASON))}
+                onClick={act.makeGit}
+              >{act.busy === "git" ? "Reading the server…" : "Make Git from the server state"}</button>
+            </Empty>
+          ) : !target.mirror ? (
             <Empty icon={<Download size={18} />} title="Tau has not read this server yet" description="Download the server's files once: Tau keeps them as the mirror state, compares your local copy with it and keeps local files that differ.">
               <button
                 type="button"

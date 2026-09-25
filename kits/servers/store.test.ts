@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -103,6 +103,22 @@ describe("the workspace a project's targets belong to", () => {
 
     const refs = (path: string) => ({ workspaceId: `ws1_${Buffer.from(path).toString("base64url").slice(-24)}` });
     await expect(ownerWorkspaceId(join(root, "feature"), refs)).resolves.toBe(refs(main).workspaceId);
+  });
+
+  it("keeps a folder's place below the top, and is the folder itself where the main checkout lacks it", async () => {
+    const root = await tempDir("tau-servers-nested-");
+    const main = join(root, "project");
+    git(root, "init", "-q", "project");
+    await mkdir(join(main, "apps", "site"), { recursive: true });
+    await writeFile(join(main, "apps", "site", "index.php"), "x");
+    git(main, "add", "-A");
+    git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+    git(main, "worktree", "add", "-q", "-b", "feature", join(root, "feature"));
+    expect(await mainCheckoutOf(join(main, "apps", "site"))).toBe(join(main, "apps", "site"));
+    expect(await mainCheckoutOf(join(root, "feature", "apps", "site"))).toBe(join(main, "apps", "site"));
+    // Made in the worktree only (a new project in its ignored files): no such folder in the main checkout.
+    await mkdir(join(root, "feature", "scratch", "new-site"), { recursive: true });
+    expect(await mainCheckoutOf(join(root, "feature", "scratch", "new-site"))).toBe(join(root, "feature", "scratch", "new-site"));
   });
 
   it("is the folder itself outside Git", async () => {

@@ -1,6 +1,7 @@
 import type { HostExtension } from "tau/host-extension";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
 import { DriftService, WORKSPACE_KIT_ID } from "./drift.js";
+import { registerServerProjects } from "./projects.js";
 import { ServerNetwork } from "./network-policy.js";
 import { NetworkSandbox, createPiNetworkExtension } from "./pi-network.js";
 import { ServerPrompts } from "./prompts.js";
@@ -20,7 +21,7 @@ export function createServersHostExtension(): HostExtension {
   return {
     id: SERVERS_EXTENSION_ID,
     name: "Servers",
-    permissions: ["process", "network", "sessions", "runtime:extend", "workspace:read"],
+    permissions: ["process", "network", "sessions", "runtime:extend", "workspace:read", "workspace:write"],
     isolation: "in-process",
     activate(context) {
       const { services } = context;
@@ -62,6 +63,7 @@ export function createServersHostExtension(): HostExtension {
       drift.register();
       const status = createServerStatus(context, { store, targets, sync, ssh, drift, git });
       status.register();
+      const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
       const sandbox = new NetworkSandbox({
         load: () => services.loadDependency("@anthropic-ai/sandbox-runtime"),
         ripgrep: () => services.findCommand("rg"),
@@ -84,6 +86,7 @@ export function createServersHostExtension(): HostExtension {
       return async () => {
         status.dispose();
         drift.dispose();
+        stopProjects();
         sync.dispose();
         withdraw?.();
         unregisterPi?.();

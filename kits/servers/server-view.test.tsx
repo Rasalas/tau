@@ -32,12 +32,13 @@ const PENDING: TargetStatus = {
   liveConfigs: [{ path: "wp-config.php", label: "WordPress database settings" }],
 };
 const DIFF: UiFileDiff = { path: "index.php", added: 1, removed: 1, hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "removed", oldLine: 1, text: "old line" }, { kind: "added", newLine: 1, text: "new line" }] }] };
-const status = (target: TargetStatus): ServersStatus => ({ workspace: "/work/site", file: "/work/site/.vscode/sftp.json", targets: [target] });
+const status = (target: TargetStatus, repository = true): ServersStatus => ({ workspace: "/work/site", file: "/work/site/.vscode/sftp.json", repository, targets: [target] });
 
-function harness(target: TargetStatus, options: { readOnly?: boolean } = {}) {
+function harness(target: TargetStatus, options: { readOnly?: boolean; repository?: boolean } = {}) {
   const listeners = new Map<string, (payload: unknown) => void>();
   const invoke = vi.fn(async (command: string, _input?: unknown): Promise<unknown> => {
-    if (command === "status" || command === "check") return status(target);
+    if (command === "status" || command === "check") return status(target, options.repository ?? true);
+    if (command === "link-folder") return { workspaceId: "w", path: "/work/site", commit: "b".repeat(40), branch: "main", files: 5, ignoredIn: "exclude", liveConfigs: 1 };
     if (command === "server-diff") return DIFF;
     if (command === "server-history") return { targetId: target.targetId, entries: [] };
     if (command === "ssh-terminal") return { command: "ssh -t fake" };
@@ -99,6 +100,18 @@ describe("the server view", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Open an SSH terminal" })); });
     await flush();
     expect(h.run).toHaveBeenCalledWith({ command: "ssh -t fake", label: "ssh site" }, h.actions);
+  });
+
+  it("gives a folder with sftp.json and no Git its Git from the server state, files untouched", async () => {
+    const h = harness({ ...BASE, state: "never-read", mirror: undefined } as unknown as TargetStatus, { repository: false });
+    render(h.wrap(<ServerView params={{ workspace: "/work/site", targetId: "sftp-site-1" }} handle={handle} actions={h.actions} parts={h.parts} />));
+    await flush();
+    expect(screen.getByText("This folder has no Git yet")).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Make Git from the server state" })); });
+    await flush();
+    expect(h.invoke).toHaveBeenCalledWith("link-folder", { path: "/work/site", exclude: {}, download: false });
+    expect(h.actions.notify).toHaveBeenCalledWith(expect.stringMatching(/^Git made: 5 files of the server state on main \(bbbbbbb\)/u));
+    expect(h.invoke).toHaveBeenCalledWith("check", { cwd: "/work/site", targetId: "sftp-site-1" });
   });
 
   it("follows the status the host publishes", async () => {

@@ -73,6 +73,9 @@ export function sshTargetOf(target: SftpJsonTarget): SshTarget {
   };
 }
 
+/** Where the connections of a project not made yet are kept; no project has this key. */
+const DRAFT_WORKSPACE = "draft:";
+
 /** SSH connections of the open projects and the askpass bridge behind them. */
 export class ServerSsh {
   readonly askpass: AskpassBridge;
@@ -109,6 +112,22 @@ export class ServerSsh {
   /** The transport of a project's target; connected on first use. */
   async transport(input: unknown): Promise<SshTransport> {
     const { workspace, target } = await this.resolve(input);
+    return this.connect(workspace, target);
+  }
+
+  /**
+   * A connection for a project that does not exist yet: browsing a server and
+   * sizing a folder before the download. The target is an address only.
+   */
+  draftTransport(target: SshTarget): Promise<SshTransport> {
+    return this.connect(DRAFT_WORKSPACE, target);
+  }
+
+  closeDrafts(): Promise<void> {
+    return this.connections.closeWorkspace(DRAFT_WORKSPACE);
+  }
+
+  private async connect(workspace: string, target: SshTarget): Promise<SshTransport> {
     const transport = this.connections.get(workspace, target);
     let outcome: LoginOutcome = { ok: true };
     try {

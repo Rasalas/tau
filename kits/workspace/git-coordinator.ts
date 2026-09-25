@@ -42,6 +42,8 @@ interface ProjectRecord {
   lastValid?: ProjectGitState;
   invalidated: Set<GitRefreshKind>;
   status: GitRefreshStatus;
+  /** The last write queued for this project; the next one waits for it. */
+  writing?: Promise<unknown>;
 }
 
 class Semaphore {
@@ -224,6 +226,19 @@ export class GitCoordinator {
     record.inFlight?.controller.abort();
     record.inFlight = undefined;
     record.status = { state: "refreshing", startedAt: Date.now() };
+  }
+
+  /**
+   * Runs one write to a project's repository after the writes queued before it,
+   * and stales the project's cache once it settles, whether it worked or not.
+   */
+  write<T>(cwd: string, run: () => Promise<T>): Promise<T> {
+    const record = this.record(cwd);
+    const result = (record.writing ?? Promise.resolve()).then(run, run).finally(() => this.invalidate(cwd));
+    const settled = result.catch(() => undefined);
+    record.writing = settled;
+    void settled.then(() => { if (record.writing === settled) record.writing = undefined; });
+    return result;
   }
 
   metrics(): GitCoordinatorMetrics {

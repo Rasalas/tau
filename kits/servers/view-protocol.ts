@@ -94,6 +94,8 @@ export interface ServersStatus {
   workspace: string;
   /** Absent when the project has no sftp.json. */
   file?: string;
+  /** The folder has Git; one without (sftp.json only) can get it from the server state. */
+  repository: boolean;
   targets: TargetStatus[];
 }
 

@@ -175,4 +175,26 @@ describe("bounded untracked statistics", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+  it("runs one project's writes in turn and stales its cache after each, failed or not", async () => {
+    const fake = fakeGit();
+    const coordinator = new GitCoordinator({ runGit: fake.run, cacheTtlMs: 60_000 });
+    await coordinator.getBranch("/project");
+    const order: string[] = [];
+    let release!: () => void;
+    const first = coordinator.write("/project", async () => {
+      order.push("first:start");
+      await new Promise<void>((resolve) => { release = resolve; });
+      order.push("first:end");
+      throw new Error("refused");
+    });
+    const second = coordinator.write("/project", async () => { order.push("second"); return 2; });
+    await Promise.resolve();
+    release();
+    await expect(first).rejects.toThrow("refused");
+    await expect(second).resolves.toBe(2);
+    expect(order).toEqual(["first:start", "first:end", "second"]);
+    const before = fake.calls.length;
+    await coordinator.getBranch("/project");
+    expect(fake.calls.length).toBeGreaterThan(before);
+  });
 });
