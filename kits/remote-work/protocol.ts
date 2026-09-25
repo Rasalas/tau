@@ -82,7 +82,10 @@ export interface RemoteWorktree {
 /** The result as it came back: a branch here, or nothing because nothing changed there. */
 export type TransferResult =
   | { state: "nothing"; fetchedAt: number }
-  | { state: "branch"; branch: string; tip: string; commits: number; files: number; fetchedAt: number };
+  | { state: "branch"; branch: string; tip: string; commits: number; files: number; fetchedAt: number; paths?: string[] };
+
+/** At most this many of a result's changed files are named in `TransferResult.paths`. */
+export const RESULT_PATHS_MAX = 200;
 
 export interface TransferApplied {
   state: BranchApplyState;

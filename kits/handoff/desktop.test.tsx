@@ -12,7 +12,7 @@ afterEach(cleanup);
 const RUNTIMES = [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }];
 const HANDOFF = "<handoff_context>\nContinued from “Parser work” (pi · openai-codex/gpt-5.6-luna). What happened there, as background for the message below:\n\n## Goal\nFast parser.\n</handoff_context>";
 const MERGE_BACK = "<merge_back_context>\nBrought back from the fork “Fork” (codex), 2 messages since it started:\n\n## What was done\nTests.\n</merge_back_context>";
-const LINEAGE: LineageState = { links: [{ threadId: "fork", parentThreadId: "parent", strategy: "portable", sourceBackend: "pi", targetBackend: "codex", createdAt: 1 }] };
+const LINEAGE: LineageState = { links: [{ threadId: "fork", parentThreadId: "parent", strategy: "portable", sourceBackend: "pi", targetBackend: "codex", createdAt: 1 }], remotes: [] };
 
 const session = (id: string, title: string, path: string): UiSession => ({ id, title, path, modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 2 });
 

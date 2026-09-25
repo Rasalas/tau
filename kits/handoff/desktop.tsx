@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ComponentType } from "react";
-import { ArrowRightLeft, ChevronRight, CornerUpLeft, GitFork, Undo2, X } from "lucide-react";
+import { ArrowRightLeft, ChevronRight, CornerUpLeft, GitFork, Server, Undo2, X } from "lucide-react";
 import {
   HostUnavailableError,
   Markdown,
@@ -13,6 +13,8 @@ import {
   type ComposerInlineProps,
   type DesktopExtension,
   type HostExtensionClient,
+  type MenuItem,
+  type MenuSection,
   type MessageBlockProps,
   type PreferencesStore,
   type RegionProps,
@@ -25,11 +27,16 @@ import {
   LINEAGE_EVENT,
   MERGE_BACK_TAG,
   NATIVE_FORK_RUNTIMES,
+  TARGETS_EVENT,
   splitBlock,
+  type ContinueOnResult,
+  type ContinueTarget,
   type CreateTransferResult,
   type PrepareMergeBackResult,
+  type RemoteContinuation,
   type ResolveTransferResult,
 } from "./protocol.js";
+import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } from "../remote-work/protocol.js";
 import { HandoffStore, parseSaved } from "./store.js";
 
 const PROFILES = ["desktop", "web", "compact"] as const;
@@ -40,6 +47,63 @@ function runtimeLabel(kind: string, runtimes: readonly UiRuntimeBackend[]): stri
 
 function isNative(source: string | undefined, target: string): boolean {
   return source === target && NATIVE_FORK_RUNTIMES.includes(target);
+}
+
+const MACHINE_ITEM = "machine:";
+
+/**
+ * Why a thread on `backend` cannot continue on `target` now, or undefined.
+ * A machine that could not say what runs there is offered anyway; the host checks again.
+ */
+function unavailableOn(target: ContinueTarget, backend: string, runtimes: readonly UiRuntimeBackend[], draft: string): string | undefined {
+  const runtime = target.runtimes?.find((entry) => entry.kind === backend);
+  if (target.runtimes && !runtime) return `${target.name} has no ${runtimeLabel(backend, runtimes)}.`;
+  if (runtime && !runtime.ready) return `${runtime.label} is ${runtime.note ?? "not ready"} on ${target.name}.`;
+  if (!NATIVE_FORK_RUNTIMES.includes(backend) && !draft.trim()) return `Write what ${target.name} should do next in the composer first.`;
+  return undefined;
+}
+
+function continueOnDescription(backend: string): string {
+  return NATIVE_FORK_RUNTIMES.includes(backend)
+    ? "Goes on there with its history and your draft; you stay here."
+    : "A new thread there with a handoff summary and your draft; you stay here.";
+}
+
+function remoteStatus(link: RemoteThreadLink | undefined): string {
+  switch (link?.status) {
+    case undefined: return "";
+    case "sending": return "Sending the project";
+    case "starting": return "Starting";
+    case "running": return "Working";
+    case "waiting": return link.there?.question ? `Asks: ${link.there.question}` : "Waiting for an answer";
+    case "idle": return "Idle";
+    case "failed": return link.thread ? `Failed: ${link.error ?? "the last turn failed"}` : `Never started: ${link.error ?? "unknown reason"}`;
+    case "offline": return "Offline · may still be running";
+    case "gone": return "Deleted there";
+    case "settled": return "Settled";
+  }
+}
+
+/** "Continue in": the runtimes here, then the machines the thread could go on on. */
+function pickerSections(backend: string, runtimes: readonly UiRuntimeBackend[], targets: readonly ContinueTarget[], draft: string): MenuSection[] {
+  const here: MenuItem[] = runtimes.map((runtime) => ({
+    id: runtime.kind,
+    label: runtime.label,
+    description: isNative(backend, runtime.kind)
+      ? "A fork of this thread: the history comes along."
+      : "A new thread; a small model hands over a summary when you send.",
+    ...(runtime.kind === backend ? { badge: "This thread" } : {}),
+  }));
+  const elsewhere: MenuItem[] = targets.map((target) => {
+    const why = unavailableOn(target, backend, runtimes, draft);
+    return {
+      id: `${MACHINE_ITEM}${target.id}`,
+      label: target.name,
+      description: why ?? continueOnDescription(backend),
+      ...(why ? { disabled: true } : {}),
+    };
+  });
+  return [{ heading: "Continue in", items: here }, ...(elsewhere.length > 0 ? [{ heading: "On another machine", items: elsewhere }] : [])];
 }
 
 /** The thread on screen, when it is one that exists. */
@@ -82,6 +146,83 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       const host: HostExtensionClient = context.host;
       const preferences: PreferencesStore = context.preferences;
       const cancel = (transferId: string) => { void host.invoke("cancel-transfer", { transferId }).catch(() => undefined); };
+      const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
+      const environments = context.environments;
+      const refreshTargets = () => { void host.invoke("continue-targets", { refresh: true }).then((targets) => store.setTargets(targets), () => undefined); };
+
+      /** Shows the machine in this window, at the thread when its list names it; the window's own choice (ADR 0025). */
+      const openThere = async (remote: Pick<RemoteContinuation, "link" | "machine" | "machineName">, actions: WorkbenchActions): Promise<void> => {
+        if (!environments) {
+          actions.notify(`Open ${remote.machineName} from the desktop app; this client keeps no list of machines.`);
+          return;
+        }
+        try {
+          const thread = store.getSnapshot().remoteLinks[remote.link]?.thread;
+          const listed = thread ? environments.getSnapshot()?.environments.find((entry) => entry.id === remote.machine)?.threads.find((entry) => entry.id === thread) : undefined;
+          await environments.open(remote.machine, listed ? { thread: { path: listed.path } } : undefined);
+        } catch (error) {
+          actions.notify(errorMessage(error));
+        }
+      };
+
+      // Out of sight: the window stays on this thread, and a toast says where it went.
+      const continueOn = async (machine: string, actions: WorkbenchActions): Promise<void> => {
+        store.openPicker(undefined);
+        const thread = currentThread(actions);
+        if (!thread) {
+          actions.notify("Open a thread to continue it elsewhere.");
+          return;
+        }
+        const draft = actions.composerDraft().trim();
+        const name = store.getSnapshot().targets.find((target) => target.id === machine)?.name ?? machine;
+        const toast = actions.toast?.({ type: "loading", title: `Continuing on ${name}`, description: "Sending the project's state and the thread…", timeoutMs: 0 });
+        try {
+          const result = await host.invoke("continue-on", { threadId: thread.sessionId, machine, ...(draft ? { prompt: draft } : {}) }) as ContinueOnResult;
+          if (draft && actions.activeThread()?.sessionId === thread.sessionId && actions.composerDraft().trim() === draft) actions.setComposerDraft?.("");
+          const description = result.native
+            ? `It goes on there with its history${draft ? " and your message" : ""}; this thread stays usable here.`
+            : "A new thread there starts with a handoff summary and your message; this thread stays usable here.";
+          const open = { label: `Open on ${result.machineName}`, run: () => void openThere({ link: result.link, machine: result.machine, machineName: result.machineName }, actions) };
+          if (toast) toast.update({ type: "success", title: `Continues on ${result.machineName}`, description, timeoutMs: 8_000, ...(environments ? { actions: [open] } : {}) });
+          else actions.notify(`Continues on ${result.machineName}.`);
+        } catch (error) {
+          toast?.dismiss();
+          actions.notify(errorMessage(error));
+        }
+      };
+
+      const bringBackRemote = async (remote: RemoteContinuation, actions: WorkbenchActions): Promise<void> => {
+        const toast = actions.toast?.({ type: "loading", title: `Bringing it back from ${remote.machineName}`, description: "Fetching its branch and a summary…", timeoutMs: 0 });
+        try {
+          const prepared = await host.invoke("bring-back-remote", { threadId: remote.threadId }) as PrepareMergeBackResult;
+          toast?.dismiss();
+          store.setMergeDraft({ parentThreadId: remote.threadId, text: prepared.context });
+        } catch (error) {
+          toast?.dismiss();
+          actions.notify(errorMessage(error));
+        }
+      };
+
+      const settleRemote = async (remote: RemoteContinuation, how: "apply" | "discard", actions: WorkbenchActions): Promise<void> => {
+        try {
+          const link = await host.invoke("settle-remote", { threadId: remote.threadId, how }) as RemoteThreadLink;
+          store.setRemoteLink(link);
+          if (link.status === "settled") {
+            actions.toast?.({ type: "success", title: how === "apply" ? `Merged from ${remote.machineName}` : `Let go of the work on ${remote.machineName}`, ...(link.settled?.detail ? { description: link.settled.detail } : {}) });
+            return;
+          }
+          const conflict = link.applied?.state === "conflict";
+          actions.toast?.({
+            type: conflict ? "warning" : "error",
+            title: conflict ? "Nothing merged: it conflicts" : "Nothing merged",
+            ...(link.applied?.detail ? { description: link.applied.detail } : {}),
+            ...(link.applied?.files.length ? { copyText: link.applied.files.join("\n") } : {}),
+            timeoutMs: 0,
+          });
+        } catch (error) {
+          actions.notify(errorMessage(error));
+        }
+      };
 
       const continueIn = async (target: string, actions: WorkbenchActions): Promise<void> => {
         store.openPicker(undefined);
@@ -215,21 +356,87 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
               <span className="menu-anchor">
                 <Menu
                   align="left"
-                  heading="Continue in"
-                  items={runtimes.map((runtime) => ({
-                    id: runtime.kind,
-                    label: runtime.label,
-                    description: isNative(snapshot?.backendKind ?? "pi", runtime.kind)
-                      ? "A fork of this thread: the history comes along."
-                      : "A new thread; a small model hands over a summary when you send.",
-                    ...(runtime.kind === (snapshot?.backendKind ?? "pi") ? { badge: "This thread" } : {}),
-                  }))}
-                  onSelect={(kind) => void continueIn(kind, actions)}
+                  sections={pickerSections(snapshot?.backendKind ?? "pi", runtimes, view.targets, actions.composerDraft())}
+                  onSelect={(id) => void (id.startsWith(MACHINE_ITEM) ? continueOn(id.slice(MACHINE_ITEM.length), actions) : continueIn(id, actions))}
                   onClose={() => store.openPicker(undefined)}
                 />
               </span>
             ) : null}
           </span>
+        );
+      }
+
+      /**
+       * Above the composer of a thread that continues on another machine:
+       * where and how it is doing, "Open" there, "Bring back" its branch and
+       * summary, then "Merge". The thread here stays usable meanwhile.
+       */
+      function RemoteBanner({ snapshot, actions }: RegionProps) {
+        const view = useSyncExternalStore(store.subscribe, store.getSnapshot);
+        const [busy, setBusy] = useState<"back" | "merge" | "discard">();
+        const [confirming, setConfirming] = useState(false);
+        const mayChange = useCommandAllowed(HANDOFF_EXTENSION_ID, "bring-back-remote");
+        const sessionId = snapshot?.sessionId;
+        const remote = store.remote(sessionId);
+        useEffect(() => setConfirming(false), [remote?.link]);
+        if (!remote || actions.activeThread()?.sessionId !== sessionId) return null;
+        const link = view.remoteLinks[remote.link];
+        if (link?.status === "settled") return null;
+        const working = link?.status === "sending" || link?.status === "starting" || link?.status === "running";
+        const result = link?.result?.state === "branch" ? link.result : undefined;
+        const run = (what: "back" | "merge" | "discard", work: () => Promise<void>) => {
+          setBusy(what);
+          void work().finally(() => { setBusy(undefined); setConfirming(false); });
+        };
+        const status = remoteStatus(link);
+        if (confirming) {
+          return (
+            <div className="handoff-remote" role="region" aria-label={`Let go of the work on ${remote.machineName}`}>
+              <Server size={13} aria-hidden="true" />
+              <span className="handoff-remote-text">Let go of the work on <strong>{remote.machineName}</strong>? {working ? "Its turn stops and its" : "Its"} worktree there is removed; nothing comes back here.</span>
+              <span className="handoff-remote-actions">
+                <button type="button" className="danger" disabled={Boolean(busy)} onClick={() => run("discard", () => settleRemote(remote, "discard", actions))}>{busy === "discard" ? "Letting go…" : "Let go"}</button>
+                <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
+              </span>
+            </div>
+          );
+        }
+        const conflict = link?.applied?.state === "conflict" || link?.applied?.state === "blocked" ? link.applied : undefined;
+        return (
+          <div className="handoff-remote" role="region" aria-label={`Continues on ${remote.machineName}`}>
+            <Server size={13} aria-hidden="true" />
+            <span className="handoff-remote-text">
+              Continues on <strong>{remote.machineName}</strong>
+              {status ? <span className={`handoff-remote-status${link?.status === "failed" || link?.status === "offline" ? " warn" : ""}`}> · {status}</span> : null}
+              {result ? <span className="handoff-remote-branch" {...tooltipProps(`${result.commits} ${result.commits === 1 ? "commit" : "commits"}, ${result.files} ${result.files === 1 ? "file" : "files"}`)}> · {result.branch}</span> : null}
+              {conflict ? <span className="handoff-remote-status warn" {...tooltipProps(conflict.detail)}> · {conflict.state === "conflict" ? `Conflicts in ${conflict.files.length} ${conflict.files.length === 1 ? "file" : "files"}` : "Blocked"}; nothing merged</span> : null}
+            </span>
+            <span className="handoff-remote-actions">
+              {environments ? <button type="button" onClick={() => void openThere(remote, actions)}>Open</button> : null}
+              <button
+                type="button"
+                disabled={!mayChange || working || !link?.thread || Boolean(busy)}
+                {...tooltipProps(!mayChange ? READ_ONLY_REASON : working ? `Wait until it is idle on ${remote.machineName}` : `Its branch and a summary of what happened there go into the composer`)}
+                onClick={() => run("back", () => bringBackRemote(remote, actions))}
+              >
+                {busy === "back" ? "Bringing back…" : "Bring back"}
+              </button>
+              {result ? (
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={!mayChange || working || Boolean(busy)}
+                  {...tooltipProps(`Merges ${result.branch} here when it is clean, then removes the worktree on ${remote.machineName}`)}
+                  onClick={() => run("merge", () => settleRemote(remote, "apply", actions))}
+                >
+                  {busy === "merge" ? "Merging…" : "Merge"}
+                </button>
+              ) : null}
+              <button type="button" className="handoff-remote-close" aria-label={`Let go of the work on ${remote.machineName}`} disabled={!mayChange || Boolean(busy)} {...tooltipProps(mayChange ? "Let go" : READ_ONLY_REASON)} onClick={() => setConfirming(true)}>
+                <X size={12} />
+              </button>
+            </span>
+          </div>
         );
       }
 
@@ -273,13 +480,21 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         );
       }
 
-      const apply = (payload: unknown) => store.setLineage(payload);
+      // A link no event brought yet (a reload, another window's continuation) is asked for once.
+      const apply = (payload: unknown) => {
+        store.setLineage(payload);
+        for (const id of store.missingLinks()) void remoteWork.invoke("thread", { link: id }).then((link) => store.setRemoteLink(link), () => undefined);
+      };
       context.host.onEvent(LINEAGE_EVENT, apply);
+      context.host.onEvent(TARGETS_EVENT, (targets) => store.setTargets(targets));
+      remoteWork.onEvent(THREAD_LINK_EVENT, (link) => store.setRemoteLink(link));
+      void host.invoke("continue-targets").then((targets) => store.setTargets(targets), () => undefined);
       void host.invoke("state").then(apply).catch((error: unknown) => {
         if (!(error instanceof HostUnavailableError)) console.warn("Handoff Kit could not read the thread lineage", error);
       });
 
       context.registerRegion({ id: "handoff.lineage", placement: "thread-title", order: 60, profiles: PROFILES, Component: LineageTitle });
+      context.registerRegion({ id: "handoff.remote", placement: "composer-above", order: 40, profiles: PROFILES, Component: RemoteBanner });
       context.registerComposerInline({
         id: "handoff.draft",
         profiles: PROFILES,
@@ -327,8 +542,12 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         run: (actions, target) => {
           if (target?.runtime) return continueIn(target.runtime, actions);
           const thread = currentThread(actions);
-          if (thread) store.openPicker(thread.sessionId);
-          else actions.notify("Open a thread to continue it elsewhere.");
+          if (!thread) {
+            actions.notify("Open a thread to continue it elsewhere.");
+            return;
+          }
+          store.openPicker(thread.sessionId);
+          refreshTargets();
         },
       });
       context.registerCommand({
@@ -347,9 +566,23 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           const thread = currentThread(actions);
           const words = query.trim().toLowerCase().split(/\s+/u).filter(Boolean);
           if (!thread || words.length === 0 || !hostCommandAllowed(HANDOFF_EXTENSION_ID, "create-transfer")) return [];
-          return store.getSnapshot().runtimes.flatMap((runtime) => {
+          const matches = (label: string) => words.every((word) => label.toLowerCase().includes(word));
+          const view = store.getSnapshot();
+          const backend = thread.backendKind ?? "pi";
+          const machines = hostCommandAllowed(HANDOFF_EXTENSION_ID, "continue-on") ? view.targets.flatMap((target) => {
+            const label = `Continue on ${target.name}`;
+            if (!matches(label) || unavailableOn(target, backend, view.runtimes, actions.composerDraft())) return [];
+            return [{
+              id: `${MACHINE_ITEM}${target.id}`,
+              label,
+              detail: NATIVE_FORK_RUNTIMES.includes(backend) ? "with its history" : "with a handoff summary",
+              access: "write" as const,
+              run: (next: WorkbenchActions) => continueOn(target.id, next),
+            }];
+          }) : [];
+          return [...view.runtimes.flatMap((runtime) => {
             const label = `Continue in ${runtime.label}`;
-            if (!words.every((word) => label.toLowerCase().includes(word))) return [];
+            if (!matches(label)) return [];
             return [{
               id: runtime.kind,
               label,
@@ -357,7 +590,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
               access: "write" as const,
               run: (next: WorkbenchActions) => continueIn(runtime.kind, next),
             }];
-          });
+          }), ...machines];
         },
       });
       return () => store.clear();
