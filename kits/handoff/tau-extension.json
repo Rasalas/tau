@@ -3,10 +3,11 @@
   "name": "Handoff",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.13.0"
+    "api": "^1.14.0"
   },
   "permissions": [
-    "sessions"
+    "sessions",
+    "machines"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
