@@ -35,6 +35,8 @@ export interface DownloadOptions {
    * changes stays and shows as pending.
    */
   deletedOnServer?: readonly string[];
+  /** Records the server in the mirror only; the local folder is not touched (a folder that holds the site already). */
+  mirrorOnly?: boolean;
 }
 
 export interface DownloadOutcome {
@@ -134,6 +136,10 @@ export async function download(fs: ServerFs, listing: ServerListing, previous: M
     outcome.entries.set(path, entry);
     outcome.bytes += data.length;
     if (isText(data)) outcome.findings.push(...scanText(path, data.toString("utf8")));
+    if (options.mirrorOnly) {
+      options.onProgress?.(++done, outcome.bytes);
+      return;
+    }
     try {
       const placed = await local.place(path, data, entry, previous?.entries.get(path), Boolean(options.overwrite));
       if (placed === "written") outcome.written += 1;
@@ -203,7 +209,7 @@ export async function download(fs: ServerFs, listing: ServerListing, previous: M
     if (outcome.entries.has(path)) continue;
     if (failed.has(path) || ancestors(path).some((folder) => listing.unreadable.includes(folder))) outcome.entries.set(path, entry);
   }
-  for (const path of options.deletedOnServer ?? []) {
+  for (const path of options.mirrorOnly ? [] : options.deletedOnServer ?? []) {
     const entry = previous?.entries.get(path);
     if (!entry || outcome.entries.has(path)) continue;
     try {

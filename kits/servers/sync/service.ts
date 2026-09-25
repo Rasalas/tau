@@ -43,13 +43,24 @@ function decodeInput(value: unknown): SyncInput {
   return { cwd: input.cwd, targetId: input.targetId, exclude, sftpOnly: input.method === "sftp" };
 }
 
+/**
+ * What only the kit itself asks for, never a client: making a project from a
+ * server, where the folder gets its own repository after the download.
+ */
+export interface SyncInternal {
+  /** False: the folder's (or an enclosing) repository's ignore rules do not count yet. */
+  gitRules?: false;
+  /** Fill the mirror and leave the local folder as it is. */
+  mirrorOnly?: true;
+}
+
 const flag = (value: unknown, key: string, fallback: boolean) => {
   const raw = (value as Record<string, unknown> | undefined)?.[key];
   return typeof raw === "boolean" ? raw : fallback;
 };
 
 /** What the server or the local Git said is an answer, not a broken command. */
-function answerError(error: unknown): unknown {
+export function answerError(error: unknown): unknown {
   if (error instanceof ServerPathError || error instanceof SftpError || error instanceof GitError || error instanceof TarError) return new HostCommandError(error.message);
   return error;
 }
@@ -84,7 +95,7 @@ export class SyncService {
     };
   }
 
-  private async open(input: SyncInput) {
+  private async open(input: SyncInput, internal: SyncInternal = {}) {
     const workspace = await this.context.services.knownWorkspacePath(input.cwd);
     const { project, target } = await this.options.target(workspace, input.targetId);
     const localDir = target.context ? join(workspace, ...target.context.split("/")) : workspace;
@@ -95,6 +106,7 @@ export class SyncService {
       ...(target.ignoreFile ? { ignoreFile: target.ignoreFile } : {}),
       projectDir: workspace,
       exclude: input.exclude,
+      ...(internal.gitRules === false ? { gitRules: false } : {}),
       ...(this.options.git ? { git: this.options.git } : {}),
     });
     const mirror = new Mirror(this.options.store.mirrorDir(key), this.options.git ? { git: this.options.git } : {});
@@ -106,9 +118,9 @@ export class SyncService {
     return this.options.transport({ cwd: input.cwd, targetId: input.targetId });
   }
 
-  async scan(raw: unknown): Promise<ScanSummary> {
+  async scan(raw: unknown, internal?: SyncInternal): Promise<ScanSummary> {
     const input = decodeInput(raw);
-    const session = await this.open(input);
+    const session = await this.open(input, internal);
     return this.serial(session.key, async () => {
       const report = this.progress("scan", session.workspace, session.target.id);
       const fs = await this.connect(input, report);
@@ -149,10 +161,10 @@ export class SyncService {
     });
   }
 
-  async download(raw: unknown): Promise<DownloadResult> {
+  async download(raw: unknown, internal: SyncInternal = {}): Promise<DownloadResult> {
     const input = decodeInput(raw);
     const overwrite = flag(raw, "overwrite", false);
-    const session = await this.open(input);
+    const session = await this.open(input, internal);
     return this.serial(session.key, async () => {
       const report = this.progress("download", session.workspace, session.target.id);
       const fs = await this.connect(input, report);
@@ -164,6 +176,7 @@ export class SyncService {
       const deletedOnServer = previous ? await deletedFrom(listing, previous, session.ignore) : [];
       const outcome = await download(fs, listing, previous, session.mirror, {
         localDir: session.localDir, overwrite, method: input.sftpOnly ? "sftp" : "auto", deletedOnServer,
+        ...(internal.mirrorOnly ? { mirrorOnly: true } : {}),
         concurrency: Math.max(1, session.target.concurrency), signal: session.signal,
         onProgress: (done, bytes) => report("fetch", done, { total, bytes, totalBytes }, done === total),
       });
