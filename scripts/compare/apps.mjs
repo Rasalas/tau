@@ -4,7 +4,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertEnvUnder } from "./isolation.mjs";
 
@@ -310,9 +310,18 @@ export function saveTemplate(app, root) {
   cpSync(run, template, { recursive: true, verbatimSymlinks: true });
 }
 
+/** `path` through its nearest existing ancestor's real path, so `/tmp/x` and `/private/tmp/x` are one root. */
+function realPath(path) {
+  const absolute = resolve(path);
+  let existing = absolute;
+  while (!existsSync(existing)) existing = dirname(existing);
+  return join(realpathSync(existing), relative(existing, absolute));
+}
+
 export function assertOwnedRoot(root, app) {
-  const resolved = resolve(root);
-  if (!resolved.startsWith(realpathSync("/tmp")) && !resolved.startsWith(resolve(TAU_ROOT, ".tau-dev"))) {
+  const resolved = realPath(root);
+  const owners = [realpathSync("/tmp"), realPath(join(TAU_ROOT, ".tau-dev"))];
+  if (!owners.some((owner) => resolved.startsWith(`${owner}${sep}`))) {
     throw new Error(`${app.label}: refusing to use ${resolved}; roots live under /tmp or .tau-dev`);
   }
   return resolved;

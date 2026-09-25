@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { CodexAppServer } from "../../kits/codex/app-server.ts";
 import { parseCodexSession } from "../../kits/codex/history-import.ts";
-import { APPS, resetRunFromTemplate } from "./apps.mjs";
+import { APPS, assertOwnedRoot, resetRunFromTemplate } from "./apps.mjs";
 import { codexNotifications } from "./fake-codex.mjs";
 import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } from "./isolation.mjs";
 import { descendants, parseFootprint, parsePs, processRole } from "./processes.mjs";
@@ -197,6 +197,15 @@ describe("isolation", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("takes a root under /tmp by either spelling, and nothing outside /tmp or .tau-dev", () => {
+    const name = `compare-root-${process.pid}`;
+    expect(assertOwnedRoot(`/tmp/${name}`, APPS.tau)).toBe(join(realpathSync("/tmp"), name));
+    expect(assertOwnedRoot(join(realpathSync("/tmp"), name, "nested"), APPS.tau)).toBe(join(realpathSync("/tmp"), name, "nested"));
+    expect(() => assertOwnedRoot("/tmp", APPS.tau)).toThrow(/refusing/u);
+    expect(() => assertOwnedRoot(`${realpathSync("/tmp")}-other/${name}`, APPS.tau)).toThrow(/refusing/u);
+    expect(() => assertOwnedRoot(join(homedir(), name), APPS.tau)).toThrow(/refusing/u);
   });
 
   it("finds open files inside forbidden directories from lsof output", () => {
