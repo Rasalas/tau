@@ -197,7 +197,8 @@ export class DriftService {
   async state(cwd: unknown): Promise<DriftState> {
     const { project, targets } = await this.project(cwd);
     const checkout = await this.context.services.knownWorkspacePath(cwd as string);
-    const branch = await this.readGit(checkout, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    // Without servers there is no drift and no branch to name; Git is not asked.
+    const branch = targets.length ? await this.readGit(checkout, ["symbolic-ref", "--quiet", "--short", "HEAD"]) : undefined;
     const rows: DriftTarget[] = [];
     for (const target of targets) {
       const key = { workspaceId: project.workspaceId, targetId: target.id };

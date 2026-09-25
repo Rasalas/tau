@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ServersStore, mainCheckoutOf, ownerWorkspaceId, type TargetFileSpec } from "./store.js";
+import { MainCheckouts, ServersStore, mainCheckoutOf, ownerWorkspaceId, type GitRunner, type TargetFileSpec } from "./store.js";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map((cleanup) => cleanup())); });
@@ -124,5 +124,36 @@ describe("the workspace a project's targets belong to", () => {
   it("is the folder itself outside Git", async () => {
     const folder = await tempDir("tau-servers-plain-");
     await expect(mainCheckoutOf(folder)).resolves.toBe(folder);
+  });
+
+  it("asks Git nothing for a main checkout's top, and once per worktree", async () => {
+    const root = await tempDir("tau-servers-memo-");
+    const main = join(root, "project");
+    git(root, "init", "-q", "project");
+    git(main, "commit", "-q", "--allow-empty", "-m", "init");
+    git(main, "worktree", "add", "-q", "-b", "feature", join(root, "feature"));
+    const calls: string[] = [];
+    const counted: GitRunner = async (cwd, args) => {
+      calls.push(`${cwd} ${args.join(" ")}`);
+      return git(cwd, ...args);
+    };
+    const checkouts = new MainCheckouts(counted);
+    expect(await checkouts.of(main)).toBe(main);
+    expect(calls).toEqual([]);
+    const feature = join(root, "feature");
+    const answers = await Promise.all([checkouts.of(feature), checkouts.of(feature)]);
+    expect(answers).toEqual([main, main]);
+    expect(await checkouts.of(feature)).toBe(main);
+    expect(calls.filter((call) => call.startsWith(feature))).toHaveLength(2);
+  });
+
+  it("asks again where Git could not answer", async () => {
+    const folder = await tempDir("tau-servers-unsure-");
+    let calls = 0;
+    const failing: GitRunner = async () => { calls += 1; throw new Error("git is busy"); };
+    const checkouts = new MainCheckouts(failing);
+    expect(await checkouts.of(folder)).toBe(folder);
+    expect(await checkouts.of(folder)).toBe(folder);
+    expect(calls).toBe(2);
   });
 });
