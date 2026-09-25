@@ -250,6 +250,37 @@ describe("a spawned thread's worktree", () => {
   });
 });
 
+describe("an agent on another machine", () => {
+  it("carries the machine's chip, its cost there, and takes its work back by its handle", async () => {
+    const agents: AgentsState = {
+      maxRunning: 8,
+      links: [link("h-1", "parent", "completed", 1, {
+        threadId: undefined,
+        title: "Word on rex",
+        result: "apple",
+        machine: { id: "rex-id", name: "rex", link: "link-1", thread: "rex-thread", costUsd: 0.25 },
+        workspace: { mode: "worktree", path: "/rex/worktrees/work/t1", branch: "tau/remote-t1" },
+      })],
+    };
+    const commands: Array<{ command: string; input?: unknown }> = [];
+    renderApp(
+      appWith(agents, [session("parent", "Parent thread", 3)], "parent", [], (command, input) => {
+        if (command === "definitions") return undefined;
+        commands.push({ command, input });
+        return { detail: "Merged tau/rex/word. The worktree on rex is removed." };
+      }),
+      { extensions: [workspaceExtension, agentsExtension] },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    const row = await screen.findByRole("button", { name: "Word on rex, completed" });
+    expect(within(row).getByLabelText("Runs on rex.").textContent).toBe("rex");
+    expect(within(row).getByText(/\$0\.25/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes of Word on rex" }));
+    await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "h-1" } }]));
+  });
+});
+
 describe("the navigator with agent threads", () => {
   it("offers the way back from a child the index alone knows", async () => {
     const sessions = [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2, undefined, "parent")];

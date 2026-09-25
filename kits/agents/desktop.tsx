@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from "react";
 import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
-import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
+import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
+import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
-import { agentsHost, agentsStore, definitionsStore, lineageOf, siblingsSource } from "./store.js";
+import { agentsHost, agentsStore, definitionsStore, lineageOf, remoteAgentThreads, siblingsSource } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
 export function SpawnedBy({ snapshot, actions }: RegionProps) {
@@ -74,6 +75,17 @@ export const agentsExtension: DesktopExtension = {
       profiles: ["desktop", "web", "compact"],
       Component: SpawnCard,
     });
+    context.registerSettingsPage({
+      id: AGENTS_SETTINGS_PAGE,
+      label: "Agents",
+      Icon: Bot,
+      order: 45.2,
+      profiles: ["desktop", "web"],
+      keywords: ["sub-agents", "subagents", "spawn", "machine", "rex", "other computer", "automatic"],
+      Component: createAgentsSettingsPage(context.host),
+    });
+    // The Machines rail leaves out the threads other machines run for this host's agents.
+    context.provideService(REMOTE_AGENT_THREADS_SERVICE, remoteAgentThreads(agentsStore));
     context.useService<ThreadSiblingsService>(THREAD_SIBLINGS_SERVICE, (service) => {
       siblingsSource.set(service);
       return () => siblingsSource.set(undefined);

@@ -5,6 +5,7 @@ import {
   isBusyStatus,
   type AgentDefinitionsState,
   type AgentsState,
+  type RemoteAgentThreadsService,
   type ThreadSiblingsService,
 } from "./protocol.js";
 
@@ -130,3 +131,30 @@ export const siblingsSource = (() => {
     },
   };
 })();
+
+/**
+ * The threads other machines run as sub-agents of this host, for the Machines
+ * rail to leave out: the Agents panel shows them here.
+ */
+export function remoteAgentThreads(store: Pick<AgentsStore, "subscribe" | "getSnapshot">): RemoteAgentThreadsService {
+  let seen: AgentsState | undefined;
+  let byMachine = new Map<string, Set<string>>();
+  const read = () => {
+    const state = store.getSnapshot();
+    if (state === seen) return byMachine;
+    seen = state;
+    byMachine = new Map();
+    for (const link of state?.links ?? []) {
+      if (!link.machine?.thread) continue;
+      const threads = byMachine.get(link.machine.id) ?? new Set<string>();
+      threads.add(link.machine.thread);
+      byMachine.set(link.machine.id, threads);
+    }
+    return byMachine;
+  };
+  const empty: ReadonlySet<string> = new Set();
+  return {
+    threadsOn: (machine) => read().get(machine) ?? empty,
+    subscribe: (listener) => store.subscribe(listener),
+  };
+}

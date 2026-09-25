@@ -24,6 +24,8 @@ export interface SpawnRequest {
   workspace?: AgentWorkspaceMode;
   /** An agent definition of the project, by name. */
   agent?: string;
+  /** Where it runs: a machine's name or id, `local` or `auto`; the definition's, else the user's setting. */
+  machine?: string;
 }
 
 export interface ThreadLiveness {
@@ -70,6 +72,7 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
   const projectPath = optionalText(fields.projectPath, "projectPath", 4_096);
   const workspace = optionalText(fields.workspace, "workspace", 16);
   const agent = optionalText(fields.agent, "agent", 64);
+  const machine = optionalText(fields.machine, "machine", 128);
   if (workspace && workspace !== "shared" && workspace !== "worktree") {
     throw new Error('workspace must be "worktree" or "shared".');
   }
@@ -80,6 +83,7 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
     ...(projectPath ? { projectPath } : {}),
     ...(workspace ? { workspace: workspace as AgentWorkspaceMode } : {}),
     ...(agent ? { agent } : {}),
+    ...(machine ? { machine } : {}),
   };
 }
 
@@ -167,7 +171,11 @@ export class AgentThreadBook {
   private readonly byThread = new Map<string, string>();
   private maxRunning = DEFAULT_MAX_RUNNING_AGENTS;
 
-  constructor(private readonly live: (threadId: string) => ThreadLiveness | undefined) {}
+  constructor(
+    private readonly live: (threadId: string) => ThreadLiveness | undefined,
+    /** Liveness of an agent on another machine, by its handle; it has no thread here. */
+    private readonly remoteLive: (id: string) => ThreadLiveness | undefined = () => undefined,
+  ) {}
 
   setMaxRunning(count: number): void {
     this.maxRunning = Math.max(1, Math.min(Math.floor(count), MAX_RUNNING_AGENTS_CAP));
@@ -215,7 +223,8 @@ export class AgentThreadBook {
   factsFor(idOrThreadId: string): AgentThreadFacts {
     const found = this.recordFor(idOrThreadId);
     if (!found) return { queued: false, spawning: false, turns: 0 };
-    const live = found.link.threadId ? this.live(found.link.threadId) : undefined;
+    const live = found.link.machine ? this.remoteLive(found.link.id)
+      : found.link.threadId ? this.live(found.link.threadId) : undefined;
     return { ...found.facts, ...(live ? { live } : {}) };
   }
 
@@ -231,12 +240,24 @@ export class AgentThreadBook {
     return this.childrenOf(parentThreadId).filter((link) => isBusyStatus(link.status)).length;
   }
 
-  /** The queued agents a parent has room to start, oldest first. */
-  startable(parentThreadId: string): AgentThreadLink[] {
+  /** Agents of any parent that hold a slot on another machine. */
+  busyOn(machine: string): number {
+    return [...this.records.keys()].filter((id) => {
+      const link = this.linkFor(id)!;
+      return link.machine?.id === machine && isBusyStatus(link.status);
+    }).length;
+  }
+
+  /**
+   * The queued agents a parent has room to start, oldest first. `room` says
+   * whether an agent's machine has a slot, so one waiting for a full machine
+   * does not hold back those behind it.
+   */
+  startable(parentThreadId: string, room: (link: AgentThreadLink) => boolean = () => true): AgentThreadLink[] {
     const children = this.childrenOf(parentThreadId);
     const free = this.maxRunning - children.filter((link) => isBusyStatus(link.status)).length;
     if (free <= 0) return [];
-    return children.filter((link) => link.status === "pending").slice(0, free);
+    return children.filter((link) => link.status === "pending" && room(link)).slice(0, free);
   }
 
   /** Every thread that currently has queued agents, for the pump to visit. */
@@ -345,6 +366,11 @@ export class AgentThreadBook {
   /** The checkout an agent works in, and what it changed there. */
   noteWorkspace(idOrThreadId: string, workspace: AgentWorkspace | undefined): boolean {
     return this.update(idOrThreadId, (found) => { found.link = { ...found.link, workspace }; });
+  }
+
+  /** Where an agent on another machine stands: its link there, its thread, whether the machine answers. */
+  noteMachine(idOrThreadId: string, machine: AgentThreadLink["machine"]): boolean {
+    return this.update(idOrThreadId, (found) => { found.link = { ...found.link, machine }; });
   }
 
   noteTitle(idOrThreadId: string, title: string): boolean {

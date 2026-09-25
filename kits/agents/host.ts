@@ -20,9 +20,15 @@ import {
   AGENTS_STATE_EVENT,
   AGENT_CHILD_ENTRY,
   AGENT_PERSONA_FIELD,
+  CHOOSE_MACHINE_COMMAND,
+  MACHINES_KIT_ID,
+  MACHINE_SETTING,
   MAX_AGENT_DEPTH,
   isBusyStatus,
+  type AgentMachinesView,
+  type AgentSendMode,
   type AgentThreadLink,
+  type ChooseMachineAnswer,
   type AgentWorkspace,
   type AgentWorkspaceMode,
   type AgentDefinitionsState,
@@ -39,6 +45,8 @@ import {
   type AgentPersona,
 } from "./persona.js";
 import { DEFAULT_AGENT_PRIORITY, priorityPrefix, readAgentPriority, type AgentPriority } from "./priority.js";
+import { RemoteChildren, resolveMachine, type MachineChoice, type MachineSource } from "./remote.js";
+import { remoteThreadsClient } from "../remote-work/threads-client.js";
 // Worktrees are Workspace Kit's, in every kit that needs one: this is the one
 // leaf module it lends, and nothing else of that kit is reachable from here.
 import {
@@ -59,6 +67,7 @@ import {
   decodeTimeout,
   parseModel,
   readMaxRunningAgents,
+  type ThreadLiveness,
 } from "./threads.js";
 
 /** A first prompt that never reaches its thread would leave it "running" forever. */
@@ -79,13 +88,13 @@ const MAX_REMEMBERED_REQUESTS = 500;
  * The message a parent gets when children it was not waiting for finished,
  * the way T3's orchestrator follows a delegated task up with its result.
  */
-export function wakeMessage(children: ReadonlyArray<{ threadId: string; title: string; status: string; answer?: string; error?: string }>): string {
+export function wakeMessage(children: ReadonlyArray<{ threadId: string; title: string; status: string; answer?: string; error?: string; machine?: string }>): string {
   const head = children.length === 1
     ? "A thread you started has finished."
     : `${children.length} threads you started have finished.`;
   const parts = children.map((child) => {
     const detail = child.error ?? (child.answer ? truncate(child.answer, WAKE_RESULT_LIMIT) : "It gave no answer.");
-    return `— "${child.title}" (threadId ${child.threadId}): ${child.status}\n${detail}`;
+    return `— "${child.title}"${child.machine ? ` on ${child.machine}` : ""} (threadId ${child.threadId}): ${child.status}\n${detail}`;
   });
   return [`[Tau] ${head}`, ...parts, "Continue with this, or read more with tau_get_thread_status."].join("\n\n");
 }
@@ -132,10 +141,27 @@ export function legacyAgentsLinksPath(home = homedir()): string {
 /** v2 added `startedAt`/`endedAt`, so a restored agent still shows how long it ran. */
 const LINKS_VERSION = 2;
 
-/** A started agent, as the index file keeps it; a queued one has no thread to key on. */
+/** A started agent on another machine, as the index file keeps it: its handle and its link there. */
+export interface StoredRemoteLink {
+  id: string;
+  machine: { id: string; name: string; link: string };
+}
+
+/**
+ * A started agent, as the index file keeps it; a queued one has no thread to
+ * key on. One on another machine has no thread here: it carries `remote`, and
+ * an older Tau, which needs a `threadId`, skips it.
+ */
 export type StoredAgentLink =
   Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt" | "agent">
-  & { threadId: string };
+  & ({ threadId: string; remote?: undefined } | { threadId?: undefined; remote: StoredRemoteLink });
+
+function decodeRemote(value: unknown): StoredRemoteLink | undefined {
+  const item = record(value);
+  const machine = record(item.machine);
+  if (typeof item.id !== "string" || typeof machine.id !== "string" || typeof machine.name !== "string" || typeof machine.link !== "string") return undefined;
+  return { id: item.id, machine: { id: machine.id, name: machine.name, link: machine.link } };
+}
 
 /** A v1 file simply has no times; every other field reads the same. */
 export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
@@ -143,10 +169,11 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
   if (!Array.isArray(links)) return [];
   return links.flatMap((entry) => {
     const item = record(entry);
-    if (typeof item.threadId !== "string" || typeof item.parentThreadId !== "string") return [];
+    const remote = typeof item.threadId === "string" ? undefined : decodeRemote(item.remote);
+    if ((typeof item.threadId !== "string" && !remote) || typeof item.parentThreadId !== "string") return [];
     if (item.threadId === item.parentThreadId) return [];
     return [{
-      threadId: item.threadId,
+      ...(remote ? { remote } : { threadId: item.threadId as string }),
       parentThreadId: item.parentThreadId,
       depth: typeof item.depth === "number" ? item.depth : 1,
       spawnedAt: typeof item.spawnedAt === "number" ? item.spawnedAt : 0,
@@ -183,6 +210,12 @@ export async function readAgentLinksWithMigration(path: string, legacy = legacyA
   const inherited = await readAgentLinks(legacy);
   if (inherited.length > 0) await writeAgentLinks(inherited, path).catch(() => undefined);
   return inherited;
+}
+
+/** The key under which `services.settings()` answers where sub-agents run. */
+export function machineSetting(values: Record<string, string> | undefined): string | undefined {
+  const value = values?.[MACHINE_SETTING]?.trim();
+  return value || undefined;
 }
 
 export interface AgentsSettings {
@@ -249,19 +282,21 @@ export function createAgentsHostExtension(options: {
   linksPath?: string;
   /** The Git runner the child worktrees use; tests replace it. */
   runGit?: AgentGitRunner;
+  /** How often a child on another machine is looked at; tests shorten it. */
+  remotePollMs?: number;
 } = {}): HostExtension {
   const definitionReader = new AgentDefinitionReader();
   return {
     id: AGENTS_HOST_EXTENSION_ID,
     name: "Agents",
-    permissions: ["workspace:read", "sessions", "runtime:extend", "process"],
+    permissions: ["workspace:read", "sessions", "runtime:extend", "process", "machines"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const linksPath = options.linksPath ?? agentsLinksPath(services.stateDir);
-      const book = new AgentThreadBook((threadId) => {
+      const book: AgentThreadBook = new AgentThreadBook((threadId) => {
         const thread = services.thread(threadId);
         return thread ? { streaming: thread.isStreaming(), idle: thread.isIdle() } : undefined;
-      });
+      }, (id): ThreadLiveness | undefined => remote.liveness(id));
       const waiters = new Map<string, Set<() => void>>();
       /** Turns a tool gave each child that have not ended yet; the parent hears once none are left. */
       const expecting = new Map<string, number>();
@@ -296,8 +331,8 @@ export function createAgentsHostExtension(options: {
         if (saving) return;
         saving = setTimeout(() => {
           saving = undefined;
-          const links = book.state().links.flatMap((link) => link.threadId ? [{
-            threadId: link.threadId,
+          const links = book.state().links.flatMap((link): StoredAgentLink[] => link.threadId || link.machine?.link ? [{
+            ...(link.threadId ? { threadId: link.threadId } : { remote: { id: link.id, machine: { id: link.machine!.id, name: link.machine!.name, link: link.machine!.link! } } }),
             parentThreadId: link.parentThreadId,
             depth: link.depth,
             spawnedAt: link.spawnedAt,
@@ -330,17 +365,35 @@ export function createAgentsHostExtension(options: {
         const text = [...messages].reverse().find((message) => message.role === "assistant" && message.text)?.text;
         return text ? truncate(text, RESULT_LIMIT) : undefined;
       };
+      /** A child's latest answer: its transcript here, or what its machine last sent. */
+      const answerOf = async (link: AgentThreadLink): Promise<string | undefined> => {
+        const there = link.machine ? remote.answer(link.id) : undefined;
+        return (there ? truncate(there, RESULT_LIMIT) : await lastAssistantMessage(link.threadId)) ?? link.result;
+      };
+
+      // Children on other machines: Remote Work's thread service, followed into the same book.
+      const remote: RemoteChildren = new RemoteChildren({
+        service: remoteThreadsClient(context.invokeHostExtension),
+        book,
+        machines: () => services.machines,
+        changed: (id, moved) => changed(id, moved),
+        ended: (id, outcome) => childEnded(id, outcome),
+        save: () => save(),
+        log: (label, detail) => services.log(label, detail),
+        ...(options.remotePollMs ? { pollMs: options.remotePollMs } : {}),
+      });
 
       const statusOf = async (id: string) => {
         const facts = book.factsFor(id);
         const link = book.linkFor(id);
-        const message = await lastAssistantMessage(link?.threadId) ?? link?.result;
+        const message = link ? await answerOf(link) : undefined;
         const workspace = link ? await readChanges(link) : undefined;
         if (link && workspace && JSON.stringify(workspace) !== JSON.stringify(link.workspace)) {
           changed(link.id, book.noteWorkspace(link.id, workspace));
         }
         return {
           threadId: link?.threadId ?? id,
+          ...(link?.machine ? { machine: link.machine.name, ...(link.machine.offline ? { machineOffline: true } : {}) } : {}),
           ...(workspace?.mode === "worktree" ? {
             workspace: {
               branch: workspace.branch,
@@ -435,7 +488,8 @@ export function createAgentsHostExtension(options: {
       /** What a child changed in its own checkout; absent for one that shares. */
       const readChanges = async (link: AgentThreadLink): Promise<AgentWorkspace | undefined> => {
         const workspace = link.workspace;
-        if (!workspace || workspace.mode !== "worktree" || !workspace.branch || workspace.settled) return workspace;
+        // A worktree on another machine is read there; what came back says what changed.
+        if (link.machine || !workspace || workspace.mode !== "worktree" || !workspace.branch || workspace.settled) return workspace;
         try {
           const changes = await readAgentWorktreeChanges({ path: workspace.path, branch: workspace.branch }, runGit);
           return { ...workspace, changes: { files: changes.files, added: changes.added, removed: changes.removed, commits: changes.commits, uncommitted: changes.uncommitted } };
@@ -454,12 +508,15 @@ export function createAgentsHostExtension(options: {
         const link = book.linkFor(agentId);
         if (!link || link.status !== "pending") return false;
         if (book.busyChildren(link.parentThreadId) >= book.runningBudget) return false;
+        // Another machine's slots are its own: as many as it has cores.
+        if (!remote.hasRoom(link.machine?.id)) return false;
         changed(agentId, book.noteStarting(agentId, Date.now()));
         return true;
       };
 
       /** Builds one agent's thread. Its slot is already claimed. */
       const startAgent = async (agent: AgentThreadLink): Promise<void> => {
+        if (agent.machine) return startRemote(agent);
         let workspace: AgentWorkspace | undefined;
         try {
           // The worktree comes first: a thread that started in the parent's
@@ -512,6 +569,42 @@ export function createAgentsHostExtension(options: {
       };
 
       /**
+       * Builds a child on another machine: Remote Work carries the parent's
+       * state there (its last checkpoint, as for a worktree here) and starts an
+       * ordinary thread in it. The persona rides in the first message, since
+       * that machine's Agents Kit never saw the definition.
+       */
+      const startRemote = async (agent: AgentThreadLink): Promise<void> => {
+        const machine = agent.machine!;
+        try {
+          const definition = definitions.get(agent.id);
+          const prompt = prompts.get(agent.id) ?? agent.title;
+          const snapshotRef = latestCheckpointSnapshotRef(services.thread(agent.parentThreadId)?.entries() ?? []);
+          await remote.start(agent.id, {
+            machine: machine.id,
+            cwd: agent.projectPath,
+            prompt: definition ? firstMessageWithPersona(definition, prompt) : prompt,
+            title: agent.title,
+            ...(agent.model ? { model: parseModel(agent.model) } : {}),
+            ...(definition?.runtime ? { backend: definition.runtime } : {}),
+            parentThreadId: agent.parentThreadId,
+            ...(definition ? { agent: definition.name } : {}),
+            ...(snapshotRef ? { snapshotRef } : {}),
+            agentDepth: agent.depth,
+          });
+          prompts.delete(agent.id);
+          services.log("agents.started-remote", `${agent.id.slice(0, 8)} → ${machine.name} · ${agent.title}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          changed(agent.id, book.noteError(agent.id, message));
+          services.log("agents.start-failed", `${machine.name}: ${message}`);
+        } finally {
+          wanted.delete(agent.id);
+          definitions.delete(agent.id);
+        }
+      };
+
+      /**
        * Starts what freed slots allow, oldest first, and starts that whole batch
        * at once: a thread takes a moment to build, and waiting for one before
        * building the next is what kept agents trickling in one at a time. The
@@ -523,7 +616,10 @@ export function createAgentsHostExtension(options: {
         if (running) return running;
         const work = (async () => {
           for (;;) {
-            const batch = book.startable(parentThreadId).filter((agent) => claimSlot(agent.id));
+            const waiting = book.startable(parentThreadId, (agent) => remote.hasRoom(agent.machine?.id));
+            // What else runs on those machines is read before the batch claims their slots.
+            for (const machine of new Set(waiting.flatMap((agent) => agent.machine ? [agent.machine.id] : []))) await remote.prepare(machine);
+            const batch = book.startable(parentThreadId, (agent) => remote.hasRoom(agent.machine?.id)).filter((agent) => claimSlot(agent.id));
             if (batch.length === 0) return;
             await Promise.all(batch.map((agent) => startAgent(agent)));
           }
@@ -532,9 +628,50 @@ export function createAgentsHostExtension(options: {
         return work;
       };
 
+      /**
+       * A thread's depth among sub-agents. One another machine started here as
+       * a sub-agent carries the depth it had there, so the tree stops at the
+       * same level on whichever machine it grows.
+       */
+      const depths = new Map<string, Promise<number>>();
+      const depthOf = (threadId: string): Promise<number> => {
+        const own = book.depthOf(threadId);
+        if (own > 0) return Promise.resolve(own);
+        let known = depths.get(threadId);
+        if (!known) {
+          known = remoteThreadsClient(context.invokeHostExtension).agentDepth(threadId).then((depth) => depth ?? 0, () => 0);
+          depths.set(threadId, known);
+        }
+        return known;
+      };
+
+      /** Where a spawn runs: the tool's machine, the definition's, else the user's setting; this computer by default. */
+      const chooseMachine = async (request: { machine?: string }, definition: AgentDefinition | undefined, projectPath: string, model: string | undefined): Promise<MachineChoice> => {
+        let setting: string | undefined;
+        if (!request.machine && !definition?.machine) {
+          setting = machineSetting(await services.settings?.(projectPath).then((read) => read.values, () => undefined));
+        }
+        const source: MachineSource = request.machine ? "tool" : definition?.machine ? "definition" : "setting";
+        return resolveMachine(request.machine ?? definition?.machine ?? setting, source, {
+          machines: () => services.machines,
+          auto: async () => {
+            try {
+              const answer = await context.invokeHostExtension(MACHINES_KIT_ID, CHOOSE_MACHINE_COMMAND, {
+                purpose: "sub-agent", cwd: projectPath, ...(definition?.runtime ? { backend: definition.runtime } : {}), ...(model ? { model } : {}),
+              }) as ChooseMachineAnswer | undefined;
+              return answer && typeof answer.reason === "string" ? answer : undefined;
+            } catch (error) {
+              services.log("agents.auto-machine-unavailable", error instanceof Error ? error.message : String(error));
+              return undefined;
+            }
+          },
+        });
+      };
+
       const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread") => {
         const request = decodeSpawnRequest(input);
-        book.assertCanSpawn(parent.sessionId);
+        const depth = await depthOf(parent.sessionId);
+        if (depth + 1 > MAX_AGENT_DEPTH) throw new Error(`Sub-agents may nest ${MAX_AGENT_DEPTH} levels deep; do this work in this thread instead.`);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
         // An unknown or broken definition fails this spawn only; the others go on.
         const definition = request.agent ? findAgentDefinition(await definitionReader.read(projectPath), request.agent) : undefined;
@@ -542,14 +679,26 @@ export function createAgentsHostExtension(options: {
         const sameRuntime = (definition?.runtime ?? "pi") === "pi";
         const model = request.model ?? definition?.model ?? (sameRuntime ? inheritedModel : undefined);
         if (model) parseModel(model);
+        const choice = await chooseMachine(request, definition, projectPath, model);
+        const requested = request.workspace ?? definition?.workspace;
+        const repository = await isRepository(projectPath);
+        if (choice.machine) {
+          const where = choice.machine.name;
+          if (request.workspace === "shared") throw new Error(`A thread on ${where} works in a worktree there; "shared" only works on this computer.`);
+          if (!repository) throw new Error(`Only a Git repository's state can go to ${where}; run this one here with machine "local".`);
+          // Tau holds a persona to its tools and access in a runtime here; the machine there never saw the definition.
+          if (definition?.tools || (definition?.access && definition.access !== "full")) {
+            throw new Error(`The agent definition "${definition.name}" limits its tools or access, which ${where} cannot hold it to; run it here with machine "local".`);
+          }
+          await remote.prepare(choice.machine.id);
+        }
         const id = randomUUID();
         prompts.set(id, request.prompt);
         if (definition) definitions.set(id, definition);
         // A child writes by default, and two writers in one checkout collide;
         // a project that is not a repository has nowhere else to go.
-        const requested = request.workspace ?? definition?.workspace;
-        const mode: AgentWorkspaceMode = requested === "shared" || !(await isRepository(projectPath))
-          ? "shared"
+        const mode: AgentWorkspaceMode = choice.machine ? "worktree"
+          : requested === "shared" || !repository ? "shared"
           : requested ?? "worktree";
         wanted.set(id, mode);
         // Only a tool's spawn wakes its parent; one the user started from the panel does not.
@@ -560,10 +709,11 @@ export function createAgentsHostExtension(options: {
           spawnedBy,
           spawnedAt: Date.now(),
           projectPath,
-          depth: book.depthOf(parent.sessionId) + 1,
+          depth: depth + 1,
           title: request.title ?? titleFromPrompt(request.prompt),
           ...(definition ? { agent: definition.name } : {}),
           ...(model ? { model } : {}),
+          ...(choice.machine ? { machine: { ...choice.machine, ...(choice.reason ? { reason: choice.reason } : {}) } } : {}),
         }, { queued: true });
         publish();
         // A slot free right now belongs to this call, so it comes back with a
@@ -575,7 +725,9 @@ export function createAgentsHostExtension(options: {
           title: link.title,
           status: link.status,
           workspace: link.workspace?.mode ?? mode,
-          ...(link.workspace?.branch ? { branch: link.workspace.branch } : {}),
+          ...(link.workspace?.branch && !link.machine ? { branch: link.workspace.branch } : {}),
+          ...(link.machine ? { machine: link.machine.name } : {}),
+          ...(choice.reason ? { machineChoice: choice.reason } : {}),
           ...(link.agent ? { agent: link.agent } : {}),
           ...(link.error ? { error: link.error } : {}),
         };
@@ -589,6 +741,12 @@ export function createAgentsHostExtension(options: {
       const settleWorkspace = async (id: string, outcome: "applied" | "discarded"): Promise<{ detail: string; branch?: string }> => {
         const link = book.linkFor(id);
         const workspace = link?.workspace;
+        if (link?.machine) {
+          if (workspace?.settled) throw new Error(`Its changes were already ${workspace.settled}.`);
+          if (isBusyStatus(link.status)) throw new Error("This thread is still working; wait for it before taking its changes.");
+          if (!link.machine.link) throw new Error(`It never reached ${link.machine.name}; there is nothing to apply or discard.`);
+          return settleRemote(link, outcome);
+        }
         if (!link || !workspace || workspace.mode !== "worktree" || !workspace.branch) {
           throw new Error("This thread works in your own checkout; there is nothing to apply or discard.");
         }
@@ -605,6 +763,24 @@ export function createAgentsHostExtension(options: {
         save();
         services.log(`agents.${outcome}`, `${workspace.branch} · ${detail}`);
         return { detail, branch: workspace.branch };
+      };
+
+      /** The same decision for a child on another machine: its work comes back as a branch here first. */
+      const settleRemote = async (link: AgentThreadLink, outcome: "applied" | "discarded"): Promise<{ detail: string; branch?: string }> => {
+        const where = link.machine!.name;
+        if (link.machine!.offline) throw new Error(`${where} is offline; its work comes back once it is reachable again.`);
+        const settled = await remote.settle(link.id, outcome === "applied" ? "apply" : "discard");
+        const branch = settled.result?.state === "branch" ? settled.result.branch : undefined;
+        if (settled.status !== "settled") {
+          const applied = settled.applied;
+          const files = applied?.files.length ? `: ${applied.files.join(", ")}` : "";
+          throw new Error(applied?.state === "conflict"
+            ? `Nothing was applied: ${branch ?? "its branch"} from ${where} conflicts with this checkout${files}. The branch stays for you to merge by hand.`
+            : `Nothing was applied: ${applied?.detail ?? "the merge could not run"}${branch ? ` The branch ${branch} stays.` : ""}`);
+        }
+        const detail = settled.settled?.detail ?? (outcome === "applied" ? "Applied." : "Discarded.");
+        services.log(`agents.${outcome}`, `${where} · ${detail}`);
+        return { detail, ...(branch ? { branch } : {}) };
       };
 
       /** The parent read what this child did, so nothing wakes it for that any more. */
@@ -629,13 +805,14 @@ export function createAgentsHostExtension(options: {
         const children = (await Promise.all(ids.map(async (id) => {
           const link = book.linkFor(id);
           if (!link) return [];
-          const answer = await lastAssistantMessage(link.threadId) ?? link.result;
+          const answer = await answerOf(link);
           return [{
             threadId: link.threadId ?? link.id,
             title: link.title,
             status: link.status,
             ...(answer ? { answer } : {}),
             ...(link.error ? { error: link.error } : {}),
+            ...(link.machine ? { machine: link.machine.name } : {}),
           }];
         }))).flat();
         if (children.length === 0) return;
@@ -652,7 +829,7 @@ export function createAgentsHostExtension(options: {
         const request = decodeSendRequest(input);
         const link = requireChild(parentThreadId, request.threadId);
         reported(parentThreadId, link.id);
-        if (!link.threadId) {
+        if (!link.threadId && !link.machine?.link) {
           if (link.status === "cancelled") throw new Error(`${link.title} was cancelled before it started; spawn a new thread instead.`);
           if (request.mode === "steer" || request.mode === "restart") {
             throw new Error(`${link.title} has not started yet; send with mode "queue" or "auto", or cancel it.`);
@@ -661,6 +838,8 @@ export function createAgentsHostExtension(options: {
           prompts.set(link.id, `${prompts.get(link.id) ?? link.title}\n\n${request.message}`);
           return { threadId: link.id, delivered: "with its first prompt", status: link.status };
         }
+        // Past the queue, a child without a thread here is one on another machine.
+        if (link.machine || !link.threadId) return sendRemote(parentThreadId, link, request.message, request.mode);
         const send = services.sessions.send;
         if (!send) throw new Error("This Tau cannot send to another thread; it needs extension API 1.11.0.");
         const thread = services.thread(link.threadId);
@@ -691,6 +870,30 @@ export function createAgentsHostExtension(options: {
         return { threadId: link.threadId, delivered, status: book.linkFor(link.id)?.status ?? link.status };
       };
 
+      /** `sendTo` for a child on another machine: the same modes, through its link there. */
+      const sendRemote = async (parentThreadId: string, link: AgentThreadLink, message: string, mode: AgentSendMode) => {
+        const where = link.machine!;
+        if (!where.link) {
+          if (mode === "steer" || mode === "restart") throw new Error(`${link.title} is still on its way to ${where.name}; send with mode "queue" or "auto".`);
+          throw new Error(`${link.title} is still on its way to ${where.name}; send again once it runs there.`);
+        }
+        const running = remote.running(link.id);
+        if (mode === "steer" && !running) throw new Error(`${link.title} is not running; send with mode "auto" or "queue".`);
+        const delivery: "prompt" | "steer" | "queue" = mode === "queue" ? "queue"
+          : mode === "steer" || (mode === "auto" && running) ? "steer"
+          : "prompt";
+        if (delivery !== "steer") expect(link.id);
+        else if (!expecting.has(link.id)) expecting.set(link.id, 1);
+        if (mode === "restart" && running) {
+          await remote.abort(link.id);
+          await remote.settleTurn(link.id, 15_000).catch(() => undefined);
+        }
+        changed(link.id, book.noteSent(link.id, delivery === "prompt"));
+        await remote.send(link.id, message, delivery);
+        const delivered = mode === "restart" ? "restarted" : delivery === "prompt" ? "started" : delivery === "steer" ? "steered" : "queued";
+        return { threadId: link.id, machine: where.name, delivered, status: book.linkFor(link.id)?.status ?? link.status };
+      };
+
       /** Stops a child: a queued one never starts, a running one ends its turn. A finished one stays as it is. */
       const cancelChild = async (parentThreadId: string, input: unknown) => {
         const link = requireChild(parentThreadId, decodeThreadId(input));
@@ -703,6 +906,12 @@ export function createAgentsHostExtension(options: {
           wanted.delete(link.id);
           changed(link.id, book.noteCancelled(link.id, Date.now()));
           return { threadId: handle, status: "cancelled", cancelled: true };
+        }
+        if (link.machine?.link && isBusyStatus(link.status)) {
+          changed(link.id, book.noteCancelled(link.id, Date.now()));
+          await remote.abort(link.id);
+          void pump(parentThreadId);
+          return { threadId: handle, status: book.linkFor(link.id)?.status ?? "cancelled", cancelled: true };
         }
         if (!isBusyStatus(link.status) || !link.threadId) return { threadId: handle, status: link.status, cancelled: false };
         if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
@@ -719,6 +928,8 @@ export function createAgentsHostExtension(options: {
           const status = book.linkFor(id)?.status;
           return facts.error !== undefined
             || facts.pendingToolPrompt !== undefined
+            // Its machine went away: the thread may go on there, but nothing here learns when.
+            || book.linkFor(id)?.machine?.offline === true
             || (status !== undefined && status !== "running" && status !== "pending");
         };
         if (settled()) return Promise.resolve("settled");
@@ -757,6 +968,7 @@ export function createAgentsHostExtension(options: {
               `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
               "Read an answer with tau_wait_for_thread or tau_get_thread_status; when it finishes while you are not waiting for it, this thread gets its answer as a new message.",
               "Pass agent to start it from one of the project's agent definitions in .tau/agents/: its instructions, model, runtime, tools and workspace apply.",
+              "Pass machine to run it on another computer this one's agents reach (by name, like \"rex\"): it gets a worktree there with this thread's state, and tau_apply_thread_changes brings its work back here as a branch and merges it. Each machine runs as many at once as it has cores; the rest queue.",
             ].join(" "),
             promptSnippet: "tau_spawn_thread: delegate a task to a new background thread in this project",
             parameters: Type.Object({
@@ -768,6 +980,9 @@ export function createAgentsHostExtension(options: {
                 description: 'Where it works: "worktree" for its own checkout branched from this thread\'s state (the default in a Git repository), or "shared" to write in this very checkout — only safe for a thread that reads.',
               })),
               agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
+              machine: Type.Optional(Type.String({
+                description: 'Where it runs: a machine\'s name or id, "local" for this computer, or "auto" to let Tau pick by load. The definition\'s machine, else the user\'s setting (this computer unless they chose otherwise), when left out.',
+              })),
               clientRequestId: Type.Optional(Type.String({ description: "Your own id for this spawn; a retry with the same id returns the thread the first call started." })),
             }),
             // Over MCP there is no Pi context, and a model of another runtime is not one to inherit.
@@ -874,6 +1089,7 @@ export function createAgentsHostExtension(options: {
                 title: link.title,
                 status: link.status,
                 spawnedAt: link.spawnedAt,
+                ...(link.machine ? { machine: link.machine.name } : {}),
               })),
             }),
           },
@@ -932,6 +1148,34 @@ export function createAgentsHostExtension(options: {
         for (const tool of agentTools(session)) pi.registerTool(tool);
       };
 
+      /** A child's turn ended, here or on its machine: note it, wake its parent if nobody waited, free its slot. */
+      const childEnded = async (idOrThreadId: string, outcome: "completed" | "failed"): Promise<void> => {
+        const link = book.linkFor(idOrThreadId);
+        if (!link) return;
+        // Read before the end is noted: noting it releases whoever waits.
+        const watched = (waiters.get(link.id)?.size ?? 0) > 0;
+        changed(link.id, book.noteEnded(link.id, outcome, Date.now()));
+        // The index now carries when the agent ran, so a restart can still
+        // show its duration; that is only known once the turn is over.
+        save();
+        if (!link.machine) {
+          const answer = await lastAssistantMessage(link.threadId);
+          if (answer) changed(link.id, book.noteResult(link.id, truncate(answer, PANEL_RESULT_LIMIT)));
+        }
+        // The last turn a tool gave it, or one that failed, and nobody waited: its parent hears.
+        const left = (expecting.get(link.id) ?? 0) - 1;
+        if (left > 0 && outcome !== "failed") expecting.set(link.id, left);
+        else if (expecting.delete(link.id) && !watched) {
+          const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
+          pending.add(link.id);
+          unreported.set(link.parentThreadId, pending);
+          void flushWakes(link.parentThreadId);
+        }
+        // A finished agent frees one of its parent's slots, and one on its machine.
+        if (link.machine) for (const parentThreadId of book.parentsWithQueued()) void pump(parentThreadId);
+        else void pump(link.parentThreadId);
+      };
+
       let priority: AgentPriority = DEFAULT_AGENT_PRIORITY;
       const disposers = [
         services.registerRuntimeExtension("tau-agents", runtimeExtension, {
@@ -945,27 +1189,7 @@ export function createAgentsHostExtension(options: {
           ended: async (sessionId, _turnId, outcome) => {
             // A parent whose turn ended hears what finished meanwhile.
             if (unreported.has(sessionId)) void flushWakes(sessionId, true);
-            const link = book.linkFor(sessionId);
-            if (!link) return;
-            // Read before the end is noted: noting it releases whoever waits.
-            const watched = (waiters.get(link.id)?.size ?? 0) > 0;
-            changed(sessionId, book.noteEnded(sessionId, outcome, Date.now()));
-            // The index now carries when the agent ran, so a restart can still
-            // show its duration; that is only known once the turn is over.
-            save();
-            const answer = await lastAssistantMessage(link.threadId);
-            if (answer) changed(sessionId, book.noteResult(sessionId, truncate(answer, PANEL_RESULT_LIMIT)));
-            // The last turn a tool gave it, or one that failed, and nobody waited: its parent hears.
-            const left = (expecting.get(link.id) ?? 0) - 1;
-            if (left > 0 && outcome !== "failed") expecting.set(link.id, left);
-            else if (expecting.delete(link.id) && !watched) {
-              const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
-              pending.add(link.id);
-              unreported.set(link.parentThreadId, pending);
-              void flushWakes(link.parentThreadId);
-            }
-            // A finished agent frees one of its parent's slots.
-            void pump(link.parentThreadId);
+            if (book.has(sessionId)) await childEnded(sessionId, outcome);
           },
           closed: async (sessionId) => { changed(sessionId, book.noteClosed(sessionId)); },
           reset: async (sessionId) => { changed(sessionId, book.noteClosed(sessionId)); },
@@ -1037,6 +1261,22 @@ export function createAgentsHostExtension(options: {
           const report = await definitionReader.read(thread?.cwd ?? services.cwd());
           return { directory: report.directory, definitions: report.definitions.map(summarize), problems: report.problems };
         }, { access: "read" }),
+        // Settings → Agents: where sub-agents may run, and how many at once on each.
+        context.registerCommand("machines", (): AgentMachinesView => {
+          const machines = services.machines;
+          if (!machines) return { available: false, machines: [] };
+          return {
+            available: true,
+            machines: machines.list().map((machine) => {
+              const budget = remote.knownBudget(machine.id);
+              return {
+                id: machine.id, name: machine.name, status: machine.status,
+                ...(machine.readOnly ? { readOnly: true } : {}),
+                ...(budget ? { budget } : {}),
+              };
+            }),
+          };
+        }, { access: "read" }),
         // The panel's "Start": the user spawns from a definition into the thread they read.
         context.registerCommand("start", async (input) => {
           const parentThreadId = requireText(input, "parentThreadId");
@@ -1053,12 +1293,20 @@ export function createAgentsHostExtension(options: {
       const settings = await readAgentsSettings(options.settingsPath);
       book.setMaxRunning(settings.maxRunning);
       priority = settings.priority;
-      for (const link of await readAgentLinksWithMigration(linksPath)) {
-        if (!book.has(link.threadId)) book.add({ ...link, id: link.threadId });
+      const restoring: string[] = [];
+      for (const { remote: there, ...link } of await readAgentLinksWithMigration(linksPath)) {
+        if (there) {
+          if (book.has(there.id)) continue;
+          book.add({ ...link, id: there.id, machine: { ...there.machine } });
+          restoring.push(there.id);
+        } else if (link.threadId && !book.has(link.threadId)) book.add({ ...link, id: link.threadId, threadId: link.threadId });
       }
       publish();
+      // Remote Work may activate after this kit: a child there is read back once it answers.
+      for (const id of restoring) void remote.restore(id);
 
       return () => {
+        remote.close();
         if (publishing) clearTimeout(publishing);
         if (saving) clearTimeout(saving);
         for (const dispose of [...disposers].reverse()) dispose();

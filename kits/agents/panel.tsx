@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Bot } from "lucide-react";
-import { useHostCapabilities, useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
+import { Bot, Server } from "lucide-react";
+import { tooltipProps, useHostCapabilities, useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import type { AgentThreadStatus } from "./protocol.js";
 import { agentsHost, agentsStore, definitionsStore, siblingsSource } from "./store.js";
 import { DefinitionsSection } from "./definitions-panel.js";
@@ -11,9 +11,11 @@ import {
   canSettleWorktree,
   formatCost,
   formatElapsed,
+  machineTitle,
   worktreeLine,
   type AgentGroup,
   type AgentRow,
+  type AgentRowMachine,
   type AgentsPanelModel,
 } from "./model.js";
 
@@ -52,13 +54,24 @@ function Elapsed({ row }: { row: AgentRow }) {
   return <time ref={ref} />;
 }
 
+/** The machine a row runs on: its name as a chip, why and whether it answers in the tooltip. */
+export function MachineChip({ machine }: { machine: AgentRowMachine }) {
+  const title = machineTitle(machine);
+  return (
+    <span className={`agent-row-machine${machine.offline ? " offline" : ""}`} aria-label={title} {...tooltipProps(title)}>
+      <Server size={10} aria-hidden="true" />{machine.name}
+    </span>
+  );
+}
+
 const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
   row: AgentRow;
   onOpen(row: AgentRow): void;
   /** Takes the agent's work into this checkout, or throws it away with its worktree. */
   onSettle(row: AgentRow, outcome: "apply" | "discard"): void;
 }) {
-  const disabled = !row.path;
+  // A row on another machine has no thread here; the tooltip says where it runs.
+  const disabled = !row.path && !row.machine;
   const worktree = worktreeLine(row);
   // A Read-only device may look at an agent's work, not take or drop it (ADR 0024).
   const { readOnly } = useHostCapabilities();
@@ -74,6 +87,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
         <i className={`agent-dot status-${row.status}`} aria-hidden="true" />
         <strong>{row.title}</strong>
         {row.agent ? <span className="agent-row-definition" title={`Started from the agent definition ${row.agent}`}>{row.agent}</span> : null}
+        {row.machine ? <MachineChip machine={row.machine} /> : null}
         <Elapsed row={row} />
       </span>
       <span className="agent-row-activity">{activityLine(row)}</span>
@@ -158,12 +172,14 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
   // thread that spawned it and the rail keeps hiding the child.
   const open = useCallback((row: AgentRow) => {
     if (row.path && row.threadId) actions.openThread(row.threadId);
+    else if (row.machine) actions.notify(`${row.title} runs on ${row.machine.name}; its transcript is there.`);
   }, [actions]);
 
   // The same two moves tau_apply_thread_changes makes, for the user.
   const settle = useCallback((row: AgentRow, outcome: "apply" | "discard") => {
-    if (!row.threadId) return;
-    void agentsHost.invoke?.(outcome === "apply" ? "apply-changes" : "discard-changes", { threadId: row.threadId })
+    const handle = row.threadId ?? (row.machine ? row.id : undefined);
+    if (!handle) return;
+    void agentsHost.invoke?.(outcome === "apply" ? "apply-changes" : "discard-changes", { threadId: handle })
       .then((result) => actions.notify((result as { detail?: string } | undefined)?.detail ?? "Done."))
       .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
   }, [actions]);
