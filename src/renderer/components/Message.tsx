@@ -8,6 +8,7 @@ import { MessageActions } from "./MessageActions";
 import { UserMessage, useMessageBlocks } from "./UserMessage";
 import { Markdown } from "./Markdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
+import { TurnErrorLine } from "./TurnError";
 
 interface AsyncActivity {
   label: string;
@@ -77,6 +78,7 @@ export const Message = memo(function Message({
   onCopy,
   onFork,
   onEdit,
+  onRetry,
   onToggleExpanded,
   expanded,
 }: {
@@ -88,6 +90,8 @@ export const Message = memo(function Message({
   onFork?: (message: UiMessage) => void;
   /** Rewinds to before a prompt of the user's and puts it back into the composer. */
   onEdit?: (message: UiMessage) => void;
+  /** Sends the prompt that led to this failed answer again. */
+  onRetry?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
 }) {
@@ -104,7 +108,7 @@ export const Message = memo(function Message({
   }
 
   const thinking = message.thinking?.trim() ? message.thinking : undefined;
-  if (!message.text && !thinking) return null;
+  if (!message.text && !thinking && !message.error) return null;
   const thinkingOpenByDefault = detail !== "focused";
   // For assistant rows `expanded` means the reader flipped the thinking row away from its default.
   const flipped = onToggleExpanded ? Boolean(expanded) : thinkingToggled;
@@ -130,13 +134,14 @@ export const Message = memo(function Message({
             {message.text.includes("<") ? <AssistantText message={message} streaming={streaming} /> : <Markdown streaming={streaming}>{message.text}</Markdown>}
           </div>
         ) : null}
+        {message.error ? <TurnErrorLine message={message.error} onRetry={onRetry ? () => onRetry(message) : undefined} /> : null}
         {detail === "everything" && message.text ? (
           <time className="message-stamp" dateTime={new Date(message.timestamp).toISOString()} title={fullTimestamp(message.timestamp)}>
             {compactTimestamp(message.timestamp)}
           </time>
         ) : null}
       </article>
-      {onCopy ? <MessageActions
+      {onCopy && (message.text || !message.error) ? <MessageActions
         message={message}
         onCopy={() => onCopy(message)}
         onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}

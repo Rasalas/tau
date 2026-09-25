@@ -985,6 +985,7 @@ body.resizing-col .app-shell { transition: none; }
 .turn-error-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 2px; color: var(--fail-ink); overflow-wrap: anywhere; }
 .turn-error-line > svg { flex: none; margin-top: 3px; color: var(--fail); }
 .turn-error-line > span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
+.turn-error-line > .mini-button { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 5px; }
 
 /* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
 .queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }

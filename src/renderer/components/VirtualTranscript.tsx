@@ -34,6 +34,8 @@ export interface VirtualTranscriptProps {
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
   onEditMessage?: (message: UiMessage) => void;
+  /** Offered on the last answer only, once it failed and the run is over. */
+  onRetryMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
 }
 
@@ -113,6 +115,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   onCopyMessage,
   onForkMessage,
   onEditMessage,
+  onRetryMessage,
   onFocusComposer,
 }: VirtualTranscriptProps) {
   const pendingActivities = useMemo<TranscriptActivity[]>(() => [
@@ -476,6 +479,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           onCopy={onCopyMessage}
           onFork={onForkMessage}
           onEdit={onEditMessage}
+          onRetry={message.error && !isStreaming && message === messages.at(-1) ? onRetryMessage : undefined}
           onToggleExpanded={onMessageToggleExpanded}
           expanded={expandedMessageIds.has(message.id)}
         />

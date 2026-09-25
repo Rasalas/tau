@@ -12,6 +12,7 @@ describe("fakeReply", () => {
     expect(fakeReply(user("Please write notes/a.txt hello"))).toEqual({ toolCall: { name: "write", arguments: { path: "notes/a.txt", content: "hello\n" } } });
     expect(fakeReply(user([{ type: "text", text: "wait 1500" }]))).toEqual({ text: "ok", waitMs: 1500 });
     expect(fakeReply(user("Reply with one word"))).toEqual({ text: "ok" });
+    expect(fakeReply(user("fail 400 Unsupported parameter: temperature"))).toEqual({ status: 400, error: "Unsupported parameter: temperature" });
     expect(fakeReply({ messages: [...user("write a b").messages, { role: "assistant", content: null }, { role: "tool", content: "ok" }] })).toEqual({ text: "done" });
   });
 });
@@ -44,6 +45,12 @@ describe("startFakeModelServer", () => {
     controller.abort();
     const message = await reply;
     expect(message.stopReason).toBe("aborted");
+  });
+
+  it("refuses a request with the status and text asked for", async () => {
+    const message = await ask("fail 400 Unsupported parameter: temperature");
+    expect(message.stopReason).toBe("error");
+    expect(message.errorMessage).toContain("Unsupported parameter: temperature");
   });
 
   it("streams a write tool call", async () => {

@@ -5,7 +5,7 @@ import { withClientTurnIdentity } from "./client-turn-ledger.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import type { MessageMappingOptions } from "./host-messages.js";
-import { boundedToolOutput, mapMessage, nextVisibleMessageId, resultText } from "./host-messages.js";
+import { assistantError, boundedToolOutput, mapMessage, nextVisibleMessageId, resultText } from "./host-messages.js";
 import { assistantAnchorForBranch } from "./session-entries.js";
 import { isThreadRuntime, ThreadRuntime } from "./thread-runtime.js";
 import type { LiveTurnState } from "./live-turn-state.js";
@@ -150,13 +150,11 @@ function finishMessage(event: any, thread: LiveTurnState, sessionId: string, ser
       services.emit({ type: "assistant-end", sessionId, message });
       publishAssistantAnchor(event.message, message, thread, sessionId, services);
     }
-    // A provider error ends the message with no text; the transcript would show nothing.
-    const error = event.message.stopReason === "error" && typeof event.message.errorMessage === "string"
-      ? event.message.errorMessage.trim().slice(0, 2_000)
-      : "";
+    // The message carries the error into the transcript; the notice reaches a reader elsewhere.
+    const error = assistantError(event.message);
     if (error) services.emit({ type: "notice", sessionId, level: "error", message: error });
     // A retry that answers after an error leaves the run a success.
-    thread.turnError = event.message.stopReason === "error" ? error || "The model stopped with an error." : undefined;
+    thread.turnError = error;
     thread.currentAssistantId = undefined;
     thread.liveAssistant = undefined;
     return;

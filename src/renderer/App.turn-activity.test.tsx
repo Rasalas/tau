@@ -579,9 +579,11 @@ describe("last-turn activity", () => {
 describe("a failed turn", () => {
   const shell = { id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 2 };
 
-  it("ends the transcript with the error until the host clears it", async () => {
+  it("ends the transcript with the error and a retry until the host clears it", async () => {
+    const sendPrompt = vi.fn(async () => undefined);
     const client = createFakeHostClient({
       platform: "darwin",
+      sendPrompt,
       bootstrap: async () => ({
         version: 1,
         threadIndex: {
@@ -612,10 +614,12 @@ describe("a failed turn", () => {
 
     const line = await waitFor(() => {
       const found = document.querySelector(".transcript .turn-error-line");
-      expect(found?.textContent).toBe("stream disconnected before completion");
+      expect(found?.querySelector("span")?.textContent).toBe("stream disconnected before completion");
       return found;
     });
-    expect(line).toBeTruthy();
+    // Retry sends the failed turn's prompt again.
+    fireEvent.click(within(line as HTMLElement).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Replay the turn.", [], "session", expect.anything(), undefined));
 
     act(() => client.emit({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "session", shell } } }));
     await waitFor(() => expect(document.querySelector(".turn-error-line")).toBeNull());

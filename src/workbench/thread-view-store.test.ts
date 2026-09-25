@@ -100,6 +100,15 @@ describe("reduceHostEvent", () => {
     expect(emptied.transcript.messages).toEqual([]);
   });
 
+  it("keeps an empty answer that failed, with the provider's words", () => {
+    const failed = reduceHostEvent(state(), {
+      type: "assistant-end",
+      sessionId: SESSION,
+      message: { id: "a", role: "assistant", text: "", timestamp: 1, error: "400 Unsupported parameter: temperature" },
+    });
+    expect(failed.transcript.messages).toEqual([expect.objectContaining({ id: "a", error: "400 Unsupported parameter: temperature" })]);
+  });
+
   it("appends an assistant-end message the transcript has never seen", () => {
     const next = reduceHostEvent(state(), {
       type: "assistant-end",
