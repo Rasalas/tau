@@ -124,6 +124,7 @@ export const HOST_METHOD_ACCESS = {
   // Reading another machine's thread over the window's own connection to it; its key decides there.
   "environments-transcript-page": "read",
   "environments-watch-thread": "read",
+  "environments-extension-read": "read",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.

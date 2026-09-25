@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
-import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, Monitor, RotateCw, Send, Smartphone } from "lucide-react";
+import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, Monitor, MonitorOff, RotateCw, Send, Smartphone } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
 import { activeThread, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
-import { previewKit, usePreviewState } from "./store.js";
+import { isPreviewState, previewKit, previewStore, readPreviewState, usePreviewState } from "./store.js";
+import { hostMachineName } from "./machine.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 import { describeViewer, screenTraits, viewerId } from "./viewer.js";
 
@@ -26,6 +27,22 @@ const TAP_SLOP_PX = 8;
 const SCROLL_EVERY_MS = 80;
 
 const READ_ONLY_NOTE = "This device is paired Read only: it can watch, not click or type.";
+
+/** How often a view that shows "no display" asks whether a window came. */
+export const NO_WINDOW_RECHECK_MS = 5_000;
+
+/** What the stage says when the host's machine has no window to draw the page in. */
+export function NoDisplay({ state, machine }: { state: PreviewState; machine: string | undefined }) {
+  const name = machine ?? "The host";
+  const there = machine ?? "the host's computer";
+  return <Empty
+    icon={<MonitorOff size={20} />}
+    title={`${name} has no display`}
+    description={state.noWindow?.displayService
+      ? <>The page is drawn in a Tau window on {there}. Run <code>tau service install --display</code> there: Tau then opens one out of sight when a page needs it.</>
+      : `The page is drawn in a Tau window on ${there}. Open the Tau app there, and the page shows here.`}
+  />;
+}
 
 type Input = PreviewInput & ScreenInput;
 
@@ -142,6 +159,8 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const view: PreviewView = screen ? chosen : "browser";
   const threadId = activeThread.use() ?? actions.activeThread()?.sessionId;
   const { readOnly } = useHostCapabilities();
+  const machine = hostMachineName.use();
+  const noWindow = view === "browser" && Boolean(state.noWindow);
   const mayNavigate = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "navigate");
   const mayOpen = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "open");
   const mayInput = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "input");
@@ -160,6 +179,16 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
 
   useEffect(() => { if (!editing) setAddress(state.url); }, [editing, state.url]);
 
+  // No push says a window arrived there; ask again while this says there is none.
+  useEffect(() => {
+    if (!noWindow || !active) return undefined;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void previewKit.state().then((value) => { if (isPreviewState(value)) previewStore.set(readPreviewState(value)); }).catch(() => undefined);
+    }, NO_WINDOW_RECHECK_MS);
+    return () => clearInterval(timer);
+  }, [active, noWindow]);
+
   // The stage is this device's screen for the page, measured when a request goes out.
   const viewer = useCallback((): PreviewViewer | undefined => {
     const element = stage.current;
@@ -168,9 +197,9 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   }, [id]);
   const pageFrames = useMemo(() => browserSource(viewer), [viewer]);
   const source = useMemo<LiveFrameSource | undefined>(() => {
-    if (view === "browser") return state.url ? pageFrames : undefined;
+    if (view === "browser") return state.url && !noWindow ? pageFrames : undefined;
     return screen && threadId ? screenSource(screen, threadId) : undefined;
-  }, [pageFrames, screen, state.url, threadId, view]);
+  }, [noWindow, pageFrames, screen, state.url, threadId, view]);
   const frames = useLiveFrames(source, stage, { active });
   const driven = useDrivenWindow(view === "screen" ? screen : undefined, threadId);
   const box = useStageBox(stage);
@@ -184,7 +213,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   }, [active, id, mayLayOut, view]);
   // Fitted by hand: an <img> never grows past its own size, and a small frame on a slow link would stay small.
   const fitted = frames.picture && box ? fit(frames.picture, box) : undefined;
-  const canDrive = view === "browser" ? mayInput && Boolean(state.url) : !readOnly && Boolean(screen?.input && threadId);
+  const canDrive = view === "browser" ? mayInput && Boolean(state.url) && !noWindow : !readOnly && Boolean(screen?.input && threadId);
 
   // A secret field on the page makes this device's own field a password field; switching away forgets it.
   useEffect(() => { setSecret(false); }, [view, state.url]);
@@ -286,11 +315,13 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   };
 
   const driver = state.driver && !state.driver.dismissed && state.driver.source === view ? state.driver : undefined;
-  const status = error
+  // The stage says it in words already.
+  const problem = noWindow && /No Tau window/u.test(error) ? "" : error;
+  const status = problem
     || (view === "browser" ? (state.loading ? "Loading…" : state.title || state.url) : windowName(driven) ?? "The window the agent drives")
     || "";
   const empty = view === "browser"
-    ? !state.available
+    ? noWindow ? <NoDisplay state={state} machine={machine} /> : !state.available
       ? <Empty icon={<Globe size={20} />} title="The Preview needs Tau on the host" description="Open the Tau desktop app on the computer this host runs on; the page is drawn there." />
       : <Empty icon={<Globe size={20} />} title="Nothing open" description={mayOpen ? "Type an address above, or ask the agent to open one." : "The page an agent or the host opens shows here."} />
     : <Empty icon={<AppWindow size={20} />} title="No window yet" description="The window this thread's agent drives shows here once it has looked at one." />;
@@ -324,9 +355,9 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
         <button type="button" role="tab" aria-selected={view === "screen"} aria-label="Screen" className={view === "screen" ? "preview-view active" : "preview-view"} {...tooltipProps("The window the agent drives")} onClick={() => previewView.set("screen")}><AppWindow size={14} /></button>
       </div> : null}
     </header>
-    <div className={error ? "preview-remote-status error" : "preview-remote-status"} role="status">
+    <div className={problem ? "preview-remote-status error" : "preview-remote-status"} role="status">
       {driver ? <span className="preview-remote-driver" {...tooltipProps("An agent is working here; what you do goes to the same page")}><Bot size={12} aria-hidden="true" />Agent</span> : null}
-      <span className="preview-remote-status-text">{view === "browser" || error ? status : null}</span>
+      <span className="preview-remote-status-text">{view === "browser" || problem ? status : null}</span>
       {view === "browser" && state.url ? <LayoutStatus state={state} id={id} viewer={viewer} allowed={mayLayOut} onError={setError} /> : null}
       {frames.reduced ? <span className="preview-remote-reduced" {...tooltipProps("The connection is slow, so the picture is smaller")}>low detail</span> : null}
     </div>

@@ -13,6 +13,7 @@ import type {
   UiEnvironmentThreadView,
   UiEnvironments,
 } from "../shared/environments.js";
+import type { HostExtensionSummary } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
@@ -79,6 +80,8 @@ export interface WindowEnvironmentsOptions {
   now?(): number;
 }
 
+const READ_COMMANDS_RETRY_MS = 10_000;
+
 interface Watched {
   monitor: EnvironmentMonitor;
   state: MonitorState;
@@ -113,6 +116,8 @@ export class WindowEnvironments {
   private readonly writes = new Set<Promise<void>>();
   /** Threads of other machines the page looks in on, each subscribed on that machine's connection. */
   private readonly lookIns: EnvironmentThreadWatches;
+  /** Per machine, the kit commands registered to only read; asked again after a reconnect. */
+  private readonly readCommands = new Map<string, { at: number; commands: Promise<ReadonlySet<string>> }>();
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
@@ -477,13 +482,42 @@ export class WindowEnvironments {
 
   /** A page of a machine's thread, read over the window's connection to it with the window's key there. */
   async transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    const { watched } = this.reachable(machine);
+    return watched.monitor.call<TranscriptPage>("transcript-page", cursor ? [sessionId, cursor] : [sessionId]);
+  }
+
+  /**
+   * A kit command of a machine that only reads (API 1.15.0), over the
+   * window's connection there: the window's key could change things, so the
+   * command must be one that machine lists as `access: "read"`.
+   */
+  async readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown> {
+    const { id, watched } = this.reachable(machine);
+    if (!await this.onlyReads(id, watched, extensionId, command)) {
+      throw new Error(`${this.machineName(id)} has no command ${extensionId}/${command} that only reads.`);
+    }
+    return watched.monitor.call("host-extension", [extensionId, command, input]);
+  }
+
+  /** A miss asks again at most every few seconds: a kit installed there since then. */
+  private async onlyReads(id: string, watched: Watched, extensionId: string, command: string): Promise<boolean> {
+    const key = `${extensionId}\n${command}`;
+    const cached = this.readCommands.get(id);
+    if (cached && (await cached.commands.catch(() => new Set<string>())).has(key)) return true;
+    if (cached && Date.now() - cached.at < READ_COMMANDS_RETRY_MS) return false;
+    const commands = watched.monitor.call<HostExtensionSummary[]>("host-extensions").then((list) => new Set(list.flatMap((summary) => (summary.readCommands ?? []).map((name) => `${summary.id}\n${name}`))));
+    this.readCommands.set(id, { at: Date.now(), commands });
+    return (await commands).has(key);
+  }
+
+  private reachable(machine: string): { id: string; watched: Watched } {
     const id = this.resolveMachine(machine);
     const watched = id ? this.watched.get(id) : undefined;
     if (!id || !watched) throw new Error("Tau does not know that machine.");
     if (watched.state.status !== "connected") {
       throw new Error(watched.state.status === "refused" ? `${this.machineName(id)} refuses this window: ${watched.state.detail ?? ""}`.trim() : `${this.machineName(id)} is not reachable right now.`);
     }
-    return watched.monitor.call<TranscriptPage>("transcript-page", cursor ? [sessionId, cursor] : [sessionId]);
+    return { id, watched };
   }
 
   /** A dialog asked before the watch began is heard again: the machine replays its open ones. */
@@ -614,6 +648,8 @@ export class WindowEnvironments {
         const reached = state.status === "connected" && entry.state.status !== "connected";
         entry.state = state;
         this.lookIns.onStatus(id, state.status);
+        // Another connection may reach another Tau there, with other kits.
+        if (reached) this.readCommands.delete(id);
         if (reached && this.lookIns.threads(id).length > 0) this.askOpenDialogs(id);
         if (state.status === "connected") for (const waiter of [...this.connectedWaiters.get(id) ?? []]) waiter();
         if (state.index) {

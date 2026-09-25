@@ -8,6 +8,7 @@ import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js
 import { EMPTY_PREVIEW_STATE, PREVIEW_HOST_EXTENSION_ID, type PreviewRecording, type PreviewState } from "./protocol.js";
 import {
   createPreviewHostExtension,
+  missingWindow,
   normalizePreviewUrl,
   previewRect,
   previewVisible,
@@ -179,6 +180,32 @@ describe("preview tools", () => {
     }
     await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined))
       .resolves.toMatchObject({ available: false, url: "" });
+  });
+
+  it("says which machine has no window for the page, and forgets it once one says hello", async () => {
+    let window: string | undefined;
+    const registry = await activateHostKit(createPreviewHostExtension(async (options) => {
+      await options.callClient!("open-view");
+      return fakeSurface().surface;
+    }), {
+      stateDir: "/state",
+      findCommand: () => undefined,
+      noteSubprocess: () => undefined,
+      registerTurnObserver: () => () => undefined,
+      registerRuntimeExtension: () => () => undefined,
+      clientWindow: () => window,
+      callClient: async () => {
+        if (!window) throw new Error("No Tau window on this host has the window half of tau.preview.");
+        return undefined;
+      },
+    }, () => undefined);
+    await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" })).rejects.toThrow(/No Tau window/u);
+    const missing = await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined) as PreviewState;
+    // The kind depends on the machine this runs on; that there is none does not.
+    expect(missing.noWindow).toBeDefined();
+    window = "w1";
+    expect(await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).not.toHaveProperty("noWindow");
+    await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://127.0.0.1:1/" })).resolves.toMatchObject({ url: "http://127.0.0.1:1/" });
   });
 
   it("stops a tool the runtime cancelled", async () => {
@@ -366,5 +393,26 @@ describe("port discovery", () => {
   it("answers no servers on a machine without lsof or netstat", async () => {
     const kit = await activate(async () => undefined);
     await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "ports", { cwd: "/project" })).resolves.toEqual([]);
+  });
+});
+
+describe("a machine without a window for the page", () => {
+  const facts = { inWindowProcess: false, windowAttached: false, platform: "darwin" as NodeJS.Platform, display: false, callFoundNone: false };
+
+  it("asks for the Tau app on a Mac or PC, and for the display service on Linux without one", () => {
+    expect(missingWindow(facts)).toEqual({ displayService: false });
+    expect(missingWindow({ ...facts, platform: "win32" })).toEqual({ displayService: false });
+    expect(missingWindow({ ...facts, platform: "linux" })).toEqual({ displayService: true });
+  });
+
+  it("trusts a Linux display to start its window until a call found none", () => {
+    expect(missingWindow({ ...facts, platform: "linux", display: true })).toBeUndefined();
+    expect(missingWindow({ ...facts, platform: "linux", display: true, callFoundNone: true })).toEqual({ displayService: false });
+  });
+
+  it("says nothing with a window there, inside the window's process, or on a core that cannot tell", () => {
+    expect(missingWindow({ ...facts, windowAttached: true })).toBeUndefined();
+    expect(missingWindow({ ...facts, inWindowProcess: true })).toBeUndefined();
+    expect(missingWindow({ ...facts, windowAttached: undefined })).toBeUndefined();
   });
 });

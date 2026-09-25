@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import { Globe } from "lucide-react";
 import { cookieImportDialogs, createCookieImportLayer } from "./cookie-import-dialog.js";
 import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
@@ -20,7 +21,11 @@ import { DesktopPreviewPanel, createMiniBarRegion, createRemotePreviewPanel } fr
 import { watchFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
 import { activeThread, holdScreenService, previewView, screenService } from "./screen-store.js";
+import { followHostMachine } from "./machine.js";
 import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, drawsFrames, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
+
+// Loaded the first time a tab looks in on a thread of another machine.
+const LookInPreview = lazy(() => import("./look-in.js"));
 
 const pageFrames: LiveFrameSource = async (maxWidth, since) =>
   await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
@@ -44,10 +49,13 @@ export const previewExtension: DesktopExtension = {
   name: "Preview",
   activate(plugin) {
     const disconnect = connectPreviewHost(plugin.host);
+    const stopMachine = followHostMachine(plugin.environments);
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["desktop"], Component: DesktopPreviewPanel });
     // Elsewhere the page stays on the host: a browser and a phone show its frames and drive it from there.
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["web"], Component: createRemotePreviewPanel(false) });
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, profiles: ["compact"], Component: createRemotePreviewPanel(true) });
+    // A tab that looks in on another machine's thread shows that machine's page, small and view only.
+    plugin.registerRegion({ id: "preview.look-in", placement: "look-in", order: 40, profiles: ["desktop"], Component: LookInPreview });
     plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, profiles: ["desktop"], Component: PreviewFollower });
     plugin.registerRegion({ id: "preview.mini-player", placement: "composer-above", order: 61, profiles: ["desktop", "web"], Component: createMiniPlayerRegion(plugin.preferences) });
     plugin.registerRegion({ id: "preview.mini-bar", placement: "composer-above", order: 61, profiles: ["compact"], Component: createMiniBarRegion(plugin.preferences) });
@@ -143,6 +151,7 @@ export const previewExtension: DesktopExtension = {
       cookieImportDialogs.close();
       stopFollowing();
       stopLinks();
+      stopMachine();
       disconnect();
     };
   },

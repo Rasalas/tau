@@ -311,3 +311,16 @@ body[data-keyboard] .preview-remote.compact .preview-remote-keys { padding-botto
 .preview-minibar-text > strong { font: 500 14px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .preview-minibar-text > small { color: var(--muted); font: 12px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .preview-minibar-close { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted); cursor: pointer; }
+
+/* Another machine's Preview in a look-in tab: small, view only. */
+.preview-look-in { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.preview-look-in-bar { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font: 12px var(--sans); }
+.preview-look-in-toggle { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 2px 4px; margin-left: -4px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.preview-look-in-toggle:hover { background: var(--hover); }
+.preview-look-in-toggle > svg { flex: none; color: var(--muted); }
+.preview-look-in-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-look-in-driver { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: var(--radius-pill); background: var(--raised); color: var(--ink); font-size: 11px; }
+.preview-look-in-bar > small { flex: none; margin-left: auto; font-size: 11px; }
+.preview-look-in-stage { width: fit-content; min-width: 160px; max-width: min(100%, 360px); min-height: 48px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }
+.preview-look-in-stage > img { display: block; width: auto; height: auto; max-width: 100%; max-height: 240px; user-select: none; }
+.preview-look-in-note { display: inline-flex; align-items: center; gap: 6px; padding: 12px; color: var(--muted); font: 12px var(--sans); }

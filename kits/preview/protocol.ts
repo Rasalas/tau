@@ -97,6 +97,14 @@ export interface PreviewState {
   mini: PreviewMiniPrefs;
   /** The page is laid out for this device's screen rather than the host window's panel. */
   layoutFor?: PreviewLayoutFor;
+  /** No Tau window on the host's machine can draw the page; a device shows why instead of a picture. */
+  noWindow?: PreviewNoWindow;
+}
+
+/** Why the host's machine has no window for the page. */
+export interface PreviewNoWindow {
+  /** A Linux host without a display: `tau service install --display` gives it one out of sight. Else the Tau app has to run there. */
+  displayService: boolean;
 }
 
 /**

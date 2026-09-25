@@ -1,5 +1,5 @@
 import { Suspense, useSyncExternalStore } from "react";
-import type { ExtensionRegistry, RegionPlacement, WorkbenchActions } from "../extension-system";
+import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
 
@@ -8,10 +8,11 @@ interface RegionHostProps {
   placement: RegionPlacement;
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
+  lookIn?: LookInRegionContext;
 }
 
 /** Renders whatever extensions registered for one placement; nothing when empty. */
-export function Region({ registry, placement, snapshot, actions }: RegionHostProps) {
+export function Region({ registry, placement, snapshot, actions, lookIn }: RegionHostProps) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const regions = registry.getRegions(placement);
   if (regions.length === 0) return null;
@@ -27,7 +28,7 @@ export function Region({ registry, placement, snapshot, actions }: RegionHostPro
           onNotify={actions.notify}
         >
           <Suspense fallback={<LazyFeatureFallback label={region.id} />}>
-            <region.Component snapshot={snapshot} actions={actions} />
+            <region.Component snapshot={snapshot} actions={actions} {...(lookIn ? { lookIn } : {})} />
           </Suspense>
         </LazyFeatureBoundary>
       ))}

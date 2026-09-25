@@ -43,6 +43,7 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
     options: EnvironmentMonitorOptions;
     set(state: Partial<MonitorState>): void;
     calls: Array<{ method: string; params: readonly unknown[] }>;
+    answers: Record<string, (params: readonly unknown[]) => unknown>;
     resubscribed: number;
   }>();
   const published: UiEnvironments[] = [];
@@ -62,6 +63,7 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
         options,
         set: (patch: Partial<MonitorState>) => { state = { ...state, ...patch }; options.onChange(state); },
         calls: [] as Array<{ method: string; params: readonly unknown[] }>,
+        answers: {} as Record<string, (params: readonly unknown[]) => unknown>,
         resubscribed: 0,
       };
       monitors.set(key, entry);
@@ -71,6 +73,7 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
         resubscribe: () => { entry.resubscribed += 1; },
         call: async (method: string, params: readonly unknown[] = []) => {
           entry.calls.push({ method, params });
+          if (entry.answers[method]) return entry.answers[method](params);
           return { sessionId: params[0], messages: [{ id: "m1", role: "assistant", text: "hello from there" }], hasMore: false };
         },
         get current() { return state; },
@@ -458,5 +461,51 @@ describe("looking in on another machine's thread", () => {
     const { environments } = await connectedStudio();
     expect(environments.watchThread("nowhere", "t1", true)).toMatchObject({ machine: "nowhere", status: "unknown", indexed: false });
     await expect(environments.transcriptPage("nowhere", "t1")).rejects.toThrow(/does not know/u);
+  });
+});
+
+describe("reading a kit of another machine (API 1.15.0)", () => {
+  async function connectedStudio() {
+    const context = await setup();
+    await context.environments.pair({ text: "link" });
+    const monitor = context.monitors.get("wss://192.168.1.4:7788/")!;
+    monitor.set({ status: "connected", running: new Set() });
+    let readCommands = ["state", "live-frame"];
+    monitor.answers["host-extensions"] = () => [{ id: "tau.preview", name: "Preview", active: true, commands: ["state", "live-frame", "input"], readCommands }];
+    monitor.answers["host-extension"] = (params) => ({ answered: params });
+    return { ...context, monitor, setReadCommands: (next: string[]) => { readCommands = next; } };
+  }
+
+  it("runs a command that machine registered to only read, over the window's connection there", async () => {
+    const { environments, monitor } = await connectedStudio();
+    await expect(environments.readExtension("studio", "tau.preview", "live-frame", { maxWidth: 320 }))
+      .resolves.toEqual({ answered: ["tau.preview", "live-frame", { maxWidth: 320 }] });
+    await environments.readExtension("host-studio", "tau.preview", "state");
+    // The list is asked once per connection.
+    expect(monitor.calls.filter((call) => call.method === "host-extensions")).toHaveLength(1);
+  });
+
+  it("refuses a command that changes something, and asks the list again only after a while", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { environments, monitor, setReadCommands } = await connectedStudio();
+      await expect(environments.readExtension("studio", "tau.preview", "input", { kind: "click", x: 0.5, y: 0.5 })).rejects.toThrow(/no command tau\.preview\/input that only reads/u);
+      await expect(environments.readExtension("studio", "tau.preview", "input")).rejects.toThrow(/only reads/u);
+      expect(monitor.calls.filter((call) => call.method === "host-extensions")).toHaveLength(1);
+      expect(monitor.calls.some((call) => call.method === "host-extension")).toBe(false);
+      // A kit updated there since: its new read command counts once the list is asked again.
+      setReadCommands(["state", "live-frame", "history"]);
+      vi.setSystemTime(Date.now() + 11_000);
+      await expect(environments.readExtension("studio", "tau.preview", "history")).resolves.toEqual({ answered: ["tau.preview", "history", undefined] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads nothing on a machine that is not reachable or unknown", async () => {
+    const { environments, monitor } = await connectedStudio();
+    await expect(environments.readExtension("nowhere", "tau.preview", "state")).rejects.toThrow(/does not know/u);
+    monitor.set({ status: "offline", detail: "gone" });
+    await expect(environments.readExtension("studio", "tau.preview", "state")).rejects.toThrow(/not reachable/u);
   });
 });

@@ -31,6 +31,7 @@ export interface EnvironmentsService {
   setAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
   transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+  readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -100,6 +101,12 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       text("environments-transcript-page", "machine", params[0], 200),
       text("environments-transcript-page", "sessionId", params[1], 512),
       decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
+    ),
+    "environments-extension-read": async (params) => require().readExtension(
+      text("environments-extension-read", "machine", params[0], 200),
+      text("environments-extension-read", "extensionId", params[1], 200),
+      text("environments-extension-read", "command", params[2], 200),
+      params[3],
     ),
   };
 }

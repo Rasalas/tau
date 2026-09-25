@@ -18,6 +18,7 @@ import {
   type PreviewImage,
   type PreviewInputResult,
   type PreviewLiveFrame,
+  type PreviewNoWindow,
   type PreviewProfiles,
   type PreviewRecording,
   type PreviewServer,
@@ -128,6 +129,30 @@ const LIVE_FRAME_SHARED_MS = 150;
 /** A view nobody placed yet still lays the page out at this size, so a remote device sees something. */
 const UNPLACED_RECT: PreviewRect = { x: 0, y: 0, width: 1_280, height: 800 };
 const NO_DESKTOP = "Preview needs the Tau desktop app on this host";
+/** What core's `callClient` rejects with when no window on the machine has the half. */
+const NO_WINDOW = /No Tau window on this host has the window half/u;
+
+export interface WindowFacts {
+  /** The host runs inside the window's own process. */
+  inWindowProcess: boolean;
+  /** A window on this machine holds the half now; undefined when core cannot say (before API 1.13.0). */
+  windowAttached: boolean | undefined;
+  platform: NodeJS.Platform;
+  /** `DISPLAY` is set: a Linux service host with a display starts its window when a call needs one. */
+  display: boolean;
+  /** The last call to the window found none. */
+  callFoundNone: boolean;
+}
+
+/** Why no window on this machine can draw the page, or nothing when one can or will. */
+export function missingWindow(facts: WindowFacts): PreviewNoWindow | undefined {
+  if (facts.inWindowProcess || facts.windowAttached !== false) return undefined;
+  if (facts.platform === "linux") {
+    if (!facts.display) return { displayService: true };
+    return facts.callFoundNone ? { displayService: false } : undefined;
+  }
+  return { displayService: false };
+}
 const PICK_POLL_MS = 200;
 const PICK_TIMEOUT_MS = 5 * 60_000;
 const PICK_IMAGE_MAX_WIDTH = 1_200;
@@ -271,6 +296,9 @@ class PreviewController implements PreviewToolController {
   /** False once this host proved it has no window to draw in. */
   private available = true;
 
+  /** The last window call found no window on this machine; cleared once one is there. */
+  private windowCallFoundNone = false;
+
   private readonly profiles: PreviewProfileStore;
 
   private readonly history: PreviewHistory;
@@ -340,8 +368,35 @@ class PreviewController implements PreviewToolController {
   }
 
   /** The kit's window half, in the window that holds the view. */
-  windowCall(command: string, input?: unknown): Promise<unknown> {
-    return this.window.call(command, input);
+  async windowCall(command: string, input?: unknown): Promise<unknown> {
+    try {
+      const answer = await this.window.call(command, input);
+      this.windowCallFoundNone = false;
+      return answer;
+    } catch (error) {
+      if (error instanceof Error && NO_WINDOW.test(error.message) && !this.windowCallFoundNone) {
+        this.windowCallFoundNone = true;
+        this.publish();
+      }
+      throw error;
+    }
+  }
+
+  private noWindow(): PreviewNoWindow | undefined {
+    let attached: boolean | undefined;
+    try {
+      attached = this.context.services.clientWindow ? this.context.services.clientWindow() !== undefined : undefined;
+    } catch {
+      attached = undefined;
+    }
+    if (attached) this.windowCallFoundNone = false;
+    return missingWindow({
+      inWindowProcess: process.type === "browser",
+      windowAttached: attached,
+      platform: process.platform,
+      display: Boolean(process.env.DISPLAY),
+      callFoundNone: this.windowCallFoundNone,
+    });
   }
 
   /** The workspace of the thread whose runtime asked, which gates `file://`. */
@@ -360,7 +415,7 @@ class PreviewController implements PreviewToolController {
       onChord: (chord) => { void this.chord(chord).catch(() => undefined); },
       workspaceRoot: () => this.workspaceRoot,
       log: (label, detail) => this.context.services.log(label, detail),
-      callClient: (command, input) => this.window.call(command, input),
+      callClient: (command, input) => this.windowCall(command, input),
     });
     if (!created) {
       this.available = false;
@@ -380,6 +435,7 @@ class PreviewController implements PreviewToolController {
     const page = this.view?.state() ?? { ...EMPTY_PREVIEW_STATE, available: this.available };
     const driver: PreviewDriver | undefined = this.mini.driver();
     const layoutFor = this.viewport.mode === "fill" ? this.layout.owner() : undefined;
+    const noWindow = this.noWindow();
     return {
       ...page,
       profile: this.profiles.snapshot().active,
@@ -389,6 +445,7 @@ class PreviewController implements PreviewToolController {
       mini: this.mini.miniPrefs(),
       ...(driver ? { driver } : {}),
       ...(layoutFor ? { layoutFor } : {}),
+      ...(noWindow ? { noWindow } : {}),
       ...(this.mode ? { mode: this.mode } : {}),
       ...(this.recording ? { recordingSince: this.recording.since } : {}),
       ...(this.recordingNotice ? { recordingNotice: this.recordingNotice } : {}),
