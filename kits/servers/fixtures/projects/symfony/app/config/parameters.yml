@@ -1,0 +1,9 @@
+# Fixture: a Symfony app's live parameters. All values are fake.
+parameters:
+    database_host: db.example.invalid
+    database_port: ~
+    database_name: fake_database
+    database_user: fake_user
+    database_password: fake-password-not-real
+    mailer_transport: smtp
+    secret: fake-secret-not-real
