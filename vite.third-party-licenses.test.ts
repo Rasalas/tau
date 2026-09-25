@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { BUILD_ONLY_DEV_DEPENDENCIES, collectThirdPartyLicenses } from "./vite.third-party-licenses";
 import { packLicenses, unpackLicenses } from "./src/shared/third-party-licenses";
@@ -47,6 +48,14 @@ describe("the packages Tau ships", () => {
     expect(packed.texts).toEqual(["same"]);
     expect(unpackLicenses(JSON.parse(JSON.stringify(packed))).map((entry) => entry.text)).toEqual(["same", "same", undefined]);
     expect(unpackLicenses({ packages: [{ name: 1 }, { name: "x", version: "1", repository: "javascript:alert(1)" }] })).toEqual([{ name: "x", version: "1", license: "UNKNOWN" }]);
+  });
+
+  it("lists what the Servers kit ships and leaves out its test fakes", () => {
+    const found = collectThirdPartyLicenses(fileURLToPath(new URL(".", import.meta.url)));
+    const license = (name: string) => found.find((entry) => entry.name === name)?.license;
+    expect(license("basic-ftp")).toBe("MIT");
+    expect(license("@anthropic-ai/sandbox-runtime")).toBe("Apache-2.0");
+    expect(found.some((entry) => entry.name === "ssh2" || entry.name === "ftp-srv")).toBe(false);
   });
 
   it("names only devDependencies this repository has", async () => {

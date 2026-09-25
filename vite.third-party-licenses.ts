@@ -6,6 +6,8 @@ import { LICENSES_FILE, packLicenses, type ThirdPartyLicense } from "./src/share
 /** devDependencies that only build or test Tau; every other one ends up in a bundle. */
 export const BUILD_ONLY_DEV_DEPENDENCIES = new Set([
   "@testing-library/react", "@types/ws", "concurrently", "electron-builder", "jsdom", "oxlint", "vitest", "wait-on",
+  // The Servers kit's fake SSH and FTP servers, for tests and test instances only.
+  "ftp-srv", "ssh2",
 ]);
 
 /** Shipped, but not their dependencies: Electron's are its installer's. */
