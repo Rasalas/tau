@@ -296,6 +296,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     }
     alive.add(socket);
     socket.on("pong", () => alive.add(socket));
+    // Bytes of a frame still arriving count too: an 11 MB file piece over a slow link takes longer than a ping round.
+    request.socket.on("data", () => alive.add(socket));
     // A device waiting for its owner has until its request expires; once let in, a new deadline for its hello.
     const helloTimer = setTimeout(() => {
       if (!authenticated.has(socket) && !pairing.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");

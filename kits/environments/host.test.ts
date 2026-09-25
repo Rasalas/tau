@@ -12,6 +12,7 @@ function fakeMachines(list: HostMachine[]) {
     call: vi.fn(async () => ({ device: "agents-device", owner: false })),
     request: vi.fn(async () => undefined),
     watch: vi.fn(() => () => undefined),
+    upload: vi.fn(async () => ({ id: "blob", size: 0, sha256: "" })),
   };
   return { machines, changed: () => listener?.(list) };
 }

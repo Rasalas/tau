@@ -95,7 +95,8 @@ checks for itself.
 
 - **The host** pings every socket at the WebSocket level every 30 s
   (`SOCKET_PING_INTERVAL_MS`) and drops one that did not answer the previous
-  ping, so a vanished client stops counting. A socket that has not said hello
+  ping and sent nothing since, not even part of a frame, so a vanished client
+  stops counting while one uploading a large frame slowly does not. A socket that has not said hello
   10 s after it opened is closed with 4408 (`SOCKET_HELLO_TIMEOUT_MS`).
 - **The client** cannot see WebSocket pings in a browser, so it sends its own:
   `{ type: "ping", id }` after its hello, answered by `{ type: "pong", id }`,
@@ -769,7 +770,9 @@ process keeps the rest:
 - **One connection per machine and one to its own host**: an auxiliary hello
   with `subscription: { threads: [], topics: [] }`, a `bootstrap` for the thread
   index, then only `thread-index` and `agent-status` pushes, and `ping` every
-  20 seconds where the host offers `heartbeat`. Its addresses are tried in turn,
+  20 seconds where the host offers `heartbeat`. Nothing arriving within 10 s of
+  a ping drops the link, unless a large frame of its own is still draining
+  (`bufferedAmount` shrank since the last check): the ping waits behind it. Its addresses are tried in turn,
   the one that answered last first, then loopback, LAN, `.local`, Tailscale and
   MagicDNS; an unreachable machine is tried after 1, 2, 5, 10, then every 30 s.
   4401 is final (the token was revoked or expired there), and so is a key
@@ -860,6 +863,36 @@ an instance), which adds `account` and marks a signed-out program
 may not call `sign-in-state`, gets no `account`. A catalog or a report not
 on hand within 5 s is left out: the runtime is then `checking`. `invisible` is an X display whose server (the pid in
 `/tmp/.X<n>-lock`) is `Xvfb`.
+
+#### Files between hosts
+
+`services.machines.upload` sends a file over the same connection, and the
+receiving host keeps it for a kit there (`services.blobs.take`,
+`src/main/host-blobs.ts`). All three methods are `write`, so a Read-only
+device is refused; each device only reaches its own blobs, and another
+device's id reads as missing.
+
+| Method | Params | Result |
+|---|---|---|
+| `blob-put` | `id`, `index`, `data` | `{ received }`, the bytes so far. `id`: 16–64 of `[A-Za-z0-9_-]`, chosen by the sender. `index` 0 starts the blob; pieces come in order, each base64 of at most 8 MB (`BLOB_PIECE_BYTES`), and only piece 0 may be empty |
+| `blob-commit` | `id`, `sha256` (hex), `size` | `{ id, size, sha256 }` once size and sum match what arrived; otherwise nothing is kept and it fails with both sums |
+| `blob-abort` | `id` | `{ aborted }`; what arrived is deleted |
+
+The sender sends one piece at a time and `blob-put` frames without
+per-message deflate: base64 of compressed or random data shrinks by a quarter
+at about 150 ms per piece, slower than sending it on any fast link.
+
+The host keeps blobs in `<userData>/blobs/` (0700, files 0600) and empties it
+at start. A blob is at most 2 GB (`BLOB_MAX_BYTES`); a device keeps at most
+4 GB there until its blobs are taken (`BLOB_DEVICE_QUOTA_BYTES`) and sends at
+most four at once; a piece that would leave less than 512 MB free on the disk
+is refused. A refusal for size, quota or disk drops the whole blob. An upload
+with no piece for an hour, and a committed blob nobody took within an hour
+(`BLOB_TTL_MS`), are deleted by a sweep every minute. A kit takes a blob once;
+the file is deleted when its callback settles. Pieces are not written to the
+Connections audit one by one: `blob-commit` records "sent a file", a refused
+piece is recorded like any refusal. Pieces are not rate-limited: the only
+limiter (`src/main/host-rate-limit.ts`) counts pairing attempts.
 
 ## Workspace identity
 

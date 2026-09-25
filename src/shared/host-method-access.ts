@@ -98,6 +98,10 @@ export const HOST_METHOD_ACCESS = {
   "machines-list": "owner",
   "machines-add": "owner",
   "machines-remove": "owner",
+  // Another machine's agents send a file in pieces (plan-H); a Read-only device may not.
+  "blob-put": "write",
+  "blob-commit": "write",
+  "blob-abort": "write",
   // The host's machine running it as a service: whether it does is anyone's to see, changing it the owner's.
   "service-status": "read",
   // How busy the machine is and what it could run; asked for, never pushed.

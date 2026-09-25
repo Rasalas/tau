@@ -8,6 +8,7 @@
 // `pending` and names its ticket; the run stays green and lists it. A ticket
 // replaces its pending entries with real steps. Teardown stops only the pids
 // this run started and then checks that none of their ports still listens.
+import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
@@ -34,6 +35,9 @@ const REX = { name: "smoke-rex", machineName: "rex" };
 const GUARD_MS = 240_000;
 // A test-only package on rex that exposes sessions.import/send as commands; H06's kit replaces it.
 const IMPORT_PROBE = "test.session-import-probe";
+// A test-only package on both hosts that sends a file with services.machines.upload and takes it with services.blobs; H05's kit replaces it.
+const BLOB_PROBE = "test.blob-probe";
+const installBlobProbe = (env) => cpSync(join(ROOT, "scripts", "fixtures", "blob-probe"), join(env.HOME, ".tau", "extensions", "blob-probe"), { recursive: true });
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -111,12 +115,16 @@ export const STEPS = [
     async run(ctx) {
       const fakePi = (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, ctx.model.baseUrl);
       const [a, rex] = await Promise.all([
-        startTestHost({ name: A.name, kits: true, fresh: true, login: false, workspace: ctx.fixture.work }, { machineName: A.machineName, prepare: fakePi }),
+        startTestHost({ name: A.name, kits: true, fresh: true, login: false, workspace: ctx.fixture.work }, {
+          machineName: A.machineName,
+          prepare: (env) => { fakePi(env); installBlobProbe(env); },
+        }),
         startTestHost({ name: REX.name, kits: true, tls: true, fresh: true, login: false }, {
           machineName: REX.machineName,
           prepare: (env) => {
             fakePi(env);
             initWorkspace(env.TAU_WORKSPACE);
+            installBlobProbe(env);
             cpSync(join(ROOT, "scripts", "fixtures", "session-import-probe"), join(env.HOME, ".tau", "extensions", "session-import-probe"), { recursive: true });
           },
         }),
@@ -228,6 +236,33 @@ export const STEPS = [
       const probe = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]);
       if (probe.device !== ctx.pairing.companion.clientId) throw new Error(`rex saw ${JSON.stringify(probe)}, not A's agents device`);
       return `probe as A's agents device in ${probe.ms} ms`;
+    },
+  },
+  {
+    title: "A's host sends rex a file in pieces through services.machines.upload; a kit on rex takes it once, and a Read-only device is refused",
+    async run(ctx) {
+      for (const owner of [ctx.aOwner, ctx.rexOwner]) {
+        await owner.request("extension-grant", [BLOB_PROBE, true]);
+        await waitFor(async () => (await owner.request("host-extensions")).some((entry) => entry.id === BLOB_PROBE && entry.active), "the blob probe");
+      }
+      const bytes = randomBytes(20 * 1024 * 1024);
+      const file = join(dirname(ctx.a.userData), "random-20mb.bin");
+      writeFileSync(file, bytes);
+      const sum = createHash("sha256").update(bytes).digest("hex");
+      const blobs = join(ctx.rex.userData, "blobs");
+      const result = await ctx.aOwner.request("host-extension", [BLOB_PROBE, "send", { machine: REX.machineName, path: file }]);
+      if (result.sent.sha256 !== sum || result.taken.sha256 !== sum || result.taken.size !== bytes.length) throw new Error(`the sums differ: ${JSON.stringify(result)}`);
+      if (result.taken.device !== ctx.pairing.companion.clientId) throw new Error(`rex took the file as from ${result.taken.device}, not A's agents`);
+      if (!/taken already/u.test(result.again)) throw new Error(`a second take answered ${result.again}`);
+      if (result.progress.length !== 3 || result.progress.at(-1) !== bytes.length) throw new Error(`progress was ${JSON.stringify(result.progress)}`);
+      if (existsSync(result.taken.path) || readdirSync(blobs).length > 0) throw new Error(`rex kept ${readdirSync(blobs).join(", ")}`);
+
+      await ctx.rexOwner.request("connections-update-client", [ctx.pairing.companion.clientId, { access: "read-only" }]);
+      const refused = await ctx.aOwner.request("host-extension", [BLOB_PROBE, "send", { machine: REX.machineName, path: file }]).then(() => "sent", (error) => String(error.message));
+      await ctx.rexOwner.request("connections-update-client", [ctx.pairing.companion.clientId, { access: "full" }]);
+      if (!/Read only; sending a file there needs Full access/u.test(refused)) throw new Error(`a Read-only device's upload ended: ${refused}`);
+      if (readdirSync(blobs).length > 0) throw new Error(`rex kept ${readdirSync(blobs).join(", ")} of a refused upload`);
+      return `20 MB in ${result.ms} ms, sha256 ${sum.slice(0, 12)}… on both sides; gone after take; Read only refused`;
     },
   },
   {

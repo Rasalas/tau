@@ -23,10 +23,14 @@ const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? 
  * Names the renderer's client never sends: the first four it resolves itself,
  * and `client-call-result` belongs to the window process around it, which
  * answers the host's calls into its own machine (ADR 0021), and hands its
- * host the agents' keys with the `machines-*` methods (ADR 0027).
- * `host-resources` and `readiness` are asked by another machine's host.
+ * host the agents' keys with the `machines-*` methods (ADR 0027). `blob-*`
+ * come from another machine's host (`services.machines.upload`), and so do
+ * `host-resources` and `readiness`.
  */
-const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove", "host-resources", "readiness"]);
+const CLIENT_SIDE = new Set([
+  "hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove",
+  "blob-put", "blob-commit", "blob-abort", "host-resources", "readiness",
+]);
 
 function tableMethods(): Set<string> {
   const unavailable = () => { throw new Error("not available in this test"); };

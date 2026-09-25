@@ -77,6 +77,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-machines.js",
   // How busy the machine is and what it could run, read when asked (plan H §4).
   "./host-resources.js",
+  // Files those machines' agents send in pieces, taken once by a kit (plan-H).
+  "./host-blobs.js",
   "./host-push-coalescer.js",   "./host-push-log.js",   "./host-push-scope.js",   "./host-report.js",   "./host-text.js",   "./host-tls.js",   "./host-tls-trust.js",   "./host-token.js",   "./host-uplink.js",
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",

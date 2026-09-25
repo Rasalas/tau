@@ -51,6 +51,7 @@ import { HostServiceManager } from "./host-service.js";
 import { DisplayWindow } from "./display-window.js";
 import { HostMachines } from "./host-machines.js";
 import { HostResourceSampler } from "./host-resources.js";
+import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
 
@@ -196,6 +197,8 @@ async function main(): Promise<void> {
       return handler(params, NO_JOB_CONTEXT);
     },
   });
+  // Files other machines' agents send here; what an earlier run left is gone.
+  const blobs = await HostBlobStore.open({ dir: join(userData, "blobs"), logger: hostLog });
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
@@ -210,6 +213,7 @@ async function main(): Promise<void> {
       clients,
       network: networkContributions.services,
       machines: machines.services,
+      blobs: blobs.services,
       appPath: appRoot,
       kitStateDir: join(userData, "kit-state"),
       turnsInFlightPath: join(userData, "turns-in-flight.json"),
@@ -315,6 +319,7 @@ async function main(): Promise<void> {
     service: () => service,
     machines: () => machines,
     resources: () => resources,
+    blobs: () => blobs,
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -356,6 +361,7 @@ async function main(): Promise<void> {
       clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
       machines.close();
+      blobs.close();
       compactor.dispose();
       keepAwake.dispose();
       clearInterval(networkPoll);

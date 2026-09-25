@@ -2204,11 +2204,36 @@ permission and is absent on a host in the window's process and in a worker.
 | `call(machine, extensionId, command, input?, { timeoutMs? })` | Runs a kit command on that machine, as `host-extension` from the agents' own device. The other host checks it like any call of a paired device: its preset, `access: "read"`, and an entry in its Connections audit. |
 | `request(machine, method, params?, { timeoutMs? })` | Calls one of the core methods in `MACHINE_REQUEST_METHODS` (`src/shared/host-method-access.ts`): `transcript-page`, `thread-tree`, `tool-output`, `abort`, `steer`, `follow-up`, `host-resources`, `readiness`. Any other name is refused with `forbidden` before it leaves. Named by this host's own id, a method that only reads is answered here, so a kit weighs this machine the way it weighs the others; the rest are refused (this host's threads go through `services.sessions`). |
 | `watch(machine, topic, listener, { extension? })` | Events that kit emits there with `emit(name, payload, { topic })` (see [topics](#what-reaches-which-client-emit--topic--and-watch-new-in-api-1130)), as `{ name, payload }`, until the returned function runs. The kit is your own counterpart on that machine unless `extension` names another. The topic survives reconnects; nothing arrives while the machine is offline. |
+| `upload(machine, source, { onProgress?, signal?, size?, timeoutMs? })` | Sends a file there and answers `{ id, size, sha256 }`; `id` names the blob on that machine, where a kit takes it with `services.blobs.take`. `source` is a `Uint8Array` or any stream of them (`fs.createReadStream(path)` without an encoding). It goes in 8 MB pieces, one at a time, and `onProgress({ sent, total? })` runs after each piece the other machine stored; `total` is `size`, or the buffer's length. At most 2 GB. It rejects on the first refusal (Read only there, its quota, its disk), on a size or sha256 the other host disagrees with, or when `signal` aborts (`cancelled`); the other host drops what it received. |
 
 `machine` is a host id, or a name when exactly one machine has it. A call to
 an unknown, offline or refusing machine rejects with a sentence that says
 which. `refused` is final until the owner here turns the agents on again:
-the other owner revoked their device, or its access expired. Machines Kit
+the other owner revoked their device, or its access expired.
+
+On the receiving machine, `services.blobs` (same `machines` permission, absent
+in the window's process and in a worker) has one member:
+`take(id, use, { caller? })`. It hands `use` a `HostBlob` (`id`, `path`,
+`size`, `sha256`, `device`: the paired device that sent it) and deletes the
+file once `use` settles, so copy or move it to keep it. A blob can be taken
+once; a second take, an unknown id and one older than an hour all reject with
+the same sentence. A command that was told the id passes its own `call` as
+`caller`: then a blob another device sent stays where it is and reads as
+missing. The host keeps blobs in `<userData>/blobs/` (0700, emptied at start),
+at most 2 GB each and 4 GB per device until they are taken, and never lets
+them fill the disk to less than 512 MB free.
+
+```ts
+// On A: send a bundle, then let the same kit on rex take it.
+const blob = await services.machines!.upload("rex", createReadStream(bundle), { size, onProgress });
+await services.machines!.call("rex", "tau.remote-work", "receive", { blob: blob.id, sha256: blob.sha256 });
+
+// On rex, in that command:
+context.registerCommand("receive", (input, call) =>
+  services.blobs!.take(input.blob, (file) => fetchBundle(file.path), { caller: call }), { long: true });
+```
+
+Machines Kit
 (`kits/environments/host.ts`) is the shipped caller: it lists the machines for
 Settings → Machines, answers `whoami` for another machine's agents, and asks
 a machine how busy it is and what it could run (its commands `resources` and
@@ -2226,9 +2251,8 @@ answer arrived. Answers within 5 s of each other are the same answer.
 with `state` (`ready`, `sign-in-required`, `not-installed`, `unavailable`, or
 `checking` while it has not answered since the host started), read from the
 runtime catalog the kits fill and from the `sign-in-state` of the kit that
-registered the backend (which also gives `account`), with Pi
-`sign-in-required` while no model provider has a key or a login; `git` (`version`, and `mergeTree` from Git
-2.38); `disk` (free space where new worktrees go: `TAU_WORKTREES_DIR`, else
+registered the backend (which also gives `account`), with Pi `sign-in-required` while no model provider has a key or a login;
+`git` (`version`, and `mergeTree` from Git 2.38); `disk` (free space where new worktrees go: `TAU_WORKTREES_DIR`, else
 `~/.tau`); `display` (`screen` on macOS and Windows, `x11`, `wayland`,
 `invisible` for an Xvfb server, `none`). Nothing is polled; a caller that
 chooses a machine asks again when its answer is older than it accepts.
@@ -2333,7 +2357,7 @@ A package's `permissions` array draws from a fixed list
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
-| `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics. |
+| `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
