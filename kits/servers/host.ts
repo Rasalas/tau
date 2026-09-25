@@ -1,5 +1,6 @@
 import type { HostExtension } from "tau/host-extension";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
+import { DeployService } from "./deploy.js";
 import { DriftService, WORKSPACE_KIT_ID } from "./drift.js";
 import { registerServerProjects } from "./projects.js";
 import { ServerNetwork } from "./network-policy.js";
@@ -61,7 +62,15 @@ export function createServersHostExtension(): HostExtension {
         git,
       });
       drift.register();
-      const status = createServerStatus(context, { store, targets, sync, ssh, drift, git });
+      const deploy = new DeployService(context, {
+        store,
+        sync,
+        target: (cwd, targetId) => targets.target(cwd, targetId),
+        drift: { state: (cwd) => drift.state(cwd), settled: (key, root, paths) => drift.settled(key, root, paths) },
+        git,
+      });
+      deploy.register();
+      const status = createServerStatus(context, { store, targets, sync, ssh, drift, deploy, git });
       status.register();
       const stopProjects = registerServerProjects(context, { store, targets, ssh, sync });
       const sandbox = new NetworkSandbox({

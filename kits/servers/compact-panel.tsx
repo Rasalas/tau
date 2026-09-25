@@ -5,7 +5,7 @@ import { PendingList } from "./pending-list.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
 import { StatusDot, useServersStatus } from "./status-parts.js";
 import type { ServersStatusStore } from "./status-store.js";
-import { ServerGitLine, progressWords, useTargetActions, type ServerViewParts } from "./server-view.js";
+import { ServerGitLine, deploymentMeta, historyTitle, progressWords, useTargetActions, type ServerViewParts } from "./server-view.js";
 import type { HistoryEntry, ServerHistory, TargetStatus } from "./view-protocol.js";
 import { worstState } from "./status-model.js";
 
@@ -44,9 +44,9 @@ function CompactHistory({ parts, cwd, target }: { parts: ServerViewParts; cwd: s
     <ol className="servers-history compact">
       {history.entries.map((entry) => (
         <li key={entry.commit} className="servers-history-entry">
-          <span className="servers-history-title">{entry.kind === "read" ? (entry.parent ? "Read from the server" : "First read of the server") : entry.subject}</span>
+          <span className="servers-history-title">{historyTitle(entry, !entry.parent)}</span>
           <time dateTime={entry.at}>{ago(entry.at)}</time>
-          <p className="servers-history-meta">{entry.parent ? [entry.added ? `${entry.added} new` : "", entry.modified ? `${entry.modified} changed` : "", entry.deleted ? `${entry.deleted} deleted` : ""].filter(Boolean).join(" · ") || "no changes" : `${entry.added} files`}</p>
+          <p className="servers-history-meta">{entry.parent ? [entry.added ? `${entry.added} new` : "", entry.modified ? `${entry.modified} changed` : "", entry.deleted ? `${entry.deleted} deleted` : "", entry.deployment ? deploymentMeta(entry.deployment) : ""].filter(Boolean).join(" · ") || "no changes" : `${entry.added} files`}</p>
         </li>
       ))}
     </ol>

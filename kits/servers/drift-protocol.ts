@@ -81,6 +81,25 @@ export function undecidedDrift(state: DriftState | undefined): { files: number; 
   return { files, imports };
 }
 
+/**
+ * Paths of a target's drift branches not merged yet (open or put off), with the
+ * branch. Between the import and the merge the mirror state is the server's but
+ * the local file is still the old one: uploading it would undo the colleague's change.
+ */
+export function unmergedDriftPaths(state: DriftState | undefined, targetId: string): Map<string, string> {
+  const paths = new Map<string, string>();
+  const target = state?.targets.find((entry) => entry.targetId === targetId);
+  for (const item of target?.imports ?? []) {
+    if (item.status !== "open" && item.status !== "later") continue;
+    for (const file of item.files) if (!paths.has(file.path)) paths.set(file.path, item.branch);
+  }
+  return paths;
+}
+
+export function unmergedDriftReason(branch: string): string {
+  return `The server change on ${branch} is not merged yet; uploading this file would undo it. Merge the branch first.`;
+}
+
 const CHANGES = new Set<DriftChange>(["added", "modified", "deleted"]);
 const STATUSES = new Set<DriftImportStatus>(["open", "later", "merged", "gone"]);
 const str = (value: unknown): value is string => typeof value === "string";

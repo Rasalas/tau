@@ -118,6 +118,34 @@
 .servers-choice.chosen { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
 .servers-choice-box { flex: none; margin: 0; accent-color: var(--acid); }
 
+/* The upload: the list with a sticky bar, the preview's groups, and what went through. */
+.servers-upload { display: flex; flex-direction: column; min-height: 100%; }
+.servers-upload > .servers-pending, .servers-upload-plan { flex: 1; }
+.servers-upload-plan { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 10px; }
+.servers-upload-plan > .servers-banner { margin: 0 8px; }
+.servers-upload-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 0; }
+.servers-upload-head h2 { margin: 0; font: 600 12px var(--sans); color: var(--ink); }
+.servers-upload-head > .servers-banner { flex: 1; margin: 0; }
+.servers-upload-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px; border-top: 1px solid var(--line); background: var(--chrome); }
+.servers-upload-bar > .chrome-button.primary { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.servers-upload-note { flex: 1 1 100%; display: flex; align-items: center; gap: 5px; margin: 0; color: var(--warn); font-size: 11.5px; }
+.servers-banner.ok > svg { color: var(--ready); }
+.servers-plan-group.tone-danger { margin: 0 8px; border: 1px solid var(--danger-line); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--danger-bg) 60%, transparent); }
+.servers-plan-group.tone-danger .servers-group-head { color: var(--danger); }
+.servers-plan-group.tone-warn .servers-group-head { color: var(--warn); }
+.servers-plan-group.tone-muted .servers-group-head { color: var(--faint); }
+.servers-plan-row { flex-wrap: wrap; }
+.servers-plan-row .servers-file-name small { white-space: normal; }
+.servers-plan-actions, .servers-file-confirm { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 0 0 6px 20px; color: var(--muted); font-size: 11.5px; }
+.servers-plan-actions .text-button, .servers-file-confirm .text-button { display: inline-flex; align-items: center; gap: 4px; padding: 0; }
+.servers-file { flex-wrap: wrap; }
+.servers-file-confirm { padding-left: 28px; }
+.text-button.danger { color: var(--danger); }
+.servers-file-tag { flex: none; padding: 0 5px; border-radius: var(--radius-pill); background: var(--chip); color: var(--warn); font: 500 10px var(--sans); white-space: nowrap; }
+.servers-file-tag.danger { color: var(--danger); }
+.servers-file.blocked .servers-file-name { color: var(--faint); }
+.servers-file.blocked .servers-file-guard { color: var(--faint); }
+
 .servers-history { margin: 0; padding: 6px 0; list-style: none; }
 .servers-history-entry + .servers-history-entry { border-top: 1px solid var(--line-soft); }
 .servers-history-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px 0; border: 0; background: transparent; color: var(--ink); font: 500 12px var(--sans); text-align: left; cursor: pointer; }

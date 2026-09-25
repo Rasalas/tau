@@ -1,4 +1,4 @@
-import { access, lstat, readFile, realpath } from "node:fs/promises";
+import { access, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext, type UiFileDiff } from "tau/host-extension";
 import { diffBlobs, diffHistory, readHistory } from "./history.js";
@@ -12,14 +12,16 @@ import { conflictsOf, deriveState, formatAddress } from "./status-model.js";
 import type { ServersStore, TargetKey } from "./store.js";
 import { gitCall, type GitCall } from "./sync/git.js";
 import { loadMirrorState, Mirror } from "./sync/mirror.js";
-import { hasGitSegment, isInside, isSyncPath, localPath } from "./sync/paths.js";
+import { readLocalFile } from "./sync/local.js";
+import { isSyncPath } from "./sync/paths.js";
 import type { CompareResult, DriftRow, MirrorInfo, SyncChange } from "./sync/protocol.js";
-import type { DriftState } from "./drift-protocol.js";
+import { unmergedDriftPaths, unmergedDriftReason, type DriftState } from "./drift-protocol.js";
+import { readDeployments } from "./journal.js";
 import { isTargetLevel, readTargetFile, updateTargetFile } from "./target-settings.js";
 import { readTrust } from "./trust.js";
 import {
   PENDING_ROW_CAP, SERVERS_STATUS_EVENT, SERVERS_STATUS_TOPIC,
-  type LiveConfigRow, type PendingUploadRow, type ServerGitInfo, type ServerHistory, type ServersStatus, type ServersStatusEvent, type TargetStatus,
+  type HistoryEntry, type LiveConfigRow, type PendingUploadRow, type ServerGitInfo, type ServerHistory, type ServersStatus, type ServersStatusEvent, type TargetStatus,
 } from "./view-protocol.js";
 
 type Project = { root: string; workspaceId: string };
@@ -39,8 +41,8 @@ export interface ServerStatusOptions {
   transport(input: { cwd: string; targetId: string }): Promise<ServerFs & { probe?: { commands: readonly string[] } | undefined }>;
   /** The line a terminal types to log in to the target, once connected. */
   terminalCommand?(input: { cwd: string; targetId: string }): Promise<string>;
-  /** Threads with a deployment not committed yet (the deployment journal fills it). */
-  uncommittedThreads?(key: TargetKey): Promise<string[]>;
+  /** Threads with a deployment not committed yet in the checkout it came from (or the main checkout `root`). */
+  uncommittedThreads?(key: TargetKey, root: string): Promise<string[]>;
   git?: GitCall;
   now?(): number;
 }
@@ -71,19 +73,6 @@ const OPS: Record<SyncChange, UploadOp> = { added: "add", modified: "modify", de
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const lostConnection = (error: unknown) => error instanceof Error && error.name === "SshConnectError";
-
-/** A regular file inside the target's folder; nothing through a link, nothing in `.git`. */
-async function readLocalFile(localDir: string, path: string): Promise<Buffer | undefined> {
-  if (hasGitSegment(path)) return undefined;
-  const file = localPath(localDir, path);
-  try {
-    const [info, real, root] = await Promise.all([lstat(file), realpath(file), realpath(localDir)]);
-    if (!info.isFile() || !isInside(real, root)) return undefined;
-    return await readFile(real);
-  } catch {
-    return undefined;
-  }
-}
 
 function decodeRef(value: unknown): { cwd: string; targetId: string } {
   const input = (value ?? {}) as Record<string, unknown>;
@@ -148,13 +137,18 @@ export class ServerStatusService {
     const scanned = await scanFiles(localDir, rows.filter((row) => row.change !== "deleted").slice(0, SCAN_CAP).map((row) => row.path)).catch(() => []);
     const findings: SecretFinding[] = [...scanned, ...trust.liveConfigs.map((entry) => ({ path: entry.path, kind: entry.kind, line: 0 }))];
     const guarded = guardUploadSelection(rows.map((row) => ({ ...row, op: OPS[row.change] })), { findings, blocklist: trust.uploadBlocklist });
-    const pending = guarded.rows.map(({ candidate, selected, guard }): PendingUploadRow => ({
-      path: candidate.path,
-      change: candidate.change,
-      ...(candidate.size !== undefined ? { size: candidate.size } : {}),
-      selected,
-      ...(guard ? { credentials: guard.kinds.length ? guard.kinds.map((kind) => SECRET_KIND_LABELS[kind]) : ["Framework config"] } : {}),
-    }));
+    const unmerged = unmergedDriftPaths(await this.options.drift?.state(workspace).catch(() => undefined), target.id);
+    const pending = guarded.rows.map(({ candidate, selected, guard }): PendingUploadRow => {
+      const branch = unmerged.get(candidate.path);
+      return {
+        path: candidate.path,
+        change: candidate.change,
+        ...(candidate.size !== undefined ? { size: candidate.size } : {}),
+        selected: selected && !branch,
+        ...(guard ? { credentials: guard.kinds.length ? guard.kinds.map((kind) => SECRET_KIND_LABELS[kind]) : ["Framework config"] } : {}),
+        ...(branch ? { blocked: unmergedDriftReason(branch) } : {}),
+      };
+    });
     record.pendingTotal = pending.length;
     record.pending = pending.slice(0, PENDING_ROW_CAP);
     record.withheld = [...new Set([...(result.pending?.withheld ?? []), ...guarded.withheld])].sort();
@@ -189,7 +183,7 @@ export class ServerStatusService {
         withheld: record.withheld,
         conflicts: conflictsOf(record.pending, driftRows),
         liveConfigs: record.liveConfigs,
-        uncommittedThreads: await this.options.uncommittedThreads?.(key).catch(() => []) ?? [],
+        uncommittedThreads: await this.options.uncommittedThreads?.(key, project.root).catch(() => []) ?? [],
       };
       if (record.mirror) status.mirror = record.mirror;
       if (driftRows) status.drift = driftRows;
@@ -290,8 +284,24 @@ export class ServerStatusService {
   }
 
   async history(raw: unknown): Promise<ServerHistory> {
-    const { target, mirror } = await this.resolve(raw);
-    return { targetId: target.id, entries: await readHistory(this.git, mirror) };
+    const { target, key, mirror } = await this.resolve(raw);
+    const records = new Map((await readDeployments(this.options.store, key)).map((record) => [record.mirrorCommit, record]));
+    const entries = (await readHistory(this.git, mirror)).map((entry): HistoryEntry => {
+      const record = records.get(entry.commit);
+      if (!record) return entry;
+      return {
+        ...entry,
+        deployment: {
+          seq: record.seq,
+          kind: record.kind,
+          status: record.status,
+          ...(record.checkout.branch ? { branch: record.checkout.branch } : {}),
+          ...(record.origin.threadId ? { threadId: record.origin.threadId } : {}),
+          failed: record.failed.length,
+        },
+      };
+    });
+    return { targetId: target.id, entries };
   }
 
   async diff(raw: unknown): Promise<UiFileDiff> {
@@ -306,9 +316,9 @@ export class ServerStatusService {
     if (!state) throw new HostCommandError("Tau has not read this server yet.");
     const before = state.entries.get(input.path)?.oid;
     const localDir = target.context ? join(workspace, ...target.context.split("/")) : workspace;
-    const data = await readLocalFile(localDir, input.path);
+    const local = await readLocalFile(localDir, input.path);
     // The local side becomes a blob of the mirror, which the upload stores anyway.
-    const after = data ? await mirror.writeBlob(data) : undefined;
+    const after = local ? await mirror.writeBlob(local.data) : undefined;
     return diffBlobs(this.git, mirror, input.path, before, after);
   }
 

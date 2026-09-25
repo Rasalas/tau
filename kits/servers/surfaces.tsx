@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { Server } from "lucide-react";
 import { Spinner, type DesktopExtensionContext, type RegionProps } from "tau";
 import { createCompactGlyph, createCompactPanel } from "./compact-panel.js";
+import { DEPLOY_EVENT } from "./deploy-protocol.js";
 import { DRIFT_EVENT } from "./drift-protocol.js";
 import type { DriftFeed } from "./drift-view.js";
 import type { ServerViewParts, TerminalRunService } from "./server-view.js";
@@ -102,6 +103,7 @@ export function registerServerSurfaces(context: DesktopExtensionContext, drift: 
     context.events.on("agent-status", (event) => { if (!event.running) store.refreshLoaded(); }),
     // Drift is the drift service's; the status reads it again when that changes.
     context.host.onEvent(DRIFT_EVENT, () => store.refreshLoaded()),
+    context.host.onEvent(DEPLOY_EVENT, () => store.refreshLoaded()),
   ];
   return () => {
     for (const dispose of disposers.reverse()) dispose();
