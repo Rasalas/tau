@@ -35,7 +35,8 @@ const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 const RUNTIME = /^[a-z][a-z0-9-]{0,63}$/u;
 const TOOL = /^[A-Za-z0-9_.-]{1,128}$/u;
 const KEY = /^[A-Za-z][A-Za-z0-9_-]*$/u;
-const KNOWN_KEYS = new Set(["name", "description", "model", "runtime", "tools", "access", "workspace"]);
+const KNOWN_KEYS = new Set(["name", "description", "model", "runtime", "tools", "access", "workspace", "machine"]);
+const MAX_MACHINE = 128;
 
 type FieldValue = string | string[];
 
@@ -147,6 +148,10 @@ export function parseAgentDefinition(file: string, text: string): { definition: 
     throw new Error("\"workspace\" must be worktree or shared.");
   }
 
+  // A machine's name is free text ("Mac mini"); `local` and `auto` read as they do for the tool.
+  const machine = scalar(fields, "machine");
+  if (machine && machine.length > MAX_MACHINE) throw new Error(`"machine" must be ${MAX_MACHINE} characters or fewer.`);
+
   // Access is enforced inside a Pi runtime; another backend would silently run
   // with more than the file promises. Its tools are that backend's to refuse.
   if (runtime && runtime !== "pi" && access) {
@@ -164,6 +169,7 @@ export function parseAgentDefinition(file: string, text: string): { definition: 
       ...(tools ? { tools: [...new Set(tools)] } : {}),
       ...(access ? { access: access as AgentAccessLevel } : {}),
       ...(workspace ? { workspace: workspace as AgentWorkspaceMode } : {}),
+      ...(machine ? { machine } : {}),
     },
     warnings,
   };

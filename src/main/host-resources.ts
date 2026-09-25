@@ -36,6 +36,16 @@ export interface HostResourceSamplerOptions {
   baselineMaxAgeMs?: number;
 }
 
+/**
+ * A test host that plays a smaller machine: `TAU_TEST_CPU_COUNT` keeps only
+ * that many of the CPUs `os.cpus()` lists. Undefined without the variable.
+ */
+export function testResourceOs(env: NodeJS.ProcessEnv = process.env, os: ResourceOs = nodeOs): ResourceOs | undefined {
+  const count = Number(env.TAU_TEST_CPU_COUNT);
+  if (!Number.isInteger(count) || count < 1) return undefined;
+  return { platform: () => os.platform(), cpus: () => os.cpus().slice(0, count), totalmem: () => os.totalmem(), freemem: () => os.freemem() };
+}
+
 /** The ticket's 5 s: long enough that one busy burst does not decide. */
 const WINDOW_MS = 5_000;
 const BASELINE_MAX_AGE_MS = 30_000;

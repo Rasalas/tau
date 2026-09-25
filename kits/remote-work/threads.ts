@@ -332,6 +332,7 @@ export class RemoteThreads {
         ...(link.title ? { title: link.title } : {}),
         ...(link.backend ? { backend: link.backend } : {}),
         ...(link.model ? { model: link.model } : {}),
+        ...(input.agentDepth ? { agentDepth: input.agentDepth } : {}),
       };
       const report = await machines.call(link.machine, REMOTE_WORK_EXTENSION_ID, HOSTED_COMMANDS.start, start) as HostedThreadReport;
       if (typeof report?.thread !== "string") throw new Error(`${link.machineName} answered the start in a way this Tau does not read; update Tau there.`);
@@ -446,9 +447,10 @@ export class RemoteThreads {
    * that is clean; then the worktree and branch there go. A conflict or work
    * in the way leaves everything as it was and says so in `applied`.
    * `discard`: stops a running turn and lets the worktree there go at once.
-   * The thread there stays, an ordinary thread of that machine.
+   * The thread there stays, an ordinary thread of that machine, unless
+   * `removeThread` moves it into that machine's trash as well.
    */
-  async settle(id: string, how: "apply" | "discard"): Promise<RemoteThreadLink> {
+  async settle(id: string, how: "apply" | "discard", options: { removeThread?: boolean } = {}): Promise<RemoteThreadLink> {
     let link = this.link(id);
     if (link.status === "settled") return this.get(id);
     if (how === "apply") {
@@ -480,7 +482,19 @@ export class RemoteThreads {
       Object.assign(link, { status: "settled", settled: { how: "discarded", at: this.now(), detail: link.transfer ? `Let go; the worktree on ${link.machineName} is removed.` : "Let go." } });
     }
     this.unwatch(id);
+    if (options.removeThread && link.thread) await this.removeThere(link);
     this.options.log?.("remote-work.thread-settled", `${id} ${how}`);
     return this.commit(link);
+  }
+
+  /** Best effort: a thread that stays there is clutter on that machine, not lost work here. */
+  private async removeThere(link: RemoteThreadLink): Promise<void> {
+    try {
+      await this.machines().call(link.machine, REMOTE_WORK_EXTENSION_ID, HOSTED_COMMANDS.remove, { protocol: REMOTE_WORK_PROTOCOL, thread: link.thread });
+      if (link.settled) link.settled.detail = `${link.settled.detail} Its thread there is in ${link.machineName}'s trash.`;
+    } catch (error) {
+      this.options.log?.("remote-work.thread-remove-failed", `${link.id}: ${errorText(error)}`);
+      if (link.settled) link.settled.detail = `${link.settled.detail} Its thread stays on ${link.machineName}: ${errorText(error)}`;
+    }
   }
 }

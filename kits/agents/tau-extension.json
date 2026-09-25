@@ -3,13 +3,14 @@
   "name": "Agents",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.13.0"
+    "api": "^1.14.0"
   },
   "permissions": [
     "workspace:read",
     "sessions",
     "runtime:extend",
-    "process"
+    "process",
+    "machines"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

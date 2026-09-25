@@ -2,8 +2,8 @@ import { useEffect, useRef } from "react";
 import { Network } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { followArrival, readPendingArrival } from "./machines.js";
-import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, WORKSPACE_STORE_SERVICE, type WorkspaceRailSlice } from "./protocol.js";
-import { createMachinesRailSection, createShownMachine } from "./rail.js";
+import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
+import { agentThreadsSource, createMachinesRailSection, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 
@@ -86,6 +86,10 @@ export const environmentsExtension: DesktopExtension = {
     context.registerComposerControl({ id: "environments.run-on", placement: "toolbar", order: 5, profiles: ["desktop"], Component: createRunOnControl(environments) });
     const RailSection = createRailSection(environments);
     context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => store.registerRailSection?.(RailSection));
+    context.useService<RemoteAgentThreadsService>(REMOTE_AGENT_THREADS_SERVICE, (service) => {
+      agentThreadsSource.set(service);
+      return () => agentThreadsSource.set(undefined);
+    });
   },
 };
 

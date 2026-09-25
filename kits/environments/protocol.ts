@@ -40,3 +40,14 @@ export interface MachineIdentity {
 export interface MachineProbe extends MachineIdentity {
   ms: number;
 }
+
+/**
+ * Agents Kit's sub-agents on other machines (`kits/agents/protocol.ts`): the
+ * rail leaves those threads out, since the Agents panel shows them here.
+ */
+export const REMOTE_AGENT_THREADS_SERVICE = "tau.agents/remote-threads";
+export interface RemoteAgentThreadsService {
+  /** Thread ids on that machine (its host id). */
+  threadsOn(machine: string): ReadonlySet<string>;
+  subscribe(listener: () => void): () => void;
+}

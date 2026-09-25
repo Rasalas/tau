@@ -30,6 +30,27 @@ export interface AgentRow {
   costUsd?: number;
   /** The checkout this agent worked in, when it had one of its own. */
   workspace?: AgentWorkspace;
+  /** The machine it runs on, when that is not this computer. */
+  machine?: AgentRowMachine;
+}
+
+/** The chip a row on another machine carries. */
+export interface AgentRowMachine {
+  id: string;
+  name: string;
+  /** Its thread's id there, once it exists. */
+  thread?: string;
+  offline?: boolean;
+  /** Why Tau sent it there. */
+  reason?: string;
+}
+
+/** "Runs on rex", with why and whether rex answers: the chip's tooltip. */
+export function machineTitle(machine: AgentRowMachine): string {
+  return [
+    machine.offline ? `${machine.name} is offline; the thread may still be running there.` : `Runs on ${machine.name}.`,
+    machine.reason,
+  ].filter(Boolean).join(" ");
 }
 
 export interface AgentGroup {
@@ -62,7 +83,7 @@ function usageOf(session: UiSession | undefined): UiThreadUsage | undefined {
 
 function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>): AgentRow {
   const session = link.threadId ? sessions.get(link.threadId) : undefined;
-  const cost = usageOf(session)?.costUsd;
+  const cost = link.machine ? link.machine.costUsd : usageOf(session)?.costUsd;
   return {
     id: link.id,
     ...(link.threadId ? { threadId: link.threadId } : {}),
@@ -79,6 +100,15 @@ function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>):
     ...(link.error ? { error: link.error } : {}),
     ...(cost === undefined ? {} : { costUsd: cost }),
     ...(link.workspace ? { workspace: link.workspace } : {}),
+    ...(link.machine ? {
+      machine: {
+        id: link.machine.id,
+        name: link.machine.name,
+        ...(link.machine.thread ? { thread: link.machine.thread } : {}),
+        ...(link.machine.offline ? { offline: true } : {}),
+        ...(link.machine.reason ? { reason: link.machine.reason } : {}),
+      },
+    } : {}),
   };
 }
 
@@ -216,7 +246,9 @@ export function worktreeLine(row: AgentRow): string {
   const changes = workspace.changes;
   if (!changes) return workspace.branch;
   if (changes.files === 0) return `${workspace.branch} · no changes`;
-  return `${workspace.branch} · ${changes.files} file${changes.files === 1 ? "" : "s"} +${changes.added} −${changes.removed}`;
+  const files = `${changes.files} file${changes.files === 1 ? "" : "s"}`;
+  // Work that came back from another machine counts files, not lines.
+  return changes.added === 0 && changes.removed === 0 ? `${workspace.branch} · ${files}` : `${workspace.branch} · ${files} +${changes.added} −${changes.removed}`;
 }
 
 /** Whether the parent can still take or drop what this agent did. */
@@ -227,6 +259,7 @@ export function canSettleWorktree(row: AgentRow): boolean {
 }
 
 export function activityLine(row: AgentRow): string {
+  if (row.machine?.offline && (row.status === "running" || row.status === "waiting")) return `${row.machine.name} offline · may still be running`;
   if (row.status === "failed") return row.error ?? "Failed";
   if (row.status === "pending") return "Queued for a free slot";
   if (row.status === "cancelled") return "Cancelled by its parent";
@@ -251,6 +284,8 @@ export interface SpawnCardRow {
   /** The agent definition the call named. */
   agent?: string;
   costUsd?: number;
+  /** The machine it runs on, when that is not this computer; it has no thread here to open. */
+  machine?: string;
 }
 
 export interface SpawnCardModel {
@@ -321,9 +356,10 @@ export function spawnCardModel(
   const rows = tools.map((tool) => {
     const link = linkFor(tool, links, taken);
     if (link) taken.add(link.id);
-    const threadId = link?.threadId ?? spawnedThreadId(tool);
+    const machine = link?.machine?.name;
+    const threadId = link?.machine ? undefined : link?.threadId ?? spawnedThreadId(tool);
     const session = threadId ? sessions.get(threadId) : undefined;
-    const cost = session?.usage?.costUsd;
+    const cost = link?.machine ? link.machine.costUsd : session?.usage?.costUsd;
     const status: AgentThreadStatus = link?.status
       ?? (tool.status === "error" ? "failed" : tool.status === "running" ? "pending" : session ? "idle" : "completed");
     const agent = link?.agent ?? (typeof tool.args.agent === "string" && tool.args.agent.trim() ? tool.args.agent.trim() : undefined);
@@ -335,6 +371,7 @@ export function spawnCardModel(
       status,
       ...(agent ? { agent } : {}),
       ...(cost === undefined ? {} : { costUsd: cost }),
+      ...(machine ? { machine } : {}),
     };
   });
 
@@ -376,6 +413,7 @@ export function definitionRows(
       definition.model,
       definition.access,
       definition.workspace,
+      definition.machine ? `on ${definition.machine}` : undefined,
       definition.tools ? `${definition.tools.length} tool${definition.tools.length === 1 ? "" : "s"}` : undefined,
     ].filter(Boolean).join(" · "),
   }));

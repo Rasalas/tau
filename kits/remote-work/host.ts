@@ -12,7 +12,9 @@ import { Operations, type OperationStep } from "./operations.js";
 import {
   DEFAULT_REMOTE_WAIT_MS,
   HOSTED_COMMANDS,
+  HOSTED_DEPTH_COMMAND,
   HOSTED_THREAD_EVENT,
+  MAX_AGENT_DEPTH_CLAIM,
   OPERATION_EVENT,
   PROJECT_SCRIPTS_EXTENSION_ID,
   RECEIVING_COMMANDS,
@@ -101,6 +103,15 @@ function decodeModel(value: unknown): RemoteThreadModel | undefined {
   return { provider, id };
 }
 
+/** A sub-agent's depth, from 1 up to `MAX_AGENT_DEPTH_CLAIM`; absent for a thread that is no sub-agent. */
+function decodeDepth(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MAX_AGENT_DEPTH_CLAIM) {
+    throw new HostCommandError(`agentDepth is a whole number from 1 to ${MAX_AGENT_DEPTH_CLAIM}.`);
+  }
+  return value;
+}
+
 function optionalText(raw: Fields, key: string): string | undefined {
   if (raw[key] !== undefined && raw[key] !== null && typeof raw[key] !== "string") throw new HostCommandError(`${key} is text.`);
   return text(raw[key]);
@@ -114,6 +125,7 @@ function decodeThreadStart(input: unknown): RemoteThreadStartInput {
   const ignored = raw.ignored;
   if (ignored !== undefined && (!Array.isArray(ignored) || ignored.some((path) => typeof path !== "string"))) throw new HostCommandError("ignored is a list of paths.");
   const model = decodeModel(raw.model);
+  const agentDepth = decodeDepth(raw.agentDepth);
   const optional = Object.fromEntries((["title", "backend", "parentThreadId", "agent", "snapshotRef"] as const)
     .map((key) => [key, optionalText(raw, key)] as const)
     .filter((entry): entry is readonly [typeof entry[0], string] => Boolean(entry[1])));
@@ -124,6 +136,7 @@ function decodeThreadStart(input: unknown): RemoteThreadStartInput {
     ...(session ? { session } : {}),
     ...(model ? { model } : {}),
     ...(Array.isArray(ignored) ? { ignored: ignored as string[] } : {}),
+    ...(agentDepth ? { agentDepth } : {}),
     ...optional,
   };
 }
@@ -151,6 +164,7 @@ function decodeHostedStart(input: Fields): HostedThreadStartInput {
   const model = decodeModel(input.model);
   const title = optionalText(input, "title");
   const backend = optionalText(input, "backend");
+  const agentDepth = decodeDepth(input.agentDepth);
   return {
     protocol: REMOTE_WORK_PROTOCOL,
     transfer: transferId(input),
@@ -159,6 +173,7 @@ function decodeHostedStart(input: Fields): HostedThreadStartInput {
     ...(title ? { title } : {}),
     ...(backend ? { backend } : {}),
     ...(model ? { model } : {}),
+    ...(agentDepth ? { agentDepth } : {}),
   };
 }
 
@@ -378,9 +393,9 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       }, { long: true, access: "read", ...kits });
       context.registerCommand("thread-result", (input) => threads.fetchResult(linkId(input)), { long: true, ...kits, audit: { label: "brought back a thread's work from another machine" } });
       context.registerCommand("thread-settle", (input) => {
-        const how = fields(input).how;
-        if (how !== "apply" && how !== "discard") throw new HostCommandError('how is "apply" or "discard".');
-        return threads.settle(linkId(input), how);
+        const raw = fields(input);
+        if (raw.how !== "apply" && raw.how !== "discard") throw new HostCommandError('how is "apply" or "discard".');
+        return threads.settle(linkId(input), raw.how, { removeThread: raw.removeThread === true });
       }, { long: true, ...kits, audit: { label: "settled a thread's work from another machine" } });
 
       // Threads, there: what the sending side's host calls for the threads it starts here.
@@ -408,6 +423,16 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         if (!Array.isArray(raw.threads) || raw.threads.some((thread) => typeof thread !== "string") || raw.threads.length > 500) throw new HostCommandError("threads is a list of up to 500 thread ids.");
         return { reports: hosted.reports(raw.threads as string[], device(call)) };
       }, { access: "read" });
+      context.registerCommand(HOSTED_COMMANDS.remove, (input, call) => {
+        const raw = fields(input);
+        checkProtocol(raw);
+        return hosted.remove(required(raw, "thread"), device(call));
+      }, { audit: { label: "removed a thread another machine had started here" } });
+      // This machine's own Agents Kit asks it, for a thread another machine started as a sub-agent.
+      context.registerCommand(HOSTED_DEPTH_COMMAND, (input) => {
+        const depth = hosted.agentDepth(required(fields(input), "thread"));
+        return depth ? { depth } : {};
+      }, { access: "read", callers: ["tau.agents"] });
 
       const disposers = [
         services.registerTurnObserver({

@@ -50,7 +50,7 @@ import { KeepAwake } from "./keep-awake.js";
 import { HostServiceManager } from "./host-service.js";
 import { DisplayWindow } from "./display-window.js";
 import { HostMachines } from "./host-machines.js";
-import { HostResourceSampler } from "./host-resources.js";
+import { HostResourceSampler, testResourceOs } from "./host-resources.js";
 import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
@@ -167,7 +167,8 @@ const keepAwake = new KeepAwake({
 });
 
 /** The machine's load, read only when asked (`host-resources`). */
-const resources = new HostResourceSampler();
+const testOs = testResourceOs();
+const resources = new HostResourceSampler(testOs ? { os: testOs } : {});
 
 const versions: ExtensionHostVersions = { tau: hostVersion, pi: PI_VERSION, api: EXTENSION_API_VERSION };
 /** Where the kits Tau ships are read from; a headless host runs from the same tree. */

@@ -100,5 +100,7 @@ describe("testHostDir and parseArgs", () => {
     expect(() => parseArgs(["start", "--bind", "1"])).toThrow("unknown flag");
     expect(parseArgs(["start", "--name", "rex", "--port", "47001"]).flags.port).toBe(47001);
     for (const bad of ["1", "80", "70000", "x"]) expect(() => parseArgs(["start", "--port", bad])).toThrow("--port needs a port");
+    expect(parseArgs(["start", "--name", "rex", "--cpus", "2"]).flags.cpus).toBe(2);
+    for (const bad of ["0", "x", "1.5"]) expect(() => parseArgs(["start", "--cpus", bad])).toThrow("--cpus needs a count");
   });
 });
