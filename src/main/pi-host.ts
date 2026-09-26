@@ -1230,8 +1230,11 @@ export class PiHost {
   }
 
   private async reopenThread(sessionId: string): Promise<ThreadRuntime> {
-    const thread = this.threads.get(sessionId)?.runtime
-      ?? await this.openMarkedThread({ sessionId, backend: this.index.byId(sessionId)?.backendKind ?? "pi" });
+    const live = this.threads.get(sessionId)?.runtime;
+    if (live) return live;
+    // Right after a start the index knows only this run's threads.
+    if (!this.index.byId(sessionId)) await this.index.ready();
+    const thread = await this.openMarkedThread({ sessionId, backend: this.index.byId(sessionId)?.backendKind ?? "pi" });
     if (!thread) throw new Error("That thread no longer exists.");
     return thread;
   }

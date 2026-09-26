@@ -24,6 +24,15 @@ import type { UsageTally } from "./usage-pricing.js";
 import { ThreadRuntime, threadBackendKind } from "./thread-runtime.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
 
+function settledLater(): { promise: Promise<void>; resolve(): void; reject(error: unknown): void } {
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+  // Nobody may be waiting when it rejects.
+  promise.catch(() => undefined);
+  return { promise, resolve, reject };
+}
+
 /** A thread nobody has spent anything on shows no cost at all, not a zero. */
 function usageOrUndefined(usage: UiThreadUsage | undefined): UiThreadUsage | undefined {
   return hasThreadUsage(usage) ? usage : undefined;
@@ -88,6 +97,7 @@ export class ThreadIndex {
   private readonly queues = new Map<string, { messages: UiQueuedMessage[]; held: boolean }>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private scannedOnce = false;
+  private readonly firstScan = settledLater();
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   /** Publications coalesced into the next tick, keyed by what they carry. */
@@ -112,6 +122,14 @@ export class ThreadIndex {
   /** Whether the first scan has finished, so a later change is news to a client. */
   get scanned(): boolean {
     return this.scannedOnce;
+  }
+
+  /**
+   * Settles with the first scan the host starts, without starting one. Until
+   * then the index holds only the threads this run opened.
+   */
+  ready(): Promise<void> {
+    return this.firstScan.promise;
   }
 
   byId(sessionId: string): UiSession | undefined {
@@ -147,7 +165,10 @@ export class ThreadIndex {
    * lifecycle hooks while one is still in flight.
    */
   async refresh(publish: "none" | "index" | "changes"): Promise<ThreadIndexSnapshot> {
-    this.scan ??= this.scanSessions().finally(() => { this.scan = undefined; });
+    if (!this.scan) {
+      this.scan = this.scanSessions().finally(() => { this.scan = undefined; });
+      this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
+    }
     const { previous, next } = await this.scan;
     if (publish === "index") this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
     else if (publish === "changes") for (const update of sessionIndexUpdates(previous, next)) this.port.emitUpdate(update);
@@ -497,6 +518,7 @@ export class ThreadIndex {
   }
 
   async dispose(): Promise<void> {
+    this.firstScan.reject(new Error("The host stopped before it read its threads."));
     for (const timer of this.coalesced.values()) clearTimeout(timer);
     this.coalesced.clear();
     if (this.recoveryTimer) clearInterval(this.recoveryTimer);

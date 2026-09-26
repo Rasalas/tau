@@ -260,6 +260,41 @@ describe("an imported thread", () => {
   });
 });
 
+describe("ThreadIndex readiness", () => {
+  it("is ready once the first scan has read the session files, and a later wait costs nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-index-ready-"));
+    try {
+      const sessionsDir = join(root, "sessions");
+      const cwd = join(root, "project");
+      await mkdir(cwd);
+      const jsonl = JSON.stringify({ type: "session", version: 3, id: "a", timestamp: "2026-09-25T10:00:00.000Z", cwd });
+      const saved = await importSessionFile({ cwd, jsonl, origin: { hostId: "host-a", threadId: "thread-a" } }, { sessionsDir });
+      const { index } = makeIndex({ sessionsDir });
+      let ready = false;
+      const waiting = index.ready().then(() => { ready = true; });
+
+      await flush();
+      expect(ready).toBe(false);
+
+      const scan = index.refresh("index");
+      await waiting;
+      expect(index.byId(saved.sessionId)).toBeDefined();
+      await scan;
+      await expect(index.ready()).resolves.toBeUndefined();
+      await index.dispose();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tells a waiter when the host stops before its first scan", async () => {
+    const { index } = makeIndex();
+    const waiting = index.ready();
+    await index.dispose();
+    await expect(waiting).rejects.toThrow("The host stopped before it read its threads.");
+  });
+});
+
 describe("thread deletion", () => {
   it("announces a deleted thread once, whichever side noticed it", async () => {
     const seen: string[] = [];
