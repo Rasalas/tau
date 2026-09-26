@@ -238,6 +238,30 @@ describe("Settings → Machines", () => {
     expect(screen.getByText(/studio was added/u)).toBeTruthy();
   });
 
+  it("answers Add machine with an empty field: says what to paste and puts the cursor there", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    const Page = createMachinesPage(environments);
+    render(withSettings(<Page />));
+    const button = screen.getByRole("button", { name: "Add machine" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(environments.pair).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toMatch(/Paste the pairing link/u);
+    const field = screen.getByLabelText("Pairing link or address");
+    expect(document.activeElement).toBe(field);
+    fireEvent.change(field, { target: { value: "studio.local" } });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("says why Add machine is off where nothing can keep another machine's key", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: false });
+    const Page = createMachinesPage(environments);
+    render(withSettings(<Page />));
+    const button = screen.getByRole("button", { name: "Add machine" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toMatch(/no encrypted storage/u);
+  });
+
   it("says so when the other owner declines", async () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
     environments.pair.mockResolvedValue({ state: "denied" });
