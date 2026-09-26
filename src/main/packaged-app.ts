@@ -1,6 +1,6 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 
 const ARCHIVE = `${sep}app.asar${sep}`;
 const UNPACKED = `${sep}app.asar.unpacked${sep}`;
@@ -13,6 +13,24 @@ const UNPACKED = `${sep}app.asar.unpacked${sep}`;
  */
 export function unpackedPath(path: string): string {
   return path.includes(ARCHIVE) ? path.replace(ARCHIVE, UNPACKED) : path;
+}
+
+/**
+ * The version in the app's `package.json`. A packaged host runs from
+ * `app.asar.unpacked`, but `package.json` stays in `app.asar` beside it.
+ */
+export function appPackageVersion(appRoot: string): string | undefined {
+  const candidates = [join(appRoot, "package.json")];
+  if (basename(appRoot) === "app.asar.unpacked") candidates.push(join(dirname(appRoot), "app.asar", "package.json"));
+  for (const file of candidates) {
+    try {
+      const version = (JSON.parse(readFileSync(file, "utf8")) as { version?: unknown }).version;
+      if (typeof version === "string" && version) return version;
+    } catch {
+      // Not there, or not readable: try the next place.
+    }
+  }
+  return undefined;
 }
 
 /** Whether this module is running from inside the archive of an installed Tau. */
