@@ -1666,7 +1666,10 @@ export class PiHost {
     const promptEpoch = this.activationEpoch;
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
-    if (!this.isCurrentActivation(promptEpoch)) {
+    // A prompt named for its thread goes there while another one is on screen; it only needs the thread still open.
+    if (sessionId !== undefined && thread.threadId === sessionId) {
+      if (this.threadFor(sessionId) !== thread) this.noRuntimeFor(sessionId);
+    } else if (!this.isCurrentActivation(promptEpoch)) {
       throw new Error("The active thread changed while the prompt was being prepared. Retry after the switch completes.");
     }
     // Whatever a restart left behind, this thread is moving again.

@@ -94,6 +94,46 @@ describe("PiHost lifecycle queue", () => {
     expect(await promptResult).toMatch(/active thread changed/iu);
   });
 
+  /** A host whose `session` thread is open and on screen, with binding held until `release`. */
+  async function hostWithHeldBinding() {
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = idleThread("session");
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    internals.threads.setActive("session");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let settling!: () => void;
+    const reached = new Promise<void>((resolve) => { settling = resolve; });
+    internals.binding = { settle: async () => { settling(); await gate; }, installHooks: () => undefined };
+    const delivered: string[] = [];
+    internals.turns = { toRuntime: async (_thread: unknown, text: string) => { delivered.push(text); } };
+    return { host, internals, release, reached, delivered };
+  }
+
+  // A superseded new-thread request delivers its first prompt by thread id while the newer one activates.
+  it("delivers a prompt addressed to its thread when another thread becomes active during binding", async () => {
+    const { host, internals, release, reached, delivered } = await hostWithHeldBinding();
+    const promptResult = host.prompt("wait 60000", [], "session");
+    await reached;
+    internals.lifecycle.beginActivation();
+    release();
+    await expect(promptResult).resolves.toBeUndefined();
+    expect(delivered).toEqual(["wait 60000"]);
+  });
+
+  it("refuses a prompt addressed to a thread that closes during binding", async () => {
+    const { host, internals, release, reached, delivered } = await hostWithHeldBinding();
+    const promptResult = host.prompt("hello", [], "session");
+    await reached;
+    internals.lifecycle.beginActivation();
+    // The idle fake's shutdown fails; the slot is gone before that.
+    await internals.threads.release("session").catch(() => undefined);
+    release();
+    await expect(promptResult).rejects.toThrow(/not open any more/iu);
+    expect(delivered).toEqual([]);
+  });
+
   it("still serialises two independent lifecycle operations", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, false, false);
     const internals = host as unknown as Record<string, any>;
