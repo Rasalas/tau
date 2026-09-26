@@ -238,6 +238,8 @@ export interface HostClient {
    */
   installService(options?: { display?: boolean }): Promise<UiHostService>;
   uninstallService(): Promise<UiHostService>;
+  /** Adds the AppArmor profile the invisible display's window needs, through the host machine's password dialog. */
+  allowServiceSandbox(): Promise<UiHostService>;
 
   // The machines this window knows (ADR 0025). The window's own process answers; a host refuses them.
   listEnvironments(): Promise<UiEnvironments>;
@@ -432,6 +434,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     serviceStatus: () => call<UiHostService>("service-status"),
     installService: (options) => call<UiHostService>("service-install", options ? [options] : []),
     uninstallService: () => call<UiHostService>("service-uninstall"),
+    allowServiceSandbox: () => call<UiHostService>("service-allow-sandbox"),
 
     listEnvironments: () => call<UiEnvironments>("environments-list"),
     pairEnvironment: (input) => call<EnvironmentPairResult>("environments-pair", [input]),

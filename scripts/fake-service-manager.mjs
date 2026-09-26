@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Stands in for launchctl, systemctl and loginctl when TAU_SERVICE_CONTROL
+// Stands in for launchctl, systemctl, loginctl, pkexec and sudo when TAU_SERVICE_CONTROL
 // names this file (`src/main/host-service.ts`): a dev instance and the window
 // host smoke install Tau's host "as a service" without the machine's service
 // manager ever hearing of it. It starts the unit's program itself, detached,
@@ -236,6 +236,12 @@ function loginctl(args) {
   return 64;
 }
 
+/** pkexec and sudo run nothing: `.elevation-exit` beside the units names the answer, 0 without one. */
+function elevate(directory) {
+  const file = join(directory, ".elevation-exit");
+  return existsSync(file) ? Number(readFileSync(file, "utf8").trim()) || 0 : 0;
+}
+
 export async function main(argv) {
   const [tool, ...args] = argv;
   const directory = unitDirectory();
@@ -245,6 +251,7 @@ export async function main(argv) {
   if (tool === "launchctl") code = await launchctl(args, directory, state);
   else if (tool === "systemctl") code = await systemctl(args, directory, state);
   else if (tool === "loginctl") code = loginctl(args);
+  else if (tool === "pkexec" || tool === "sudo") code = elevate(directory);
   else { console.error(`fake service manager: ${tool} is not faked`); code = 64; }
   writeState(directory, state);
   return code;

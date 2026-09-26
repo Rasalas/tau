@@ -10,7 +10,7 @@ import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { processAlive, readHostDescriptor } from "./host-process-supervisor.js";
 import { DISPLAY_WINDOW_IDLE_MS } from "./display-window.js";
-import { chromeSandboxProblem } from "./linux-sandbox.js";
+import { chromeSandboxProblem, elevationFailure, sandboxProfileCommand, type ElevationTool } from "./linux-sandbox.js";
 import {
   FIRST_DISPLAY_NUMBER,
   defaultUserData,
@@ -40,6 +40,8 @@ export interface ServiceStep {
   command: string;
   args: string[];
   optional?: boolean;
+  /** A password prompt: no two-minute limit. */
+  waitsForUser?: boolean;
 }
 
 export interface ServiceCommandResult {
@@ -79,6 +81,13 @@ export interface HostServiceOptions {
   displayTaken?: (number: number) => boolean;
   /** What stops the window on the display from starting; `chrome-sandbox` next to Electron when absent. */
   sandboxProblem?: () => UiHostServiceProblem | undefined;
+  /**
+   * How this process asks for the password that adds the AppArmor profile:
+   * pkexec's dialog in a host, sudo in a terminal. Without it the problem is reported.
+   */
+  elevation?: ElevationTool;
+  /** Told just before the password prompt, so a terminal says what it is for. */
+  beforeElevation?(message: string): void;
 }
 
 /** `--display` on a machine that cannot have one. */
@@ -86,7 +95,7 @@ const DISPLAY_UNSUPPORTED: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "macOS has no invisible display: there is no Xvfb, and virtual displays need private API. The preview runs hidden in a Tau window you open instead.",
   win32: "Windows has no invisible display Tau can start a window on. The preview runs hidden in a Tau window you open instead.",
 };
-const NO_XVFB = "Xvfb is not installed. Install it (Debian and Ubuntu: sudo apt install xvfb), then run tau service install --display again.";
+const NO_XVFB = "Xvfb is not installed. The .deb brings it along; otherwise install your distribution's xvfb package (Debian and Ubuntu: sudo apt install xvfb), then add the display again.";
 /** Past this, something else owns every display number Tau would try. */
 const LAST_DISPLAY_NUMBER = FIRST_DISPLAY_NUMBER + 100;
 
@@ -133,7 +142,8 @@ export function serviceCommandRunner(env: NodeJS.ProcessEnv = process.env, execP
   return {
     run: (step) => new Promise((resolve) => {
       const [command, ...args] = argv(step);
-      execFile(command!, args, { env: childEnv, timeout: 120_000, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      const timeout = step.waitsForUser ? 15 * 60_000 : 120_000;
+      execFile(command!, args, { env: childEnv, timeout, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
         const code = error ? (typeof (error as { code?: unknown }).code === "number" ? (error as { code: number }).code : 127) : 0;
         resolve({ code, stdout: String(stdout), stderr: String(stderr) || (error && code === 127 ? error.message : "") });
       });
@@ -240,6 +250,21 @@ export class HostServiceManager {
 
   private sandboxProblem(): UiHostServiceProblem | undefined {
     return this.options.sandboxProblem ? this.options.sandboxProblem() : chromeSandboxProblem(this.options.execPath);
+  }
+
+  /**
+   * Adds the AppArmor profile the window on the display needs, with one
+   * password prompt; a no-op where nothing is missing.
+   */
+  async allowSandbox(): Promise<void> {
+    const problem = this.sandboxProblem();
+    if (!problem) return;
+    const tool = this.options.elevation;
+    const command = tool && sandboxProfileCommand(this.options.execPath, tool);
+    if (!tool || !command) throw new HostServiceError(problem.message);
+    this.options.beforeElevation?.(`Tau adds an AppArmor profile that lets ${this.options.execPath} use user namespaces, so Chromium keeps its sandbox. ${tool === "sudo" ? "sudo asks for your password." : ""}`.trimEnd());
+    const result = await this.runner.run({ ...command, waitsForUser: true });
+    if (result.code !== 0) throw new HostServiceError(elevationFailure(tool, result));
   }
 
   private locateXvfb(): string | undefined {
@@ -357,8 +382,7 @@ export class HostServiceManager {
     if (wanted) {
       const xvfb = this.locateXvfb();
       if (!xvfb) throw new HostServiceError(NO_XVFB);
-      const sandbox = this.sandboxProblem();
-      if (sandbox) throw new HostServiceError(`${sandbox.message} Run: ${sandbox.command}`);
+      await this.allowSandbox();
       display = this.displaySpec(current?.number ?? this.freeDisplayNumber(), xvfb);
     }
     if (backend.kind === "systemd") await this.prepareSystemd();
@@ -613,6 +637,11 @@ export function createHostServiceMethods(manager: () => HostServiceManager | und
       const display = typeof option?.display === "boolean" ? option.display : undefined;
       const serving = (await service.status(self)).serving;
       await service.install({ detached: serving, ...(display === undefined ? {} : { display }) });
+      return service.status(self);
+    }),
+    // Settings' answer to the `chrome-sandbox` problem: pkexec's dialog on this machine.
+    "service-allow-sandbox": owned(async (service) => {
+      await service.allowSandbox();
       return service.status(self);
     }),
     "service-uninstall": owned(async (service) => {

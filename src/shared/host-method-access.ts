@@ -109,6 +109,7 @@ export const HOST_METHOD_ACCESS = {
   "readiness": "read",
   "service-install": "owner",
   "service-uninstall": "owner",
+  "service-allow-sandbox": "owner",
   // A window's own list of machines (ADR 0025); a host refuses them all.
   "environments-list": "read",
   "environments-take-arrival": "read",
