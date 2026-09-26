@@ -879,7 +879,7 @@ export class PiHost {
     if (!toolCallId) throw new Error("A tool call id is required.");
     const thread = this.threadFor(sessionId);
     if (!thread) {
-      const result = this.persistedTranscript(sessionId).toolOutput(toolCallId);
+      const result = (await this.persistedTranscript(sessionId)).toolOutput(toolCallId);
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
@@ -915,16 +915,16 @@ export class PiHost {
    * backend keeps. Neither opens a runtime.
    */
   private async releasedTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
-    const session = this.index.byId(sessionId);
+    const session = await this.index.find(sessionId);
     const kind = session?.backendKind ?? "pi";
-    if (!session || kind === "pi") return this.persistedTranscript(sessionId).page(cursor);
+    if (!session || kind === "pi") return (await this.persistedTranscript(sessionId)).page(cursor);
     const record = await this.seam.backends.get(kind)?.lookup(sessionId);
     if (!record) this.noRuntimeFor(sessionId);
     return shellTranscriptPage(sessionId, record, cursor);
   }
 
-  private persistedTranscript(sessionId: string): PersistedThreadTranscript {
-    const session = this.index.byId(sessionId);
+  private async persistedTranscript(sessionId: string): Promise<PersistedThreadTranscript> {
+    const session = await this.index.find(sessionId);
     // Nothing persisted to read: a thread of another backend keeps no session
     // file, and an unknown id was never this host's.
     if (!session || (session.backendKind ?? "pi") !== "pi") this.noRuntimeFor(sessionId);
@@ -1082,6 +1082,7 @@ export class PiHost {
    * refused — the caller stops or leaves it first.
    */
   async removeThread(sessionId: string): Promise<void> {
+    await this.index.find(sessionId); // outside the lifecycle: the first scan's sweep runs kit hooks
     return this.lifecycle.run("remove-thread", async () => {
       const session = this.index.byId(sessionId);
       if (!session) throw new Error(`No thread ${sessionId.slice(0, 8)} in this host's index.`);
@@ -1232,9 +1233,7 @@ export class PiHost {
   private async reopenThread(sessionId: string): Promise<ThreadRuntime> {
     const live = this.threads.get(sessionId)?.runtime;
     if (live) return live;
-    // Right after a start the index knows only this run's threads.
-    if (!this.index.byId(sessionId)) await this.index.ready();
-    const thread = await this.openMarkedThread({ sessionId, backend: this.index.byId(sessionId)?.backendKind ?? "pi" });
+    const thread = await this.openMarkedThread({ sessionId, backend: (await this.index.find(sessionId))?.backendKind ?? "pi" });
     if (!thread) throw new Error("That thread no longer exists.");
     return thread;
   }

@@ -132,6 +132,14 @@ export class ThreadIndex {
     return this.firstScan.promise;
   }
 
+  /** `byId`, but a thread not indexed yet is looked up again once the first scan is done. */
+  async find(sessionId: string): Promise<UiSession | undefined> {
+    const known = this.byId(sessionId);
+    if (known) return known;
+    await this.ready();
+    return this.byId(sessionId);
+  }
+
   byId(sessionId: string): UiSession | undefined {
     return this.sessions.find((session) => session.id === sessionId);
   }

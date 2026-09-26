@@ -108,8 +108,10 @@ describe("workspace lifecycle hooks", () => {
     await writeFile(path, "{}\n", "utf8");
     const announced: Array<[string, string]> = [];
     const refreshed: string[] = [];
+    const byId = (sessionId: string) => sessionId === "gone" ? { id: "gone", path, projectPath: "/repo", title: "Gone" } : undefined;
     internals.index = {
-      byId: (sessionId: string) => sessionId === "gone" ? { id: "gone", path, projectPath: "/repo", title: "Gone" } : undefined,
+      byId,
+      find: async (sessionId: string) => byId(sessionId),
       refresh: async (publish: string) => { refreshed.push(publish); },
     };
     internals.trash = new ThreadTrash({
@@ -134,7 +136,8 @@ describe("workspace lifecycle hooks", () => {
   it("refuses to delete the thread on screen", async () => {
     const order: string[] = [];
     const { host, internals } = await hostWithHooks(order);
-    internals.index = { byId: () => ({ id: "session", path: "/session.jsonl", projectPath: "/repo" }) };
+    const session = { id: "session", path: "/session.jsonl", projectPath: "/repo" };
+    internals.index = { byId: () => session, find: async () => session };
     await expect(host.removeThread("session")).rejects.toThrow(/on screen/iu);
   });
 });
