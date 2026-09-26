@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,8 @@ import { ThreadRuntimeLifecycle, composeShellCommandPrefix, type ThreadRuntimeLi
 import { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
 import type { RuntimeSessionInfo } from "./host-extensions.js";
 import { ThreadRuntime } from "./thread-runtime.js";
+import { SessionHeldElsewhereError, SessionLocks } from "./session-locks.js";
+import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { UNLIMITED_EXECUTION_POLICY, type HostExecutionPolicy } from "./host-execution-policy.js";
 
@@ -78,6 +80,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     log: () => undefined,
     errorMessage: (error) => error instanceof Error ? error.message : String(error),
     runtimeUnavailable: vi.fn(),
+    sessionLocks: new SessionLocks(),
     ...overrides,
   };
   return { lifecycle: new ThreadRuntimeLifecycle(port), port, adopted, emitted, released };
@@ -376,4 +379,56 @@ describe("temperature and max tokens from Tau's config", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("a Pi session two hosts on one machine both reach", () => {
+  const SESSION_ID = "shared-session";
+
+  /** A session file both hosts find, in a folder that exists, as their shared `~/.pi/agent/sessions` would hold it. */
+  async function sharedSession(dir: string): Promise<string> {
+    const path = join(dir, `${SESSION_ID}.jsonl`);
+    const timestamp = new Date(Date.UTC(2026, 0, 1)).toISOString();
+    await writeFile(path, [
+      JSON.stringify({ type: "session", version: 3, id: SESSION_ID, timestamp, cwd: dir }),
+      JSON.stringify({ type: "message", id: "entry-1", parentId: null, timestamp, message: { role: "user", content: [{ type: "text", text: "Count" }], timestamp: 1 } }),
+      JSON.stringify({ type: "message", id: "entry-2", parentId: "entry-1", timestamp, message: { role: "assistant", content: [{ type: "text", text: "One" }], timestamp: 2 } }),
+      "",
+    ].join("\n"));
+    return path;
+  }
+
+  it("is written by one of them; the other reads it and writes nothing until it is let go", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-shared-session-"));
+    try {
+      const path = await sharedSession(dir);
+      const first = makeLifecycle({ agentDir: dir, cwd: () => dir, sessionLocks: new SessionLocks({ dataFolder: "/data/window" }) });
+      const second = makeLifecycle({ agentDir: dir, cwd: () => dir, sessionLocks: new SessionLocks({ dataFolder: "/data/service" }) });
+      const live = await first.lifecycle.openForPath(path, "resume");
+      expect(isUnavailableBackend(live.backend)).toBe(false);
+      const before = await readFile(path, "utf8");
+
+      await expect(second.lifecycle.openForPath(path, "resume", true)).rejects.toThrow(SessionHeldElsewhereError);
+      const held = await second.lifecycle.openForPath(path, "resume");
+      expect(isUnavailableBackend(held.backend)).toBe(true);
+      expect(held.threadId).toBe(SESSION_ID);
+      expect(held.sessionFile).toBe(path);
+      // Read from the file, the first host's own additions included.
+      expect(held.entries.filter((entry) => (entry as { type: string }).type === "message")).toHaveLength(2);
+      const why = `This thread is open in another Tau host (pid ${process.pid}, data folder /data/window). It is read-only here until that host closes it.`;
+      expect(second.port.runtimeUnavailable).toHaveBeenCalledWith(SESSION_ID, why);
+      await expect(held.backend.prompt({} as never)).rejects.toThrow(why);
+      expect(() => held.appendJournalEntry("note", {})).toThrow(why);
+      expect(await readFile(path, "utf8")).toBe(before);
+
+      // The first host lets go; the next open in the second one gets the runtime.
+      await first.lifecycle.dispose(live);
+      const taken = await second.lifecycle.openForPath(path, "resume");
+      expect(isUnavailableBackend(taken.backend)).toBe(false);
+      expect(second.port.runtimeUnavailable).toHaveBeenLastCalledWith(SESSION_ID, undefined);
+      await expect(first.lifecycle.openForPath(path, "resume", true)).rejects.toThrow(SessionHeldElsewhereError);
+      await second.lifecycle.dispose(taken);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

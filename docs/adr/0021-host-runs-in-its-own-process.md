@@ -115,6 +115,22 @@ release cycle.
 - A turn survives the window. Closing, crashing or reloading the window does
   not stop a running thread; the host keeps going and the next client picks up
   the transcript where the push log left it.
+- One host per data folder. *Amended 2026-09-26:* `host.json` and a probe
+  were the only agreement, so a host that was alive but did not answer in time
+  got a twin, and the twin reconciled the first one's running turns as
+  interrupted and wrote into their sessions. Every host — a window's, a
+  service's, one started by hand, the in-process one — now takes
+  `<userData>/host.lock` (`src/main/data-folder-lock.ts` over
+  `src/main/process-lock.ts`: `O_EXLOCK` on macOS, an abstract socket on
+  Linux, a named pipe on Windows) before it reads a marker or opens a session,
+  and exits with 75 naming the owner when it cannot. The supervisor starts no
+  host while another holds the folder: it probes again, then fails with the
+  owner. Retiring or stopping a host waits for it to go, escalating to SIGTERM
+  and SIGKILL. In-flight markers name their writer, and a marker whose writer
+  still runs is left alone. A Pi runtime holds `<session>.jsonl.lock` for as
+  long as it lives (`src/main/session-locks.ts`), so hosts of different data
+  folders sharing `~/.pi/agent/sessions` never write one file; the other one
+  opens that thread read-only.
 - Two processes mean two logs and two lifetimes. `<userData>/host.json`,
   `host-process.log` and `host-out-*.log` are the places to look; a stale
   `host.json` whose pid is gone is simply replaced.

@@ -34,6 +34,8 @@ export interface PiHostOptions {
   sessionUsageCachePath?: string;
   /** Where the markers of turns in flight live; without one they last only for this run. */
   turnsInFlightPath?: string;
+  /** This host's data folder, named to another host that finds a session locked by this one. */
+  dataFolder?: string;
   /** Where the composer's queued messages live; without one they last only for this run. */
   queuedMessagesPath?: string;
   /** Where resumes scheduled for a limit's reset live; without one they last only for this run. */

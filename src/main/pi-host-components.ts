@@ -68,6 +68,7 @@ import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { importSessionFile } from "./session-import.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { PiHostOptions } from "./pi-host-options.js";
+import { SessionLocks } from "./session-locks.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
@@ -575,6 +576,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
     runtimeUnavailable: (threadId, reason) => index.setRuntimeError(threadId, reason),
+    sessionLocks: new SessionLocks(options.dataFolder ? { dataFolder: options.dataFolder } : {}),
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
   /**

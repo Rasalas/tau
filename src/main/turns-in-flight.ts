@@ -13,6 +13,12 @@ export interface InFlightTurn {
   backend: ThreadBackendKind;
   startedAt: number;
   prompt: { text: string; images?: number };
+  /** The host process that recorded it; markers from before this field have none. */
+  writer?: { pid: number };
+}
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
 function decodeTurn(value: unknown): InFlightTurn | undefined {
@@ -23,6 +29,7 @@ function decodeTurn(value: unknown): InFlightTurn | undefined {
   if (typeof entry.cwd !== "string" || typeof entry.turnId !== "string") return undefined;
   if (typeof entry.backend !== "string" || typeof entry.startedAt !== "number") return undefined;
   if (!prompt || typeof prompt.text !== "string") return undefined;
+  const writer = entry.writer as { pid?: unknown } | undefined;
   return {
     sessionId: entry.sessionId,
     cwd: entry.cwd,
@@ -33,6 +40,7 @@ function decodeTurn(value: unknown): InFlightTurn | undefined {
       text: prompt.text,
       ...(typeof prompt.images === "number" ? { images: prompt.images } : {}),
     },
+    ...(typeof writer?.pid === "number" ? { writer: { pid: writer.pid } } : {}),
   };
 }
 
@@ -40,6 +48,8 @@ export interface TurnsInFlightOptions {
   /** `<userData>/turns-in-flight.json`; without one the markers only last for this run. */
   filePath?: string;
   logger?: PersistedJsonLogger;
+  /** Replaceable for tests. */
+  alive?: (pid: number) => boolean;
 }
 
 /**
@@ -56,9 +66,13 @@ export class TurnsInFlight {
 
   constructor(private readonly options: TurnsInFlightOptions = {}) {}
 
-  /** Reads what the previous run left behind. Later calls return what is held. */
+  /**
+   * Reads what the previous run left behind. Later calls return what is held.
+   * A marker whose writer still runs is not this host's to reconcile: it stays
+   * in the file and is left out of the answer.
+   */
   async load(): Promise<readonly InFlightTurn[]> {
-    if (this.loaded || !this.options.filePath) { this.loaded = true; return this.list(); }
+    if (this.loaded || !this.options.filePath) { this.loaded = true; return this.reconcilable(); }
     this.loaded = true;
     const read = await readPersistedJson<InFlightTurn[]>(this.options.filePath, {
       expectedVersion: VERSION,
@@ -70,7 +84,17 @@ export class TurnsInFlight {
       },
     });
     for (const turn of read?.data ?? []) this.turns.set(turn.sessionId, turn);
-    return this.list();
+    return this.reconcilable();
+  }
+
+  private reconcilable(): readonly InFlightTurn[] {
+    const alive = this.options.alive ?? processAlive;
+    return this.list().filter((turn) => {
+      const writer = turn.writer?.pid;
+      if (writer === undefined || writer === process.pid || !alive(writer)) return true;
+      this.options.logger?.warn("turns-in-flight.writer-alive", `${turn.sessionId.slice(0, 8)} · pid ${writer}`);
+      return false;
+    });
   }
 
   list(): readonly InFlightTurn[] {
@@ -94,6 +118,7 @@ export class TurnsInFlight {
     if (this.frozen) return;
     this.turns.set(turn.sessionId, {
       ...turn,
+      writer: { pid: process.pid },
       prompt: { ...turn.prompt, text: turn.prompt.text.slice(0, MAX_PROMPT_TEXT) },
     });
     this.persist();

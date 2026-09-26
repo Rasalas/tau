@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { DATA_FOLDER_BUSY_EXIT_CODE, dataFolderBusy, describeDataFolderOwner, waitForDataFolderFree } from "./data-folder-lock.js";
 import type { HostLogger } from "./host-log.js";
 import { HostUplink } from "./host-uplink.js";
 import { killProcessTree } from "./platform-process.js";
@@ -54,6 +55,11 @@ export interface HostProcessSupervisorOptions {
   serviceStartTimeoutMs?: number;
   /** How often an adopted service host's `host.json` is read for a restart or a new port. */
   serviceCheckMs?: number;
+  /** How long a host that owns this userData but does not answer is waited for before the window gives up. */
+  silentOwnerTimeoutMs?: number;
+  silentOwnerPollMs?: number;
+  /** How long a signalled host gets before the next, harder signal. */
+  signalGraceMs?: number;
 }
 
 export interface RunningHost {
@@ -74,6 +80,11 @@ const DEFAULT_START_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 const SERVICE_START_TIMEOUT_MS = 30_000;
 const SERVICE_CHECK_MS = 2_000;
+const SILENT_OWNER_TIMEOUT_MS = 30_000;
+const SILENT_OWNER_POLL_MS = 1_000;
+const SIGNAL_GRACE_MS = 10_000;
+/** How long a new host waits for one that is on its way out to let go of the data folder. */
+const FOLDER_FREE_TIMEOUT_MS = 15_000;
 /** How many rotated host logs are kept beside the current one. */
 const KEPT_LOGS = 5;
 
@@ -117,18 +128,53 @@ export async function writeHostDescriptor(userData: string, descriptor: HostProc
 /**
  * Asks a host to stop with `host.shutdown` and waits for it, then signals.
  * Used for a host of another version and by a service host taking over.
+ * Resolves once the host is gone and, given its `userData`, has let go of it.
  */
-export async function retireHost(descriptor: Pick<HostProcessDescriptor, "pid" | "url">, token: string): Promise<void> {
+export async function retireHost(
+  descriptor: Pick<HostProcessDescriptor, "pid" | "url">,
+  token: string,
+  userData?: string,
+  options: { logger?: HostLogger; graceMs?: number } = {},
+): Promise<void> {
   if (!processAlive(descriptor.pid)) return;
   const uplink = new HostUplink({ url: descriptor.url, token, requestTimeoutMs: SHUTDOWN_TIMEOUT_MS });
   await uplink.request("host.shutdown").catch(() => undefined);
   uplink.close();
-  const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
-  while (Date.now() < deadline && processAlive(descriptor.pid)) {
+  await endHost(descriptor.pid, userData, { ...options, askedMs: options.graceMs ?? SHUTDOWN_TIMEOUT_MS });
+}
+
+async function waitUntil(done: () => Promise<boolean> | boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await done()) return true;
+    if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  if (processAlive(descriptor.pid)) {
-    try { process.kill(descriptor.pid, "SIGTERM"); } catch { /* already gone */ }
+}
+
+/**
+ * Waits `askedMs` for a host that was asked to stop, then sends SIGTERM and,
+ * when that is ignored too, SIGKILL. Returns once the process is gone and its
+ * data folder is free, or held by somebody else by now; throws when even
+ * SIGKILL left it running.
+ */
+export async function endHost(
+  pid: number,
+  userData: string | undefined,
+  options: { logger?: HostLogger; askedMs?: number; graceMs?: number } = {},
+): Promise<void> {
+  const grace = options.graceMs ?? SIGNAL_GRACE_MS;
+  if (!await waitUntil(() => !processAlive(pid), options.askedMs ?? 0)) {
+    for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+      options.logger?.warn(`host-process.${signal.toLowerCase()}`, { pid });
+      try { process.kill(pid, signal); } catch { /* already gone */ }
+      if (await waitUntil(() => !processAlive(pid), grace)) break;
+    }
+    if (processAlive(pid)) throw new Error(`Tau's host (pid ${pid}) is still running after SIGKILL.`);
+  }
+  // A dead process holds no lock; one still held is another host's, which the caller meets next.
+  if (userData && !await waitUntil(async () => !await dataFolderBusy(userData), 1_000)) {
+    options.logger?.warn("host-process.folder-still-held", { pid, owner: await describeDataFolderOwner(userData) });
   }
 }
 
@@ -193,12 +239,21 @@ export class HostProcessSupervisor {
    */
   async start(): Promise<RunningHost> {
     this.stopping = false;
-    const adopted = await this.adopt() ?? await this.startService();
+    const adopted = await this.adopt() ?? await this.startService() ?? await this.awaitSilentOwner();
     if (adopted) {
       this.settle(adopted);
       return adopted;
     }
-    return this.spawnHost();
+    try {
+      return await this.spawnHost();
+    } catch (error) {
+      // Another host took the folder between the check and the spawn: that one is adopted, or waited out once.
+      if (this.stopping || !await dataFolderBusy(this.options.userData)) throw error;
+      const owner = await this.awaitSilentOwner();
+      if (!owner) return this.spawnHost();
+      this.settle(owner);
+      return owner;
+    }
   }
 
   /**
@@ -229,14 +284,8 @@ export class HostProcessSupervisor {
     } catch {
       // Unreachable already: the signal below is the fallback.
     }
-    const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
-    while (Date.now() < deadline && processAlive(running.pid)) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if (processAlive(running.pid)) {
-      this.options.logger?.warn("host-process.sigterm", { pid: running.pid });
-      try { process.kill(running.pid, "SIGTERM"); } catch { /* already gone */ }
-    }
+    await endHost(running.pid, this.options.userData, this.endOptions(this.options.signalGraceMs ?? SHUTDOWN_TIMEOUT_MS))
+      .catch((error: unknown) => this.options.logger?.error("host-process.stop-failed", error));
     await rm(hostDescriptorPath(this.options.userData), { force: true }).catch(() => undefined);
     this.running = undefined;
   }
@@ -256,7 +305,7 @@ export class HostProcessSupervisor {
     if (version !== this.options.version) {
       this.options.logger?.info("host-process.version-changed", { was: version, now: this.options.version, service: descriptor.service });
       if (descriptor.service && this.options.service) return this.updateService(descriptor.pid);
-      await retireHost(descriptor, token);
+      await retireHost(descriptor, token, this.options.userData, this.endOptions());
       return undefined;
     }
     this.options.logger?.info("host-process.adopted", { pid: descriptor.pid, url: descriptor.url, service: descriptor.service });
@@ -272,6 +321,39 @@ export class HostProcessSupervisor {
     const hello = await HostUplink.probe(descriptor.url, token);
     if (!hello) return undefined;
     return { descriptor, token, version: hello.hostVersion };
+  }
+
+  private endOptions(askedMs?: number): { logger?: HostLogger; graceMs?: number; askedMs?: number } {
+    return {
+      ...(this.options.logger ? { logger: this.options.logger } : {}),
+      ...(this.options.signalGraceMs !== undefined ? { graceMs: this.options.signalGraceMs } : {}),
+      ...(askedMs !== undefined ? { askedMs } : {}),
+    };
+  }
+
+  /**
+   * Another host holds this userData and did not answer (busy, hung, or its
+   * token unreadable). A second host beside it would take over its threads
+   * while it still writes them, so none is started: the owner is probed again
+   * until it answers or goes, and otherwise the window is told who it is.
+   */
+  private async awaitSilentOwner(): Promise<RunningHost | undefined> {
+    const userData = this.options.userData;
+    if (!await dataFolderBusy(userData)) return undefined;
+    const owner = await describeDataFolderOwner(userData);
+    this.options.logger?.warn("host-process.owner-silent", { owner });
+    const deadline = Date.now() + (this.options.silentOwnerTimeoutMs ?? SILENT_OWNER_TIMEOUT_MS);
+    while (!this.stopping) {
+      await new Promise((resolve) => setTimeout(resolve, this.options.silentOwnerPollMs ?? SILENT_OWNER_POLL_MS));
+      if (!await dataFolderBusy(userData)) return undefined;
+      const adopted = await this.adopt();
+      if (adopted) return adopted;
+      if (Date.now() >= deadline) break;
+    }
+    throw new Error(
+      `Another Tau host${owner ? ` (${owner})` : ""} owns this data folder (${userData}) and does not answer. `
+      + "Tau did not start a second host beside it. Quit that host, or wait until it answers, and start Tau again.",
+    );
   }
 
   private adopted(descriptor: HostProcessDescriptor, token: string): RunningHost {
@@ -333,7 +415,7 @@ export class HostProcessSupervisor {
     this.serviceRefused = true;
     this.options.logger?.warn("host-process.service-refused", { version: this.options.version });
     const last = await this.probeDescriptor();
-    if (last) await retireHost(last.descriptor, last.token);
+    if (last) await retireHost(last.descriptor, last.token, this.options.userData, this.endOptions());
     return undefined;
   }
 
@@ -406,6 +488,11 @@ export class HostProcessSupervisor {
   }
 
   private async spawnHost(): Promise<RunningHost> {
+    // One that is on its way out (a service host stopping, a retired host) gets a moment; one that stays is not joined.
+    if (!await waitForDataFolderFree(this.options.userData, FOLDER_FREE_TIMEOUT_MS)) {
+      const owner = await describeDataFolderOwner(this.options.userData);
+      throw new Error(`Another Tau host${owner ? ` (${owner})` : ""} owns this data folder (${this.options.userData}); Tau did not start a second one.`);
+    }
     const logDirectory = join(this.options.userData, "logs");
     mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
     pruneHostLogs(logDirectory);
@@ -439,6 +526,7 @@ export class HostProcessSupervisor {
     this.child = child;
 
     let output = "";
+    let errors = "";
     const started = new Promise<{ url: string; tokenPath: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`The host did not report a socket within ${this.startTimeout()}ms.`)), this.startTimeout());
       const read = (chunk: Buffer | string): void => {
@@ -452,9 +540,17 @@ export class HostProcessSupervisor {
         }
       };
       child.stdout?.on("data", read);
-      child.stderr?.on("data", (chunk: Buffer) => { logStream.write(String(chunk)); });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        logStream.write(String(chunk));
+        errors = `${errors}${String(chunk)}`.slice(-4_000);
+      });
       child.once("error", (error) => { clearTimeout(timer); reject(error); });
-      child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`The host exited with ${code ?? "a signal"} before it listened.`)); });
+      child.once("exit", (code) => {
+        clearTimeout(timer);
+        // It says which host owns the folder; that is the whole message.
+        const busy = code === DATA_FOLDER_BUSY_EXIT_CODE ? errors.trim().split(/\r?\n/u).at(-1) : undefined;
+        reject(new Error(busy ? `Tau's host did not start: ${busy}.` : `The host exited with ${code ?? "a signal"} before it listened.`));
+      });
     });
 
     let url: string;

@@ -37,6 +37,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import { UnavailableThreadBackend } from "./unavailable-thread-backend.js";
+import { isSessionHeldElsewhere, type SessionLocks } from "./session-locks.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { withConfiguredSampling } from "./configured-sampling.js";
@@ -102,6 +103,8 @@ export interface ThreadRuntimeLifecyclePort {
   errorMessage(error: unknown): string;
   /** Why a thread's runtime could not start, or undefined once it did. */
   runtimeUnavailable(threadId: string, reason: string | undefined): void;
+  /** No runtime opens a Pi session another host on this machine writes. */
+  sessionLocks: SessionLocks;
 }
 
 /**
@@ -115,6 +118,8 @@ export class ThreadRuntimeLifecycle {
   /** Session managers whose runtime is being built in the background, outside any measurement. */
   private readonly backgroundManagers = new WeakSet<SessionManager>();
   private readonly resourceCache = new RuntimeResourceCache<ResourceDiscoverySnapshot>({ maxEntries: 4, ttlMs: 5 * 60_000 });
+  /** The session file each Pi runtime holds the lock of, released with the runtime. */
+  private readonly lockedFiles = new WeakMap<ThreadRuntime, string>();
 
   constructor(private readonly port: ThreadRuntimeLifecyclePort) {}
 
@@ -253,12 +258,30 @@ export class ThreadRuntimeLifecycle {
 
   /**
    * Builds a runtime for one session, binds Tau's UI to it, and hands it to the
-   * registry. The thread is live afterwards but not yet on screen.
+   * registry. The thread is live afterwards but not yet on screen. Throws
+   * `SessionHeldElsewhereError` before anything touches a session another host writes.
    */
   async open(
     manager: SessionManager,
     sessionStartEvent: RuntimeStartEvent | undefined,
     options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal } = {},
+  ): Promise<ThreadRuntime> {
+    const sessionFile = manager.getSessionFile();
+    if (sessionFile) await this.port.sessionLocks.acquire(sessionFile);
+    try {
+      const thread = await this.build(manager, sessionStartEvent, options);
+      if (sessionFile) this.lockedFiles.set(thread, sessionFile);
+      return thread;
+    } catch (error) {
+      if (sessionFile) this.port.sessionLocks.release(sessionFile);
+      throw error;
+    }
+  }
+
+  private async build(
+    manager: SessionManager,
+    sessionStartEvent: RuntimeStartEvent | undefined,
+    options: { background?: boolean; adopt?: boolean; prepared?: boolean; abortSignal?: AbortSignal },
   ): Promise<ThreadRuntime> {
     const cwd = manager.getCwd() || this.port.cwd();
     const marks = new PhaseTimer();
@@ -376,17 +399,34 @@ export class ThreadRuntimeLifecycle {
           }
         }
         if (external) throw new Error("The selected thread is owned by another runtime backend.");
-        return this.open(
-          SessionManager.open(path),
-          { type: "session_start", reason, previousSessionFile: this.port.activeSessionFile() },
-          { background },
-        );
+        const manager = SessionManager.open(path);
+        try {
+          const thread = await this.open(manager, { type: "session_start", reason, previousSessionFile: this.port.activeSessionFile() }, { background });
+          this.port.runtimeUnavailable(thread.threadId, undefined);
+          return thread;
+        } catch (error) {
+          if (background || !isSessionHeldElsewhere(error)) throw error;
+          return this.openHeldElsewhere(path, manager, error.message);
+        }
       })().finally(() => {
         if (this.opening.get(path) === pending) this.opening.delete(path);
       });
       this.opening.set(path, pending);
     }
     return pending;
+  }
+
+  /** A Pi thread another host writes opens read-only here, from its file, with the reason on the thread. */
+  private async openHeldElsewhere(path: string, manager: SessionManager, why: string): Promise<ThreadRuntime> {
+    const threadId = manager.getSessionId();
+    this.port.log("runtime.held-elsewhere", `${threadId.slice(0, 8)}: ${why}`);
+    const title = this.port.indexedSession(path)?.title;
+    const record = { threadId, cwd: manager.getCwd() || this.port.cwd(), updatedAt: Date.now(), messages: [], ...(title ? { title } : {}) };
+    const thread = new ThreadRuntime(new UnavailableThreadBackend("pi", this.port.adapterFor("pi"), record, why, { sessionFile: path, entries: manager.getBranch() }));
+    thread.adapterTitle = title;
+    this.port.runtimeUnavailable(threadId, why);
+    await this.port.adopt(thread);
+    return thread;
   }
 
   /** Waits for the opens in flight; shutdown may not leave a half-built runtime. */
@@ -429,6 +469,12 @@ export class ThreadRuntimeLifecycle {
     if (thread.runtime) errors.push(...await this.disposeRuntime(thread.runtime));
     else {
       try { await thread.backend.dispose(); } catch (error) { errors.push(error); }
+    }
+    // After Pi's last write: another host may take the session from here on.
+    const lockedFile = this.lockedFiles.get(thread);
+    if (lockedFile) {
+      this.lockedFiles.delete(thread);
+      this.port.sessionLocks.release(lockedFile);
     }
     thread.cancelEventBarrier();
     if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");

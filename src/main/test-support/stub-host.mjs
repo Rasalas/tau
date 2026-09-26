@@ -2,10 +2,13 @@
 // it listens, prints the two lines the supervisor reads, answers hello with
 // the version it was given, and leaves when asked. With TAU_HOST_SERVICE set
 // it behaves like a service host: it asks the host `host.json` names to
-// leave, takes its port, and writes `host.json` itself. Never used by the app.
+// leave, takes its port, and writes `host.json` itself. Like the real host it
+// takes `<userData>/host.lock` first and leaves with 75 when another holds it.
+// Never used by the app.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 const require = createRequire(process.env.STUB_WS_FROM ?? import.meta.url);
 const { WebSocket, WebSocketServer } = require("ws");
@@ -52,8 +55,22 @@ function leave() {
   process.exit(0);
 }
 
-const port = service ? await takeOver() : Number((process.env.TAU_HOST_LISTEN ?? "127.0.0.1:0").split(":").pop());
-const server = new WebSocketServer({ host: "127.0.0.1", port });
+const port = service ? await takeOver() : undefined;
+let lock;
+if (process.env.STUB_LOCK_FROM && process.env.TAU_USER_DATA) {
+  const { tryLock } = await import(pathToFileURL(process.env.STUB_LOCK_FROM).href);
+  const lockPath = join(process.env.TAU_USER_DATA, "host.lock");
+  for (let attempt = 0; attempt < (service ? 100 : 1) && !lock; attempt += 1) {
+    lock = await tryLock(lockPath, { pid: process.pid, startedAt: new Date().toISOString() });
+    if (!lock) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!lock) {
+    console.error(`another Tau host (pid ${JSON.parse(readFileSync(lockPath, "utf8")).pid}) owns this data folder`);
+    process.exit(75);
+  }
+}
+const listenPort = port ?? Number((process.env.TAU_HOST_LISTEN ?? "127.0.0.1:0").split(":").pop());
+const server = new WebSocketServer({ host: "127.0.0.1", port: listenPort });
 server.on("listening", () => {
   // A host that hangs before it announces itself.
   if (process.env.STUB_SILENT === "1") return;
@@ -68,6 +85,8 @@ server.on("error", (error) => {
 });
 server.on("connection", (socket) => {
   socket.on("message", (data) => {
+    // A host that is alive and holds its folder, but answers nothing.
+    if (process.env.STUB_HANG === "1") return;
     const frame = JSON.parse(String(data));
     if (frame.type === "hello") {
       if (frame.hello.token !== token) {
@@ -83,7 +102,7 @@ server.on("connection", (socket) => {
     }
     const { id, method } = frame.request;
     socket.send(JSON.stringify({ type: "response", response: { id, result: { method } } }));
-    if (method === "host.shutdown") setTimeout(leave, 10);
+    if (method === "host.shutdown" && process.env.STUB_STUBBORN !== "1") setTimeout(leave, 10);
   });
 });
-process.on("SIGTERM", leave);
+process.on("SIGTERM", () => { if (process.env.STUB_STUBBORN !== "1") leave(); });

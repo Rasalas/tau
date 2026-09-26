@@ -54,6 +54,8 @@ import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent
 import { WindowEnvironments, type EnvironmentConnection } from "./window-environments.js";
 import { machineDisplayName } from "./host-discovery.js";
 import { installEnvironmentSession } from "./environment-session.js";
+import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
+import type { ProcessLock } from "./process-lock.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 /** The packaged launcher sets this when it hands execution to a built checkout. */
@@ -77,6 +79,8 @@ const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const remoteHostUrl = process.env.TAU_HOST_URL;
 /** `TAU_HOST_INPROCESS=1` keeps the old shape for one release: the host in this process. */
 const inProcessHost = process.env.TAU_HOST_INPROCESS === "1";
+/** Held for the life of this process; the OS drops it when the process ends. */
+let inProcessFolderLock: ProcessLock | undefined;
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
@@ -148,6 +152,7 @@ const hostOptions = {
   kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
   turnsInFlightPath: join(app.getPath("userData"), "turns-in-flight.json"),
+  dataFolder: app.getPath("userData"),
   queuedMessagesPath: join(app.getPath("userData"), "queued-messages.json"),
   threadLimitsPath: join(app.getPath("userData"), "thread-limits.json"),
   threadTrashDir: join(app.getPath("userData"), "thread-trash"),
@@ -852,6 +857,15 @@ if (primaryInstance) app.whenReady().then(async () => {
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
   if (!inProcessHost) await startHostProcess();
+  // The host in this process is one like any other: one per data folder.
+  if (inProcessHost && !(inProcessFolderLock = await claimDataFolder(app.getPath("userData")))) {
+    const userData = app.getPath("userData");
+    showErrorBox("Tau could not start its host", dataFolderBusyMessage(userData, await describeDataFolderOwner(userData)));
+    app.exit(DATA_FOLDER_BUSY_EXIT_CODE);
+    return;
+  }
+  // Not before: the host in this process may still be writing on its way out.
+  process.once("exit", () => inProcessFolderLock?.release());
   installTransport();
   if (inProcessHost) startLocalHost();
   await createWindow();
