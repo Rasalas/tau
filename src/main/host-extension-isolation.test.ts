@@ -36,9 +36,17 @@ export default {
     context.registerCommand("die", () => { process.exit(3); });
     context.registerCommand("eat", () => {
       const held = [];
-      // Heap objects: resourceLimits cap the JS heap, not ArrayBuffer memory, which ran a Linux runner out of memory.
+      // Heap objects; "eat-buffers" fills the memory the heap caps leave out.
       for (;;) held.push(Array.from({ length: 100_000 }, (_, index) => ({ index, text: "row " + index })));
     });
+    const eatBuffers = () => {
+      const held = [];
+      // Stops by itself at 768 MB, so a cap that fails cannot run the machine out of memory.
+      while (held.length < 192) held.push(new Uint8Array(4 * 1024 * 1024).fill(held.length % 255 + 1));
+      return held.length * 4;
+    };
+    context.registerCommand("eat-buffers", eatBuffers);
+    context.registerCommand("eat-buffers-later", () => { setTimeout(eatBuffers, 100); });
     context.registerCommand("facade", async () => {
       const inside = await services.sessions.exclusive(async () => (await services.thread())?.sessionId ?? "none");
       await services.pinTranscriptEntries({ "session-1": ["entry-1"] });
@@ -267,6 +275,13 @@ async function until(predicate: () => boolean, timeoutMs = 10_000): Promise<void
   }
 }
 
+/** The buffer memory a cap message reports; the fixture stops by itself at 768 MB. */
+function bufferMegabytes(error: string | undefined): number {
+  const match = /exceeded its memory cap: (\d+) MB of buffers, cap 64 MB/u.exec(error ?? "");
+  if (!match) throw new Error(`not a memory cap error: ${error}`);
+  return Number(match[1]);
+}
+
 describe("isolated host extensions", () => {
   it("runs commands, emits events and reaches the services it was granted", async () => {
     const { registry, extension, events } = harness();
@@ -445,6 +460,30 @@ describe("isolated host extensions", () => {
     await expect(registry.invoke("acme.worker", "eat")).rejects.toThrow();
     await until(() => !registry.isActive("acme.worker"));
     expect(registry.summaries()[0]?.error).toBeTruthy();
+  }, 40_000);
+
+  it("holds a package to its buffer memory cap, even inside a synchronous loop", async () => {
+    const { registry, extension } = harness({ resourceLimits: { maxExternalMb: 64 }, commandTimeoutMs: 20_000 });
+    await registry.activate(extension);
+    try {
+      await expect(registry.invoke("acme.worker", "eat-buffers")).rejects.toThrow(/exceeded its memory cap/u);
+      await until(() => !registry.isActive("acme.worker"));
+      expect(bufferMegabytes(registry.summaries()[0]?.error)).toBeLessThan(768);
+    } finally {
+      await registry.dispose();
+    }
+  }, 40_000);
+
+  it("holds a package to its buffer memory cap outside a command too", async () => {
+    const { registry, extension } = harness({ resourceLimits: { maxExternalMb: 64 } });
+    await registry.activate(extension);
+    try {
+      await registry.invoke("acme.worker", "eat-buffers-later");
+      await until(() => !registry.isActive("acme.worker"));
+      expect(bufferMegabytes(registry.summaries()[0]?.error)).toBeLessThan(768);
+    } finally {
+      await registry.dispose();
+    }
   }, 40_000);
 
   const spawner = (permissions: string[]) => harness({ permissions, id: "acme.process", name: "Process Package", file: processBundle });

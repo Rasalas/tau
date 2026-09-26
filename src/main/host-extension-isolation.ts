@@ -35,6 +35,7 @@ import {
   type WorkerThreadSnapshot,
   type WorkerToHostMessage,
 } from "./host-extension-worker-protocol.js";
+import { watchWorkerMemory } from "./worker-memory-cap.js";
 
 /**
  * Main-side supervisor of an isolated host extension. It runs the package's
@@ -56,8 +57,11 @@ export interface WorkerHostExtensionOptions {
   file: string;
   /** Overrides the worker entry; the default is resolved beside this module. */
   workerEntry?: string;
-  /** Heap and stack caps of the worker; a package that exceeds them is deactivated. */
-  resourceLimits?: { maxOldGenerationSizeMb?: number; maxYoungGenerationSizeMb?: number; stackSizeMb?: number };
+  /**
+   * Heap, stack and buffer memory caps of the worker; a package that exceeds them is deactivated.
+   * `maxExternalMb` counts ArrayBuffer, typed array and Buffer memory, which the heap caps leave out.
+   */
+  resourceLimits?: { maxOldGenerationSizeMb?: number; maxYoungGenerationSizeMb?: number; stackSizeMb?: number; maxExternalMb?: number };
   startupTimeoutMs?: number;
   /** How long the host waits for a hook it calls into the worker. */
   hookTimeoutMs?: number;
@@ -68,6 +72,7 @@ type OutgoingCall =
   | { t: "hook"; handle: number; hook: string; args: readonly unknown[] };
 
 const DEFAULT_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 } as const;
+const DEFAULT_MAX_EXTERNAL_MB = 512;
 
 let entryPromise: Promise<string> | undefined;
 
@@ -154,9 +159,13 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     // An isolated extension is always a package, so an absent list is an empty one.
     permissions: options.permissions ?? [],
   };
+  const { maxExternalMb = DEFAULT_MAX_EXTERNAL_MB, ...heapLimits } = options.resourceLimits ?? {};
   const worker = new Worker(options.workerEntry ?? await workerEntryPath(), {
     workerData: bootstrap,
-    resourceLimits: { ...DEFAULT_RESOURCE_LIMITS, ...options.resourceLimits },
+    resourceLimits: { ...DEFAULT_RESOURCE_LIMITS, ...heapLimits },
+  });
+  const unwatchMemory = watchWorkerMemory(worker, maxExternalMb * 1024 * 1024, (bytes) => {
+    fail(`${options.name} exceeded its memory cap: ${Math.round(bytes / 1024 / 1024)} MB of buffers, cap ${maxExternalMb} MB`);
   });
 
   let stopped = false;
@@ -182,6 +191,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
   const fail = (reason: string): void => {
     if (stopped) return;
     stopped = true;
+    unwatchMemory();
     const error = new Error(reason);
     for (const call of calls.values()) { clearTimeout(call.timer); call.reject(error); }
     calls.clear();
@@ -506,6 +516,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     const timer = setTimeout(() => {
       ready = undefined;
       stopped = true;
+      unwatchMemory();
       void worker.terminate();
       reject(new Error(`${options.name} did not start within ${startupTimeoutMs}ms`));
     }, startupTimeoutMs);
@@ -517,6 +528,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
 
   return async () => {
     stopped = true;
+    unwatchMemory();
     for (const release of commandDisposers) release();
     commandDisposers.length = 0;
     for (const release of registrations.values()) release();
