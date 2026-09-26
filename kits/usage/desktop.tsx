@@ -3,7 +3,7 @@ import type { DesktopExtension, SettingsPageProps } from "tau";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_SETTINGS_PAGE } from "./protocol.js";
 
-/** The desktop half of `tau.usage`: one Settings page, and a palette command that opens it. */
+/** Usage opens from the sidebar footer or the command palette. */
 export const usageExtension: DesktopExtension = {
   id: USAGE_EXTENSION_ID,
   name: "Usage",
@@ -11,6 +11,7 @@ export const usageExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: USAGE_SETTINGS_PAGE,
       label: "Usage",
+      standalone: true,
       profiles: ["desktop"],
       Icon: ChartColumn,
       order: 35,
@@ -19,8 +20,10 @@ export const usageExtension: DesktopExtension = {
 
     plugin.registerCommand({
       id: "usage.open",
-      label: "Show usage",
+      label: "Usage",
       group: "Extensions",
+      surfaces: ["sidebar-footer"],
+      Icon: ChartColumn,
       access: "read",
       run: (app) => app.openSettings(USAGE_SETTINGS_PAGE),
     });

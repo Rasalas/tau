@@ -182,10 +182,12 @@ describe("Usage page", () => {
 });
 
 describe("Usage kit", () => {
-  it("contributes the Settings page its command opens, and takes both back", () => {
+  it("contributes a standalone page and a sidebar command, and takes both back", () => {
     const { registry } = createKitHarness(answers());
     registry.activate(usageExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual([USAGE_SETTINGS_PAGE]);
+    expect(registry.getSettingsPages()[0]?.standalone).toBe(true);
+    expect(registry.getCommandsFor("sidebar-footer").map((command) => command.id)).toEqual(["usage.open"]);
     const openSettings = vi.fn();
     void registry.getCommands().find((command) => command.id === "usage.open")?.run({ openSettings } as unknown as WorkbenchActions);
     expect(openSettings).toHaveBeenCalledWith(USAGE_SETTINGS_PAGE);
