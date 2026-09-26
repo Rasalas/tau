@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
@@ -310,6 +310,32 @@ describe("App render isolation", () => {
     const prompt = screen.getByText("Build the first screen");
     expect(prompt.closest(".transcript-current-row")).toBeTruthy();
     expect(screen.getByRole("log").querySelector('.virtual-transcript [data-message-id^="local-"]')).toBeTruthy();
+  });
+
+  // Another client (a phone) opened a project; the host pushes that thread's project to every client.
+  it("keeps the start screen and its composer on the thread on screen when another client opens a project", async () => {
+    const sendPrompt = vi.fn(async () => undefined);
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+      sendPrompt,
+    });
+
+    renderApp(client);
+    await screen.findByRole("button", { name: "Change project, current project project" });
+    act(() => client.emit({ type: "host-update", update: { version: 1, type: "project", project: { cwd: "/other" }, sessionId: "phone-thread" } }));
+    expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Change project, current project other" })).toBeNull();
+
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "Hello" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("Hello", [], "session", expect.anything(), undefined));
   });
 
   it("deduplicates a persisted detail that arrives before its live user-message event", async () => {

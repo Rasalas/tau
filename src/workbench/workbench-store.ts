@@ -6,6 +6,7 @@ import {
   type HostActionResult,
   type HostCatalog,
   type HostUpdate,
+  type ProjectMetadata,
   type TranscriptPage,
 } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
@@ -25,6 +26,9 @@ import type {
   TransitionToken,
 } from "./transcript-history";
 import { readCachedTurnActivity } from "./turn-activity";
+
+/** Other clients' threads each leave one; only the newest few can still become the one on screen. */
+const MAX_PENDING_PROJECTS = 8;
 
 /** What the store needs of the unstarted thread the composer may be pointing at. */
 export interface WorkbenchNewThreadPort {
@@ -72,6 +76,8 @@ export class WorkbenchStore {
   private cachedSnapshot?: HostSnapshot;
   private cachedIndex?: ThreadIndexSnapshot;
   private readonly pendingCatalogs = new Map<string, HostCatalog>();
+  /** Project updates for threads not on screen, applied when their detail arrives. */
+  private readonly pendingProjects = new Map<string, ProjectMetadata>();
 
   constructor(private readonly ports: WorkbenchStorePorts, cached?: { snapshot?: HostSnapshot; threadIndex?: ThreadIndexSnapshot }) {
     this.cachedSnapshot = cached?.snapshot;
@@ -215,9 +221,17 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "project") {
+      const { sessionId, project } = update;
+      // Another client's thread moved the host elsewhere; this one's thread stays in its project.
+      if (sessionId !== undefined && view.getSnapshot()?.sessionId !== sessionId) {
+        this.pendingProjects.delete(sessionId);
+        this.pendingProjects.set(sessionId, project);
+        if (this.pendingProjects.size > MAX_PENDING_PROJECTS) this.pendingProjects.delete(this.pendingProjects.keys().next().value!);
+        return undefined;
+      }
       // The history cache is the base the next detail merges onto; left behind, that detail drops the workspace id.
-      history.applyProject(update.project);
-      view.setSnapshot((current) => current ? { ...current, ...update.project } : current);
+      if (sessionId === undefined || history.getCurrentSnapshot()?.sessionId === sessionId) history.applyProject(project);
+      view.setSnapshot((current) => current ? { ...current, ...project } : current);
       return undefined;
     }
     if (update.type === "run") threads.setThreadRunning(update.sessionId, update.event === "started");
@@ -277,6 +291,11 @@ export class WorkbenchStore {
     } : undefined;
     const application = history.applyDetail(detail, snapshotForDetail);
     if (!application) return undefined;
+    const pendingProject = this.pendingProjects.get(detail.sessionId);
+    if (pendingProject) {
+      this.pendingProjects.delete(detail.sessionId);
+      history.applyProject(pendingProject);
+    }
     const pendingCatalog = this.pendingCatalogs.get(detail.sessionId);
     const catalogSnapshot = pendingCatalog ? history.applyCatalog(pendingCatalog) : undefined;
     if (pendingCatalog) this.pendingCatalogs.delete(detail.sessionId);
@@ -322,6 +341,7 @@ export class WorkbenchStore {
       if (!next) return current;
       return this.remember({
         ...next,
+        ...pendingProject,
         ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
         ...(detail.threadId ? { threadId: detail.threadId } : {}),
         ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),

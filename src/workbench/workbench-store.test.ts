@@ -199,6 +199,28 @@ describe("WorkbenchStore", () => {
     expect(history.getCurrentSnapshot()?.workspaceId).toBe("ws1_one");
   });
 
+  // Another client opened a project: the host's new thread is not this client's.
+  it("keeps the thread on screen in its project when another thread's project update arrives", () => {
+    const { history, store, view } = build();
+    store.applySnapshot(snapshot);
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/w/two", workspaceId: "ws1_two" }, sessionId: "two" });
+    expect(view.getSnapshot()).toMatchObject({ sessionId: "one", cwd: "/w/one" });
+    expect(view.getSnapshot()?.workspaceId).toBeUndefined();
+    expect(history.getCurrentSnapshot()?.cwd).toBe("/w/one");
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/w/one", label: "feat" }, sessionId: "one" });
+    expect(view.getSnapshot()).toMatchObject({ sessionId: "one", cwd: "/w/one", label: "feat" });
+  });
+
+  it("applies a project update that came before its thread's detail once the detail arrives", () => {
+    const { history, store, view } = build();
+    store.applySnapshot(snapshot);
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/w/two", workspaceId: "ws1_two" }, sessionId: "two" });
+    history.prepareActionDetail("two");
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: "two", messages: [], isStreaming: false, activeTools: [] } });
+    expect(view.getSnapshot()).toMatchObject({ sessionId: "two", cwd: "/w/two", workspaceId: "ws1_two" });
+    expect(history.getCurrentSnapshot()).toMatchObject({ sessionId: "two", cwd: "/w/two" });
+  });
+
   it("refuses an action result whose thread transition is no longer the current one", () => {
     const { history, store } = build();
     store.applySnapshot(snapshot);
