@@ -12,7 +12,10 @@ type ServiceState =
   | { status: "error"; message: string }
   | { status: "ready"; service: UiHostService };
 
-type Pending = "install" | "repair" | "uninstall" | "display-add" | "display-remove";
+type Pending = "install" | "repair" | "uninstall" | "display-add" | "display-remove" | "sandbox";
+
+/** `linux-sandbox.ts`: the host adds an AppArmor profile through its machine's password dialog. */
+const SANDBOX_PROBLEM = "chrome-sandbox";
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 
@@ -75,9 +78,17 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
     let failure: string | undefined;
     const display = action === "display-add" ? true : action === "display-remove" ? false : undefined;
     try {
-      await (action === "uninstall" ? client.uninstallService() : client.installService(display === undefined ? undefined : { display }));
+      if (action === "sandbox") await client.allowServiceSandbox();
+      else await (action === "uninstall" ? client.uninstallService() : client.installService(display === undefined ? undefined : { display }));
     } catch (error: unknown) {
       failure = error instanceof Error ? error.message : String(error);
+    }
+    if (action === "sandbox") {
+      const service = await load();
+      if (!mounted.current) return;
+      setBusy(undefined);
+      onNotify(failure ?? (service?.problems.some((problem) => problem.code === SANDBOX_PROBLEM) ? "The profile did not take effect; see the service log" : "The window on the invisible display can start now"));
+      return;
     }
     const settled = (service: UiHostService) => {
       if (action === "uninstall") return !service.installed;
@@ -124,7 +135,15 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
             {service.problems.map((problem) => (
               <p key={problem.code} className="host-service-problem">
                 {problem.message}
-                {problem.command ? <code>{problem.command}</code> : null}
+                {problem.code === SANDBOX_PROBLEM ? (
+                  problem.command ? (
+                    <span>
+                      <button type="button" className="chrome-button" disabled={busy !== undefined} onClick={() => void run("sandbox")}>
+                        {busy === "sandbox" ? "Waiting for the password…" : "Add AppArmor Profile…"}
+                      </button>
+                    </span>
+                  ) : null
+                ) : problem.command ? <code>{problem.command}</code> : null}
               </p>
             ))}
             {service.installed && service.unitPath ? <small>Unit <code>{service.unitPath}</code></small> : null}
@@ -218,7 +237,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
         <ConfirmDialog
           title={confirm === "display-add" ? "Add an invisible display?" : "Remove the invisible display?"}
           message={confirm === "display-add"
-            ? "Tau’s host restarts with the display. Turns running now stop for a moment and continue if “Continue threads after restarts” is on."
+            ? "Tau’s host restarts with the display. Turns running now stop for a moment and continue if “Continue threads after restarts” is on. Where the system restricts Chromium’s sandbox (Ubuntu 24.04 and later), it asks for your password once."
             : "Tau’s host restarts without it. The window on the display closes, and agents’ shells no longer get a DISPLAY."}
           confirmLabel={confirm === "display-add" ? "Add Display" : "Remove Display"}
           destructive={confirm === "display-remove"}
