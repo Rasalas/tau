@@ -2003,25 +2003,62 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .modal-back:disabled { opacity: .35; cursor: default; }
 .modal-back:hover:not(:disabled), .modal-close:hover { background: var(--raised); color: var(--ink); }
 .modal-close { font: 10px var(--mono); }
-.project-source-intro { padding: 14px 16px 4px; }
-.project-source-intro > span { font-weight: 500; color: var(--faint); }
-.project-source-intro p { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.55; }
-.project-source-list { padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+/* The add-project views share the project picker's bar, rows and footer. */
+.project-modal-bar {
+  display: flex; align-items: center; gap: 11px; height: 52px;
+  border-bottom: 1px solid var(--line); padding: 0 12px 0 14px;
+}
+.project-modal-bar > input {
+  flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
+  color: var(--ink); font-size: 14px;
+}
+.project-modal-bar > input::placeholder { color: var(--faint); }
+.project-modal-bar > strong { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.project-modal-bar > kbd { font: 10px var(--mono); color: var(--faint); padding-right: 4px; }
+.project-modal-bar-glyph {
+  display: grid; place-items: center; width: 24px; height: 24px; flex: none;
+  border: 0; border-radius: 6px; background: transparent; color: var(--acid-text); padding: 0;
+}
+button.project-modal-bar-glyph { color: var(--ink-3); cursor: pointer; }
+button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--ink); }
+.project-modal-bar-action {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
+  color: var(--ink-2); font: 500 12px var(--sans); padding: 4px 5px 4px 9px; cursor: pointer;
+}
+.project-modal-bar-action:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.project-modal-bar-action:disabled { opacity: .45; cursor: default; }
+.project-modal-bar-action > kbd {
+  border-radius: 4px; background: var(--raised); padding: 2px 5px;
+  color: var(--ink-3); font: 10px var(--mono);
+}
+.project-modal-footer {
+  display: flex; align-items: center; gap: 12px; min-height: 44px;
+  border-top: 1px solid var(--line); padding: 0 14px;
+}
+.project-modal-footer > button {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
+  color: var(--ink-3); font: 500 12px var(--sans); padding: 6px 10px; cursor: pointer;
+}
+.project-modal-footer > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.project-modal-footer > button:disabled { opacity: .45; cursor: default; }
+.project-modal-footer > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.project-source-list { padding: 4px 8px 8px; display: flex; flex-direction: column; }
 .project-source-list > button {
-  display: flex; align-items: center; gap: 11px; border: 0; border-radius: 9px;
-  background: transparent; padding: 11px 12px; cursor: pointer; text-align: left; color: inherit;
+  display: flex; align-items: center; gap: 10px; border: 0; border-radius: 8px;
+  background: transparent; padding: 9px 10px; cursor: pointer; text-align: left; color: inherit;
 }
 .project-source-list > button:hover:not(:disabled), .project-source-list > button.selected { background: var(--raised); }
 .project-source-list > button:disabled { opacity: .5; cursor: default; }
 .project-source-list button > i {
-  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
-  border-radius: 7px; background: var(--chip); color: var(--acid-text); font-size: 12px; font-style: normal;
+  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
+  border-radius: 6px; background: var(--chip); color: var(--muted); font-size: 12px; font-style: normal;
 }
-.project-source-list button > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.project-source-list button > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .project-source-list button strong { font-size: 12.5px; font-weight: 600; }
-.project-source-list button small { font-size: 11px; color: var(--muted); line-height: 1.45; }
-.project-source-list button > b { color: var(--faint); font-weight: 400; font-size: 12px; }
-.project-source-list > p { padding: 16px 12px; color: var(--faint); font-size: 12px; }
+.project-source-list button small { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-source-list > p { padding: 16px 10px; color: var(--faint); font-size: 12px; }
 .thread-tree { display: flex; flex-direction: column; max-height: min(70vh, 640px); }
 .thread-tree-list { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; flex: 1; min-height: 120px; }
 .thread-tree-list li { padding-right: 12px; }
@@ -2045,13 +2082,11 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 14px;
   border-top: 1px solid var(--line); color: var(--faint); font: 11px var(--sans);
 }
-.project-modal-help kbd, .folder-browser kbd {
+.project-modal-help kbd {
   border: 0; border-radius: 5px; background: var(--raised); padding: 3px 6px;
   color: var(--ink-3); font: 10px var(--mono);
 }
 .folder-browser-results > button:hover, .folder-browser-results > button.selected { background: var(--raised); }
-
-.clone-project-actions button.primary { border: 0; background: var(--acid); color: var(--acid-ink); font-weight: 600; }
 
 /* Reload is a full lifecycle boundary, so the curtain hides stale UI until the new bundle owns the window. */
 .reload-curtain {

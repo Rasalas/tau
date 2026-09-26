@@ -1,7 +1,8 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, CornerLeftUp, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
 import {
+  errorMessage,
   Popover,
   READ_ONLY_REASON,
   ThreadRow,
@@ -110,67 +111,135 @@ function fuzzyMatch(value: string, query: string): boolean {
   return true;
 }
 
+/** `/Users/me/x` reads as `~/x`; the host expands `~` again when the path is typed back. */
+function homeRelative(path: string): string {
+  const home = path.match(/^\/(?:Users|home)\/[^/]+/u)?.[0];
+  return home ? `~${path.slice(home.length)}` : path;
+}
+
+function withSeparator(path: string): string {
+  return /[\\/]$/u.test(path) ? path : `${path}/`;
+}
+
+/** The folder part of a typed path and the name being typed after it. */
+function splitTypedPath(text: string): { folder: string; leaf: string } {
+  const cut = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\")) + 1;
+  return { folder: text.slice(0, cut), leaf: text.slice(cut) };
+}
+
+/** Names that start with what was typed, then names that contain it. */
+function namesMatching<T extends { name: string }>(entries: readonly T[], typed: string): T[] {
+  const needle = typed.toLocaleLowerCase();
+  if (!needle) return [...entries];
+  const starts = entries.filter((entry) => entry.name.toLocaleLowerCase().startsWith(needle));
+  return [...starts, ...entries.filter((entry) => !starts.includes(entry) && entry.name.toLocaleLowerCase().includes(needle))];
+}
+
+const MOD_LABEL = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘" : "Ctrl";
+
+/**
+ * Browse the host's folders by typing a path, as T3 Code's add-project browse:
+ * the part before the last `/` is the folder listed, the rest filters it.
+ */
 export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProps) {
   const store = useWorkspaceStore();
   const host = store.host;
   const [listing, setListing] = useState<UiDirectoryListing>();
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(0);
-  const [error, setError] = useState<string>();
+  const [text, setText] = useState("");
+  const [selected, setSelected] = useState(-1);
+  const [missing, setMissing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const directories = useMemo(() => listing?.directories.filter((entry) => fuzzyMatch(entry.name, query.trim())) ?? [], [listing, query]);
+  const request = useRef(0);
+  const { folder, leaf } = splitTypedPath(text);
+  const current = missing ? undefined : listing;
+  const directories = useMemo(() => namesMatching(current?.directories ?? [], leaf), [current, leaf]);
+  const highlighted = selected >= 0 ? directories[selected] : undefined;
 
-  const load = useCallback(async (path?: string, fallBack = false) => {
+  /** Lists `path`; a typed folder keeps the text, a clicked one replaces it. */
+  const load = useCallback(async (path?: string, options: { fallBack?: boolean; keepText?: boolean } = {}) => {
+    const ticket = ++request.current;
     try {
-      setError(undefined);
-      setListing(await host.listDirectories(path).catch((failure: unknown) => {
+      const next = await host.listDirectories(path).catch((failure: unknown) => {
         // A base folder that is gone opens the home folder instead of an error.
-        if (fallBack) return host.listDirectories();
+        if (options.fallBack) return host.listDirectories();
         throw failure;
-      }));
-      setQuery("");
-      setSelected(0);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
-    } catch (nextError) {
-      setError(String(nextError));
+      });
+      if (ticket !== request.current) return;
+      setListing(next);
+      setMissing(false);
+      setSelected(-1);
+      if (!options.keepText) setText(withSeparator(homeRelative(next.path)));
+      inputRef.current?.focus();
+    } catch {
+      if (ticket === request.current) setMissing(true);
     }
   }, [host]);
   useEffect(() => {
     const base = store.projectBaseDirectory();
-    void load(base, base !== undefined);
+    void load(base, { fallBack: base !== undefined });
   }, [load, store]);
 
-  const addCurrent = async () => {
-    if (!listing) return;
-    if (await actions.openWorkspace(listing.workspace.workspaceId)) onDone();
+  const listedFolder = listing ? withSeparator(homeRelative(listing.path)) : undefined;
+  useEffect(() => {
+    if (!folder || folder === listedFolder) { setMissing(false); return; }
+    const timer = window.setTimeout(() => void load(folder, { keepText: true }), 120);
+    return () => window.clearTimeout(timer);
+  }, [folder, listedFolder, load]);
+
+  const add = async (directory?: { path: string }) => {
+    if (!current || busy) return;
+    setBusy(true);
+    try {
+      const target = directory ? await host.listDirectories(directory.path) : current;
+      if (await actions.openWorkspace(target.workspace.workspaceId)) onDone();
+    } catch (error) {
+      actions.notify(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   };
-  const openSelected = () => {
-    const directory = directories[selected];
-    if (directory) void load(directory.path);
+  const choose = async () => {
+    try {
+      const picked = await host.pickFolder();
+      if (picked && await actions.openWorkspace(picked.workspaceId)) onDone();
+    } catch (error) {
+      actions.notify(errorMessage(error));
+    }
   };
+  const addLabel = highlighted ? `${MOD_LABEL} ↵` : "↵";
 
   return <div className="folder-browser">
-    <div className="folder-browser-path">
-      <button type="button" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={16} /></button>
+    <header className="project-modal-bar">
+      <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
       <input
         ref={inputRef}
-        value={query}
-        onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
+        value={text}
+        spellCheck={false}
+        onChange={(event) => { setText(event.target.value); setSelected(-1); }}
         onKeyDown={(event) => {
-          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, directories.length - 1))); }
-          if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
-          if (event.key === "Enter") { event.preventDefault(); openSelected(); }
-          if (event.key === "Backspace" && !query && listing?.parent) { event.preventDefault(); void load(listing.parent); }
+          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, directories.length - 1)); }
+          if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(-1, value - 1)); }
+          if (event.key === "Tab" && (highlighted ?? directories[0])) { event.preventDefault(); void load((highlighted ?? directories[0]).path); }
+          if (event.key === "Enter") {
+            event.preventDefault();
+            if (event.metaKey || event.ctrlKey) void add(highlighted);
+            else if (highlighted) void load(highlighted.path);
+            else void add();
+          }
+          if (event.key === "Backspace" && !leaf && listing?.parent && folder === listedFolder) { event.preventDefault(); void load(listing.parent); }
         }}
-        placeholder={listing?.path ?? "Loading folders…"}
-        aria-label="Filter folders"
+        placeholder="~/path/to/project"
+        aria-label="Folder path"
       />
-      <button type="button" className="folder-add" onClick={() => void addCurrent()}>Add <kbd className="keyboard-hint">Enter</kbd></button>
-    </div>
-    <div className="folder-browser-heading">Directories <small>{listing?.path}</small></div>
-    <div className="folder-browser-results" role="listbox">
-      {listing?.parent ? <button type="button" onClick={() => void load(listing.parent)}><ArrowLeft size={15} /><span>..</span></button> : null}
-      {directories.map((directory, index) => <button
+      <button type="button" className="project-modal-bar-action" disabled={!current || busy} onClick={() => void add(highlighted)}>
+        Add <kbd>{addLabel}</kbd>
+      </button>
+    </header>
+    <div className="project-picker-heading"><span>Folders</span> <small>{current ? directories.length : ""}</small></div>
+    <div className="folder-browser-results" role="listbox" aria-label="Folders">
+      {current?.parent && !leaf ? <button type="button" onClick={() => void load(current.parent)}><CornerLeftUp size={15} /><span>..</span></button> : null}
+      {current ? directories.map((directory, index) => <button
         type="button"
         role="option"
         aria-selected={selected === index}
@@ -178,11 +247,13 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
         key={directory.path}
         onMouseMove={() => setSelected(index)}
         onClick={() => void load(directory.path)}
-      ><Folder size={16} /><span>{directory.name}</span></button>)}
-      {directories.length === 0 && listing ? <p>No matching directories</p> : null}
-      {error ? <p className="folder-browser-error">{error}</p> : null}
+      ><Folder size={15} /><span>{directory.name}</span></button>) : null}
+      {missing ? <p>No folder at {folder}</p> : current && directories.length === 0 ? <p>{leaf ? `Enter adds ${folder} — no folder here matches “${leaf}”` : "No folders in here"}</p> : null}
     </div>
-    <footer className="keyboard-hint"><span><kbd>↑↓</kbd> Navigate</span><span><kbd>Backspace</kbd> Back</span><span><kbd>Esc</kbd> Close</span></footer>
+    <footer className="project-modal-footer">
+      <button type="button" onClick={() => void choose()}><FolderOpen size={14} /> Choose a folder…</button>
+      <small className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>⇥</kbd> complete</small>
+    </footer>
   </div>;
 }
 
@@ -213,22 +284,24 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
 
   return (
     <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(Boolean(base)); }}>
-      <label>
-        <span>Git repository URL</span>
-        <input autoFocus value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} placeholder="https://github.com/acme/project.git" disabled={busy} />
-        <small>HTTPS and SSH clone URLs are accepted. The clone runs in the background; a notice shows its progress and can cancel it.</small>
-      </label>
+      <header className="project-modal-bar">
+        <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
+        <input autoFocus spellCheck={false} value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} placeholder="Git clone URL (HTTPS or SSH)" aria-label="Git repository URL" disabled={busy} />
+        <button type="submit" className="project-modal-bar-action" disabled={!canSubmit}>
+          {busy ? "Starting…" : base ? "Clone" : "Continue"} <kbd>↵</kbd>
+        </button>
+      </header>
+      <div className="project-picker-heading"><span>Clone into</span></div>
       <div className="clone-project-destination">
-        <span>Clone into</span>
+        <GitBranch size={15} aria-hidden="true" />
         {base
-          ? <code title={base}>{`${base.replace(/[\\/]+$/u, "")}/${url ? repositoryFolderName(url) : "…"}`}</code>
-          : <small>A folder you choose next. Settings → Source control → New projects sets a default.</small>}
+          ? <code title={base}>{`${homeRelative(base.replace(/[\\/]+$/u, ""))}/${url ? repositoryFolderName(url) : "…"}`}</code>
+          : <span>A folder you choose next</span>}
       </div>
-      <div className="clone-project-actions">
-        <button type="button" onClick={onBack} disabled={busy}>Back</button>
-        {base ? <button type="button" disabled={!canSubmit} onClick={() => void submit(false)}>Choose another folder…</button> : null}
-        <button type="submit" className="primary" disabled={!canSubmit}>{busy ? "Starting…" : base ? "Clone" : "Choose destination"}</button>
-      </div>
+      <footer className="project-modal-footer">
+        {base ? <button type="button" disabled={!canSubmit} onClick={() => void submit(false)}><FolderOpen size={14} /> Clone somewhere else…</button> : null}
+        <small className="keyboard-hint">{base ? "Runs in the background" : "Settings → Source control sets a default folder"}</small>
+      </footer>
     </form>
   );
 }
