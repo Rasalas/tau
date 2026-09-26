@@ -111,8 +111,8 @@ Each runs `npm run build` first and writes to `release/`, which is not in Git.
 Stop a running `npm run dev:instance` of the same worktree first: while it
 runs, its `.tau-dev/userdata` holds dangling `Singleton*` symlinks and
 electron-builder aborts on the first one it cannot `stat`.
-macOS produces a `.dmg` and a `.zip`, Linux an `.AppImage`, Windows an NSIS
-`.exe`. Cross-building macOS from another platform is not possible; Linux and
+macOS produces a `.dmg` and a `.zip`, Linux an `.AppImage` and a `.deb`,
+Windows an NSIS `.exe`. Cross-building macOS from another platform is not possible; Linux and
 Windows builds need their own runners for the same reason Tau ships a native
 esbuild binary.
 
@@ -130,7 +130,8 @@ electron-builder writes it into `app-update.yml` inside the app. From there:
    event and the workbench offers a toast: *Tau 0.2.0 downloaded, restart to
    install*, with a Restart button that quits into the new version. A page that
    loads later asks for it (`window-action` `status`).
-3. A user who ignores the toast gets the update the next time they quit Tau.
+3. A user who ignores the toast gets the update the next time they quit Tau,
+   except with the `.deb`, whose update waits for the Restart (below).
 4. "Check for Updates…" in the application menu (and on Settings → About) asks
    on demand and reports what it found.
 5. The first start of the new version shows its release notes once: a toast,
@@ -142,7 +143,28 @@ electron-builder writes it into `app-update.yml` inside the app. From there:
    nothing; set `lastVersion` in that file to an older version to see them.
 
 electron-updater reads the `latest-mac.yml`, `latest-linux.yml` and
-`latest.yml` files the release carries. A release published without them
+`latest.yml` files the release carries. `latest-linux.yml` lists the AppImage
+and the `.deb`; which one a Linux Tau takes is decided in `linuxInstall`
+(`src/main/app-updates.ts`): `APPIMAGE` in the environment means the AppImage,
+`/opt/Tau/tau` with `resources/package-type` = `deb` means the package, which
+electron-updater's `DebUpdater` installs by running
+`pkexec … dpkg -i <file> || apt-get install -f -y` (synchronously, in the
+window's process) and relaunching. electron-builder writes `package-type` into
+the folder both Linux targets are packed from, so an AppImage may carry it
+too; Tau does not trust it alone. Anything else is a copy unpacked by hand,
+which cannot replace itself and says so. The `.deb` installs on Restart only
+(`installOnQuit: false`), so the password dialog never surprises a quit; with
+no polkit agent (no desktop session) pkexec fails and the update waits. The
+release workflow's Linux job checks the package after building it (Xvfb in
+`Recommends`, the AppArmor profile and `bin/tau` inside, the feed naming it).
+
+The `.deb`'s maintainer scripts are electron-builder's templates with two
+changes (`packaging/linux/`): `/usr/bin/tau` links to `/opt/Tau/bin/tau`, a
+wrapper that runs `tau app`/`tau service` on Tau's binary as Node and starts
+the app for anything else, and the AppArmor profile is written wherever
+`apparmor_parser` exists (loaded only where AppArmor runs and not in a chroot),
+so an image prepared in a container gets it too. An upgrade keeps both in place
+instead of removing and re-adding them. A release published without them
 installs fine and then never updates, which is why the workflow uploads
 `release/latest*.yml` and fails when a matrix job produced no files.
 
