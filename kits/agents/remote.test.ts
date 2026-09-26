@@ -23,7 +23,7 @@ const made: string[] = [];
 const closers: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const close of closers.splice(0).reverse()) await close();
-  for (const dir of made.splice(0)) await rm(dir, { recursive: true, force: true });
+  for (const dir of made.splice(0)) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 const BUSY = new Set(["sending", "starting", "running"]);
