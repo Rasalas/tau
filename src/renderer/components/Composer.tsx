@@ -722,6 +722,7 @@ export function Composer({
   const [touchKeyboard] = useState(primaryPointerIsTouch);
   const sendShortcut = touchKeyboard ? "mod-enter" : prefSnapshot.sendShortcut ?? "enter";
   const streamingBase = registry?.streamingDelivery() ?? "followUp";
+  const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
     const keyEvent = { key, shiftKey, altKey, metaKey, ctrlKey, text, selectionStart: currentTarget.selectionStart, selectionEnd: currentTarget.selectionEnd };
@@ -1123,6 +1124,22 @@ export function Composer({
               </button>
             );
           })() : null}
+          {streaming && !answerable && hasDraft ? (() => {
+            // A draft while a turn runs goes the way ↵ sends it; stop stays beside it.
+            const label = streamingBase === "steer" ? "Steer this turn" : "Queue after this turn";
+            return (
+              <button
+                className="send-button"
+                {...tooltipProps(label)}
+                aria-label={label}
+                aria-busy={activeScopeSnapshot.submissionPending}
+                disabled={held || activeScopeSnapshot.submissionPending}
+                onClick={() => submitCurrent(streamingBase)}
+              >
+                <ArrowUp size={16} />
+              </button>
+            );
+          })() : null}
           {streaming ? (
             <button className="send-button stop" {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
           ) : !answerable ? (
@@ -1131,7 +1148,7 @@ export function Composer({
               {...tooltipProps("Send")}
               aria-label="Send"
               aria-busy={activeScopeSnapshot.submissionPending}
-              disabled={held || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0 && !inlineHasContent)}
+              disabled={held || activeScopeSnapshot.submissionPending || !hasDraft}
               onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />
