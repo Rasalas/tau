@@ -6,7 +6,7 @@
 // call; uninstalled, nothing is left running.
 // Linux with Xvfb only; elsewhere it says why and passes.
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -147,6 +147,11 @@ const { readHostDescriptor } = await import(pathToFileURL(join(MAIN, "host-proce
 const home = mkdtempSync(join(tmpdir(), "tau-display-smoke-home-"));
 const userData = mkdtempSync(join(tmpdir(), "tau-display-smoke-userdata-"));
 const units = join(home, "units");
+// Chromium's sandbox needs namespaces a container does not grant; on a real machine the window keeps it.
+if (existsSync("/.dockerenv") || existsSync("/run/.containerenv")) {
+  mkdirSync(units, { recursive: true });
+  writeFileSync(join(units, ".no-sandbox"), "");
+}
 const env = {
   ...process.env,
   HOME: home,

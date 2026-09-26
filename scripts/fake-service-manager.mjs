@@ -9,7 +9,7 @@
 // to one that stops stops too (the display's Xvfb and window). Task Scheduler
 // is not faked. Never used by the app.
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -150,6 +150,8 @@ function startUnit(directory, state, name) {
     const result = spawnSync(step.program[0], step.program.slice(1), { stdio: "ignore" });
     if (result.status !== 0 && !step.optional) { console.error(`${name}: ExecStartPre failed.`); return 1; }
   }
+  // A container cannot give Chromium's sandbox its namespaces; the smoke tests the units, not the sandbox.
+  if (name.startsWith("tau-window") && existsSync(join(directory, ".no-sandbox"))) unit.program.push("--no-sandbox");
   entry.pid = start(unit);
   return 0;
 }
