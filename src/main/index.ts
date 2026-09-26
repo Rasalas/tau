@@ -45,7 +45,7 @@ import { showWindowContextMenu } from "./window-context-menu.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
-import { createAppUpdates, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { createAppUpdates, linuxInstall, linuxUpdates, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
 import { createAppShell } from "./app-shell.js";
 import { createQuitShortcut } from "./quit-shortcut.js";
@@ -821,9 +821,14 @@ if (primaryInstance) app.whenReady().then(async () => {
     log: (label, detail) => hostLog.warn(label, detail),
   });
   void releaseNotes.start();
+  const linux = process.platform === "linux" && app.isPackaged
+    ? linuxUpdates(electronUpdater, linuxInstall(process.env, process.resourcesPath, process.execPath))
+    : undefined;
   updates = createAppUpdates({
-    updater: electronUpdater.autoUpdater,
+    updater: linux?.updater ?? electronUpdater.autoUpdater,
     enabled: app.isPackaged,
+    ...(linux?.unsupported ? { unsupported: linux.unsupported } : {}),
+    ...(linux?.installOnQuit === false ? { installOnQuit: false } : {}),
     log: hostLog,
     onDownloaded: (version, info) => {
       publish({ type: "app-update", version });
