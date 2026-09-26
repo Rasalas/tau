@@ -1027,6 +1027,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         <button {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
           <Settings size={15} />
         </button>
+        {registry.getCommandsFor("sidebar-footer").slice().sort((a, b) => a.label.localeCompare(b.label)).map((command) => (
+          <button
+            key={command.id}
+            type="button"
+            {...tooltipProps(readOnlyDevice && command.access !== "read" ? READ_ONLY_REASON : command.label, { side: "top" })}
+            aria-label={command.label}
+            disabled={readOnlyDevice && command.access !== "read"}
+            onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(String(error))); }}
+          >
+            {command.Icon ? <command.Icon size={15} /> : command.label}
+          </button>
+        ))}
       </div>
     </aside>
   );

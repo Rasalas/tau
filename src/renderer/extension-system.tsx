@@ -618,6 +618,8 @@ export interface SettingsPageProps {
 export interface SettingsPageContribution extends ProfileScoped {
   id: string;
   label: string;
+  /** Opens without Settings navigation. Its kit supplies the navigation command. */
+  standalone?: boolean;
   /** The nav glyph, the way a panel passes one. */
   Icon?: PanelIconComponent;
   order?: number;
@@ -726,7 +728,7 @@ export interface PaletteSourceContribution {
  * `runtime-switch` an action the model picker offers with another runtime than the thread's, run with `{ runtime }`;
  * `thread-row` an action on one thread of the compact thread list (swipe or long press), run with `{ threadId }` (API 1.13.0).
  */
-export type CommandSurface = "thread-title" | "file-tab" | "runtime-switch" | "thread-row";
+export type CommandSurface = "thread-title" | "file-tab" | "runtime-switch" | "thread-row" | "sidebar-footer";
 
 /** What a surface hands the command it runs; the palette hands nothing. */
 export interface CommandContext {

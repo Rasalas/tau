@@ -5,6 +5,10 @@
  * Loaded with the settings chunk; the frame and the controls kits share stay
  * in styles.css.
  */
+.settings-screen.standalone-page { grid-template-columns: minmax(0, 1fr); }
+.standalone-page .standalone-back { width: auto; -webkit-app-region: no-drag; }
+.standalone-page .settings-topbar h1 { margin: 0; font-size: 13px; font-weight: 600; }
+
 .settings-nav {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   border-right: 1px solid var(--line); background: var(--rail);

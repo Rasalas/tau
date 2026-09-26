@@ -88,6 +88,8 @@ export function registerPullRequestTab(
       id: "review.pull-requests.all",
       label: "Pull requests in all projects",
       group: "Project",
+      surfaces: ["sidebar-footer"],
+      Icon: GitPullRequest,
       access: "read",
       run: (actions) => { openPullRequests(actions, "all"); },
     }),

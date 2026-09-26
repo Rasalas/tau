@@ -154,8 +154,8 @@ export function SettingsScreen({
   const contributions = registry.getSettingsPages();
   // A page about a runtime is a card on Providers, not a page of its own.
   const providers = inRuntimeOrder(contributions.filter((entry) => entry.runtime), (entry) => entry.runtime, snapshot?.runtimeBackends);
-  const pages = contributions.filter((entry) => !entry.runtime);
-  const contributed = pages.find((entry) => entry.id === page);
+  const pages = contributions.filter((entry) => !entry.runtime && !entry.standalone);
+  const contributed = contributions.find((entry) => !entry.runtime && entry.id === page);
   const installer = pages.find((entry) => entry.id === "packages");
   const onProviders = providers.length > 0 && (page === "providers" || providers.some((card) => card.id === page));
   const pageLabel = onProviders ? "Providers" : CORE_PAGE_LABELS[page] ?? contributed?.label ?? active?.name ?? "Settings";
@@ -265,6 +265,25 @@ export function SettingsScreen({
     <button key={id} className={activeWhen ? "active" : ""} aria-current={activeWhen ? "page" : undefined} onClick={onClick}>
       {icon}<span>{label}</span>
     </button>
+  );
+
+  if (contributed?.standalone) return (
+    <SettingsLevelsProvider store={levels}>
+      <div className="settings-screen standalone-page" role="dialog" aria-modal="true" aria-label={pageLabel} data-preview-overlay="">
+        <main className="settings-main">
+          <header className="settings-topbar">
+            <WindowControlsInset />
+            <button type="button" className="standalone-back settings-back" onClick={onClose}><ArrowLeft size={15} /><span>Back</span></button>
+            <h1>{pageLabel}</h1>
+          </header>
+          <div className="settings-scroll" ref={scrollRef}>
+            <div className="settings-content" data-page={page}>
+              <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
+            </div>
+          </div>
+        </main>
+      </div>
+    </SettingsLevelsProvider>
   );
 
   return (
