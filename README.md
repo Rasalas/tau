@@ -221,6 +221,10 @@ the preview and no Tau window is attached, the host starts
 minutes without use (it costs about 200–300 MB). Install Xvfb first
 (`sudo apt install xvfb`); `tau service install --no-display` removes the
 display, and Settings → Connections → Background shows and removes it too.
+Where the kernel restricts user namespaces (Ubuntu 24.04 and later), the
+window needs Electron's `chrome-sandbox` to belong to root with the setuid
+bit; the install refuses otherwise and names the two `sudo` commands, and
+the service's status shows them again after an update replaced the file.
 macOS and Windows refuse the option: neither has a display that nobody sees.
 
 The service runs the app's own binary on the app's own userData, so a Tau

@@ -10,6 +10,7 @@ import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { processAlive, readHostDescriptor } from "./host-process-supervisor.js";
 import { DISPLAY_WINDOW_IDLE_MS } from "./display-window.js";
+import { chromeSandboxProblem } from "./linux-sandbox.js";
 import {
   FIRST_DISPLAY_NUMBER,
   defaultUserData,
@@ -76,6 +77,8 @@ export interface HostServiceOptions {
   locateXvfb?: () => string | undefined;
   /** Whether display `:N` is in use on this machine; its X lock and socket when absent. */
   displayTaken?: (number: number) => boolean;
+  /** What stops the window on the display from starting; `chrome-sandbox` next to Electron when absent. */
+  sandboxProblem?: () => UiHostServiceProblem | undefined;
 }
 
 /** `--display` on a machine that cannot have one. */
@@ -235,6 +238,10 @@ export class HostServiceManager {
     };
   }
 
+  private sandboxProblem(): UiHostServiceProblem | undefined {
+    return this.options.sandboxProblem ? this.options.sandboxProblem() : chromeSandboxProblem(this.options.execPath);
+  }
+
   private locateXvfb(): string | undefined {
     if (this.options.locateXvfb) return this.options.locateXvfb();
     for (const directory of servicePath(this.platform, this.options.execPath).split(":")) {
@@ -325,7 +332,11 @@ export class HostServiceManager {
       ...(running && descriptor?.version ? { version: descriptor.version } : {}),
       unitPath: backend.unitPath,
       logPath: this.logPath,
-      problems: installed ? [...await this.problems(backend), ...(installedDisplay && !this.locateXvfb() ? [{ code: "xvfb-missing", message: NO_XVFB }] : [])] : [],
+      problems: installed ? [
+        ...await this.problems(backend),
+        ...(installedDisplay && !this.locateXvfb() ? [{ code: "xvfb-missing", message: NO_XVFB }] : []),
+        ...(installedDisplay ? [this.sandboxProblem()].filter((problem) => problem !== undefined) : []),
+      ] : [],
       display: await this.displayStatus(installed ? installedDisplay : undefined),
     };
   }
@@ -346,6 +357,8 @@ export class HostServiceManager {
     if (wanted) {
       const xvfb = this.locateXvfb();
       if (!xvfb) throw new HostServiceError(NO_XVFB);
+      const sandbox = this.sandboxProblem();
+      if (sandbox) throw new HostServiceError(`${sandbox.message} Run: ${sandbox.command}`);
       display = this.displaySpec(current?.number ?? this.freeDisplayNumber(), xvfb);
     }
     if (backend.kind === "systemd") await this.prepareSystemd();

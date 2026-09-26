@@ -50,6 +50,10 @@ jobs:
         run: npm run smoke:extension-install
       - name: Smoke — remote work
         run: npm run smoke:remote-work
+      # What a Linux install needs where user namespaces are restricted (the service refuses the display otherwise).
+      - name: Electron's sandbox helper as setuid root
+        if: runner.os == 'Linux'
+        run: sudo chown root:root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       # Passes with a note where Xvfb is missing; the Linux runner has it (performance.yml).
       - name: Smoke — invisible display
         run: npm run smoke:display

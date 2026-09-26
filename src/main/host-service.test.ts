@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOST_CORE_PRINCIPAL } from "./host-invocation.js";
+import type { UiHostServiceProblem } from "../shared/connections.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { writeHostDescriptor } from "./host-process-supervisor.js";
 import { HostServiceManager, abstractX11Displays, createHostServiceMethods, serviceCommandRunner, type ServiceCommandResult, type ServiceStep } from "./host-service.js";
@@ -44,6 +45,7 @@ function manager(platform: NodeJS.Platform, options: {
   retireHost?: () => Promise<void>;
   xvfb?: string | undefined;
   displayTaken?: (number: number) => boolean;
+  sandboxProblem?: () => UiHostServiceProblem | undefined;
 } = {}) {
   const root = temp();
   const userData = join(root, "userdata");
@@ -62,6 +64,7 @@ function manager(platform: NodeJS.Platform, options: {
     ...(options.retireHost ? { retireHost: options.retireHost } : {}),
     locateXvfb: () => ("xvfb" in options ? options.xvfb : "/usr/bin/Xvfb"),
     displayTaken: options.displayTaken ?? (() => false),
+    sandboxProblem: options.sandboxProblem ?? (() => undefined),
   });
   return { service, userData, units, ...fake };
 }
@@ -217,6 +220,12 @@ describe("the host service on Linux", () => {
 });
 
 describe("the invisible display on Linux", () => {
+  it("refuses a display whose window could not start, and names the fix", async () => {
+    const problem = { code: "chrome-sandbox", message: "The window on the invisible display cannot start.", command: "sudo chmod 4755 x" };
+    const { service } = manager("linux", { sandboxProblem: () => problem });
+    await expect(service.install({ display: true })).rejects.toThrow("cannot start. Run: sudo chmod 4755 x");
+  });
+
   it("counts a display another network-namespace peer listens on as taken", () => {
     const table = [
       "Num       RefCount Protocol Flags    Type St Inode Path",
