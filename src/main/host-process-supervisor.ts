@@ -244,7 +244,16 @@ export class HostProcessSupervisor {
       this.settle(adopted);
       return adopted;
     }
-    return this.spawnHost();
+    try {
+      return await this.spawnHost();
+    } catch (error) {
+      // Another host took the folder between the check and the spawn: that one is adopted, or waited out once.
+      if (this.stopping || !await dataFolderBusy(this.options.userData)) throw error;
+      const owner = await this.awaitSilentOwner();
+      if (!owner) return this.spawnHost();
+      this.settle(owner);
+      return owner;
+    }
   }
 
   /**

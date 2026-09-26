@@ -180,7 +180,10 @@ describe("the host process supervisor", () => {
 
   it("replaces a host left behind by another version", async () => {
     const userData = workingDirectory();
-    const old = await supervisor(userData, { version: "1.0.0" }).start();
+    // Left behind: its window is gone, so nothing restarts it once it is retired.
+    const oldWindow = supervisor(userData, { version: "1.0.0" });
+    const old = await oldWindow.start();
+    oldWindow.detach();
     const current = await supervisor(userData, { version: "2.0.0" }).start();
 
     expect(current.adopted).toBe(false);
