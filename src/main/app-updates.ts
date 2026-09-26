@@ -1,4 +1,6 @@
 import { dialog } from "electron";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
 
 /**
@@ -70,6 +72,13 @@ export interface AppUpdatesOptions {
    * replacing it from a release would be the wrong thing every time.
    */
   enabled: boolean;
+  /** Why this installed Tau cannot update itself; a check the user asks for says it. */
+  unsupported?: string;
+  /**
+   * Installs a waiting version when Tau quits (default). Off where installing
+   * asks for a password, so the prompt only follows the Restart the user chose.
+   */
+  installOnQuit?: boolean;
   log: UpdateLog;
   /** Announces a version waiting on disk, so the workbench can offer a restart. */
   onDownloaded(version: string, info: UpdateInfo): void;
@@ -117,6 +126,8 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   let ready: string | undefined;
   /** Set while a check the user asked for is in flight, so only that one reports. */
   let asked = false;
+  /** Set once the user chose to install; a failure then is theirs to hear about. */
+  let installing = false;
   /** The failure the event listener already handled; `checkForUpdates` rejects with it too. */
   let handled: unknown;
 
@@ -138,14 +149,16 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   updater.on("error", (error) => {
     handled = error;
     log.warn("update.failed", error);
-    if (asked) tell(`The update check failed: ${reason(error)}`);
+    if (installing) tell(installFailure(ready, error));
+    else if (asked) tell(`The update check failed: ${reason(error)}`);
+    installing = false;
     asked = false;
   });
 
   // Installing is the user's call, but a Tau that is quit anyway may as well
   // come back updated.
   updater.autoDownload = true;
-  updater.autoInstallOnAppQuit = true;
+  updater.autoInstallOnAppQuit = options.installOnQuit ?? true;
 
   let applied: UpdateChannel | undefined;
   async function applyChannel(): Promise<UpdateChannel> {
@@ -189,8 +202,8 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
 
   return {
     start() {
-      if (!enabled) {
-        log.info("update.disabled", "Not an installed Tau.");
+      if (!enabled || options.unsupported) {
+        log.info("update.disabled", options.unsupported ?? "Not an installed Tau.");
         return;
       }
       if (interval) return;
@@ -203,6 +216,10 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
       interval = undefined;
     },
     async checkForUpdates() {
+      if (options.unsupported) {
+        tell(options.unsupported);
+        return;
+      }
       if (!enabled) {
         tell("This Tau runs from a checkout, so it updates with `git pull` and `npm run build`.");
         return;
@@ -217,14 +234,65 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     install() {
       if (!ready) return false;
       log.info("update.installing", ready);
+      installing = true;
       updater.quitAndInstall();
       return true;
     },
     downloaded: () => ready,
     async channelChanged() {
-      if (!enabled || applied === undefined || ready) return;
+      if (!enabled || options.unsupported || applied === undefined || ready) return;
       const before = applied;
       if ((await applyChannel()) !== before) await check();
     },
   };
+}
+
+/** electron-updater runs pkexec for a package; 126 is its dialog closed. */
+function installFailure(version: string | undefined, error: unknown): string {
+  const name = version ? `Tau ${version}` : "The update";
+  if (/exited with code 126\b/u.test(reason(error))) return `${name} was not installed: the password dialog was closed. Restart again to install it.`;
+  return `${name} was not installed: ${reason(error)}`;
+}
+
+/** How a Linux Tau was installed, which decides what can replace it. */
+export type LinuxInstall = "appimage" | "deb" | "unpacked";
+
+/** Where the .deb puts Tau (electron-builder's `/opt/<productName>`). */
+const DEB_EXECUTABLE = "/opt/Tau/tau";
+
+/**
+ * electron-builder writes `resources/package-type` into the folder the .deb
+ * and the AppImage are both packed from, so an AppImage may carry `deb` too;
+ * only a copy at the package's own path counts as the package.
+ */
+export function linuxInstall(env: NodeJS.ProcessEnv, resourcesPath: string, execPath: string, read: (path: string) => string | undefined = readText): LinuxInstall {
+  if (env.APPIMAGE) return "appimage";
+  return execPath === DEB_EXECUTABLE && read(join(resourcesPath, "package-type"))?.trim() === "deb" ? "deb" : "unpacked";
+}
+
+function readText(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+export const UNPACKED_UPDATES = "This copy of Tau was unpacked by hand, so it cannot replace itself. On Debian and Ubuntu, install the .deb from the releases page; it updates itself from then on. Elsewhere, the AppImage does.";
+
+/** The updater classes of electron-updater a Linux Tau picks between. */
+export interface LinuxUpdaters {
+  AppImageUpdater: new () => DesktopUpdater;
+  DebUpdater: new () => DesktopUpdater;
+}
+
+/**
+ * The updater of a Linux install and how it installs. A .deb installs with
+ * `dpkg -i` through pkexec's password dialog (electron-updater's DebUpdater),
+ * so it does so on Restart only, never on quit.
+ */
+export function linuxUpdates(updaters: LinuxUpdaters, install: LinuxInstall): Pick<AppUpdatesOptions, "installOnQuit" | "unsupported"> & { updater?: DesktopUpdater } {
+  if (install === "appimage") return { updater: new updaters.AppImageUpdater() };
+  if (install === "deb") return { updater: new updaters.DebUpdater(), installOnQuit: false };
+  return { unsupported: UNPACKED_UPDATES };
 }

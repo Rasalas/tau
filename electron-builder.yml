@@ -133,10 +133,45 @@ dmg:
   title: ${productName} ${version}
 
 linux:
-  target: [AppImage]
+  # The .deb for Debian and Ubuntu, the AppImage for everything else.
+  target: [AppImage, deb]
   icon: assets/tau-icon.png
   category: Development
   executableName: tau
+  # package.json's description is the prototype's; packages and the menu entry show these.
+  synopsis: Desktop workbench for the Pi coding agent
+  description: Desktop workbench for the Pi coding agent
+  # The .deb links /usr/bin/tau to it (packaging/linux/after-install.tpl).
+  extraFiles:
+    - from: packaging/linux/tau
+      to: bin/tau
+
+deb:
+  packageName: tau
+  artifactName: ${productName}_${version}_${arch}.${ext}
+  maintainer: Torben Buck <7483565+Rasalas@users.noreply.github.com>
+  packageCategory: devel
+  # electron-builder's default list plus ALSA, which Electron links against and
+  # an Ubuntu server does not have (libasound2t64 from 24.04 on).
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libasound2t64 | libasound2
+  # Xvfb for `--display`, pkexec for the password dialog of an update and of
+  # the AppArmor profile; the last one is electron-builder's default.
+  recommends:
+    - xvfb
+    - pkexec | policykit-1
+    - libappindicator3-1
+  afterInstall: packaging/linux/after-install.tpl
+  afterRemove: packaging/linux/after-remove.tpl
 
 win:
   target: [nsis]

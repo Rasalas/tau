@@ -151,9 +151,9 @@ export async function askHost({ url, token }, command, input, WebSocketImpl = gl
 
 /**
  * What starts the app: `TAU_APP` when it names a program, the Electron of a
- * built checkout this file lives in, or the bundle of an installed Tau.
+ * built checkout this file lives in, or the bundle or binary of an installed Tau.
  */
-export function appLauncher(env = process.env, self = fileURLToPath(import.meta.url)) {
+export function appLauncher(env = process.env, self = fileURLToPath(import.meta.url), platform = process.platform) {
   if (env.TAU_APP) return { command: env.TAU_APP, args: [], cwd: process.cwd() };
   const real = realpathSync(self);
   const root = dirname(dirname(real));
@@ -162,8 +162,13 @@ export function appLauncher(env = process.env, self = fileURLToPath(import.meta.
     const binary = join(root, "node_modules", "electron", "dist", readFileSync(electronPath, "utf8").trim());
     return { command: binary, args: ["."], cwd: root };
   }
+  // The .deb's /usr/bin/tau: the binary is two folders above the unpacked archive.
+  if (platform === "linux" && basename(root) === "app.asar.unpacked") {
+    const binary = join(dirname(dirname(root)), "tau");
+    return existsSync(binary) ? { command: binary, args: [], cwd: dirname(binary) } : undefined;
+  }
   const bundle = real.split(sep).findIndex((part) => part.endsWith(".app"));
-  if (process.platform === "darwin" && bundle >= 0) {
+  if (platform === "darwin" && bundle >= 0) {
     const app = real.split(sep).slice(0, bundle + 1).join(sep);
     const macos = join(app, "Contents", "MacOS");
     const executable = readdirSync(macos).find((name) => !name.startsWith("."));

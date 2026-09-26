@@ -24,16 +24,19 @@ const line = (step: ServiceStep) => [step.command, ...step.args].join(" ");
 /** Records every command; `answer` stands in for what the service manager would print. */
 function fakeRunner(answer: (command: string) => Partial<ServiceCommandResult> | undefined = () => undefined) {
   const calls: string[] = [];
+  const steps: ServiceStep[] = [];
   const detached: string[][] = [];
   return {
     calls,
+    steps,
     detached,
     runner: {
       run: async (step: ServiceStep): Promise<ServiceCommandResult> => {
         calls.push(line(step));
+        steps.push(step);
         return { code: 0, stdout: "", stderr: "", ...answer(line(step)) };
       },
-      detach: (steps: readonly ServiceStep[]) => { detached.push(steps.map(line)); },
+      detach: (batch: readonly ServiceStep[]) => { detached.push(batch.map(line)); },
     },
   };
 }
@@ -46,6 +49,8 @@ function manager(platform: NodeJS.Platform, options: {
   xvfb?: string | undefined;
   displayTaken?: (number: number) => boolean;
   sandboxProblem?: () => UiHostServiceProblem | undefined;
+  elevation?: "pkexec" | "sudo";
+  beforeElevation?: (message: string) => void;
 } = {}) {
   const root = temp();
   const userData = join(root, "userdata");
@@ -65,6 +70,8 @@ function manager(platform: NodeJS.Platform, options: {
     locateXvfb: () => ("xvfb" in options ? options.xvfb : "/usr/bin/Xvfb"),
     displayTaken: options.displayTaken ?? (() => false),
     sandboxProblem: options.sandboxProblem ?? (() => undefined),
+    ...(options.elevation ? { elevation: options.elevation } : {}),
+    ...(options.beforeElevation ? { beforeElevation: options.beforeElevation } : {}),
   });
   return { service, userData, units, ...fake };
 }
@@ -220,10 +227,48 @@ describe("the host service on Linux", () => {
 });
 
 describe("the invisible display on Linux", () => {
-  it("refuses a display whose window could not start, and names the fix", async () => {
-    const problem = { code: "chrome-sandbox", message: "The window on the invisible display cannot start.", command: "sudo chmod 4755 x" };
-    const { service } = manager("linux", { sandboxProblem: () => problem });
-    await expect(service.install({ display: true })).rejects.toThrow("cannot start. Run: sudo chmod 4755 x");
+  it("refuses a display whose window could not start where it cannot ask for a password", async () => {
+    const problem = { code: "chrome-sandbox", message: "The window on the invisible display cannot start.", command: "tau service install" };
+    const { service, calls } = manager("linux", { sandboxProblem: () => problem });
+    await expect(service.install({ display: true })).rejects.toThrow("The window on the invisible display cannot start.");
+    expect(calls.some((call) => call.startsWith("pkexec") || call.startsWith("sudo"))).toBe(false);
+  });
+
+  it("adds the AppArmor profile with one password prompt before it adds the display", async () => {
+    const execPath = "/home/me/Tau/tau";
+    let profile = false;
+    const told: string[] = [];
+    const { service, calls, steps } = manager("linux", {
+      execPath,
+      elevation: "pkexec",
+      beforeElevation: (message) => told.push(message),
+      sandboxProblem: () => (profile ? undefined : { code: "chrome-sandbox", message: "cannot start", command: "tau service install" }),
+      answer: (command) => {
+        if (command.startsWith("pkexec")) profile = true;
+        return undefined;
+      },
+    });
+    await service.install({ display: true });
+    const elevated = steps.filter((step) => step.command === "pkexec");
+    expect(elevated).toHaveLength(1);
+    expect(elevated[0]!.waitsForUser).toBe(true);
+    expect(elevated[0]!.args.at(-1)).toContain(`"${execPath}" flags=(unconfined)`);
+    expect(calls.findIndex((call) => call.startsWith("pkexec"))).toBeLessThan(calls.findIndex((call) => call.includes("daemon-reload")));
+    expect(told[0]).toContain(`lets ${execPath} use user namespaces`);
+    // Installed again with the profile in place: no second prompt.
+    await service.install({ display: true });
+    expect(steps.filter((step) => step.command === "pkexec")).toHaveLength(1);
+  });
+
+  it("writes no display when the password prompt fails, and says why", async () => {
+    const { service, units } = manager("linux", {
+      execPath: "/home/me/Tau/tau",
+      elevation: "sudo",
+      sandboxProblem: () => ({ code: "chrome-sandbox", message: "cannot start", command: "tau service install" }),
+      answer: (command) => (command.startsWith("sudo") ? { code: 1, stderr: "sudo: a terminal is required to read the password" } : undefined),
+    });
+    await expect(service.install({ display: true })).rejects.toThrow(/not a terminal/u);
+    expect(existsSync(join(units, service.names.unit))).toBe(false);
   });
 
   it("counts a display another network-namespace peer listens on as taken", () => {
@@ -380,7 +425,27 @@ describe("the Connections methods", () => {
     expect(await methods["service-status"]!([], paired)).toMatchObject({ installed: false });
     await expect(methods["service-install"]!([], paired)).rejects.toMatchObject({ code: "forbidden" });
     await expect(methods["service-uninstall"]!([], paired)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(methods["service-allow-sandbox"]!([], paired)).rejects.toMatchObject({ code: "forbidden" });
     expect(await methods["service-status"]!([], owner)).toMatchObject({ installed: false });
+  });
+
+  it("add the AppArmor profile for the owner and answer with the status without the problem", async () => {
+    let profile = false;
+    const { service, calls } = manager("linux", {
+      execPath: "/home/me/Tau/tau",
+      elevation: "pkexec",
+      sandboxProblem: () => (profile ? undefined : { code: "chrome-sandbox", message: "cannot start", command: "tau service install" }),
+      answer: (command) => {
+        if (command.startsWith("pkexec")) profile = true;
+        return undefined;
+      },
+    });
+    await service.install({ display: true }).catch(() => undefined);
+    profile = false;
+    const methods = createHostServiceMethods(() => service);
+    const status = await methods["service-allow-sandbox"]!([], owner) as { problems: UiHostServiceProblem[] };
+    expect(calls.filter((call) => call.startsWith("pkexec --disable-internal-agent /bin/sh -c"))).toHaveLength(2);
+    expect(status.problems.map((problem) => problem.code)).not.toContain("chrome-sandbox");
   });
 
   it("run the steps in this process for a window's host, and detached for the service host itself", async () => {

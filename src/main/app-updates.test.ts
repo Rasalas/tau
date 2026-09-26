@@ -4,7 +4,7 @@ vi.mock("electron", () => ({
   dialog: { showMessageBox: vi.fn() },
 }));
 
-const { createAppUpdates, readUpdateFeed } = await import("./app-updates.js");
+const { UNPACKED_UPDATES, createAppUpdates, linuxInstall, linuxUpdates, readUpdateFeed } = await import("./app-updates.js");
 type Listener = (payload: never) => void;
 
 /** Stands in for electron-updater's `autoUpdater`, with its events under control. */
@@ -29,7 +29,7 @@ function fakeUpdater() {
   return { updater, emit };
 }
 
-function updates(overrides: { enabled?: boolean; channel?: () => Promise<"stable" | "nightly" | undefined>; currentVersion?: string; feed?: { owner: string; repo: string } | null } = {}) {
+function updates(overrides: { enabled?: boolean; unsupported?: string; installOnQuit?: boolean; channel?: () => Promise<"stable" | "nightly" | undefined>; currentVersion?: string; feed?: { owner: string; repo: string } | null } = {}) {
   const { updater, emit } = fakeUpdater();
   const told: string[] = [];
   const downloaded: string[] = [];
@@ -37,6 +37,8 @@ function updates(overrides: { enabled?: boolean; channel?: () => Promise<"stable
   const subject = createAppUpdates({
     updater,
     enabled: overrides.enabled ?? true,
+    ...(overrides.unsupported ? { unsupported: overrides.unsupported } : {}),
+    ...(overrides.installOnQuit === undefined ? {} : { installOnQuit: overrides.installOnQuit }),
     log,
     onDownloaded: (version) => downloaded.push(version),
     tell: (message) => told.push(message),
@@ -186,6 +188,52 @@ describe("app updates", () => {
     emit("update-downloaded", { version: "0.2.0" });
     expect(subject.install()).toBe(true);
     expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the user when installing failed, such as a closed password dialog", () => {
+    const { subject, emit, updater, told } = updates({ installOnQuit: false });
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    emit("update-downloaded", { version: "0.8.0" });
+    // electron-updater's DebUpdater reports a failed `pkexec … dpkg -i` as an error event, within quitAndInstall.
+    updater.quitAndInstall.mockImplementation(() => emit("error", new Error("Command pkexec --disable-internal-agent exited with code 126")));
+    subject.install();
+    expect(told).toEqual(["Tau 0.8.0 was not installed: the password dialog was closed. Restart again to install it."]);
+    // A later failed background check stays quiet again.
+    emit("error", new Error("net::ERR_INTERNET_DISCONNECTED"));
+    expect(told).toHaveLength(1);
+  });
+
+  it("says why an installed copy cannot update itself, and never checks", async () => {
+    vi.useFakeTimers();
+    const { subject, updater, told } = updates({ unsupported: UNPACKED_UPDATES });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    await subject.checkForUpdates();
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+    expect(told).toEqual([UNPACKED_UPDATES]);
+    subject.stop();
+    vi.useRealTimers();
+  });
+
+  describe("on Linux", () => {
+    const deb = (path: string) => (path === "/opt/Tau/resources/package-type" ? "deb\n" : undefined);
+
+    it("tells an AppImage, the .deb and a copy unpacked by hand apart", () => {
+      expect(linuxInstall({ APPIMAGE: "/home/me/Tau.AppImage" }, "/tmp/.mount_Tau/resources", "/tmp/.mount_Tau/tau", deb)).toBe("appimage");
+      expect(linuxInstall({}, "/opt/Tau/resources", "/opt/Tau/tau", deb)).toBe("deb");
+      // The folder both packages are made from may leave `deb` in an extracted AppImage.
+      expect(linuxInstall({}, "/home/me/Tau/resources", "/home/me/Tau/tau", () => "deb")).toBe("unpacked");
+      expect(linuxInstall({}, "/opt/Tau/resources", "/opt/Tau/tau", () => undefined)).toBe("unpacked");
+    });
+
+    it("installs a .deb only on Restart, and leaves an unpacked copy alone", () => {
+      class AppImageUpdater { kind = "appimage"; }
+      class DebUpdater { kind = "deb"; }
+      const updaters = { AppImageUpdater, DebUpdater } as unknown as Parameters<typeof linuxUpdates>[0];
+      expect(linuxUpdates(updaters, "appimage")).toEqual({ updater: expect.objectContaining({ kind: "appimage" }) });
+      expect(linuxUpdates(updaters, "deb")).toEqual({ updater: expect.objectContaining({ kind: "deb" }), installOnQuit: false });
+      expect(linuxUpdates(updaters, "unpacked")).toEqual({ unsupported: UNPACKED_UPDATES });
+    });
   });
 
   describe("channels", () => {

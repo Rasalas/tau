@@ -87,6 +87,8 @@ if (invokedDirectly()) {
     execPath: process.execPath,
     entry: join(dirname(fileURLToPath(import.meta.url)), "headless.js"),
     userData,
+    elevation: "sudo",
+    beforeElevation: (message) => process.stdout.write(`${message}\n`),
   });
   runServiceCommand(process.argv[2], { out: (line) => process.stdout.write(`${line}\n`), manager }, process.argv.slice(3)).then(
     (code) => { process.exitCode = code; },

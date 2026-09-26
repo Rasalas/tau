@@ -107,10 +107,23 @@ What follows from that:
 
 Download the newest build for your platform from the
 [releases page](https://github.com/Rasalas/tau/releases): a `.dmg` or `.zip` on
-macOS (arm64 and x64), an `.AppImage` on Linux, an NSIS installer on Windows.
-The builds are unsigned, so the first launch needs the usual confirmation —
-open the app from Finder's context menu once on macOS, and tell Windows
-SmartScreen to run it anyway.
+macOS (arm64 and x64), a `.deb` and an `.AppImage` on Linux (x64), an NSIS
+installer on Windows. The builds are unsigned, so the first launch needs the
+usual confirmation — open the app from Finder's context menu once on macOS,
+and tell Windows SmartScreen to run it anyway.
+
+On **Ubuntu and Debian**, install the `.deb` — with your software center, or
+`sudo apt install ./Tau_<version>_amd64.deb`. It puts Tau into `/opt/Tau` and
+the application menu, brings Xvfb (for the invisible display) and pkexec (for
+password dialogs) along, and links `tau` to the command line below; `tau` with
+anything else starts the app. It also installs an AppArmor profile,
+`/etc/apparmor.d/tau`, that lets Tau's binary use user namespaces and nothing
+more, the way Chrome and VS Code do on Ubuntu 24.04 and later: Chromium keeps
+its sandbox there, and `chrome-sandbox` needs no root. On **other
+distributions**, use the `.AppImage`. It needs FUSE 2 (`libfuse2`), and where
+the kernel restricts user namespaces electron-builder's launcher starts it
+without Chromium's sandbox; it cannot run as a service either. A copy
+unpacked by hand (an extracted AppImage) runs, but cannot update itself.
 
 Once the repository is public, the package managers carry it too:
 `brew install --cask rasalas/tau/tau` on macOS, `winget install Rasalas.Tau` on
@@ -121,6 +134,11 @@ An installed Tau checks for a newer release shortly after it starts, downloads
 one in the background, and offers a restart that installs it; "Check for
 updates…" in the application menu asks on demand. Settings → Defaults →
 Update track switches between stable releases and the nightly build of `main`.
+The `.deb` installs its update with `dpkg` when you choose Restart, after the
+system's password dialog (pkexec) — not on a plain quit, and not without a
+desktop session that can show the dialog; closing the dialog leaves the update
+waiting. An AppImage replaces its own file. A copy unpacked by hand says under
+"Check for updates…" that it cannot update itself.
 
 To build an installer yourself:
 
@@ -174,8 +192,9 @@ window to the front, the way `t3 app` does for T3 Code. It finds the host
 through `<userData>/host.json` and speaks to it with the host's own token;
 `TAU_USER_DATA` points it at another instance, as it does for the app. Without
 a running Tau it starts the app on that folder. The command is `bin/tau.mjs`
-(`bin` in `package.json`) and needs Node 22 or newer. Nothing puts it on your
-`PATH` for you; link it yourself:
+(`bin` in `package.json`) and needs Node 22 or newer. The `.deb` puts it on
+your `PATH` as `tau` and runs it on Tau's own binary, so it needs no Node.
+Elsewhere, link it yourself:
 
 ```bash
 # a checkout
@@ -218,13 +237,25 @@ its `DISPLAY` to terminals, agents' shell commands and project scripts, so
 GUI apps and headed browsers run where nobody sees them. When a thread needs
 the preview and no Tau window is attached, the host starts
 `tau-window.service`, a Tau window on that display, and stops it after 10
-minutes without use (it costs about 200–300 MB). Install Xvfb first
-(`sudo apt install xvfb`); `tau service install --no-display` removes the
-display, and Settings → Connections → Background shows and removes it too.
+minutes without use (it costs about 200–300 MB). The `.deb` brings Xvfb
+along; elsewhere install your distribution's `xvfb` package first.
+`tau service install --no-display` removes the display, and Settings →
+Connections → Background shows, adds and removes it too.
 Where the kernel restricts user namespaces (Ubuntu 24.04 and later), the
-window needs Electron's `chrome-sandbox` to belong to root with the setuid
-bit; the install refuses otherwise and names the two `sudo` commands, and
-the service's status shows them again after an update replaced the file.
+window needs an AppArmor profile that allows them for Tau's binary; it never
+starts with `--no-sandbox`. The `.deb` installs that profile. For a copy
+unpacked anywhere else, Tau writes one for its own path
+(`/etc/apparmor.d/tau-<hash>`: that path and `userns`, like the `.deb`'s) and
+loads it, with one password prompt: adding the display in Settings (or the
+Add AppArmor Profile button the service status shows) asks in the system's
+dialog through pkexec, `tau service install --display` asks through `sudo` in
+the terminal. Tau reads its own AppArmor label and `/etc/apparmor.d` to know
+whether the profile is there. The profile belongs to the path, so updates in
+place need nothing more; a copy that moves needs a new one. Without a polkit
+agent (an SSH login), the button says so and points to the terminal. A
+profile for a folder you can write to lets whatever binary you put at that
+path use user namespaces, which every program may on distributions without
+the restriction.
 This holds on a machine with a desktop session too: a Wayland desktop hands
 `WAYLAND_DISPLAY` and `XDG_SESSION_TYPE` to every user service, so the units
 unset them (with `WAYLAND_SOCKET`), the window starts with

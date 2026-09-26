@@ -119,6 +119,28 @@ describe("Settings → Connections → Background, invisible display", () => {
     expect(screen.getByRole("button", { name: "Add…" })).toBeTruthy();
   });
 
+  it("adds the AppArmor profile the display's window needs with a button, not a command to copy", async () => {
+    const sandbox = { code: "chrome-sandbox", message: "The window on the invisible display cannot start.", command: "tau service install" };
+    let current = linux({ display, problems: [sandbox] });
+    const allowServiceSandbox = vi.fn(async () => { current = linux({ display }); return current; });
+    const notify = renderSection({ serviceStatus: async () => current, allowServiceSandbox });
+
+    expect(await screen.findByText("The window on the invisible display cannot start.")).toBeTruthy();
+    expect(screen.queryByText("tau service install")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add AppArmor Profile…" }));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("The window on the invisible display can start now"));
+    expect(allowServiceSandbox).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Add AppArmor Profile…" })).toBeNull();
+  });
+
+  it("says why the profile could not be added", async () => {
+    const sandbox = { code: "chrome-sandbox", message: "The window on the invisible display cannot start.", command: "tau service install" };
+    const allowServiceSandbox = vi.fn(async () => { throw new Error("No password dialog could open on this machine."); });
+    const notify = renderSection({ serviceStatus: async () => linux({ display, problems: [sandbox] }), allowServiceSandbox });
+    fireEvent.click(await screen.findByRole("button", { name: "Add AppArmor Profile…" }));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("No password dialog could open on this machine."));
+  });
+
   it("is not offered on macOS or without a service", async () => {
     renderSection({ serviceStatus: async () => service({ installed: true, running: true, display: { ...display, supported: false, installed: false, reason: "macOS has no invisible display." } }) });
     expect(await screen.findByText("Running")).toBeTruthy();

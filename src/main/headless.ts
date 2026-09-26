@@ -276,6 +276,8 @@ async function main(): Promise<void> {
     execPath: process.execPath,
     entry: fileURLToPath(import.meta.url),
     userData,
+    // Settings asks through the desktop's password dialog; a service host finds it by the user's session.
+    elevation: "pkexec",
     // Ending a Windows task leaves the host it started: this one stops itself, another is asked to.
     retireHost: async () => {
       const running = await readHostDescriptor(userData);
