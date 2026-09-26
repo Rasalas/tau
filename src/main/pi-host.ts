@@ -392,7 +392,7 @@ export class PiHost {
       refreshShell: (thread, touch) => this.index.refreshShell(thread, touch),
       publishVisible: (thread) => {
         this.log("session.opened", thread.threadId.slice(0, 8));
-        this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(thread.cwd) });
+        this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(thread.cwd), sessionId: thread.threadId });
         this.prewarm.scheduleThreads();
         if (this.defaultBackendKind === "pi") this.prewarm.scheduleSpare(thread.cwd);
       },
@@ -2079,7 +2079,7 @@ export class PiHost {
   private publishLabel(cwd: string, label: string | undefined): void {
     if (cwd === this.cwd) {
       this.projectLabel = label;
-      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd, label } });
+      this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd, label }, ...(this.active ? { sessionId: this.active.threadId } : {}) });
     }
     this.index.publishLabel(cwd, label);
   }

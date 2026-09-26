@@ -20,7 +20,11 @@ state; it must not reinterpret it as a `HostSnapshot`.
   while a catalog without a session id cannot change the active thread's
   capability.
 - `project` contains workspace identity and an optional label an extension
-  supplies (Workspace Kit: the Git branch).
+  supplies (Workspace Kit: the Git branch). Its `sessionId` names the thread
+  the project belongs to: every client receives it, but a client applies it
+  only to that thread, or once that thread's detail arrives. Another client
+  opening a project moves the host, not this client's thread. An update
+  without `sessionId` (an older host) applies to the thread on screen.
 - `run` contains lifecycle state for the active session.
 
 Within the typed host/page contracts, `olderCursor` is an opaque
