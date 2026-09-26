@@ -41,12 +41,12 @@ const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ def
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 
-/** Names the runtime behind a Codex thread, on any instance; other threads show nothing. */
+/** Marks the runtime behind a Codex thread with an icon, its name in the tooltip; other threads show nothing. */
 export function CodexStatus({ snapshot }: RegionProps) {
   if (!isRuntimeInstanceOf(snapshot?.backendKind, CODEX_BACKEND_KIND)) return null;
   const model = snapshot?.model?.name;
   const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Codex";
-  return <span className="status-item" title={`This thread runs the installed Codex CLI through its app server${model ? ` on ${model}` : ""}.`}><SquareTerminal size={12} /> {label}</span>;
+  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the installed Codex CLI through its app server${model ? ` on ${model}` : ""}.`}><SquareTerminal size={12} /></span>;
 }
 
 function errorMessage(error: unknown): string {

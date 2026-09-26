@@ -29,10 +29,11 @@ describe("Cursor desktop extension", () => {
     registry.activate(cursorExtension);
     expect(registry.getSettingsPages().find((page) => page.id === "cursor.settings")?.runtime).toBe("cursor");
     const item = registry.getStatusItems().find((entry) => entry.id === "cursor.runtime")!;
-    const { rerender } = render(<item.Component snapshot={{ backendKind: "cursor@work", runtimeBackends: [{ kind: "cursor@work", label: "Cursor · Work" }] } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByText("Cursor · Work")).toBeTruthy();
+    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "cursor@work", runtimeBackends: [{ kind: "cursor@work", label: "Cursor · Work" }] } as HostSnapshot} actions={{} as never} />);
+    expect(screen.getByRole("img", { name: "Cursor · Work" }).getAttribute("title")).toMatch(/^Cursor · Work: /u);
+    expect(container.textContent).toBe("");
     rerender(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByText(/Cursor/u)).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("reports the CLI, the update that is out and the account", async () => {

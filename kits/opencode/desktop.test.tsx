@@ -29,10 +29,11 @@ describe("OpenCode desktop extension", () => {
     registry.activate(openCodeExtension);
     expect(registry.getSettingsPages().find((page) => page.id === "opencode.settings")?.runtime).toBe("opencode");
     const item = registry.getStatusItems().find((entry) => entry.id === "opencode.runtime")!;
-    const { rerender } = render(<item.Component snapshot={{ backendKind: "opencode@work", runtimeBackends: [{ kind: "opencode@work", label: "OpenCode · Work" }] } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByText("OpenCode · Work")).toBeTruthy();
+    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "opencode@work", runtimeBackends: [{ kind: "opencode@work", label: "OpenCode · Work" }] } as HostSnapshot} actions={{} as never} />);
+    expect(screen.getByRole("img", { name: "OpenCode · Work" }).getAttribute("title")).toMatch(/^OpenCode · Work: /u);
+    expect(container.textContent).toBe("");
     rerender(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByText(/OpenCode/u)).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("reports the CLI, the update that is out and the providers OpenCode reaches", async () => {

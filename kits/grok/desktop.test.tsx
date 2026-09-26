@@ -26,10 +26,11 @@ describe("Grok desktop extension", () => {
     registry.activate(grokExtension);
     expect(registry.getSettingsPages().find((page) => page.id === "grok.settings")?.runtime).toBe("grok");
     const item = registry.getStatusItems().find((entry) => entry.id === "grok.runtime")!;
-    const { rerender } = render(<item.Component snapshot={{ backendKind: "grok@work", runtimeBackends: [{ kind: "grok@work", label: "Grok · Work" }] } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByText("Grok · Work")).toBeTruthy();
+    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "grok@work", runtimeBackends: [{ kind: "grok@work", label: "Grok · Work" }] } as HostSnapshot} actions={{} as never} />);
+    expect(screen.getByRole("img", { name: "Grok · Work" }).getAttribute("title")).toMatch(/^Grok · Work: /u);
+    expect(container.textContent).toBe("");
     rerender(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByText(/Grok/u)).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("reports the CLI and the login", async () => {
