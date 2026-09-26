@@ -2756,6 +2756,27 @@ its own. There is no revocation list: removing a key from
   terminates the worker and deactivates the package with the reason recorded.
   A synchronous infinite loop inside a worker's command is also survivable —
   the worker that hangs is not the main process.
+- **Worker buffer memory cap:** the heap cap does not count `ArrayBuffer`,
+  typed array and `Buffer` memory, so the host watches that separately
+  (V8's `external_memory` of the worker, read with
+  `worker.getHeapStatistics()`). Above **512 MB** it terminates the worker and
+  deactivates the package with "… exceeded its memory cap: N MB of buffers,
+  cap 512 MB". `createWorkerHostExtension` takes another cap as
+  `resourceLimits.maxExternalMb`. What it covers and what not:
+  - It is sampled, not enforced at allocation. `getHeapStatistics` interrupts
+    the worker's isolate, so it answers inside a synchronous allocation loop
+    too. A shared 50 ms timer samples every worker whose event loop ran since
+    the last tick, and each worker once a second regardless. A package that
+    allocates faster than that overshoots by what it allocates in one tick:
+    filling 4 MB `Uint8Array`s against a 64 MB cap, the tests measured
+    150–200 MB on an M-series Mac and 64–144 MB in a two-CPU Linux container.
+  - Not counted: `SharedArrayBuffer` memory, WebAssembly memory (the Node in
+    Tau's Electron leaves it out of `external_memory`), and memory a native
+    addon allocates. Tau does not limit those; only the operating system
+    does.
+  - An idle worker costs one local read of its event-loop utilization per
+    tick and one sample a second; ten idle workers measured about 0.1 % of a
+    core.
 - **A denied permission is not a failure:** reaching past the grant — a guarded
   service member, or the network without `network` — throws inside the command
   and logs `host-extension.denied`, but the package stays active. Only the
@@ -2776,7 +2797,7 @@ its own. There is no revocation list: removing a key from
 
 By default a package's host half runs in a worker thread: no Electron
 (`import "electron"` throws), no network and no `child_process` unless it asked
-for them, a 256 MB heap cap, and a facade that only carries plain data across
+for them, a 256 MB heap cap and a 512 MB buffer memory cap, and a facade that only carries plain data across
 the port — nothing that hands out a live object. From
 `src/main/host-extension-worker-protocol.ts` and ADR 0009:
 
