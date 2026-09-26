@@ -18,7 +18,7 @@ const snapshot: HostSnapshot = {
 
 afterEach(cleanup);
 
-function renderComposer(options: { streaming?: boolean; extend?: (context: DesktopExtensionContext) => void; preferences?: PreferencesStore; actions?: WorkbenchActions } = {}) {
+function renderComposer(options: { streaming?: boolean; extend?: (context: DesktopExtensionContext) => void; preferences?: PreferencesStore; actions?: WorkbenchActions; onAbort?: () => void } = {}) {
   const registry = new ExtensionRegistry();
   if (options.extend) registry.activate({ id: "test.keys", name: "Keys", activate: options.extend });
   const onSubmit = vi.fn(async (): Promise<SubmissionResult> => ({ accepted: true }));
@@ -34,7 +34,7 @@ function renderComposer(options: { streaming?: boolean; extend?: (context: Deskt
           contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
           textareaRef={createRef<HTMLTextAreaElement>()}
           onSubmit={onSubmit}
-          onAbort={() => {}}
+          onAbort={options.onAbort ?? (() => {})}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
           onSetModel={() => {}}
@@ -102,5 +102,31 @@ describe("composer keys an extension and the preferences decide", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "probe" }));
     expect(actions.notify).toHaveBeenCalledWith("hi");
+  });
+});
+
+describe("the composer's buttons while a turn runs", () => {
+  it("offers a queue button beside stop once there is a draft, and it queues a follow-up", async () => {
+    const onAbort = vi.fn();
+    const { onSubmit, textarea } = renderComposer({ streaming: true, onAbort });
+    expect(screen.queryByRole("button", { name: "Queue after this turn" })).toBeNull();
+    fireEvent.change(textarea, { target: { value: "and then the tests" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue after this turn" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("followUp");
+    fireEvent.click(screen.getByRole("button", { name: "Stop the run" }));
+    expect(onAbort).toHaveBeenCalledOnce();
+  });
+
+  it("steers from the button when a prompt hook makes steering the default", async () => {
+    const { onSubmit, textarea } = renderComposer({
+      streaming: true,
+      extend: (context) => context.registerPromptHook({ id: "steer", streamingDelivery: () => "steer" }),
+    });
+    fireEvent.change(textarea, { target: { value: "turn left" } });
+    fireEvent.click(screen.getByRole("button", { name: "Steer this turn" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("steer");
+    expect(screen.getByRole("button", { name: "Stop the run" })).toBeTruthy();
   });
 });
