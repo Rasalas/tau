@@ -1,4 +1,4 @@
-import type { UiSession } from "../shared/contracts";
+import type { UiProject, UiSession } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 
 /**
@@ -97,8 +97,17 @@ export interface ThreadListGroup {
 export interface ThreadListOptions extends ThreadOrganization {
   /** Keeps threads whose title, project or label contain it, ignoring case. */
   query?: string;
+  /** Keeps the threads of this project. */
+  project?: Pick<UiProject, "path" | "workspaceId">;
   /** How many active and settled rows show before "Show more". */
   shown?: Partial<Record<"active" | "settled", number>>;
+}
+
+/** A thread belongs to a project by its id, or by its path where one side has no id. */
+export function inProject(thread: Pick<UiSession, "workspaceId" | "projectPath">, project: Pick<UiProject, "path" | "workspaceId">): boolean {
+  return project.workspaceId !== undefined && thread.workspaceId !== undefined
+    ? thread.workspaceId === project.workspaceId
+    : thread.projectPath === project.path;
 }
 
 export const THREAD_LIST_PAGE: Record<"active" | "settled", number> = { active: 40, settled: 10 };
@@ -115,8 +124,12 @@ export function threadListGroups(
   options: ThreadListOptions = {},
 ): ThreadListGroup[] {
   const query = options.query?.trim().toLowerCase();
+  const project = options.project;
   const rows = threads
     .filter((thread) => !thread.parentThreadId || activity.waitingThreadIds.includes(thread.id))
+    // A session nobody wrote in yet (the one a host opens at start) is no thread to list.
+    .filter((thread) => thread.messageCount > 0 || activity.runningThreadIds.includes(thread.id) || activity.waitingThreadIds.includes(thread.id))
+    .filter((thread) => !project || inProject(thread, project))
     .map((thread) => rowFor(thread, activity, options))
     .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
   const pinned = rows.filter((row) => row.pinned && !row.settled).sort(worstFirst);

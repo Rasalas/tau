@@ -11,6 +11,10 @@ export interface SheetAction {
   destructive?: boolean | undefined;
   /** Why the action cannot run now; set, the row shows it and stays disabled. */
   disabledReason?: string | undefined;
+  /** A second line, e.g. a project's path. */
+  detail?: string | undefined;
+  /** The choice in force, where the sheet picks one of several. */
+  pressed?: boolean | undefined;
   run(): void;
 }
 
@@ -49,10 +53,11 @@ function ActionSheetBody({ title, actions, onClose }: { title: string; actions: 
         type="button"
         className={action.destructive ? "destructive" : undefined}
         disabled={Boolean(action.disabledReason)}
+        aria-pressed={action.pressed}
         onClick={() => { onClose(); action.run(); }}
       >
         <i aria-hidden="true">{action.Icon ? <action.Icon size={17} /> : null}</i>
-        <span>{action.label}{action.disabledReason ? <small>{action.disabledReason}</small> : null}</span>
+        <span>{action.label}{action.detail ? <small>{action.detail}</small> : null}{action.disabledReason ? <small>{action.disabledReason}</small> : null}</span>
       </button>)}
     </div>
   </div>;

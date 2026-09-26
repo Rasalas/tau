@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Trash2 } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
+import { rootLast } from "../../workbench/new-thread-project";
 import { VirtualList } from "./VirtualList";
 import { useFocusReturn } from "./ui/focus";
 
@@ -41,13 +42,15 @@ export function ProjectPicker({
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLElement>(null);
   useFocusReturn(open, surfaceRef);
+  // `/` is where an app opened from the Finder once started; never the first choice.
+  const ordered = useMemo(() => rootLast(projects), [projects]);
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return projects;
-    return projects.filter((project) =>
+    if (!needle) return ordered;
+    return ordered.filter((project) =>
       `${project.name} ${projectPath(project)}`.toLocaleLowerCase().includes(needle),
     );
-  }, [projects, query]);
+  }, [ordered, query]);
 
   useEffect(() => {
     if (!open) return;

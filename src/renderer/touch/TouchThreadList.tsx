@@ -10,6 +10,7 @@ import {
   type ThreadSupervisionRow,
   type ThreadSupervisionStatus,
 } from "../../workbench/thread-supervision";
+import type { UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { useHostClient } from "../host-client-context";
@@ -51,10 +52,10 @@ export interface TouchThreadListProps {
   actions: WorkbenchActions;
   onOpen(row: ThreadSupervisionRow): void;
   onStop(row: ThreadSupervisionRow): void;
-  /** Active rows before "Show more"; the start screen keeps it short. */
-  pageSize?: number;
   /** The next step the empty list offers; absent, the empty list only says so. */
   onNewThread?(): void;
+  /** Only this project's threads. */
+  project?: UiProject | undefined;
 }
 
 /**
@@ -64,19 +65,19 @@ export interface TouchThreadListProps {
  * commands among them. Running rows keep a stop button: supervision on a
  * phone means stopping a run without opening it.
  */
-export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread, pageSize = THREAD_LIST_PAGE.active }: TouchThreadListProps) {
+export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread, project }: TouchThreadListProps) {
   const store = useThreadStore();
   const preferences = usePreferences();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const current = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const { pinnedThreadIds, settledThreadIds } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
-  const [shown, setShown] = useState({ active: pageSize, settled: THREAD_LIST_PAGE.settled });
+  const [shown, setShown] = useState(THREAD_LIST_PAGE);
   const [openRow, setOpenRow] = useState<string>();
   const [sheetFor, setSheetFor] = useState<ThreadSupervisionRow>();
   const groups = useMemo(
-    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown }),
-    [current, pinnedThreadIds, settledThreadIds, shown, snapshot.threads],
+    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, ...(project ? { project } : {}) }),
+    [current, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
   );
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {
@@ -121,8 +122,8 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     return <>
       {connection}
       {connection ? null : <div className="touch-thread-empty">
-        <strong>No threads yet</strong>
-        <span>Start a thread to work in one of your projects.</span>
+        <strong>{project ? `No threads in ${project.name}` : "No threads yet"}</strong>
+        <span>{project ? "Start one here, or show all projects." : "Start a thread to work in one of your projects."}</span>
         {onNewThread && !readOnly ? <button type="button" onClick={onNewThread}>New thread</button> : null}
       </div>}
     </>;

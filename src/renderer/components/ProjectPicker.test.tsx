@@ -38,6 +38,15 @@ describe("ProjectPicker large catalogs", () => {
     expect(onRemove).toHaveBeenLastCalledWith(projects[1]);
   });
 
+  it("offers / last, however recently the host started in it", () => {
+    const onSelect = vi.fn();
+    const withRoot = [{ path: "/", name: "/", lastOpenedAt: 99 }, ...projects.slice(0, 2)];
+    render(<ProjectPicker open projects={withRoot} onBrowse={() => {}} onClose={() => {}} onRemove={() => {}} onSelect={onSelect} />);
+    expect(screen.getAllByRole("option").map((option) => option.textContent?.includes("Project") ?? false)).toEqual([true, true, false]);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(projects[0]);
+  });
+
   it("renders project icon image when available, falling back to initial", () => {
     const iconProjects = [
       { path: "/projects/with-icon", name: "IconProject", lastOpenedAt: 2, icon: "data:image/svg+xml;base64,abc" },

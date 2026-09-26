@@ -81,6 +81,20 @@ describe("the compact thread list", () => {
     expect(threadListGroups(threads, idle, { query: "flaky" }).flatMap((group) => group.rows.map((row) => row.id))).toEqual(["t3"]);
   });
 
+  it("lists no session nobody wrote in yet, unless it already runs", () => {
+    const blank = { ...thread("blank", 9), messageCount: 0 };
+    const ids = (activity: ThreadActivitySnapshot) => threadListGroups([thread("a", 1), blank], activity).flatMap((group) => group.rows.map((row) => row.id));
+    expect(ids(idle)).toEqual(["a"]);
+    expect(ids({ ...idle, runningThreadIds: ["blank"] })).toEqual(["blank", "a"]);
+  });
+
+  it("keeps one project's threads, named by its id or, from an older host, its path", () => {
+    const threads = [{ ...thread("a", 3), workspaceId: "ws-a", projectPath: "/a" }, { ...thread("b", 2), projectPath: "/b" }, thread("c", 1)];
+    const ids = (project: { path: string; workspaceId?: string }) => threadListGroups(threads, idle, { project }).flatMap((group) => group.rows.map((row) => row.id));
+    expect(ids({ path: "/a", workspaceId: "ws-a" })).toEqual(["a"]);
+    expect(ids({ path: "/b" })).toEqual(["b"]);
+  });
+
   it("leaves a spawned thread with its parent unless it waits for the user", () => {
     const child = { ...thread("child", 9), parentThreadId: "a" };
     expect(threadListGroups([thread("a", 1), child], idle).flatMap((group) => group.rows.map((row) => row.id))).toEqual(["a"]);
