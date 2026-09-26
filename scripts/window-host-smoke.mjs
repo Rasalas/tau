@@ -5,8 +5,10 @@
 // service takes over from the window's host, a window adopts it and leaves it
 // running, an update restarts it once without a loop, and an uninstall hands
 // the window back a host of its own.
+// Throughout, one data folder has one host: a second one started on it
+// leaves, and a host that hangs gets no twin.
 // No Electron and no model: what is under test is the process, not the UI.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -174,6 +176,31 @@ try {
   if (!JSON.stringify(bootstrap).includes("Survived the window")) fail("the adopted host lost the renamed thread");
   step("a new client adopted the running host", "the renamed thread is still there");
   await second.close();
+
+  // A host started by hand on the same data folder does not start beside it.
+  const twin = spawn(process.execPath, [HOST_ENTRY], { env: { ...options().env, TAU_USER_DATA: userData, TAU_WORKSPACE: workspace }, stdio: ["ignore", "ignore", "pipe"] });
+  let twinErrors = "";
+  twin.stderr.on("data", (chunk) => { twinErrors += String(chunk); });
+  const twinCode = await new Promise((resolve) => twin.once("exit", resolve));
+  if (twinCode !== 75) fail(`a second host on the same data folder exited with ${twinCode}: ${twinErrors}`);
+  if (!twinErrors.includes(`pid ${running.pid}`)) fail(`the second host did not name the first: ${twinErrors}`);
+  step("a second host on the same data folder did not start", twinErrors.trim().split("\n").at(-1));
+
+  // A host that holds the folder and answers nothing gets no twin, and the window is told who owns it.
+  if (process.platform === "win32") step("hung host skipped", "no SIGSTOP on Windows");
+  else {
+    process.kill(running.pid, "SIGSTOP");
+    try {
+      const waiting = new HostProcessSupervisor({ ...options(), silentOwnerTimeoutMs: 1_000, silentOwnerPollMs: 200 });
+      const refused = await waiting.start().then(() => undefined, (error) => error);
+      if (!refused) fail("a window started or adopted a host beside a hung one");
+      if (!String(refused.message).includes(`pid ${running.pid}`)) fail(`the refusal does not name the hung host: ${refused.message}`);
+      if ((await readHostDescriptor(userData))?.pid !== running.pid) fail("host.json no longer names the hung host");
+      step("no twin beside a hung host", refused.message.split(". ")[0]);
+    } finally {
+      process.kill(running.pid, "SIGCONT");
+    }
+  }
 
   // A host that dies is replaced, on the port its clients already know.
   process.kill(running.pid, "SIGKILL");
