@@ -6,15 +6,23 @@ import type {
   ThreadBackendState,
   ThreadCatalogView,
   ThreadRuntimeBackend,
+  ThreadBackendCapabilities,
 } from "./runtime-types.js";
 
+/** A Pi session another host writes: its entries, read once from the file, and where that file is. */
+export interface StoredPiSession {
+  sessionFile: string;
+  entries: readonly unknown[];
+}
+
 /**
- * Stands in for a thread whose runtime could not start (its CLI is missing, say):
- * the thread opens read-only from what its provider keeps, and every attempt to
- * run it answers with the reason. Switching to the thread again tries the real one.
+ * Stands in for a thread whose runtime could not start (its CLI is missing, say,
+ * or another host writes its Pi session): the thread opens read-only from what
+ * its provider keeps, and every attempt to run it answers with the reason.
+ * Switching to the thread again tries the real one.
  */
 export class UnavailableThreadBackend implements ThreadRuntimeBackend {
-  readonly capabilities = {};
+  readonly capabilities: ThreadBackendCapabilities;
   readonly turnReporting = "awaited" as const;
   readonly providerSessionId: string;
   readonly threadId: string;
@@ -26,7 +34,11 @@ export class UnavailableThreadBackend implements ThreadRuntimeBackend {
     readonly runtimeAdapter: AgentRuntimeAdapter,
     private readonly record: HostBackendThreadRecord,
     readonly reason: string,
+    /** A Pi thread reads as it would live: from its session entries, not from a shell. */
+    private readonly stored?: StoredPiSession,
   ) {
+    const refuse = (): never => { throw new Error(reason); };
+    this.capabilities = stored ? { journal: { entries: () => stored.entries, appendCustomEntry: refuse, appendMessage: refuse } } : {};
     this.threadId = record.threadId;
     this.providerSessionId = record.threadId;
     this.cwd = record.cwd;
@@ -49,8 +61,9 @@ export class UnavailableThreadBackend implements ThreadRuntimeBackend {
     return {
       streaming: false,
       idle: true,
-      hasMessages: this.messages.length > 0,
+      hasMessages: this.messages.length > 0 || (this.stored?.entries.length ?? 0) > 0,
       ...(this.record.title ? { title: this.record.title } : {}),
+      ...(this.stored ? { sessionFile: this.stored.sessionFile } : {}),
       activeTools: [],
       supportsImageInput: false,
       extensionCount: 0,

@@ -152,6 +152,7 @@ const hostOptions = {
   kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
   turnsInFlightPath: join(app.getPath("userData"), "turns-in-flight.json"),
+  dataFolder: app.getPath("userData"),
   queuedMessagesPath: join(app.getPath("userData"), "queued-messages.json"),
   threadLimitsPath: join(app.getPath("userData"), "thread-limits.json"),
   threadTrashDir: join(app.getPath("userData"), "thread-trash"),

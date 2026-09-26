@@ -1,5 +1,6 @@
 import type { ThreadResumeCapability } from "./runtime-types.js";
 import type { InFlightTurn } from "./turns-in-flight.js";
+import { isSessionHeldElsewhere } from "./session-locks.js";
 
 /** What the host sends a thread whose turn a restart cut short. */
 export const RESTART_CONTINUATION_PROMPT =
@@ -81,8 +82,9 @@ export async function reconcileInFlightTurns(port: TurnReconciliationPort): Prom
       result.interrupted.push(marker.sessionId);
       port.log("turns.in-flight.interrupted", `${marker.sessionId.slice(0, 8)} · ${repaired} repaired`);
     } catch (error) {
-      // One unusable marker must never stop the host from starting.
-      port.log("turns.in-flight.failed", `${marker.sessionId.slice(0, 8)}: ${port.errorMessage(error)}`);
+      // One unusable marker must never stop the host from starting. A session
+      // another host writes now is that host's; nothing here touched it.
+      port.log(isSessionHeldElsewhere(error) ? "turns.in-flight.held-elsewhere" : "turns.in-flight.failed", `${marker.sessionId.slice(0, 8)}: ${port.errorMessage(error)}`);
     }
   }
   return result;

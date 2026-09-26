@@ -239,6 +239,7 @@ async function main(): Promise<void> {
       appPath: appRoot,
       kitStateDir: join(userData, "kit-state"),
       turnsInFlightPath: join(userData, "turns-in-flight.json"),
+      dataFolder: userData,
       queuedMessagesPath: join(userData, "queued-messages.json"),
       threadLimitsPath: join(userData, "thread-limits.json"),
       threadTrashDir: join(userData, "thread-trash"),

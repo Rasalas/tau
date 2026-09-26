@@ -102,6 +102,7 @@ import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-tran
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
 import { isUnavailableBackend } from "./unavailable-thread-backend.js";
+import { isSessionHeldElsewhere } from "./session-locks.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { ClientMessageTracker } from "./client-message-tracker.js";
 import type { ThreadProjection } from "./thread-projection.js";
@@ -741,11 +742,11 @@ export class PiHost {
     try {
       return await this.runtimes.open(await this.initialSessionManager(cwd), undefined);
     } catch (error) {
-      // The last session of this workspace points at a folder that is gone
-      // (Pi refuses to resume it); a fresh session in the workspace is the
-      // right answer at startup, where nobody chose that session.
-      if (!(error instanceof Error && error.name === "MissingSessionCwdError")) throw error;
-      this.log("session.cwd-missing", this.errorMessage(error));
+      // The last session of this workspace points at a folder that is gone, or
+      // another host writes it; a fresh session in the workspace is the right
+      // answer at startup, where nobody chose that session.
+      if (!(error instanceof Error && (error.name === "MissingSessionCwdError" || isSessionHeldElsewhere(error)))) throw error;
+      this.log(isSessionHeldElsewhere(error) ? "session.held-elsewhere" : "session.cwd-missing", this.errorMessage(error));
       return this.runtimes.open(SessionManager.create(cwd, this.sessionsDirOverride), undefined);
     }
   }
