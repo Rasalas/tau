@@ -8,7 +8,7 @@
 // there. A systemd unit's `Wants=`/`BindsTo=` start with it, and a unit bound
 // to one that stops stops too (the display's Xvfb and window). Task Scheduler
 // is not faked. Never used by the app.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +40,9 @@ export function parseSystemdUnit(text, home) {
   const exec = /^ExecStart=(.*)$/mu.exec(text)?.[1] ?? "";
   const program = [...exec.matchAll(/"((?:\\.|[^"\\])*)"/gu)].map((match) => systemdText(match[1]).replaceAll("$$", "$"));
   const log = (/^StandardOutput=append:(.*)$/mu.exec(text)?.[1] ?? "").replaceAll("%%", "%");
-  return { program, env, cwd: home, log };
+  // Written unquoted; a leading "-" means a failure is ignored.
+  const before = [...text.matchAll(/^ExecStartPre=(-?)(.*)$/gmu)].map((match) => ({ program: match[2].trim().split(/\s+/u), optional: match[1] === "-" }));
+  return { program, env, cwd: home, log, ...(before.length > 0 ? { before } : {}) };
 }
 
 /** The units a unit pulls in (`Wants=`, `BindsTo=`) and the ones it stops with (`BindsTo=`). */
@@ -142,7 +144,13 @@ function startUnit(directory, state, name) {
     if (code !== 0 && systemdDependencies(text).bindsTo.includes(dependency)) return code;
   }
   const entry = (state[name] ??= {});
-  if (!alive(entry.pid)) entry.pid = start(parseSystemdUnit(text, process.env.HOME));
+  if (alive(entry.pid)) return 0;
+  const unit = parseSystemdUnit(text, process.env.HOME);
+  for (const step of unit.before ?? []) {
+    const result = spawnSync(step.program[0], step.program.slice(1), { stdio: "ignore" });
+    if (result.status !== 0 && !step.optional) { console.error(`${name}: ExecStartPre failed.`); return 1; }
+  }
+  entry.pid = start(unit);
   return 0;
 }
 

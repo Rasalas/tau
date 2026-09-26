@@ -121,6 +121,7 @@ describe("the invisible display", () => {
     const xvfb = renderXvfbUnit(display, "/home/me/logs/xvfb.log");
     expect(xvfb).toContain('ExecStart="/usr/bin/Xvfb" ":101" "-nolisten" "tcp" "-screen" "0" "1920x1080x24" "-auth" "/home/me/.config/tau/display/Xauthority"');
     expect(xvfb).not.toContain("[Install]");
+    expect(xvfb).toContain("ExecStartPre=-/bin/mkdir -p -m 1777 /tmp/.X11-unix\nExecStart=");
     const host = renderSystemdUnit(spec, display);
     expect(host).toContain("Wants=tau-xvfb.service\nAfter=tau-xvfb.service");
     expect(renderSystemdUnit(spec)).not.toContain("Wants=");

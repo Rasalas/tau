@@ -261,6 +261,8 @@ export function renderXauthority(number: number, cookie: Buffer): Buffer {
   return Buffer.concat([family, field(Buffer.alloc(0)), field(Buffer.from(String(number))), field(Buffer.from("MIT-MAGIC-COOKIE-1")), field(cookie)]);
 }
 
+const X11_SOCKET_DIRECTORY_COMMAND = ["/bin/mkdir", "-p", "-m", "1777", "/tmp/.X11-unix"];
+
 /** Xvfb on `:N`, no TCP, with a cookie. The host unit wants it, so it has no `[Install]`. */
 export function renderXvfbUnit(display: HostDisplaySpec, logPath: string): string {
   const command = [display.xvfb, `:${display.number}`, "-nolisten", "tcp", "-screen", "0", DISPLAY_SCREEN, "-auth", display.authPath];
@@ -272,6 +274,8 @@ export function renderXvfbUnit(display: HostDisplaySpec, logPath: string): strin
     "",
     "[Service]",
     "Type=simple",
+    // systemd-tmpfiles makes it at boot; a container has none, and Xvfb cannot make it without root.
+    `ExecStartPre=-${X11_SOCKET_DIRECTORY_COMMAND.join(" ")}`,
     `ExecStart=${command.map((argument) => systemdQuote(argument, true)).join(" ")}`,
     "Restart=on-failure",
     "RestartSec=2",

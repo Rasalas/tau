@@ -31,6 +31,8 @@ describe("the fake service manager reads the units Tau writes", () => {
   it("the display's units and what each pulls in", () => {
     expect(parseSystemdUnit(renderXvfbUnit(display, "/home/me/logs/xvfb.log"), "/home/me").program)
       .toEqual(["/usr/bin/Xvfb", ":99", "-nolisten", "tcp", "-screen", "0", "1920x1080x24", "-auth", "/home/me/100%/Xauthority"]);
+    expect(parseSystemdUnit(renderXvfbUnit(display, "/home/me/logs/xvfb.log"), "/home/me").before)
+      .toEqual([{ program: ["/bin/mkdir", "-p", "-m", "1777", "/tmp/.X11-unix"], optional: true }]);
     const window = renderWindowUnit(display, "tau-host.service");
     expect(parseSystemdUnit(window, "/home/me")).toEqual({ program: display.window.program, env: display.window.env, cwd: "/home/me", log: display.window.logPath });
     expect(systemdDependencies(window)).toEqual({ pulls: ["tau-xvfb.service", "tau-host.service"], bindsTo: ["tau-xvfb.service", "tau-host.service"] });
