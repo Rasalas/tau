@@ -7,7 +7,13 @@ import { createMemoryStorage, setClientStorage } from "../workbench/client-stora
 import type { DesktopExtension, PanelProps } from "./extension-system";
 import { renderApp } from "./test-support/render-app";
 
-afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
+/** jsdom's window is 1024 wide unless a test says otherwise. */
+function setWindowWidth(width: number): void {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  window.dispatchEvent(new Event("resize"));
+}
+
+afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setWindowWidth(1024); });
 
 /** Counts its own clicks, so a remount would show as a reset counter. */
 function Counter({ placement, active }: PanelProps) {
@@ -98,9 +104,9 @@ describe("workbench layout", () => {
     renderApp(undefined, { extensions: [panels] });
     fireEvent.click(await screen.findByRole("button", { name: "Fixed" }));
     await screen.findByText("fixed panel");
-    expect(screen.queryByRole("button", { name: /as a tab/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Maximize / })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Counter" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open Counter as a tab" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Maximize Counter" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     fireEvent.click(within(stage).getByRole("button", { name: "Close Counter" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
@@ -111,7 +117,7 @@ describe("workbench layout", () => {
   it("stands the dock's panel down while it is a tab, and moves it back from there", async () => {
     renderApp(undefined, { extensions: [panels] });
     fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open Counter as a tab" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Maximize Counter" }));
     await screen.findByRole("region", { name: "Stage" });
     fireEvent.click(screen.getByRole("button", { name: "Show panel" }));
     expect(await screen.findByText("Counter is open as a tab.")).toBeTruthy();
@@ -155,12 +161,100 @@ describe("workbench layout", () => {
     fireEvent.change(within(palette).getByRole("textbox", { name: "Command" }), { target: { value: "Open shell" } });
     fireEvent.keyDown(within(palette).getByRole("textbox", { name: "Command" }), { key: "Enter", bubbles: true, cancelable: true });
     const drawer = await screen.findByRole("region", { name: "Shell" });
-    fireEvent.click(within(drawer).getByRole("button", { name: "Open Shell as a tab" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Maximize Shell" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     expect(within(stage).getByText("shell drawer")).toBeTruthy();
     expect(view.container.querySelector(".workbench-drawer")).toBeNull();
     // openPanel on a maximized panel brings its tab forward rather than drawing it again.
     act(() => open?.("shell"));
     expect(screen.getAllByText("shell drawer")).toHaveLength(1);
+  });
+
+  describe("chat beside the stage", () => {
+    const files: DesktopExtension = { id: "test.files", name: "File opener", activate(plugin) {
+      plugin.registerCommand({ id: "test.open-file", label: "Open the fixture file", group: "Test", run: (actions) => actions.openFile("/project/notes.txt") });
+      plugin.registerCommand({ id: "test.open-other", label: "Open the other fixture", group: "Test", run: (actions) => actions.openFile("/project/other.txt", { pin: true }) });
+    } };
+    async function openFile(label = "Open the fixture file"): Promise<HTMLElement> {
+      pressMod("k");
+      const palette = await screen.findByRole("dialog", { name: "Command palette" });
+      const input = within(palette).getByRole("textbox", { name: "Command" });
+      fireEvent.change(input, { target: { value: label } });
+      fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+      return screen.findByRole("region", { name: "Stage" });
+    }
+
+    it("folds the dock to its rail for a file, keeps the chat beside it, and brings the dock back when the file closes", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, panels, files] });
+      fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+      expect(shell(view.container).style.getPropertyValue("--dock-width")).toBe("320px");
+      const stage = await openFile();
+      expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
+      expect(shell(view.container).className).toContain("dock-closed");
+      expect(shell(view.container).style.getPropertyValue("--dock-width")).toBe("0px");
+      expect(view.container.querySelector(".workbench-center")?.className).not.toContain("compact");
+
+      fireEvent.click(within(stage).getByRole("button", { name: "Close notes.txt" }));
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
+      expect(shell(view.container).className).not.toContain("dock-closed");
+      expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
+    });
+
+    it("leaves the dock open once the user asks for it, with the chat in the first tab, until a new tab asks for room", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, panels, files] });
+      fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+      const stage = await openFile();
+      expect(shell(view.container).className).toContain("dock-closed");
+      fireEvent.click(screen.getByRole("button", { name: "Counter" }));
+      await waitFor(() => expect(shell(view.container).className).not.toContain("dock-closed"));
+      expect(within(stage).getByRole("tab", { name: "Chat" }).getAttribute("aria-selected")).toBe("false");
+      expect(within(stage).queryByRole("button", { name: "Maximize stage" })).toBeNull();
+
+      await openFile("Open the other fixture");
+      await waitFor(() => expect(shell(view.container).className).toContain("dock-closed"));
+      expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
+    });
+
+    it("maximizes the stage into the same tabs, the chat first, and puts the chat back beside it", async () => {
+      setWindowWidth(1728);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      const stage = await openFile();
+      const center = () => view.container.querySelector(".workbench-center")?.className ?? "";
+      expect(center()).not.toContain("compact");
+      fireEvent.click(within(stage).getByRole("button", { name: "Maximize stage" }));
+      const chat = within(stage).getByRole("tab", { name: "Chat" });
+      expect(chat.getAttribute("aria-selected")).toBe("false");
+      expect(within(stage).getByRole("tab", { name: /notes\.txt/ }).getAttribute("aria-selected")).toBe("true");
+      expect(center()).toContain("compact");
+      fireEvent.click(chat);
+      expect(center()).toContain("chat-focused");
+
+      fireEvent.click(within(stage).getByRole("button", { name: "Show chat beside the stage" }));
+      expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
+      expect(center()).not.toContain("compact");
+    });
+
+    it("maximizes a dock panel over the whole centre, and moving it back puts the chat beside the stage again", async () => {
+      setWindowWidth(1728);
+      renderApp(undefined, { extensions: [panels] });
+      fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Maximize Counter" }));
+      const stage = await screen.findByRole("region", { name: "Stage" });
+      expect(within(stage).getByRole("tab", { name: "Chat" })).toBeTruthy();
+      expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+      pressMod("b", { altKey: true, shiftKey: true });
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
+      expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
+    });
+
+    it("keeps a window too narrow for both in tabs, with nothing to restore", async () => {
+      setWindowWidth(1000);
+      renderApp(undefined, { extensions: [rail, files] });
+      const stage = await openFile();
+      expect(within(stage).getByRole("tab", { name: "Chat" })).toBeTruthy();
+      expect(within(stage).queryByRole("button", { name: "Maximize stage" })).toBeNull();
+    });
   });
 });

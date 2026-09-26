@@ -168,7 +168,7 @@ export default function App() {
   const panelIds = useMemo(() => panels.filter((panel) => panel.placement !== "drawer").map((panel) => panel.id), [panels]);
   // The stage and the dock belong to the workspace, and outlive the window.
   const {
-    stage, setStage, dockOpen, setDockOpen, activePanel, setActivePanel,
+    stage, setStage, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
     openedPanels, dockWidth, setDockWidth, drawer, setDrawer, resetStage,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
@@ -183,11 +183,9 @@ export default function App() {
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
   const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage });
-  // Below this many pixels the centre cannot hold chat and stage side by side;
-  // the chat then joins the stage's tab strip instead of losing the thread list.
-  const [centerCompact, setCenterCompact] = useState(false);
+  // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
   const [chatFocused, setChatFocused] = useState(false);
-  const centerRef = useRef<HTMLDivElement>(null);
+  const [stageMaximized, setStageMaximized] = useState(false);
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
@@ -433,7 +431,7 @@ export default function App() {
   // Dock, drawer or stage tab: where each panel shows, and the moves between them.
   const panelLayout = usePanelLayout({
     panels, stage, setStage, stageTabs, dockOpen, setDockOpen, activePanel, setActivePanel, drawer, setDrawer,
-    showStage: () => setChatFocused(false),
+    showStage: () => setChatFocused(false), setStageMaximized,
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
     sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
   });
@@ -601,17 +599,16 @@ export default function App() {
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
-    openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockWidth, onDockWidthChange: setDockWidth,
-    centerRef, centerCompact, setCenterCompact,
-    chatFocused, setChatFocused, stage, stageTabs, activateStageTab: activateStage,
+    openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth, onDockWidthChange: setDockWidth,
+    chatFocused, setChatFocused, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay,
   }), [
-    activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
+    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
-    documentSource, documentState, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
+    documentSource, documentState, dockAsks, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,

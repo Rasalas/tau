@@ -42,6 +42,8 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
   const [dock, setDock] = useState<DockState>(EMPTY_DOCK);
   /** Which workspace the state on screen came from; state, so clearing it restores again. */
   const [restoredFor, setRestoredFor] = useState<string>();
+  /** Counts calls that show, hide or pick a dock panel; a restore is not one. */
+  const [dockAsks, setDockAsks] = useState(0);
 
   useEffect(() => {
     if (!workspaceKey || restoredFor === workspaceKey) return;
@@ -70,17 +72,23 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     return () => window.clearTimeout(timer);
   }, [dock, restoredFor, storage, workspaceKey]);
 
-  const setDockOpen = useCallback((open: SetStateAction<boolean>) => setDock((current) => {
-    const next = typeof open === "function" ? open(current.open) : open;
-    return current.open === next ? current : { ...current, open: next };
-  }), []);
-  const setActivePanel = useCallback((activePanel: string) => setDock((current) => {
-    if (current.activePanel === activePanel) return current;
-    const openedPanels = !activePanel || current.openedPanels.includes(activePanel)
-      ? current.openedPanels
-      : [...current.openedPanels, activePanel];
-    return { ...current, activePanel, openedPanels };
-  }), []);
+  const setDockOpen = useCallback((open: SetStateAction<boolean>) => {
+    setDockAsks((count) => count + 1);
+    setDock((current) => {
+      const next = typeof open === "function" ? open(current.open) : open;
+      return current.open === next ? current : { ...current, open: next };
+    });
+  }, []);
+  const setActivePanel = useCallback((activePanel: string) => {
+    setDockAsks((count) => count + 1);
+    setDock((current) => {
+      if (current.activePanel === activePanel) return current;
+      const openedPanels = !activePanel || current.openedPanels.includes(activePanel)
+        ? current.openedPanels
+        : [...current.openedPanels, activePanel];
+      return { ...current, activePanel, openedPanels };
+    });
+  }, []);
   const setDrawer = useCallback((drawer: string | undefined) => setDock((current) => {
     if (current.drawer === drawer) return current;
     const { drawer: _closed, ...rest } = current;
@@ -97,7 +105,7 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
 
   return {
     stage, setStage,
-    dockOpen: dock.open, setDockOpen,
+    dockOpen: dock.open, setDockOpen, dockAsks,
     activePanel, setActivePanel,
     openedPanels,
     dockWidth: dock.width, setDockWidth,
