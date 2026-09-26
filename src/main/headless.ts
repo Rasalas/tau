@@ -43,7 +43,7 @@ import { ClientCalls } from "./client-calls.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
-import { resolveStartupWorkspace } from "./startup-workspace.js";
+import { requestedHostWorkspace, resolveStartupWorkspace } from "./startup-workspace.js";
 import { IdleHeapCompactor } from "./host-idle-compaction.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { KeepAwake } from "./keep-awake.js";
@@ -83,8 +83,7 @@ const serviceKind = process.env[HOST_SERVICE_ENV] || undefined;
 const supervised = Boolean(process.env.TAU_HOST_VERSION || serviceKind);
 /** Spawned by a window's own supervisor: a client is already on its way. */
 const windowSpawned = Boolean(process.env.TAU_HOST_VERSION) && !serviceKind;
-// A service runs from the home folder and nobody names a workspace for it: it opens the last project.
-const workspace = requestedWorkspace ?? (serviceKind ? undefined : process.cwd());
+const workspace = requestedHostWorkspace({ requested: requestedWorkspace, service: Boolean(serviceKind), windowSpawned, cwd: process.cwd() });
 // The built browser client, when there is one; `npm run build:web` writes it.
 const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
