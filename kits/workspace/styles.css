@@ -424,65 +424,26 @@
 }
 .thread-pagination-row:hover .thread-main { color: var(--ink-3); }
 
-.folder-browser { min-height: 420px; display: flex; flex-direction: column; }
-.folder-browser-path {
-  display: flex; align-items: center; gap: 9px; min-height: 50px; padding: 0 12px;
-  border-bottom: 1px solid var(--line);
-}
-.folder-browser-path > button {
-  display: flex; align-items: center; gap: 6px; border: 0; background: transparent;
-  color: var(--ink-3); cursor: pointer;
-}
-.folder-browser-path > input {
-  flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
-  color: var(--ink); font: 13px var(--mono);
-}
-.folder-browser-path > input::placeholder { color: var(--muted); opacity: 1; }
-.folder-browser-path .folder-add {
-  border: 1px solid var(--line-control); border-radius: 7px; padding: 6px 8px;
-  font: 600 11px var(--sans);
-}
-.folder-browser-heading {
-  display: flex; gap: 10px; padding: 12px 16px 6px; color: var(--muted); font: 600 11px var(--sans);
-}
-.folder-browser-heading small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 10px var(--mono); }
-.folder-browser-results { flex: 1; min-height: 0; max-height: 350px; overflow: auto; padding: 4px 9px 10px; }
+.folder-browser { display: flex; flex-direction: column; }
+.folder-browser .project-modal-bar > input { font: 13px var(--mono); }
+.folder-browser-results { min-height: 0; max-height: 340px; overflow: auto; padding: 4px 8px 8px; }
 .folder-browser-results > button {
-  width: 100%; display: flex; align-items: center; gap: 10px; min-height: 38px;
-  padding: 0 10px; border: 0; border-radius: 7px; background: transparent;
-  color: var(--ink-2); text-align: left; cursor: pointer;
+  width: 100%; display: flex; align-items: center; gap: 10px; min-height: 34px;
+  padding: 0 10px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink-2); font-size: 12.5px; text-align: left; cursor: pointer;
 }
+.folder-browser-results > button svg { flex: none; color: var(--muted); }
+.folder-browser-results > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-browser-results > p { margin: 0; padding: 16px 10px; color: var(--faint); font-size: 12px; }
 
-.folder-browser-results > button svg { color: var(--muted); }
-.folder-browser-results > p { margin: 12px 10px; color: var(--faint); font-size: 12px; }
-.folder-browser-error { color: var(--removed) !important; }
-.folder-browser > footer {
-  min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px;
-  border-top: 1px solid var(--line); color: var(--faint); font-size: 11px;
+.clone-project-form { display: flex; flex-direction: column; }
+.clone-project-form .project-modal-bar > input { font: 13px var(--mono); }
+.clone-project-destination {
+  display: flex; align-items: center; gap: 10px; min-width: 0; margin: 4px 8px 8px; padding: 9px 10px;
+  color: var(--muted); font-size: 12.5px;
 }
-
-.clone-project-form { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-.clone-project-form label { display: flex; flex-direction: column; gap: 7px; }
-.clone-project-form label > span { font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint); }
-.clone-project-form input {
-  border: 1px solid var(--line-control); border-radius: 8px; background: var(--sunken);
-  color: var(--ink); padding: 10px 12px; font-size: 13px; outline: none;
-}
-.clone-project-form input:focus { border-color: var(--line-field); }
-.clone-project-form input::placeholder { color: var(--faint); }
-.clone-project-form label > small { font-size: 11px; color: var(--muted); line-height: 1.5; }
-.clone-project-destination { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.clone-project-destination > span { font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint); }
-.clone-project-destination > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: 12px var(--mono); }
-.clone-project-destination > small { font-size: 11px; color: var(--muted); line-height: 1.5; }
-.clone-project-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.clone-project-actions button {
-  border: 1px solid var(--line-control); border-radius: 8px; background: transparent;
-  color: var(--ink-3); font: 500 12px var(--sans); padding: 8px 14px; cursor: pointer;
-}
-.clone-project-actions button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-
-.clone-project-actions button:disabled { opacity: .5; cursor: default; }
+.clone-project-destination > svg { flex: none; }
+.clone-project-destination > code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: 12px var(--mono); }
 
 /* Settings → Storage: the cleanup rules and the worktrees Tau made. */
 .workspace-storage-scope { max-width: 320px; }
