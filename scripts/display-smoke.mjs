@@ -3,7 +3,9 @@
 // Xvfb and the host with its DISPLAY; a preview call finds no window, so the
 // host starts the window unit; the window says hello on the display and the
 // preview hands back a frame. Stopped, the window starts again on the next
-// call; uninstalled, nothing is left running.
+// call; uninstalled, nothing is left running. The manager carries a Wayland
+// desktop session's environment, as on a machine with a desktop: neither the
+// window nor a shell of the host may see it.
 // Linux with Xvfb only; elsewhere it says why and passes.
 import { execFileSync } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -166,6 +168,13 @@ const env = {
 };
 delete env.DISPLAY;
 delete env.ELECTRON_RUN_AS_NODE;
+// What a Wayland desktop session puts into the user manager and a terminal on that desktop.
+const DESKTOP = { WAYLAND_DISPLAY: "wayland-0", WAYLAND_SOCKET: "3", XDG_SESSION_TYPE: "wayland" };
+Object.assign(env, DESKTOP);
+const FAKE_MANAGER = join(ROOT, "scripts", "fake-service-manager.mjs");
+execFileSync(process.execPath, [FAKE_MANAGER, "systemctl", "--user", "set-environment", ...Object.entries(DESKTOP).map(([key, value]) => `${key}=${value}`)], { env, stdio: "inherit" });
+/** The desktop's variables a process started with. */
+const desktopIn = (pid) => readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").filter((entry) => Object.keys(DESKTOP).includes(entry.split("=")[0]));
 const manager = new HostServiceManager({ execPath: electronPath, entry: HOST_ENTRY, userData, env, home });
 const windowUnit = manager.names.unit.replace("tau-host", "tau-window");
 const xvfbUnit = manager.names.unit.replace("tau-host", "tau-xvfb");
@@ -196,8 +205,9 @@ try {
   const descriptor = await readHostDescriptor(userData);
   const hostEnv = readFileSync(`/proc/${descriptor.pid}/environ`, "utf8").split("\0");
   if (!hostEnv.includes(`DISPLAY=:${number}`) || !hostEnv.some((entry) => entry.startsWith("XAUTHORITY="))) fail(`the host has no DISPLAY: ${hostEnv.filter((entry) => /DISPLAY|XAUTH/u.test(entry)).join(" ")}`);
+  if (desktopIn(descriptor.pid).length > 0) fail(`the host has the desktop's Wayland: ${desktopIn(descriptor.pid).join(" ")}`);
   if (alive(unitPid(windowUnit))) fail("the window started before anything needed it");
-  step("Xvfb and the host run, the window does not", `host pid ${descriptor.pid} has DISPLAY=:${number}`);
+  step("Xvfb and the host run, the window does not", `host pid ${descriptor.pid} has DISPLAY=:${number} and no WAYLAND_DISPLAY`);
 
   const token = readFileSync(descriptor.tokenPath, "utf8").trim();
   client = createClient(descriptor.url, token);
@@ -210,6 +220,10 @@ try {
   const opened = await preview("open", { url: pageUrl });
   if (!alive(unitPid(windowUnit))) fail("the preview opened without the window unit running");
   step("a preview call started the window unit", `${((Date.now() - started) / 1000).toFixed(1)} s, page ${opened?.url ?? "?"}`);
+  const windowArgs = readFileSync(`/proc/${unitPid(windowUnit)}/cmdline`, "utf8").split("\0");
+  if (desktopIn(unitPid(windowUnit)).length > 0) fail(`the window has the desktop's Wayland: ${desktopIn(unitPid(windowUnit)).join(" ")}`);
+  if (!windowArgs.includes("--ozone-platform=x11")) fail(`the window is not told to use X11: ${windowArgs.join(" ")}`);
+  step("the window runs on X11, without the desktop's Wayland");
 
   let lastError;
   const frame = async () => {
@@ -225,6 +239,20 @@ try {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || shot.width <= 0 || shot.height <= 0) fail(`the frame is no picture: ${shot.width}×${shot.height}, ${bytes.length} bytes`);
   if (process.env.TAU_SMOKE_FRAME) writeFileSync(process.env.TAU_SMOKE_FRAME, bytes);
   step("the window on the display drew the page", `${shot.width}×${shot.height} JPEG, ${bytes.length} bytes`);
+
+  // A terminal stands for every shell the host starts: agents' commands and project scripts inherit the same environment.
+  const terminal = await client.request("host-extension", ["tau.terminal", "open", {}]);
+  await client.request("host-extension", ["tau.terminal", "input", { id: terminal.id, data: "printf 'ENV%s [%s] [%s] [%s] [%s]\\n' OK \"$DISPLAY\" \"$WAYLAND_DISPLAY\" \"$WAYLAND_SOCKET\" \"$XDG_SESSION_TYPE\"\n" }]);
+  let seen;
+  await waitFor(async () => {
+    const replay = await client.request("host-extension", ["tau.terminal", "replay", { id: terminal.id }]);
+    seen = /ENVOK \[([^\]]*)\] \[([^\]]*)\] \[([^\]]*)\] \[([^\]]*)\]/u.exec(replay?.data ?? "");
+    return Boolean(seen);
+  }, "the terminal to print its environment");
+  await client.request("host-extension", ["tau.terminal", "kill", { id: terminal.id }]);
+  if (seen[1] !== `:${number}`) fail(`the terminal has DISPLAY=${seen[1]}`);
+  if (seen.slice(2).some(Boolean)) fail(`the terminal has the desktop's Wayland: ${seen[0]}`);
+  step("a terminal of the host has the display and not the desktop's Wayland", seen[0]);
 
   const firstWindow = unitPid(windowUnit);
   await manager.stopWindow();
