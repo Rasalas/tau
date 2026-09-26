@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOST_CORE_PRINCIPAL } from "./host-invocation.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { writeHostDescriptor } from "./host-process-supervisor.js";
-import { HostServiceManager, createHostServiceMethods, serviceCommandRunner, type ServiceCommandResult, type ServiceStep } from "./host-service.js";
+import { HostServiceManager, abstractX11Displays, createHostServiceMethods, serviceCommandRunner, type ServiceCommandResult, type ServiceStep } from "./host-service.js";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -217,6 +217,17 @@ describe("the host service on Linux", () => {
 });
 
 describe("the invisible display on Linux", () => {
+  it("counts a display another network-namespace peer listens on as taken", () => {
+    const table = [
+      "Num       RefCount Protocol Flags    Type St Inode Path",
+      "0000000000000000: 00000002 00000000 00010000 0001 01 1234 @/tmp/.X11-unix/X99",
+      "0000000000000000: 00000003 00000000 00000000 0001 03 1256 @/tmp/.X11-unix/X0",
+      "0000000000000000: 00000002 00000000 00010000 0001 01 1235 /tmp/.X11-unix/X101",
+    ].join("\n");
+    expect([...abstractX11Displays(table)].sort()).toEqual([0, 99]);
+  });
+
+
   it("adds Xvfb and a window unit, a private cookie, and DISPLAY for the host", async () => {
     const { service, units, userData, calls } = manager("linux", { displayTaken: (number) => number < 101 });
     await service.install({ display: true });

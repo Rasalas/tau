@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { accessSync, constants, existsSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
@@ -250,7 +250,9 @@ export class HostServiceManager {
   }
 
   private freeDisplayNumber(): number {
-    const taken = this.options.displayTaken ?? ((number: number) => existsSync(`/tmp/.X${number}-lock`) || existsSync(`/tmp/.X11-unix/X${number}`));
+    const listening = abstractX11Displays(procNetUnix());
+    const taken = this.options.displayTaken
+      ?? ((number: number) => listening.has(number) || existsSync(`/tmp/.X${number}-lock`) || existsSync(`/tmp/.X11-unix/X${number}`));
     for (let number = FIRST_DISPLAY_NUMBER; number <= LAST_DISPLAY_NUMBER; number++) if (!taken(number)) return number;
     throw new HostServiceError(`Every display from :${FIRST_DISPLAY_NUMBER} to :${LAST_DISPLAY_NUMBER} is in use.`);
   }
@@ -606,4 +608,20 @@ export function createHostServiceMethods(manager: () => HostServiceManager | und
       return service.status(self);
     }),
   };
+}
+
+/**
+ * Displays with an abstract X socket. A container that shares the network
+ * namespace has its own `/tmp` but the same abstract sockets, so the files alone miss them.
+ */
+export function abstractX11Displays(socketTable: string): Set<number> {
+  return new Set([...socketTable.matchAll(/ @\/tmp\/\.X11-unix\/X(\d+)$/gmu)].map((match) => Number(match[1])));
+}
+
+function procNetUnix(): string {
+  try {
+    return readFileSync("/proc/net/unix", "utf8");
+  } catch {
+    return "";
+  }
 }
