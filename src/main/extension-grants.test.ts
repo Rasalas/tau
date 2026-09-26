@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { grantPackage, isPackageGranted, readExtensionGrants, writeExtensionGrants } from "./extension-grants.js";
+import { defaultGrantsFilePath, grantPackage, isPackageGranted, readExtensionGrants, writeExtensionGrants } from "./extension-grants.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -15,6 +15,12 @@ afterEach(async () => {
 });
 
 describe("extension-grants", () => {
+  it("lives in ~/.tau unless TAU_EXTENSION_GRANTS_FILE names another file", () => {
+    expect(defaultGrantsFilePath("/home/me", {})).toBe(join("/home/me", ".tau", "extension-grants.json"));
+    expect(defaultGrantsFilePath("/home/me", { TAU_EXTENSION_GRANTS_FILE: "/dev/tau/grants.json" })).toBe("/dev/tau/grants.json");
+  });
+
+
   it("reads empty grants when file does not exist", async () => {
     const dir = await scratch();
     const file = join(dir, "grants.json");

@@ -270,6 +270,7 @@ async function main() {
     TAU_CONFIG_FILE: configFile,
     TAU_WORKTREES_DIR: worktreesDir,
     TAU_THEMES_DIR: themesDir,
+    TAU_EXTENSION_GRANTS_FILE: join(DEV_DIR, "extension-grants.json"),
     TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     CODEX_HOME: codexHome,
     TAU_OPENCODE_HOME: openCodeHome,

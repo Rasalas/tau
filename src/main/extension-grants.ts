@@ -16,8 +16,9 @@ export interface ExtensionGrantsFile {
   grants: ExtensionGrant[];
 }
 
-export function defaultGrantsFilePath(home = homedir()): string {
-  return join(home, ".tau", "extension-grants.json");
+/** `TAU_EXTENSION_GRANTS_FILE` keeps a test instance's approvals out of the user's own file. */
+export function defaultGrantsFilePath(home = homedir(), env: NodeJS.ProcessEnv = process.env): string {
+  return env.TAU_EXTENSION_GRANTS_FILE?.trim() || join(home, ".tau", "extension-grants.json");
 }
 
 export async function readExtensionGrants(filePath = defaultGrantsFilePath()): Promise<ExtensionGrantsFile> {
