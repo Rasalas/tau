@@ -6,8 +6,10 @@
 // with the unit's environment, and keeps the pid in a state file beside the
 // units (TAU_SERVICE_UNIT_DIR). Every call is appended to `.fake-calls.log`
 // there. A systemd unit's `Wants=`/`BindsTo=` start with it, and a unit bound
-// to one that stops stops too (the display's Xvfb and window). Task Scheduler
-// is not faked. Never used by the app.
+// to one that stops stops too (the display's Xvfb and window). Like systemd's
+// user manager it has an environment of its own (`set-environment`), which
+// every unit inherits unless it says `UnsetEnvironment=`. Task Scheduler is not
+// faked. Never used by the app.
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -42,7 +44,23 @@ export function parseSystemdUnit(text, home) {
   const log = (/^StandardOutput=append:(.*)$/mu.exec(text)?.[1] ?? "").replaceAll("%%", "%");
   // Written unquoted; a leading "-" means a failure is ignored.
   const before = [...text.matchAll(/^ExecStartPre=(-?)(.*)$/gmu)].map((match) => ({ program: match[2].trim().split(/\s+/u), optional: match[1] === "-" }));
-  return { program, env, cwd: home, log, ...(before.length > 0 ? { before } : {}) };
+  const unset = [...text.matchAll(/^UnsetEnvironment=(.*)$/gmu)].flatMap((match) => match[1].trim().split(/\s+/u)).filter(Boolean);
+  return { program, env, cwd: home, log, ...(before.length > 0 ? { before } : {}), ...(unset.length > 0 ? { unset } : {}) };
+}
+
+/**
+ * What a unit's process gets, as systemd composes it: the manager's
+ * environment, then the unit's, then `UnsetEnvironment=` over both. An entry
+ * there is a name, or a `NAME=value` that removes only that exact assignment.
+ */
+export function unitEnvironment(managerEnv, unit) {
+  const env = { ...managerEnv, ...unit.env };
+  for (const entry of unit.unset ?? []) {
+    const equals = entry.indexOf("=");
+    if (equals === -1) delete env[entry];
+    else if (env[entry.slice(0, equals)] === entry.slice(equals + 1)) delete env[entry.slice(0, equals)];
+  }
+  return env;
 }
 
 /** The units a unit pulls in (`Wants=`, `BindsTo=`) and the ones it stops with (`BindsTo=`). */
@@ -72,15 +90,23 @@ function writeState(directory, state) {
   writeFileSync(join(directory, ".fake-state.json"), `${JSON.stringify(state, null, 2)}\n`);
 }
 
-/** A service manager's environment is its own, not the caller's: only the login basics and the unit's. */
-function start(unit) {
+function readManagerEnv(directory) {
+  try { return JSON.parse(readFileSync(join(directory, ".fake-manager-env.json"), "utf8")); } catch { return {}; }
+}
+
+/** A service manager's environment is its own, not the caller's: the login basics and what `set-environment` added. */
+function managerEnvironment(directory) {
   const base = {};
   for (const key of ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "ZDOTDIR", "SystemRoot"]) if (process.env[key]) base[key] = process.env[key];
+  return { ...base, ...readManagerEnv(directory) };
+}
+
+function start(unit, directory) {
   mkdirSync(dirname(unit.log), { recursive: true });
   const log = openSync(unit.log, "a");
   const child = spawn(unit.program[0], unit.program.slice(1), {
     cwd: unit.cwd || process.env.HOME,
-    env: { ...base, ...unit.env },
+    env: unitEnvironment(managerEnvironment(directory), unit),
     stdio: ["ignore", log, log],
     detached: true,
   });
@@ -106,7 +132,7 @@ async function launchctl(args, directory, state) {
       const plist = rest.at(-1);
       const unit = parseLaunchAgent(readFileSync(plist, "utf8"));
       if (state[unit.label]?.loaded) { console.error("Bootstrap failed: 5: Input/output error"); return 5; }
-      state[unit.label] = { loaded: true, unitPath: plist, pid: start(unit) };
+      state[unit.label] = { loaded: true, unitPath: plist, pid: start(unit, directory) };
       return 0;
     }
     case "bootout":
@@ -119,7 +145,7 @@ async function launchctl(args, directory, state) {
     case "kickstart": {
       if (!entry?.loaded) { console.error("Could not find service"); return 113; }
       if (rest.includes("-k")) await stop(entry.pid);
-      if (!alive(entry.pid)) entry.pid = start(parseLaunchAgent(readFileSync(entry.unitPath, "utf8")));
+      if (!alive(entry.pid)) entry.pid = start(parseLaunchAgent(readFileSync(entry.unitPath, "utf8")), directory);
       return 0;
     }
     case "print":
@@ -152,7 +178,7 @@ function startUnit(directory, state, name) {
   }
   // A container cannot give Chromium's sandbox its namespaces; the smoke tests the units, not the sandbox.
   if (name.startsWith("tau-window") && existsSync(join(directory, ".no-sandbox"))) unit.program.push("--no-sandbox");
-  entry.pid = start(unit);
+  entry.pid = start(unit, directory);
   return 0;
 }
 
@@ -169,12 +195,27 @@ async function stopUnit(directory, state, name) {
   entry.pid = undefined;
 }
 
+/** `set-environment` and `unset-environment`, as a desktop session's start-up calls them on the user manager. */
+function changeManagerEnv(directory, verb, names) {
+  const env = readManagerEnv(directory);
+  for (const entry of names) {
+    const equals = entry.indexOf("=");
+    if (verb === "set-environment" && equals > 0) env[entry.slice(0, equals)] = entry.slice(equals + 1);
+    else if (verb === "unset-environment") delete env[equals === -1 ? entry : entry.slice(0, equals)];
+  }
+  writeFileSync(join(directory, ".fake-manager-env.json"), `${JSON.stringify(env, null, 2)}\n`);
+}
+
 async function systemctl(args, directory, state) {
-  const [verb, unitName] = args.filter((arg) => arg !== "--user");
+  const [verb, ...rest] = args.filter((arg) => arg !== "--user");
+  if (verb === "set-environment" || verb === "unset-environment") { changeManagerEnv(directory, verb, rest); return 0; }
+  const unitName = rest[0];
   const entry = unitName ? (state[unitName] ??= {}) : undefined;
   switch (verb) {
     case "daemon-reload": return 0;
-    case "show-environment": console.log(`HOME=${process.env.HOME}`); return 0;
+    case "show-environment":
+      for (const [key, value] of Object.entries(managerEnvironment(directory))) console.log(`${key}=${value}`);
+      return 0;
     case "enable": entry.enabled = true; return 0;
     case "disable": entry.enabled = false; return 0;
     case "start": return startUnit(directory, state, unitName);

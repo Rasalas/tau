@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderLaunchAgent, renderSystemdUnit, renderWindowUnit, renderXvfbUnit } from "../src/main/host-service-units.ts";
-import { main, parseLaunchAgent, parseSystemdUnit, systemdDependencies } from "./fake-service-manager.mjs";
+import { main, parseLaunchAgent, parseSystemdUnit, systemdDependencies, unitEnvironment } from "./fake-service-manager.mjs";
 
 // The fake starts exactly what a unit says, or a smoke that passes against it proves nothing.
 describe("the fake service manager reads the units Tau writes", () => {
@@ -34,9 +34,21 @@ describe("the fake service manager reads the units Tau writes", () => {
     expect(parseSystemdUnit(renderXvfbUnit(display, "/home/me/logs/xvfb.log"), "/home/me").before)
       .toEqual([{ program: ["/bin/mkdir", "-p", "-m", "1777", "/tmp/.X11-unix"], optional: true }]);
     const window = renderWindowUnit(display, "tau-host.service");
-    expect(parseSystemdUnit(window, "/home/me")).toEqual({ program: display.window.program, env: display.window.env, cwd: "/home/me", log: display.window.logPath });
+    const unset = ["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_SESSION_TYPE"];
+    expect(parseSystemdUnit(window, "/home/me")).toEqual({ program: display.window.program, env: display.window.env, cwd: "/home/me", log: display.window.logPath, unset });
+    expect(parseSystemdUnit(renderSystemdUnit(spec, display), "/home/me").unset).toEqual(unset);
     expect(systemdDependencies(window)).toEqual({ pulls: ["tau-xvfb.service", "tau-host.service"], bindsTo: ["tau-xvfb.service", "tau-host.service"] });
     expect(systemdDependencies(renderSystemdUnit(spec, display))).toEqual({ pulls: ["tau-xvfb.service"], bindsTo: [] });
+  });
+});
+
+describe("a unit's environment", () => {
+  it("is the manager's, then the unit's, with UnsetEnvironment over both", () => {
+    const manager = { HOME: "/home/me", WAYLAND_DISPLAY: "wayland-0", XDG_SESSION_TYPE: "wayland", LANG: "C" };
+    expect(unitEnvironment(manager, { env: { DISPLAY: ":99", LANG: "de_DE.UTF-8" } }))
+      .toEqual({ HOME: "/home/me", WAYLAND_DISPLAY: "wayland-0", XDG_SESSION_TYPE: "wayland", LANG: "de_DE.UTF-8", DISPLAY: ":99" });
+    expect(unitEnvironment(manager, { env: { DISPLAY: ":99" }, unset: ["WAYLAND_DISPLAY", "XDG_SESSION_TYPE=x11", "LANG=C"] }))
+      .toEqual({ HOME: "/home/me", XDG_SESSION_TYPE: "wayland", DISPLAY: ":99" });
   });
 });
 
@@ -71,5 +83,31 @@ describe("the fake systemctl", () => {
 
     expect(await main(["systemctl", "--user", "stop", "host.service"])).toBe(0);
     expect([running("host.service"), running("xvfb.service"), running("window.service")]).toEqual([false, true, false]);
+  });
+
+  it("hands its own environment to a unit, less what the unit unsets", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "tau-fake-systemctl-"));
+    directories.push(directory);
+    process.env.TAU_SERVICE_UNIT_DIR = directory;
+    const out = join(directory, "env.json");
+    const dump = (unset) => [
+      "[Service]", ...(unset ? [`UnsetEnvironment=${unset}`] : []),
+      `ExecStart="${process.execPath}" "-e" "require('fs').writeFileSync(process.argv[1], JSON.stringify(process.env))" "${out}"`,
+      `StandardOutput=append:${join(directory, "dump.log")}`, "",
+    ].join("\n");
+    const run = async (unset) => {
+      writeFileSync(join(directory, "dump.service"), dump(unset));
+      rmSync(out, { force: true });
+      expect(await main(["systemctl", "--user", "restart", "dump.service"])).toBe(0);
+      for (let tries = 0; tries < 100 && !existsSync(out); tries++) await new Promise((resolve) => setTimeout(resolve, 50));
+      return JSON.parse(readFileSync(out, "utf8"));
+    };
+
+    expect(await main(["systemctl", "--user", "set-environment", "WAYLAND_DISPLAY=wayland-0", "XDG_SESSION_TYPE=wayland"])).toBe(0);
+    expect(await run()).toMatchObject({ WAYLAND_DISPLAY: "wayland-0", XDG_SESSION_TYPE: "wayland" });
+    const unset = await run("WAYLAND_DISPLAY XDG_SESSION_TYPE");
+    expect([unset.WAYLAND_DISPLAY, unset.XDG_SESSION_TYPE]).toEqual([undefined, undefined]);
+    expect(await main(["systemctl", "--user", "unset-environment", "WAYLAND_DISPLAY"])).toBe(0);
+    expect((await run()).WAYLAND_DISPLAY).toBeUndefined();
   });
 });
