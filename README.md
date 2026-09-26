@@ -225,6 +225,12 @@ Where the kernel restricts user namespaces (Ubuntu 24.04 and later), the
 window needs Electron's `chrome-sandbox` to belong to root with the setuid
 bit; the install refuses otherwise and names the two `sudo` commands, and
 the service's status shows them again after an update replaced the file.
+This holds on a machine with a desktop session too: a Wayland desktop hands
+`WAYLAND_DISPLAY` and `XDG_SESSION_TYPE` to every user service, so the units
+unset them (with `WAYLAND_SOCKET`), the window starts with
+`--ozone-platform=x11`, and the host drops them before it starts any shell.
+Nothing Tau starts lands on the real screen. A unit an older Tau wrote shows
+as stale in the status; install again to replace it.
 macOS and Windows refuse the option: neither has a display that nobody sees.
 
 The service runs the app's own binary on the app's own userData, so a Tau

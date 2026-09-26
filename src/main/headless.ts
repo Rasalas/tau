@@ -52,7 +52,7 @@ import { DisplayWindow } from "./display-window.js";
 import { HostMachines } from "./host-machines.js";
 import { HostResourceSampler, testResourceOs } from "./host-resources.js";
 import { HostBlobStore } from "./host-blobs.js";
-import { HOST_SERVICE_ENV } from "./host-service-units.js";
+import { HOST_SERVICE_ENV, leaveDesktopSession } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor, type HostProcessDescriptor } from "./host-process-supervisor.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
 import type { ProcessLock } from "./process-lock.js";
@@ -287,11 +287,13 @@ async function main(): Promise<void> {
   });
   // A systemd service host with an invisible display starts its window when a call needs one.
   if (serviceKind === "systemd" && await service.installedDisplay()) {
+    // A unit an older Tau wrote lets the desktop's Wayland through; nothing the host starts may see it.
+    const unset = leaveDesktopSession(process.env);
     const window = new DisplayWindow({ start: () => service.startWindow(), stop: () => service.stopWindow() }, {
       log: (event, detail) => hostLog.info(event, detail),
     });
     clientCalls.setWindowLauncher(window);
-    hostLog.info("host.display", { display: process.env.DISPLAY });
+    hostLog.info("host.display", { display: process.env.DISPLAY, ...(unset.length > 0 ? { unset } : {}) });
   }
   let listening: HostListenInfo | undefined;
   let network: HostNetworkAccess | undefined;

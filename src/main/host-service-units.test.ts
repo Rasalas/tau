@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { installShellEnvironment } from "./shell-environment.js";
 import {
   HOST_SERVICE_ENV,
   defaultUserData,
+  leaveDesktopSession,
   displayServiceNames,
   hostServiceNames,
   renderWindowUnit,
@@ -127,6 +129,28 @@ describe("the invisible display", () => {
     expect(renderSystemdUnit(spec)).not.toContain("Wants=");
   });
 
+  // A desktop session's user manager hands every unit WAYLAND_DISPLAY; Electron then picks the real screen.
+  it("keeps the desktop's Wayland from the host and the window, and only when there is a display", () => {
+    const unset = "UnsetEnvironment=WAYLAND_DISPLAY WAYLAND_SOCKET XDG_SESSION_TYPE";
+    expect(renderSystemdUnit(spec, display)).toContain(`${unset}\nExecStart=`);
+    expect(renderWindowUnit(display, "tau-host.service")).toContain(`${unset}\nExecStart=`);
+    expect(renderSystemdUnit(spec)).not.toContain("UnsetEnvironment");
+  });
+
+  // Needs a real /bin/sh to count as a login shell.
+  it.runIf(process.platform !== "win32")("drops the desktop's Wayland from the host's environment, and a login shell does not bring it back", async () => {
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin", SHELL: "/bin/sh", DISPLAY: ":99", WAYLAND_DISPLAY: "wayland-0", WAYLAND_SOCKET: "3", XDG_SESSION_TYPE: "wayland" };
+    expect(leaveDesktopSession(env)).toEqual(["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_SESSION_TYPE"]);
+    const marker = (name: string, value: string) => `__TAU_ENV_${name}_START__\n${value}\n__TAU_ENV_${name}_END__`;
+    await installShellEnvironment({
+      env,
+      platform: "linux",
+      run: async () => [marker("PATH", "/usr/local/bin"), marker("WAYLAND_DISPLAY", "wayland-1"), marker("XDG_SESSION_TYPE", "wayland")].join("\n"),
+    });
+    expect(env).toEqual({ PATH: "/usr/local/bin:/usr/bin", SHELL: "/bin/sh", DISPLAY: ":99" });
+    expect(leaveDesktopSession(env)).toEqual([]);
+  });
+
   it("binds the window to Xvfb and the host, and only the host starts it", () => {
     const window = renderWindowUnit(display, "tau-host.service");
     expect(window).toContain("BindsTo=tau-xvfb.service tau-host.service");
@@ -148,9 +172,9 @@ describe("the invisible display", () => {
     });
   });
 
-  it("starts the app itself: a package's binary, or Electron with the checkout", () => {
-    expect(windowProgram("/opt/Tau/tau", "/opt/Tau/resources/app.asar.unpacked/dist-electron/main/headless.js")).toEqual(["/opt/Tau/tau"]);
-    expect(windowProgram("/w/node_modules/electron/dist/electron", "/w/dist-electron/main/headless.js")).toEqual(["/w/node_modules/electron/dist/electron", "/w"]);
+  it("starts the app itself on X11: a package's binary, or Electron with the checkout", () => {
+    expect(windowProgram("/opt/Tau/tau", "/opt/Tau/resources/app.asar.unpacked/dist-electron/main/headless.js")).toEqual(["/opt/Tau/tau", "--ozone-platform=x11"]);
+    expect(windowProgram("/w/node_modules/electron/dist/electron", "/w/dist-electron/main/headless.js")).toEqual(["/w/node_modules/electron/dist/electron", "/w", "--ozone-platform=x11"]);
   });
 
   it("writes one MIT cookie for the display in Xauthority's format", () => {

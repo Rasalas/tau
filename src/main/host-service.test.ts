@@ -248,7 +248,7 @@ describe("the invisible display on Linux", () => {
     const { xvfbUnit, windowUnit } = { xvfbUnit: service.names.unit.replace("tau-host", "tau-xvfb"), windowUnit: service.names.unit.replace("tau-host", "tau-window") };
     expect(readFileSync(join(units, xvfbUnit), "utf8")).toContain('"/usr/bin/Xvfb" ":101"');
     const window = readFileSync(join(units, windowUnit), "utf8");
-    expect(window).toContain('ExecStart="/Applications/Tau.app/Contents/MacOS/Tau"');
+    expect(window).toContain('ExecStart="/Applications/Tau.app/Contents/MacOS/Tau" "--ozone-platform=x11"');
     expect(window).not.toContain("ELECTRON_RUN_AS_NODE");
     expect(statSync(join(userData, "display", "Xauthority")).mode & 0o777).toBe(0o600);
     expect(statSync(join(userData, "display")).mode & 0o777).toBe(0o700);
