@@ -20,6 +20,8 @@
 }
 @keyframes touch-slide-in { from { transform: translateX(-24px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .touch-browser.screen { animation: none; } }
+/* A phone's start page: under toasts, sheets and Settings, over the shell it stands for. */
+.touch-browser.screen.home { z-index: 42; animation: none; }
 .touch-browser-header {
   flex: none; display: flex; align-items: center; gap: 2px;
   height: 52px; padding: 0 6px 0 14px;
@@ -35,6 +37,16 @@
 }
 .touch-icon-button:active { background: var(--hover-strong); }
 .touch-browser-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The project filter at the head of the list; the chosen project stays in view. */
+.touch-project-filter { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 6px 10px; }
+.touch-project-filter-button {
+  min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px;
+  border: 1px solid var(--line-control); border-radius: 22px; background: var(--raised);
+  color: var(--ink); font: 550 14px var(--sans); cursor: pointer;
+}
+.touch-project-filter-button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.touch-project-filter-button > svg { flex: none; color: var(--muted); }
+.touch-project-filter-button:active { background: var(--hover-strong); }
 .touch-browser .touch-thread-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 /* Room under the last row for the floating button and the home indicator. */
 .touch-browser.screen .touch-thread-list { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
@@ -95,7 +107,6 @@
 .touch-thread-row + .touch-thread-row { border-top: 1px solid var(--line-soft); }
 .touch-browser.sidebar .touch-thread-row + .touch-thread-row { border-top: 0; }
 .touch-thread-row .swipe-row-content { display: flex; align-items: stretch; background: var(--rail); }
-.supervision-start .touch-thread-row .swipe-row-content { background: var(--stage); }
 .touch-thread-open {
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
   min-height: 56px; padding: 9px 14px; border: 0; background: none; color: inherit;
@@ -205,7 +216,13 @@
   position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
   border-radius: 2px; background: var(--line-strong);
 }
-.action-sheet-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--raised); }
+.action-sheet-list {
+  display: flex; flex-direction: column; border-radius: 12px; overflow: hidden auto; overscroll-behavior: contain;
+  max-height: calc(var(--tau-viewport-height, 100dvh) - 120px); background: var(--raised);
+}
+.action-sheet-list > button { flex: none; }
+.action-sheet-list > button > span { min-width: 0; }
+.action-sheet-list > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-sheet-list > button {
   display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 0 14px;
   border: 0; background: transparent; color: var(--ink); font: 500 16px var(--sans); text-align: left; cursor: pointer;

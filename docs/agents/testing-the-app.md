@@ -10,7 +10,7 @@ Verifying a change against the real Tau app must never touch the user's real `~/
 [dev-instance] pid=<pid> port=<port> userData=<path> workspace=<path> sessions=<path> log=<path>
 ```
 
-Flags: `--safe` sets `TAU_NO_EXTENSIONS=1`; `--fresh` wipes this instance's userData, its isolated Pi session store and the runtime kits' thread stores beside it (`.tau-dev/tau`, where imported conversations land) before starting (guarded to only ever delete paths under `.tau-dev`); `--shared-sessions` opts back into the real `~/.pi/agent/sessions` (see below) for the rare test that needs the user's own threads; `--workspace <path>` uses an existing repository instead of creating the default scratch one (a fresh git repo with one commit); `--port <n>` pins the CDP port instead of deriving one; `--agent-dir <path>` sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance.
+Flags: `--safe` sets `TAU_NO_EXTENSIONS=1`; `--fresh` wipes this instance's userData, its isolated Pi session store and the runtime kits' thread stores beside it (`.tau-dev/tau`, where imported conversations land) before starting (guarded to only ever delete paths under `.tau-dev`); `--shared-sessions` opts back into the real `~/.pi/agent/sessions` (see below) for the rare test that needs the user's own threads; `--workspace <path>` uses an existing repository instead of creating the default scratch one (a fresh git repo with one commit); `--port <n>` pins the CDP port instead of deriving one; `--agent-dir <path>` sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance. `--as-installed` starts it the way the Finder starts an installed app: no `TAU_WORKSPACE`, working directory `/` (so the host opens the last project it knows); it refuses `--fresh` and an instance without a saved project, since the host would otherwise open the real home folder.
 
 ### It never takes focus
 
@@ -377,9 +377,10 @@ npm run cdp:mobile -- snapshot
 
 `pair` creates a single-use link over the host's loopback listener with the host token, opens it in the phone, waits until the phone shows its six digits and the host lists the request, fails unless both match, then clicks **Allow** in the instance's own dialog through `npm run cdp`. It ends when the phone runs the compact workbench and prints `client`/`profile` (`compact`). `--access read-only` pairs a read-only device; `--allow owner` allows over the socket instead of the dialog; `--allow none` leaves the request waiting (to test Deny or expiry by hand). `link` only prints the link, for the simulator below.
 
-The test prompt, from the phone. The model picker is a bottom sheet there; pick by aria-label and check the chip before sending:
+The test prompt, from the phone. With no thread open the phone starts on its thread list; the floating button starts a draft first. The model picker is a bottom sheet there; pick by aria-label and check the chip before sending:
 
 ```
+npm run cdp:mobile -- tap "document.querySelector('.touch-browser.home .touch-fab')"   # only on the start page
 npm run cdp:mobile -- tap "all('button').find(b => /^Select (runtime and )?model/.test(b.getAttribute('aria-label') ?? ''))"
 npm run cdp:mobile -- tap "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
 npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select (runtime and )?model/.test(t))"

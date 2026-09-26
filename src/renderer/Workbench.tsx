@@ -47,6 +47,7 @@ import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { lastUsedProject } from "../workbench/new-thread-project";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -94,7 +95,6 @@ const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal"
 // The touch layout's own pieces: none of them is in a desktop window's first paint.
 const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
 const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
-const LazyTouchThreadList = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadList }) => ({ default: TouchThreadList })));
 const LazyPanelSheet = lazy(() => import("./touch/PanelSheet").then(({ PanelSheet }) => ({ default: PanelSheet })));
 // Mounted closed from the start, like the palette, so its chunk is in before the first open.
 const LazyProjectPicker = lazy(() => import("./components/ProjectPicker").then(({ ProjectPicker }) => ({ default: ProjectPicker })));
@@ -327,6 +327,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   compactRef.current = { ...compactRef.current, compact, split };
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
+  // The project the touch thread list is narrowed to; a new thread from it starts there.
+  const [touchProjectPath, setTouchProjectPath] = useState<string>();
+  const touchProject = touchProjectPath === undefined ? undefined : projects.find((project) => project.path === touchProjectPath);
+  // A phone with no thread open shows its thread list as the start page, not an empty composer.
+  const phoneHome = compact && !split && showStartScreen && !pendingNewThread;
   // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
   const [panelSheet, setPanelSheet] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
@@ -409,15 +414,22 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setThreadSheetOpen(false);
     void actions.switchSession(row.path);
   };
-  const threadListProps = {
+  // In the filtered project, else where the host last worked; with neither, ask.
+  const startTouchThread = () => {
+    setThreadSheetOpen(false);
+    const project = touchProject ?? lastUsedProject(projects, threadStore.getSnapshot().threads);
+    if (project) createThreadInProject(project);
+    else openNewThreadPicker();
+  };
+  const threadBrowserProps = {
     registry,
     actions,
     onOpen: openSupervisedThread,
     onStop: (row: { id: string }) => composer.abort(row.id),
-  };
-  const threadBrowserProps = {
-    ...threadListProps,
-    onNewThread: () => { setThreadSheetOpen(false); openNewThreadPicker(); },
+    project: touchProject,
+    projects,
+    onProjectChange: (project: UiProject | undefined) => setTouchProjectPath(project?.path),
+    onNewThread: startTouchThread,
     onOpenSettings: (page?: string) => { setThreadSheetOpen(false); actions.openSettings(page); },
   };
 
@@ -435,6 +447,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   const overlays = <>
     {compact ? <Suspense fallback={null}><LazyTouchLayer syncUrl={clientProfile !== "desktop"} openThread={actions.switchSession} /></Suspense> : null}
+    {phoneHome && !threadSheetOpen ? <Suspense fallback={null}>
+      <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} />
+    </Suspense> : null}
     {compact && threadSheetOpen ? <Suspense fallback={null}>
       <LazyTouchThreadBrowser variant="screen" {...threadBrowserProps} onClose={() => setThreadSheetOpen(false)} />
     </Suspense> : null}
@@ -523,7 +538,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage)} style={{ "--dock-width": dockPanels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px`, "--sidebar-width": `${split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar}px` } as CSSProperties}>
+    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": dockPanels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px`, "--sidebar-width": `${split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
         dockOpen={dockOpen}
@@ -620,10 +635,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
-              {compact && !split && showStartScreen ? <section className="supervision-start" aria-label="Agent supervision">
-                <h2>Threads</h2>
-                <Suspense fallback={null}><LazyTouchThreadList {...threadListProps} pageSize={12} /></Suspense>
-              </section> : null}
             </div>
           </section>
           <div className="conversation-thread">

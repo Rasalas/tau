@@ -162,7 +162,10 @@ There are two such entry points in `src/`. `src/renderer/main.tsx` is the Electr
 `src/web/` is the browser client a listening host serves, which reuses every
 component and adds only its entry, its platform and the token handling. Below
 720 px either of them lays itself out compactly — the thread list as a screen of
-its own, the composer at the bottom edge, agent supervision as the start screen —
+its own, the composer at the bottom edge, and on a phone with no thread or draft
+open the thread list as the start page, with a project filter at its head and a
+floating New thread button that starts a draft in the filtered project, else in
+the one the host last worked in (`lastUsedProject`, never `/`), else asks —
 through `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
 component tree. A browser on a touch screen claims `compact` at any width, and a
 compact client at least 720 × 600 px (a tablet) keeps the thread list in a

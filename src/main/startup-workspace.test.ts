@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveStartupWorkspace } from "./startup-workspace.js";
+import { requestedHostWorkspace, resolveStartupWorkspace } from "./startup-workspace.js";
 
 const recent = [
   { path: "/projects/old", lastOpenedAt: 1 },
@@ -17,6 +17,12 @@ describe("resolveStartupWorkspace", () => {
     const exists = (path: string) => path === "/projects/old" || path === "/projects/newer";
     expect(resolveStartupWorkspace(undefined, recent, { exists, home: "/Users/me" }))
       .toEqual({ cwd: "/projects/newer" });
+  });
+
+  it("passes over the filesystem root an app opened from the Finder once recorded", () => {
+    const history = [...recent, { path: "/", lastOpenedAt: 9 }];
+    const exists = (path: string) => path !== "/projects/gone";
+    expect(resolveStartupWorkspace(undefined, history, { exists, home: "/Users/me" })).toEqual({ cwd: "/projects/newer" });
   });
 
   it("keeps a workspace that exists", () => {
@@ -38,5 +44,21 @@ describe("resolveStartupWorkspace", () => {
   it("ends in the home directory when no project exists", () => {
     expect(resolveStartupWorkspace("/work", recent, { exists: () => false, home: "/Users/me" }))
       .toEqual({ cwd: "/Users/me", missing: "/work" });
+  });
+});
+
+describe("requestedHostWorkspace", () => {
+  it("keeps a workspace somebody named", () => {
+    expect(requestedHostWorkspace({ requested: "/work", service: true, windowSpawned: true, cwd: "/" })).toBe("/work");
+  });
+
+  it("takes the folder a host started by hand runs in", () => {
+    expect(requestedHostWorkspace({ service: false, windowSpawned: false, cwd: "/Users/me/repo" })).toBe("/Users/me/repo");
+  });
+
+  it("leaves a service, a window's host and a host in / to the last project", () => {
+    expect(requestedHostWorkspace({ service: true, windowSpawned: false, cwd: "/Users/me" })).toBeUndefined();
+    expect(requestedHostWorkspace({ service: false, windowSpawned: true, cwd: "/Users/me/repo" })).toBeUndefined();
+    expect(requestedHostWorkspace({ service: false, windowSpawned: false, cwd: "/" })).toBeUndefined();
   });
 });

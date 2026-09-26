@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { derivePort, findFreePort, freshPaths, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
+import { derivePort, findFreePort, freshPaths, hasSavedProject, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
 
 describe("derivePort", () => {
   it("is deterministic for the same seed", () => {
@@ -61,6 +61,7 @@ describe("parseArgs", () => {
       fresh: false,
       sharedSessions: false,
       realAgentDir: false,
+      asInstalled: false,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -74,6 +75,7 @@ describe("parseArgs", () => {
       fresh: true,
       sharedSessions: true,
       realAgentDir: true,
+      asInstalled: false,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -86,6 +88,12 @@ describe("parseArgs", () => {
 
   it("reads --workspace as a path", () => {
     expect(parseArgs(["--workspace", "/tmp/some-repo"]).workspace).toBe("/tmp/some-repo");
+  });
+
+  it("reads --as-installed, but not with a --workspace or --fresh", () => {
+    expect(parseArgs(["--as-installed"]).asInstalled).toBe(true);
+    expect(() => parseArgs(["--as-installed", "--workspace", "/tmp/some-repo"])).toThrow(/--as-installed names no workspace/);
+    expect(() => parseArgs(["--as-installed", "--fresh"])).toThrow(/--fresh start wipes/);
   });
 
   it("reads --agent-dir as a path", () => {
@@ -212,5 +220,17 @@ describe("freshPaths", () => {
 
   it("leaves a shared session store and its neighbours alone", () => {
     expect(freshPaths({ userData: "/w/.tau-dev/userdata", sessionsDir: undefined })).toEqual(["/w/.tau-dev/userdata"]);
+  });
+});
+
+describe("hasSavedProject", () => {
+  it("counts a project on disk, never / and never a missing folder", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-dev-projects-"));
+    expect(hasSavedProject(dir)).toBe(false);
+    const write = (paths) => writeFileSync(join(dir, "projects.json"), JSON.stringify({ version: 2, projects: paths.map((path) => ({ path, name: path, lastOpenedAt: 1 })) }));
+    write(["/", join(dir, "gone")]);
+    expect(hasSavedProject(dir)).toBe(false);
+    write(["/", dir]);
+    expect(hasSavedProject(dir)).toBe(true);
   });
 });

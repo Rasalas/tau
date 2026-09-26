@@ -74,5 +74,3 @@ body[data-profile="compact"] .message-shell[data-touch-actions] :is(.message-act
   .tool-run.stoppable > .tool-run-stop { opacity: 1; }
 }
 
-.supervision-start { margin-top: 22px; display: flex; flex-direction: column; gap: 6px; }
-.supervision-start > h2 { font: 600 12px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--muted); margin: 0; }
