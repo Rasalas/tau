@@ -334,29 +334,44 @@ export function decodePairingEndpoints(value: unknown, max = 16): PairingEndpoin
 }
 
 /**
- * `url#pair=code&k=<kind>&fp=…&pk=…&host=…&name=…&e=<kind>:<url>…&ca=<url>…`:
+ * `url#pair=code&k=<kind>&pk=…&host=…&name=…&e=<kind>:<url>…&ca=<url>…`:
  * the fragment never reaches a server log, and the page drops it before
  * rendering. A browser needs only `pair`; a native client reads the rest to
  * pin the key and pick an address. `k` is the kind of the link's own origin;
  * each `ca` names an address (the link's own too) that a CA vouches for.
+ * `fp` (the certificate) is written only without a key: every app that reads
+ * links reads `pk`. Values keep `:` and `/` unescaped to keep the QR code small.
  */
 export function pairingUrl(endpoint: string | PairingEndpoint, payload: Omit<PairingPayload, "endpoints"> & { endpoints?: readonly PairingEndpoint[] }): string {
   const own = typeof endpoint === "string" ? { url: endpoint } : endpoint;
   const base = own.url.replace(/#.*$/u, "");
-  const fields = new URLSearchParams({ pair: payload.code });
-  if (own.kind) fields.set("k", own.kind);
-  const fingerprint = payload.fingerprint ? canonicalFingerprint(payload.fingerprint) : undefined;
-  if (fingerprint) fields.set("fp", fingerprint.replace(/:/gu, ""));
+  const fields: Array<[string, string]> = [["pair", payload.code]];
+  if (own.kind) fields.push(["k", own.kind]);
   const publicKey = payload.publicKey ? canonicalFingerprint(payload.publicKey) : undefined;
-  if (publicKey) fields.set("pk", publicKey.replace(/:/gu, ""));
-  if (payload.hostId) fields.set("host", payload.hostId);
-  if (payload.hostName) fields.set("name", payload.hostName);
+  const fingerprint = payload.fingerprint ? canonicalFingerprint(payload.fingerprint) : undefined;
+  if (publicKey) fields.push(["pk", publicKey.replace(/:/gu, "")]);
+  else if (fingerprint) fields.push(["fp", fingerprint.replace(/:/gu, "")]);
+  if (payload.hostId) fields.push(["host", payload.hostId]);
+  if (payload.hostName) fields.push(["name", payload.hostName]);
   for (const other of payload.endpoints ?? []) {
-    if (other.url !== base) fields.append("e", other.kind ? `${other.kind}:${other.url}` : other.url);
+    if (other.url !== base) fields.push(["e", other.kind ? `${other.kind}:${other.url}` : other.url]);
   }
   const trusted = [own, ...(payload.endpoints ?? [])].filter((entry) => entry.trustedCertificate).map((entry) => entry.url.replace(/#.*$/u, ""));
-  for (const url of new Set(trusted)) fields.append("ca", url);
-  return `${base}#${fields.toString()}`;
+  for (const url of new Set(trusted)) fields.push(["ca", url]);
+  return `${base}#${fields.map(([name, value]) => `${name}=${fragmentValue(value)}`).join("&")}`;
+}
+
+/** Form encoding as `URLSearchParams` reads it back, with `:` and `/` left as they are (RFC 3986 allows both in a fragment). */
+function fragmentValue(value: string): string {
+  return encodeURIComponent(value).replace(/%3A/gu, ":").replace(/%2F/gu, "/").replace(/%20/gu, "+");
+}
+
+/** A pin from a link: 32 bytes as hex (what hosts write) or as base64url. */
+function linkPin(value: string | null): string | undefined {
+  if (!value) return undefined;
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(value)) return canonicalFingerprint(value);
+  const binary = atob(value.replace(/-/gu, "+").replace(/_/gu, "/") + "=");
+  return canonicalFingerprint(Array.from(binary, (char) => char.charCodeAt(0).toString(16).padStart(2, "0")).join(""));
 }
 
 /** Reads a pairing link, or just its fragment; undefined when it carries no code. */
@@ -380,8 +395,8 @@ export function parsePairingPayload(text: string): PairingPayload | undefined {
   }
   const trusted = new Set(fields.getAll("ca"));
   for (const endpoint of endpoints) if (trusted.has(endpoint.url) && authorityName(endpoint.url)) endpoint.trustedCertificate = true;
-  const fingerprint = canonicalFingerprint(fields.get("fp") ?? "");
-  const publicKey = canonicalFingerprint(fields.get("pk") ?? "");
+  const fingerprint = linkPin(fields.get("fp"));
+  const publicKey = linkPin(fields.get("pk"));
   const hostId = fields.get("host");
   const hostName = fields.get("name");
   return {

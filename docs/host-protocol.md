@@ -380,19 +380,27 @@ than this ignores the field and answers one token.
 
 ### Pairing links
 
-`https://<address>:<port>/#pair=<code>&k=<kind>&fp=<hex>&pk=<hex>&host=<id>&name=<machine name>&e=<kind>:<url>…&ca=<url>…`
+`https://<address>:<port>/#pair=<code>&k=<kind>&pk=<hex>&host=<id>&name=<machine name>&e=<kind>:<url>…&ca=<url>…`
 (`pairingUrl`, `parsePairingPayload` in `src/shared/connections.ts`). The origin
-is the address the link was made for and `k` its kind; `e` repeats every other
-network address with its kind (`lan`, `mdns`, `tailscale`, `magicdns`), so a
-device picks one it reaches; `pk` is the SHA-256 of the public key (SPKI) of
-the certificate the network listeners present (network access's, else the
-host's own listener's; absent in plaintext), which a device pins on every
-address not named by a `ca`; `fp` is that certificate's own SHA-256, for
-devices from before key pins; each `ca` names an address (the link's own
-too) where a proxy answers with a certificate a CA vouches for (Tailscale
-Serve), which a device checks by chain and name instead, and only on a DNS
-name outside `.local`; `host` is the id in `<userData>/host-id` and `name`
-the machine's name as the hello reply gives it. A link made
+is the address the link was made for and `k` its kind; `e` names the best
+other network address of each kind (`lan`, `mdns`, `tailscale`, `magicdns`;
+IPv6 only for a kind without IPv4; `linkEndpoints` in
+`src/main/host-endpoints.ts`), so a device picks one it reaches and learns the
+rest from the hello once it paired; `pk` is the SHA-256 of the public key
+(SPKI) of the certificate the network listeners present (network access's,
+else the host's own listener's; absent in plaintext), which a device pins on
+every address not named by a `ca`; `fp`, that certificate's own SHA-256, is
+written only when there is no key (links before 0.7.1 carried both). Readers
+from 0.7.1 also take `pk`/`fp` as 43 characters of base64url, which hosts do
+not write yet: apps before it read hex only. Each
+`ca` names an address (the link's own too) where a proxy answers with a
+certificate a CA vouches for (Tailscale Serve), which a device checks by chain
+and name instead, and only on a DNS name outside `.local`; `host` is the id in
+`<userData>/host-id` and `name` the machine's name as the hello reply gives
+it. Values are form-encoded except `:` and `/`, which stay as they are to keep
+the QR code small (links before escaped them; both read the same). Addresses
+on container and VM bridges (`docker*`, `br-*`, `veth*`, `virbr*`, `cni*`,
+`flannel*`, `podman*`) are never endpoints of a wildcard bind. A link made
 for loopback names no other address. The page takes the fragment out of the
 address bar before it renders.
 

@@ -406,12 +406,12 @@
 .connection-row-text > small.connection-expiring { color: var(--warn); }
 .chrome-button.danger { color: var(--danger); border-color: var(--danger-line); }
 .chrome-button.danger:hover:not(:disabled) { background: var(--danger-bg); color: var(--removed); border-color: var(--danger-line); }
-.connection-created { display: flex; gap: var(--space-6); align-items: flex-start; padding: var(--space-5) var(--space-6); background: var(--inset); }
-.connection-created-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.connection-created { display: flex; flex-wrap: wrap; gap: var(--space-6); align-items: flex-start; padding: var(--space-5) var(--space-6); background: var(--inset); }
+.connection-created-text { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 8px; }
 .connection-created-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .connection-created-head > strong { font: 500 13px var(--sans); color: var(--ink); }
 .connection-created-text > p, .connection-qr-missing { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
-.connection-qr-missing { width: 180px; flex: none; padding: var(--space-4); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); font-size: 11.5px; }
+.connection-qr-missing { width: 208px; flex: none; padding: var(--space-4); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); font-size: 11.5px; }
 .connection-endpoint-choice { display: flex; flex-wrap: wrap; gap: 6px; }
 .connection-endpoint-choice > button { padding: 3px 9px; border: 1px solid var(--line-control); border-radius: 999px; background: transparent; color: var(--muted); font: 500 11.5px var(--sans); cursor: pointer; }
 .connection-endpoint-choice > button.active { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
@@ -422,6 +422,16 @@
 .pairing-qr > rect { fill: var(--qr-paper); }
 .pairing-qr > path { fill: var(--qr-ink); }
 .pairing-qr.pending { background: var(--well); }
+.pairing-qr-button { flex: none; display: block; padding: 0; border: 0; border-radius: var(--radius-md); background: none; cursor: zoom-in; }
+.pairing-qr-button:focus-visible { outline: 2px solid var(--acid-line); outline-offset: 2px; }
+.pairing-qr-button > .pairing-qr { display: block; }
+.pairing-qr-dialog {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3);
+}
+.pairing-qr-dialog-code { display: block; padding: 0; border: 0; background: none; cursor: zoom-out; }
+.pairing-qr-dialog-code > .pairing-qr { display: block; width: min(calc(100vh - 150px), calc(100vw - 96px), 560px); height: auto; padding: 16px; }
+.pairing-qr-dialog > p { margin: 0; color: var(--muted); font: 12px var(--sans); }
 .host-service-status { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .host-service-summary { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
 .host-service-status small { font-size: 11px; color: var(--faint); overflow-wrap: anywhere; }

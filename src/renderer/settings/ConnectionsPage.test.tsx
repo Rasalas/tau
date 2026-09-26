@@ -8,7 +8,7 @@ import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
 import { ConnectionsPage } from "./ConnectionsPage";
-import { qrPath } from "./PairingQrCode";
+import { PairingQrCode, encodePairingQr, qrPath } from "./PairingQrCode";
 
 afterEach(cleanup);
 
@@ -302,5 +302,19 @@ describe("Bonjour in Settings → Connections", () => {
 describe("the QR code", () => {
   it("draws one unit square per dark module", () => {
     expect(qrPath([[true, false], [false, true]])).toBe("M0 0h1v1h-1zM1 1h1v1h-1z");
+  });
+
+  it("takes the smallest version the link fits in at low correction", async () => {
+    const small = await encodePairingQr("https://192.168.1.20:7788/#pair=abc");
+    expect(small.version).toBe(3);
+  });
+
+  it("opens larger on a click and closes again", async () => {
+    render(<PairingQrCode value="https://192.168.1.20:7788/#pair=abc" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Show the QR code larger" }));
+    const dialog = screen.getByRole("dialog", { name: "Pairing QR code" });
+    expect(within(dialog).getByRole("img", { name: "Pairing link as a QR code" })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close the large QR code" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

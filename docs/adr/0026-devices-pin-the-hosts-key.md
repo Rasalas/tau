@@ -5,7 +5,9 @@
 Accepted, 2026-09-24. Amends [ADR 0024](0024-pairing-allowed-on-the-host.md)
 (what the pairing digits are bound to) and
 [ADR 0025](0025-a-window-follows-the-threads-machine.md) (what a saved machine
-pins).
+pins). Amended 2026-09-26: a pairing link carries `fp=` only when it has no
+`pk=`; every app that reads links (0.5.0 on) reads `pk=`. The Bonjour record
+keeps both.
 
 ## Context
 

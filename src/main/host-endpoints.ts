@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { Resolver } from "node:dns/promises";
 import { isIP } from "node:net";
 import { hostname, type NetworkInterfaceInfo } from "node:os";
-import type { UiHostEndpoint } from "../shared/connections.js";
+import type { PairingEndpoint, UiHostEndpoint } from "../shared/connections.js";
 
 export type Interfaces = Record<string, NetworkInterfaceInfo[] | undefined>;
 
@@ -22,6 +22,11 @@ export function classifyAddress(address: string): AddressClass {
   if (/^169\.254\./u.test(lower) || /^fe[89ab][0-9a-f]:/u.test(lower)) return "link-local";
   return isTailscaleAddress(lower) ? "tailscale" : "lan";
 }
+
+/** Container, VM and CNI bridges: no other device reaches their addresses. */
+const VIRTUAL_INTERFACE = /^(?:docker|br-|veth|virbr|cni|flannel|podman)/u;
+
+export const isVirtualInterface = (name: string): boolean => VIRTUAL_INTERFACE.test(name);
 
 export interface EndpointListener {
   scheme: "http" | "https";
@@ -80,6 +85,7 @@ export function listenerEndpoints(
   else {
     const families = bare === "0.0.0.0" ? ["IPv4"] : ["IPv4", "IPv6"];
     for (const [name, addresses] of Object.entries(interfaces)) {
+      if (isVirtualInterface(name)) continue;
       // Temporary IPv6 addresses rotate and expire; the first global and the first ULA stand for the rest.
       const ipv6Seen = new Set<string>();
       for (const entry of addresses ?? []) {
@@ -112,6 +118,25 @@ export function mergeEndpoints(lists: readonly UiHostEndpoint[][]): UiHostEndpoi
     .map((endpoint, index) => ({ endpoint, index }))
     .sort((a, b) => rank(a.endpoint) - rank(b.endpoint) || a.index - b.index)
     .map(({ endpoint }) => endpoint);
+}
+
+/**
+ * The addresses a pairing link names beside its own: per kind the best one,
+ * an IPv6 address only where the kind has no other. A device learns the rest
+ * from the host's hello once it paired.
+ */
+export function linkEndpoints(endpoints: readonly PairingEndpoint[]): PairingEndpoint[] {
+  const slot = (endpoint: PairingEndpoint) => `${endpoint.kind}${endpoint.trustedCertificate ? "+ca" : ""}`;
+  const ipv6 = (endpoint: PairingEndpoint) => /^https?:\/\/\[/u.test(endpoint.url);
+  const chosen = new Map<string, PairingEndpoint>();
+  for (const endpoint of endpoints) {
+    if (!endpoint.kind) continue;
+    const current = chosen.get(slot(endpoint));
+    if (!current || (ipv6(current) && !ipv6(endpoint))) chosen.set(slot(endpoint), endpoint);
+  }
+  const kept = new Set(chosen.values());
+  // Addresses without a kind were published by a package on purpose; they stay.
+  return endpoints.filter((endpoint) => !endpoint.kind || kept.has(endpoint));
 }
 
 function interfaceOf(address: string, interfaces: Interfaces): string | undefined {

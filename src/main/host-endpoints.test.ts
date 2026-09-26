@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MagicDnsNames, classifyAddress, isTailscaleAddress, listenerEndpoints, localHostName, mergeEndpoints, type Interfaces } from "./host-endpoints.js";
+import { MagicDnsNames, classifyAddress, isTailscaleAddress, isVirtualInterface, linkEndpoints, listenerEndpoints, localHostName, mergeEndpoints, type Interfaces } from "./host-endpoints.js";
+import { REX_INTERFACES, REX_NAMES } from "./test-support/rex-interfaces.js";
 
 const interfaces = {
   lo0: [{ address: "127.0.0.1", family: "IPv4", internal: true }, { address: "::1", family: "IPv6", internal: true }],
@@ -83,6 +84,58 @@ describe("the endpoints of one listener", () => {
     expect(mergeEndpoints([loopback, network, network]).map((endpoint) => endpoint.label)).toEqual([
       "LAN (en0)", ".local", "MagicDNS", "Tailscale", "This machine",
     ]);
+  });
+});
+
+describe("container and VM bridges", () => {
+  it.each([
+    ["docker0", true], ["br-3f9c2a1b7d4e", true], ["veth1a2b3c4", true], ["virbr0", true], ["cni0", true], ["flannel.1", true], ["podman0", true],
+    ["enp5s0", false], ["en0", false], ["bridge0", false], ["tailscale0", false], ["utun4", false],
+  ])("know whether %s is one", (name, expected) => {
+    expect(isVirtualInterface(name)).toBe(expected);
+  });
+
+  it("are never an endpoint of a wildcard bind", () => {
+    const endpoints = mergeEndpoints([listenerEndpoints({ scheme: "https", host: "::", port: 7788 }, REX_INTERFACES, REX_NAMES, { loopback: false })]);
+    expect(endpoints.map((endpoint) => endpoint.url)).toEqual([
+      "https://192.168.1.40:7788/",
+      "https://rex.local:7788/",
+      "https://rex.tail1a2b3c.ts.net:7788/",
+      "https://100.87.123.45:7788/",
+      "https://[2a02:8109:b6c0:5600:1a2b:3c4d:5e6f:7a8b]:7788/",
+      "https://[fd00::1a2b:3c4d:5e6f:7a8b]:7788/",
+      "https://[fd7a:115c:a1e0::6f01:7b2d]:7788/",
+    ]);
+  });
+
+  it("stay an endpoint when the operator bound one by its address", () => {
+    expect(listenerEndpoints({ scheme: "https", host: "172.19.0.1", port: 1 }, REX_INTERFACES).map((endpoint) => endpoint.url)).toEqual(["https://172.19.0.1:1/"]);
+  });
+});
+
+describe("the addresses a pairing link names", () => {
+  it("are the best of each kind, IPv6 only where a kind has no IPv4", () => {
+    const endpoints = [
+      { url: "https://192.168.1.40:7788/", kind: "lan" as const },
+      { url: "https://10.0.0.5:7788/", kind: "lan" as const },
+      { url: "https://rex.local:7788/", kind: "mdns" as const },
+      { url: "https://rex.tail1a2b3c.ts.net/", kind: "magicdns" as const, trustedCertificate: true },
+      { url: "https://rex.tail1a2b3c.ts.net:7788/", kind: "magicdns" as const },
+      { url: "https://[fd7a:115c:a1e0::6f01:7b2d]:7788/", kind: "tailscale" as const },
+      { url: "https://100.87.123.45:7788/", kind: "tailscale" as const },
+      { url: "https://[2a02:8109::1]:7788/", kind: "lan" as const },
+      { url: "https://published.example/" },
+    ];
+    expect(linkEndpoints(endpoints).map((endpoint) => endpoint.url)).toEqual([
+      "https://192.168.1.40:7788/",
+      "https://rex.local:7788/",
+      "https://rex.tail1a2b3c.ts.net/",
+      "https://rex.tail1a2b3c.ts.net:7788/",
+      "https://100.87.123.45:7788/",
+      "https://published.example/",
+    ]);
+    expect(linkEndpoints([{ url: "https://[2a02:8109::1]:7788/", kind: "lan" }, { url: "https://[fd00::1]:7788/", kind: "lan" }]))
+      .toEqual([{ url: "https://[2a02:8109::1]:7788/", kind: "lan" }]);
   });
 });
 

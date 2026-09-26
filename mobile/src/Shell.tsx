@@ -57,7 +57,7 @@ export function payloadTarget(payload: PairingPayload): PairTarget {
     try { name = new URL(payload.endpoints[0]?.url ?? "").hostname; } catch { name = undefined; }
   }
   return {
-    hostId: payload.hostId ?? fallbackHostId(payload.fingerprint, payload.endpoints),
+    hostId: payload.hostId ?? fallbackHostId(payload.fingerprint ?? payload.publicKey, payload.endpoints),
     name: name || "Tau host",
     ...targetPins(payload),
     endpoints: payload.endpoints,

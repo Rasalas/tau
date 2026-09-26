@@ -372,7 +372,7 @@ Besides the socket line, a host started by hand prints a pairing link (a window'
 web client: http://127.0.0.1:7788/#pair=<code>&host=<id>&name=<machine> (single use, 10 minutes; allow the device in Settings → Connections or here)
 ```
 
-With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, the link starts with `https://`, and it carries the certificate's fingerprint (`fp=`). A browser shows a self-signed certificate as a warning; its fingerprint should match the one the host printed.
+With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, the link starts with `https://`, and it carries the pin of the certificate's key (`pk=`). A browser shows a self-signed certificate as a warning; its fingerprint should match the `tls fingerprint` the host printed.
 
 Open it. The code lives in the URL's fragment, so it reaches neither a proxy nor an
 access log, and the page replaces the address before it renders anything. The page does
