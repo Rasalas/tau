@@ -80,6 +80,14 @@ restarted (at most three times a minute, then a dialog with the log path);
 `<userData>/logs/host-out-*.log` holds what it printed, `host-process.log` what
 it logged.
 
+One data folder has one host. A host holds `<userData>/host.lock` for as long
+as it runs — an OS lock that goes with the process, however it ends — and a
+second host started on the same folder leaves with exit code 75, naming the
+first. A window that finds a host holding the folder without answering starts
+no second one beside it; after 30 seconds it says which process owns the
+folder. Pi sessions are guarded the same way across data folders: a thread
+another Tau host on this machine writes opens read-only (`<session>.jsonl.lock`).
+
 What follows from that:
 
 - **Closing the window does not stop a turn.** The host keeps working, on every
