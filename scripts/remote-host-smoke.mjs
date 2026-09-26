@@ -455,11 +455,11 @@ async function exerciseAccess(host, tokenPath, userData, label) {
   const link = parsePairingPayload(printed[1]);
   const page = link?.endpoints[0]?.url;
   if (!link || !page) fail(`the printed link carries no code: ${printed[1]}`);
-  if (host.fingerprint && link.fingerprint !== host.fingerprint) fail(`the link's fingerprint ${link.fingerprint} is not the host's ${host.fingerprint}`);
-  if (!host.fingerprint && link.fingerprint) fail("a plaintext host put a fingerprint in its link");
+  // With a key the link leaves the certificate out: every app that reads links pins the key.
+  if (link.fingerprint) fail(`the link carries the certificate beside the key: ${printed[1]}`);
   if (host.publicKey !== link.publicKey) fail(`the link's key ${link.publicKey} is not the host's ${host.publicKey}`);
   if (!/^[0-9a-f]{32}$/u.test(link.hostId ?? "")) fail(`the link names no host id: ${printed[1]}`);
-  step(`${label}: the printed link carries the code, the host id${host.fingerprint ? " and the fingerprint" : ""}`);
+  step(`${label}: the printed link carries the code, the host id${host.publicKey ? " and the key" : ""}`);
   const legacy = await httpPost(page, "/pair", JSON.stringify({ code: link.code }), ca);
   if (legacy.status !== 410 || legacy.text.includes("tauc.")) fail(`POST /pair still answers: ${legacy.status} ${legacy.text}`);
   step(`${label}: POST /pair hands out nothing`);
