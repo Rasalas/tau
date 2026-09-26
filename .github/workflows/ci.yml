@@ -53,7 +53,10 @@ jobs:
       # What a Linux install needs where user namespaces are restricted (the service refuses the display otherwise).
       - name: Electron's sandbox helper as setuid root
         if: runner.os == 'Linux'
-        run: sudo chown root:root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+        # Requiring electron downloads its binary first, where npm ci left it out.
+        run: |
+          helper="$(dirname "$(node -p 'require("electron")' | tail -1)")/chrome-sandbox"
+          sudo chown root:root "$helper" && sudo chmod 4755 "$helper"
       # Passes with a note where Xvfb is missing; the Linux runner has it (performance.yml).
       - name: Smoke — invisible display
         run: npm run smoke:display
