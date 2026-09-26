@@ -53,7 +53,9 @@ import { HostMachines } from "./host-machines.js";
 import { HostResourceSampler, testResourceOs } from "./host-resources.js";
 import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
-import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
+import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor, type HostProcessDescriptor } from "./host-process-supervisor.js";
+import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
+import type { ProcessLock } from "./process-lock.js";
 import { appPackageVersion } from "./packaged-app.js";
 
 /**
@@ -133,17 +135,41 @@ function portIsFree(host: string, port: number): Promise<boolean> {
 
 /**
  * A service host takes over from the host `host.json` names — the one a
- * window started, or its own previous run — and asks for that host's port
- * again, so the clients of the host it replaces reconnect to it unchanged.
+ * window started, or its own previous run. It has to be gone before this one
+ * can take the data folder.
  */
-async function takeOverListen(): Promise<string> {
+async function retirePrevious(): Promise<HostProcessDescriptor | undefined> {
   const previous = await readHostDescriptor(userData);
-  if (!previous || previous.pid === process.pid) return listen;
+  if (!previous || previous.pid === process.pid) return undefined;
   const token = await readFile(previous.tokenPath, "utf8").then((value) => value.trim()).catch(() => "");
   if (token) {
     hostLog.info("host.service.take-over", { pid: previous.pid, url: previous.url, service: previous.service });
-    await retireHost(previous, token);
+    await retireHost(previous, token, userData, { logger: hostLog });
   }
+  return previous;
+}
+
+/**
+ * The host this one is the only one of. A second host on the same userData
+ * would reconcile the first one's running turns and write into its sessions,
+ * so it does not start at all (ADR 0021).
+ */
+async function claimOrLeave(): Promise<ProcessLock> {
+  // A service host may be waiting for the host it retired to finish leaving.
+  const lock = await claimDataFolder(userData, { waitMs: serviceKind ? 15_000 : 0 });
+  if (lock) return lock;
+  const message = dataFolderBusyMessage(userData, await describeDataFolderOwner(userData));
+  hostLog.warn("host.data-folder-busy", message);
+  console.error(message);
+  process.exit(DATA_FOLDER_BUSY_EXIT_CODE);
+}
+
+/**
+ * Asks for the retired host's port again, so the clients of the host a
+ * service replaces reconnect to it unchanged.
+ */
+async function takeOverListen(previous: HostProcessDescriptor | undefined): Promise<string> {
+  if (!previous) return listen;
   const { host: bindHost, port } = parseListen(listen);
   let wanted = 0;
   try { wanted = Number(new URL(previous.url).port) || 0; } catch { /* no port to keep */ }
@@ -167,6 +193,8 @@ const kitOptions = { appPath: appRoot, cacheDir: join(userData, "host-extensions
 const unsupported = (what: string) => () => { throw new Error(`${what} needs a desktop window.`); };
 
 async function main(): Promise<void> {
+  const previous = serviceKind ? await retirePrevious() : undefined;
+  const folderLock = await claimOrLeave();
   await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   await projectHistory.load();
@@ -253,7 +281,7 @@ async function main(): Promise<void> {
       if (!running?.service) return;
       if (running.pid === process.pid) { setTimeout(() => shutdown(), 1_000); return; }
       const token = await readFile(running.tokenPath, "utf8").then((value) => value.trim()).catch(() => "");
-      if (token) await retireHost(running, token);
+      if (token) await retireHost(running, token, userData, { logger: hostLog });
     },
   });
   // A systemd service host with an invisible display starts its window when a call needs one.
@@ -367,6 +395,7 @@ async function main(): Promise<void> {
       }
       await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+      folderLock.release();
       process.exit(0);
     })();
   };
@@ -383,7 +412,7 @@ async function main(): Promise<void> {
 
   // Kept across restarts, so a tab or phone on this port reconnects instead of needing a new pairing.
   const portFile = join(userData, "host-port");
-  const listenOn = await stickyListen(serviceKind ? await takeOverListen() : listen, rememberedPort(portFile), portIsFree);
+  const listenOn = await stickyListen(serviceKind ? await takeOverListen(previous) : listen, rememberedPort(portFile), portIsFree);
   const { host: boundHost } = parseListen(listenOn);
   // TAU_HOST_TLS=1, or a certificate of the operator's own; the key stays under userData.
   // Re-read when its files change, so a renewed certificate needs no restart.
@@ -418,6 +447,7 @@ async function main(): Promise<void> {
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}) };
   console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
+  folderLock.describe({ pid: process.pid, startedAt: new Date().toISOString(), dataFolder: userData, url: `${socket.scheme}://${boundHost.includes(":") ? `[${boundHost}]` : boundHost}:${socket.port}` });
   rememberPort(portFile, socket.port);
   if (serviceKind) {
     // Nobody supervises a service host: it tells a window where it is itself.

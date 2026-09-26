@@ -12,8 +12,11 @@ import {
   readHostDescriptor,
 } from "./host-process-supervisor.js";
 import { HOST_SERVICE_ENV, serviceEnvironment } from "./host-service-units.js";
+import { DATA_FOLDER_BUSY_EXIT_CODE, dataFolderBusy } from "./data-folder-lock.js";
 
 const STUB = join(import.meta.dirname, "test-support", "stub-host.mjs");
+/** The stub takes the data folder's lock with the same module the real host uses. */
+const LOCK_MODULE = join(import.meta.dirname, "process-lock.ts");
 const started: HostProcessSupervisor[] = [];
 const directories: string[] = [];
 /** Every host a test spawned, so none outlives it unnoticed. */
@@ -44,6 +47,8 @@ function supervisor(userData: string, options: {
   service?: HostServiceControl;
   serviceStartTimeoutMs?: number;
   onUrlChanged?: (url: string) => void;
+  silentOwnerTimeoutMs?: number;
+  signalGraceMs?: number;
 } = {}) {
   const instance = new HostProcessSupervisor({
     entry: STUB,
@@ -55,6 +60,8 @@ function supervisor(userData: string, options: {
     ...(options.onFatal ? { onFatal: options.onFatal } : {}),
     ...(options.service ? { service: options.service, serviceCheckMs: 50, serviceStartTimeoutMs: options.serviceStartTimeoutMs ?? 10_000 } : {}),
     ...(options.onUrlChanged ? { onUrlChanged: options.onUrlChanged } : {}),
+    ...(options.silentOwnerTimeoutMs !== undefined ? { silentOwnerTimeoutMs: options.silentOwnerTimeoutMs, silentOwnerPollMs: 50 } : {}),
+    ...(options.signalGraceMs !== undefined ? { signalGraceMs: options.signalGraceMs } : {}),
     spawnProcess: options.spawnProcess ?? spawnStub,
     env: {
       ...process.env,
@@ -63,6 +70,7 @@ function supervisor(userData: string, options: {
       STUB_TOKEN_PATH: join(userData, "token"),
       // The stub resolves `ws` from this repository, wherever its temp copy runs.
       STUB_WS_FROM: import.meta.filename,
+      STUB_LOCK_FROM: LOCK_MODULE,
       ...(options.crash ? { STUB_EXIT_IMMEDIATELY: "1" } : {}),
       ...(options.silent ? { STUB_SILENT: "1" } : {}),
     },
@@ -271,6 +279,89 @@ describe("the host process supervisor", () => {
   });
 });
 
+/** A host nobody supervises, on `userData`, as `headless.js` started by hand is one. */
+async function looseHost(userData: string, env: NodeJS.ProcessEnv = {}): Promise<{ child: ReturnType<typeof spawn>; url: string }> {
+  const child = spawnStub(process.execPath, [STUB], {
+    ...process.env,
+    TAU_USER_DATA: userData,
+    STUB_TOKEN_PATH: join(userData, "token"),
+    STUB_WS_FROM: import.meta.filename,
+    STUB_LOCK_FROM: LOCK_MODULE,
+    ...env,
+  });
+  let output = "";
+  const url = await new Promise<string>((resolve, reject) => {
+    child.stdout!.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+      const announced = parseHostAnnouncement(output);
+      if (announced) resolve(announced.url);
+    });
+    child.once("exit", (code) => reject(new Error(`the loose host exited with ${code}`)));
+  });
+  return { child, url };
+}
+
+async function endLoose(child: ReturnType<typeof spawn>): Promise<void> {
+  const gone = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGKILL");
+  await gone;
+}
+
+describe("one host per data folder", () => {
+  it("a second host on the same userData does not start, and names the first", async () => {
+    const userData = workingDirectory();
+    const first = await supervisor(userData).start();
+    const second = spawnStub(process.execPath, [STUB], {
+      ...process.env,
+      TAU_USER_DATA: userData,
+      STUB_TOKEN_PATH: join(userData, "token-2"),
+      STUB_WS_FROM: import.meta.filename,
+      STUB_LOCK_FROM: LOCK_MODULE,
+    });
+    let errors = "";
+    second.stderr!.on("data", (chunk: Buffer) => { errors += String(chunk); });
+    const code = await new Promise((resolve) => second.once("exit", resolve));
+
+    expect(code).toBe(DATA_FOLDER_BUSY_EXIT_CODE);
+    expect(errors).toContain(`pid ${first.pid}`);
+    expect(processAlive(first.pid)).toBe(true);
+  }, 30_000);
+
+  it("starts no twin beside a host that holds the folder but does not answer", async () => {
+    const userData = workingDirectory();
+    const { child, url } = await looseHost(userData, { STUB_HANG: "1" });
+    writeFileSync(join(userData, "host.json"), JSON.stringify({ pid: child.pid, url, tokenPath: join(userData, "token"), startedAt: "", version: "1.0.0" }));
+
+    await expect(supervisor(userData, { silentOwnerTimeoutMs: 200 }).start()).rejects.toThrow(new RegExp(`pid ${child.pid}.*does not answer`, "u"));
+    // The silent host is the only one that was ever spawned, and host.json still names it.
+    expect(spawned).toEqual([child]);
+    expect((await readHostDescriptor(userData))?.pid).toBe(child.pid);
+    expect(await dataFolderBusy(userData)).toBe(true);
+    await endLoose(child);
+  }, 30_000);
+
+  it("starts no twin beside a host that holds the folder and left no host.json", async () => {
+    const userData = workingDirectory();
+    const { child } = await looseHost(userData);
+
+    await expect(supervisor(userData, { silentOwnerTimeoutMs: 200 }).start()).rejects.toThrow(`pid ${child.pid}`);
+    expect(spawned).toEqual([child]);
+    await endLoose(child);
+  }, 30_000);
+
+  it("waits for a replaced host that ignores its stop to let go of the folder, killing it if it must", async () => {
+    const userData = workingDirectory();
+    const { child, url } = await looseHost(userData, { STUB_VERSION: "1.0.0", STUB_STUBBORN: "1" });
+    writeFileSync(join(userData, "host.json"), JSON.stringify({ pid: child.pid, url, tokenPath: join(userData, "token"), startedAt: "", version: "1.0.0" }));
+
+    const current = await supervisor(userData, { version: "2.0.0", signalGraceMs: 200 }).start();
+
+    expect(child.signalCode).toBe("SIGKILL");
+    expect(current.adopted).toBe(false);
+    expect(current.pid).not.toBe(child.pid);
+  }, 30_000);
+});
+
 /**
  * A service manager in miniature: it runs the stub as a service host, which
  * takes over from the host `host.json` names the way `headless.ts` does.
@@ -289,6 +380,7 @@ function fakeService(userData: string, initial: { version: string; installed?: b
       STUB_VERSION: version,
       STUB_TOKEN_PATH: join(userData, "token"),
       STUB_WS_FROM: import.meta.filename,
+      STUB_LOCK_FROM: LOCK_MODULE,
       ...(state.keepPort ? {} : { STUB_KEEP_PORT: "0" }),
     });
     return child;
