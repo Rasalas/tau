@@ -28,12 +28,12 @@ const TERMINAL_PANEL = "terminal";
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
 
-/** Names the runtime behind a Grok thread, on any instance; other threads show nothing. */
+/** Marks the runtime behind a Grok thread with an icon, its name in the tooltip; other threads show nothing. */
 export function GrokStatus({ snapshot }: RegionProps) {
   if (!isRuntimeInstanceOf(snapshot?.backendKind, GROK_BACKEND_KIND)) return null;
   const model = snapshot?.model;
   const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Grok";
-  return <span className="status-item" title={`This thread runs the Grok CLI over ACP${model ? ` on ${model.id}` : ""}.`}><Sparkles size={12} /> {label}</span>;
+  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the Grok CLI over ACP${model ? ` on ${model.id}` : ""}.`}><Sparkles size={12} /></span>;
 }
 
 function errorMessage(error: unknown): string {

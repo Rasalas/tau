@@ -39,12 +39,12 @@ const TERMINAL_PANEL = "terminal";
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
 
-/** Names the runtime behind a Cursor thread, on any instance; other threads show nothing. */
+/** Marks the runtime behind a Cursor thread with an icon, its name in the tooltip; other threads show nothing. */
 export function CursorStatus({ snapshot }: RegionProps) {
   if (!isRuntimeInstanceOf(snapshot?.backendKind, CURSOR_BACKEND_KIND)) return null;
   const model = snapshot?.model;
   const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Cursor";
-  return <span className="status-item" title={`This thread runs the Cursor CLI over ACP${model ? ` on ${model.id}` : ""}.`}><MousePointer2 size={12} /> {label}</span>;
+  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the Cursor CLI over ACP${model ? ` on ${model.id}` : ""}.`}><MousePointer2 size={12} /></span>;
 }
 
 function errorMessage(error: unknown): string {

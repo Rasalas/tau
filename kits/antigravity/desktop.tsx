@@ -41,7 +41,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Names the runtime behind an Antigravity thread, and opens Google's sign-in link when the agent asks for one. */
+/** Marks the runtime behind an Antigravity thread with an icon, and opens Google's sign-in link when the agent asks for one. */
 export function AntigravityStatus({ snapshot, actions }: RegionProps) {
   const link = useSyncExternalStore(signInLinks.subscribe, signInLinks.getSnapshot);
   // Every reported link is opened once; the button below re-opens it.
@@ -53,8 +53,8 @@ export function AntigravityStatus({ snapshot, actions }: RegionProps) {
   if (snapshot?.backendKind !== ANTIGRAVITY_BACKEND_KIND && !link) return null;
   const model = snapshot?.model?.name;
   return (
-    <span className="status-item" title={`This thread runs Google's Antigravity agent through the Agent Client Protocol${model ? ` on ${model}` : ""}.`}>
-      <Orbit size={12} /> Antigravity
+    <span className="status-item" title={`Antigravity: this thread runs Google's Antigravity agent through the Agent Client Protocol${model ? ` on ${model}` : ""}.`}>
+      <Orbit size={12} role="img" aria-label="Antigravity" />
       {link ? <button className="antigravity-sign-in" title="Open the Google sign-in link again" aria-label="Open the Google sign-in link" onClick={() => actions.openExternal(link.url)}><ExternalLink size={11} /> Sign in</button> : null}
     </span>
   );

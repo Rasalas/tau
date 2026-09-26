@@ -27,17 +27,19 @@ describe("Antigravity desktop extension", () => {
     expect(registry.getSettingsPages().find((page) => page.id === "antigravity.settings")?.runtime).toBe("antigravity");
     const Component = item!.Component;
     const actions = { openExternal: vi.fn(), notify: vi.fn() } as never;
-    const { rerender } = render(<Component snapshot={{ backendKind: "antigravity", model: { provider: "google", id: "g", name: "Gemini 3.8 Flash (Low)" } } as HostSnapshot} actions={actions} />);
-    expect(screen.getByText("Antigravity")).toBeTruthy();
+    const { container, rerender } = render(<Component snapshot={{ backendKind: "antigravity", model: { provider: "google", id: "g", name: "Gemini 3.8 Flash (Low)" } } as HostSnapshot} actions={actions} />);
+    expect(screen.getByRole("img", { name: "Antigravity" })).toBeTruthy();
+    expect(container.querySelector(".status-item")?.getAttribute("title")).toMatch(/^Antigravity: /u);
+    expect(container.textContent).toBe("");
     rerender(<Component snapshot={{ backendKind: "pi" } as HostSnapshot} actions={actions} />);
-    expect(screen.queryByText("Antigravity")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Antigravity" })).toBeNull();
 
     const url = "https://accounts.google.com/o/oauth2/v2/auth?state=x";
     act(() => signInLinks.report(url));
     expect((actions as { openExternal: ReturnType<typeof vi.fn> }).openExternal).toHaveBeenCalledWith(url);
     expect(screen.getByLabelText("Open the Google sign-in link")).toBeTruthy();
     act(() => signInLinks.clear());
-    expect(screen.queryByText("Antigravity")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Antigravity" })).toBeNull();
   });
 
   it("installs the runtime from the Settings page and shows the download's progress", async () => {

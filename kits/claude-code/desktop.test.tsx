@@ -22,10 +22,13 @@ describe("Claude Code desktop extension", () => {
     expect(registry.getSettingsPages().find((page) => page.id === "claude-code.settings")?.runtime).toBe("claude-code");
     const Component = item!.Component;
     const actions = {} as never;
-    const { rerender } = render(<Component snapshot={{ backendKind: "claude-code" } as HostSnapshot} actions={actions} />);
-    expect(screen.getByText("Claude Code")).toBeTruthy();
+    const { container, rerender } = render(<Component snapshot={{ backendKind: "claude-code" } as HostSnapshot} actions={actions} />);
+    // Icon only: the name lives in the accessible label and the tooltip.
+    const mark = screen.getByRole("img", { name: "Claude Code" });
+    expect(mark.getAttribute("title")).toMatch(/^Claude Code: /u);
+    expect(container.textContent).toBe("");
     rerender(<Component snapshot={{ backendKind: "pi" } as HostSnapshot} actions={actions} />);
-    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Claude Code" })).toBeNull();
   });
 
   it("reports the CLI and the account it is signed in as, and asks the CLI again on demand", async () => {
