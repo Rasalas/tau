@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
@@ -54,6 +54,7 @@ import { HostResourceSampler, testResourceOs } from "./host-resources.js";
 import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
+import { appPackageVersion } from "./packaged-app.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -76,7 +77,7 @@ const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 // A supervised host is told which version it belongs to; a hand-started one
 // reads npm's environment. A service host reads the app it runs from, so an
 // update in place is a new version after a restart without touching the unit.
-const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || packageVersion(appRoot) || "0.0.0";
+const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || appPackageVersion(appRoot) || "0.0.0";
 /** Set in a service's unit: this host writes `host.json` itself and takes over from the host it names. */
 const serviceKind = process.env[HOST_SERVICE_ENV] || undefined;
 /** Started by a window's supervisor (which names the version) or by a service manager, not by hand. */
@@ -121,15 +122,6 @@ function publish(event: HostEvent): void {
   keepAwake.observe(event);
   resources.observe(event);
   broadcast(event);
-}
-
-function packageVersion(root: string): string | undefined {
-  try {
-    const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version?: unknown }).version;
-    return typeof version === "string" ? version : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function portIsFree(host: string, port: number): Promise<boolean> {

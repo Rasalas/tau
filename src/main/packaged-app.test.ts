@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { esbuildBinaryPath, unpackedPath } from "./packaged-app.js";
+import { appPackageVersion, esbuildBinaryPath, unpackedPath } from "./packaged-app.js";
 
 describe("unpackedPath", () => {
   it("points a path inside the archive at the copy beside it", () => {
@@ -14,6 +14,40 @@ describe("unpackedPath", () => {
   it("leaves a path outside an archive alone", () => {
     const path = join(sep, "repo", "dist-electron", "main", "worker.cjs");
     expect(unpackedPath(path)).toBe(path);
+  });
+});
+
+describe("appPackageVersion", () => {
+  // `resources/app.asar` stands in for the archive as Electron's fs shows it; the unpacked copy has no package.json.
+  async function packagedResources(): Promise<string> {
+    const resources = join(await mkdtemp(join(tmpdir(), "tau-packaged-")), "opt", "tau", "resources");
+    await mkdir(join(resources, "app.asar"), { recursive: true });
+    await writeFile(join(resources, "app.asar", "package.json"), JSON.stringify({ name: "tau", version: "0.7.1" }));
+    await mkdir(join(resources, "app.asar.unpacked", "dist-electron", "main"), { recursive: true });
+    return resources;
+  }
+
+  it("reads the archive's package.json for a host started from app.asar.unpacked", async () => {
+    const resources = await packagedResources();
+    expect(appPackageVersion(join(resources, "app.asar.unpacked"))).toBe("0.7.1");
+  });
+
+  it("reads a checkout's own package.json", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-checkout-"));
+    await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.8.0-dev" }));
+    expect(appPackageVersion(root)).toBe("0.8.0-dev");
+  });
+
+  it("looks beside no other folder than app.asar.unpacked", async () => {
+    const resources = await packagedResources();
+    await mkdir(join(resources, "app"), { recursive: true });
+    expect(appPackageVersion(join(resources, "app"))).toBeUndefined();
+  });
+
+  it("answers with nothing when no package.json names a version", async () => {
+    const resources = await packagedResources();
+    await writeFile(join(resources, "app.asar", "package.json"), "{}");
+    expect(appPackageVersion(join(resources, "app.asar.unpacked"))).toBeUndefined();
   });
 });
 
