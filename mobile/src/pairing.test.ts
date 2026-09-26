@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { parsePairingPayload } from "../../src/shared/connections";
 import { pairingVerificationCode } from "../../src/shared/pairing";
 import type { SocketCandidate } from "./endpoints";
-import { pairDevice, pairingBinding, pairingFailureMessage, sameAddress } from "./pairing";
+import { pairDevice, pairingBinding, pairingFailureMessage, sameAddress, targetPins } from "./pairing";
 
 const FP = "AB:".repeat(31) + "AB";
 const KEY = "EF:".repeat(31) + "EF";
@@ -98,6 +99,15 @@ describe("pairDevice", () => {
     const outcome = await pairDevice({ hostId: "h-1", name: "Mac", publicKey: KEY, fingerprint: FP, endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" }] }, { device: DEVICE, openSocket: sockets.openSocket });
     expect(outcome).toMatchObject({ state: "approved", host: { publicKey: KEY } });
     expect(outcome.state === "approved" && outcome.host.fingerprint).toBeUndefined();
+  });
+
+  it("pairs from a scanned link that names the key alone, with unescaped addresses", async () => {
+    const link = `https://192.168.1.40:7788/#pair=code&k=lan&pk=${"EF".repeat(32)}&host=${"0".repeat(32)}&name=rex&e=mdns:https://rex.local:7788/&e=tailscale:https://100.87.123.45:7788/`;
+    const payload = parsePairingPayload(link)!;
+    const sockets = hostSockets({ "wss://192.168.1.40:7788/": "unreachable", "wss://rex.local:7788/": "unreachable", "wss://100.87.123.45:7788/": "host" });
+    const outcome = await pairDevice({ hostId: payload.hostId!, name: payload.hostName!, ...targetPins(payload), endpoints: payload.endpoints, code: payload.code }, { device: DEVICE, openSocket: sockets.openSocket, race: { graceMs: 0 } });
+    expect(outcome).toMatchObject({ state: "approved", host: { publicKey: KEY, lastEndpoint: { url: "https://100.87.123.45:7788/", kind: "tailscale" } } });
+    expect(sockets.opened.slice(0, 3)).toEqual(["wss://192.168.1.40:7788/", "wss://rex.local:7788/", "wss://100.87.123.45:7788/"]);
   });
 
   it("pairs through a CA-vouched address without the pin, with digits bound to nothing", async () => {

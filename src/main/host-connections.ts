@@ -17,7 +17,7 @@ import type { HostAccess } from "./host-access.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { isLoopbackHost } from "./host-listen.js";
-import { MagicDnsNames, isTailscaleAddress, listenerEndpoints, localHostName, mergeEndpoints, type EndpointNames, type Interfaces } from "./host-endpoints.js";
+import { MagicDnsNames, isTailscaleAddress, linkEndpoints, listenerEndpoints, localHostName, mergeEndpoints, type EndpointNames, type Interfaces } from "./host-endpoints.js";
 import { decodeNetworkSettingsInput } from "./host-network.js";
 import { decodeOptionalText, decodeString } from "./ipc-input.js";
 
@@ -190,7 +190,7 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
         ...access.overview(connection),
       };
     }),
-    // Every link names every network address, its kind and the certificate, so a device can pick one and pin it.
+    // Every link names the best network address of each kind and the host's key, so a device can pick one and pin it.
     // Also without a web client: the app pairs over the socket.
     "connections-create-link": owned(async (connections, params): Promise<UiCreatedPairingLink> => {
       const input = decodeLinkInput(params[0]);
@@ -202,7 +202,7 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       const fingerprint = certificate?.fingerprint ?? info?.fingerprint;
       const publicKey = certificate ? certificate.publicKey : info?.publicKey;
       // A phone that dialled loopback would reach itself; only a loopback link names loopback.
-      const network = networkOnly(endpoints);
+      const network = linkEndpoints(networkOnly(endpoints));
       const urls = endpoints.map((endpoint) => ({
         ...endpoint,
         url: pairingUrl(pairingEndpoint(endpoint), {

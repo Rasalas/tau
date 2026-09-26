@@ -14,7 +14,7 @@ describe("a pairing link", () => {
       hostName: "Studio Mac",
       endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }, { url: "https://100.101.102.103:7788/", kind: "tailscale" }],
     });
-    expect(url).toBe(`https://192.168.1.20:7788/#pair=c0de_-x&k=lan&fp=${"AB".repeat(32)}&host=${"f".repeat(32)}&name=Studio+Mac&e=tailscale%3Ahttps%3A%2F%2F100.101.102.103%3A7788%2F`);
+    expect(url).toBe(`https://192.168.1.20:7788/#pair=c0de_-x&k=lan&fp=${"AB".repeat(32)}&host=${"f".repeat(32)}&name=Studio+Mac&e=tailscale:https://100.101.102.103:7788/`);
     expect(parsePairingPayload(url)).toEqual({
       code: "c0de_-x",
       fingerprint,
@@ -30,10 +30,38 @@ describe("a pairing link", () => {
     const lan = { url: "https://192.168.1.20:7788/", kind: "lan" as const };
     const url = pairingUrl(serve, { code: "c", fingerprint, publicKey, endpoints: [serve, lan] });
     expect(url).toContain(`&pk=${"CD".repeat(32)}`);
-    expect(url).toContain("&ca=https%3A%2F%2Fbox.tail0000.ts.net%2F");
-    expect(parsePairingPayload(url)).toEqual({ code: "c", fingerprint, publicKey, endpoints: [serve, lan] });
+    expect(url).not.toContain("fp=");
+    expect(url).toContain("&ca=https://box.tail0000.ts.net/");
+    expect(parsePairingPayload(url)).toEqual({ code: "c", publicKey, endpoints: [serve, lan] });
     const fromLan = parsePairingPayload(pairingUrl(lan, { code: "c", publicKey, endpoints: [serve, lan] }));
     expect(fromLan?.endpoints).toEqual([lan, serve]);
+  });
+
+  it("reads as the apps released before it read links", () => {
+    const url = pairingUrl({ url: "https://192.168.1.20:7788/", kind: "lan" }, {
+      code: "c0de", fingerprint, publicKey: "CD:".repeat(31) + "CD", hostName: "Alex's Mac & more",
+      endpoints: [{ url: "https://[fd7a:115c:a1e0::1]:7788/", kind: "tailscale" }, { url: "https://box.tail0000.ts.net/", kind: "magicdns", trustedCertificate: true }],
+    });
+    // Released apps split the fragment with URLSearchParams, want `pk` as 64 hex and each `e` as `<kind>:<url>`.
+    const fields = new URLSearchParams(url.slice(url.indexOf("#") + 1));
+    expect(fields.get("pk")).toBe("CD".repeat(32));
+    expect(fields.get("name")).toBe("Alex's Mac & more");
+    expect(fields.getAll("e").map((entry) => /^([a-z0-9-]+):(https?:\/\/.*)$/u.exec(entry)?.slice(1))).toEqual([
+      ["tailscale", "https://[fd7a:115c:a1e0::1]:7788/"], ["magicdns", "https://box.tail0000.ts.net/"],
+    ]);
+    expect(fields.getAll("ca")).toEqual(["https://box.tail0000.ts.net/"]);
+    // Brackets are not allowed unescaped in a fragment (RFC 3986); a strict URL parser in a camera app would stop there.
+    expect(url.slice(url.indexOf("#"))).not.toMatch(/[[\]\s]/u);
+  });
+
+  it("reads the escaped links of before, and a key as base64url", () => {
+    const before = `https://192.168.1.20:7788/#pair=c&k=lan&fp=${"AB".repeat(32)}&pk=${"CD".repeat(32)}&e=mdns%3Ahttps%3A%2F%2Fstudio.local%3A7788%2F`;
+    expect(parsePairingPayload(before)).toEqual({
+      code: "c", fingerprint, publicKey: "CD:".repeat(31) + "CD",
+      endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }, { url: "https://studio.local:7788/", kind: "mdns" }],
+    });
+    const base64url = btoa(String.fromCharCode(...new Array<number>(32).fill(0xcd))).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+    expect(parsePairingPayload(`https://h/#pair=c&pk=${base64url}`)?.publicKey).toBe("CD:".repeat(31) + "CD");
   });
 
   it("never lets a CA stand in for the pin on an address or a .local name", () => {
