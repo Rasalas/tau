@@ -68,8 +68,23 @@ function findXvfb() {
   return undefined;
 }
 
-if (process.platform !== "linux" || !findXvfb()) {
-  console.log(`display smoke skipped: ${process.platform !== "linux" ? `the invisible display is Linux only (this is ${process.platform})` : "Xvfb is not installed"}.`);
+/** Why Electron cannot run here, e.g. a CI container without the GTK libraries a window needs; undefined when it can. */
+function electronMissingLibraries() {
+  try {
+    execFileSync(createRequire(import.meta.url)("electron"), ["--version"], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "ignore", "pipe"] });
+    return undefined;
+  } catch (error) {
+    const stderr = String(error?.stderr ?? "");
+    const library = /error while loading shared libraries: ([^:\s]+)/u.exec(stderr)?.[1];
+    return library ? `Electron cannot load ${library} on this machine` : undefined;
+  }
+}
+
+const skipReason = process.platform !== "linux"
+  ? `the invisible display is Linux only (this is ${process.platform})`
+  : !findXvfb() ? "Xvfb is not installed" : electronMissingLibraries();
+if (skipReason) {
+  console.log(`display smoke skipped: ${skipReason}.`);
   console.log("On the Linux machine itself, follow the checklist in docs/agents/testing-the-app.md, \"Invisible display\".");
   process.exit(0);
 }
