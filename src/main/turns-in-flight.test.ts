@@ -19,6 +19,9 @@ const marker = (overrides: Partial<InFlightTurn> = {}): InFlightTurn => ({
   ...overrides,
 });
 
+/** A marker as this process records it. */
+const mine = (overrides: Partial<InFlightTurn> = {}): InFlightTurn => ({ ...marker(overrides), writer: { pid: process.pid } });
+
 describe("TurnsInFlight", () => {
   it("writes a marker and reads it back in the next run", async () => {
     const { filePath, turns } = await store();
@@ -26,7 +29,7 @@ describe("TurnsInFlight", () => {
     await turns.flush();
 
     const next = new TurnsInFlight({ filePath });
-    expect(await next.load()).toEqual([marker({ prompt: { text: "do the thing", images: 2 } })]);
+    expect(await next.load()).toEqual([mine({ prompt: { text: "do the thing", images: 2 } })]);
   });
 
   it("clears the marker when its own turn ends and keeps a newer one", async () => {
@@ -66,7 +69,7 @@ describe("TurnsInFlight", () => {
     turns.record(marker({ sessionId: "thread-2" }));
     await turns.flush();
 
-    expect(await new TurnsInFlight({ filePath }).load()).toEqual([marker()]);
+    expect(await new TurnsInFlight({ filePath }).load()).toEqual([mine()]);
   });
 
   it("clips a long prompt rather than copying the transcript", async () => {
@@ -81,5 +84,24 @@ describe("TurnsInFlight", () => {
     await writeFile(filePath, JSON.stringify({ version: 1, turns: [{ sessionId: "broken" }, marker()] }), "utf8");
     expect(await new TurnsInFlight({ filePath }).load()).toEqual([marker()]);
     expect(await new TurnsInFlight({ filePath: join(filePath, "missing.json") }).load()).toEqual([]);
+  });
+
+  it("leaves a marker whose writer still runs alone, in the file and out of the answer", async () => {
+    const { filePath, turns } = await store();
+    await turns.flush();
+    const live = marker({ sessionId: "live", writer: { pid: 4242 } });
+    const dead = marker({ sessionId: "dead", writer: { pid: 4343 } });
+    await writeFile(filePath, JSON.stringify({ version: 1, turns: [live, dead, marker({ sessionId: "old" })] }), "utf8");
+    const warnings: string[] = [];
+    const next = new TurnsInFlight({ filePath, alive: (pid) => pid === 4242, logger: { warn: (label) => warnings.push(label) } });
+
+    expect((await next.load()).map((turn) => turn.sessionId)).toEqual(["dead", "old"]);
+    expect(warnings).toEqual(["turns-in-flight.writer-alive"]);
+    // Reconciling the others rewrites the file; the live writer's marker stays in it.
+    next.clear("dead");
+    next.clear("old");
+    await next.flush();
+    const written = JSON.parse(await readFile(filePath, "utf8")) as { turns: InFlightTurn[] };
+    expect(written.turns).toEqual([live]);
   });
 });
