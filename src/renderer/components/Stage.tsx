@@ -1,4 +1,5 @@
 import { useMemo, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
@@ -10,6 +11,7 @@ import { lookInMachine } from "../../workbench/look-in";
 import { usePlatform } from "../platform-context";
 import { RemoteThreadDocument } from "./RemoteThreadDocument";
 import { ThreadDocument } from "./ThreadDocument";
+import { tooltipProps } from "./ui/Tooltip";
 import "./stage-panels.css";
 
 function relativeTo(cwd: string | undefined, path: string): string {
@@ -43,7 +45,7 @@ function ExtensionPane({ tab, registry, stageTabs, actions }: {
 }
 
 export function Stage({
-  stage, cwd, changes, editor, chatTab, focusRef, registry, stageTabs, actions,
+  stage, cwd, changes, editor, chatTab, maximize, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel,
 }: {
@@ -54,6 +56,8 @@ export function Stage({
   editor?: UiEditor;
   /** Present while the chat shares the tab strip because the centre is too narrow for both. */
   chatTab?: ChatTab;
+  /** Present where chat and stage fit side by side: the stage can take the whole centre, the chat its first tab. */
+  maximize?: { maximized: boolean; onToggle(): void };
   /** Who offers the stage tab kinds, and who holds their handles. */
   registry?: ExtensionRegistry;
   stageTabs?: StageTabController;
@@ -95,19 +99,31 @@ export function Stage({
   };
 
   return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" data-keybinding-context="stage" onKeyDown={onKeyDown}>
-    <StageTabs
-      tabs={stage.tabs}
-      activeId={stage.activeId}
-      changedPaths={changedAbsolute}
-      chatTab={chatTab}
-      {...(registry ? { registry } : {})}
-      onActivate={onActivate}
-      onClose={onClose}
-      onPin={onPin}
-      onUnpin={onUnpin}
-      onCloseOthers={onCloseOthers}
-      onCloseToRight={onCloseToRight}
-    />
+    <div className="stage-strip">
+      <StageTabs
+        tabs={stage.tabs}
+        activeId={stage.activeId}
+        changedPaths={changedAbsolute}
+        chatTab={chatTab}
+        {...(registry ? { registry } : {})}
+        onActivate={onActivate}
+        onClose={onClose}
+        onPin={onPin}
+        onUnpin={onUnpin}
+        onCloseOthers={onCloseOthers}
+        onCloseToRight={onCloseToRight}
+      />
+      {maximize ? <div className="stage-strip-actions">
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={maximize.maximized}
+          aria-label={maximize.maximized ? "Show chat beside the stage" : "Maximize stage"}
+          {...tooltipProps(maximize.maximized ? "Show chat beside the stage" : "Maximize stage", { side: "bottom" })}
+          onClick={maximize.onToggle}
+        >{maximize.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
+      </div> : null}
+    </div>
     {!current || chatTab?.active ? null : current.kind === "panel" ? (
       <section key={current.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === current.panelId)?.label ?? current.panelId}>
         {renderPanel?.(current.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}

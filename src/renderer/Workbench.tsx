@@ -38,6 +38,7 @@ import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./c
 import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import { panelTabId } from "../workbench/stage";
+import { useCenterLayout } from "./use-center-layout";
 import {
   DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
   drawerMaxHeight, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth, storedDrawerHeight, storedSidebarWidth,
@@ -68,7 +69,6 @@ import {
 import { displayPath } from "./path-display";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
-const CENTER_SPLIT_MIN_WIDTH = 480 + 360;
 const DEFAULT_DOCK_WIDTH = 320;
 const MIN_DOCK_WIDTH = 220;
 const MAX_DOCK_WIDTH = 560;
@@ -149,14 +149,16 @@ export interface WorkbenchLayout {
   drawer?: string;
   dockOpen: boolean;
   setDockOpen(open: boolean): void;
+  /** Grows with each call that shows, hides or picks a dock panel. */
+  dockAsks: number;
   /** The width this workspace was last left at; the default otherwise. */
   dockWidth?: number;
   onDockWidthChange(width: number): void;
-  centerRef: RefObject<HTMLDivElement | null>;
-  centerCompact: boolean;
-  setCenterCompact(compact: boolean): void;
   chatFocused: boolean;
   setChatFocused(focused: boolean): void;
+  /** The stage over the whole centre, the chat its first tab; cleared when the stage closes. */
+  stageMaximized: boolean;
+  setStageMaximized(maximized: boolean): void;
   stage: StageState;
   /** Who holds the handles of the tabs extensions drew, and closes any tab. */
   stageTabs: StageTabController;
@@ -278,9 +280,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
-    openedPanels, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockWidth: restoredDockWidth, onDockWidthChange,
-    centerRef, centerCompact, setCenterCompact,
-    chatFocused, setChatFocused, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
+    openedPanels, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth: restoredDockWidth, onDockWidthChange,
+    chatFocused, setChatFocused, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
     documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette, commands,
     projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
@@ -374,6 +375,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
   const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
+  const touchSidebarShown = split && touchSidebarOpen;
+  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
+  const stageOpen = stage.tabs.length > 0;
+  const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
+  // A compact client draws no stage (profile-compact.css), so its chat never becomes a tab.
+  const { dockYields, tabs: centerCompact, canSplit, keepDock } = useCenterLayout({
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stageOpen && !compact, maximized: stageMaximized,
+    tabCount: stage.tabs.length, dockAsks, clearMaximized: clearStageMaximized,
+    ...(dockPanels.length > 0 ? { dock: { open: dockOpen, width: dockWidth } } : {}),
+  });
+  const dockShown = dockOpen && !dockYields;
   useEffect(() => { if (!compact || split) setThreadSheetOpen(false); }, [compact, split]);
   // Opening another thread (from a panel, say) puts the thread in front again.
   useEffect(() => { setPanelSheet(undefined); }, [compact, snapshot?.sessionId]);
@@ -385,29 +397,19 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     onDockWidthChange(bounded);
   };
 
-
-  useEffect(() => {
-    const element = centerRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => setCenterCompact(entry.contentRect.width < CENTER_SPLIT_MIN_WIDTH));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [centerRef, setCenterCompact]);
-
   const centerClassName = [
     "workbench-center",
-    stage.tabs.length > 0 ? "stage-open" : "",
+    stageOpen ? "stage-open" : "",
     centerCompact ? "compact" : "",
     centerCompact && chatFocused ? "chat-focused" : "",
   ].filter(Boolean).join(" ");
-  const touchSidebarShown = split && touchSidebarOpen;
   const shellClassName = [
     "app-shell",
     split ? "touch-split" : "",
     sidebarContributions.length === 0 && !split ? "no-sidebar" : "",
     (split ? touchSidebarOpen : sidebarOpen) ? "" : "sidebar-closed",
     dockPanels.length === 0 ? "no-dock" : "",
-    dockOpen ? "" : "dock-closed",
+    dockShown ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
   const openSupervisedThread = (row: { path: string }) => {
@@ -538,10 +540,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": dockPanels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px`, "--sidebar-width": `${split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar}px` } as CSSProperties}>
+    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": dockPanels.length === 0 || !dockShown ? "0px" : `${dockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
-        dockOpen={dockOpen}
+        dockOpen={dockShown}
         hasDock={dockPanels.length > 0}
         registry={registry}
         snapshot={snapshot}
@@ -573,7 +575,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           open: drawer === panel.id,
           onToggle: () => (drawer === panel.id ? actions.closePanel?.(panel.id) : openPanel(panel.id)),
         }))}
-        onToggleDock={() => setDockOpen(!dockOpen)}
+        onToggleDock={() => (dockYields ? keepDock() : setDockOpen(!dockOpen))}
         {...(compact ? { onOpenThreads: () => (split ? setTouchSidebarOpen((open) => !open) : setThreadSheetOpen(true)) } : {})}
         sheets={sheetPanels.map((panel) => ({
           id: panel.id,
@@ -608,7 +610,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onChange={setSidebarWidth}
       /> : null}
       <div className="workbench-main">
-      <div className={centerClassName} ref={centerRef}>
+      <div className={centerClassName}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
           onDragEnter={dropController.onDragEnter}
@@ -661,6 +663,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               changes={documentState.changes}
               editor={documentState.editor}
               chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
+              maximize={canSplit ? { maximized: stageMaximized, onToggle: () => { setChatFocused(false); setStageMaximized(!stageMaximized); } } : undefined}
               registry={registry}
               stageTabs={stageTabs}
               actions={actions}
@@ -679,10 +682,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               renderPanel={(panelId) => {
                 const panel = panels.find((entry) => entry.id === panelId);
                 if (!panel) return null;
-                return <>
-                  <PanelSlot host={hostFor(panel.id)} />
-                  <PanelMaximizeButton label={panel.label} maximized shortcut={maximizeShortcut} onToggle={() => panelLayout?.restore(panel.id)} />
-                </>;
+                return <PanelSlot host={hostFor(panel.id)} />;
               }}
             />
           </Suspense>
@@ -701,11 +701,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           onChange={setDrawerHeight}
         />
         <PanelSlot host={hostFor(drawerPanel.id)} />
-        {drawerPanel.maximizable ? <PanelMaximizeButton label={drawerPanel.label} maximized={false} shortcut={maximizeShortcut} onToggle={() => panelLayout?.maximize(drawerPanel.id)} /> : null}
+        {drawerPanel.maximizable ? <PanelMaximizeButton label={drawerPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout?.maximize(drawerPanel.id)} /> : null}
       </section> : null}
       </div>
       {dockPanels.length > 0 ? <aside className="instrument-dock">
-        {dockOpen ? <ResizeHandle
+        {dockShown ? <ResizeHandle
           className="dock-resizer"
           label="Resize right sidebar"
           orientation="vertical"
@@ -716,18 +716,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           defaultValue={DEFAULT_DOCK_WIDTH}
           onChange={setDockWidth}
         /> : null}
-        {dockOpen ? <div className="panel-stage">
+        {dockShown ? <div className="panel-stage">
           {dockPanels.map((panel) => openedPanels.has(panel.id) && !staged.has(panel.id) ? <PanelSlot key={panel.id} host={hostFor(panel.id)} /> : null)}
           {staged.has(activePanel) ? <div className="panel-on-stage" role="status">
             <p>{activeDockPanel?.label ?? "This panel"} is open as a tab.</p>
             <button type="button" className="chrome-button" onClick={() => openPanel(activePanel)}>Show tab</button>
             <button type="button" className="chrome-button" onClick={() => panelLayout?.restore(activePanel)}>Move back here</button>
-          </div> : activeDockPanel?.maximizable && panelLayout ? <PanelMaximizeButton label={activeDockPanel.label} maximized={false} shortcut={maximizeShortcut} onToggle={() => panelLayout.maximize(activeDockPanel.id)} /> : null}
+          </div> : activeDockPanel?.maximizable && panelLayout ? <PanelMaximizeButton label={activeDockPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout.maximize(activeDockPanel.id)} /> : null}
         </div> : null}
         <nav className="panel-rail">
           {dockPanels.map((panel) => {
             const onStage = staged.has(panel.id);
-            const shown = dockOpen && activePanel === panel.id && !onStage;
+            const shown = dockShown && activePanel === panel.id && !onStage;
             return <button
               key={panel.id}
               {...tooltipProps(onStage ? `${panel.label} (open as a tab)` : panel.label, { side: "left" })}
@@ -757,11 +757,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     {panels.map((panel) => {
       const onStage = staged.has(panel.id);
       const inDrawer = panel.placement === "drawer";
-      if (!(onStage || (inDrawer ? drawer === panel.id : dockOpen && openedPanels.has(panel.id)))) return null;
+      if (!(onStage || (inDrawer ? drawer === panel.id : dockShown && openedPanels.has(panel.id)))) return null;
       const placement = onStage ? "stage" : inDrawer ? "drawer" : "dock";
       const active = onStage
         ? stage.activeId === panelTabId(panel.id) && !(centerCompact && chatFocused)
-        : inDrawer || (dockOpen && activePanel === panel.id);
+        : inDrawer || (dockShown && activePanel === panel.id);
       return createPortal(<MountedPanel
         Component={panel.Component}
         active={active}

@@ -19,6 +19,8 @@ export interface PanelLayoutPorts extends PanelLayoutState {
   setDrawer(id: string | undefined): void;
   /** A panel tab came to the front; a narrow centre then shows the stage, not the chat. */
   showStage(): void;
+  /** Maximizing a panel gives the stage the whole centre; moving it back returns the chat beside it. */
+  setStageMaximized?(maximized: boolean): void;
   /** The panel the keyboard is in, if any. */
   focusedPanel?(): string | undefined;
   /** A compact layout's sheets: each answers true when it took the call, and the dock is left alone. */
@@ -82,12 +84,14 @@ export function usePanelLayout(ports: PanelLayoutPorts): PanelLayout {
       if (!current.panels.some((panel) => panel.id === id && panel.maximizable)) return;
       current.setStage((stage) => openPanelTab(stage, id));
       current.showStage();
+      current.setStageMaximized?.(true);
       // The panel left; what held it has nothing to show.
       if (current.drawer === id) current.setDrawer(undefined);
       if (current.dockOpen && current.activePanel === id) current.setDockOpen(false);
     };
     const restore = (id: string) => {
       latest.current.stageTabs.close(panelTabId(id));
+      latest.current.setStageMaximized?.(false);
       show(id);
     };
     const toggleMaximized = () => {

@@ -56,7 +56,7 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | --- | --- | --- | --- | --- | --- |
 | `mod+b` | | `workbench.toggle-sidebar` | Hide or show the sidebar | core | `sidebar.toggle` |
 | `mod+alt+b` | | `workbench.toggle-dock` | Hide or show the dock | core | `rightPanel.toggle` |
-| `mod+alt+shift+b` | | `rightPanel.toggleMaximized` | Open the panel in front as a stage tab, or move it back | core | same (no default chord) |
+| `mod+alt+shift+b` | | `rightPanel.toggleMaximized` | Maximize the panel in front onto the stage, or move it back | core | same (no default chord) |
 | `mod+k` | | `runtime.command-palette` | Command palette | core | `commandPalette.toggle` |
 | `mod+n` | `!terminalFocus` | `runtime.new-session` | New thread | core | `chat.new` |
 | `mod+shift+o` | `!terminalFocus` | `runtime.new-session` | New thread | core | `chat.new` |

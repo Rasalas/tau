@@ -1,6 +1,6 @@
 import { memo, Suspense, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import type { ExtensionRegistry, PanelPlacement, PanelProps, WorkbenchActions } from "../extension-system";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
 import { tooltipProps } from "./ui/Tooltip";
@@ -78,13 +78,14 @@ export function PanelSlot({ host }: { host: HTMLElement }) {
 }
 
 /** Maximize into a stage tab, or back out of one; sits over the panel header's end. */
-export function PanelMaximizeButton({ label, maximized, shortcut, onToggle }: { label: string; maximized: boolean; shortcut?: string; onToggle(): void }) {
-  const text = maximized ? `Move ${label} back` : `Open ${label} as a tab`;
+/** Moves a dock or drawer panel onto the stage, and the stage over the whole centre. */
+export function PanelMaximizeButton({ label, shortcut, onMaximize }: { label: string; shortcut?: string; onMaximize(): void }) {
+  const text = `Maximize ${label}`;
   return <button
     type="button"
     className="icon-button panel-maximize"
     aria-label={text}
     {...tooltipProps(text, { side: "bottom", shortcut })}
-    onClick={onToggle}
-  >{maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>;
+    onClick={onMaximize}
+  ><Maximize2 size={14} /></button>;
 }

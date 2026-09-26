@@ -297,15 +297,17 @@ the arrow keys from its top edge, and its height (180 px up to three quarters
 of the window) is kept per client. Terminal Kit's "Show the terminal in"
 setting registers its panel again with the other placement.
 
-`maximizable: true` lets the user move the panel into a stage tab beside the
-chat: the button over the end of the panel's header, or
+`maximizable: true` lets the user move the panel into a stage tab over the
+whole centre, the chat the stage's first tab: the button over the end of the
+panel's header, or
 `rightPanel.toggleMaximized` (`mod+alt+shift+b`), which acts on the panel tab
 in front, else the panel the keyboard is in, else the dock's, else the
 drawer's. Core moves the *mounted* panel — its DOM host goes from dock to
 stage and back — so React state, scroll and a terminal's buffer go with it,
 and the panel is never drawn twice: the dock shows a stand-in with "Show tab"
 and "Move back here" while it is away. Closing the tab, or the same command
-again, puts it back where it was placed. The tab is a core kind
+again, puts it back where it was placed; the stage's own maximize button, at
+the right end of its tab strip, puts the chat back beside it. The tab is a core kind
 (`StagePanelTab`, `kind: "panel"`, `panelId`) and is restored with the stage.
 
 `PanelProps.placement` says where the panel is drawn now (`dock`, `drawer` or

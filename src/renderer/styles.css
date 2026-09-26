@@ -59,17 +59,18 @@ button > svg { pointer-events: none; }
 }
 /* The centre cell: conversation and stage, and a drawer panel below both. */
 .workbench-main { grid-area: 2 / 2 / 3 / 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-/* The split mirrors CENTER_SPLIT_MIN_WIDTH in Workbench.tsx. */
+/* The split mirrors CHAT_MIN_WIDTH and STAGE_MIN_WIDTH in src/workbench/center-layout.ts. */
 .workbench-center {
   flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0;
 }
 .workbench-center.stage-open { grid-template-columns: minmax(480px, 1fr) minmax(360px, 1.25fr); }
 /* Too narrow for both: the chat becomes the first tab of the stage. */
-.workbench-center.stage-open.compact { display: flex; flex-direction: column; }
+.workbench-center.stage-open.compact { position: relative; display: flex; flex-direction: column; }
 .workbench-center.stage-open.compact .stage { order: -1; flex: 1; min-height: 0; border-left: 0; }
 .workbench-center.stage-open.compact .conversation-column { flex: 1; min-height: 0; }
 .workbench-center.stage-open.compact.chat-focused .stage { flex: none; }
-.workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { display: none; }
+/* Behind the stage at the size it shows at (below the 40 px tab strip), not display:none: the transcript keeps its scroll. */
+.workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { position: absolute; inset: 40px 0 0; visibility: hidden; pointer-events: none; }
 .app-shell.dock-closed { --dock-width: 0px; }
 /* The sidebar stays mounted while hidden, so its scroll and folds survive a toggle. */
 .sidebar-slot { display: contents; }
@@ -1613,8 +1614,14 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   border-left: 1px solid var(--line); background: var(--stage);
 }
+/* The tab strip scrolls; the stage's own controls stay at its right end. */
+.stage-strip { flex: none; display: flex; min-width: 0; }
+.stage-strip-actions {
+  flex: none; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px;
+  border-bottom: 1px solid var(--line); border-left: 1px solid var(--line); background: var(--chrome);
+}
 .stage-tabs {
-  flex: none; display: flex; align-items: stretch; height: 40px;
+  flex: 1; min-width: 0; display: flex; align-items: stretch; height: 40px;
   border-bottom: 1px solid var(--line); background: var(--chrome);
   overflow-x: auto; scrollbar-width: none;
 }
@@ -1629,7 +1636,10 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .stage-tab.active { background: var(--stage); color: var(--ink); }
 .stage-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--stage); }
 .stage-tab.preview .stage-tab-label { font-style: italic; }
-.stage-tab.chat { padding-right: 12px; color: var(--ink-2); }
+/* Pinned to the strip's start: however many tabs scroll by, the chat is one click away. */
+.stage-tab.chat { position: sticky; left: 0; z-index: 1; flex: none; padding-right: 12px; background: var(--chrome); color: var(--ink-2); box-shadow: 1px 0 0 var(--line-strong); }
+.stage-tab.chat:hover { background: var(--raised); }
+.stage-tab.chat.active { background: var(--stage); }
 .stage-tab.chat .stage-tab-label { font-weight: 600; }
 .stage-tab.chat .stage-tab-icon { color: var(--acid-text); }
 .stage-tab-icon { display: grid; place-items: center; color: var(--muted-2); }
@@ -1744,11 +1754,11 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); font-weight: 400; }
 .review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
 .review-toolbar > .text-button { white-space: nowrap; }
-.review-shell .icon-button, .panel-host .icon-button, .panel-maximize {
+.review-shell .icon-button, .panel-host .icon-button, .panel-maximize, .stage-strip-actions .icon-button {
   width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0;
   border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
 }
-.review-shell .icon-button:hover:not(:disabled), .panel-host .icon-button:hover:not(:disabled), .panel-maximize:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.review-shell .icon-button:hover:not(:disabled), .panel-host .icon-button:hover:not(:disabled), .panel-maximize:hover, .stage-strip-actions .icon-button:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
 .review-shell .icon-button.compact, .panel-host .icon-button.compact { width: 24px; height: 24px; }
 .review-toolbar { padding: 0 8px !important; gap: 6px !important; }
 .review-sidebar-toggle { width: 30px; height: 28px; flex: none; }
