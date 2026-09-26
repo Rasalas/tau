@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ConfirmDialog,
   type HostExtensionClient,
@@ -237,7 +237,10 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
   );
 }
 
-function AddMachine({ environments, busyElsewhere, offerAgents }: { environments: PlatformEnvironments; busyElsewhere: boolean; offerAgents: boolean }) {
+const NO_SECURE_STORAGE = "This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.";
+
+function AddMachine({ environments, secureStorage, offerAgents }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean }) {
+  const field = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [withAgents, setWithAgents] = useState(true);
   const [state, setState] = useState<AddState>({ kind: "idle" });
@@ -253,15 +256,23 @@ function AddMachine({ environments, busyElsewhere, offerAgents }: { environments
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (text.trim()) run({ text });
+    if (text.trim()) {
+      run({ text });
+      return;
+    }
+    // The button stays pressable with an empty field: a silent, disabled one read as broken.
+    setState({ kind: "done", tone: "problem", message: "Paste the pairing link from the other machine, or type its address." });
+    field.current?.focus();
   };
-  const busy = state.kind === "busy" || busyElsewhere;
+  const waiting = state.kind === "busy";
+  const busy = waiting || !secureStorage;
   return (
     <form className="machine-add" onSubmit={submit}>
       {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(host) => run({ nearby: host.hostId })} /> : null}
       <label className="machine-add-field">
         <span>Pairing link or address</span>
         <input
+          ref={field}
           className="settings-input"
           value={text}
           disabled={busy}
@@ -269,7 +280,10 @@ function AddMachine({ environments, busyElsewhere, offerAgents }: { environments
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value);
+            if (state.kind === "done" && state.tone === "problem") setState({ kind: "idle" });
+          }}
         />
       </label>
       {offerAgents ? (
@@ -289,10 +303,10 @@ function AddMachine({ environments, busyElsewhere, offerAgents }: { environments
           )}
         />
       ) : null}
-      {pairing && state.kind === "busy" ? <PairingStatus pairing={pairing} environments={environments} /> : null}
+      {pairing && waiting ? <PairingStatus pairing={pairing} environments={environments} /> : null}
       {state.kind === "done" ? <p className={`machine-add-result ${state.tone}`} role="status">{state.message}</p> : null}
       <div className="machine-add-actions">
-        <button type="submit" className="primary" disabled={busy || !text.trim()}>{busy ? "Waiting…" : "Add machine"}</button>
+        <button type="submit" className="primary" disabled={busy} title={secureStorage ? undefined : NO_SECURE_STORAGE}>{waiting ? "Waiting…" : "Add machine"}</button>
       </div>
     </form>
   );
@@ -348,9 +362,9 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
             beside this computer's, and a new thread can start on it.
           </p>
           {list.secureStorage ? null : (
-            <p className="settings-group-note machine-warning">This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.</p>
+            <p className="settings-group-note machine-warning">{NO_SECURE_STORAGE}</p>
           )}
-          <AddMachine environments={environments} busyElsewhere={!list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} />
+          <AddMachine environments={environments} secureStorage={list.secureStorage} offerAgents={agents !== undefined && environments.setAgents !== undefined} />
         </SettingsSection>
         <SettingsSection title="At start">
           <SettingRow

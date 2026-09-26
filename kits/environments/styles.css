@@ -57,6 +57,12 @@
 .machine-add-field { display: flex; flex-direction: column; gap: 6px; font: 500 12px var(--sans); color: var(--ink-2); }
 .machine-add-field .settings-input { width: 100%; font-family: var(--mono); font-size: 12px; }
 .machine-add-actions { display: flex; justify-content: flex-end; }
+.machine-add-actions > button.primary {
+  padding: 6px 12px; border: 0; border-radius: var(--radius-sm);
+  background: var(--acid); color: var(--acid-ink); font: 600 12px var(--sans); cursor: pointer;
+}
+.machine-add-actions > button.primary:hover:not(:disabled) { background: var(--acid-strong); }
+.machine-add-actions > button.primary:disabled { opacity: .45; cursor: default; }
 .machine-add-result { margin: 0; font-size: 12px; line-height: 1.45; }
 .machine-add-result.ok { color: var(--ready); }
 .machine-add-result.problem { color: var(--danger); }
