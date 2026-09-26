@@ -218,6 +218,8 @@ describe("host protocol", () => {
     expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project" } })).toBe(true);
     expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project", workspaceId: 7 } })).toBe(false);
     expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { label: "main" } })).toBe(false);
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project" }, sessionId: "s1" })).toBe(true);
+    expect(isHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/tmp/project" }, sessionId: 1 })).toBe(false);
   });
 
   it("preserves the runtime image capability in the catalog", () => {

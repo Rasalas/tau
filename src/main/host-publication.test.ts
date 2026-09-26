@@ -70,6 +70,7 @@ describe("HostPublication", () => {
     expect(index.byId).toHaveBeenCalledWith(snap.sessionId);
     expect(updates).toHaveLength(4);
     expect(updates.map((u) => u.type)).toEqual(["thread-shell", "thread-detail", "catalog", "project"]);
+    expect(updates[3]).toMatchObject({ type: "project", sessionId: snap.sessionId });
   });
 
   it("publishes initial session updates via emitUpdate", () => {
@@ -78,5 +79,6 @@ describe("HostPublication", () => {
 
     pub.publishInitialSessionUpdates(snap);
     expect(emitUpdate).toHaveBeenCalledTimes(3);
+    expect(emitUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ type: "project", sessionId: snap.sessionId }));
   });
 });

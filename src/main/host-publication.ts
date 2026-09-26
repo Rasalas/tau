@@ -82,7 +82,7 @@ export class HostPublication {
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
       { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
       { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
-      { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel) },
+      { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel), sessionId: snapshot.sessionId },
     ];
   }
 
@@ -91,7 +91,7 @@ export class HostPublication {
     const initialUpdates: HostUpdate[] = [
       ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
       { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
-      { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel) },
+      { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel), sessionId: snapshot.sessionId },
     ];
     for (const update of initialUpdates) {
       this.emit(update);

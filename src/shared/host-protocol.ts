@@ -103,7 +103,8 @@ export type HostUpdate =
   | { version: HostProtocolVersion; type: "thread-detail"; detail: ThreadDetail }
   | { version: HostProtocolVersion; type: "transcript-page"; page: TranscriptPage }
   | { version: HostProtocolVersion; type: "catalog"; catalog: HostCatalog }
-  | { version: HostProtocolVersion; type: "project"; project: ProjectMetadata }
+  /** `sessionId` names the thread the project belongs to; a client applies it only to that thread. Absent from older hosts. */
+  | { version: HostProtocolVersion; type: "project"; project: ProjectMetadata; sessionId?: string }
   | { version: HostProtocolVersion; type: "run"; event: "started" | "settled" | "aborted"; sessionId: string }
   | { version: HostProtocolVersion; type: "error"; message: string };
 
@@ -184,6 +185,7 @@ export function isHostUpdate(value: unknown): value is HostUpdate {
     case "catalog": return Boolean(payload && (payload.sessionId === undefined || typeof payload.sessionId === "string") && Array.isArray(payload.models) && typeof payload.thinkingLevel === "string" && Array.isArray(payload.thinkingLevels) && Array.isArray(payload.allTools) && typeof payload.extensionCount === "number" && (payload.supportsImageInput === undefined || typeof payload.supportsImageInput === "boolean"));
     // Identity is optional while `cwd` is still on the wire; both must be strings when present.
     case "project": return Boolean(payload
+      && (candidate.sessionId === undefined || typeof candidate.sessionId === "string")
       && (typeof payload.cwd === "string" || typeof payload.workspaceId === "string")
       && (payload.workspaceId === undefined || typeof payload.workspaceId === "string")
       && (payload.displayPath === undefined || typeof payload.displayPath === "string"));
