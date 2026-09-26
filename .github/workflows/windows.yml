@@ -42,6 +42,8 @@ jobs:
           src/main/platform-process.test.ts
           src/main/external-editor.test.ts
           src/main/window-attention.test.ts
+          src/main/process-lock.test.ts
+          src/main/session-locks.test.ts
           kits/terminal/shell.test.ts
           kits/workspace/editors.test.ts
           kits/workspace/host-paths.test.ts
