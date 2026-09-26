@@ -53,13 +53,13 @@ The host's system service never reaches the machine's service manager from an in
 
 ### Invisible display
 
-The display units (`tau service install --display`, Linux only) are tested the same way: `npm run smoke:display` installs them through the fake service manager, which starts Xvfb and the Tau window as ordinary processes of the smoke, checks that a preview call starts the window, that the window draws a frame, that it starts again after a stop, and that uninstalling stops everything. On macOS, or without Xvfb, it says so and passes; it runs on the Linux CI runner. Never install the display units against a real systemd from a test.
+The display units (`tau service install --display`, Linux only) are tested the same way: `npm run smoke:display` installs them through the fake service manager, which starts Xvfb and the Tau window as ordinary processes of the smoke, checks that a preview call starts the window, that the window draws a frame, that it starts again after a stop, and that uninstalling stops everything. The fake manager carries a Wayland desktop's `WAYLAND_DISPLAY`, `WAYLAND_SOCKET` and `XDG_SESSION_TYPE` (`systemctl --user set-environment`), as a machine with a desktop session does, and the smoke checks that neither the host, the window (started with `--ozone-platform=x11`) nor a terminal of the host sees them. On macOS, or without Xvfb, it says so and passes; it runs on the Linux CI runner. Never install the display units against a real systemd from a test.
 
 Checklist for the user, on the Linux machine itself (rex), after `sudo apt install xvfb` and `tau service install --display`:
 
 1. `tau service status` shows `display: :N (Xvfb running; window stopped, …)`, and `systemctl --user status tau-xvfb.service` is active.
-2. In a Tau terminal on that machine, `echo $DISPLAY` prints `:N`, and `xdpyinfo -display "$DISPLAY" | head -3` answers (package `x11-utils`).
-3. Open a page in the preview from a thread on that machine (from the Mac, through the machine's connection): `systemctl --user status tau-window.service` turns active, and the preview shows the page.
+2. In a Tau terminal on that machine, `echo $DISPLAY` prints `:N`, `echo "[$WAYLAND_DISPLAY][$XDG_SESSION_TYPE]"` prints `[][]` even with a desktop session, and `xdpyinfo -display "$DISPLAY" | head -3` answers (package `x11-utils`).
+3. Open a page in the preview from a thread on that machine (from the Mac, through the machine's connection): `systemctl --user status tau-window.service` turns active, the preview shows the page, no Tau window appears on the machine's own screen, and `xlsclients` in a Tau terminal lists the window.
 4. Leave it alone for 10 minutes: `tau-window.service` is inactive again; the next preview call starts it.
 5. `tau service install --no-display`: both display units are gone, the host runs on, and a new terminal has no `DISPLAY`.
 
