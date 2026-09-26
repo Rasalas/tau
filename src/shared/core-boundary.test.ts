@@ -118,6 +118,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./environment-thread-watch.js",
   // Test instances and benchmarks keep their windows from taking focus (TAU_NO_FOCUS).
   "./background-mode.js",
+  // A worker package's buffer memory, which its heap cap leaves out.
+  "./worker-memory-cap.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
