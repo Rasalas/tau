@@ -168,6 +168,21 @@ jobs:
           [ -n "${CSC_LINK:-}" ] || export CSC_IDENTITY_AUTO_DISCOVERY=false
           npx electron-builder ${{ matrix.platform }} --publish never
 
+      # What apt installs and what DebUpdater downloads: Xvfb comes along, the
+      # AppArmor profile is inside, and the feed names the package.
+      - name: Check the .deb
+        if: matrix.artifact == 'linux'
+        shell: bash
+        run: |
+          deb="$(ls release/Tau_*_amd64.deb)"
+          dpkg-deb --field "$deb" Package Version Depends Recommends
+          # Listed first: grep -q closing the pipe would fail dpkg-deb under pipefail.
+          files="$(dpkg-deb -c "$deb")"
+          grep -q '\bxvfb\b' <<< "$(dpkg-deb --field "$deb" Recommends)"
+          grep -q ' \./opt/Tau/resources/apparmor-profile$' <<< "$files"
+          grep -q ' \./opt/Tau/bin/tau$' <<< "$files"
+          grep -q "url: $(basename "$deb")" release/latest-linux.yml
+
       - uses: actions/upload-artifact@v4
         with:
           name: tau-${{ matrix.artifact }}
@@ -179,6 +194,7 @@ jobs:
             release/*.dmg
             release/*.zip
             release/*.AppImage
+            release/*.deb
             release/*.exe
             release/*.blockmap
             release/latest*.yml

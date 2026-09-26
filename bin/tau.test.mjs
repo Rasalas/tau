@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { defaultUserData } from "../src/main/host-service-units.ts";
-import { askHost, main, parseArgs, readRunningHost, serviceLauncher, userDataDir } from "./tau.mjs";
+import { appLauncher, askHost, main, parseArgs, readRunningHost, serviceLauncher, userDataDir } from "./tau.mjs";
 
 const cleanups = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map((cleanup) => cleanup())); });
@@ -166,6 +166,8 @@ describe("tau service", () => {
     expect(serviceLauncher(join(linux, "bin", "tau.mjs"), "linux")).toBeUndefined();
     await writeFile(join(root, "linux", "tau"), "");
     expect(serviceLauncher(join(linux, "bin", "tau.mjs"), "linux")?.command).toBe(join(root, "linux", "tau"));
+    // `tau app` without a running Tau starts that same binary.
+    expect(appLauncher({}, join(linux, "bin", "tau.mjs"), "linux")).toEqual({ command: join(root, "linux", "tau"), args: [], cwd: join(root, "linux") });
   });
 
   it("names the default userData as the service does", () => {
