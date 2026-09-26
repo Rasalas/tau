@@ -183,6 +183,7 @@ export function renderSystemdUnit(spec: HostServiceSpec, display?: { xvfbUnit: s
     "Type=simple",
     "WorkingDirectory=%h",
     ...Object.entries(spec.env).map(([key, value]) => `Environment=${systemdQuote(`${key}=${value}`)}`),
+    ...(display ? [UNSET_DESKTOP_SESSION] : []),
     `ExecStart=${spec.program.map((argument) => systemdQuote(argument, true)).join(" ")}`,
     "Restart=on-failure",
     "RestartSec=5",
@@ -228,6 +229,27 @@ export function displayServiceNames(hostUnit: string): { xvfbUnit: string; windo
   return { xvfbUnit: `tau-xvfb${suffix}.service`, windowUnit: `tau-window${suffix}.service` };
 }
 
+/**
+ * A desktop session's hand-off to Wayland, which a systemd user manager passes
+ * to every unit. Left in, Electron and agents' browsers pick Wayland and show
+ * up on the real screen instead of on Xvfb. Unset rather than
+ * `XDG_SESSION_TYPE=x11`: a service runs in no login session at all.
+ */
+export const DESKTOP_SESSION_ENV = ["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XDG_SESSION_TYPE"] as const;
+
+/** systemd applies it last, over the manager's own environment as well as the unit's. */
+const UNSET_DESKTOP_SESSION = `UnsetEnvironment=${DESKTOP_SESSION_ENV.join(" ")}`;
+
+/** Drops the desktop session's Wayland hand-off from `env`, in place; the names it removed. */
+export function leaveDesktopSession(env: NodeJS.ProcessEnv): string[] {
+  const removed = DESKTOP_SESSION_ENV.filter((name) => env[name] !== undefined);
+  for (const name of removed) delete env[name];
+  return removed;
+}
+
+/** Chromium's pick without a flag follows `XDG_SESSION_TYPE` and `WAYLAND_DISPLAY`; the window must stay on Xvfb. */
+export const WINDOW_X11_FLAG = "--ozone-platform=x11";
+
 /** What a host unit adds for its display: agents' shells and the window inherit both. */
 export function displayEnvironment(display: Pick<HostDisplaySpec, "number" | "authPath">): Record<string, string> {
   return { DISPLAY: `:${display.number}`, XAUTHORITY: display.authPath };
@@ -241,12 +263,13 @@ export function windowEnvironment(hostEnv: Record<string, string>, display: Pick
 }
 
 /**
- * What starts the app beside a host entry: a packaged app's binary alone, or
- * Electron with the checkout (`dist-electron/main/headless.js` three levels down).
+ * What starts the app on the display beside a host entry: a packaged app's
+ * binary alone, or Electron with the checkout (`dist-electron/main/headless.js`
+ * three levels down), on X11 either way.
  */
 export function windowProgram(execPath: string, entry: string): string[] {
   const root = posix.dirname(posix.dirname(posix.dirname(entry)));
-  return posix.basename(root) === "app.asar.unpacked" ? [execPath] : [execPath, root];
+  return [...(posix.basename(root) === "app.asar.unpacked" ? [execPath] : [execPath, root]), WINDOW_X11_FLAG];
 }
 
 /** One `MIT-MAGIC-COOKIE-1` for display N, any address (FamilyWild), in Xauthority's binary format. */
@@ -304,6 +327,7 @@ export function renderWindowUnit(display: HostDisplaySpec, hostUnit: string): st
     "Type=simple",
     "WorkingDirectory=%h",
     ...Object.entries(window.env).map(([key, value]) => `Environment=${systemdQuote(`${key}=${value}`)}`),
+    UNSET_DESKTOP_SESSION,
     `ExecStart=${window.program.map((argument) => systemdQuote(argument, true)).join(" ")}`,
     "Restart=on-failure",
     "RestartSec=5",
