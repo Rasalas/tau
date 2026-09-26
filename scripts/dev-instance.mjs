@@ -52,9 +52,19 @@ export function prepareCodexHome(codexHome, realHome = join(homedir(), ".codex")
   if (!linked && existsSync(join(realHome, "auth.json"))) symlinkSync(join(realHome, "auth.json"), link);
 }
 
+/** Whether the instance's host has a project other than `/` on disk to start in. */
+export function hasSavedProject(userData) {
+  try {
+    const { projects } = JSON.parse(readFileSync(join(userData, "projects.json"), "utf8"));
+    return Array.isArray(projects) && projects.some((project) => typeof project?.path === "string" && project.path !== "/" && existsSync(project.path));
+  } catch {
+    return false;
+  }
+}
+
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
 export function parseArgs(argv) {
-  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, port: undefined, workspace: undefined, agentDir: undefined };
+  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, asInstalled: false, port: undefined, workspace: undefined, agentDir: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--build") options.build = true;
@@ -62,6 +72,7 @@ export function parseArgs(argv) {
     else if (arg === "--fresh") options.fresh = true;
     else if (arg === "--shared-sessions") options.sharedSessions = true;
     else if (arg === "--real-agent-dir") options.realAgentDir = true;
+    else if (arg === "--as-installed") options.asInstalled = true;
     else if (arg === "--port") {
       const value = argv[++index];
       if (!value || Number.isNaN(Number(value))) throw new Error(`--port needs a number, got ${JSON.stringify(value)}`);
@@ -75,9 +86,11 @@ export function parseArgs(argv) {
       if (!value) throw new Error("--agent-dir needs a path");
       options.agentDir = value;
     } else {
-      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --port <n>, --workspace <path>, --agent-dir <path>)`);
+      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --as-installed, --port <n>, --workspace <path>, --agent-dir <path>)`);
     }
   }
+  if (options.asInstalled && options.workspace) throw new Error("--as-installed names no workspace; drop --workspace");
+  if (options.asInstalled && options.fresh) throw new Error("--as-installed needs the history a --fresh start wipes");
   return options;
 }
 
@@ -219,6 +232,10 @@ async function main() {
 
   if (!options.workspace) initScratchWorkspace(workspace);
   else if (!existsSync(workspace)) throw new Error(`--workspace ${workspace} does not exist`);
+  // Without a project to fall back to, the host would open the real home folder.
+  if (options.asInstalled && !hasSavedProject(userData)) {
+    throw new Error("--as-installed needs a project in this instance's history; start it once without the flag first");
+  }
 
   const needsBuild = options.build || !existsSync(mainEntry);
   if (needsBuild) {
@@ -248,7 +265,8 @@ async function main() {
   const env = {
     ...process.env,
     TAU_USER_DATA: userData,
-    TAU_WORKSPACE: workspace,
+    // An app opened from the Finder names no workspace and runs from `/`.
+    ...(options.asInstalled ? {} : { TAU_WORKSPACE: workspace }),
     TAU_CONFIG_FILE: configFile,
     TAU_WORKTREES_DIR: worktreesDir,
     TAU_THEMES_DIR: themesDir,
@@ -287,8 +305,8 @@ async function main() {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SSH_AGENT_PID;
 
-  const child = spawn(electronBin, [".", `--remote-debugging-port=${port}`], {
-    cwd: ROOT,
+  const child = spawn(electronBin, [options.asInstalled ? ROOT : ".", `--remote-debugging-port=${port}`], {
+    cwd: options.asInstalled ? sep : ROOT,
     env,
     stdio: ["ignore", logFd, logFd],
   });
