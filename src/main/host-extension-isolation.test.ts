@@ -36,7 +36,8 @@ export default {
     context.registerCommand("die", () => { process.exit(3); });
     context.registerCommand("eat", () => {
       const held = [];
-      for (;;) held.push(new Uint8Array(4 * 1024 * 1024).fill(held.length % 255));
+      // Heap objects: resourceLimits cap the JS heap, not ArrayBuffer memory, which ran a Linux runner out of memory.
+      for (;;) held.push(Array.from({ length: 100_000 }, (_, index) => ({ index, text: "row " + index })));
     });
     context.registerCommand("facade", async () => {
       const inside = await services.sessions.exclusive(async () => (await services.thread())?.sessionId ?? "none");
