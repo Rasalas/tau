@@ -118,7 +118,7 @@ export function useTranscriptNavigation(
         resetNavigation(navigation, { ...options, turnStart: undefined });
       }
       controller.resetIntent();
-      setCanJumpToLatest(false);
+      controller.hideJump();
     }
     controller.resetScrollBaseline();
     controller.sync();

@@ -4,8 +4,11 @@ import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptNavigationState } from "../../workbench/transcript-navigation";
 import {
   FrameLoop,
+  JUMP_SHOW_DISTANCE_PX,
+  jumpToLatestVisible,
   nearTranscriptStart,
   nearTranscriptTail,
+  scrollToTail,
   ScrollIntentTracker,
   TranscriptScrollController,
   transcriptScrollMode,
@@ -112,6 +115,47 @@ describe("transcript scroll ends", () => {
     expect(nearTranscriptStart(surface(0))).toBe(true);
     expect(nearTranscriptStart(surface(32))).toBe(true);
     expect(nearTranscriptStart(surface(33))).toBe(false);
+  });
+
+  it("leaves a transcript already at its tail unwritten", () => {
+    let writes = 0;
+    let top = 800.5;
+    const node = { get scrollTop() { return top; }, set scrollTop(value: number) { writes += 1; top = value; }, scrollHeight: 1_000, clientHeight: 200 };
+    scrollToTail(node);
+    expect(writes).toBe(0);
+    top = 700;
+    scrollToTail(node);
+    expect(writes).toBe(1);
+  });
+});
+
+describe("Jump to latest hysteresis", () => {
+  const surface = (distance: number) => ({ scrollTop: 800 - distance, scrollHeight: 1_000, clientHeight: 200 });
+
+  it("appears only well away from the tail", () => {
+    expect(jumpToLatestVisible(surface(0), false, false)).toBe(false);
+    expect(jumpToLatestVisible(surface(JUMP_SHOW_DISTANCE_PX), false, false)).toBe(false);
+    expect(jumpToLatestVisible(surface(JUMP_SHOW_DISTANCE_PX + 1), false, false)).toBe(true);
+  });
+
+  it("stays between the show and hide distances and leaves at the tail", () => {
+    expect(jumpToLatestVisible(surface(60), false, true)).toBe(true);
+    expect(jumpToLatestVisible(surface(32), false, true)).toBe(true);
+    expect(jumpToLatestVisible(surface(31), false, true)).toBe(false);
+    expect(jumpToLatestVisible(surface(0), false, true)).toBe(false);
+  });
+
+  it("never shows while following or without overflow", () => {
+    expect(jumpToLatestVisible(surface(400), true, true)).toBe(false);
+    expect(jumpToLatestVisible({ scrollTop: 0, scrollHeight: 150, clientHeight: 200 }, false, true)).toBe(false);
+  });
+
+  it("does not flip when its own row moves the tail by the row's height", () => {
+    const row = 40;
+    // Just past the show distance, the row appears and the viewport gets shorter.
+    expect(jumpToLatestVisible(surface(JUMP_SHOW_DISTANCE_PX + 1 + row), false, true)).toBe(true);
+    // Just inside the hide distance, the row leaves and the viewport gets taller.
+    expect(jumpToLatestVisible(surface(Math.max(0, 31 - row)), false, false)).toBe(false);
   });
 });
 
@@ -262,6 +306,108 @@ describe("TranscriptScrollController", () => {
       expect(listener).toHaveBeenCalledTimes(1);
     } finally {
       test.dispose();
+    }
+  });
+
+  it("does not read the browser pulling the offset into a taller viewport as the reader scrolling up", () => {
+    const test = harness(state());
+    try {
+      let clientHeight = 200;
+      Object.defineProperty(test.node, "clientHeight", { configurable: true, get: () => clientHeight });
+      test.node.scrollTop = 800;
+      test.node.dispatchEvent(new Event("scroll"));
+      test.node.dispatchEvent(new WheelEvent("wheel", { deltaY: 40 }));
+      // A row under the transcript went away: the viewport grew and the browser clamped the offset.
+      clientHeight = 240;
+      test.node.scrollTop = 760;
+      test.node.dispatchEvent(new Event("scroll"));
+      expect(test.controller.mode).toBe("tail");
+      expect(test.jumps.filter(Boolean)).toEqual([]);
+    } finally {
+      test.dispose();
+    }
+  });
+
+  it("settles a fling that runs past the end without toggling Jump to latest", () => {
+    // A layout like the real one: the jump row takes 36px from the viewport,
+    // and the browser clamps the offset when that changes the maximum.
+    const node = document.createElement("div");
+    document.body.append(node);
+    let jumpShown = false;
+    let top = 0;
+    const scrollHeight = 2_000;
+    const clientHeight = () => (jumpShown ? 364 : 400);
+    const max = () => scrollHeight - clientHeight();
+    Object.defineProperties(node, {
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      clientHeight: { configurable: true, get: clientHeight },
+      scrollTop: { configurable: true, get: () => top, set: (value: number) => { top = Math.max(0, Math.min(max(), value)); } },
+    });
+    // The row renders and lays out a frame later, after that frame's wheel event.
+    let layoutPending = false;
+    const layout = () => {
+      if (!layoutPending) return;
+      layoutPending = false;
+      if (top <= max()) return;
+      top = max();
+      node.dispatchEvent(new Event("scroll"));
+    };
+    const toggles: boolean[] = [];
+    const controller = new TranscriptScrollController(state({ following: false }), {
+      getNode: () => node,
+      getMessages: () => messages,
+      getLookup: () => undefined,
+      onAnchorChange: () => {},
+      onJumpAvailabilityChange: (canJump) => {
+        if (canJump === jumpShown) return;
+        jumpShown = canJump;
+        toggles.push(canJump);
+        layoutPending = true;
+      },
+    });
+    controller.attach(node);
+    try {
+      node.scrollTop = 1_000;
+      node.dispatchEvent(new Event("scroll"));
+      layout();
+      expect(toggles).toEqual([true]);
+
+      // Momentum, one wheel event a frame: the deltas decay and keep coming well after the end.
+      for (let delta = 90; delta >= 1; delta *= 0.94) {
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: delta }));
+        layout();
+        const before = top;
+        node.scrollTop = top + delta;
+        if (top !== before) node.dispatchEvent(new Event("scroll"));
+      }
+
+      expect(toggles).toEqual([true, false]);
+      expect(controller.mode).toBe("tail");
+      expect(top).toBe(max());
+    } finally {
+      controller.detach();
+      node.remove();
+    }
+  });
+
+  it("puts a tail-mode transcript back at its end before paint when its viewport shrinks", () => {
+    const observers: Array<() => void> = [];
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { observers.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    let clientHeight = 200;
+    const test = harness(state());
+    try {
+      Object.defineProperty(test.node, "clientHeight", { configurable: true, get: () => clientHeight });
+      test.node.scrollTop = 800;
+      clientHeight = 148;
+      observers[0]!();
+      expect(test.node.scrollTop).toBe(1_000);
+    } finally {
+      test.dispose();
+      vi.unstubAllGlobals();
     }
   });
 

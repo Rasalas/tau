@@ -24,6 +24,10 @@ export interface ScrollSurface {
 
 const TAIL_SLACK_PX = 32;
 const START_SLACK_PX = 32;
+/** Jump to latest appears this far from the tail and leaves inside TAIL_SLACK_PX; the gap is wider than its row. */
+export const JUMP_SHOW_DISTANCE_PX = 96;
+/** Fractional scroll offsets on a HiDPI display; a smaller move is no move. */
+const SCROLL_EPSILON_PX = 1;
 const INTENT_TIMEOUT_MS = 120;
 const ANCHOR_TOLERANCE_PX = 0.5;
 const SEEK_ATTEMPT_LIMIT = 8;
@@ -58,9 +62,21 @@ export function setScrollTopClamped(node: ScrollSurface, target: number): void {
 }
 
 export function scrollToTail(node: ScrollSurface): void {
+  // Already there: a write would only fight an overscroll or a fling at the end.
+  if (maxScrollTop(node) - node.scrollTop < SCROLL_EPSILON_PX) return;
   // The browser clamps scrollHeight to the real maximum; the explicit value
   // also keeps the preview fixture deterministic.
   node.scrollTop = node.scrollHeight;
+}
+
+/**
+ * Whether Jump to latest shows, with hysteresis: its row takes height, so
+ * showing or hiding it moves the tail by that much and must not flip it back.
+ */
+export function jumpToLatestVisible(node: ScrollSurface, following: boolean, shown: boolean): boolean {
+  if (following || !hasScrollOverflow(node)) return false;
+  const distance = maxScrollTop(node) - node.scrollTop;
+  return shown ? distance >= TAIL_SLACK_PX : distance > JUMP_SHOW_DISTANCE_PX;
 }
 
 export function elementPaddingTop(node: HTMLElement): number {
@@ -183,6 +199,7 @@ export class TranscriptScrollController {
   private readonly scrollListeners = new Set<() => void>();
   private readonly resizeListeners = new Set<() => void>();
   private seekTarget: { messageId: string; attempts: number } | undefined;
+  private jumpShown = false;
   private observer: ResizeObserver | undefined;
   private attached: HTMLDivElement | undefined;
 
@@ -225,6 +242,8 @@ export class TranscriptScrollController {
     window.addEventListener("keydown", this.onWindowKeyDown);
     if (typeof ResizeObserver !== "undefined") {
       this.observer = new ResizeObserver(() => {
+        // Before paint: a viewport that shrank at the tail never shows its end cut off for a frame.
+        if (this.mode === "tail") scrollToTail(node);
         this.sync();
         for (const listener of this.resizeListeners) listener();
       });
@@ -288,12 +307,16 @@ export class TranscriptScrollController {
     this.cancelSeek();
   }
 
+  hideJump(): void {
+    this.setJumpShown(false);
+  }
+
   jumpToLatest(): void {
     const node = this.deps.getNode();
     if (!node) return;
     this.cancelSeek();
     followTail(this.state, this.deps.onAnchorChange);
-    this.deps.onJumpAvailabilityChange(false);
+    this.setJumpShown(false);
     if (typeof node.scrollTo !== "function") {
       scrollToTail(node);
       this.sync();
@@ -338,7 +361,12 @@ export class TranscriptScrollController {
   }
 
   private updateJumpAvailability(node: HTMLDivElement): void {
-    this.deps.onJumpAvailabilityChange(!this.state.following && hasScrollOverflow(node));
+    this.setJumpShown(jumpToLatestVisible(node, this.state.following, this.jumpShown));
+  }
+
+  private setJumpShown(shown: boolean): void {
+    this.jumpShown = shown;
+    this.deps.onJumpAvailabilityChange(shown);
   }
 
   private anchorElement(node: HTMLDivElement): HTMLElement | undefined {
@@ -416,6 +444,20 @@ export class TranscriptScrollController {
     const previous = this.state.lastScrollTop;
     const next = node.scrollTop;
     this.state.lastScrollTop = next;
+    // The viewport grew or the content shrank under the offset and the browser
+    // pulled it back into range: not the reader, so no direction and no intent spent.
+    const limit = maxScrollTop(node);
+    const clamped = previous !== undefined && previous > limit + SCROLL_EPSILON_PX && limit - next < SCROLL_EPSILON_PX;
+    if (!clamped) this.followReader(node, previous, next);
+    // A seek performed by placeAnchor changes the virtualizer's window. Ask
+    // for one precise placement after that window has mounted, while any
+    // genuine upward intent above has already disabled following.
+    if (this.state.following && this.state.anchorPending && this.state.anchorId) this.sync();
+    this.updateJumpAvailability(node);
+    for (const listener of this.scrollListeners) listener();
+  };
+
+  private followReader(node: HTMLDivElement, previous: number | undefined, next: number): void {
     const direction = previous === undefined || next === previous
       ? undefined
       : next < previous ? "older" : "newer";
@@ -431,14 +473,8 @@ export class TranscriptScrollController {
       followTail(this.state, this.deps.onAnchorChange);
       this.sync();
     }
-    // A seek performed by placeAnchor changes the virtualizer's window. Ask
-    // for one precise placement after that window has mounted, while any
-    // genuine upward intent above has already disabled following.
-    if (this.state.following && this.state.anchorPending && this.state.anchorId) this.sync();
     if (this.intent.armed) this.intent.clear();
-    this.updateJumpAvailability(node);
-    for (const listener of this.scrollListeners) listener();
-  };
+  }
 
   private onWheel = (event: WheelEvent): void => {
     if (event.deltaY < 0) {

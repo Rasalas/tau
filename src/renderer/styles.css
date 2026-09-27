@@ -525,8 +525,9 @@ body.resizing-col .app-shell { transition: none; }
   position: relative; display: flex; flex: 1; min-width: 0; min-height: 0;
   flex-direction: column; isolation: isolate;
 }
+/* `contain`: a gesture past the transcript's end bounces here and never scrolls the page behind it. */
 .transcript {
-  position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none;
+  position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; overscroll-behavior-y: contain;
   padding: calc(26px * var(--density)) var(--space-8) var(--space-5); outline: none;
 }
 .transcript-search-bar {
