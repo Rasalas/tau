@@ -84,7 +84,7 @@ describe("Workspace Kit in the workbench", () => {
   it("keeps the virtual thread canvas from shrinking inside the scroll rail", async () => {
     renderApp(undefined, { extensions: [workspaceExtension] });
     const navigation = await screen.findByRole("navigation", { name: "Threads" });
-    const canvas = navigation.firstElementChild as HTMLElement;
+    const canvas = navigation.querySelector(".rail-active-rows")?.firstElementChild as HTMLElement;
     expect(canvas.style.flexShrink).toBe("0");
   });
 

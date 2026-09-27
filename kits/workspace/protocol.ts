@@ -423,6 +423,8 @@ export interface WorkspaceKitState {
   threadRailOrganizer?: ThreadRailOrganizer;
   /** Sections other kits draw at the foot of the rail, above its footer. */
   railSections: ReadonlyArray<ComponentType<{ actions: WorkbenchActions }>>;
+  /** Threads other kits list among this machine's own: other machines' threads. */
+  railThreadSources: readonly RailThreadSource[];
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
   /** The rail shows only this repository's threads (the row menu's "Filter by"). */
@@ -452,6 +454,34 @@ export interface ChangesSectionProps {
   message: string;
   /** Tell the box a commit went through, so it follows the next proposal again. */
   committed(): void;
+}
+
+/**
+ * A thread another kit lists in the rail among this machine's own, another
+ * machine's say. The rail sorts, groups and searches it by `session` like its
+ * own threads; it cannot be settled, pinned or dragged here.
+ */
+export interface RailExternalThread {
+  /** Unique in the rail, and never the id of a thread of this host. */
+  key: string;
+  /** The thread as its own host lists it. */
+  session: UiSession;
+  running?: boolean;
+  /** Set while `open` is under way. */
+  opening?: boolean;
+  /** Where it runs: an icon just before the cost, the name as tooltip. */
+  machine: { name: string; icon: ReactNode };
+  /** Why it cannot be opened now; the row is dimmed and says so. */
+  unavailable?: string;
+  open(actions: WorkbenchActions): void;
+  /** Reads it here without leaving this machine: the row's hover button. */
+  lookIn?(actions: WorkbenchActions): void;
+}
+
+/** A kit's threads for the rail; `threads()` keeps its identity until `subscribe`'s listener runs. */
+export interface RailThreadSource {
+  subscribe(listener: () => void): () => void;
+  threads(): readonly RailExternalThread[];
 }
 
 /** A small mark another kit draws on a thread's rail row, e.g. its request status. */
@@ -575,6 +605,8 @@ export interface WorkspaceStoreApi {
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void;
   /** A section at the foot of the rail, above its footer: another machine's threads, say (API 1.13.0). */
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
+  /** Threads listed among the rail's own, each with its machine's mark: other machines' threads. */
+  registerRailThreads?(source: RailThreadSource): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
   setRailProjectFilter(projectName: string | undefined): void;
   /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */
