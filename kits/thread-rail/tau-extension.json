@@ -4,7 +4,7 @@
   "description": "The thread list: pinned, active, snoozed and settled threads, sorted by drag.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.20.0"
   },
   "permissions": [
     "sessions"
