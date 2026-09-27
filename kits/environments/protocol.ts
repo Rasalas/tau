@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { WorkbenchActions } from "tau";
+import type { MachineRailThread } from "./rail.js";
 
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
 export const MACHINES_SETTINGS_PAGE = "environments.machines";
@@ -9,6 +10,8 @@ export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceRailSlice {
   /** Absent in a Workspace Kit before API 1.13.0; the rail then lists this machine's threads only. */
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
+  /** Absent in an older Workspace Kit; the other machines' threads are then not listed. */
+  registerRailThreads?(source: { subscribe(listener: () => void): () => void; threads(): readonly MachineRailThread[] }): () => void;
 }
 
 /** The host half's event: the machines this host's agents reach changed (ADR 0027). */

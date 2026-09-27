@@ -1,18 +1,12 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { ChevronRight, Eye, Laptop, Plus, RefreshCw, Server } from "lucide-react";
-import { Menu, tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type WorkbenchActions } from "tau";
-import { otherMachines, shownMachine, shortAge, statusText, unavailableReason } from "./machines.js";
-import { MACHINES_SETTINGS_PAGE, type RemoteAgentThreadsService } from "./protocol.js";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { Laptop, Server } from "lucide-react";
+import { Menu, tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type UiSession, type WorkbenchActions } from "tau";
+import { otherMachines, shownMachine, statusText, unavailableReason } from "./machines.js";
+import type { RemoteAgentThreadsService } from "./protocol.js";
 
-const FIRST_ROWS = 3;
-const MORE_ROWS = 10;
 const noSubscription = () => () => undefined;
-
-function projectHue(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  return Math.abs(hash) % 360;
-}
+/** Offline machines' reasons say how long ago they were seen; the rail reads them again this often. */
+const REASON_REFRESH_MS = 30_000;
 
 /** Agents Kit's threads on other machines while that kit is on; the rail leaves them out. */
 export const agentThreadsSource = (() => {
@@ -47,145 +41,113 @@ export function MachineDot({ environment, now }: { environment: UiEnvironment; n
   return <span className={`machine-dot ${environment.status}`} role="img" aria-label={text} {...tooltipProps(text)} />;
 }
 
-function MachineThreadRow({ thread, machine, reason, opening, onOpen, onLookIn, now }: {
-  thread: UiEnvironmentThread;
-  machine: UiEnvironment;
-  reason: string | undefined;
-  opening: boolean;
-  onOpen(): void;
-  /** Reads the thread in a tab here, without moving the window; absent on a core without look-in. */
-  onLookIn?(): void;
-  now: number;
-}) {
-  const style = { "--project-hue": projectHue(thread.projectName) } as CSSProperties;
-  return (
-    <article className={`thread-row compact machine-thread${reason ? " unavailable" : ""}`}>
-      <button
-        className="thread-main"
-        aria-disabled={reason ? true : undefined}
-        aria-label={`${thread.title} on ${machine.name}`}
-        onClick={() => { if (!reason && !opening) onOpen(); }}
-        {...tooltipProps(reason ?? `${thread.title}\n${thread.projectName} · on ${machine.name}`, { side: "right", variant: "lines" })}
-      >
-        <i className="thread-project-icon" style={style}>{thread.projectName.trim().charAt(0).toUpperCase() || "·"}</i>
-        <span className="thread-title">{thread.title}</span>
-        {thread.running ? <span className="machine-thread-working" aria-label="Working"><i /></span> : null}
-        {opening ? <span className="machine-thread-opening">Opening…</span> : <time>{shortAge(thread.modifiedAt, now)}</time>}
-      </button>
-      {onLookIn && !reason && !opening ? (
-        <span className="thread-row-actions">
-          <button
-            aria-label={`Look in on ${thread.title} here`}
-            {...tooltipProps(`Read it in a tab here; the window stays on this machine`)}
-            onClick={onLookIn}
-          >
-            <Eye size={13} />
-          </button>
-        </span>
-      ) : null}
-    </article>
-  );
+/** Another machine's thread as the rail lists it among this machine's (`RailExternalThread` in `kits/workspace/protocol.ts`). */
+export interface MachineRailThread {
+  key: string;
+  session: UiSession;
+  running?: boolean;
+  opening?: boolean;
+  machine: { name: string; icon: ReactNode };
+  unavailable?: string;
+  open(actions: WorkbenchActions): void;
+  lookIn?(actions: WorkbenchActions): void;
 }
 
-function MachineGroup({ machine, environments, actions, now }: {
-  machine: UiEnvironment;
-  environments: PlatformEnvironments;
-  actions: WorkbenchActions;
-  now: number;
-}) {
-  const [open, setOpen] = useState(true);
-  const [limit, setLimit] = useState(FIRST_ROWS);
-  const [opening, setOpening] = useState<string>();
-  const reason = unavailableReason(machine, now);
-  const openThread = (thread: UiEnvironmentThread) => {
-    setOpening(thread.id);
-    // The page loads again on that machine; an error leaves this one as it was.
-    void environments.open(machine.id, { thread: { path: thread.path } }).catch((error: unknown) => {
-      setOpening(undefined);
-      actions.notify(error instanceof Error ? error.message : String(error));
-    });
+/** The index entry the rail sorts, groups and searches; path and id stay that machine's. */
+export function railSession(machine: UiEnvironment, thread: UiEnvironmentThread): UiSession {
+  return {
+    id: `machine:${machine.id}:${thread.id}`,
+    path: thread.path,
+    title: thread.title,
+    modifiedAt: thread.modifiedAt,
+    // No folder here: the rail groups it with this machine's project of the same name.
+    projectPath: `${machine.id}:${thread.workspaceId ?? thread.projectName}`,
+    projectName: thread.projectName,
+    messageCount: 1,
+    ...(thread.createdAt !== undefined ? { createdAt: thread.createdAt } : {}),
+    ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
+    ...(thread.usage ? { usage: thread.usage } : {}),
+    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
+    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
   };
-  // An older core drops `machine` and would open this machine's thread of that id instead.
-  const lookIn = environments.watchThread ? (thread: UiEnvironmentThread) => actions.openThread(thread.id, { pin: true, machine: machine.id }) : undefined;
-  const retry = machine.status === "offline" || machine.status === "refused";
-  useSyncExternalStore(agentThreadsSource.subscribe, agentThreadsSource.getVersion);
-  // Threads this computer's sub-agents run there show in the Agents panel, not here.
-  const agents = agentThreadsSource.threadsOn(machine.id);
-  const threads = agents?.size ? machine.threads.filter((thread) => !agents.has(thread.id)) : machine.threads;
-  const shown = threads.slice(0, limit);
-  return (
-    <div className={`machine-group status-${machine.status}`}>
-      <div className="machine-head">
-        <button className="machine-toggle" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-          <ChevronRight size={12} className="chev" aria-hidden="true" />
-          <MachineIcon environment={machine} />
-          <span className="machine-name">{machine.name}</span>
-          {machine.readOnly ? <em className="machine-badge">Read only</em> : null}
-        </button>
-        <MachineDot environment={machine} now={now} />
-        {retry ? (
-          <button className="sidebar-action machine-retry" aria-label={`Try ${machine.name} again`} {...tooltipProps(`Try ${machine.name} again`)} onClick={() => void environments.retry(machine.id)}>
-            <RefreshCw size={12} />
-          </button>
-        ) : null}
-      </div>
-      {open ? (
-        <div className="machine-threads">
-          {shown.map((thread) => (
-            <MachineThreadRow
-              key={thread.id}
-              thread={thread}
-              machine={machine}
-              reason={reason}
-              opening={opening === thread.id}
-              onOpen={() => openThread(thread)}
-              {...(lookIn ? { onLookIn: () => lookIn(thread) } : {})}
-              now={now}
-            />
-          ))}
-          {threads.length > limit ? (
-            <article className="thread-row compact thread-pagination-row">
-              <button className="thread-main" onClick={() => setLimit((current) => current + MORE_ROWS)}>+ show {Math.min(MORE_ROWS, threads.length - limit)} more</button>
-            </article>
-          ) : null}
-          {threads.length === 0 ? (
-            <p className="machine-empty">{machine.status === "connected" ? "No threads yet" : reason}</p>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 /**
- * The other machines' threads at the foot of the rail (ADR 0025). This
- * machine's threads are the rail above; a thread of another machine opens
- * this window there.
+ * The other machines' threads for Workspace Kit's rail (ADR 0025): they stand
+ * among this machine's by project and time, each with its machine's mark, as
+ * in T3 Code. A thread opens this window there; `lookIn` reads it in a tab
+ * here where the core offers that. The machine the window shows has no mark.
  */
-export function createMachinesRailSection(environments: PlatformEnvironments) {
-  return function MachinesRailSection({ actions }: { actions: WorkbenchActions }) {
-    const list = useEnvironments(environments);
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-      const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-      return () => window.clearInterval(timer);
-    }, []);
-    const machines = list ? otherMachines(list) : [];
-    // One machine is the everyday case; the rail stays as it was until another is added.
-    if (machines.length === 0) return null;
-    return (
-      <section className="machines-rail" aria-label="Other machines">
-        <div className="machines-rail-head">
-          <span>Other machines</span>
-          <button className="sidebar-action" aria-label="Add a machine" {...tooltipProps("Add a machine")} onClick={() => actions.openSettings(MACHINES_SETTINGS_PAGE)}>
-            <Plus size={13} />
-          </button>
-        </div>
-        <div className="machines-rail-list">
-          {machines.map((machine) => <MachineGroup key={machine.id} machine={machine} environments={environments} actions={actions} now={now} />)}
-        </div>
-      </section>
-    );
+export function createMachineThreads(environments: PlatformEnvironments) {
+  const listeners = new Set<() => void>();
+  let threads: readonly MachineRailThread[] = [];
+  let opening: string | undefined;
+  let stops: Array<() => void> = [];
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let builtFrom: { list: unknown; agents: number } | undefined;
+
+  const rebuild = () => {
+    const list = environments.getSnapshot();
+    builtFrom = { list, agents: agentThreadsSource.getVersion() };
+    const now = Date.now();
+    const next: MachineRailThread[] = [];
+    for (const machine of list ? otherMachines(list) : []) {
+      const reason = unavailableReason(machine, now);
+      // Threads this computer's sub-agents run there show in the Agents panel, not here.
+      const agents = agentThreadsSource.threadsOn(machine.id);
+      for (const thread of machine.threads) {
+        if (agents?.has(thread.id)) continue;
+        const session = railSession(machine, thread);
+        next.push({
+          key: session.id,
+          session,
+          ...(thread.running ? { running: true } : {}),
+          ...(opening === session.id ? { opening: true } : {}),
+          machine: { name: machine.name, icon: <MachineIcon environment={machine} size={13} /> },
+          ...(reason ? { unavailable: reason } : {}),
+          open: (actions) => {
+            opening = session.id;
+            changed();
+            // The page loads again on that machine; an error leaves this one as it was.
+            void environments.open(machine.id, { thread: { path: thread.path } }).catch((error: unknown) => {
+              opening = undefined;
+              changed();
+              actions.notify(error instanceof Error ? error.message : String(error));
+            });
+          },
+          // An older core drops `machine` and would open this machine's thread of that id instead.
+          ...(environments.watchThread ? { lookIn: (actions: WorkbenchActions) => actions.openThread(thread.id, { pin: true, machine: machine.id }) } : {}),
+        });
+      }
+    }
+    threads = next;
+  };
+  const changed = () => {
+    rebuild();
+    for (const listener of [...listeners]) listener();
+  };
+
+  return {
+    subscribe(listener: () => void) {
+      if (listeners.size === 0) {
+        stops = [environments.subscribe(changed), agentThreadsSource.subscribe(changed)];
+        timer = setInterval(changed, REASON_REFRESH_MS);
+        rebuild();
+      }
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size > 0) return;
+        for (const stop of stops) stop();
+        stops = [];
+        clearInterval(timer);
+      };
+    },
+    // The same array until something changed; unwatched, it looks whether the list did.
+    threads: () => {
+      if (listeners.size === 0 && (builtFrom?.list !== environments.getSnapshot() || builtFrom?.agents !== agentThreadsSource.getVersion())) rebuild();
+      return threads;
+    },
   };
 }
 
