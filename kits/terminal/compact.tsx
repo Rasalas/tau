@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode, type SyntheticEvent } from "react";
-import { AArrowDown, AArrowUp, ClipboardPaste, Ellipsis, Keyboard, KeyboardOff, Plus, RotateCcw, Terminal as TerminalIcon, X } from "lucide-react";
+import { AArrowDown, AArrowUp, ClipboardPaste, Copy, Ellipsis, Keyboard, KeyboardOff, Plus, RotateCcw, Terminal as TerminalIcon, X } from "lucide-react";
 import type { Terminal } from "@xterm/xterm";
 import { Empty, errorMessage, getClientStorage, Popover, tooltipProps, useHostCapabilities, type PanelProps } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
@@ -11,7 +11,7 @@ import { chipLabels, tabTitle } from "./scope.js";
 export { chipLabels } from "./scope.js";
 import { TerminalView, type TerminalTouchBinding } from "./view.js";
 import {
-  applyModifiers, arrowSequence, COMPACT_FONT_SIZE_KEY, DRAG_SLOP_PX, dragLines, compactFontSize, INTERRUPT, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
+  applyModifiers, arrowSequence, COMPACT_FONT_SIZE_KEY, DRAG_SLOP_PX, dragLines, compactFontSize, INTERRUPT, isTabletScreen, cellAt, selectionRange, LONG_PRESS_MS, type Cell, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
   stepCompactFontSize, TOUCH_KEYS, type TouchKey, type TouchModifier,
 } from "./touch-keys.js";
 import type { UiTerminalSession } from "./protocol.js";
@@ -32,7 +32,7 @@ export function shellOrder(layout: TerminalLayout, sessions: readonly UiTerminal
 }
 
 const fontListeners = new Set<() => void>();
-const readFontSize = () => compactFontSize(getClientStorage()?.get(COMPACT_FONT_SIZE_KEY));
+const readFontSize = () => compactFontSize(getClientStorage()?.get(COMPACT_FONT_SIZE_KEY), isTabletScreen(typeof screen === "undefined" ? undefined : screen));
 
 function useCompactFontSize(): [number, (size: number) => void] {
   const size = useSyncExternalStore((listener) => {
@@ -72,25 +72,47 @@ function plainInput(field: HTMLTextAreaElement | undefined): void {
 }
 
 /**
- * xterm has no touch scrolling of its own. A vertical drag moves through the
- * scrollback; in a full-screen program (less, vim), which has none, it sends
- * the arrow keys instead. A touch that barely moves stays a tap.
+ * xterm has no touch scrolling or selection of its own. A vertical drag moves
+ * through the scrollback; in a full-screen program (less, vim), which has none,
+ * it sends the arrow keys instead. A finger held still selects from that cell
+ * to wherever it is dragged. A touch that barely moves stays a tap.
  */
-function touchScrolling(instance: Terminal): () => void {
+function touchGestures(instance: Terminal): () => void {
   const element = instance.element;
   if (!element) return () => undefined;
-  let drag: { y: number; moved: boolean; carry: number } | undefined;
-  const cellHeight = () => (element.querySelector(".xterm-screen")?.clientHeight ?? 0) / Math.max(1, instance.rows);
+  let drag: { x: number; y: number; moved: boolean; carry: number; anchor?: Cell } | undefined;
+  let hold: ReturnType<typeof setTimeout> | undefined;
+  const screenBox = () => (element.querySelector(".xterm-screen") ?? element).getBoundingClientRect();
+  const cellHeight = () => screenBox().height / Math.max(1, instance.rows);
+  const cell = (x: number, y: number) => cellAt({ x, y }, screenBox(), { cols: instance.cols, rows: instance.rows }, instance.buffer.active.viewportY);
+  const stopHold = () => { if (hold !== undefined) clearTimeout(hold); hold = undefined; };
   const onStart = (event: TouchEvent) => {
+    stopHold();
     const touch = event.touches[0];
-    drag = event.touches.length === 1 && touch ? { y: touch.clientY, moved: false, carry: 0 } : undefined;
+    drag = event.touches.length === 1 && touch ? { x: touch.clientX, y: touch.clientY, moved: false, carry: 0 } : undefined;
+    if (!drag) return;
+    const started = drag;
+    hold = setTimeout(() => {
+      hold = undefined;
+      if (drag !== started || started.moved) return;
+      started.anchor = cell(started.x, started.y);
+      const range = selectionRange(started.anchor, started.anchor, instance.cols);
+      instance.select(range.column, range.row, range.length);
+    }, LONG_PRESS_MS);
   };
   const onMove = (event: TouchEvent) => {
     const touch = event.touches[0];
     if (!drag || !touch) return;
+    if (drag.anchor) {
+      if (event.cancelable) event.preventDefault();
+      const range = selectionRange(drag.anchor, cell(touch.clientX, touch.clientY), instance.cols);
+      instance.select(range.column, range.row, range.length);
+      return;
+    }
     const dy = touch.clientY - drag.y;
-    if (!drag.moved && Math.abs(dy) < DRAG_SLOP_PX) return;
+    if (!drag.moved && Math.abs(dy) < DRAG_SLOP_PX && Math.abs(touch.clientX - drag.x) < DRAG_SLOP_PX) return;
     drag.moved = true;
+    stopHold();
     if (event.cancelable) event.preventDefault();
     const step = dragLines(drag.carry, dy, cellHeight());
     drag.y = touch.clientY;
@@ -103,12 +125,18 @@ function touchScrolling(instance: Terminal): () => void {
       instance.scrollLines(step.lines);
     }
   };
-  const onEnd = () => { drag = undefined; };
+  const onEnd = (event: TouchEvent) => {
+    stopHold();
+    // Lifting a selecting finger must not also tap (focus, keyboard, a click).
+    if (drag?.anchor && event.cancelable) event.preventDefault();
+    drag = undefined;
+  };
   element.addEventListener("touchstart", onStart, { passive: true });
   element.addEventListener("touchmove", onMove, { passive: false });
   element.addEventListener("touchend", onEnd);
   element.addEventListener("touchcancel", onEnd);
   return () => {
+    stopHold();
     element.removeEventListener("touchstart", onStart);
     element.removeEventListener("touchmove", onMove);
     element.removeEventListener("touchend", onEnd);
@@ -137,6 +165,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const [menu, setMenu] = useState(false);
   const [pasting, setPasting] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
   const { readOnly } = useHostCapabilities();
   const keyboardUp = useKeyboardUp();
   const [armed, setArmed] = useState<ReadonlySet<TouchModifier>>(new Set());
@@ -185,7 +214,14 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
     return {
       attach: (instance) => {
         stopScrolling();
-        stopScrolling = instance ? touchScrolling(instance) : () => {};
+        setHasSelection(false);
+        if (instance) {
+          const stopGestures = touchGestures(instance);
+          const selection = instance.onSelectionChange(() => setHasSelection(instance.hasSelection()));
+          stopScrolling = () => { stopGestures(); selection.dispose(); };
+        } else {
+          stopScrolling = () => {};
+        }
         terminal.current = instance;
         plainInput(instance?.textarea);
       },
@@ -327,6 +363,12 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
           </div>;
         })}
       </div>
+      {hasSelection ? <IconButton label="Copy the selection" onClick={() => {
+        const instance = terminal.current;
+        if (!instance) return;
+        void actions.copyText(instance.getSelection()).then(() => instance.clearSelection(), (problem: unknown) => setError(errorMessage(problem)));
+      }}><Copy size={20} /></IconButton> : null}
+      {shown && !exited && !readOnly && !typing ? <IconButton label="Type in the shell" onClick={() => terminal.current?.focus()}><Keyboard size={20} /></IconButton> : null}
       {readOnly ? null : <IconButton label="New terminal" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={20} /></IconButton>}
       <button
         ref={more}
@@ -381,7 +423,8 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
         </Empty>}
     </div>
     {pasting ? <PasteField onPaste={(text) => { setPasting(false); terminal.current?.paste(text); }} onCancel={() => setPasting(false)} /> : null}
-    {shown && !readOnly ? bar : null}
+    {/* A hardware keyboard has these keys; the bar rides only on the on-screen one. */}
+    {shown && !readOnly && keyboardUp ? bar : null}
   </section>;
 }
 

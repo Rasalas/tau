@@ -15,13 +15,20 @@ import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, TERMINAL_PANEL, type U
 
 /** The xterm the view draws, as far as the key bar drives it; `input` and `paste` fire `onData` like the real one. */
 const { FakeTerminal, FakeFit, drawn, room } = vi.hoisted(() => {
-  const views: Array<{ options: Record<string, unknown>; modes: { applicationCursorKeysMode: boolean }; textarea: HTMLTextAreaElement; pasted: string[]; input(data: string): void }> = [];
+  const views: Array<{
+    options: Record<string, unknown>; modes: { applicationCursorKeysMode: boolean }; textarea: HTMLTextAreaElement; pasted: string[]; input(data: string): void;
+    element?: HTMLElement; selections: Array<[number, number, number]>; selection: string; changed(): void;
+  }> = [];
   class Xterm {
     options: Record<string, unknown>;
     cols = 80;
     rows = 24;
     modes = { applicationCursorKeysMode: false };
-    buffer = { active: { getLine: () => undefined } };
+    buffer = { active: { getLine: () => undefined, viewportY: 0, type: "normal" } };
+    element?: HTMLElement;
+    selections: Array<[number, number, number]> = [];
+    selection = "";
+    private readonly selectionListeners = new Set<() => void>();
     textarea = document.createElement("textarea");
     pasted: string[] = [];
     private readonly listeners = new Set<(data: string) => void>();
@@ -30,7 +37,7 @@ const { FakeTerminal, FakeFit, drawn, room } = vi.hoisted(() => {
       views.push(this);
     }
     loadAddon(addon: { activate?(owner: unknown): void }) { addon.activate?.(this); }
-    open(parent: HTMLElement) { parent.append(this.textarea); }
+    open(parent: HTMLElement) { parent.append(this.textarea); this.element = parent; }
     write(_data: string, done?: () => void) { done?.(); }
     onData(listener: (data: string) => void) {
       this.listeners.add(listener);
@@ -38,7 +45,15 @@ const { FakeTerminal, FakeFit, drawn, room } = vi.hoisted(() => {
     }
     input(data: string) { this.listeners.forEach((listener) => listener(data)); }
     paste(data: string) { this.pasted.push(data); this.input(data.replace(/\r?\n/gu, "\r")); }
-    onSelectionChange() { return { dispose() {} }; }
+    onSelectionChange(listener: () => void) {
+      this.selectionListeners.add(listener);
+      return { dispose: () => { this.selectionListeners.delete(listener); } };
+    }
+    select(column: number, row: number, length: number) { this.selections.push([column, row, length]); this.selection = "selected text"; this.changed(); }
+    hasSelection() { return this.selection !== ""; }
+    getSelection() { return this.selection; }
+    clearSelection() { this.selection = ""; this.changed(); }
+    changed() { this.selectionListeners.forEach((listener) => listener()); }
     registerLinkProvider() { return { dispose() {} }; }
     attachCustomKeyEventHandler() {}
     focus() { this.textarea.focus(); }
@@ -114,22 +129,26 @@ function panelProps(): PanelProps {
     stageTabs: () => [],
     openPanel: vi.fn(),
     notify: vi.fn(),
+    copyText: vi.fn(async () => undefined),
   } as unknown as WorkbenchActions;
   return { active: true, placement: "stage", extensionName: "Terminal", actions };
 }
 
 /** Renders the compact panel with one shell open and drawn; answers the host fake and that shell's xterm. */
 async function withShell() {
+  // The on-screen keyboard is up: the key bar rides on it.
+  document.body.setAttribute("data-keyboard", "");
   const fake = fakeHost();
   const disconnect = connectTerminalHost(fake.host);
-  render(<CompactTerminalPanel {...panelProps()} />);
+  const props = panelProps();
+  render(<CompactTerminalPanel {...props} />);
   fireEvent.click(screen.getAllByRole("button", { name: "New terminal" })[0]!);
   await screen.findByRole("tab", { name: /shell 1/u });
   await waitFor(() => expect(drawn.length).toBe(1));
   await screen.findByRole("button", { name: "Escape" });
   // The bar drives the xterm once the view has replayed and handed it over.
   await waitFor(() => expect(drawn[0]!.textarea.getAttribute("autocomplete")).toBe("off"));
-  return { ...fake, xterm: drawn[0]!, disconnect };
+  return { ...fake, xterm: drawn[0]!, actions: props.actions, disconnect };
 }
 
 const key = (name: string) => screen.getByRole("button", { name });
@@ -150,6 +169,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  document.body.removeAttribute("data-keyboard");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   observers.length = 0;
@@ -252,9 +272,10 @@ describe("the terminal on a compact client", () => {
 
   it("keeps the keyboard up: a press on a key does not take focus from the shell", async () => {
     const { disconnect } = await withShell();
-    for (const name of ["Escape", "Ctrl for the next key", "Send Ctrl-C", "Show keyboard"]) {
-      const press = createEvent.pointerDown(key(name));
-      fireEvent(key(name), press);
+    for (const name of ["Escape", "Ctrl for the next key", "Send Ctrl-C", /^(Show|Hide) keyboard$/u]) {
+      const button = screen.getByRole("button", { name });
+      const press = createEvent.pointerDown(button);
+      fireEvent(button, press);
       expect(press.defaultPrevented).toBe(true);
     }
     disconnect();
@@ -262,14 +283,53 @@ describe("the terminal on a compact client", () => {
 
   it("shows and hides the keyboard by focusing the shell's input", async () => {
     const { xterm, disconnect } = await withShell();
-    fireEvent.click(key("Show keyboard"));
-    expect(document.activeElement).toBe(xterm.textarea);
-    // The layout marks the keyboard once the visual viewport shrinks.
-    document.body.setAttribute("data-keyboard", "");
+    act(() => xterm.textarea.focus());
     fireEvent.click(await screen.findByRole("button", { name: "Hide keyboard" }));
     expect(document.activeElement).not.toBe(xterm.textarea);
-    document.body.removeAttribute("data-keyboard");
-    await screen.findByRole("button", { name: "Show keyboard" });
+    fireEvent.click(await screen.findByRole("button", { name: "Show keyboard" }));
+    expect(document.activeElement).toBe(xterm.textarea);
+    disconnect();
+  });
+
+  it("draws the key bar only while the on-screen keyboard is up", async () => {
+    const { xterm, disconnect } = await withShell();
+    // The keyboard went down with the focus: no bar, and the header offers to type.
+    act(() => xterm.textarea.blur());
+    act(() => document.body.removeAttribute("data-keyboard"));
+    await waitFor(() => expect(screen.queryByRole("toolbar", { name: "Terminal keys" })).toBeNull());
+    fireEvent.click(key("Type in the shell"));
+    expect(document.activeElement).toBe(xterm.textarea);
+    // Focused without an on-screen keyboard is a hardware keyboard: it has these keys.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Type in the shell" })).toBeNull());
+    expect(screen.queryByRole("toolbar", { name: "Terminal keys" })).toBeNull();
+    // An on-screen keyboard brings the bar back.
+    act(() => document.body.setAttribute("data-keyboard", ""));
+    await screen.findByRole("toolbar", { name: "Terminal keys" });
+    disconnect();
+  });
+
+  it("selects with a held finger, and copies the selection", async () => {
+    const { xterm: view, actions, disconnect } = await withShell();
+    const element = view.element!;
+    // 80 × 24 cells of 10 × 10 px.
+    vi.spyOn(element, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 800, height: 240, right: 800, bottom: 240, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
+    const touch = (type: string, x: number, y: number) => fireEvent(element, Object.assign(new Event(type, { bubbles: true, cancelable: true }), { touches: type === "touchend" ? [] : [{ clientX: x, clientY: y }] }));
+    vi.useFakeTimers();
+    try {
+      touch("touchstart", 45, 25);
+      // A short touch is a tap: nothing selected yet.
+      expect(view.selections).toEqual([]);
+      act(() => { vi.advanceTimersByTime(450); });
+      expect(view.selections).toEqual([[4, 2, 1]]);
+      touch("touchmove", 95, 35);
+      touch("touchend", 95, 35);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(view.selections.at(-1)).toEqual([4, 2, 86]);
+    fireEvent.click(await screen.findByRole("button", { name: "Copy the selection" }));
+    await waitFor(() => expect(actions.copyText).toHaveBeenCalledWith("selected text"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Copy the selection" })).toBeNull());
     disconnect();
   });
 
