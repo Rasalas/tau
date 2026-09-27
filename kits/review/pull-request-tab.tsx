@@ -66,8 +66,8 @@ export function registerPullRequestTab(
     plugin.registerPage({
       id: PULL_REQUESTS_PAGE,
       label: "Pull requests",
-      // As its tabs: tried on the desktop only.
-      profiles: ["desktop"],
+      // A phone's bottom navigation has it too, as a screen of its own.
+      profiles: ["desktop", "compact"],
       Icon: GitPullRequest,
       order: 10,
       layout: "fill",
