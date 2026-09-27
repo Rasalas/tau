@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { ChevronDown, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
-import { NETWORK_ADVISORY_NOTE } from "../../shared/extension-permissions";
+import { NETWORK_ADVISORY_NOTE, PERMISSION_NOTES, type ExtensionPermission } from "../../shared/extension-permissions";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
@@ -168,17 +168,20 @@ export function ExtensionPage({
           <div className="settings-label">Approval required</div>
           <p>This package does not run until you approve what it asks for:</p>
           {summary.permissions && summary.permissions.length > 0 ? (
-            <ul>{summary.permissions.map((permission) => <li key={permission}><code>{permission}</code></li>)}</ul>
+            <ul>{summary.permissions.map((permission) => {
+              const note = PERMISSION_NOTES[permission as ExtensionPermission];
+              return <li key={permission}><code>{permission}</code>{note ? ` — ${note}` : null}</li>;
+            })}</ul>
           ) : (
             <p>It asks for no permissions.</p>
           )}
           {summary.isolation === "in-process" ? (
             <>
               <ul><li><code>in-process</code> — runs inside the host process, outside the worker isolation</li></ul>
-              <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network and start processes whatever it asked for.</p>
+              <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network, start processes and load native code whatever it asked for.</p>
             </>
           ) : (
-            <p className="settings-note">In its worker, network and process access are refused without the matching grant — a guardrail against a mistake, not against code written to get around it.</p>
+            <p className="settings-note">In its worker, network access, processes and native code are refused without the matching grant — a guardrail against a mistake, not against code written to get around it.</p>
           )}
           <div className="extension-grant-actions">
             <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
