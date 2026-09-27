@@ -3,9 +3,36 @@ import type { DesktopExtension, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
 import type { PaletteItem, PaletteMenu } from "../extension-system";
+import { loadRuntimeControlRuns } from "../deferred-surfaces";
 
 /** The levels' rows load with their own chunk the first time one opens. */
 const menus = () => import("./palette-menus");
+/** The slash commands' and the wordier commands' bodies are a chunk of their own too. */
+const runs = loadRuntimeControlRuns;
+const later = (id: string) => async (app: WorkbenchActions) => { await (await runs()).commandRuns[id]!(app); };
+
+/** Name, description and argument hint, in the order the slash menu lists them. */
+const SLASH_COMMANDS: ReadonlyArray<readonly [string, string, string?]> = [
+  ["reload", "Apply source and extension changes, then reload Tau"],
+  ["source", "Open Tau's editable source"],
+  ["tree", "Move this thread to another point of its session tree"],
+  ["fork", "Start a new thread from an earlier message"],
+  ["clone", "Duplicate this thread into a new one"],
+  ["compact", "Compact the current thread's context window"],
+  ["model", "Open the model picker or select a model", "[query]"],
+  ["thinking", "Set thinking level (none, low, medium, high, max)", "[level]"],
+  ["new", "Start a new thread"],
+  ["clear", "Clear conversation and start a new thread"],
+  ["system", "Inspect active system prompt and AGENTS.md instructions"],
+  ["instructions", "Inspect active system prompt and AGENTS.md instructions"],
+  ["copy", "Copy chat as Markdown to clipboard"],
+  ["export", "Export current chat as Markdown to clipboard"],
+  ["session", "Display session details, runtime, and model info"],
+  ["help", "Open command palette and list shortcuts"],
+  ["name", "Rename the current thread / session", "<title>"],
+  ["hotkeys", "View keyboard shortcuts and keybindings"],
+  ["scoped-models", "Manage scoped models for quick cycling (Ctrl+P / Alt+P)"],
+];
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = {
   focused: "focused",
@@ -70,18 +97,7 @@ export const runtimeControls: DesktopExtension = {
     // In the palette it lists the models; from a chord it opens the picker.
     plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", access: "write", submenu: lazyLevel("Set model", (loaded, app) => loaded.modelItems(plugin.preferences, app)), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", access: "write", run: (app) => app.openSettings("defaults") });
-    plugin.registerCommand({
-      id: "runtime.compact",
-      label: "Compact context",
-      group: "Thread",
-      access: "write",
-      run: async (app) => {
-        if (app.compactContext) {
-          await app.compactContext();
-          app.notify("Context compacted.");
-        }
-      },
-    });
+    plugin.registerCommand({ id: "runtime.compact", label: "Compact context", group: "Thread", access: "write", run: later("runtime.compact") });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", access: "write", run: (app) => app.newSession() });
     plugin.registerCommand({ id: "runtime.new-thread-on", label: "New thread on…", group: "Thread", access: "write", submenu: lazyLevel("New thread on", (loaded, app) => loaded.runtimeItems(app)), run: (app) => app.openCommandPalette({ menu: "runtime.new-thread-on" }) });
     for (const level of TRANSCRIPT_DETAIL_LEVELS) {
@@ -129,11 +145,7 @@ export const runtimeControls: DesktopExtension = {
       run: (app) => applyTheme(plugin.preferences, app, nextTheme(plugin.preferences.getSnapshot().theme)),
     });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", access: "write", run: (app) => app.abort() });
-    plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", access: "write", run: (app) => {
-      const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut~="composer.effort"]');
-      if (control && !control.disabled) control.click();
-      else app.notify("This thread's runtime sets its reasoning itself.");
-    } });
+    plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", access: "write", run: later("composer.effort") });
     plugin.registerCommand({ id: "thread.steerQueuedMessage", label: "Send the oldest queued message now", group: "Thread", access: "write", run: (app) => { app.steerQueuedMessage?.(); } });
     plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", access: "read", run: (app) => app.openCommandPalette() });
     plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", access: "read", run: (app) => app.openThreadTree("navigate") });
@@ -151,138 +163,6 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
     plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(-1) });
-    plugin.registerSlashCommand({ name: "reload", description: "Apply source and extension changes, then reload Tau", run: async (_args, app) => (await app.reloadWorkbench()) ? undefined : "Tau reload failed." });
-    plugin.registerSlashCommand({ name: "source", description: "Open Tau's editable source", run: async (_args, app) => (await app.openWorkbenchSource()) ? undefined : "Tau source could not be opened." });
-    plugin.registerSlashCommand({ name: "tree", description: "Move this thread to another point of its session tree", run: (_args, app) => app.openThreadTree("navigate") });
-    plugin.registerSlashCommand({ name: "fork", description: "Start a new thread from an earlier message", run: (_args, app) => app.openThreadTree("fork") });
-    plugin.registerSlashCommand({ name: "clone", description: "Duplicate this thread into a new one", run: async (_args, app) => (await app.duplicateThread()) ? undefined : "The thread could not be duplicated." });
-    plugin.registerSlashCommand({
-      name: "compact",
-      description: "Compact the current thread's context window",
-      run: async (_args, app) => {
-        if (!app.compactContext) return "Context compaction is not available.";
-        await app.compactContext();
-        app.notify("Context compacted.");
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "model",
-      description: "Open the model picker or select a model",
-      argumentHint: "[query]",
-      run: async (args, app) => {
-        const query = args.trim();
-        if (query && app.setModel) {
-          const success = await app.setModel(query);
-          if (success) {
-            app.notify(`Model switched to ${query}.`);
-            return undefined;
-          }
-          app.notify(`No model matches “${query}”.`);
-          return undefined;
-        }
-        if (app.openModelPicker) app.openModelPicker();
-        else app.openSettings("defaults");
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "thinking",
-      description: "Set thinking level (none, low, medium, high, max)",
-      argumentHint: "[level]",
-      run: async (args, app) => {
-        const level = args.trim().toLowerCase();
-        const valid = ["none", "low", "medium", "high", "max"];
-        if (level && valid.includes(level)) {
-          if (app.setThinkingLevel) {
-            await app.setThinkingLevel(level);
-            app.notify(`Thinking level set to ${level}.`);
-            return undefined;
-          }
-        }
-        if (level && !valid.includes(level)) {
-          app.notify(`Invalid thinking level: “${level}”. Valid: none, low, medium, high, max.`);
-          return undefined;
-        }
-        app.openSettings("defaults");
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "new",
-      description: "Start a new thread",
-      run: (_args, app) => {
-        app.newSession();
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "clear",
-      description: "Clear conversation and start a new thread",
-      run: (_args, app) => {
-        app.newSession();
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "system",
-      description: "Inspect active system prompt and AGENTS.md instructions",
-      run: (_args, app) => {
-        app.openInstructions?.();
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "instructions",
-      description: "Inspect active system prompt and AGENTS.md instructions",
-      run: (_args, app) => {
-        app.openInstructions?.();
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "copy",
-      description: "Copy chat as Markdown to clipboard",
-      run: async (_args, app) => {
-        if (app.copyChat) {
-          await app.copyChat();
-          app.notify("Chat copied as Markdown.");
-          return undefined;
-        }
-        return "Copy chat is not available.";
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "export",
-      description: "Export current chat as Markdown to clipboard",
-      run: async (_args, app) => {
-        if (app.copyChat) {
-          await app.copyChat();
-          app.notify("Exported chat to clipboard as Markdown.");
-          return undefined;
-        }
-        return "Export is not available.";
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "session",
-      description: "Display session details, runtime, and model info",
-      run: (_args, app) => {
-        const thread = app.activeThread();
-        if (!thread) return "No active session.";
-        const modelStr = thread.model ? `${thread.model.provider}/${thread.model.id}` : "default";
-        app.notify(`Session: ${thread.sessionId ?? "new"} · Backend: ${thread.backendKind ?? "pi"} · Model: ${modelStr}`);
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "help",
-      description: "Open command palette and list shortcuts",
-      run: (_args, app) => {
-        app.openCommandPalette();
-        return undefined;
-      },
-    });
     plugin.registerCommand({
       id: "runtime.instructions",
       label: "Inspect active system prompt & instructions",
@@ -295,105 +175,22 @@ export const runtimeControls: DesktopExtension = {
       label: "Copy chat as Markdown",
       group: "Thread",
       access: "read",
-      run: async (app) => {
-        if (app.copyChat) {
-          await app.copyChat();
-          app.notify("Chat copied as Markdown.");
-        }
-      },
+      run: later("runtime.copy-chat"),
     });
     plugin.registerCommand({
       id: "runtime.rename-thread",
       label: "Rename thread",
       group: "Thread",
       access: "write",
-      run: async (app) => {
-        const currentTitle = app.activeThread()?.sessionId ?? "";
-        const next = window.prompt("New thread title:", currentTitle);
-        if (next && next.trim() && app.renameThread) {
-          await app.renameThread(next.trim());
-          app.notify(`Thread renamed to “${next.trim()}”.`);
-        }
-      },
+      run: later("runtime.rename-thread"),
     });
-    plugin.registerCommand({
-      id: "runtime.cycle-model",
-      label: "Cycle model forward",
-      group: "Runtime",
-      access: "write",
-      run: async (app) => {
-        if (app.cycleModel) {
-          await app.cycleModel(1);
-        }
-      },
-    });
-    plugin.registerCommand({
-      id: "runtime.cycle-model-backward",
-      label: "Cycle model backward",
-      group: "Runtime",
-      access: "write",
-      run: async (app) => {
-        if (app.cycleModel) {
-          await app.cycleModel(-1);
-        }
-      },
-    });
-    plugin.registerCommand({
-      id: "runtime.cycle-thinking",
-      label: "Cycle thinking level",
-      group: "Thread",
-      access: "write",
-      run: async (app) => {
-        if (app.cycleThinking) {
-          await app.cycleThinking();
-        }
-      },
-    });
-    plugin.registerCommand({
-      id: "runtime.open-prompt-editor",
-      label: "Open prompt in external editor",
-      group: "Composer",
-      access: "write",
-      run: async (app) => {
-        if (app.openPromptEditor) {
-          await app.openPromptEditor();
-        }
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "name",
-      description: "Rename the current thread / session",
-      argumentHint: "<title>",
-      run: async (args, app) => {
-        const title = args.trim();
-        if (!title) return "Usage: /name <title>";
-        if (app.renameThread) {
-          const ok = await app.renameThread(title);
-          if (ok) {
-            app.notify(`Thread renamed to “${title}”.`);
-            return undefined;
-          }
-        }
-        return "Could not rename thread.";
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "hotkeys",
-      description: "View keyboard shortcuts and keybindings",
-      run: (_args, app) => {
-        app.openSettings("keybindings");
-        return undefined;
-      },
-    });
-    plugin.registerSlashCommand({
-      name: "scoped-models",
-      description: "Manage scoped models for quick cycling (Ctrl+P / Alt+P)",
-      run: (_args, app) => {
-        if (app.openModelPicker) app.openModelPicker();
-        else app.openSettings("defaults");
-        return undefined;
-      },
-    });
+    plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
+    plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
+    plugin.registerCommand({ id: "runtime.cycle-thinking", label: "Cycle thinking level", group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(); } });
+    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Open prompt in external editor", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
+    for (const [name, description, argumentHint] of SLASH_COMMANDS) {
+      plugin.registerSlashCommand({ name, description, ...(argumentHint ? { argumentHint } : {}), run: async (args, app) => (await runs()).slashRuns[name]!(args, app) });
+    }
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     // As in T3 Code; the open Settings screen answers the same chord by closing.

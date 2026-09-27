@@ -27,6 +27,7 @@ export const SettingsSection = deferred(() => import("./settings/settings-layout
 
 // Code behind a user action rather than a surface.
 export const loadSubmissionController = deferredModule(() => import("./submission-controller"));
+export const loadRuntimeControlRuns = deferredModule(() => import("./settings/runtime-control-runs"));
 
 // No top-level await here: Rollup would split the start-up graph into many chunks. Tests preload in src/test-setup.ts.
 if (import.meta.env.PROD) preloadDeferredWhenIdle();
