@@ -3,11 +3,14 @@ import { AlarmClock, Archive, GitFork, ListTree, Trash2, X } from "lucide-react"
 import {
   HostUnavailableError,
   Menu,
+  Select,
   SettingRow,
   SettingsSection,
+  Switch,
   errorMessage,
   hostIsReadOnly,
   READ_ONLY_REASON,
+  useHostCapabilities,
   useSetting,
   type ComposerControlProps,
   type DesktopExtension,
@@ -121,8 +124,21 @@ function createSettledNote(store: RailStore, unsettle: (threadId: string) => voi
   };
 }
 
-const INACTIVE_CHOICES: Array<{ days?: number; label: string }> = [
-  { label: "Off" }, { days: 1, label: "1 day" }, { days: 3, label: "3 days" }, { days: 7, label: "7 days" }, { days: 30, label: "30 days" },
+const INACTIVE_DAYS = [1, 3, 7, 30];
+const daysLabel = (days: number) => `${days} day${days === 1 ? "" : "s"}`;
+
+/** Off and the usual spells, plus the host's own value when it holds another one. */
+function inactiveChoices(current: number | undefined): Array<{ value: string; label: string }> {
+  const days = current === undefined || INACTIVE_DAYS.includes(current) ? INACTIVE_DAYS : [...INACTIVE_DAYS, current].sort((a, b) => a - b);
+  return [{ value: "off", label: "Off" }, ...days.map((entry) => ({ value: String(entry), label: daysLabel(entry) }))];
+}
+
+/** What the Settings search finds on the Thread rail page; each id is a row's anchor. */
+export const THREAD_RAIL_ROWS = [
+  { id: "setting-thread-rail-inactive", label: "After a quiet spell", keywords: ["settle", "inactive", "idle", "days", "auto settle"] },
+  { id: "setting-thread-rail-onMerged", label: "When its pull request merges", keywords: ["settle", "merged", "pull request", "merge request", "worktree"] },
+  { id: "setting-thread-rail-onClosed", label: "When its pull request is closed", keywords: ["settle", "closed", "pull request", "merge request"] },
+  ...(Object.values(RAIL_CONFIRMATIONS).map(({ option, label }) => ({ id: `setting-thread-rail-${option}`, label, keywords: ["ask first", "confirm", "confirmation", "dialog"] }))),
 ];
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
@@ -135,9 +151,9 @@ function ConfirmationRow({ action, preferences }: { action: RailQuestionAction; 
     <SettingRow
       id={`setting-thread-rail-${option}`}
       title={label}
-      description={hint}
+      description={`${hint}.`}
       setting={setting}
-      control={<button type="button" role="switch" aria-checked={setting.value} aria-label={label} className={`switch ${setting.value ? "on" : ""}`} onClick={() => setting.set(!setting.value)}><i /></button>}
+      control={<Switch label={label} checked={setting.value} onChange={setting.set} />}
     />
   );
 }
@@ -147,6 +163,7 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
     useSyncExternalStore(store.subscribe, store.getVersion);
     useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
     const settings = store.getState().settings;
+    const readOnly = useHostCapabilities().readOnly ? READ_ONLY_REASON : undefined;
     const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error))); };
     // The rules live with the host's sweep (its own state file), not in Tau's config, so these rows have no levels.
     const toggle = (key: "onMerged" | "onClosed", label: string, hint: string) => (
@@ -154,32 +171,30 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
         id={`setting-thread-rail-${key}`}
         title={label}
         description={hint}
-        control={<button type="button" role="switch" aria-checked={settings[key]} aria-label={label} className={`switch ${settings[key] ? "on" : ""}`} onClick={() => change({ [key]: !settings[key] })}><i /></button>}
+        disabledReason={readOnly}
+        control={<Switch label={label} checked={settings[key]} onChange={(next) => change({ [key]: next })} />}
       />
     );
     return (
       <div className="settings-page thread-rail-settings">
         <h3>Thread rail</h3>
         <p className="lede">
-          Settled threads leave the active list without being deleted. These rules settle a thread on their own, on the
-          host, even while no window is open. A running thread, a snoozed one and one you just took off the shelf are left alone.
+          Settled threads leave the active list without being deleted. These rules settle a thread on the host, even with
+          no window open; a running or snoozed thread, and one you just took off the shelf, are left alone.
         </p>
         <SettingsSection title="Settle automatically">
           <SettingRow
             id="setting-thread-rail-inactive"
             title="After a quiet spell"
-            description="No turn for this long."
-            control={<div className="segmented" role="group" aria-label="Settle after">
-              {INACTIVE_CHOICES.map((choice) => (
-                <button
-                  key={choice.label}
-                  type="button"
-                  className={settings.inactiveDays === choice.days ? "active" : ""}
-                  aria-pressed={settings.inactiveDays === choice.days}
-                  onClick={() => change({ inactiveDays: choice.days ?? null })}
-                >{choice.label}</button>
-              ))}
-            </div>}
+            description="Settle a thread that had no turn for this long."
+            disabledReason={readOnly}
+            control={<Select
+              label="Settle after a quiet spell"
+              width="sm"
+              value={settings.inactiveDays === undefined ? "off" : String(settings.inactiveDays)}
+              options={inactiveChoices(settings.inactiveDays)}
+              onChange={(next) => change({ inactiveDays: next === "off" ? null : Number(next) })}
+            />}
           />
           {toggle("onMerged", "When its pull request merges", "Worktree threads only: their branch is theirs alone.")}
           {toggle("onClosed", "When its pull request is closed", "Closed without merging.")}
@@ -424,6 +439,7 @@ export const threadRailExtension: DesktopExtension = {
         Icon: ListTree,
         order: 40,
         profiles: ["desktop", "web"],
+        rows: THREAD_RAIL_ROWS,
         Component: createSettingsPage(store, context.preferences, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
       }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.togglePin) }),
