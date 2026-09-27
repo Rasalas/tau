@@ -41,6 +41,7 @@ import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
 import { followTurnActivity } from "../workbench/turn-activity";
 import { followShownThread } from "../workbench/shown-thread";
+import { followOpenPrompts } from "../workbench/open-prompts";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
@@ -377,12 +378,13 @@ export default function App() {
   useEffect(() => {
     let unsubscribe = () => {};
     let stopFollowing = () => {};
+    let stopPrompts = () => {};
     if (client) {
       preferences.bindHost(client, activeWorkspaceId);
       unsubscribe = client.onHostEvent(handleHostEvent);
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
-      void client.syncExtensionUi().catch(() => undefined);
+      stopPrompts = followOpenPrompts(client, viewStore);
       const bootstrapRequest = transcriptHistory.beginBootstrap();
       client.bootstrap().then((bootstrap) => {
         workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
@@ -396,8 +398,8 @@ export default function App() {
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { unsubscribe(); stopFollowing(); };
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, workbenchSession]);
+    return () => { unsubscribe(); stopFollowing(); stopPrompts(); };
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {

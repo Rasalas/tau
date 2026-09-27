@@ -47,6 +47,8 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
     activate(context) {
       const { services } = context;
       const book = new AttentionBook({ now: options.now ?? Date.now, debounceMs: options.debounceMs ?? DEFAULT_DEBOUNCE_MS });
+      /** Open questions per thread; the last one answered clears the thread's question news. */
+      const asking = new Map<string, number>();
       const publish = (change: AttentionChange): void => {
         if (change.changed) context.emit(ATTENTION_EVENT, { items: book.list() });
         if (change.delivery) context.emit(NOTIFY_EVENT, change.delivery);
@@ -68,7 +70,16 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
         services.registerTurnObserver({
           ended: async (sessionId, _turnId, outcome) => raise(sessionId, outcome === "failed" ? "failed" : "completed"),
         }),
-        services.decorateUiPrompt((prompt) => raise(prompt.sessionId, promptReason(prompt))),
+        services.decorateUiPrompt((prompt) => {
+          raise(prompt.sessionId, promptReason(prompt));
+          asking.set(prompt.sessionId, (asking.get(prompt.sessionId) ?? 0) + 1);
+          return () => {
+            const left = (asking.get(prompt.sessionId) ?? 1) - 1;
+            if (left > 0) { asking.set(prompt.sessionId, left); return; }
+            asking.delete(prompt.sessionId);
+            publish(book.answered(prompt.sessionId));
+          };
+        }),
         services.registerThreadLifecycle({ threadDeleted: async (sessionId) => publish(book.drop(sessionId)) }),
         services.clients.observe({
           detached: () => {

@@ -133,7 +133,6 @@ function isBackgroundEvent(state: ThreadViewState, event: HostEvent): boolean {
     case "queue":
       return event.sessionId !== state.activeThreadId;
     case "agent-status":
-    case "extension-ui-resolved":
     case "error":
     case "notice":
     case "event-log":
@@ -284,8 +283,9 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
       return withNotice(state, event.message);
     case "notice":
       return withNotice(state, event.message, event.level);
+    // Questions are host-wide: every thread's reach every client, and a replay repeats them.
     case "extension-ui-prompt":
-      return { ...state, uiPrompts: [...state.uiPrompts, event.prompt] };
+      return { ...state, uiPrompts: [...state.uiPrompts.filter((entry) => entry.id !== event.prompt.id), event.prompt] };
     case "extension-ui-resolved": {
       const uiPrompts = state.uiPrompts.filter((entry) => entry.id !== event.id);
       return uiPrompts.length === state.uiPrompts.length ? state : { ...state, uiPrompts };
@@ -500,6 +500,15 @@ export class ThreadViewStore {
 
   appendMessage(message: UiMessage): void {
     this.commit({ ...this.state, transcript: appendMessage(this.state.transcript, message) });
+  }
+
+  /** Drops the questions held since before `known` was taken that the host no longer lists as open. */
+  retainOpenPrompts(open: readonly ExtensionUiPrompt[], known: ReadonlySet<string>): void {
+    const ids = new Set(open.map((prompt) => prompt.id));
+    this.setUiPrompts((current) => {
+      const next = current.filter((prompt) => ids.has(prompt.id) || !known.has(prompt.id));
+      return next.length === current.length ? current : next;
+    });
   }
 
   setUiPrompts(update: Updater<readonly ExtensionUiPrompt[]>): void {

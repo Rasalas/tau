@@ -165,7 +165,7 @@ export interface ExtensionServicesPort {
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
-  decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
+  decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void | (() => void)): () => void;
   /** A yes/no question on one thread's dialog surface; aborting `signal` cancels it as `false`. */
   confirmInThread(threadId: string, title: string, message: string, signal: AbortSignal): Promise<boolean>;
   /** A backend came or went; the host republishes what names them once it runs. */

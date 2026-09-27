@@ -383,6 +383,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     metrics: lifecycleMetrics,
     emitUpdate: (update) => deps.emitUpdate(update),
   });
+  const extensionUi = new ExtensionUiCoordinator(
+    (thread, event) => deps.emitForThread(thread, event),
+    (thread, label, detail) => thread ? deps.logForThread(thread, label, detail) : deps.log(label, detail),
+  );
   let backendsChangePending = false;
   /** The one place the components hand their collaborators what they may ask of the host. */
   const port: AttachedSessionPort & ExtensionServicesPort = {
@@ -390,7 +394,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     platform,
     stateDir: kitStateDir,
     clientTurns,
-    emit: (event) => emit(event),
+    // An attached Pi terminal publishes its own questions; the coordinator lists them for reconnecting clients.
+    emit: (event) => { extensionUi.observe(event); emit(event); },
     emitUpdate: (update) => deps.emitUpdate(update),
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
@@ -516,10 +521,6 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     seam.entryPins,
     (thread) => deps.hostThreadFor(thread),
     (error) => deps.log("host-extension.pins.failed", deps.errorMessage(error)),
-  );
-  const extensionUi = new ExtensionUiCoordinator(
-    (thread, event) => deps.emitForThread(thread, event),
-    (thread, label, detail) => thread ? deps.logForThread(thread, label, detail) : deps.log(label, detail),
   );
   const clientMessages = new ClientMessageTracker(
     clientTurns,

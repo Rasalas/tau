@@ -107,6 +107,15 @@ export class AttentionBook {
     this.clients.clear();
   }
 
+  /** The thread's questions were answered, wherever: it no longer waits on anyone. */
+  answered(threadId: string): AttentionChange {
+    const item = this.items.get(threadId);
+    if (!item || (item.reason !== "question" && item.reason !== "approval")) return { changed: false };
+    this.items.delete(threadId);
+    this.held = this.held.filter((entry) => entry !== item);
+    return { changed: true };
+  }
+
   /** The thread is gone for good. */
   drop(threadId: string): AttentionChange {
     this.notifiedAt.delete(threadId);

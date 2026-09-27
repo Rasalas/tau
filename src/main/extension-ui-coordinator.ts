@@ -1,14 +1,24 @@
-import type { ExtensionUiAnswer, ExtensionUiPrompt, ThreadHostEvent } from "../shared/contracts.js";
+import type { ExtensionUiAnswer, ExtensionUiPrompt, HostEvent, ThreadHostEvent } from "../shared/contracts.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
 import { answerImageSaver, answerWithFiles, type SaveAnswerImage } from "./answer-attachments.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
 
 const TYPED_ANSWER_TTL_MS = 10_000;
 
+/** Sees a question before it goes out; a function it returns runs once the question is answered, cancelled or expires. */
+export type UiPromptDecorator = (prompt: ExtensionUiPrompt) => void | (() => void);
+
+/**
+ * The host's record of the questions that wait for the user. Every client
+ * follows it: the prompt and resolved events keep them current, and
+ * `replay()` hands a (re)connecting client the whole open set.
+ */
 export class ExtensionUiCoordinator {
-  private readonly decorators = new Set<(prompt: ExtensionUiPrompt) => void>();
+  private readonly decorators = new Set<UiPromptDecorator>();
   private readonly pending = new Map<string, { sessionId: string; settle: (answer: ExtensionUiAnswer) => void }>();
   private readonly open = new Map<string, ExtensionUiPrompt>();
+  /** Questions a runtime asks and answers elsewhere (an attached Pi terminal); shown, never awaited here. */
+  private readonly elsewhere = new Map<string, ExtensionUiPrompt>();
   private readonly typedAnswers = new Map<string, { text: string; expiresAt: number }>();
 
   constructor(
@@ -17,7 +27,7 @@ export class ExtensionUiCoordinator {
     private readonly saveImage: SaveAnswerImage = answerImageSaver(),
   ) {}
 
-  addDecorator(decorator: (prompt: ExtensionUiPrompt) => void): () => void {
+  addDecorator(decorator: UiPromptDecorator): () => void {
     this.decorators.add(decorator);
     return () => { this.decorators.delete(decorator); };
   }
@@ -31,7 +41,11 @@ export class ExtensionUiCoordinator {
         return Promise.resolve({ value: typed.text });
       }
     }
-    for (const decorate of this.decorators) decorate(prompt);
+    const afterwards: Array<() => void> = [];
+    for (const decorate of this.decorators) {
+      const done = decorate(prompt);
+      if (typeof done === "function") afterwards.push(done);
+    }
     return new Promise<ExtensionUiAnswer>((resolve) => {
       let settled = false;
       const settle = (answer: ExtensionUiAnswer) => {
@@ -41,6 +55,9 @@ export class ExtensionUiCoordinator {
         this.open.delete(prompt.id);
         if (timer) clearTimeout(timer);
         this.emit(thread, { type: "extension-ui-resolved", id: prompt.id, sessionId: prompt.sessionId });
+        for (const done of afterwards) {
+          try { done(); } catch (error) { this.log(thread, "extension-ui.decorator-failed", error instanceof Error ? error.message : String(error)); }
+        }
         resolve(answer);
       };
       const timer = prompt.expiresAt
@@ -79,10 +96,19 @@ export class ExtensionUiCoordinator {
     this.pending.get(id)?.settle(answer);
   }
 
-  replay(): void {
-    for (const prompt of this.open.values()) {
+  /** Re-announces every open question and returns them; a client drops what it holds beyond these. */
+  replay(): ExtensionUiPrompt[] {
+    const prompts = [...this.open.values(), ...this.elsewhere.values()];
+    for (const prompt of prompts) {
       this.emit(undefined, { type: "extension-ui-prompt", prompt, sessionId: prompt.sessionId });
     }
+    return prompts;
+  }
+
+  /** Follows questions other parts of the host publish themselves, so `replay` lists them too. */
+  observe(event: HostEvent): void {
+    if (event.type === "extension-ui-prompt" && !this.open.has(event.prompt.id)) this.elsewhere.set(event.prompt.id, event.prompt);
+    else if (event.type === "extension-ui-resolved") this.elsewhere.delete(event.id);
   }
 
   hasOpen(sessionId: string): boolean {

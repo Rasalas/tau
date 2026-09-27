@@ -8,7 +8,9 @@
 // Driven by the Agent SDK (`--input-format stream-json`) it answers the SDK's
 // control requests and plays one scripted turn per prompt, with no model: two
 // Bash calls (the first fails), a Read the CLI refuses, then "Done.". A prompt
-// with `wait <ms>` pauses that long before each step.
+// with `wait <ms>` pauses that long before each step; one with `ask` asks a
+// single-choice question (AskUserQuestion, through `can_use_tool`) instead and
+// says what was chosen.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,8 +38,28 @@ function streamTurns() {
   const result = (id, content, isError = false) => send({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] } });
   const account = { ...status(), tokenSource: "apiKey" };
   let turn = Promise.resolve();
+  const answers = new Map();
+  const control = (request) => new Promise((resolve) => {
+    const id = `stub_${randomUUID().slice(0, 8)}`;
+    answers.set(id, resolve);
+    process.stdout.write(`${JSON.stringify({ type: "control_request", request_id: id, request })}\n`);
+  });
+
+  async function askColor() {
+    const id = `toolu_stub_${randomUUID().slice(0, 8)}_ask`;
+    const input = { questions: [{ question: "Which color?", header: "Color", multiSelect: false, options: [{ label: "Red" }, { label: "Blue" }] }] };
+    send({ type: "system", subtype: "init", cwd: process.cwd(), model, claude_code_version: "2.1.280", apiKeySource: "ANTHROPIC_API_KEY", tools: ["AskUserQuestion"], mcp_servers: [], permissionMode: "default", slash_commands: [], output_style: "default" });
+    assistant([{ type: "tool_use", id, name: "AskUserQuestion", input }]);
+    const reply = await control({ subtype: "can_use_tool", tool_name: "AskUserQuestion", input, tool_use_id: id });
+    const chosen = reply?.behavior === "allow" ? Object.values(reply.updatedInput?.answers ?? {})[0] : undefined;
+    result(id, chosen ? `User answered: ${chosen}` : "The user did not answer.", !chosen);
+    const text = chosen ? `You chose ${chosen}.` : "No answer.";
+    assistant([{ type: "text", text }]);
+    send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: text, duration_ms: 1, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: {}, permission_denials: [] });
+  }
 
   async function play(prompt) {
+    if (/\bask\b/iu.test(prompt)) return askColor();
     const pause = Math.min(Number(/\bwait\s+(\d+)/u.exec(prompt)?.[1] ?? 150), 60_000);
     const step = async (write) => { await sleep(pause); write(); };
     const id = (n) => `toolu_stub_${randomUUID().slice(0, 8)}_${n}`;
@@ -56,7 +78,11 @@ function streamTurns() {
   createInterface({ input: process.stdin }).on("line", (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
-    if (message.type === "control_request") {
+    if (message.type === "control_response") {
+      const id = message.response?.request_id;
+      answers.get(id)?.(message.response?.response);
+      answers.delete(id);
+    } else if (message.type === "control_request") {
       const response = message.request?.subtype === "initialize"
         ? { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models: [{ value: model, displayName: "Stub 1", description: "Scripted by the stub CLI" }], account }
         : {};
