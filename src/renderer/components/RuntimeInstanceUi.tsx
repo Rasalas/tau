@@ -7,6 +7,7 @@ import {
   instanceIdFromName,
   instanceIdProblem,
   parseEnvironment,
+  runtimeDriver,
   type RuntimeInstanceConfig,
 } from "../../shared/runtime-instances";
 import { Button, TextField } from "../settings/controls";
@@ -370,33 +371,42 @@ export interface RuntimeCommandRowProps {
   id: string;
   /** "Codex": the field is "Codex executable". */
   program: string;
-  /** The name looked up on the PATH when the field is empty: `codex`. */
+  /** The name looked up on the PATH when the field is empty; the host's command while it names no path. */
   commandName?: string;
-  /** The variable in Tau's environment that overrides the setting: `TAU_CODEX_COMMAND`. */
-  variable: string;
+  /** The variable in Tau's environment that overrides the setting; `TAU_<KIND>_COMMAND` from `kind` by default. */
+  variable?: string;
+  /** The runtime backend kind, for the default `variable`. */
+  kind?: string;
   /** Whether the host has answered; the field waits until then. */
   known: boolean;
   /** The command the host runs, and who named it: `setting`, `env`, or neither for the default. */
   command?: string;
   source?: string;
-  placeholder: string;
+  placeholder?: string;
   /** Says what an empty field means, where that is not the PATH. */
   description?: string;
   onSave(command: string): Promise<void> | void;
 }
 
+/** The variable most runtime kits read the executable from: `TAU_CODEX_COMMAND` for `codex@work`. */
+export function commandVariable(kind: string): string {
+  return `TAU_${runtimeDriver(kind).toUpperCase().replace(/[^A-Z0-9]+/gu, "_")}_COMMAND`;
+}
+
 /** Where Tau finds the program: a path or a name, saved when the field is left or on Enter; empty goes back to the default. */
-export function RuntimeCommandRow({ id, program, commandName, variable, known, command, source, placeholder, description, onSave }: RuntimeCommandRowProps) {
+export function RuntimeCommandRow({ id, program, commandName, variable, kind, known, command, source, placeholder, description, onSave }: RuntimeCommandRowProps) {
   const fromEnv = source === "env";
   const saved = source === "setting" ? command ?? "" : "";
+  const name = commandName ?? (source === undefined ? command : undefined);
+  const override = variable ?? (kind ? commandVariable(kind) : undefined);
   return (
     <SettingRow
       id={id}
       title="Executable"
-      description={fromEnv ? `Set by ${variable} in Tau's environment.`
-        : description ?? `A name on the PATH or an absolute path. Empty looks for ${commandName ?? program} on the PATH.`}
-      disabledReason={fromEnv ? `${variable} in Tau's environment names it; change it there.` : !known ? `Waiting for the host to report ${program}.` : undefined}
-      control={<TextField label={`${program} executable`} mono width="lg" value={fromEnv ? command ?? "" : saved} placeholder={placeholder} onCommit={(text) => void onSave(text.trim())} />}
+      description={fromEnv ? `Set by ${override ?? "a variable"} in Tau's environment.`
+        : description ?? `A name on the PATH or an absolute path. Empty looks for ${name ?? program} on the PATH.`}
+      disabledReason={fromEnv ? `${override ?? "A variable"} in Tau's environment names it; change it there.` : !known ? `Waiting for the host to report ${program}.` : undefined}
+      control={<TextField label={`${program} executable`} mono width="lg" value={fromEnv ? command ?? "" : saved} placeholder={placeholder ?? (name ? `${name}, from your login shell's PATH` : "A name or an absolute path")} onCommit={(text) => void onSave(text.trim())} />}
     />
   );
 }
