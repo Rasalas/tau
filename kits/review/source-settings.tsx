@@ -109,7 +109,7 @@ export function SourceControlSettings({ host, onNotify }: { host: HostExtensionC
           help="A port counts when the remote has one: git.example.com:8443."
           control={<>
             <TextField label="Server" mono width="md" placeholder="git.example.com" value={server} onCommit={setServer} />
-            <Select label="Provider" width="sm" value={service} options={REQUEST_SERVICES.map((kind) => ({ value: kind, label: PROVIDERS[kind].name }))} onChange={setService} />
+            <Select<RequestService> label="Provider" width="sm" value={service} options={REQUEST_SERVICES.map((kind) => ({ value: kind, label: PROVIDERS[kind].name }))} onChange={setService} />
             <Button icon={<Plus size={13} />} onClick={add}>Add</Button>
           </>}
         />
