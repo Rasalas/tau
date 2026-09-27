@@ -125,6 +125,26 @@ describe("TextField", () => {
   });
 });
 
+describe("TextField in a form", () => {
+  it("reports each keystroke, lets Return submit the form and shows the page's error", () => {
+    const onSubmit = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+    function Form() {
+      const [text, setText] = useState("");
+      return <form onSubmit={onSubmit}><TextField label="Source" value={text} suggestions={["npm:a", "npm:b"]} error={text === "x" ? "Not a source." : undefined} onChange={setText} /></form>;
+    }
+    render(<Form />);
+    const field = screen.getByRole("combobox", { name: "Source" }) as HTMLInputElement;
+    expect(document.getElementById(field.getAttribute("list")!)?.querySelectorAll("option")).toHaveLength(2);
+    fireEvent.change(field, { target: { value: "x" } });
+    expect(screen.getByRole("alert").textContent).toBe("Not a source.");
+    fireEvent.change(field, { target: { value: "npm:a" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.submit(field.form!);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(field.value).toBe("npm:a");
+  });
+});
+
 describe("Slider", () => {
   it("follows the thumb beside the track and writes once the move ends", () => {
     const onCommit = vi.fn();

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { AlertTriangle, ChevronDown, Copy, Info, Plus, RotateCw, X } from "lucide-react";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -254,9 +254,11 @@ export function numberProblem(text: string, { min, max, integer = false, clearab
 /**
  * Text, written on blur or Enter; `validate` answers why a draft is refused.
  * With `rows` above 1 it is a box of that many lines: Return breaks the line,
- * ⌘Return (Ctrl+Return) or leaving the box writes it.
+ * ⌘Return (Ctrl+Return) or leaving the box writes it. With `onChange` instead
+ * of `onCommit` it is a field of a form: it shows `value`, reports each
+ * keystroke, and Return submits the form it is in.
  */
-export function TextField({ label, value, placeholder, width = "lg", mono = false, rows = 1, disabled, validate, onCommit }: {
+export function TextField({ label, value, placeholder, width = "lg", mono = false, rows = 1, disabled, autoFocus, suggestions, error, inputRef, validate, onCommit, onChange }: {
   label: string;
   value: string;
   placeholder?: string;
@@ -266,34 +268,46 @@ export function TextField({ label, value, placeholder, width = "lg", mono = fals
   /** Lines the box shows; more than one makes it a text area. */
   rows?: number;
   disabled?: boolean;
+  autoFocus?: boolean;
+  /** Values the field offers as it is typed in; any other text is still allowed. */
+  suggestions?: readonly string[];
+  /** Why the value is refused, from the page: a form field's check, shown under it. */
+  error?: string | undefined;
+  inputRef?: Ref<HTMLInputElement>;
   validate?(text: string): string | undefined;
-  onCommit(text: string): void;
+  onCommit?(text: string): void;
+  onChange?(text: string): void;
 }) {
   const errorId = useId();
+  const listId = useId();
   const multiline = rows > 1;
   const field = useDraft(value, (text) => {
     const problem = validate?.(text);
     if (problem) return problem;
-    onCommit(text);
+    onCommit?.(text);
     return undefined;
   }, multiline);
+  const controlled = onChange !== undefined;
+  const shown = error ?? (controlled ? undefined : field.error);
   const shared = {
     "aria-label": label,
-    "aria-invalid": field.error ? true : undefined,
-    "aria-describedby": field.error ? errorId : undefined,
+    "aria-invalid": shown ? true : undefined,
+    "aria-describedby": shown ? errorId : undefined,
     placeholder,
     disabled,
+    autoFocus,
     spellCheck: false,
     "data-mono": mono ? "" : undefined,
-    value: field.draft,
-    onBlur: field.onBlur,
-    onKeyDown: field.onKeyDown,
+    value: controlled ? value : field.draft,
+    ...(controlled ? {} : { onBlur: field.onBlur, onKeyDown: field.onKeyDown }),
   };
+  const change = (text: string) => (controlled ? onChange(text) : field.onChange(text));
   return (
-    <FieldShell width={width} error={field.error} errorId={errorId} multiline={multiline}>
+    <FieldShell width={width} error={shown} errorId={errorId} multiline={multiline}>
       {multiline
-        ? <textarea {...shared} rows={rows} onChange={(event) => field.onChange(event.target.value)} />
-        : <input {...shared} type="text" onChange={(event) => field.onChange(event.target.value)} />}
+        ? <textarea {...shared} rows={rows} onChange={(event) => change(event.target.value)} />
+        : <input {...shared} ref={inputRef} type="text" list={suggestions?.length ? listId : undefined} autoCapitalize="off" autoCorrect="off" onChange={(event) => change(event.target.value)} />}
+      {suggestions?.length && !multiline ? <datalist id={listId}>{suggestions.map((entry) => <option key={entry} value={entry} />)}</datalist> : null}
     </FieldShell>
   );
 }
