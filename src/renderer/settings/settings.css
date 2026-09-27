@@ -424,11 +424,11 @@
 .pairing-qr-button:focus-visible { outline: 2px solid var(--acid-line); outline-offset: 2px; }
 .pairing-qr-button > .pairing-qr { display: block; }
 .pairing-qr-dialog {
-  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px;
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 48px 16px 16px;
   border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3);
 }
 .pairing-qr-dialog-code { display: block; padding: 0; border: 0; background: none; cursor: zoom-out; }
-.pairing-qr-dialog-code > .pairing-qr { display: block; width: min(calc(100vh - 150px), calc(100vw - 96px), 560px); height: auto; padding: 16px; }
+.pairing-qr-dialog-code > .pairing-qr { display: block; width: min(calc(100vh - 182px), calc(100vw - 96px), 560px); height: auto; padding: 16px; }
 .pairing-qr-dialog > p { margin: 0; color: var(--muted); font: 12px var(--sans); }
 .host-service-status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); margin-top: var(--space-2); }
 .host-service-status > .tau-values { align-self: stretch; }

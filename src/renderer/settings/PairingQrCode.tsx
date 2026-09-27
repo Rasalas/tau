@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "../components/ui/Dialog";
+import { DialogClose } from "../pairing/dialog-parts";
 
 /** One path of unit squares for the dark modules; the SVG scales it. */
 export function qrPath(modules: readonly (readonly boolean[])[]): string {
@@ -51,6 +52,7 @@ export function PairingQrCode({ value, size = 208 }: { value: string; size?: num
             <QrSvg code={code} className="pairing-qr" />
           </button>
           <p>Scan it with the Tau app or the phone's camera. Esc or a click closes it.</p>
+          <DialogClose onClose={() => setLarge(false)} />
         </Dialog>
       ) : null}
     </>
