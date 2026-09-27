@@ -37,6 +37,8 @@ files:
   - "!packaging"
   - "!reports"
   - "!release"
+  # The renderer benchmark's own build (`npm run benchmark:renderer`).
+  - "!dist-benchmark"
   - "!scripts"
   - "!src"
   - "!*.md"

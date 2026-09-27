@@ -65,7 +65,8 @@ const services = createRendererServices();
 followThemePreference(services.preferences);
 
 const root = createRoot(document.getElementById("root")!);
-if (search.has("rendererBenchmark")) {
+// Only `npm run benchmark:renderer`'s own build (mode "benchmark") ships the benchmark.
+if ((import.meta.env.DEV || import.meta.env.MODE === "benchmark") && search.has("rendererBenchmark")) {
   void import("./RendererBenchmark").then(({ default: RendererBenchmark }) => root.render(<RendererBenchmark />));
 } else {
   root.render(

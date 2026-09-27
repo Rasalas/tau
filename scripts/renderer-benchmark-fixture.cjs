@@ -20,7 +20,7 @@ app.whenReady().then(async () => {
     webPreferences: { sandbox: true, backgroundThrottling: false },
   });
   try {
-    await window.loadFile(path.join(__dirname, "..", "dist", "index.html"), {
+    await window.loadFile(path.join(__dirname, "..", "dist-benchmark", "index.html"), {
       query: { rendererBenchmark: "1", scenario, config: JSON.stringify(scenarioConfig) },
     });
     const deadline = Date.now() + 30_000;
