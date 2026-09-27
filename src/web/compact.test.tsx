@@ -471,11 +471,32 @@ describe("a touch keyboard", () => {
       await openChat();
       const textarea = await screen.findByRole("textbox");
       expect(textarea.getAttribute("placeholder")).toBe("Direct the agent");
+      // The on-screen keyboard is up (TouchLayer marks it from the visual viewport).
+      document.body.setAttribute("data-keyboard", "");
       fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });
       fireEvent.keyDown(textarea, { key: "Enter" });
       await act(async () => { await Promise.resolve(); });
       expect(client.calls.some((call) => call.method === "sendPrompt")).toBe(false);
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(client.calls.find((call) => call.method === "sendPrompt")?.args[0]).toBe("ship it"));
+    } finally {
+      document.body.removeAttribute("data-keyboard");
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends on return from a hardware keyboard, with no on-screen keyboard over the page", async () => {
+    const matchMedia = vi.fn((query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal("matchMedia", matchMedia);
+    try {
+      const client = renderCompactClient();
+      await openChat();
+      const textarea = await screen.findByRole("textbox");
+      fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });
+      expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true })).toBe(true);
+      await act(async () => { await Promise.resolve(); });
+      expect(client.calls.some((call) => call.method === "sendPrompt")).toBe(false);
+      fireEvent.keyDown(textarea, { key: "Enter" });
       await waitFor(() => expect(client.calls.find((call) => call.method === "sendPrompt")?.args[0]).toBe("ship it"));
     } finally {
       vi.unstubAllGlobals();
