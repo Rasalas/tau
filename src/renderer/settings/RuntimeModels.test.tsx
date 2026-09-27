@@ -56,7 +56,7 @@ describe("Settings → Providers → Models", () => {
         { kind: "codex", models: many, thinkingLevels: {}, checkedAt: 1 },
         { kind: "cursor", models: [], thinkingLevels: {}, status: "sign-in-required", checkedAt: 1 },
       ],
-      getConfigLayers: async () => ({}),
+      getConfigLayers: async () => ({ host: {} }),
     });
     render(<TestProviders><HostClientProvider client={client}>
       <RuntimeModels backends={[{ kind: "codex", label: "Codex" }, { kind: "cursor", label: "Cursor" }]} />

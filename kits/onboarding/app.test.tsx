@@ -99,7 +99,7 @@ describe("Onboarding in the workbench", () => {
     expect(calls.filter(([id, command]) => id === "tau.claude-code" && command === "probe")).toHaveLength(1);
     // The instance signs in to its own home, in place.
     fireEvent.click(within(card("Codex (work)")).getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("button", { name: "Sign in with ChatGPT" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Sign in", description: "Sign in with ChatGPT" })).toBeTruthy();
     expect(calls).toContainEqual(["tau.codex", "sign-in-state", { target: "work" }]);
     expect(within(card("Antigravity")).getByRole("button", { name: "Open Settings" })).toBeTruthy();
     const reviewTools = screen.getByRole("region", { name: /Tools for pull requests/ });

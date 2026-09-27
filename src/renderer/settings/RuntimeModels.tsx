@@ -46,7 +46,7 @@ function NoModels({ backend, entry }: { backend: UiRuntimeBackend; entry: Runtim
 }
 
 /** One runtime's models: favourite, reorder, hide. Written to the level Settings edits. */
-function RuntimeModelList({ backend, models, entry }: { backend: UiRuntimeBackend; models: readonly UiModel[]; entry: RuntimeCatalogEntry | undefined }) {
+function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBackend; models: readonly UiModel[]; catalog: RuntimeCatalogEntry | undefined }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const setting = useSetting<TauModelPreferences>(`modelPreferences.${backend.kind}`, {
@@ -109,7 +109,7 @@ function RuntimeModelList({ backend, models, entry }: { backend: UiRuntimeBacken
         </label>
       ) : null}
       <div className="runtime-models" role="list" aria-label={`${backend.label} models`}>
-        {models.length === 0 ? <NoModels backend={backend} entry={entry} /> : null}
+        {models.length === 0 ? <NoModels backend={backend} entry={catalog} /> : null}
         {visible.map(({ model, group }, index) => {
           const at = arranged.findIndex((entry) => entry.model === model);
           const startsGroup = !needle && (index === 0 || visible[index - 1]!.group !== group) && (group !== "shown" || favourites > 0);
@@ -162,7 +162,7 @@ export function RuntimeModels({ backends }: { backends: readonly UiRuntimeBacken
       {backends.map((backend) => {
         const entry = catalogs.get(backend.kind);
         const models = entry?.status === "ready" ? entry.catalog.models : entry?.status === "unavailable" ? entry.catalog?.models ?? [] : [];
-        return <RuntimeModelList key={backend.kind} backend={backend} models={models} entry={entry} />;
+        return <RuntimeModelList key={backend.kind} backend={backend} models={models} catalog={entry} />;
       })}
     </>
   );
