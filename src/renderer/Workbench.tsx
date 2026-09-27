@@ -71,6 +71,7 @@ import {
 } from "./workbench-context";
 import { displayPath } from "./path-display";
 import { usePhoneNavigation } from "./use-phone-navigation";
+import type { ShowThreadOptions } from "./use-thread-navigation";
 import { phoneTab } from "../workbench/phone-route";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
@@ -135,7 +136,7 @@ export interface WorkbenchControlHandle {
   openSheet(id: string): boolean;
   closeSheet(id: string): boolean;
   /** A thread was picked: the chat takes the front of a tabbed centre, and a compact client drops its panel sheet. */
-  showThread(): void;
+  showThread(options?: ShowThreadOptions): void;
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -350,6 +351,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const phoneHome = phone && !phoneNav.chatShown;
   // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
   const [panelSheet, setPanelSheet] = useState<string>();
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
@@ -378,13 +380,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       setPanelSheet((open) => (open === id ? undefined : open));
       return true;
     },
-    showThread: () => {
+    showThread: (options) => {
       setPanelSheet(undefined);
       phoneNav.showChat();
       // Beside the stage the chat is already in view; the choice made there stays.
       if (compactRef.current.stacked) setChatFocused(true);
+      if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
   }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, setChatFocused]);
+  // After the commit that shows the chat: a hidden tab's composer cannot take focus.
+  useEffect(() => {
+    if (composerFocusRequest > 0) composer.textareaRef.current?.focus();
+  }, [composer.textareaRef, composerFocusRequest]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   const sheetPanels = useMemo(() => compact ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, compact]);
@@ -471,7 +478,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // In the filtered project, else where the host last worked; with neither, ask.
   const startTouchThread = () => {
     const project = touchProject ?? lastUsedProject(projects, threadStore.getSnapshot().threads);
-    if (project) { createThreadInProject(project); phoneNav.showChat(); }
+    if (project) createThreadInProject(project);
     else openNewThreadPicker();
   };
   const threadBrowserProps = {
@@ -554,7 +561,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onBrowse={() => actions.openProjectSources()}
         onClose={closeNewThreadPicker}
         onRemove={removeProject}
-        onSelect={(project) => { createThreadInProject(project); if (phone) phoneNav.showChat(); }}
+        onSelect={createThreadInProject}
       />
     </Suspense>
     {openPage && pageScreen ? appPage : null}

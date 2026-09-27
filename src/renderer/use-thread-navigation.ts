@@ -13,6 +13,11 @@ import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { TranscriptHistoryController, TransitionToken } from "../workbench/transcript-history";
 import type { WorkbenchSession } from "../workbench/workbench-session";
 
+export interface ShowThreadOptions {
+  /** A new draft: the caret goes to its composer once the chat is in view. */
+  focusComposer?: boolean;
+}
+
 export interface ThreadNavigationPorts {
   client?: HostClient;
   storage: ClientStorage;
@@ -37,7 +42,7 @@ export interface ThreadNavigationPorts {
   composerRef: RefObject<HTMLTextAreaElement | null>;
   closeNewThreadPicker(): void;
   /** A thread was asked for, the one on screen too: its chat comes to the front. */
-  showThread(): void;
+  showThread(options?: ShowThreadOptions): void;
 }
 
 /**
@@ -123,7 +128,10 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     }
   }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, discardPendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
 
-  const createThreadInProject = moveDraftToProject;
+  const createThreadInProject = useCallback((project: UiProject) => {
+    showThread({ focusComposer: true });
+    moveDraftToProject(project);
+  }, [moveDraftToProject, showThread]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;

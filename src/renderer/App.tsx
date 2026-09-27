@@ -4,7 +4,7 @@ import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
 import { ThreadCommands } from "../workbench/thread-commands";
-import { useThreadNavigation } from "./use-thread-navigation";
+import { useThreadNavigation, type ShowThreadOptions } from "./use-thread-navigation";
 import { useThreadTree } from "./use-thread-tree";
 import { readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./components/Composer";
@@ -207,7 +207,7 @@ export default function App() {
   const openModelPicker = useCallback(() => composerControlRef.current?.openModelPicker(), []);
   const openInstructions = useCallback(() => workbenchControlRef.current?.openInstructions(), []);
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
-  const showThread = useCallback(() => workbenchControlRef.current?.showThread(), []);
+  const showThread = useCallback((options?: ShowThreadOptions) => workbenchControlRef.current?.showThread(options), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);

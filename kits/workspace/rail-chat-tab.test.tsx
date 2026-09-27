@@ -153,3 +153,90 @@ describe("picking a thread on a phone", () => {
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/a.jsonl"));
   });
 });
+
+const composerFocused = () => document.activeElement === document.querySelector(".conversation-column textarea");
+const startScreenShown = () => screen.queryByRole("heading", { name: "What do you want to build?" }) !== null;
+
+async function pickProjectWithEnter(): Promise<void> {
+  const picker = await screen.findByRole("dialog", { name: "Search projects" });
+  fireEvent.keyDown(within(picker).getByRole("textbox", { name: "Search projects" }), { key: "Enter", bubbles: true, cancelable: true });
+}
+
+function pressNewThreadShortcut(): void {
+  const mac = /mac|iphone|ipad/iu.test(navigator.platform);
+  fireEvent.keyDown(window, { key: "n", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
+}
+
+describe("starting a new thread while the centre shows tabs", () => {
+  it("brings the draft's chat forward and focuses its composer from the shortcut, the rail, the palette, the title bar and the start card", async () => {
+    setWindowWidth(1000);
+    await renderRail();
+    const stage = await openTerminal();
+
+    const starts: Array<() => Promise<void>> = [
+      async () => { pressNewThreadShortcut(); await pickProjectWithEnter(); },
+      async () => { fireEvent.click(screen.getByRole("button", { name: "New thread" })); await pickProjectWithEnter(); },
+      async () => {
+        const mac = /mac|iphone|ipad/iu.test(navigator.platform);
+        fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
+        const palette = await screen.findByRole("dialog", { name: "Command palette" });
+        const input = within(palette).getByRole("textbox", { name: "Command" });
+        fireEvent.change(input, { target: { value: "Create new thread" } });
+        fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+        await pickProjectWithEnter();
+      },
+      async () => { fireEvent.click(await screen.findByRole("button", { name: "New thread in project" })); },
+    ];
+    for (const start of starts) {
+      fireEvent.click(within(stage).getByRole("tab", { name: /Terminal/ }));
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(selected(stage, "Chat")).toBe("false");
+
+      await start();
+      expect(selected(stage, "Chat")).toBe("true");
+      expect(startScreenShown()).toBe(true);
+      expect(composerFocused()).toBe(true);
+      expect(within(stage).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
+    }
+
+    // The start card's project button sits in the chat itself.
+    fireEvent.click(within(stage).getByRole("tab", { name: "Chat" }));
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.click(screen.getByRole("button", { name: /^Change project/ }));
+    await pickProjectWithEnter();
+    expect(startScreenShown()).toBe(true);
+    expect(composerFocused()).toBe(true);
+  });
+
+  it("keeps a maximized tool maximized", async () => {
+    setWindowWidth(1728);
+    await renderRail();
+    fireEvent.click(await screen.findByRole("button", { name: "Diffs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Maximize Diffs" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    expect(selected(stage, "Chat")).toBe("false");
+
+    pressNewThreadShortcut();
+    await pickProjectWithEnter();
+    expect(selected(stage, "Chat")).toBe("true");
+    expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+    expect(startScreenShown()).toBe(true);
+    expect(composerFocused()).toBe(true);
+  });
+});
+
+describe("starting a new thread on a phone", () => {
+  it("opens the draft's chat over the list and drops the panel sheet", async () => {
+    setWindowWidth(390);
+    await renderRail();
+    fireEvent.click(await screen.findByRole("button", { name: "Notes" }));
+    expect(await screen.findByRole("dialog", { name: "Notes" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+
+    const [fab] = await screen.findAllByRole("button", { name: "New thread" });
+    fireEvent.click(fab!);
+    expect(screen.queryByRole("dialog", { name: "Notes" })).toBeNull();
+    expect(startScreenShown()).toBe(true);
+    expect(composerFocused()).toBe(true);
+  });
+});
