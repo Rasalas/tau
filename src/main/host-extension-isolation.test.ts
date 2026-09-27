@@ -603,10 +603,12 @@ describe("isolated host extensions", () => {
     /**
      * The process is past its limit from the start; what decides is whose growth
      * it was. A limit above the process's size would move with memory earlier
-     * tests give back late.
+     * tests give back late. A low minimum: under memory pressure the system
+     * pages a growing process out within a few ticks, so only its first
+     * hundred MB or so show in the resident size.
      */
     function pastLimit(): void {
-      setProcessMemoryLimit({ limitBytes: 1, minGrowthBytes: 192 * MB });
+      setProcessMemoryLimit({ limitBytes: 1, minGrowthBytes: 64 * MB });
     }
 
     /** Until the resident size stops moving; macOS takes back what earlier tests freed in large steps. */
