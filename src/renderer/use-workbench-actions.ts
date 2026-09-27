@@ -85,6 +85,8 @@ export interface UseWorkbenchActionsOptions {
   newThreadController?: Pick<NewThreadController, "carryToNextDraft" | "setModel">;
   /** The app page on screen; without it, `openPage` is absent. */
   pages?: AppPageStore;
+  /** Whether something covers the thread, and a compact client's list order; read when asked. */
+  threadView?: () => { covered: boolean; listOrder?: readonly string[] } | undefined;
 }
 
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
@@ -194,8 +196,10 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       openWorkspace,
       activeThread: () => {
         const pending = pendingNewThreadRef.current;
+        const covered = options.threadView?.()?.covered ? { covered: true } : {};
         if (!pending) {
           return {
+            ...covered,
             sessionId: snapshot?.sessionId,
             cwd: options.workspaceCwd,
             workspaceId: snapshot?.workspaceId,
@@ -211,6 +215,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
         const model = pending.model ?? inherited;
         return {
+          ...covered,
           cwd: options.workspaceCwd,
           workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
           ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
@@ -220,6 +225,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           draftPending: options.newThreadDeliveryPending,
         };
       },
+      threadListOrder: () => options.threadView?.()?.listOrder,
       openFile: options.openFile,
       openThread,
       runShellAction: options.threadCommands.runShellAction,

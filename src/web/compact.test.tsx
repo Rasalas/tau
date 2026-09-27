@@ -214,6 +214,31 @@ describe("the web client at 400 px", () => {
     expect(screen.queryByRole("dialog", { name: "Ship the web client" })).toBeNull();
   });
 
+  it("tells a kit when its list covers the thread, and the order that list shows", async () => {
+    const seen: Array<{ covered?: boolean; order?: readonly string[] }> = [];
+    const looking: DesktopExtension = {
+      id: "test.looking",
+      name: "Looking probe",
+      activate(plugin) {
+        plugin.registerCommand({ id: "probe.look", label: "Look", group: "Thread", surfaces: ["thread-row", "thread-title"], run: (actions) => {
+          seen.push({ covered: actions.activeThread()?.covered, order: actions.threadListOrder?.() });
+        } });
+      },
+    };
+    renderCompactClient({}, [looking]);
+    await screen.findByRole("list", { name: "Threads" });
+    fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Ship the web client" })).getByRole("button", { name: "Look" }));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual({ covered: true, order: ["t-a", "t-b", "t-c"] });
+
+    await openChat();
+    fireEvent.click(document.querySelector(".thread-title-trigger")!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Look" }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1]).toEqual({ covered: undefined, order: ["t-a", "t-b", "t-c"] });
+  });
+
   it("puts a kit's glyph action in the swipe tray beside settle", async () => {
     renderHome([probe]);
     await screen.findByRole("list", { name: "Threads" });

@@ -131,6 +131,16 @@ describe("useWorkbenchActions", () => {
     expect(setComposerModel).toHaveBeenCalledWith("custom", "local-id");
   });
 
+  it("reads what covers the thread and the list's order when asked, not when built", () => {
+    let view: { covered: boolean; listOrder?: readonly string[] } | undefined;
+    const { result } = renderHook(() => useWorkbenchActions(createMockOptions({ threadView: () => view })));
+    expect(result.current.activeThread()?.covered).toBeUndefined();
+    expect(result.current.threadListOrder?.()).toBeUndefined();
+    view = { covered: true, listOrder: ["a", "b"] };
+    expect(result.current.activeThread()?.covered).toBe(true);
+    expect(result.current.threadListOrder?.()).toEqual(["a", "b"]);
+  });
+
   it("dispatches abort to client when thread is running", () => {
     const client = { abort: vi.fn() };
     const options = createMockOptions({ client: client as any, isVisibleThreadRunning: () => true });
