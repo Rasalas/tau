@@ -217,6 +217,27 @@ describe("workbench layout", () => {
       expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
     });
 
+    it("folds the dock at 1512 for the stage's reading width, and a dock the user opens stays beside the chat", async () => {
+      setWindowWidth(1512);
+      const view = renderApp(undefined, { extensions: [rail, panels, files] });
+      fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+      const stage = await openFile();
+      expect(shell(view.container).className).toContain("dock-closed");
+      fireEvent.click(screen.getByRole("button", { name: "Counter" }));
+      await waitFor(() => expect(shell(view.container).className).not.toContain("dock-closed"));
+      expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
+      expect(view.container.querySelector(".workbench-center")?.className).not.toContain("compact");
+    });
+
+    it("leaves the dock open at 1728, where the stage has its reading width beside it", async () => {
+      setWindowWidth(1728);
+      const view = renderApp(undefined, { extensions: [rail, panels, files] });
+      fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+      await openFile();
+      expect(shell(view.container).className).not.toContain("dock-closed");
+      expect(shell(view.container).style.getPropertyValue("--dock-width")).toBe("320px");
+    });
+
     it("maximizes the stage into the same tabs, the chat first, and puts the chat back beside it", async () => {
       setWindowWidth(1728);
       const view = renderApp(undefined, { extensions: [rail, files] });
