@@ -108,8 +108,8 @@ export const terminalExtension: DesktopExtension = {
     let placement = placementNow();
     const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, width: "wide", maximizable: true, Component: TerminalPanel });
     let panel = registerPanel();
-    // A phone or a tablet draws the same shells as a sheet with a key bar; dock and drawer mean nothing there.
-    const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], Component: CompactTerminalPanel });
+    // Touch clients draw the same shells with a key bar: a phone as a sheet, a tablet beside the chat.
+    const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], width: "wide", maximizable: true, Component: CompactTerminalPanel });
     const stopPlacement = plugin.preferences.subscribe(() => {
       const next = placementNow();
       if (next === placement) return;

@@ -72,16 +72,17 @@ export function storedChatWidth(stored: string | null | undefined): number | und
   return stored && Number.isFinite(width) ? Math.max(CHAT_MIN_WIDTH, Math.round(width)) : undefined;
 }
 
-export function chatMaxWidth(centerWidth: number): number {
-  return Math.max(CHAT_MIN_WIDTH, Math.floor(centerWidth) - STAGE_MIN_WIDTH);
+/** `chatMin`: the chat's minimum on this client (`TABLET_CHAT_MIN_WIDTH` on a tablet). */
+export function chatMaxWidth(centerWidth: number, chatMin = CHAT_MIN_WIDTH): number {
+  return Math.max(chatMin, Math.floor(centerWidth) - STAGE_MIN_WIDTH);
 }
 
-export function defaultChatWidth(centerWidth: number): number {
-  return shownChatWidth(undefined, centerWidth);
+export function defaultChatWidth(centerWidth: number, chatMin = CHAT_MIN_WIDTH): number {
+  return shownChatWidth(undefined, centerWidth, chatMin);
 }
 
 /** The chat's width in a centre this wide: the preference, or the default share, within both minimums. */
-export function shownChatWidth(preferred: number | undefined, centerWidth: number): number {
+export function shownChatWidth(preferred: number | undefined, centerWidth: number, chatMin = CHAT_MIN_WIDTH): number {
   const wanted = preferred ?? Math.round(centerWidth * CHAT_DEFAULT_SHARE);
-  return Math.min(chatMaxWidth(centerWidth), Math.max(CHAT_MIN_WIDTH, wanted));
+  return Math.min(chatMaxWidth(centerWidth, chatMin), Math.max(chatMin, wanted));
 }

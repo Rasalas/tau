@@ -22,7 +22,8 @@ import type { ToastStore } from "../workbench/toast-store";
 import { PanelIcon } from "./components/PanelIcon";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
-import { compactFormFor, compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
+import { compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
+import { useCompactForm } from "./use-layout-profile";
 import { useClientEnvironment } from "./client-environment";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
@@ -39,7 +40,7 @@ import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
-import { CHAT_MIN_WIDTH, DOCK_PANEL_MIN_WINDOW, DOCK_RAIL_WIDTH } from "../workbench/center-layout";
+import { CHAT_MIN_WIDTH, DOCK_PANEL_MIN_WINDOW, DOCK_RAIL_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
 import {
   CHAT_MAXIMIZE_OVERDRAG, DOCK_MAX_WIDTH, DOCK_MIN_WIDTH, DOCKED_CONTENT_MIN_WIDTH, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
   chatMaxWidth, defaultChatWidth, dockMaxWidth, drawerMaxHeight, shownChatWidth, shownDockWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
@@ -337,9 +338,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // One screen wide: the thread list is a screen of its own and the dock has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
   const compact = layoutProfile === "compact";
-  // A tablet-sized compact client keeps the list beside the thread instead.
+  // A tablet gets the desktop's arrangement: list, chat, tools and documents beside it, a rail.
   const clientProfile = useClientEnvironment().profile;
-  const split = compact && compactFormFor(clientProfile, windowWidth, windowHeight) === "split";
+  const compactForm = useCompactForm(clientProfile);
+  const split = compact && compactForm === "split";
   const compactRef = useRef({ compact, split, stacked: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
@@ -395,8 +397,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     if (composerFocusRequest > 0) composer.textareaRef.current?.focus();
   }, [composer.textareaRef, composerFocusRequest]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
-  const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
-  const sheetPanels = useMemo(() => compact ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, compact]);
+  // A tablet docks the panels a phone opens as sheets.
+  const panels = compact && !split ? EMPTY_CONTRIBUTIONS : allPanels;
+  const sheetPanels = useMemo(() => phone ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, phone]);
   const sheetPanel = sheetPanels.find((panel) => panel.id === panelSheet);
   compactRef.current.sheets = sheetPanels.map((panel) => panel.id);
   const dockPanels = useMemo(() => panels.filter((panel) => panel.placement !== "drawer"), [panels]);
@@ -421,10 +424,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // The stored width, as far as the window leaves room beside the chat and the rail.
   const drawnDockWidth = shownDockWidth(dockWidth, windowWidth, drawnSidebar);
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
+  const chatMin = split ? TABLET_CHAT_MIN_WIDTH : CHAT_MIN_WIDTH;
   // The dock takes room only for a list beside open documents; a wide tool sits in the centre itself.
-  // A compact client draws no stage (profile-compact.css), so its chat never becomes a tab.
+  // A phone draws no stage (profile-compact.css), so its chat never becomes a tab.
   const { dockYields, tabs, canSplit, keepDock } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: (stageShown || wideShown) && !compact, maximized,
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: (stageShown || wideShown) && !phone, maximized, chatMin,
     tabCount: stage.tabs.length, dockAsks, clearMaximized: clearStageMaximized,
     ...(dockPanels.length > 0 ? { dock: { open: Boolean(listPanel) && stageShown, width: drawnDockWidth } } : {}),
   });
@@ -436,7 +440,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const listShown = listOverlay || listDocked;
   const sideOpen = (stageShown || wideShown) && !tabs;
   const centerWidth = windowWidth - drawnSidebar - (dockPanels.length > 0 ? DOCK_RAIL_WIDTH : 0) - (listDocked && windowWidth > DOCK_PANEL_MIN_WINDOW ? drawnDockWidth : 0);
-  const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
+  const chatWidth = shownChatWidth(chatWidthPreference, centerWidth, chatMin);
+  // A tablet with no room beside the chat shows the tool as a tab, the chat the first one, instead of two slivers.
+  const toolCrowded = split && wideShown && tabs && Boolean(activeDockPanel?.maximizable);
+  useEffect(() => {
+    if (toolCrowded && activeDockPanel) panelLayout?.maximize(activeDockPanel.id);
+  }, [toolCrowded, activeDockPanel, panelLayout]);
   // Opening another thread (from a panel, say) puts the thread in front again.
   useEffect(() => { setPanelSheet(undefined); }, [compact, snapshot?.sessionId]);
 
@@ -449,12 +458,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   const setChatWidth = (width: number) => {
     // Dragged well past the chat's minimum: the tool takes the whole centre.
-    if (width <= CHAT_MIN_WIDTH - CHAT_MAXIMIZE_OVERDRAG) {
+    if (width <= chatMin - CHAT_MAXIMIZE_OVERDRAG) {
       if (wideShown && activeDockPanel?.maximizable) panelLayout?.maximize(activeDockPanel.id);
       else if (stageShown) panelLayout?.maximizeStage();
       return;
     }
-    const bounded = Math.max(CHAT_MIN_WIDTH, width);
+    const bounded = Math.max(chatMin, width);
     setChatWidthPreference(bounded);
     clientStorage.set(STORAGE_KEYS.chatWidth, String(bounded));
   };
@@ -740,9 +749,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           orientation="vertical"
           grows="right"
           value={chatWidth}
-          min={CHAT_MIN_WIDTH - CHAT_MAXIMIZE_OVERDRAG}
-          max={chatMaxWidth(centerWidth)}
-          defaultValue={defaultChatWidth(centerWidth)}
+          min={chatMin - CHAT_MAXIMIZE_OVERDRAG}
+          max={chatMaxWidth(centerWidth, chatMin)}
+          defaultValue={defaultChatWidth(centerWidth, chatMin)}
           onChange={setChatWidth}
         /> : null}
         {widePanels.some((panel) => openedPanels.has(panel.id) && !staged.has(panel.id)) ? <section className="side-panel" aria-label={wideShown ? activeDockPanel?.label : undefined} hidden={!wideShown}>
