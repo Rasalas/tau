@@ -114,7 +114,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         Install extension packages the way Pi does. An install never starts a package: approve its permissions on its own page, and both halves start there and then.
       </p>
 
-      <SettingsSection title="Install from a source">
+      <SettingsSection title="Install">
         <SettingRow
           id="setting-packages-source"
           title="Install from a source"
