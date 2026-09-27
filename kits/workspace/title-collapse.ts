@@ -64,7 +64,7 @@ export function useTitleCollapse(row: RefObject<HTMLElement | null>): number {
   useLayoutEffect(() => {
     const element = row.current;
     if (!element || level >= MAX_TITLE_COLLAPSE) return;
-    if (rowContentWidth(element) > element.clientWidth + 0.5) setLevel(level + 1);
+    if (rowContentWidth(element) > element.clientWidth + 1) setLevel(level + 1);
   });
 
   return level;

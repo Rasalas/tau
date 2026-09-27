@@ -112,7 +112,7 @@ body.resizing-col .app-shell { transition: none; }
 .title-bar button, .title-bar .menu-anchor, .title-bar form { -webkit-app-region: no-drag; }
 /* Over the sidebar, so the breadcrumb starts where the conversation does. */
 .title-lead { flex: none; display: flex; align-items: center; width: calc(var(--sidebar-width) - 2px); min-width: min-content; }
-/* The title yields first, down to a floor; then the region's own contents fold (never overlap). */
+/* The title yields first (it shrinks a million times faster than the actions), down to a floor; then the actions fold, never overlap. */
 .title-breadcrumb { display: flex; align-items: center; gap: 10px; flex: 0 1000 auto; min-width: min(140px, 30vw); font: 500 14px var(--sans); }
 .title-bar .title-project { flex: 0 1 auto; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: inherit; }
 .title-separator { color: var(--faint); }
@@ -2236,7 +2236,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .status-line .status-side { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
 .status-line .status-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.region-title-bar { flex: 1 1 auto; flex-direction: row; align-items: center; justify-content: flex-end; gap: 8px; }
+.region-title-bar { flex: 1 0.001 auto; flex-direction: row; align-items: center; justify-content: flex-end; gap: 8px; }
 .region-thread-title { flex: none; flex-direction: row; align-items: center; gap: 4px; margin-right: -4px; }
 
 /* Only rendered while the host link is being repaired. */
