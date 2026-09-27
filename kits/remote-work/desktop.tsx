@@ -55,7 +55,7 @@ export const remoteWorkExtension: DesktopExtension = {
       Icon: FolderSync,
       order: 45.5,
       profiles: ["desktop", "web"],
-      keywords: ["other machine", "rex", "transfer", "bundle", "ignored files", ".env", "bring back", "merge"],
+      keywords: ["other machine", "remote machine", "transfer", "bundle", "ignored files", ".env", "bring back", "merge"],
       rows: REMOTE_WORK_ROWS,
       // A client without a window process (a browser, a phone) cannot move to another machine.
       Component: createRemoteWorkPage(context.host, context.environments ? (link) => notices.openThere(link) : undefined),
