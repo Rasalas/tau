@@ -19,10 +19,12 @@ import { useHostClient } from "../host-client-context";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { Dialog } from "../components/ui/Dialog";
 import { Empty } from "../components/ui/Feedback";
-import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, SettingsState } from "./controls";
-import { PairingRequestDialog } from "../pairing/PairingRequestDialog";
-import { ACCESS_CHOICES, requestTitle } from "../pairing/pairing-format";
+import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, SettingsState, TextField } from "./controls";
+import { AccessChoice, PairingRequestDialog } from "../pairing/PairingRequestDialog";
+import { DialogClose, submitOnEnter, useFieldValue } from "../pairing/dialog-parts";
+import { requestTitle } from "../pairing/pairing-format";
 import { SettingRow, SettingsSection } from "./settings-layout";
+import { settingAnchor } from "./settings-search";
 import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
@@ -54,12 +56,8 @@ function StatusDot({ tone, label }: { tone: "live" | "idle" | "pending"; label: 
   return <span className={`connection-dot ${tone}`} role="img" aria-label={label} title={label} />;
 }
 
-function AccessChoice({ value, onChange, disabled }: { value: DeviceAccess; onChange(value: DeviceAccess): void; disabled?: boolean }) {
-  return <>
-    <SegmentedControl label="Access" value={value} disabled={disabled} options={ACCESS_CHOICES.map((choice) => ({ value: choice.value, label: choice.label }))} onChange={onChange} />
-    <small className="connection-field-hint">{ACCESS_CHOICES.find((choice) => choice.value === value)?.hint}</small>
-  </>;
-}
+/** What the host keeps of a device's or a link's name. */
+const NAME_LIMIT = 60;
 
 const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : days === 365 ? "1 year unused" : `${days} days unused`);
 
@@ -161,6 +159,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
     <div className="settings-page connections-page">
       <SettingsSection title="This host">
         <SettingRow
+          id={settingAnchor("Address")}
           title="Address"
           description={data.endpoints.some((endpoint) => endpoint.reachability === "network")
             ? "Other devices on these networks can open the host in a browser. A device picks whichever it reaches."
@@ -175,12 +174,15 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         />
         {data.fingerprint ? (
           <SettingRow
+            // Network access has its own Certificate row, which the search finds.
+            {...(data.network ? {} : { id: settingAnchor("Certificate") })}
             title="Certificate"
             description="A self-signed certificate is met with a browser warning. Trust it only if the browser shows this SHA-256 fingerprint. Pairing links carry it, so the Tau app pins it without asking."
             status={<code className="connection-fingerprint">{data.fingerprint}</code>}
           />
         ) : null}
         <SettingRow
+          id={settingAnchor("Other machines")}
           title="Other machines"
           description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
           control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
@@ -202,6 +204,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
 
       <SettingsSection
+        id={settingAnchor("Authorized clients")}
         title="Authorized clients"
         headerAction={(
           <div className="connection-header-actions">
@@ -239,7 +242,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       <HostServiceSection onNotify={onNotify} />
 
       <DangerZone>
-        <DangerAction
+        {/* The wrappers are what the search scrolls to. */}
+        <div id={settingAnchor("Sign out every other device")} tabIndex={-1}><DangerAction
           title="Sign out every other device"
           description="Every paired device loses its token at once; each needs a new pairing to come back. Windows with the host token stay."
           actionLabel="Revoke others…"
@@ -252,8 +256,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             const { revoked } = await client!.revokeOtherClients();
             onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
           })}
-        />
-        <DangerAction
+        /></div>
+        <div id={settingAnchor("Rotate the host token")} tabIndex={-1}><DangerAction
           title="Rotate the host token"
           description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own tokens.</>}
           actionLabel="Rotate…"
@@ -261,7 +265,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           confirmTitle="Rotate the host token?"
           confirmMessage="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
           onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
-        />
+        /></div>
       </DangerZone>
 
       {creating ? (
@@ -361,41 +365,46 @@ function ClientRow({ paired, companionOf, now, busy, onEdit, onRevoke }: { paire
 }
 
 function DeviceDialog({ paired, busy, onSave, onCancel }: { paired: UiPairedClient; busy: boolean; onSave(update: UiClientUpdate): void; onCancel(): void }) {
-  const [label, setLabel] = useState(paired.label);
-  const [access, setAccess] = useState<DeviceAccess>(paired.access);
-  const [idle, setIdle] = useState<IdleTimeoutDays>(paired.idleTimeoutDays);
-  const name = label.trim();
+  const [label, setLabel, latestLabel] = useFieldValue(paired.label);
+  const [access, setAccess, latestAccess] = useFieldValue<DeviceAccess>(paired.access);
+  const [idle, setIdle, latestIdle] = useFieldValue<IdleTimeoutDays>(paired.idleTimeoutDays);
   const submit = () => {
+    const name = latestLabel.current;
     if (!name) return;
     onSave({
       ...(name !== paired.label ? { label: name } : {}),
-      ...(access !== paired.access ? { access } : {}),
-      ...(idle !== paired.idleTimeoutDays ? { idleTimeoutDays: idle } : {}),
+      ...(latestAccess.current !== paired.access ? { access: latestAccess.current } : {}),
+      ...(latestIdle.current !== paired.idleTimeoutDays ? { idleTimeoutDays: latestIdle.current } : {}),
     });
   };
   return (
     <Dialog className="confirm-dialog connection-create-dialog" label={`Settings for ${paired.label}`} onClose={onCancel}>
       <h2>{paired.label}</h2>
-      <label className="connection-field">
-        <span>Name</span>
-        <input className="settings-input" value={label} maxLength={60} disabled={busy} autoFocus onChange={(event) => setLabel(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); submit(); } }} />
-      </label>
-      <div className="connection-field">
-        <span>Access</span>
-        <AccessChoice value={access} onChange={setAccess} disabled={busy} />
+      <div className="dialog-fields" onKeyDown={submitOnEnter(submit)}>
+        <label className="dialog-field">
+          <span>Name</span>
+          <TextField label="Name" value={label} width="full" disabled={busy} onCommit={(text) => setLabel(text.trim().slice(0, NAME_LIMIT))} />
+          {label ? null : <small className="dialog-field-error" role="alert">Give the device a name to save.</small>}
+        </label>
+        <div className="dialog-field">
+          <span>Access</span>
+          <AccessChoice value={access} onChange={setAccess} disabled={busy} />
+        </div>
+        <label className="dialog-field">
+          <span>Sign out after</span>
+          <Select label="Sign out after" width="full" value={idle === null ? "never" : String(idle)} disabled={busy}
+            options={IDLE_TIMEOUT_CHOICES.map((days) => ({ value: days === null ? "never" : String(days), label: idleLabel(days) }))}
+            onChange={(next) => setIdle(next === "never" ? null : Number(next) as IdleTimeoutDays)} />
+          <small>A change of access applies to its next request. Every use restarts the sign-out clock.</small>
+        </label>
       </div>
-      <label className="connection-field">
-        <span>Sign out after</span>
-        <Select label="Sign out after" width="full" value={idle === null ? "never" : String(idle)} disabled={busy}
-          options={IDLE_TIMEOUT_CHOICES.map((days) => ({ value: days === null ? "never" : String(days), label: idleLabel(days) }))}
-          onChange={(next) => setIdle(next === "never" ? null : Number(next) as IdleTimeoutDays)} />
-      </label>
-      <p>A change of access applies to its next request. Every use restarts the sign-out clock.</p>
       <footer>
-        <button type="button" className="text-button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="primary" disabled={busy || !name} onClick={submit}>{busy ? "Saving…" : "Save"}</button>
+        <Button onClick={onCancel}>Cancel</Button>
+        <span {...tooltipProps(label ? undefined : "Give the device a name first.")}>
+          <Button variant="primary" busy={busy} disabled={!label} onClick={submit}>{busy ? "Saving…" : "Save"}</Button>
+        </span>
       </footer>
+      <DialogClose onClose={onCancel} />
     </Dialog>
   );
 }
@@ -428,17 +437,13 @@ function CreatedLink({ created, now, onCopy, onDismiss }: {
       <div className="connection-created-text">
         <div className="connection-created-head">
           <strong>{created.link.label ?? "Pairing link"} is ready</strong>
-          <button type="button" className="text-button" aria-label="Hide the new link" onClick={onDismiss}><X size={13} /></button>
+          <button type="button" className="tau-icon-button" aria-label="Hide the new link" {...tooltipProps("Hide the new link")} onClick={onDismiss}><X size={14} /></button>
         </div>
         <p>Open it or scan it on the device you want to connect. It works once, {formatExpiresIn(created.link.expiresAt, now).toLowerCase()}, and this is the only time Tau shows it. When the device asks, you allow it here after comparing a code.</p>
         {created.urls.length > 1 ? (
-          <div className="connection-endpoint-choice" role="radiogroup" aria-label="Address in the link">
-            {created.urls.map((endpoint) => (
-              <button key={endpoint.url} type="button" role="radio" aria-checked={endpoint === shown} className={endpoint === shown ? "active" : ""} onClick={() => setChosen(endpoint.url)}>
-                {endpoint.label}
-              </button>
-            ))}
-          </div>
+          created.urls.length <= 4
+            ? <SegmentedControl label="Address in the link" value={shown?.url} options={created.urls.map((endpoint) => ({ value: endpoint.url, label: endpoint.label }))} onChange={setChosen} />
+            : <Select label="Address in the link" width="full" value={shown?.url} options={created.urls.map((endpoint) => ({ value: endpoint.url, label: endpoint.label }))} onChange={setChosen} />
         ) : null}
         {shown ? (
           <div className="connection-link-box">
@@ -446,7 +451,7 @@ function CreatedLink({ created, now, onCopy, onDismiss }: {
             <Button onClick={() => onCopy(shown.url, "Pairing link")}>Copy link</Button>
           </div>
         ) : <p>This host listens nowhere another device could reach.</p>}
-        <button type="button" className="text-button connection-copy-code" onClick={() => onCopy(created.code, "Pairing code")}>Copy code only</button>
+        <Button variant="ghost" className="connection-copy-code" onClick={() => onCopy(created.code, "Pairing code")}>Copy the code only</Button>
       </div>
       {shown && shown.reachability === "network" ? <PairingQrCode value={shown.url} /> : (
         <p className="connection-qr-missing">No QR code for a loopback address: a device that scans it would dial itself. Copy the link for a browser on this machine.</p>
@@ -456,41 +461,35 @@ function CreatedLink({ created, now, onCopy, onDismiss }: {
 }
 
 function CreateLinkDialog({ busy, onCreate, onCancel }: { busy: boolean; onCreate(input: { label?: string; lifetimeMs: number; access: DeviceAccess }): void; onCancel(): void }) {
-  const [label, setLabel] = useState("");
-  const [lifetime, setLifetime] = useState(LINK_LIFETIMES[0]!.ms);
-  const [access, setAccess] = useState<DeviceAccess>("full");
-  const submit = () => onCreate({ ...(label.trim() ? { label: label.trim() } : {}), lifetimeMs: lifetime, access });
+  const [label, setLabel, latestLabel] = useFieldValue("");
+  const [lifetime, setLifetime, latestLifetime] = useFieldValue(LINK_LIFETIMES[0]!.ms);
+  const [access, setAccess, latestAccess] = useFieldValue<DeviceAccess>("full");
+  const submit = () => onCreate({ ...(latestLabel.current ? { label: latestLabel.current } : {}), lifetimeMs: latestLifetime.current, access: latestAccess.current });
   return (
     <Dialog className="confirm-dialog connection-create-dialog" label="Create pairing link" onClose={onCancel}>
       <h2>Create pairing link</h2>
       <p>A one-time link another device opens to ask for a token of its own. You allow it here when it asks. It never sees the host token.</p>
-      <label className="connection-field">
-        <span>Client label (optional)</span>
-        <input
-          className="settings-input"
-          value={label}
-          maxLength={60}
-          placeholder="e.g. Kitchen iPad"
-          disabled={busy}
-          autoFocus
-          onChange={(event) => setLabel(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); submit(); } }}
-        />
-      </label>
-      <label className="connection-field">
-        <span>Expires after</span>
-        <Select label="Expires after" width="full" value={String(lifetime)} disabled={busy}
-          options={LINK_LIFETIMES.map((entry) => ({ value: String(entry.ms), label: entry.label }))}
-          onChange={(next) => setLifetime(Number(next))} />
-      </label>
-      <div className="connection-field">
-        <span>Access</span>
-        <AccessChoice value={access} onChange={setAccess} disabled={busy} />
+      <div className="dialog-fields" onKeyDown={submitOnEnter(submit)}>
+        <label className="dialog-field">
+          <span>Client label (optional)</span>
+          <TextField label="Client label" value={label} placeholder="e.g. Kitchen iPad" width="full" disabled={busy} onCommit={(text) => setLabel(text.trim().slice(0, NAME_LIMIT))} />
+        </label>
+        <label className="dialog-field">
+          <span>Expires after</span>
+          <Select label="Expires after" width="full" value={String(lifetime)} disabled={busy}
+            options={LINK_LIFETIMES.map((entry) => ({ value: String(entry.ms), label: entry.label }))}
+            onChange={(next) => setLifetime(Number(next))} />
+        </label>
+        <div className="dialog-field">
+          <span>Access</span>
+          <AccessChoice value={access} onChange={setAccess} disabled={busy} />
+        </div>
       </div>
       <footer>
-        <button type="button" className="text-button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="primary" disabled={busy} onClick={submit}>{busy ? "Creating…" : "Create Link"}</button>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" busy={busy} onClick={submit}>{busy ? "Creating…" : "Create link"}</Button>
       </footer>
+      <DialogClose onClose={onCancel} />
     </Dialog>
   );
 }

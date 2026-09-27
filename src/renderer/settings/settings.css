@@ -413,9 +413,6 @@
 .connection-created-head > strong { font: 500 13px var(--sans); color: var(--ink); }
 .connection-created-text > p, .connection-qr-missing { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .connection-qr-missing { width: 208px; flex: none; padding: var(--space-4); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); font-size: 11.5px; }
-.connection-endpoint-choice { display: flex; flex-wrap: wrap; gap: 6px; }
-.connection-endpoint-choice > button { padding: 3px 9px; border: 1px solid var(--line-control); border-radius: 999px; background: transparent; color: var(--muted); font: 500 11.5px var(--sans); cursor: pointer; }
-.connection-endpoint-choice > button.active { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
 .connection-link-box { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 4px 4px 10px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--stage); }
 .connection-link-box > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); color: var(--ink-2); }
 .connection-copy-code { align-self: flex-start; }
@@ -433,18 +430,14 @@
 .pairing-qr-dialog-code { display: block; padding: 0; border: 0; background: none; cursor: zoom-out; }
 .pairing-qr-dialog-code > .pairing-qr { display: block; width: min(calc(100vh - 150px), calc(100vw - 96px), 560px); height: auto; padding: 16px; }
 .pairing-qr-dialog > p { margin: 0; color: var(--muted); font: 12px var(--sans); }
-.host-service-status { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-.host-service-summary { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
-.host-service-status small { font-size: 11px; color: var(--faint); overflow-wrap: anywhere; }
-.host-service-status small code, .host-service-problem code { font: 11px var(--mono); color: var(--muted); }
-.host-service-problem { display: flex; flex-direction: column; gap: 3px; margin: 0; color: var(--warn); line-height: 1.45; }
-.host-service-actions { display: flex; gap: 6px; }
-.connection-field { display: flex; flex-direction: column; gap: 5px; font: 500 12px var(--sans); color: var(--ink-2); }
-.connection-field > .settings-input, .connection-field > .settings-select { width: 100%; }
-.network-problems { margin: 0; padding: var(--space-5) var(--space-6); list-style: none; display: flex; flex-direction: column; gap: 4px; background: color-mix(in srgb, var(--warn) 9%, transparent); border-bottom: 1px solid var(--line-card); font-size: 12px; line-height: 1.45; color: var(--ink-2); }
-.network-port { display: flex; align-items: center; gap: 6px; }
-.network-port > .settings-input[aria-invalid="true"] { border-color: var(--danger-line); }
-.network-certificate-actions { display: flex; gap: 6px; }
+.host-service-status { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); margin-top: var(--space-2); }
+.host-service-status > .tau-values { align-self: stretch; }
+.host-service-problem { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin: 0; color: var(--warn); font-size: 12.5px; line-height: 1.45; }
+.host-service-problem > p { margin: 0; }
+.host-service-problem > code { font: 11.5px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.host-service-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
+.network-problems { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; color: var(--warn); font-size: 12.5px; line-height: 1.45; }
+.network-certificate-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
 .network-warning { margin: 4px 0 0; font-size: 12px; color: var(--warn); }
 
 /* Stacked, as on a phone: the section list is one screen and a page the next (T3 Code's settings). */
@@ -478,8 +471,6 @@
 .nearby-machines-dialog { width: min(480px, calc(100vw - 48px)); }
 .nearby-machines-body { min-height: 72px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); overflow: hidden; }
 .nearby-machines-body > .empty-state { padding: var(--space-6); }
-.nearby-machines-status { margin: 0; padding: var(--space-5) var(--space-6) 0; font-size: 12px; color: var(--muted); }
-.nearby-machines-skeleton { height: 36px; margin: var(--space-5) var(--space-6); }
 .nearby-machines { margin: 0; padding: 0; list-style: none; max-height: 280px; overflow-y: auto; }
 .nearby-machines > .connection-row + .connection-row { border-top: 1px solid var(--line-card); }
 .nearby-machines > .connection-row > svg { flex: none; color: var(--muted); }
@@ -589,6 +580,5 @@
 .settings-group.plain > .tau-values { padding: 0 var(--space-6); }
 .extension-glyph > .provider-icon-stack { margin: 0; }
 .extension-glyph[data-size="lg"] > .provider-icon-stack { transform: scale(1.4); }
-.connection-field-hint { color: var(--muted); font: 12px/1.4 var(--sans); }
 .settings-screen.stacked .extensions-filters > label { height: 36px; padding: 0 13px; font-size: 14px; }
 .settings-screen.stacked .extensions-filters > label::after { content: ""; position: absolute; inset: -4px 0; }

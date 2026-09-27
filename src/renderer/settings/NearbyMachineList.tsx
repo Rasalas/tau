@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Monitor, RadioTower } from "lucide-react";
 import type { DiscoveredHost, UiDiscoveredHosts } from "../../shared/discovery";
 import { Empty } from "../components/ui/Feedback";
+import { Badge } from "./controls";
 
 /** `AB:CD:EF:01…`: enough to compare at a glance; the full one is in the tooltip. */
 function shortFingerprint(fingerprint: string): string {
@@ -27,7 +28,7 @@ export function NearbyMachineList({ result, action }: { result: UiDiscoveredHost
         <li key={`${host.hostId}:${host.port}`} className="connection-row">
           <Monitor size={15} aria-hidden="true" />
           <span className="connection-row-text">
-            <strong>{host.name}{host.self ? <em className="connection-badge">This machine</em> : null}</strong>
+            <strong>{host.name}{host.self ? <Badge>This machine</Badge> : null}</strong>
             <small>{where(host)} · <span title={`SHA-256 ${host.fingerprint}`}>{shortFingerprint(host.fingerprint)}</span></small>
           </span>
           {action?.(host)}

@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { UiNetworkAccess, UiNetworkAnnouncement, UiNetworkSettingsInput } from "../../shared/connections";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Dialog } from "../components/ui/Dialog";
+import { DialogClose, submitOnEnter, useFieldValue } from "../pairing/dialog-parts";
+import { Button, NumberField, TextField } from "./controls";
 import { SettingRow, SettingsSection, Switch } from "./settings-layout";
+import { settingAnchor } from "./settings-search";
 
 type Switchable = "lan" | "tailscale";
 
@@ -32,10 +35,6 @@ const QUESTIONS: Record<Switchable, { on: { title: string; message: string }; of
 const MIN_PORT = 1024;
 const MAX_PORT = 65535;
 
-function validPort(text: string, other: number): number | undefined {
-  const port = Number(text);
-  return Number.isInteger(port) && port >= MIN_PORT && port <= MAX_PORT && port !== other ? port : undefined;
-}
 
 /** What the announcement row says under its switch. */
 function announcementText(announcement: UiNetworkAnnouncement | undefined, lanListening: boolean): string {
@@ -67,25 +66,26 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
 }) {
   const { settings } = network;
   const [asking, setAsking] = useState<{ key: Switchable; on: boolean }>();
-  const [port, setPort] = useState(String(settings.port));
   const [ownCertificate, setOwnCertificate] = useState(false);
-  useEffect(() => setPort(String(settings.port)), [settings.port]);
+  // A refused port puts the field back to the one in use.
+  const [portAttempt, setPortAttempt] = useState(0);
 
   const lanListening = network.listeners.some((listener) => listener.kind === "network" && (listener.host === "::" || listener.host === "0.0.0.0"));
   const tailscaleListening = network.listeners.some((listener) => listener.kind === "network" && listener.host !== "::" && listener.host !== "0.0.0.0");
   const proxy = network.listeners.find((listener) => listener.kind === "proxy");
-  const nextPort = validPort(port, settings.proxyPort);
   const listening = settings.lan || settings.tailscale;
   const question = asking ? QUESTIONS[asking.key][asking.on ? "on" : "off"] : undefined;
 
   return (
     <SettingsSection title="Network access">
       {network.problems.length ? (
-        <ul className="network-problems" role="status">
-          {network.problems.map((problem) => <li key={problem}>{problem}</li>)}
-        </ul>
+        <SettingRow
+          title="Needs attention"
+          status={<ul className="network-problems" role="status">{network.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
+        />
       ) : null}
       <SettingRow
+        id={settingAnchor("Local network")}
         title="Local network"
         description={settings.lan
           ? `Devices on the same network reach Tau over HTTPS on port ${settings.port}.${lanListening ? "" : " Not listening yet."}`
@@ -94,6 +94,7 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
       />
       {settings.lan ? (
         <SettingRow
+          id={settingAnchor("Announce on this network")}
           title="Announce on this network"
           description={settings.announce
             ? "Lets devices here find Tau. It shares only the host id and certificate fingerprint; a device still needs your approval."
@@ -103,6 +104,7 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         />
       ) : null}
       <SettingRow
+        id={settingAnchor("Tailscale")}
         title="Tailscale"
         description={settings.tailscale
           ? tailscaleListening || settings.lan
@@ -115,27 +117,26 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         control={<Switch label="Tailscale" checked={settings.tailscale} disabled={busy} onChange={(on) => setAsking({ key: "tailscale", on })} />}
       />
       <SettingRow
+        id={settingAnchor("Port")}
         title="Port"
-        description={`Fixed, so a paired device finds Tau again after a restart. The proxy listener uses ${settings.proxyPort}.`}
+        description="Fixed, so a paired device finds Tau again after a restart."
+        help={`From ${MIN_PORT} to ${MAX_PORT}. The proxy listener uses ${settings.proxyPort}, so this one cannot. A listener that is on moves to the new port at once.`}
         control={(
-          <form className="network-port" onSubmit={(event) => {
-            event.preventDefault();
-            if (nextPort !== undefined && nextPort !== settings.port) void onChange({ port: nextPort }, listening ? `Tau now listens on port ${nextPort}` : `Tau will listen on port ${nextPort}`);
-          }}>
-            <input
-              className="settings-input narrow"
-              inputMode="numeric"
-              aria-label="Port"
-              aria-invalid={nextPort === undefined}
-              value={port}
-              disabled={busy}
-              onChange={(event) => setPort(event.target.value.replace(/\D/gu, "").slice(0, 5))}
-            />
-            <button type="submit" className="chrome-button" disabled={busy || nextPort === undefined || nextPort === settings.port}>Apply</button>
-          </form>
+          <NumberField
+            key={portAttempt}
+            label="Port"
+            value={settings.port}
+            min={MIN_PORT}
+            max={MAX_PORT}
+            integer
+            disabled={busy}
+            validate={(port) => (port === settings.proxyPort ? `${port} is the proxy listener’s port. Pick another.` : undefined)}
+            onCommit={(port) => void onChange({ port }, listening ? `Tau now listens on port ${port}` : `Tau will listen on port ${port}`).then((ok) => { if (!ok) setPortAttempt((count) => count + 1); })}
+          />
         )}
       />
       <SettingRow
+        id={settingAnchor("Certificate")}
         title="Certificate"
         description={network.certificate
           ? network.certificate.source === "supplied"
@@ -152,10 +153,10 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         ) : undefined}
         control={(
           <div className="network-certificate-actions">
-            {network.certificate ? <button type="button" className="chrome-button" disabled={busy} onClick={onReload}>Reload</button> : null}
+            {network.certificate ? <Button disabled={busy} onClick={onReload}>Read again</Button> : null}
             {settings.certificate
-              ? <button type="button" className="chrome-button" disabled={busy} onClick={() => void onChange({ certificate: null }, "Back to the self-signed certificate")}>Use Self-Signed</button>
-              : <button type="button" className="chrome-button" disabled={busy} onClick={() => setOwnCertificate(true)}>Use Own…</button>}
+              ? <Button disabled={busy} onClick={() => void onChange({ certificate: null }, "Back to the self-signed certificate")}>Use self-signed</Button>
+              : <Button disabled={busy} onClick={() => setOwnCertificate(true)}>Use your own…</Button>}
           </div>
         )}
       />
@@ -163,7 +164,7 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
         <ConfirmDialog
           title={question.title}
           message={question.message}
-          confirmLabel={asking.on ? "Turn On" : "Turn Off"}
+          confirmLabel={asking.on ? "Turn on" : "Turn off"}
           destructive={!asking.on}
           onCancel={() => setAsking(undefined)}
           onConfirm={() => {
@@ -189,25 +190,36 @@ function OwnCertificateDialog({ busy, onUse, onCancel }: {
   onUse(certificate: { certPath: string; keyPath: string }): void;
   onCancel(): void;
 }) {
-  const [certPath, setCertPath] = useState("");
-  const [keyPath, setKeyPath] = useState("");
-  const ready = certPath.trim() !== "" && keyPath.trim() !== "";
+  const [certPath, setCertPath, latestCert] = useFieldValue("");
+  const [keyPath, setKeyPath, latestKey] = useFieldValue("");
+  const [missing, setMissing] = useState(false);
+  const submit = () => {
+    const cert = latestCert.current.trim();
+    const key = latestKey.current.trim();
+    if (!cert || !key) { setMissing(true); return; }
+    setMissing(false);
+    onUse({ certPath: cert, keyPath: key });
+  };
   return (
     <Dialog className="confirm-dialog connection-create-dialog" label="Use your own certificate" onClose={onCancel}>
       <h2>Use your own certificate</h2>
       <p>A PEM certificate and its key, for example from <code>tailscale cert</code>. Tau reads them again whenever the files change, so a renewal needs no restart.</p>
-      <label className="connection-field">
-        <span>Certificate file</span>
-        <input className="settings-input" value={certPath} placeholder="/path/to/machine.crt" disabled={busy} autoFocus onChange={(event) => setCertPath(event.target.value)} />
-      </label>
-      <label className="connection-field">
-        <span>Key file</span>
-        <input className="settings-input" value={keyPath} placeholder="/path/to/machine.key" disabled={busy} onChange={(event) => setKeyPath(event.target.value)} />
-      </label>
+      <div className="dialog-fields" onKeyDown={submitOnEnter(submit)}>
+        <label className="dialog-field">
+          <span>Certificate file</span>
+          <TextField label="Certificate file" value={certPath} placeholder="/path/to/machine.crt" width="full" mono disabled={busy} onCommit={setCertPath} />
+        </label>
+        <label className="dialog-field">
+          <span>Key file</span>
+          <TextField label="Key file" value={keyPath} placeholder="/path/to/machine.key" width="full" mono disabled={busy} onCommit={setKeyPath} />
+        </label>
+      </div>
+      {missing && (!certPath.trim() || !keyPath.trim()) ? <p className="dialog-error" role="alert">Enter the path of both files.</p> : null}
       <footer>
-        <button type="button" className="text-button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="primary" disabled={busy || !ready} onClick={() => onUse({ certPath: certPath.trim(), keyPath: keyPath.trim() })}>{busy ? "Checking…" : "Use Certificate"}</button>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" busy={busy} onClick={submit}>{busy ? "Checking…" : "Use certificate"}</Button>
       </footer>
+      <DialogClose onClose={onCancel} />
     </Dialog>
   );
 }

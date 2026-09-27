@@ -80,7 +80,7 @@ describe("Settings → Connections → Background", () => {
     const uninstallService = vi.fn(async () => { current = service(); return current; });
     const notify = renderSection({ serviceStatus: async () => current, uninstallService });
     fireEvent.click(await screen.findByRole("button", { name: "Uninstall…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Service" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove service" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("The service is removed"));
     expect(uninstallService).toHaveBeenCalledOnce();
   });
@@ -92,6 +92,24 @@ describe("Settings → Connections → Background", () => {
     cleanup();
     renderSection({});
     expect(await screen.findByText("This host does not manage a service of its machine.")).toBeTruthy();
+  });
+
+  it("lists the service's files with a copy button each", async () => {
+    const copyText = vi.fn(async () => undefined);
+    renderSection({ serviceStatus: async () => service({ installed: true, running: true }), copyText });
+    const files = await screen.findByLabelText("Service files");
+    expect(files.textContent).toContain("/Users/me/Library/LaunchAgents/dev.tbuck.tau.host.plist");
+    fireEvent.click(screen.getByRole("button", { name: "Copy Log" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("/Users/me/Library/Application Support/tau/logs/host-service.log"));
+  });
+
+  it("says when the service did not answer, and asks again", async () => {
+    let calls = 0;
+    const serviceStatus = vi.fn(async () => { calls += 1; if (calls === 1) throw new Error("The host did not answer in time."); return service(); });
+    renderSection({ serviceStatus });
+    expect(await screen.findByText("The host did not answer in time.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Not installed")).toBeTruthy();
   });
 
   it("offers keeping the machine awake while turns run", async () => {
@@ -112,7 +130,7 @@ describe("Settings → Connections → Background, invisible display", () => {
     expect(await screen.findByText(":99 · window starts when needed")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove…" }));
     expect(installService).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Remove Display" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove display" }));
 
     await waitFor(() => expect(notify).toHaveBeenCalledWith("The invisible display is removed"));
     expect(installService).toHaveBeenCalledWith({ display: false });
@@ -127,17 +145,17 @@ describe("Settings → Connections → Background, invisible display", () => {
 
     expect(await screen.findByText("The window on the invisible display cannot start.")).toBeTruthy();
     expect(screen.queryByText("tau service install")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Add AppArmor Profile…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add AppArmor profile…" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("The window on the invisible display can start now"));
     expect(allowServiceSandbox).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "Add AppArmor Profile…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add AppArmor profile…" })).toBeNull();
   });
 
   it("says why the profile could not be added", async () => {
     const sandbox = { code: "chrome-sandbox", message: "The window on the invisible display cannot start.", command: "tau service install" };
     const allowServiceSandbox = vi.fn(async () => { throw new Error("No password dialog could open on this machine."); });
     const notify = renderSection({ serviceStatus: async () => linux({ display, problems: [sandbox] }), allowServiceSandbox });
-    fireEvent.click(await screen.findByRole("button", { name: "Add AppArmor Profile…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add AppArmor profile…" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("No password dialog could open on this machine."));
   });
 

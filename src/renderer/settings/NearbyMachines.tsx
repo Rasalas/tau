@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { RadioTower } from "lucide-react";
+import { RotateCw } from "lucide-react";
 import type { UiDiscoveredHosts } from "../../shared/discovery";
 import { NearbyMachineList } from "./NearbyMachineList";
 import { useHostClient } from "../host-client-context";
 import { Dialog } from "../components/ui/Dialog";
-import { Empty, Skeleton } from "../components/ui/Feedback";
+import { DialogClose } from "../pairing/dialog-parts";
+import { Button, SettingsState } from "./controls";
 
 type Search =
   | { status: "searching" }
@@ -35,20 +36,17 @@ export function NearbyMachinesDialog({ onClose }: { onClose(): void }) {
       <p>A machine lets another in only after its owner allows it.</p>
       <div className="nearby-machines-body" aria-busy={search.status === "searching"}>
         {search.status === "searching" ? (
-          <>
-            <p className="nearby-machines-status" role="status">Looking…</p>
-            <Skeleton shape="block" className="nearby-machines-skeleton" />
-          </>
+          <SettingsState kind="loading" rows={2} title="Looking for machines" />
         ) : search.status === "error" ? (
-          <Empty size="compact" icon={<RadioTower size={16} />} title="Looking failed" description={search.message} />
+          <SettingsState kind="error" title="Looking failed" description={search.message} onRetry={() => void look()} />
         ) : (
           <NearbyMachineList result={search.result} />
         )}
       </div>
       <footer>
-        <button type="button" className="text-button" disabled={search.status === "searching"} onClick={() => void look()}>Search Again</button>
-        <button type="button" className="primary" onClick={onClose}>Done</button>
+        <Button icon={<RotateCw size={13} />} busy={search.status === "searching"} onClick={() => void look()}>Search again</Button>
       </footer>
+      <DialogClose onClose={onClose} />
     </Dialog>
   );
 }

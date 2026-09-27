@@ -26,7 +26,7 @@ describe("a device asking to pair, wherever the owner is", () => {
     act(() => client.emit({ type: "connections-changed" }));
     const dialog = await screen.findByRole("dialog", { name: "Alex’s iPhone wants to connect" });
     expect(within(dialog).getByText("482 913")).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Read only" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
     requests = [];
     fireEvent.click(within(dialog).getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(approvePairing).toHaveBeenCalledWith("r1", { access: "read-only" }));
