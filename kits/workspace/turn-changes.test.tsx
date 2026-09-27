@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runningTurn } from "../../src/renderer/test-support/kit-harness.js";
 import { installPointerEvents } from "../../src/renderer/test-support/pointer-events.js";
 import { countFiles, TURN_CHANGES_CLOSE_DELAY_MS, TURN_CHANGES_OPEN_DELAY_MS, TurnChangesPill } from "./turn-changes.js";
 
@@ -104,6 +105,29 @@ describe("TurnChangesPill", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(pill());
+  });
+
+  it("closes on Escape during a running turn, with focus in the detail or in the composer, and stops nothing", async () => {
+    const { abort } = runningTurn();
+    render(<main data-keybinding-context="chat"><textarea aria-label="Composer" /><TurnChangesPill live changes={changes} onOpenDiff={vi.fn()} /></main>);
+    const composer = screen.getByRole("textbox", { name: "Composer" });
+    const live = screen.getByRole("button", { name: /^Changes so far:/u });
+
+    live.focus();
+    fireEvent.click(live, { detail: 0 });
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Open diff"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(live);
+    await screen.findByRole("dialog");
+    composer.focus();
+    fireEvent.keyDown(composer, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(abort).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(abort).toHaveBeenCalledOnce();
   });
 
   it("marks a partial capture and says what it may have missed", async () => {

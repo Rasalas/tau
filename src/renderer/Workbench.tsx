@@ -614,6 +614,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <div className={centerClassName}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
+          data-keybinding-context="chat"
           onDragEnter={dropController.onDragEnter}
           onDragOver={dropController.onDragOver}
           onDragLeave={dropController.onDragLeave}

@@ -2,9 +2,9 @@
  * The contexts a `when` clause reads, taken from the page when a key goes
  * down. An element marked `data-keybinding-context="terminal"` (several names
  * may be space-separated) makes `terminalFocus` true while the keyboard is
- * inside it and `terminalOpen` true while it is drawn at all. `editableFocus`
- * is the one context no element marks: a text field, a select or anything
- * `contenteditable` has the keyboard.
+ * inside it and `terminalOpen` true while it is drawn at all. Two contexts no
+ * element marks: `editableFocus` (a text field, a select or anything
+ * `contenteditable` has the keyboard) and `overlayOpen` (see `OVERLAY_SELECTOR`).
  */
 export const KEYBINDING_CONTEXT_ATTRIBUTE = "data-keybinding-context";
 /** Marks an element that records chords: while it has the keyboard, no chord runs. */
@@ -21,6 +21,28 @@ const EDITABLE_SELECTOR = [
   '[role="textbox"]',
 ].join(",");
 
+/**
+ * What floats over the workbench and closes on Escape: a modal, a dialog or
+ * popover, a menu, or anything marked `data-overlay`. `data-overlay="false"`
+ * opts a non-modal tool window (the theme editor) out.
+ */
+export const OVERLAY_SELECTOR = [
+  '[aria-modal="true"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '[role="menu"]',
+  "[data-overlay]",
+].map((selector) => `${selector}:not([data-overlay="false"])`).join(",");
+
+/** Whether an overlay is drawn; a closed one kept mounted but hidden does not count. */
+export function overlayOpen(root: ParentNode = document): boolean {
+  return [...root.querySelectorAll(OVERLAY_SELECTOR)].some(visible);
+}
+
+function visible(element: Element): boolean {
+  return typeof element.checkVisibility === "function" ? element.checkVisibility() : true;
+}
+
 function marked(name: string): string {
   return `[${KEYBINDING_CONTEXT_ATTRIBUTE}~="${name.replace(/["\\]/gu, "")}"]`;
 }
@@ -33,6 +55,7 @@ export function domKeybindingContext(root: Document | undefined = typeof documen
       const active = root.activeElement;
       return Boolean(active?.isConnected && active.closest(EDITABLE_SELECTOR));
     }
+    if (name === "overlayOpen") return overlayOpen(root);
     const focus = /^(.+)Focus$/u.exec(name);
     if (focus) {
       const active = root.activeElement;
@@ -41,7 +64,7 @@ export function domKeybindingContext(root: Document | undefined = typeof documen
     const open = /^(.+)Open$/u.exec(name);
     if (open) {
       // Mounted but hidden (a closed dock keeps its panels) does not count as open.
-      return [...root.querySelectorAll(marked(open[1]!))].some((element) => typeof element.checkVisibility === "function" ? element.checkVisibility() : true);
+      return [...root.querySelectorAll(marked(open[1]!))].some(visible);
     }
     return false;
   };

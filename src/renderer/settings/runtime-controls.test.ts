@@ -186,7 +186,7 @@ describe("runtime controls keybindings", () => {
       "rightPanel.toggleMaximized": ["mod+alt+shift+b"],
     });
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
-    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus" });
+    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus" });
   });
 });
 

@@ -1,4 +1,5 @@
-import { render } from "@testing-library/react";
+import { render, renderHook } from "@testing-library/react";
+import { vi, type Mock } from "vitest";
 import { ExtensionRegistry, type DesktopExtension, type HostExtensionBridge, type RegionPlacement, type WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ClientProfile } from "../../workbench/client-profile";
@@ -9,6 +10,7 @@ import { ClientStorageProvider } from "../client-storage-context";
 import { PreferencesStore } from "../preferences";
 import { RendererServicesProvider } from "../renderer-services-context";
 import { ObservatoryContext, WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
+import { useAppKeybindings as useWindowKeybindings } from "../use-app-keybindings";
 
 export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "thread-title", "composer-above", "composer-below", "transcript-header", "transcript-footer"];
 
@@ -105,3 +107,19 @@ export { HOST_CAPABILITY } from "../../shared/host-transport";
 export { CLIENT_PROFILES, type ClientProfile } from "../../workbench/client-profile";
 export { APP_MENU_CHORDS } from "../../shared/window-shell";
 export { normalizeKeyChord } from "../keybindings";
+
+/**
+ * A running turn as the window's keyboard sees it: core's Escape binding for
+ * Stop, live. `abort` counts the stops; the chat is whatever is marked
+ * `data-keybinding-context="chat"`.
+ */
+export function runningTurn(): { abort: Mock; registry: ExtensionRegistry } {
+  const registry = new ExtensionRegistry();
+  const abort = vi.fn();
+  registry.activate({ id: "test.core", name: "Core stand-in", activate: (context) => {
+    context.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: abort });
+    context.registerKeybinding({ keys: "escape", commandId: "runtime.abort", when: "chatFocus" });
+  } });
+  renderHook(() => useWindowKeybindings(registry, { notify: vi.fn(), openSettings: vi.fn() } as unknown as WorkbenchActions, vi.fn()));
+  return { abort, registry };
+}

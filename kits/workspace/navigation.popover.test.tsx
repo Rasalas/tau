@@ -1,11 +1,36 @@
 // @vitest-environment jsdom
+import { useState } from "react";
+import { flushSync } from "react-dom";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runningTurn } from "../../src/renderer/test-support/kit-harness.js";
 import { ProjectSwitcherPopover, RailRowAction } from "./navigation.js";
 
 afterEach(cleanup);
 
 describe("ProjectSwitcherPopover", () => {
+  it("closes on Escape during a running turn and stops nothing", () => {
+    const { abort } = runningTurn();
+    function Chat() {
+      const [open, setOpen] = useState(true);
+      // `flushSync`: a browser commits the close before the window's listener runs.
+      return <main data-keybinding-context="chat">
+        <textarea aria-label="Composer" />
+        <ProjectSwitcherPopover open={open} projects={[{ name: "tau", path: "/repos/tau", lastOpenedAt: 1 }]} onClose={() => flushSync(() => setOpen(false))} onSelect={() => {}} />
+      </main>;
+    }
+    render(<Chat />);
+    const search = screen.getByRole("textbox", { name: "Search projects" });
+    search.focus();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Switch project" })).toBeNull();
+    expect(abort).not.toHaveBeenCalled();
+    const composer = screen.getByRole("textbox", { name: "Composer" });
+    composer.focus();
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
   it("opens as a searchable anchored switcher", () => {
     const onSelect = vi.fn();
     render(<ProjectSwitcherPopover
