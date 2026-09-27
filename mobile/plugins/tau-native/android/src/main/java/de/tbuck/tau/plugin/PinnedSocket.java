@@ -1,4 +1,4 @@
-package io.github.rasalas.tau.plugin;
+package de.tbuck.tau.plugin;
 
 import com.getcapacitor.JSObject;
 import java.security.KeyStore;

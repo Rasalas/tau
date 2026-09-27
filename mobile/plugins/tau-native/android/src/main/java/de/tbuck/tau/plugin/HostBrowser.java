@@ -1,4 +1,4 @@
-package io.github.rasalas.tau.plugin;
+package de.tbuck.tau.plugin;
 
 import android.content.Context;
 import android.net.nsd.NsdManager;

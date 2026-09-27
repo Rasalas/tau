@@ -22,8 +22,8 @@ The last line must print "release build: no automation bridge".
 
 ## 2. Your bundle identifier
 
-The project uses `io.github.rasalas.tau`. A bundle identifier belongs to one team; if it
-is taken, pick your own (for example `de.<you>.tau`) and change it in two places:
+The project uses `de.tbuck.tau`. A bundle identifier belongs to one team; if it
+is taken, pick your own (for example `com.<you>.tau`) and change it in two places:
 
 - `mobile/capacitor.config.json` → `appId`
 - Xcode → target **App** → **Signing & Capabilities** → **Bundle Identifier**
@@ -133,7 +133,7 @@ first and remembers which one a phone's token works with.
 
 1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project**
    (Google Analytics is not needed).
-2. **Add app** → Android, package name `io.github.rasalas.tau` (or the `appId` you chose
+2. **Add app** → Android, package name `de.tbuck.tau` (or the `appId` you chose
    in step 2) → download `google-services.json` and put it at
    `mobile/android/app/google-services.json` (Git ignores it), then build the app again.
    Without that file the app does not ask for pushes at all.

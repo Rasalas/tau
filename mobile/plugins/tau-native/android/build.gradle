@@ -15,7 +15,7 @@ buildscript {
 apply plugin: 'com.android.library'
 
 android {
-    namespace = "io.github.rasalas.tau.plugin"
+    namespace = "de.tbuck.tau.plugin"
     compileSdk = project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
     defaultConfig {
         minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24

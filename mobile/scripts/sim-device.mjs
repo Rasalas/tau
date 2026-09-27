@@ -17,7 +17,7 @@ const MOBILE = fileURLToPath(new URL("..", import.meta.url));
 const DEV_DIR = join(MOBILE, "..", ".tau-dev");
 const STATE_PATH = join(DEV_DIR, "sim-device.json");
 const APP = join(MOBILE, ".build", "ios", "Build", "Products", "Debug-iphonesimulator", "App.app");
-const BUNDLE_ID = "io.github.rasalas.tau";
+const BUNDLE_ID = "de.tbuck.tau";
 /** The brief's limit: above this one-minute load, no simulator starts. */
 export const MAX_LOAD = 40;
 
