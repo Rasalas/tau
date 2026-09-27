@@ -74,19 +74,27 @@ async function shots(ctx, shot, prefix) {
   return count(ctx, ui.settledRows);
 }
 
+/** Tau's main list is virtual, so rows are counted by the folded header, not the DOM. */
+async function tauSettled(ctx) {
+  await setShelf(ctx, "settled", false);
+  const text = await ctx.eval(`document.querySelector("[data-rail-heading=settled]")?.textContent ?? ""`);
+  return Number(/· (\d+)/u.exec(text)?.[1] ?? 0);
+}
+
 async function run(ctx, { shot, note }) {
   const ui = UI[ctx.id];
   // Tau imports every thread as active, T3 as settled: both start from twenty active threads.
   await setShelf(ctx, "settled", true);
   if (ctx.id === "tau") {
-    await repeat(ctx, ui.activeRows, ui.settle, { last: true, done: async () => (await count(ctx, ui.settledRows)) >= 10 });
+    await repeat(ctx, ui.activeRows, ui.settle, { last: true, done: async () => (await tauSettled(ctx)) >= 10 });
   } else {
     await repeat(ctx, ui.settledRows, ui.unsettle, { last: false, done: async () => (await count(ctx, ui.activeRows)) >= 20 });
   }
   note("manyActive", await count(ctx, ui.activeRows));
   note("manySettledRowsOpen", await shots(ctx, shot, "many"));
   await setShelf(ctx, "settled", true);
-  await repeat(ctx, ui.activeRows, ui.settle, { last: true, done: async () => (await count(ctx, ui.activeRows)) <= 4 });
+  const few = ctx.id === "tau" ? async () => (await tauSettled(ctx)) >= 26 : async () => (await count(ctx, ui.activeRows)) <= 4;
+  await repeat(ctx, ui.activeRows, ui.settle, { last: true, done: few });
   note("fewActive", await count(ctx, ui.activeRows));
   note("fewSettledRowsOpen", await shots(ctx, shot, "few"));
   // One active thread snoozed for an hour: the snoozed shelf joins, folded.
