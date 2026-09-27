@@ -324,13 +324,19 @@ function resolve<T>(update: Updater<T>, current: T): T {
 }
 
 /**
+ * Threads whose last page stays in memory, so switching back paints at once.
+ * A page of ten turns keeps tool output under 16 KB a tool.
+ */
+export const DETAIL_CACHE_THREADS = 24;
+
+/**
  * Single source of truth for the active thread. Consumers subscribe per slice,
  * so a streamed delta wakes the transcript and nothing else. Streaming deltas
  * and tool output are merged per animation frame before they reach the reducer.
  */
 export class ThreadViewStore {
   /** The one in-memory detail cache; the history controller shares it. */
-  readonly details = new ThreadDetailStore(5);
+  readonly details = new ThreadDetailStore(DETAIL_CACHE_THREADS);
 
   private state: ThreadViewState;
   private toolView: ToolViewState = EMPTY_TOOL_VIEW;

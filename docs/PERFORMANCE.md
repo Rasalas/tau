@@ -296,6 +296,7 @@ Initial local targets:
 - loading an older page with the reader at the top moves the row they were reading by at most 2 px, in the large thread and in a two-page one, and shows "Loading…" for at most 1,000 ms (median, `tauLargeThread`, since 2026-09-23)
 - opening cached project navigation performs no filesystem or Git work
 - full-mode local thread switches stay below 150 ms at p95 after cache warm-up
+- in the window, a switch from the rail paints the thread's newest reply within 150 ms cold and 100 ms warm, median (`tauThreadSwitch` in `scripts/compare/budgets.json`, since 2026-09-27), and a thread of 60 checkpoints opens in the host within 1,000 ms at p95 right after start-up (`checkpointedThreadOpenP95Ms`); see "Switching threads"
 
 Record the fixture, machine class, build mode, median, p95, and maximum with each result. Promote a budget to a release gate only after the fixture is repeatable in CI.
 
@@ -1122,9 +1123,10 @@ With no chip, mention or selected skill in the text there is no mirror, and typi
   - A 151 KB Markdown answer with 20 fenced code blocks (with blank lines inside the fences), tables and lists, sent as 200-character deltas.
   - Sentinel strings at the start and end let the page probe time first text and the end of the stream.
   - `fake-codex-conformance.mjs <t3-clone>` (run it with Node 24) decodes every response and notification the stand-in sends with T3's generated protocol schemas.
-- **The sessions** (`sessions-fixture.mjs`) are five Codex rollouts. Each app imports them through its own onboarding wizard.
+- **The sessions** (`sessions-fixture.mjs`) are seven Codex rollouts. Each app imports them through its own onboarding wizard.
   - One large thread: 100 turns, every fourth reply 2.4 KB of Markdown with a fence and a table.
   - Four small threads of six turns each.
+  - Two threads only the switch launch opens (since ticket K38): a medium one of 30 turns and a long one of 100, both shaped like the large one.
   - Text only: both importers drop tool calls, and both keep at most 200 messages. The large thread is therefore 100 turns, not the plan's 1,000.
 - **Seeding** happens once per app (`--seed`). The harness drives each onboarding over CDP, then copies the resulting profile. Every run starts from a fresh copy of that profile at the same path.
 - **One run** does the following, in order:
@@ -1135,6 +1137,7 @@ With no chip, mention or selected skill in the text there is no mirror, and typi
   5. 60 wheel notches of 240 px up, then 60 down.
   6. The replayed turn, sent in the first small thread.
   7. Memory again, 5 s after the turn.
+  8. A second launch from the same template for switching threads (see "Switching threads" below).
 
   Runs alternate between the apps.
 - **The probe** (`page-probe.mjs`) is the same code in both renderers:
@@ -1185,9 +1188,10 @@ npm run build                                   # Tau
 npm run benchmark:compare -- --seed             # first time: import the fixture in both apps
 npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
+npm run benchmark:compare -- --thread-switch --runs 5 --warmup 1 [--apps tau,t3] [--check]   # the switch launch alone, see "Switching threads"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once; `COMPARE_T3_ROOT` does the same for T3. Seeding writes the session plan beside the template (`fixture.json`), and a run refuses a root seeded with another plan: after K38 added two threads, every root needs `--seed` once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
 
 ### First results (2026-09-23)
 
@@ -1395,6 +1399,49 @@ The comparison, Tau alone, on the same machine and fixture in one session (load 
 After I17 the start is 21 ms from G05's, down from 66 ms. That this session's absolute numbers sit about 90 ms above G05's report is not the build: G05's own commit measured 565 ms in the same session. A turn still sends 12 messages, and the host's idle footprint is 159 MiB (157 for G05). Reports: `reports/compare-20260925-i17-g05-baseline.json`, `reports/compare-20260925-i17-before.json` and `reports/compare-20260925-i17-after.json` (the last with `--check`, which passed).
 
 Checks that catch a regression: `kits/servers/startup-cost.test.ts` runs the start-up hooks, the runtime extensions, the policy and the window's first asks for a project without servers and fails on any process the kit starts. `kits/servers/store.test.ts` holds a worktree to one Git ask, and `kits/servers/server-view.test.tsx` checks that the compact sheet still opens after loading lazily.
+
+### Switching threads (2026-09-27)
+
+Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower than T3 Code. The comparison had no step for it, so it got one (`scripts/compare/thread-switch.mjs`).
+
+**The step.** Each run launches both apps a second time from the seeded template, waits for the rail, opens a starter thread and then switches to a short (6 turns), a medium (30) and a long thread (100) from the rail: once cold, then three rounds warm. A probe armed in the page starts at the `mousedown` the harness sends and stops when the thread's newest reply is in view beside a composer and painted (a `requestAnimationFrame` followed by a task); "settled" is the last frame in which that reply moved. The click comes without a hover pause, so hover prefetching could not help either app. Tau also switches between three Pi threads written into its session store before the launch, shaped like an agent's work: per turn a prompt, thinking, a 150-line read, a search, an edit with its diff, a test run, a Markdown answer with a fence and a table, and Workspace Kit's checkpoint entry with its two refs in the workspace's Git repository (3, 12 and 40 turns). T3 cannot hold these. `--check` holds Tau's medians to `tauThreadSwitch` in `scripts/compare/budgets.json`: 150 ms to a cold thread's newest reply, 100 ms to a warm one's, and 250 ms until a cold Pi thread holds still.
+
+**What was slow.**
+
+- **Workspace Kit's check before a thread opens.** A thread's runtime opens only after the kit has checked that each checkpoint's refs still exist and name trees, to remove refs a crash left behind. It asked Git four times per checkpoint, one checkpoint after another: 166 ms before the runtime was created for 3 checkpoints, 285 ms for 12 and 845 ms for 40 (`thread.open.timing`, `before-open`), which is where the reported 600 to 800 ms came from. The sweep across a workspace, which runs after every full index scan, did the same for every checkpoint of every thread and held the workspace's checkpoint lease while it ran; an open right after start-up waited the lease's full two seconds and then skipped its check.
+- **Nothing on screen until the runtime was open.** A switch to a thread without cached detail showed the old thread until the host had opened the new thread's runtime and answered.
+- **Five cached threads.** The renderer kept the detail of five threads. Going round six threads never found one in memory, so every switch back waited for the host too.
+
+**What changed.**
+
+- The ref listing (`for-each-ref`) now reports each ref's object and type. A pair of trees is kept without a Git call of its own; anything else is checked as before. Without filesystem snapshot manifests (a Git checkout keeps none) the manifest pass is skipped. `kits/workspace/workspace-git.test.ts` holds both sweeps to one listing for 30 and 40 checkpoints.
+- The window asks for the thread's newest persisted page (`transcript-page`) beside `switch-session` and paints it when it comes; the host's answer replaces it, and a page that comes later is dropped (`kits/workspace/app.test.tsx`).
+- The renderer keeps the detail of 24 threads (`DETAIL_CACHE_THREADS`).
+
+**Results.** Five runs per app after one warm-up, alternating, on the development machine (Apple M4). Load average at each launch: 5.2 to 10 before, 4.6 to 9.0 after. Before is `64afd849` with the new harness, built in a copy; after is `3cec93e1`; T3 is `aca3c87cdb`. Median / p95 in ms from the press to the newest reply painted:
+
+| switch | Tau before | Tau after | T3 before | T3 after |
+| --- | ---: | ---: | ---: | ---: |
+| cold, short | 42.5 / 52.8 | 46.5 / 52.9 | 105 / 122.7 | 122.2 / 133.8 |
+| cold, medium | 72.1 / 84.8 | 85 / 89.1 | 160.9 / 183.9 | 154.2 / 196 |
+| cold, long | 41.1 / 53.5 | 65.8 / 68.7 | 152.6 / 173.7 | 152.5 / 164.7 |
+| warm, short | 46.8 / 51.9 | 23.2 / 26.6 | 53 / 72.7 | 55.6 / 64.8 |
+| warm, medium | 55.7 / 58.8 | 42.6 / 44.9 | 66.6 / 74 | 67.4 / 72.5 |
+| warm, long | 41.9 / 53 | 24.2 / 27.1 | 74.4 / 84.3 | 70.9 / 76.1 |
+| Pi, cold, short | 120.3 / 398.9 | 42.9 / 49 | – | – |
+| Pi, cold, medium | 255.4 / 268.9 | 59.3 / 61.5 | – | – |
+| Pi, cold, long | 501 / 1,014.5 | 57.7 / 65.3 | – | – |
+| Pi, warm, short | 44.7 / 67.9 | 26.1 / 29.7 | – | – |
+| Pi, warm, medium | 63.4 / 69.8 | 43.4 / 44.5 | – | – |
+| Pi, warm, long | 46.4 / 57.2 | 25.8 / 30.2 | – | – |
+
+- A cold Pi thread settles at 46.8, 98.6 and 98.6 ms (short, medium, long) against 120.3, 262.6 and 501 ms before. It moves once when the host's answer replaces the persisted page, whose 20 turns are twice the host's first page.
+- The imported Codex threads were fast before, since their runtime starts without the checkpoint check. A cold one is 4 to 25 ms slower now: the host reads the page before it answers the switch, and the window draws the thread twice. It stays at about half of T3's time.
+- A warm switch paints from memory and moves once when the host's answer lands; the short Codex thread settles at 62.7 ms.
+- `--check` passed on the after run. Reports: `reports/compare-20260927-k38-switch-before.json`, `reports/compare-20260927-k38-switch-after.json`.
+- `--large-thread --check` passes: from the click to the newest turn of the 20,000-entry thread 134 / 234 ms (three runs, load 5.5 to 6.7), 287 ms before in one run at load 7.6. The window shows that thread's persisted page first.
+
+**Host benchmark.** `npm run benchmark:host:full:check` now switches, right after the host started, to a thread of 60 turns that each left a checkpoint, and `checkpointedThreadOpenP95Ms` holds that to 1,000 ms. Three hosts each, load about 5: 1,647 / 1,740 ms before, 504 / 535 ms after. `full-ready` of the host with the large thread went from 1,358 / 1,551 to 775 / 986 ms, because the workspace sweep behind it got shorter.
 
 ### Screen by screen
 

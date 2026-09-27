@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import { loadScreens, parseArgs as parseScreenArgs, shotName } from "./screens/r
 import { MEASURE, TAB_ORDER } from "./screens/measure.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
 import { largeThreadRows, writePiThread } from "./large-thread.mjs";
+import { armSwitchProbe, codexTargets, piTargets, summarizeSwitches, threadSwitchRows, writeAgentPiThread } from "./thread-switch.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
 import { describeDialog, locate } from "./ui.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
@@ -331,6 +333,54 @@ describe("the large Pi thread", () => {
   });
 });
 
+describe("switching threads", () => {
+  it("clicks a thread whose newest reply only it has", () => {
+    const targets = [...codexTargets(), ...piTargets()];
+    expect(targets.map((target) => `${target.kind}-${target.size}`)).toEqual(["codex-short", "codex-medium", "codex-long", "pi-short", "pi-medium", "pi-long"]);
+    for (const target of targets) {
+      expect(targets.filter((other) => other.text.includes(target.text) || target.text.includes(other.text))).toEqual([target]);
+    }
+  });
+
+  it("keeps the cold switch and the median of the warm ones, per kind and size", () => {
+    const result = (visibleMs) => ({ visibleMs, settledMs: visibleMs + 10, changes: 0, longTaskMs: 0 });
+    const summary = summarizeSwitches([
+      { round: 0, kind: "pi", size: "long", result: result(300) },
+      { round: 1, kind: "pi", size: "long", result: result(40) },
+      { round: 2, kind: "pi", size: "long", result: result(60) },
+      { round: 3, kind: "pi", size: "long", result: result(50) },
+    ]);
+    expect(summary.pi.long).toEqual({
+      cold: { visibleMs: 300, settledMs: 310, changes: 0, longTaskMs: 0 },
+      warm: { visibleMs: 50, settledMs: 60, changes: 0, longTaskMs: 0 },
+    });
+  });
+
+  it("gates only what its table reports", () => {
+    const budgets = JSON.parse(readFileSync(join(import.meta.dirname, "budgets.json"), "utf8")).tauThreadSwitch;
+    const paths = new Set(threadSwitchRows().flatMap(([, ...rowPaths]) => rowPaths));
+    expect(Object.keys(budgets).length).toBeGreaterThan(0);
+    for (const path of Object.keys(budgets)) expect(paths.has(path)).toBe(true);
+  });
+
+  it("writes an agent's Pi thread with a checkpoint per turn in a Git workspace", async () => {
+    const root = join(import.meta.dirname, "..", "..");
+    const cwd = mkdtempSync(join(tmpdir(), "tau-compare-switch-"));
+    execFileSync("git", ["init", "-q", "-b", "main", cwd]);
+    execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "i"]);
+    const { path } = await writeAgentPiThread(root, { sessionDir: join(cwd, "sessions"), cwd, title: "Short Pi switch thread", turns: 2, endsAt: Date.now() - 3_600_000 });
+    const lines = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(lines.filter((line) => line.customType === "tau.turn-checkpoint.v1")).toHaveLength(2);
+    expect(lines.at(-2).message.content[0].text).toContain(piTargets()[0].text.replace("3", "2"));
+    const refs = execFileSync("git", ["-C", cwd, "for-each-ref", "--format=%(objecttype)", "refs/tau/checkpoints/"], { encoding: "utf8" }).trim().split("\n");
+    expect(refs).toEqual(["tree", "tree", "tree", "tree"]);
+  });
+
+  it("ships page code that parses", () => {
+    expect(() => new Function(armSwitchProbe({ text: "x", composer: "textarea", messageRow: "[data-message-id]" }))).not.toThrow();
+  });
+});
+
 describe("clicking by text", () => {
   /** A page of one button at `top`, in a window as short as a fresh Tau opens on some screens. */
   function page(top) {
@@ -356,6 +406,16 @@ describe("clicking by text", () => {
   it("leaves a match in view where it is", () => {
     const { context } = page(300);
     expect(runInNewContext(locate("button", /^Continue/u), context).y).toBe(316);
+  });
+
+  it("brings a match under a sticky header to the middle of its list before it names the point", () => {
+    const { button, context } = page(100);
+    const header = {};
+    let centred = false;
+    button.contains = () => false;
+    button.scrollIntoView = ({ block }) => { if (block === "center") { centred = true; button.top = 336; } };
+    context.document.elementFromPoint = () => (centred ? button : header);
+    expect(runInNewContext(locate("button", /^Continue/u), context).y).toBe(352);
   });
 
   it("names no point while the match stays out of view", () => {

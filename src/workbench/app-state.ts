@@ -1,5 +1,5 @@
 import type { HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiContextUsage, UiMessage, UiSession, UiSkillDraft, UiToolRun } from "../shared/contracts";
-import { hostSnapshotFromThreadDetail, type HostActionResult, type ThreadDetail } from "../shared/host-protocol";
+import { hostSnapshotFromThreadDetail, type HostActionResult, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import type { ComposerScopeReference, DraftKey, PendingAttachment } from "./composer-scope-store";
 import type { NewThreadDraft } from "./draft-store";
@@ -53,6 +53,17 @@ export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSessi
     ...(detail.threadId ? { threadId: detail.threadId } : {}),
     ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
   }, { ...detail, isStreaming: false });
+}
+
+/** A persisted page as the detail of a settled thread, until the host has the thread open. */
+export function threadDetailFromPage(page: TranscriptPage, target: UiSession): ThreadDetail {
+  return {
+    ...page,
+    isStreaming: false,
+    activeTools: [],
+    ...(target.backendKind ? { backendKind: target.backendKind } : {}),
+    ...(target.usage ? { usage: target.usage } : {}),
+  };
 }
 
 export const mockSnapshot: HostSnapshot = {

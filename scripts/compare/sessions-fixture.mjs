@@ -22,11 +22,23 @@ function assistantReply(thread, turn, heavy) {
   return turn % 4 === 0 ? answerMarkdown({ targetBytes: 2_400, codeBlocks: 1 }) : `Reply ${turn + 1}: the ${thread.title.toLowerCase()} path is fine; ${"the renderer keeps one row per message and only the streaming row updates. ".repeat(3)}`;
 }
 
-/** The sessions the fixture home holds: the large one first, so it is the newest. */
-export function sessionPlan({ largeTurns = 100, smallThreads = 4, smallTurns = 6 } = {}) {
+/**
+ * The sessions the fixture home holds: the large one first, so it is the newest.
+ * The two switch threads come last: no run has opened them before the switch step.
+ */
+export function sessionPlan({ largeTurns = 100, smallThreads = 4, smallTurns = 6, switchThreads = true } = {}) {
   const plan = [{ title: "Large thread: transcript scroll fixture", turns: largeTurns, heavy: true }];
   for (let index = 0; index < smallThreads; index += 1) plan.push({ title: `Small thread ${index + 1}: follow-up on the rail`, turns: smallTurns, heavy: false });
+  if (switchThreads) {
+    plan.push({ title: "Medium thread: switch fixture", turns: 30, heavy: true });
+    plan.push({ title: "Long thread: switch fixture", turns: 100, heavy: true });
+  }
   return plan;
+}
+
+/** The start of a thread's newest reply, as both apps show it in the transcript. */
+export function newestReplyText(thread) {
+  return assistantReply(thread, thread.turns - 1, thread.heavy).slice(0, 60);
 }
 
 /** One rollout file's lines, in the shape a 0.154 CLI writes. */

@@ -361,6 +361,109 @@ describe("Workspace Kit in the workbench", () => {
     ));
   });
 
+  describe("switching to a thread nothing has cached", () => {
+    const sessions = [
+      { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 1 },
+      { id: "target", path: "/target.jsonl", title: "Target thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 2 },
+    ];
+    const detail = (text: string) => ({
+      version: 1 as const,
+      updates: [{
+        version: 1 as const,
+        type: "thread-detail" as const,
+        detail: { sessionId: "target", messages: [{ id: "target-answer", role: "assistant" as const, text, timestamp: 1 }], isStreaming: false, activeTools: [] },
+      }],
+    });
+    function start(switchSession: () => Promise<HostActionResult>, loadTranscript: (sessionId: string) => Promise<{ sessionId: string; messages: { id: string; role: "assistant"; text: string; timestamp: number }[]; hasMore: boolean }>) {
+      const pages = vi.fn(loadTranscript);
+      const client = createFakeHostClient({
+        bootstrap: async () => ({
+          version: 1,
+          threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions },
+          detail: { sessionId: "current", messages: [{ id: "current-answer", role: "assistant" as const, text: "Current content", timestamp: 2 }], isStreaming: false, activeTools: [] },
+          catalog: { sessionId: "current", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+          project: { cwd: "/project" },
+        }),
+        invokeHostExtension: workspaceHostStub({
+          listEditors: async () => [],
+          getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+          getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+          getFileTree: async () => [],
+        }),
+        switchSession: vi.fn(switchSession),
+        loadTranscript: pages,
+      });
+      renderApp(client, { extensions: [workspaceExtension] });
+      return pages;
+    }
+    async function openTarget(): Promise<void> {
+      await screen.findByText("Current content");
+      const navigation = await screen.findByRole("navigation", { name: "Threads" });
+      fireEvent.keyDown(navigation, { key: "ArrowDown" });
+      fireEvent.keyDown(navigation, { key: "Enter" });
+    }
+
+    it("shows the thread's persisted page while the host still opens it, then the host's own", async () => {
+      let answer!: (result: HostActionResult) => void;
+      const pages = start(
+        () => new Promise<HostActionResult>((resolvePromise) => { answer = resolvePromise; }),
+        async (sessionId) => ({ sessionId, messages: [{ id: "target-answer", role: "assistant", text: "Persisted content", timestamp: 1 }], hasMore: false }),
+      );
+      await openTarget();
+      expect(await screen.findByText("Persisted content")).toBeTruthy();
+      expect(pages).toHaveBeenCalledWith("target");
+      expect(screen.queryByText("Current content")).toBeNull();
+      await act(async () => { answer(detail("Host content")); });
+      expect(await screen.findByText("Host content")).toBeTruthy();
+      expect(screen.queryByText("Persisted content")).toBeNull();
+    });
+
+    it("pages from the host's answer, not from the longer page it showed first", async () => {
+      let answer!: (result: HostActionResult) => void;
+      start(
+        () => new Promise<HostActionResult>((resolvePromise) => { answer = resolvePromise; }),
+        async (sessionId) => ({ sessionId, messages: [{ id: "target-answer", role: "assistant", text: "Persisted content", timestamp: 1 }], hasMore: false, historyCompleteness: "complete" as const }),
+      );
+      await openTarget();
+      expect(await screen.findByText("Persisted content")).toBeTruthy();
+      await act(async () => {
+        answer({
+          version: 1,
+          updates: [{
+            version: 1,
+            type: "thread-detail",
+            detail: {
+              sessionId: "target",
+              messages: [{ id: "target-answer", role: "assistant", text: "Persisted content", timestamp: 1 }],
+              isStreaming: false,
+              activeTools: [],
+              hasMore: true,
+              historyCompleteness: "has-more",
+              olderCursor: "tau-host-cursor.v1.older" as never,
+              cursorBeforeMessageId: "target-answer",
+            },
+          }],
+        });
+      });
+      await waitFor(() => expect(document.querySelector("[data-older-turns]")).not.toBeNull());
+    });
+
+    it("drops a page that arrives after the host answered the switch", async () => {
+      let page!: () => void;
+      start(
+        async () => detail("Host content"),
+        (sessionId) => new Promise((resolvePromise) => {
+          page = () => resolvePromise({ sessionId, messages: [{ id: "target-answer", role: "assistant", text: "Persisted content", timestamp: 1 }], hasMore: false });
+        }),
+      );
+      await openTarget();
+      expect(await screen.findByText("Host content")).toBeTruthy();
+      await act(async () => { page(); });
+      expect(screen.getByText("Host content")).toBeTruthy();
+      expect(screen.queryByText("Persisted content")).toBeNull();
+    });
+  });
+
   it("switches projects while a new-thread message is still being delivered", async () => {
     let createdClientMessageId = "";
     let resolveNewSession!: (result: { version: 1; updates: never[]; sessionId: string; submission: { accepted: true } }) => void;

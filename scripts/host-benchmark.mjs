@@ -34,10 +34,18 @@ const HOST_RUNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_RUNS ?? 3));
 /** User turns in the long thread fixtures; each adds a tool call, its result and an answer. */
 const LONG_THREAD_TURNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_LONG_TURNS ?? 5_000));
 const METADATA_SAMPLES = 20;
+/** Turns of the thread whose every turn left a Workspace Kit checkpoint. */
+const CHECKPOINTED_TURNS = 60;
 
-/** One thread of `turns` user turns, each with a tool call, its result and an answer. */
-function writeThread(SessionManager, cwd, sessionDir, turns, provider, model) {
+/**
+ * One thread of `turns` user turns, each with a tool call, its result and an
+ * answer. With `checkpointTree`, each turn also carries Workspace Kit's
+ * checkpoint entry and its before/after refs on that tree.
+ */
+function writeThread(SessionManager, cwd, sessionDir, turns, provider, model, checkpointTree) {
   const manager = SessionManager.create(cwd, sessionDir);
+  const sessionId = manager.getSessionId();
+  const refs = [];
   const at = Date.now();
   const assistant = (content, index) => ({
     role: "assistant", content, api: "openai-completions", provider, model,
@@ -47,11 +55,21 @@ function writeThread(SessionManager, cwd, sessionDir, turns, provider, model) {
   for (let turn = 0; turn < turns; turn += 1) {
     const index = turn * 4;
     const callId = `call-${turn}`;
-    manager.appendMessage({ role: "user", content: [{ type: "text", text: `Question ${turn}: what does file ${turn} contain?` }], timestamp: at + index });
+    const promptId = manager.appendMessage({ role: "user", content: [{ type: "text", text: `Question ${turn}: what does file ${turn} contain?` }], timestamp: at + index });
     manager.appendMessage(assistant([{ type: "toolCall", id: callId, name: "bash", arguments: { command: `cat file-${turn}.txt` } }], index + 1));
     manager.appendMessage({ role: "toolResult", toolCallId: callId, toolName: "bash", content: [{ type: "text", text: `line ${turn}\n`.repeat(8) }], isError: false, timestamp: at + index + 2 });
     manager.appendMessage(assistant([{ type: "text", text: `File ${turn} holds eight lines that each name the turn.` }], index + 3));
+    if (checkpointTree) {
+      const turnId = `turn-${turn}`;
+      const ref = (phase) => `refs/tau/checkpoints/${sessionId}/${turnId}/${phase}`;
+      refs.push(ref("before"), ref("after"));
+      manager.appendCustomEntry("tau.turn-checkpoint.v1", {
+        id: turnId, turnId, sessionId, anchorMessageId: promptId, beforeSnapshotId: ref("before"), afterSnapshotId: ref("after"),
+        startedAt: at + index, endedAt: at + index + 3, files: [], added: 1, removed: 1,
+      });
+    }
   }
+  if (checkpointTree) execFileSync("git", ["-C", cwd, "update-ref", "--stdin"], { input: refs.map((ref) => `create ${ref} ${checkpointTree}\n`).join("") });
   return { path: manager.getSessionFile(), entries: manager.getEntries().length };
 }
 
@@ -154,6 +172,9 @@ async function measureLargeThread(PiHost, ProjectHistory, SessionManager, kits, 
   for (const [key, value] of Object.entries(isolate)) { saved[key] = process.env[key]; process.env[key] = value; }
   await mkdir(isolate.HOME, { recursive: true });
   const long = writeThread(SessionManager, workspace, sessionDir, LONG_THREAD_TURNS, BENCH_PROVIDER, "bench-a");
+  execFileSync("git", ["-C", workspace, "-c", "user.name=Tau Benchmark", "-c", "user.email=tau@example.invalid", "commit", "-q", "--allow-empty", "-m", "fixture"], { stdio: "ignore" });
+  const tree = execFileSync("git", ["-C", workspace, "rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
+  const checkpointed = writeThread(SessionManager, workspace, sessionDir, CHECKPOINTED_TURNS, BENCH_PROVIDER, "bench-a", tree);
   const short = writeThread(SessionManager, workspace, sessionDir, 2, BENCH_PROVIDER, "bench-a");
   const newest = `Question ${LONG_THREAD_TURNS - 1}:`;
   const firstPage = (detail, scenario) => {
@@ -205,6 +226,10 @@ async function measureLargeThread(PiHost, ProjectHistory, SessionManager, kits, 
         const durationMs = performance.now() - started;
         pageMessages = Math.max(pageMessages, firstPage(result.updates?.find((update) => update.type === "thread-detail")?.detail, "open"));
         samples.push({ scenario: "open", durationMs });
+        // Workspace Kit checks a thread's checkpoints before it opens; that check must not grow with them.
+        const checkpointedStarted = performance.now();
+        await host.switchSession(checkpointed.path);
+        samples.push({ scenario: "open-checkpointed", durationMs: performance.now() - checkpointedStarted });
       });
       makeActive(long.path);
       await withHost(async (host, events) => {

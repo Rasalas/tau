@@ -1504,6 +1504,28 @@ async function recentManifests(
   return recent;
 }
 
+/** A pair the ref listing already shows as two trees needs no Git call of its own. */
+function listedTreePair(objects: SnapshotRefObjects, before: string, after: string): boolean {
+  return [before, after].every((ref) => {
+    const object = objects.get(ref);
+    return object?.type === "tree" && object.id !== undefined && validObjectId(object.id);
+  });
+}
+
+type SnapshotRefObjects = Map<string, { id?: string; type?: string }>;
+
+/** Snapshot refs under `prefix` with their objects; names alone when Git cannot describe every object. */
+async function snapshotRefObjects(cwd: string, prefix: string, runGit: GitRunner): Promise<SnapshotRefObjects> {
+  const objects: SnapshotRefObjects = new Map();
+  const listed = await runGit(cwd, ["for-each-ref", "--format=%(refname) %(objectname) %(objecttype)", prefix]).catch(() => undefined);
+  const lines = listed ?? await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => "");
+  for (const line of lines.split("\n")) {
+    const [ref, id, type] = line.trim().split(" ");
+    if (ref && isTurnSnapshotId(ref)) objects.set(ref, listed === undefined ? {} : { id, type });
+  }
+  return objects;
+}
+
 /**
  * Crash recovery for the two-phase checkpoint write. A process can publish
  * immutable trees and die before its session custom entry is appended; those
@@ -1519,42 +1541,34 @@ export async function cleanupOrphanTurnCheckpointRefs(
   options: CheckpointRefSweepOptions = {},
 ): Promise<void> {
   const prefix = `refs/tau/checkpoints/${sanitizeTurnSnapshotComponent(sessionId)}/`;
-  const refs = (await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => ""))
-    .split("\n")
-    .map((ref) => ref.trim())
-    .filter((ref) => isTurnSnapshotId(ref));
+  // Every ref's object comes with the listing, so a pair of trees costs no Git call of its own:
+  // this runs before each thread opens, and a call per checkpoint made a long thread slow to open.
+  const objects = await snapshotRefObjects(cwd, prefix, runGit);
+  const refs = [...objects.keys()];
   const refSet = new Set(refs);
   const valid = new Set<string>();
+  const keepPair = async (turnId: string): Promise<void> => {
+    const before = turnSnapshotRef(sessionId, turnId, "before");
+    const after = turnSnapshotRef(sessionId, turnId, "after");
+    // A durable entry is valid only when both deterministic refs still
+    // exist and both resolve to trees in the expected namespace. This also
+    // removes half-written pairs left by a crash or a failed ref update.
+    if (!refSet.has(before) || !refSet.has(after)) return;
+    if (!listedTreePair(objects, before, after)) await validateWorkspaceSnapshotRefs(cwd, before, after, { sessionId, turnId }, runGit);
+    valid.add(before);
+    valid.add(after);
+  };
   for (const checkpoint of checkpoints) {
     if (checkpoint.sessionId !== sessionId) continue;
-    try {
-      const before = turnSnapshotRef(sessionId, checkpoint.turnId, "before");
-      const after = turnSnapshotRef(sessionId, checkpoint.turnId, "after");
-      // A durable entry is valid only when both deterministic refs still
-      // exist and both resolve to trees in the expected namespace. This also
-      // removes half-written pairs left by a crash or a failed ref update.
-      if (!refSet.has(before) || !refSet.has(after)) continue;
-      await validateWorkspaceSnapshotRefs(cwd, before, after, { sessionId, turnId: checkpoint.turnId }, runGit);
-      valid.add(before);
-      valid.add(after);
-    } catch {
-      // Malformed or incomplete persisted entries are ignored; their refs are
-      // intentionally treated as orphaned and removed below.
-    }
+    // Malformed or incomplete persisted entries are ignored; their refs are
+    // intentionally treated as orphaned and removed below.
+    await keepPair(checkpoint.turnId).catch(() => undefined);
   }
   for (const backup of backups) {
     if (backup.sessionId !== sessionId) continue;
-    try {
-      const before = turnSnapshotRef(sessionId, backup.turnId, "before");
-      const after = turnSnapshotRef(sessionId, backup.turnId, "after");
-      if (!refSet.has(before) || !refSet.has(after)) continue;
-      await validateWorkspaceSnapshotRefs(cwd, before, after, { sessionId, turnId: backup.turnId }, runGit);
-      valid.add(before);
-      valid.add(after);
-    } catch {
-      // A backup with a missing or malformed pair is not recoverable and must
-      // not keep an orphaned ref alive.
-    }
+    // A backup with a missing or malformed pair is not recoverable and must
+    // not keep an orphaned ref alive.
+    await keepPair(backup.turnId).catch(() => undefined);
   }
   const doomed = refs.filter((ref) => !valid.has(ref));
   const recent = await recentSnapshotRefs(cwd, doomed, runGit, options);
@@ -1563,7 +1577,8 @@ export async function cleanupOrphanTurnCheckpointRefs(
   const sessionDirectory = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints", sanitizeTurnSnapshotComponent(sessionId));
   const filesystemRefs = await filesystemManifests(sessionDirectory);
   const validFilesystem = new Set<string>();
-  for (const checkpoint of checkpoints) {
+  // Without manifests nothing can be orphaned; a Git checkout keeps none.
+  if (filesystemRefs.length > 0) for (const checkpoint of checkpoints) {
     if (checkpoint.sessionId !== sessionId) continue;
     const before = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(sessionId, checkpoint.turnId, "before"));
     const after = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(sessionId, checkpoint.turnId, "after"));
@@ -1572,7 +1587,7 @@ export async function cleanupOrphanTurnCheckpointRefs(
       validFilesystem.add(filesystemManifestPath(canonicalCwd, after.id));
     }
   }
-  for (const backup of backups) {
+  if (filesystemRefs.length > 0) for (const backup of backups) {
     if (backup.sessionId !== sessionId) continue;
     const before = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(sessionId, backup.turnId, "before"));
     const after = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(sessionId, backup.turnId, "after"));
@@ -1634,10 +1649,9 @@ export async function cleanupCheckpointRefsForLiveSessions(
     try { return [sanitizeTurnSnapshotComponent(session.sessionId)]; } catch { return []; }
   }));
   const prefix = "refs/tau/checkpoints/";
-  const refs = (await runGit(cwd, ["for-each-ref", "--format=%(refname)", prefix]).catch(() => ""))
-    .split("\n")
-    .map((ref) => ref.trim())
-    .filter((ref) => isTurnSnapshotId(ref));
+  // Every checkpoint of every session is checked while the workspace's lease is held; one listing keeps that short.
+  const objects = await snapshotRefObjects(cwd, prefix, runGit);
+  const refs = [...objects.keys()];
   for (const sessionId of liveSessionIds(await listLiveWorkspaceLeaseSessions())) protectedSessionIds.add(sessionId);
   const refsForWorkspace = refs.filter((ref) => {
     const sessionId = ref.split("/")[3];
@@ -1663,7 +1677,7 @@ export async function cleanupCheckpointRefsForLiveSessions(
         const before = turnSnapshotRef(session.sessionId, checkpoint.turnId, "before");
         const after = turnSnapshotRef(session.sessionId, checkpoint.turnId, "after");
         if (!refSet.has(before) || !refSet.has(after)) continue;
-        await validateWorkspaceSnapshotRefs(cwd, before, after, {
+        if (!listedTreePair(objects, before, after)) await validateWorkspaceSnapshotRefs(cwd, before, after, {
           sessionId: session.sessionId,
           turnId: checkpoint.turnId,
         }, runGit);
@@ -1679,7 +1693,7 @@ export async function cleanupCheckpointRefsForLiveSessions(
         const before = turnSnapshotRef(session.sessionId, backup.turnId, "before");
         const after = turnSnapshotRef(session.sessionId, backup.turnId, "after");
         if (!refSet.has(before) || !refSet.has(after)) continue;
-        await validateWorkspaceSnapshotRefs(cwd, before, after, {
+        if (!listedTreePair(objects, before, after)) await validateWorkspaceSnapshotRefs(cwd, before, after, {
           sessionId: session.sessionId,
           turnId: backup.turnId,
         }, runGit);
@@ -1721,7 +1735,8 @@ export async function cleanupCheckpointRefsForLiveSessions(
   const checkpointRoot = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints");
   const filesystemRefs = await filesystemManifests(checkpointRoot);
   const validFilesystem = new Set<string>();
-  for (const session of scopedSessions) {
+  // Without manifests nothing can be orphaned; a Git checkout keeps none.
+  if (filesystemRefs.length > 0) for (const session of scopedSessions) {
     for (const checkpoint of session.checkpoints) {
       if (checkpoint.sessionId !== session.sessionId) continue;
       const before = await readFilesystemSnapshot(canonicalCwd, turnSnapshotRef(session.sessionId, checkpoint.turnId, "before"));

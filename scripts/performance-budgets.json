@@ -44,6 +44,7 @@
   "largeThreadBootstrapP95Ms": 5000,
   "largeThreadFullReadyP95Ms": 7500,
   "largeThreadPageMessages": 60,
+  "checkpointedThreadOpenP95Ms": 1000,
   "hostIdleHeapSafeMiB": 70,
   "gitSubprocesses": 6,
   "gitOverlapSubprocesses": 6,
