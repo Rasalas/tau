@@ -278,7 +278,7 @@ export function createStoragePage(host: StorageHost) {
               id="setting-workspace-storage-scope"
               title="Rules for"
               description={`This machine's rules apply to every repository without its own; ${repository.name} is the one on screen.`}
-              control={<SegmentedControl label="Rules for" value={scope} options={[{ value: "host", label: "This machine" }, { value: "project", label: repository.name }]} onChange={setScope} />}
+              control={<SegmentedControl<Scope> label="Rules for" value={scope} options={[{ value: "host", label: "This machine" }, { value: "project", label: repository.name }]} onChange={setScope} />}
             />
           ) : null}
           {rules}
