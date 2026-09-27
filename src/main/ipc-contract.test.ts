@@ -25,11 +25,12 @@ const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? 
  * answers the host's calls into its own machine (ADR 0021), and hands its
  * host the agents' keys with the `machines-*` methods (ADR 0027). `blob-*`
  * come from another machine's host (`services.machines.upload`), and so do
- * `host-resources` and `readiness`.
+ * `host-resources` and `readiness`. `tau machines` (bin/tau-machines.mjs)
+ * sends `machines-overview`, `machines-pair` and `machines-forget`.
  */
 const CLIENT_SIDE = new Set([
   "hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove",
-  "blob-put", "blob-commit", "blob-abort", "host-resources", "readiness",
+  "blob-put", "blob-commit", "blob-abort", "host-resources", "readiness", "machines-overview", "machines-pair", "machines-forget",
 ]);
 
 function tableMethods(): Set<string> {

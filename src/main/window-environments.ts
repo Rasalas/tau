@@ -701,3 +701,43 @@ function recordMatchesPin(saved: Pick<SavedEnvironment, "publicKey" | "fingerpri
   if (saved.publicKey) return record.publicKey !== undefined && fingerprintsMatch(record.publicKey, saved.publicKey);
   return saved.fingerprint !== undefined && fingerprintsMatch(record.fingerprint, saved.fingerprint);
 }
+
+/**
+ * What core's window half answers for the host's `machines-*` methods (`tau
+ * machines`): the saved machines without keys or threads, pairing with a
+ * link as Settings → Machines does, and forgetting one.
+ */
+export async function answerEnvironmentCommand(environments: WindowEnvironments | undefined, command: string, input: unknown): Promise<unknown> {
+  if (!environments) {
+    // A window attached to a host by address, or one still starting, keeps no machines.
+    if (command === "environments") return null;
+    throw new Error("This window keeps no machine list.");
+  }
+  const item = (input ?? {}) as Record<string, unknown>;
+  switch (command) {
+    case "environments":
+      return environments.snapshot().environments.filter((entry) => !entry.local).map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        status: entry.status,
+        ...(entry.detail ? { detail: entry.detail } : {}),
+        ...(entry.roundTripMs !== undefined ? { roundTripMs: entry.roundTripMs } : {}),
+        ...(entry.address ? { address: entry.address } : {}),
+        ...(entry.readOnly ? { readOnly: true } : {}),
+        ...(entry.hostVersion ? { hostVersion: entry.hostVersion } : {}),
+      }));
+    case "pair-environment": {
+      if (typeof item.text !== "string" || !item.text) throw new Error("pair-environment: text must be a pairing link.");
+      const result = await environments.pair({ text: item.text, agents: item.agents === true });
+      if (result.state !== "added") return result;
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      if (name && name !== result.environment.name) await environments.rename(result.environment.id, name);
+      return { state: "added", environment: { id: result.environment.id, name: name || result.environment.name }, ...(result.agents ? { agents: result.agents } : {}) };
+    }
+    case "remove-environment":
+      if (typeof item.id !== "string" || !item.id) throw new Error("remove-environment: id must be a machine's id.");
+      return { removed: await environments.remove(item.id) };
+    default:
+      throw new Error(`The window has no service "${command}".`);
+  }
+}

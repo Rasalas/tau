@@ -8,7 +8,7 @@ import type { SavedEnvironment, SecretBox } from "./environment-catalog.js";
 import type { EnvironmentMonitor, EnvironmentMonitorOptions, MonitorState } from "./environment-monitor.js";
 import type { PairEnvironmentOptions, PairEnvironmentResult } from "./environment-pairing.js";
 import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT } from "./host-tls-trust.js";
-import { WindowEnvironments, type EnvironmentConnection, type WindowEnvironmentsOptions } from "./window-environments.js";
+import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection, type WindowEnvironmentsOptions } from "./window-environments.js";
 
 const directories: string[] = [];
 const opened: WindowEnvironments[] = [];
@@ -507,5 +507,30 @@ describe("reading a kit of another machine (API 1.15.0)", () => {
     await expect(environments.readExtension("nowhere", "tau.preview", "state")).rejects.toThrow(/does not know/u);
     monitor.set({ status: "offline", detail: "gone" });
     await expect(environments.readExtension("studio", "tau.preview", "state")).rejects.toThrow(/not reachable/u);
+  });
+});
+
+describe("core's window half for `tau machines`", () => {
+  it("lists the saved machines without keys or threads, pairs with a link under a name of its own, and forgets one", async () => {
+    const agents = { add: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) };
+    const { environments, pairCalls } = await setup({ state: "approved", environment: studio, agentsToken: "tau_client_agents" }, { agents });
+    const added = await answerEnvironmentCommand(environments, "pair-environment", { text: "https://192.168.1.4:7788/#pair=abc", agents: true, name: "Studio" });
+    expect(added).toEqual({ state: "added", environment: { id: "host-studio", name: "Studio" }, agents: { added: true } });
+    expect(pairCalls[0]).toMatchObject({ text: "https://192.168.1.4:7788/#pair=abc", companion: "laptop · Agents" });
+    expect(agents.add).toHaveBeenCalledWith(expect.objectContaining({ id: "host-studio", token: "tau_client_agents" }));
+    const listed = await answerEnvironmentCommand(environments, "environments", undefined);
+    expect(listed).toEqual([{ id: "host-studio", name: "Studio", status: "connecting" }]);
+    expect(JSON.stringify(listed)).not.toContain("tau_client");
+    expect(await answerEnvironmentCommand(environments, "remove-environment", { id: "host-studio" })).toEqual({ removed: true });
+    await expect(answerEnvironmentCommand(environments, "pair-environment", {})).rejects.toThrow(/pairing link/u);
+    await expect(answerEnvironmentCommand(environments, "open-anything", {})).rejects.toThrow(/no service/u);
+    expect(await answerEnvironmentCommand(undefined, "environments", undefined)).toBeNull();
+    await expect(answerEnvironmentCommand(undefined, "pair-environment", { text: "x" })).rejects.toThrow(/keeps no machine list/u);
+  });
+
+  it("asks for no agents unless told to", async () => {
+    const { environments, pairCalls } = await setup(undefined, { agents: { add: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } });
+    await answerEnvironmentCommand(environments, "pair-environment", { text: "https://192.168.1.4:7788/#pair=abc" });
+    expect(pairCalls[0]?.companion).toBeUndefined();
   });
 });

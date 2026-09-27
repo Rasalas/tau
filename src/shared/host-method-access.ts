@@ -98,6 +98,10 @@ export const HOST_METHOD_ACCESS = {
   "machines-list": "owner",
   "machines-add": "owner",
   "machines-remove": "owner",
+  // `tau machines`: the window's machines and the agents' in one list, pairing with a link, forgetting.
+  "machines-overview": "owner",
+  "machines-pair": "owner",
+  "machines-forget": "owner",
   // Another machine's agents send a file in pieces (plan-H); a Read-only device may not.
   "blob-put": "write",
   "blob-commit": "write",

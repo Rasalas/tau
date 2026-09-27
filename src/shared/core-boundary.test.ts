@@ -75,6 +75,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-service.js",   "./host-service-units.js",   "./display-window.js",   "./keep-awake.js",
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
   "./host-machines.js",
+  "./host-machine-pairing.js",
   // How busy the machine is and what it could run, read when asked (plan H §4).
   "./host-resources.js",
   // Files those machines' agents send in pieces, taken once by a kit (plan-H).

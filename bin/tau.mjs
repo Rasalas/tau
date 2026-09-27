@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseMachinesArgs, runMachines } from "./tau-machines.mjs";
 
 /** `configureAppIdentity` in `src/main/single-instance.ts` names the folder the same way. */
 export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
@@ -22,6 +23,9 @@ export const SERVICE_ACTIONS = ["install", "status", "uninstall", "restart"];
 export const USAGE = `Usage: tau app [path]
        tau service <install|status|uninstall|restart>
        tau service install --display | --no-display
+       tau machines add --ssh <target> [--name <name>] [--agents] [--access full|read-only] [--json]
+       tau machines list [--json]
+       tau machines remove <name or id> [--json]
 
 tau app opens a folder in the running Tau with a new thread, and brings its
 window to the front. Without a running Tau it starts the app on that folder.
@@ -34,6 +38,10 @@ starts at login and keeps threads running without a window. On Linux,
 --display gives it an invisible display (Xvfb): agents' shells get its
 DISPLAY, and a Tau window starts there when a thread needs the preview.
 --no-display removes it.
+
+tau machines add pairs this computer with a machine you reach over ssh:
+Tau's command line there allows it with that machine's own host token, so
+nobody compares digits. tau machines --help says more.
 
 TAU_USER_DATA names the instance, as it does for the app itself.`;
 
@@ -50,6 +58,7 @@ export function parseArgs(argv) {
     }
     return { command, action, flags };
   }
+  if (command === "machines") return { command, machines: parseMachinesArgs(rest) };
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
   const paths = rest.filter((arg) => arg !== "--");
   if (paths.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
@@ -96,23 +105,21 @@ export function readRunningHost(userData, isAlive = alive) {
 
 /**
  * One connection: hello with the token, as an auxiliary client so the host
- * does not count the command line as a window, then one `host-extension` call.
+ * does not count the command line as a window. `request` sends one method
+ * call and waits for its answer; a close or an error fails every waiting call.
  */
-export async function askHost({ url, token }, command, input, WebSocketImpl = globalThis.WebSocket, options = {}) {
+export async function openHostSession({ url, token }, WebSocketImpl = globalThis.WebSocket, options = {}) {
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
   if (!WebSocketImpl) throw new Error("This Node has no WebSocket; Tau's command line needs Node 22 or newer.");
   const socket = new WebSocketImpl(url);
   const pending = new Map();
   let failure;
+  let next = 0;
   const settleAll = (error) => {
     failure ??= error;
     for (const waiter of pending.values()) waiter.reject(error);
     pending.clear();
   };
-  const timer = setTimeout(() => {
-    settleAll(new Error("Tau did not answer in time."));
-    socket.close();
-  }, timeoutMs);
   socket.addEventListener("message", (event) => {
     let frame;
     try { frame = JSON.parse(String(event.data)); } catch { return; }
@@ -127,25 +134,53 @@ export async function askHost({ url, token }, command, input, WebSocketImpl = gl
   socket.addEventListener("error", () => settleAll(new Error(`Could not reach Tau at ${url}.`)));
   // A wrong token is answered by a close.
   socket.addEventListener("close", () => settleAll(new Error("Tau closed the connection; the token in host.json may be stale.")));
-  const send = (id, frame) => new Promise((resolvePromise, reject) => {
+  const send = (id, frame, waitMs) => new Promise((resolvePromise, reject) => {
     if (failure) { reject(failure); return; }
-    pending.set(id, { resolve: resolvePromise, reject });
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error("Tau did not answer in time."));
+    }, waitMs);
+    pending.set(id, {
+      resolve: (value) => { clearTimeout(timer); resolvePromise(value); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    });
     socket.send(JSON.stringify(frame));
   });
-  try {
-    await new Promise((resolvePromise, reject) => {
-      socket.addEventListener("open", () => resolvePromise());
-      socket.addEventListener("error", () => reject(new Error(`Could not reach Tau at ${url}.`)));
-    });
-    await send("hello", { type: "hello", id: "hello", hello: { protocol: PROTOCOL, token, auxiliary: true } });
-    // A host no client has started yet starts on its first bootstrap, as it would for a window.
-    if (options.bootstrap) await send("bootstrap", { type: "request", request: { id: "bootstrap", method: "bootstrap", params: [] } });
-    return await send("call", { type: "request", request: { id: "call", method: "host-extension", params: [WORKSPACE_KIT, command, input] } });
-  } finally {
-    clearTimeout(timer);
-    pending.clear();
+  const close = () => {
     failure ??= new Error("closed");
     socket.close();
+  };
+  try {
+    await new Promise((resolvePromise, reject) => {
+      const timer = setTimeout(() => reject(new Error("Tau did not answer in time.")), timeoutMs);
+      socket.addEventListener("open", () => { clearTimeout(timer); resolvePromise(); });
+      socket.addEventListener("error", () => { clearTimeout(timer); reject(new Error(`Could not reach Tau at ${url}.`)); });
+    });
+    const hello = await send("hello", { type: "hello", id: "hello", hello: { protocol: PROTOCOL, token, auxiliary: true } }, timeoutMs);
+    return {
+      hello,
+      request(method, params = [], waitMs = timeoutMs) {
+        next += 1;
+        const id = `call-${next}`;
+        return send(id, { type: "request", request: { id, method, params } }, waitMs);
+      },
+      close,
+    };
+  } catch (error) {
+    close();
+    throw error;
+  }
+}
+
+/** One `host-extension` call to Workspace Kit over a session of its own. */
+export async function askHost(host, command, input, WebSocketImpl = globalThis.WebSocket, options = {}) {
+  const session = await openHostSession(host, WebSocketImpl, options);
+  try {
+    // A host no client has started yet starts on its first bootstrap, as it would for a window.
+    if (options.bootstrap) await session.request("bootstrap", []);
+    return await session.request("host-extension", [WORKSPACE_KIT, command, input]);
+  } finally {
+    session.close();
   }
 }
 
@@ -229,6 +264,15 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     // The binary runs as Node; the userData is named, so the unit serves the same instance the app does.
     const childEnv = { ...env, ELECTRON_RUN_AS_NODE: "1", TAU_USER_DATA: userDataDir(env) };
     return (io.runService ?? runServiceCli)(launcher, options.action, childEnv, options.flags);
+  }
+  if (options.command === "machines") {
+    const userData = userDataDir(env);
+    return runMachines(options.machines, {
+      out,
+      readHost: () => (io.readRunningHost ?? readRunningHost)(userData),
+      openSession: (host) => openHostSession(host, io.WebSocket),
+      ...io.machines,
+    });
   }
   const folder = resolve(io.cwd ?? process.cwd(), options.path ?? ".");
   if (!existsSync(folder) || !statSync(folder).isDirectory()) throw new Error(`${folder} is not a folder.`);

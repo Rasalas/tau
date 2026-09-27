@@ -51,7 +51,7 @@ import { createAppShell } from "./app-shell.js";
 import { createQuitShortcut } from "./quit-shortcut.js";
 import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
 import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent } from "../shared/window-shell.js";
-import { WindowEnvironments, type EnvironmentConnection } from "./window-environments.js";
+import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection } from "./window-environments.js";
 import { machineDisplayName } from "./host-discovery.js";
 import { installEnvironmentSession } from "./environment-session.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
@@ -573,8 +573,8 @@ async function loadWindowHalves(): Promise<void> {
   // Core's own half answers even in safe mode: a host with no window has no folder picker.
   windowHost.extensions.register(WINDOW_SERVICES_ID, () => ({
     handle: (command, input) => {
-      if (command !== "pick-directory") throw new Error(`The window has no service "${command}".`);
-      return hostOptions.platform.pickDirectory(input as Parameters<typeof hostOptions.platform.pickDirectory>[0]);
+      if (command === "pick-directory") return hostOptions.platform.pickDirectory(input as Parameters<typeof hostOptions.platform.pickDirectory>[0]);
+      return answerEnvironmentCommand(environments, command, input);
     },
   }));
   const loaded = safeMode ? undefined : await loadBundledKitWindowHalves(kitOptions).catch((error: unknown) => {

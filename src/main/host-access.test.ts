@@ -90,7 +90,7 @@ describe("asking to pair", () => {
     // Spent by the request, and nobody is let in yet.
     expect(access.overview().links).toEqual([]);
     expect(access.overview().clients).toEqual([]);
-    expect(access.overview().requests).toMatchObject([{ id, link: { label: "Kitchen iPad" }, verification: (reply as { verification: string }).verification, access: "full", address: "192.0.2.7" }]);
+    expect(access.overview().requests).toMatchObject([{ id, link: { id: link.id, label: "Kitchen iPad" }, verification: (reply as { verification: string }).verification, access: "full", address: "192.0.2.7" }]);
 
     expect(await access.approvePairing(id!)).toBe(true);
     const approved = device.replies[0];

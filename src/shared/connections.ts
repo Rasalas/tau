@@ -72,8 +72,8 @@ export interface UiPairingRequest {
   name?: string;
   device: UiClientDevice;
   address?: string;
-  /** It came with a pairing link, and this is the link's label; absent for a request without one. */
-  link?: { label?: string };
+  /** It came with a pairing link: the link's id and label; absent for a request without one. */
+  link?: { id?: string; label?: string };
   verification: string;
   /** From the link, or Full; the owner may change it when allowing. */
   access: DeviceAccess;

@@ -103,7 +103,7 @@ interface PendingRequest {
   device: UiClientDevice;
   address?: string;
   /** Set when a pairing link brought it. */
-  link?: { label?: string; access: DeviceAccess };
+  link?: { id: string; label?: string; access: DeviceAccess };
   /** `challenge` waits for the device's nonce and is not shown to the owner yet. */
   state: "challenge" | "waiting";
   commitment?: string;
@@ -354,7 +354,7 @@ export class HostAccess {
       ...(name ? { name } : {}),
       device: describeUserAgent(peer.userAgent),
       ...(address ? { address } : {}),
-      ...(link ? { link: { ...(link.label ? { label: link.label } : {}), access: link.access } } : {}),
+      ...(link ? { link: { id: link.id, ...(link.label ? { label: link.label } : {}), access: link.access } } : {}),
       state: request.commitment ? "challenge" : "waiting",
       ...(request.commitment ? { commitment: request.commitment, hostNonce: randomBytes(32).toString("base64url") } : {}),
       ...(request.commitment && request.binding === "key" ? { binding: "key" as const } : {}),
@@ -715,7 +715,7 @@ function requestInfo(pending: PendingRequest): UiPairingRequest {
     ...(pending.name ? { name: pending.name } : {}),
     device: pending.device,
     ...(pending.address ? { address: pending.address } : {}),
-    ...(pending.link ? { link: pending.link.label ? { label: pending.link.label } : {} } : {}),
+    ...(pending.link ? { link: { id: pending.link.id, ...(pending.link.label ? { label: pending.link.label } : {}) } } : {}),
     verification: pending.verification!,
     access: pending.link?.access ?? "full",
     ...(pending.companion ? { companion: { name: companionLabel(pending, requestLabel(pending)) } } : {}),
