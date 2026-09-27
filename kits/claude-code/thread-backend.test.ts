@@ -199,7 +199,7 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const { adapter, sessions } = scriptedAdapter(filePath, async (content, priority) => {
+    const { adapter, sessions } = scriptedAdapter(filePath, async (content, _priority) => {
       if (String(content) === "also") return [result("joined", { user_message_uuids: [] })];
       if (String(content) === "first") { await firstGate; return turn("one"); }
       return turn("two");
