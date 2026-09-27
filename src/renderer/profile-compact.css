@@ -46,6 +46,10 @@ body[data-profile="compact"] .workbench-center:is(.wide-open, .stage-open):not(.
 /* Behind a chat tab's strip, which is taller here. */
 body[data-profile="compact"] .workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { top: 48px; }
 
+/* A document's header on a tablet (a file, the editor): its view switches and actions at a finger's size. */
+body[data-profile="compact"] .stage-pane-header { height: 56px; gap: 6px; padding: 0 8px 0 16px; }
+body[data-profile="compact"] .stage-pane-header :is(.text-button, .toggle-group > button) { min-height: 44px; padding: 0 12px; font-size: 13px; }
+
 /* Keys and chords a touch screen has none of: esc, ↑↓, ⌘5, ⇧click. */
 body[data-profile="compact"] .keyboard-hint { display: none; }
 

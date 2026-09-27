@@ -1,6 +1,6 @@
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
-import { Menu, type UiEditor } from "tau";
+import { hostHasLocalFiles, Menu, type UiEditor } from "tau";
 import type { WorkspaceStoreLike } from "./kit.js";
 
 const FILE_MANAGER_ID = "file-manager";
@@ -24,7 +24,8 @@ export function OpenInPicker({ store, relPath, line }: { store: WorkspaceStoreLi
     const at = line?.();
     void store.openInEditor(relPath, editorId, at ? { line: at } : undefined);
   };
-  if (state.editors.length === 0) return null;
+  // The host's editors open on the host's screen, not on a phone's or a tablet's.
+  if (state.editors.length === 0 || !hostHasLocalFiles()) return null;
   return <div className="menu-anchor files-open-in">
     <div className="chrome-group" aria-label="Open in editor">
       <button
