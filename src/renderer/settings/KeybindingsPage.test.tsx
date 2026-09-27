@@ -125,7 +125,8 @@ describe("Settings → Keybindings as an editor", () => {
     fireEvent.keyDown(recorder(), ctrl("j"));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
     fireEvent.click(screen.getByRole("button", { name: "Reset all" }));
-    const confirm = screen.getByRole("alertdialog", { name: "Reset all keybindings" });
+    const confirm = screen.getByRole("dialog", { name: "Reset every keybinding?" });
+    expect(confirm.textContent).toContain("~/.pi/agent/keybindings.json");
     await act(async () => { fireEvent.click(within(confirm).getByRole("button", { name: "Reset all" })); });
     expect(resetAll).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Reset all" })).toBeNull();
@@ -151,6 +152,15 @@ describe("Settings → Keybindings as an editor", () => {
     expect(screen.getByRole("heading", { name: "Active keybindings (1)" })).toBeTruthy();
     expect(chordButton(/Change the chord for Command palette/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear the key search" }));
+    expect(screen.getByRole("heading", { name: "Active keybindings (3)" })).toBeTruthy();
+  });
+
+  it("says when nothing matches the filter and clears it", () => {
+    setup();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter keybindings or commands" }), { target: { value: "nothing like this" } });
+    expect(screen.getByRole("heading", { name: "Active keybindings (0)" })).toBeTruthy();
+    expect(screen.getByText("No keybinding matches “nothing like this”")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the search" }));
     expect(screen.getByRole("heading", { name: "Active keybindings (3)" })).toBeTruthy();
   });
 
