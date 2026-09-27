@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { SessionLocks } from "./session-locks.js";
 import { ThreadTrash, type ThreadTrashPort } from "./thread-trash.js";
 
-async function setup(options: { backend?: ThreadTrashPort["backend"]; retentionMs?: number } = {}) {
+async function setup(options: { backend?: ThreadTrashPort["backend"]; retentionMs?: number; locks?: SessionLocks } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-trash-"));
   const sessions = join(root, "sessions");
   const dir = join(root, "trash");
@@ -14,6 +15,7 @@ async function setup(options: { backend?: ThreadTrashPort["backend"]; retentionM
     backend: options.backend ?? (() => undefined),
     threadDeleted: async (sessionId, cwd) => { deleted.push([sessionId, cwd]); },
     log: () => undefined,
+    ...(options.locks ? { holdSession: (path, action, work) => options.locks!.hold(path, action, work) } : {}),
   };
   const trash = new ThreadTrash(port, { dir, retentionMs: options.retentionMs ?? 10_000, now: () => now });
   return { root, sessions, dir, trash, deleted, advance: (ms: number) => { now += ms; }, port };
@@ -100,6 +102,50 @@ describe("ThreadTrash", () => {
     await trash.purge("ext");
     expect(store.has("ext")).toBe(false);
     expect(deleted).toEqual([["ext", "/repo"]]);
+  });
+
+  describe("a Pi session another process holds", () => {
+    it("is not moved to the trash, and moves once it is let go", async () => {
+      const { sessions, trash } = await setup({ locks: new SessionLocks({ dataFolder: "/data/window" }) });
+      const path = join(sessions, "one.jsonl");
+      await mkdir(sessions, { recursive: true });
+      await writeFile(path, "one\n");
+      const other = new SessionLocks({ dataFolder: "/data/service" });
+      await other.acquire(path);
+
+      await expect(trash.trash({ sessionId: "one", cwd: "/repo", title: "", backendKind: "pi", path }))
+        .rejects.toThrow(/This thread is open in another Tau host \(pid \d+, data folder \/data\/service\); close it there before deleting it\./u);
+      expect(await readFile(path, "utf8")).toBe("one\n");
+      expect(trash.has("one")).toBe(false);
+
+      other.releaseAll();
+      await trash.trash({ sessionId: "one", cwd: "/repo", title: "", backendKind: "pi", path });
+      expect(trash.has("one")).toBe(true);
+    });
+
+    it("is neither restored over nor purged, and a due purge waits instead", async () => {
+      const locks = new SessionLocks();
+      const { sessions, trash, deleted, advance } = await setup({ locks, retentionMs: 1_000 });
+      const path = join(sessions, "one.jsonl");
+      await mkdir(sessions, { recursive: true });
+      await writeFile(path, "one\n");
+      await trash.trash({ sessionId: "one", cwd: "/repo", title: "", backendKind: "pi", path });
+      // Another host has a session at the thread's old place again.
+      const other = new SessionLocks({ dataFolder: "/data/service" });
+      await other.acquire(path);
+
+      await expect(trash.restore("one")).rejects.toThrow(/the thread was not restored/u);
+      await expect(trash.purge("one")).rejects.toThrow(/close it there before deleting it/u);
+      advance(2_000);
+      await trash.purgeDue();
+      trash.dispose();
+      expect(deleted).toEqual([]);
+      expect(trash.list()[0]?.purgeAt).toBeGreaterThan(3_000);
+
+      other.releaseAll();
+      await trash.purge("one");
+      expect(deleted).toEqual([["one", "/repo"]]);
+    });
   });
 
   it("refuses a backend that cannot hand its threads over", async () => {
