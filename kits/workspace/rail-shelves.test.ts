@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { UiSession } from "tau";
-import { createMemoryStorage } from "../../src/workbench/client-storage.js";
+import type { ClientStorage, UiSession } from "tau";
 import { readShelvesOpen, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows, SHELVES_OPEN_KEY, writeShelvesOpen } from "./rail-shelves.js";
 import type { ThreadRailSection } from "./protocol.js";
+
+function createMemoryStorage(): ClientStorage {
+  const store = new Map<string, string>();
+  return { get: (key) => store.get(key) ?? null, set: (key, value) => { store.set(key, value); }, remove: (key) => { store.delete(key); }, keys: () => [...store.keys()] };
+}
 
 const thread = (id: string): UiSession => ({ id, path: `/${id}.jsonl`, title: id, modifiedAt: 1, projectPath: "/p", projectName: "p", messageCount: 1 });
 const settled = (count: number): ThreadRailSection => ({
