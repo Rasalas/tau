@@ -143,4 +143,38 @@ describe("TooltipLayer", () => {
     wait(TOOLTIP_LONG_PRESS_MS);
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
+
+  it("stays inside the window at its right edge, measured afresh when it moves straight from another tooltip", () => {
+    // A fixed box with auto width takes its text's width, up to its max-width and the room right of its `left`.
+    const width = (tooltip: HTMLElement, left: number) => Math.min((tooltip.textContent ?? "").length * 6, 320, window.innerWidth - left);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("tooltip")) {
+        const left = Number.parseFloat(this.style.left || "0");
+        return { left, top: 0, width: width(this, left), height: 16, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+      }
+      // The actions row ends at the window's right edge; Edit sits left of Fork.
+      const right = window.innerWidth - (this.dataset.tooltip?.startsWith("Fork") ? 4 : 90);
+      return { left: right - 60, top: 200, width: 60, height: 20, right, bottom: 220, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    render(<>
+      <TooltipLayer />
+      <div {...tooltipProps("Fork through this message")}>
+        <button type="button" {...tooltipProps("Rewind to before this message and edit it in the composer")}>Edit from here</button>
+      </div>
+    </>);
+    const fits = () => {
+      const tooltip = screen.getByRole("tooltip");
+      const left = Number.parseFloat(tooltip.style.left);
+      return left >= 8 && left + width(tooltip, left) <= window.innerWidth - 8;
+    };
+    const edit = screen.getByRole("button", { name: "Edit from here" });
+    fireEvent.pointerOver(edit.parentElement!);
+    wait(TOOLTIP_DELAY_MS);
+    expect(fits()).toBe(true);
+    // Into a trigger inside the first: the one tooltip box moves without closing in between.
+    fireEvent.pointerOver(edit);
+    expect(screen.getByRole("tooltip").textContent).toContain("Rewind");
+    expect(fits()).toBe(true);
+    rect.mockRestore();
+  });
 });
