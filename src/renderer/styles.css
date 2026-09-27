@@ -1647,13 +1647,15 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .stage-tab.active .stage-tab-icon { color: var(--ink-3); }
 .stage-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .stage-tab > em { color: var(--working); font: 10px var(--mono); font-style: normal; }
+/* No padding: the browser's default button padding pushed the 12 px glyph right of its box's centre. */
 .stage-tab-close {
-  width: 18px; height: 18px; flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; flex: none; display: grid; place-items: center; padding: 0;
   border: 0; border-radius: 5px; background: transparent; color: var(--faint);
   cursor: pointer; opacity: 0;
 }
 .stage-tab:hover .stage-tab-close, .stage-tab.active .stage-tab-close, .stage-tab:focus-visible .stage-tab-close { opacity: 1; }
 .stage-tab-close:hover { background: var(--line-strong); color: var(--ink); }
+.stage-tab-close > svg, .panel-host .icon-button > svg { display: block; }
 /* The tab strip scrolls, so its context menu hangs off a fixed point instead. */
 .stage-tab-menu { position: fixed; z-index: 61; width: 0; height: 0; }
 .stage-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; }
