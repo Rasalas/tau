@@ -1427,6 +1427,8 @@ export class ExtensionRegistry {
   private contributionKinds = new Map<string, string[]>();
   /** Every renderable contribution an active extension offered, with the clients it claims. */
   private profiledContributions = new Map<string, ProfiledContribution[]>();
+  /** The first runtime and icon each extension's contributions named, drawn here or not; kept while it is off. */
+  private marks = new Map<string, { runtime?: string; Icon?: PanelIconComponent }>();
   private known = new Map<string, DesktopExtension>();
   /** Ids core activated itself; they are listed but never switched off. */
   private readonly coreIds = new Set<string>();
@@ -1445,6 +1447,11 @@ export class ExtensionRegistry {
   private scopeToProfile(owner: ContributionOwner, kind: string, id: string, label: string | undefined, scoped: ProfileScoped | undefined): boolean {
     const own = this.profiledContributions.get(owner.extensionId) ?? [];
     this.profiledContributions.set(owner.extensionId, own);
+    const { runtime, Icon } = (scoped ?? {}) as { runtime?: unknown; Icon?: PanelIconComponent };
+    const mark = this.marks.get(owner.extensionId) ?? {};
+    if (typeof runtime === "string" && !mark.runtime) mark.runtime = runtime;
+    if (Icon && !mark.Icon) mark.Icon = Icon;
+    if (mark.runtime || mark.Icon) this.marks.set(owner.extensionId, mark);
     own.push({
       ...owner,
       kind,
@@ -1459,6 +1466,15 @@ export class ExtensionRegistry {
   /** Every renderable contribution the active extensions offered, drawn here or not. */
   getProfiledContributions(): ProfiledContribution[] {
     return [...this.profiledContributions.values()].flat();
+  }
+
+  /**
+   * The runtime and the icon each extension's pages, panels and sections name,
+   * including those this client does not draw: a phone shows a runtime kit's
+   * mark though its page is the desktop's.
+   */
+  getContributionMarks(): ReadonlyMap<string, { runtime?: string; Icon?: PanelIconComponent }> {
+    return this.marks;
   }
 
   /** What this client cannot draw: the "not on this client" list in Settings. */

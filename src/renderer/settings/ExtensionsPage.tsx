@@ -68,7 +68,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   const toggle = useExtensionSwitch(registry, onNotify, onHostHalves);
-  const marks = extensionMarks(registry);
+  const marks = extensionMarks(registry, entries);
   const counts = filterCounts(entries);
   const shown = entries.filter((entry) => matchesFilter(entry, filter) && matchesQuery(entry, query));
   // Unfiltered, the list reads in three parts: what needs the user, what they installed, what Tau brings.
