@@ -31,6 +31,7 @@ import {
   THREAD_TEXTS_COMMAND,
   threadTextsDelta,
 } from "tau/host-extension";
+import { readAgentSdkIdentity, type AccountIdentity } from "./account-identity.js";
 import { claudeProjectDirs, importClaudeSessions, scanClaudeSessions } from "./history-import.js";
 import {
   CLAUDE_CODE_BACKEND_KIND,
@@ -207,11 +208,11 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       };
 
       /** Per instance: the plan's windows last read or reported by a turn, and the login's billing. */
-      const limits = new Map<string, { at: number; windows: LimitWindow[]; plan?: string; billing?: UiModelBilling; error?: string; unsupported?: boolean }>();
+      const limits = new Map<string, { at: number; windows: LimitWindow[]; plan?: string; billing?: UiModelBilling; identity?: AccountIdentity; error?: string; unsupported?: boolean }>();
       const noteProbe = (id: string, probe: ClaudeProbe): ClaudeProbe => {
         const billing = probeBilling(probe.account);
         const held = limits.get(id);
-        limits.set(id, { at: held?.at ?? 0, windows: held?.windows ?? [], ...(held?.plan ? { plan: held.plan } : {}), ...(billing ? { billing } : {}) });
+        limits.set(id, { at: held?.at ?? 0, windows: held?.windows ?? [], ...(held?.plan ? { plan: held.plan } : {}), ...(held?.identity ? { identity: held.identity } : {}), ...(billing ? { billing } : {}) });
         return probe;
       };
       const noteRateLimits = (id: string, infos: ReadonlyArray<Record<string, unknown>>): void => {
@@ -225,14 +226,16 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           const probe = noteProbe(id, await adapter.probe({ usage: true }));
           const windows = usageReadWindows(probe.usage);
           const plan = probe.account?.subscriptionType;
-          limits.set(id, { ...limits.get(id), at: Date.now(), windows: windows ?? [], ...(plan ? { plan } : {}), ...(windows ? {} : { unsupported: true }) });
+          const identity = probeBilling(probe.account) === "subscription" ? await readAgentSdkIdentity(settings.environment(id, env), plan) : undefined;
+          const { identity: _previous, ...held } = limits.get(id) ?? {};
+          limits.set(id, { ...held, at: Date.now(), windows: windows ?? [], ...(plan ? { plan } : {}), ...(identity ? { identity } : {}), ...(windows ? {} : { unsupported: true }) });
         } catch (error) {
           limits.set(id, { ...limits.get(id), at: Date.now(), windows: limits.get(id)?.windows ?? [], error: error instanceof Error ? error.message : String(error) });
         }
       };
       const limitAccount = (id: string): LimitAccount => {
         const held = limits.get(id);
-        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at || Date.now(), ...(held?.plan ? { plan: held.plan } : {}) };
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at || Date.now(), ...(held?.plan ? { plan: held.plan } : {}), ...(held?.identity ? { identity: held.identity } : {}) };
         if (held && held.windows.length > 0) return { ...base, windows: held.windows };
         if (held?.error) return { ...base, windows: [], unavailable: { reason: "failed", message: held.error } };
         if (held?.billing === "api-key") return { ...base, windows: [], unavailable: { reason: "unsupported", message: "An API key or a cloud provider has no plan limits." } };
