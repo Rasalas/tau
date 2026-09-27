@@ -67,7 +67,7 @@ async function renderRail(threads: RailExternalThread[], own: UiSession[]) {
   return { ...rendered, rail, outside };
 }
 
-const titles = (rail: HTMLElement) => [...rail.querySelectorAll(".rail-active .thread-title")].map((title) => title.textContent);
+const titles = (rail: HTMLElement) => [...rail.querySelectorAll(".rail-active .thread-title")].filter((title) => !title.closest(".rail-shelves")).map((title) => title.textContent);
 
 describe("other machines' threads in the rail", () => {
   it("stand among this machine's by time, with the machine's mark just before the cost", async () => {
@@ -117,21 +117,29 @@ describe("other machines' threads in the rail", () => {
 });
 
 describe("the rail's shelves", () => {
-  it("sit under the active threads in a scroller of their own", async () => {
-    const own = [session("a", 30), session("b", 20)];
+  it("follow the active threads in the one scroller, folded until opened", async () => {
+    const own = [session("a", 30), session("b", 20), session("c", 10)];
     const { rail, services } = await renderRail([], own);
-    act(() => services.preferences.toggleSettled("b"));
-    const shelves = rail.querySelector(".rail-shelves") as HTMLElement;
-    expect(within(shelves).getByRole("button", { name: /Settled · 1/u })).toBeTruthy();
+    act(() => { services.preferences.toggleSettled("b"); services.preferences.toggleSettled("c"); });
+    const active = rail.querySelector(".rail-active") as HTMLElement;
+    const shelves = active.querySelector(".rail-shelves") as HTMLElement;
+    const toggle = within(shelves).getByRole("button", { name: "Settled · 2" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(rail).queryByText("Thread b")).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toBe("Settled");
     expect(within(shelves).getByText("Thread b")).toBeTruthy();
-    expect(within(rail.querySelector(".rail-active") as HTMLElement).queryByText("Thread b")).toBeNull();
+    expect(titles(rail)).toEqual(["Thread a"]);
   });
 
-  it("are pinned to the rail's lower third, the active list keeping the rest even when short", () => {
-    // jsdom lays nothing out, so the rule that does is read from the stylesheet.
+  it("sit at the rail's bottom while the active threads are few, and scroll with them when many", () => {
+    // jsdom lays nothing out, so the rules that do are read from the stylesheet.
     const css = readFileSync(join(import.meta.dirname, "styles.css"), "utf8");
-    expect(/^\.rail-shelves \{([^}]*)\}/mu.exec(css)?.[1]).toMatch(/flex: 0 0 34%;[^}]*overflow: auto/u);
-    expect(/^\.rail-active \{([^}]*)\}/mu.exec(css)?.[1]).toMatch(/flex: 1 1 0;[^}]*overflow: auto/u);
+    const rule = (selector: string) => new RegExp(`^${selector.replace(".", "\\.")} \\{([^}]*)\\}`, "mu").exec(css)?.[1] ?? "";
+    expect(rule(".rail-active")).toMatch(/overflow: auto;[^}]*display: flex; flex-direction: column/u);
+    expect(rule(".rail-active-rows")).toMatch(/flex: 1 0 auto/u);
+    expect(rule(".rail-shelves")).toMatch(/margin-top: auto/u);
+    expect(rule(".rail-shelves")).not.toMatch(/overflow|flex: 0 0/u);
   });
 });
 

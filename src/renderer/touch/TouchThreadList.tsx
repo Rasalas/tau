@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Check, Mail, MailOpen, Pin, PinOff, RotateCcw, Square } from "lucide-react";
+import { Check, ChevronDown, Mail, MailOpen, Pin, PinOff, RotateCcw, Square } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
@@ -16,6 +16,7 @@ import { ProviderIconStack } from "../components/ProviderIconStack";
 import { projectHue, projectInitial } from "../components/ThreadRow";
 import { MiddleTruncate } from "../components/ui/MiddleTruncate";
 import { threadCostLabel } from "../cost-format";
+import { useClientStorage } from "../client-storage-context";
 import { useHostClient } from "../host-client-context";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
@@ -49,6 +50,9 @@ function RowTime({ row }: { row: ThreadSupervisionRow }) {
   return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, now)}</time>;
 }
 
+/** Whether this client has the settled shelf open; folded is the default, as in T3 Code. */
+export const SETTLED_OPEN_KEY = "tau.thread-list.settled-open.v1";
+
 /** The branch every checkout starts on says nothing on a row, as on the desktop rail. */
 const DEFAULT_BRANCHES = new Set(["main", "master"]);
 
@@ -80,6 +84,12 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const [shown, setShown] = useState(THREAD_LIST_PAGE);
   const [openRow, setOpenRow] = useState<string>();
   const [sheetFor, setSheetFor] = useState<ThreadSupervisionRow>();
+  const clientStorage = useClientStorage();
+  const [settledOpen, setSettledOpen] = useState(() => clientStorage.get(SETTLED_OPEN_KEY) === "true");
+  const toggleSettled = () => setSettledOpen((open) => {
+    clientStorage.set(SETTLED_OPEN_KEY, String(!open));
+    return !open;
+  });
   const groups = useMemo(
     () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, ...(project ? { project } : {}) }),
     [current, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
@@ -148,7 +158,8 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     ? { ...value, settled: value.settled + 25 }
     : { ...value, active: value.active + THREAD_LIST_PAGE.active });
   const settled = groups.find((group) => group.id === "settled");
-  // The active threads keep two thirds of the list; the settled shelf sits in the lower third, each scrolling on its own.
+  const settledCount = settled ? settled.rows.length + settled.hidden : 0;
+  // One scroll, as the desktop rail: the settled shelf follows the active threads and sits at the bottom while those are few.
   return <>
     {connection}
     <div className="touch-thread-lists" onScrollCapture={() => setOpenRow(undefined)}>
@@ -156,10 +167,15 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         <ul className="touch-thread-list" aria-label="Threads">
           {groups.filter((group) => group !== settled).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
         </ul>
+        {settled ? <div className="touch-thread-shelf">
+          <button type="button" className="touch-thread-shelf-toggle" aria-expanded={settledOpen} onClick={toggleSettled}>
+            <span>{settledOpen ? "Settled" : `Settled · ${settledCount}`}</span><i /><ChevronDown size={14} aria-hidden />
+          </button>
+          {settledOpen ? <ul className="touch-thread-list" aria-label="Settled threads">
+            <GroupRows group={{ ...settled, label: "" }} {...rowProps} onMore={more(settled)} />
+          </ul> : null}
+        </div> : null}
       </div>
-      {settled ? <ul className="touch-thread-list touch-thread-shelf" aria-label="Settled threads">
-        <GroupRows group={settled} {...rowProps} onMore={more(settled)} />
-      </ul> : null}
     </div>
     {sheetFor ? <ActionSheet title={sheetFor.title} actions={sheetActions(sheetFor)} onClose={() => setSheetFor(undefined)} /> : null}
   </>;
@@ -205,7 +221,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
   showCosts: boolean;
 }) {
   return <>
-    {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}{group.id === "settled" ? ` · ${group.rows.length + group.hidden}` : ""}</span></li> : null}
+    {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}</span></li> : null}
     {group.rows.map((row) => {
       const active = row.id === activeId;
       return <li key={row.id} className="touch-thread-row" data-status={row.status} data-active={active || undefined} data-settled={row.settled || undefined}>
