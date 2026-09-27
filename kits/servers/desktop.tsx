@@ -6,7 +6,7 @@ import { DriftFeed, createDriftGate, createDriftRefresh, driftGateAsks } from ".
 import { ServerPromptFeed, createServerPromptLayer } from "./prompt-dialog.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { SERVERS_SETTINGS_PAGE } from "./view-protocol.js";
-import { createServersSettingsPage } from "./settings-page.js";
+import { SERVERS_SETTINGS_ROWS, createServersSettingsPage } from "./settings-page.js";
 import { registerServerSurfaces } from "./surfaces.js";
 
 /** Servers' desktop half: the server view and its status, the agent's server tools in the transcript, server drift, the "From a server…" project source, Settings → Servers and the host half's questions. */
@@ -32,6 +32,7 @@ const servers: DesktopExtension = {
       order: 47,
       profiles: ["desktop", "web"],
       keywords: ["sftp", "ftp", "ssh", "sftp.json", "deploy", "profile", "password", "keychain", "network", "sandbox", "localhost"],
+      rows: SERVERS_SETTINGS_ROWS,
       Component: createServersSettingsPage(context),
     });
     const unregisterGate = context.registerComposerGate({

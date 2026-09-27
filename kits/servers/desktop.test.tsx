@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettingsPageProps } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
@@ -31,7 +31,7 @@ function setup(answer: (command: string, input?: unknown) => unknown, cwd: strin
   const page = registry.getSettingsPages().find((entry) => entry.id === "servers.settings")!;
   const props: SettingsPageProps = { onNotify: vi.fn(), ...(cwd ? { cwd } : {}) };
   render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
-  return { invoke, props };
+  return { invoke, props, page };
 }
 
 describe("Settings → Servers", () => {
@@ -65,13 +65,14 @@ describe("Settings → Servers", () => {
       return undefined;
     });
     await flush();
-    const app = screen.getByRole("combobox", { name: "What the agent may run on app" }) as HTMLSelectElement;
-    expect(app.value).toBe("ask");
-    expect((screen.getByRole("combobox", { name: "What the agent may run on static" }) as HTMLSelectElement).value).toBe("read-only");
-    await act(async () => { fireEvent.change(app, { target: { value: "full" } }); });
+    const app = screen.getByRole("radiogroup", { name: "What the agent may run on app" });
+    const chosen = (group: HTMLElement) => within(group).getAllByRole("radio").find((radio) => radio.getAttribute("aria-checked") === "true")?.textContent;
+    expect(chosen(app)).toBe("Ask first");
+    expect(chosen(screen.getByRole("radiogroup", { name: "What the agent may run on static" }))).toBe("Read only");
+    await act(async () => { fireEvent.click(within(app).getByRole("radio", { name: "Full access" })); });
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-target-level", { cwd: "/work/site", targetId: APP.id, level: "full" });
-    expect(app.value).toBe("full");
+    expect(chosen(app)).toBe("Full access");
     expect(screen.getByText(/runs commands on the server without asking/u)).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Keep the history for" })).toBeTruthy();
   });
@@ -84,6 +85,18 @@ describe("Settings → Servers", () => {
     setup((command) => (command === "targets" ? { workspace: "/work/site", targets: [], issues: [] } : undefined));
     await flush();
     expect(screen.getByText("No sftp.json in this project")).toBeTruthy();
+  });
+});
+
+describe("the rows Settings → Servers names for the search", () => {
+  it("each lands on an element once a server project is open", async () => {
+    const STATUS: CredentialStatus = { targetId: APP.id, password: { source: "Tau's keychain item", session: false, saved: false, foreignItem: { label: "item", allowed: true } } };
+    const network: ServerNetworkState = { serverProject: true, allowAll: false, allowHosts: [], packageSources: ["registry.npmjs.org"], pi: { available: true } };
+    const { page } = setup((command) => (command === "targets" ? STATE : command === "credential-status" ? { targets: [STATUS] } : command === "network" ? network : undefined));
+    await flush();
+    const rows = page.rows ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(document.getElementById(row.id), row.label).toBeTruthy();
   });
 });
 
@@ -164,16 +177,20 @@ describe("Settings → Servers → Network", () => {
     await flush();
     expect(screen.getByText(/Reach this machine and the package sources only/u)).toBeTruthy();
     expect(screen.getByText("registry.npmjs.org · pypi.org")).toBeTruthy();
-    await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Host to allow" }), { target: { value: "api.example.com" } }); });
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Allow" })); });
+    const add = screen.getByRole("textbox", { name: "Add to Allowed hosts" });
+    await act(async () => { fireEvent.change(add, { target: { value: "https://api.example.com" } }); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add" })); });
+    expect(screen.getByRole("alert").textContent).toBe("Enter a host name alone, such as api.example.com.");
+    await act(async () => { fireEvent.change(add, { target: { value: "api.example.com" } }); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add" })); });
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowHosts: ["api.example.com"] });
     expect(screen.getByText("api.example.com")).toBeTruthy();
-    expect((screen.getByRole("textbox", { name: "Host to allow" }) as HTMLInputElement).value).toBe("");
+    expect((add as HTMLInputElement).value).toBe("");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remove api.example.com" })); });
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowHosts: [] });
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Allow all" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("switch", { name: "Let agent commands reach the whole network" })); });
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowAll: true });
     expect(screen.getByText(/Reach the whole network/u)).toBeTruthy();

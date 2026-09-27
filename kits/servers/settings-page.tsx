@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Info, OctagonAlert, Server } from "lucide-react";
-import { Empty, READ_ONLY_REASON, SettingRow, SettingsSection, Skeleton, errorMessage, useCommandAllowed, useSetting } from "tau";
+import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
+import { Button, READ_ONLY_REASON, SegmentedControl, Select, SettingRow, SettingsSection, SettingsState, errorMessage, useCommandAllowed, useSetting } from "tau";
 import type { DesktopExtensionContext, SettingsPageProps } from "tau";
 import {
   DEFAULT_RETENTION_COUNT, DEFAULT_RETENTION_DAYS, RETENTION_COUNT_KEY, RETENTION_DAYS_KEY, SERVERS_EXTENSION_ID, TARGET_LEVELS, decodeServerTargetsState, type TargetLevel,
@@ -55,8 +55,8 @@ function SecretRow({ title, spec, status, busy, allowed, onCheck, onForget }: {
       description={<>{status?.source ?? spec}{words.length ? <> · {words.join(" · ")}</> : null}</>}
       disabledReason={allowed ? undefined : READ_ONLY_REASON}
       control={<span className="servers-secret-actions">
-        <button type="button" className="chrome-button" disabled={busy || !allowed} onClick={onCheck}>Check</button>
-        {status?.saved || status?.session ? <button type="button" className="chrome-button" disabled={busy || !allowed} onClick={onForget}>Forget</button> : null}
+        <Button disabled={busy || !allowed} onClick={onCheck}>Check</Button>
+        {status?.saved || status?.session ? <Button disabled={busy || !allowed} onClick={onForget}>Forget</Button> : null}
       </span>}
     />
   );
@@ -81,7 +81,7 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
   onForget(): void;
 }) {
   return (
-    <SettingsSection title={target.label}>
+    <SettingsSection title={target.label} id={`servers-target-${target.id}`}>
       <SettingRow
         title="Server"
         description={<><code>{targetAddress(target)}</code>{target.usable ? null : <> · not usable yet</>}</>}
@@ -91,31 +91,27 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
         title="Profile"
         description="Merged over the configuration, as in VS Code. Tau keeps the choice on this machine, not in the project."
         disabledReason={allowed ? undefined : READ_ONLY_REASON}
-        control={<select
-          className="settings-select"
-          aria-label={`Profile of ${target.label}`}
+        control={<Select
+          label={`Profile of ${target.label}`}
           disabled={busy || !allowed}
-          value={target.profile ?? ""}
-          onChange={(event) => onProfile(event.target.value || undefined)}
-        >
-          {target.profile ? null : <option value="">None</option>}
-          {target.profiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
-        </select>}
+          value={target.profile}
+          placeholder="None"
+          options={target.profiles.map((profile) => ({ value: profile, label: profile }))}
+          onChange={(profile) => onProfile(profile)}
+        />}
       /> : null}
       {/* FTP runs no commands: nothing to allow. */}
       {target.protocol === "ftp" ? null : <SettingRow
         title="Commands on the server"
-        description={`${level ? LEVEL_WORDS[level].description : "Loading…"} Uploads are always yours.`}
+        description={`${level ? LEVEL_WORDS[level].description : "Reading what the agent may run…"} Uploads are always yours.`}
         disabledReason={levelAllowed ? undefined : READ_ONLY_REASON}
-        control={<select
-          className="settings-select"
-          aria-label={`What the agent may run on ${target.label}`}
+        control={<SegmentedControl
+          label={`What the agent may run on ${target.label}`}
           disabled={busy || !levelAllowed || !level}
-          value={level ?? "ask"}
-          onChange={(event) => onLevel(event.target.value as TargetLevel)}
-        >
-          {TARGET_LEVELS.map((entry) => <option key={entry} value={entry}>{LEVEL_WORDS[entry].label}</option>)}
-        </select>}
+          value={level}
+          options={TARGET_LEVELS.map((entry) => ({ value: entry, label: LEVEL_WORDS[entry].label }))}
+          onChange={onLevel}
+        />}
       />}
       <SecretRow title="Password" spec={target.password} status={credential?.password} busy={busy} allowed={allowed} onCheck={() => onCheck("password")} onForget={onForget} />
       {target.privateKeyPath ? <SettingRow title="Key" description={<code>{target.privateKeyPath}</code>} /> : null}
@@ -129,37 +125,50 @@ const RETENTION_DAYS = ["1", "7", "30", "90", "180", "365"];
 const RETENTION_COUNTS = ["1", "10", "50", "200", "500", "1000"];
 const readChoice = (choices: readonly string[]) => (raw: unknown) => (typeof raw === "string" && choices.includes(raw) ? raw : undefined);
 
+const DAY_OPTIONS = RETENTION_DAYS.map((value) => ({ value, label: `${value} ${value === "1" ? "day" : "days"}` }));
+const COUNT_OPTIONS = RETENTION_COUNTS.map((value) => ({ value, label: value === "1" ? "The newest only" : `${value} entries` }));
+
 /** How long Tau keeps the recorded server states and deployments; this machine's setting. */
 function RetentionSection({ busy, cleanAllowed, onClean }: { busy: boolean; cleanAllowed: boolean; onClean(): void }) {
-  const days = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_DAYS_KEY}`, { defaultValue: String(DEFAULT_RETENTION_DAYS), scope: "host", read: readChoice(RETENTION_DAYS) });
-  const count = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_COUNT_KEY}`, { defaultValue: String(DEFAULT_RETENTION_COUNT), scope: "host", read: readChoice(RETENTION_COUNTS) });
+  const days = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_DAYS_KEY}`, { defaultValue: String(DEFAULT_RETENTION_DAYS), scope: "host", read: readChoice(RETENTION_DAYS), format: (value) => `${value} days` });
+  const count = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_COUNT_KEY}`, { defaultValue: String(DEFAULT_RETENTION_COUNT), scope: "host", read: readChoice(RETENTION_COUNTS), format: (value) => `${value} entries` });
   return (
     <SettingsSection title="History">
       <SettingRow
+        id="setting-servers-keep-for"
         title="Keep for"
         description="Recorded server states and deployments older than this are cleaned up, per server."
         setting={days}
-        control={<select className="settings-select" aria-label="Keep the history for" value={days.value} disabled={!days.writable} onChange={(event) => days.set(event.target.value)}>
-          {RETENTION_DAYS.map((value) => <option key={value} value={value}>{value} days</option>)}
-        </select>}
+        control={<Select label="Keep the history for" value={days.value} width="sm" options={DAY_OPTIONS} onChange={days.set} />}
       />
       <SettingRow
+        id="setting-servers-keep-at-most"
         title="Keep at most"
         description="The newest entries per server stay; older ones go first."
         setting={count}
-        control={<select className="settings-select" aria-label="Keep at most this many entries" value={count.value} disabled={!count.writable} onChange={(event) => count.set(event.target.value)}>
-          {RETENTION_COUNTS.map((value) => <option key={value} value={value}>{value === "1" ? "The newest only" : `${value} entries`}</option>)}
-        </select>}
+        control={<Select label="Keep at most this many entries" value={count.value} options={COUNT_OPTIONS} onChange={count.set} />}
       />
       <SettingRow
+        id="setting-servers-clean-up"
         title="Clean up now"
         description="Tau cleans up every hour. Dropped deployments can no longer be rolled back."
         disabledReason={cleanAllowed ? undefined : READ_ONLY_REASON}
-        control={<button type="button" className="chrome-button" disabled={busy || !cleanAllowed} onClick={onClean}>Clean up</button>}
+        control={<Button busy={busy} disabled={!cleanAllowed} onClick={onClean}>Clean up</Button>}
       />
     </SettingsSection>
   );
 }
+
+/** The rows the Settings search finds; each id is a row's on the page once a project with servers is open. */
+export const SERVERS_SETTINGS_ROWS = [
+  { id: "setting-servers-network", label: "Agent commands", keywords: ["network", "sandbox", "whole network", "limit", "localhost"] },
+  { id: "setting-servers-allowed-hosts", label: "Allowed hosts", keywords: ["network", "host", "staging", "allow"] },
+  { id: "setting-servers-package-sources", label: "Package sources", keywords: ["npm", "packagist", "pypi", "registry"] },
+  { id: "setting-servers-approvals", label: "Commands and VS Code's keychain items", keywords: ["approvals", "withdraw", "keychain", "password"] },
+  { id: "setting-servers-keep-for", label: "Keep for", keywords: ["history", "retention", "days", "deployments"] },
+  { id: "setting-servers-keep-at-most", label: "Keep at most", keywords: ["history", "retention", "entries", "deployments"] },
+  { id: "setting-servers-clean-up", label: "Clean up now", keywords: ["history", "deployments", "rollback"] },
+];
 
 /**
  * Settings → Servers: the targets the open project's `.vscode/sftp.json`
@@ -227,20 +236,19 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
     const header = <>
       <h3>Servers</h3>
       <p className="lede">
-        Servers this project deploys to over SFTP or FTP. Tau reads them from <code>.vscode/sftp.json</code>, the file the
-        VS Code SFTP extension uses, and never uploads on its own.
+        Servers this project deploys to over SFTP or FTP. Tau reads them from {state?.file ? <code>{state.file}</code> : <code>.vscode/sftp.json</code>}, the
+        file the VS Code SFTP extension uses, and never uploads on its own.
       </p>
     </>;
-    if (!cwd) return <div className="settings-page servers-settings">{header}<Empty icon={<Server size={18} />} title="No project open" description="Open a project to see its servers." /></div>;
-    if (error) return <div className="settings-page servers-settings">{header}<Empty icon={<OctagonAlert size={18} />} title="Could not read the servers" description={error} /></div>;
-    if (!state) return <div className="settings-page servers-settings" aria-busy="true">{header}<Skeleton shape="card" /></div>;
+    if (!cwd) return <div className="settings-page servers-settings">{header}<SettingsState kind="empty" title="No project open" description="Open a project to see its servers." /></div>;
+    if (error) return <div className="settings-page servers-settings">{header}<SettingsState kind="error" title="Could not read the servers" description={error} onRetry={load} /></div>;
+    if (!state) return <div className="settings-page servers-settings">{header}<SettingsState kind="loading" rows={4} title="Reading the servers" /></div>;
     return (
       <div className="settings-page servers-settings">
         {header}
-        {state.file ? <p className="settings-group-note">From <code>{state.file}</code></p> : null}
         <Issues issues={state.issues} />
         {state.targets.length === 0
-          ? <Empty size="compact" icon={<Server size={16} />} title={state.file ? "sftp.json names no server" : "No sftp.json in this project"} description={state.file ? "Fix the problems above, then open this page again." : "Tau lists the servers of .vscode/sftp.json here."} />
+          ? <SettingsState kind="empty" title={state.file ? "sftp.json names no server" : "No sftp.json in this project"} description={state.file ? "Fix the problems above, then open this page again." : "Tau lists the servers of .vscode/sftp.json here."} />
           : state.targets.map((target) => <TargetSection
             key={target.id}
             target={target}
@@ -257,10 +265,11 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
         <NetworkSection context={context} cwd={cwd} onNotify={onNotify} />
         {approvals ? <SettingsSection title="Approvals">
           <SettingRow
+            id="setting-servers-approvals"
             title="Commands and VS Code's keychain items"
             description="What you allowed for this project: commands from sftp.json and reading the items VS Code's SFTP extension saved."
             disabledReason={allowed ? undefined : READ_ONLY_REASON}
-            control={<button type="button" className="chrome-button" disabled={busy || !allowed} onClick={withdraw}>Withdraw</button>}
+            control={<Button disabled={busy || !allowed} onClick={withdraw}>Withdraw</Button>}
           />
         </SettingsSection> : null}
         {state.targets.length > 0 ? <RetentionSection busy={busy} cleanAllowed={cleanAllowed} onClean={clean} /> : null}
