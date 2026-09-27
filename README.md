@@ -86,7 +86,15 @@ second host started on the same folder leaves with exit code 75, naming the
 first. A window that finds a host holding the folder without answering starts
 no second one beside it; after 30 seconds it says which process owns the
 folder. Pi sessions are guarded the same way across data folders: a thread
-another Tau host on this machine writes opens read-only (`<session>.jsonl.lock`).
+another Tau host on this machine writes opens read-only (`<session>.jsonl.lock`),
+and deleting, restoring, purging or importing it is refused with the holder's
+pid and data folder. Tau reads a session another process writes without Pi's
+repairs on open. `pi` typed in Tau's terminal (zsh, bash, fish) loads Tau's lock
+extension (`pi -e $TAU_PI_SESSION_LOCK_EXTENSION`): that Pi holds the lock of the
+session it has open, so Tau shows the thread read-only while Pi has it, and Pi
+does not open a session a Tau host holds. A Pi started outside Tau knows nothing
+of the lock unless it is started with that flag; Tau does not change your Pi
+setup to add it.
 
 What follows from that:
 

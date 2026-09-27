@@ -131,6 +131,11 @@ release cycle.
   long as it lives (`src/main/session-locks.ts`), so hosts of different data
   folders sharing `~/.pi/agent/sessions` never write one file; the other one
   opens that thread read-only.
+  Amendment 2026-09-27 (K13): trashing, restoring, purging and importing a
+  session take the same lock and refuse while another process holds it; Tau
+  reads a held session without Pi's repairs on open (`src/main/session-read.ts`);
+  and a Pi CLI loaded with `src/main/pi-session-lock-extension.ts` (the
+  terminal's `pi` does so) holds the lock of its session under the name Pi.
 - Two processes mean two logs and two lifetimes. `<userData>/host.json`,
   `host-process.log` and `host-out-*.log` are the places to look; a stale
   `host.json` whose pid is gone is simply replaced.
