@@ -159,7 +159,7 @@ reach the workbench as usual.
   (`src/main/app-menu.ts`, after T3 Code's) owns ⌘R and ⌘⇧R (reload), ⌘0, ⌘=
   (and ⌘+) and ⌘− (the workbench's own zoom, whichever view has the keyboard),
   ⇧⌘V (Paste as Text: the next paste lands as plain text, not as a folded
-  file or a chip) and ⌘Q (hold it, or press it twice; Settings → Defaults →
+  file or a chip) and ⌘Q (hold it, or press it twice; Settings → General →
   Quitting). ⌘, is Settings on both sides. `APP_MENU_CHORDS` in
   `src/shared/window-shell.ts` lists them and `kits/kit-lifecycle.test.tsx`
   keeps every other binding off them. A view that wants the zoom chords for its

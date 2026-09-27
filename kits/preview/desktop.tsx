@@ -62,6 +62,7 @@ export const previewExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: "preview.settings",
       label: "Preview",
+      group: "projects",
       Icon: Globe,
       order: 40,
       keywords: ["browser", "viewport", "zoom", "appearance", "dark mode", "links", "recording", "floating", "picture in picture"],

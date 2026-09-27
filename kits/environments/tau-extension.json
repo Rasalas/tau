@@ -1,6 +1,7 @@
 {
   "id": "tau.environments",
   "name": "Machines",
+  "description": "Shows the threads of your other machines here and starts new ones there.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.15.0"

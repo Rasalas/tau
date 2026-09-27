@@ -141,6 +141,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 {
   "id": "acme.hello",
   "name": "Hello",
+  "description": "Says hello in every new thread.",
   "version": "1.0.0",
   "engines": { "api": "^1.0.0", "pi": ">=0.84" },
   "permissions": ["workspace:read", "process"],
@@ -158,6 +159,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 |---|---|
 | `id` | Lowercase, dot-separated; both halves must export it. |
 | `name` | Shown in Settings. |
+| `description` | One sentence, at most 200 characters, that Settings → Extensions shows under the name (optional; new in API 1.18.0). Say what the package does for the user, not how. |
 | `version` | The package's own semver (optional). |
 | `engines` | Ranges of `tau`, `pi` and `api` this package runs on (all optional; see below). |
 | `permissions` | The permission vocabulary this package asks for (§ below); missing means none. |
@@ -881,12 +883,13 @@ instance (below). `inspectPackages(cwd)`
 answers core's own scan of the package folders and the shipped kits
 (`ExtensionInspection`) without loading any code — including `distribution`,
 the name and version of the set the `bundled` entries came in, absent in safe
-mode, which loads none. Core keeps Defaults, Pi, Keybindings and the Inspector;
-every other page is a contribution and is gone with its extension. The search
-field at the top of the Settings column finds core's own rows (and scrolls to
-the row), a contributed page by its label and `keywords`, an extension's page
-by its name and its options, and every live keybinding — which opens the
-Keybindings page filtered to its command.
+mode, which loads none. Core keeps General, Models, Pi, Keybindings,
+Connections, Extensions and the Inspector; every other page is a contribution
+and is gone with its extension. The search field at the top of the Settings
+column finds core's own rows (and scrolls to the row), a contributed page by
+its label and `keywords` and the `rows` it names, an extension's page by its
+name and its options, and every live keybinding — which opens the Keybindings
+page filtered to its command.
 
 #### App pages: `registerPage`
 
@@ -945,19 +948,82 @@ favour of `registerPage`.
 #### Settings pages: the full page, the levels and the rows
 
 Settings is a page of its own that covers the whole window (T3 Code's layout):
-the section column on the left with the search and a Back button, a bar with
-the breadcrumb `Settings / <page> / <scope>`, and the page below at a readable
-width. Escape, Back and `mod+,` return to the workbench, which stays mounted
-underneath (`inert`). `actions.openSettings(page)` opens a page by id.
+the section column on the left with the search, the pages in groups and About
+with the version and Back at its foot, a bar with the breadcrumb `Settings /
+<page> / <scope>`, and the page below at a readable width. Escape, Back and
+`mod+,` return to the workbench, which stays mounted underneath (`inert`).
+
+**Where a page sits (new in API 1.18.0).** `group` on `registerSettingsPage`
+places a page in the section column: `general` (the first group, without a
+heading: General, Appearance, Notifications, Keybindings), `threads` (Models,
+Providers, Pi and what shapes threads), `projects` (what works on a project:
+source control, review, terminal, preview), `remote` (Connections, Machines,
+servers, other devices), `extensions` (the list of extensions, Packages, and
+the default for a page that names no group) or `diagnostics` (Inspector,
+Signals). Within a group pages follow `order`; core's own pages take 0 to 80
+(General 0, Keybindings 80, Models 0, Providers 10, Pi 20, Connections 0,
+Extensions 0, Inspector 50). A page that lists `rows: [{ id, label,
+keywords? }]` has each row found by the search, which scrolls to the element
+with that id — give the `SettingRow` the same `id`.
+
+**A place in Settings.** `actions.openSettings(target)` takes a page id, an
+extension's page as `extensions/<extension id>`, or either with `#<row id>`
+to scroll to a row: `openSettings("general#setting-show-costs")`,
+`openSettings("models#setting-thinking-level")`,
+`openSettings("extensions/acme.hello")`. An extension's id alone still opens
+its page, and `defaults`, the older name of General, still lands there. On a
+phone the same string is the `?settings=` part of the address, and an
+extension's page sits under the list of extensions in the history, so the
+system's back returns to the list.
+
+**Settings → Extensions** lists every kit Tau ships, every installed package
+and every package folder that did not load, in one list with a filter by name
+and by source (Bundled, Installed, Turned off, Needs attention). Each row has
+the extension's mark (its runtime's for a runtime kit, else the icon of a page
+or panel it adds), its `description` and a switch; what needs the user comes
+first: a package waiting for approval, one whose host half failed to start,
+one whose `engines` rule this Tau out. The row opens the extension's page:
+approval with each permission in plain words, a failure with the next step,
+the options it declared and links to the pages it adds, what it may do and how
+it is isolated, and its version, source, signature and id.
 
 A page is built from the same pieces core builds its own with, all on `tau`:
 
 | Export | What it is |
 |---|---|
 | `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
-| `SettingRow({ id?, title, description?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
+| `SettingRow({ id?, title, description?, help?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `help` (new in API 1.18.0) is the text a description should not carry, behind an info glyph beside the title. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
 | `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
 | `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |
+
+#### The controls (new in API 1.18.0)
+
+The controls every Settings page is built from, core's and the kits' alike,
+also on `tau`. Each takes a `label`, its accessible name. One height per tier:
+30 px on a desktop, 44 px where the pointer is a finger (a phone, a tablet,
+Settings stacked), with a hit area of at least 44 px for the small ones. They
+draw in light and dark from the tokens, and a disabled one says why through
+its row's `disabledReason`. Buttons, fields, selects and `.segmented` rows a
+page still draws itself take the same height and look inside Settings.
+
+| Export | What it is |
+|---|---|
+| `Switch({ label, checked, disabled?, role?, onChange })` | On or off, for a change that applies at once. `role: "checkbox"` for one option of several. On a narrow page it stays beside its row's text. |
+| `SegmentedControl({ label, value, options, disabled?, onChange })` | Two to four short choices, one chosen: a radio group, one tab stop, arrow keys move and choose. An option with an `icon` is drawn as the glyph alone with `label` as its tooltip and name — runtimes and providers are shown this way. More or longer choices belong in a `Select`. |
+| `Select({ label, value, options, width?, placeholder?, disabled?, onChange })` | One choice of many, as the system's own menu. `width` is `sm` (112 px), `md` (200), `lg` (280) or `full`; a phone gives it the row's width. |
+| `NumberField({ label, value, min?, max?, step?, integer?, unit?, placeholder?, width?, validate?, onCommit, onClear? })` | A number with its unit drawn inside the field, written on blur or Enter and put back on Escape; ↑ and ↓ step it. Out of range, not whole when `integer`, or refused by `validate`: the draft stays with the reason under it and nothing is written. Emptied, `onClear` runs (the level's value goes and the placeholder, the default, shows). |
+| `TextField({ label, value, placeholder?, width?, mono?, validate?, disabled?, onCommit })` | A line of text with the same draft rules; `mono` for paths, commands and ids. |
+| `ListField({ label, items, placeholder?, empty?, mono?, validate?, onChange })` | Short values to add and remove (hosts, folders, patterns): a row each with a Remove button named after it, an add field that refuses an empty value, a twin and what `validate` refuses, and `empty` while there is none. Each change calls `onChange` with the whole list. |
+| `ValueList({ items, label? })` | Facts, label beside value (`{ label, value, mono?, copy? }`); `copy` puts a copy button beside the value. |
+| `Badge({ tone?, dot?, children })` | A state in a word or two: `neutral`, `accent`, `success`, `warn` or `danger`, never the colour alone. |
+| `HelpTip({ text, label? })` | An info glyph whose tooltip holds `text`; `SettingRow`'s `help` draws one. |
+| `Button({ variant?, icon?, busy?, ...button })` | `default`, `primary` (one per page, the accent), `danger` or `ghost`; `busy` keeps it inert while its work runs. |
+| `DangerZone({ title?, children })`, `DangerAction({ title, description?, actionLabel, confirmTitle, confirmMessage, confirmText?, disabled?, disabledReason?, busy?, onConfirm })` | The actions that cannot be taken back, apart and last on the page. Each names the object and the consequence and asks through `ConfirmDialog`; `confirmText` makes the user type it (a name) first, for a loss that is hard to repair. `ConfirmDialog` takes the same `confirmText`. |
+| `SettingsState({ kind, title?, description?, action?, rows?, onRetry? })` | What a page or a section shows instead of its rows: `loading` (skeleton rows), `empty` (what is missing and the next step in `action`) or `error` (what happened, and Try again with `onRetry`). |
+
+The types `ChoiceOption`, `SelectOption`, `ValueListItem`, `FieldWidth` and
+`SettingsNavGroup` come with them. Like `SettingRow`, the controls load with a
+chunk of their own.
 
 A setting has three levels: the built-in **default**, the **host** (this
 machine's `~/.tau/config.json`) and the **project** (`<project>/.tau/config.json`);
@@ -1049,7 +1115,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `useEscapeLayer(onClose, active?)` | Escape for a floating surface of your own: while `active` it closes on Escape when it is the topmost overlay, before anything under it (Stop, a panel) hears the key, as `Dialog`, `Popover` and `Menu` do. New in API 1.17.0. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
-`Menu`, `Dialog`, `Popover`, `Sheet`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.
+`Menu`, `Dialog`, `Popover`, `Sheet`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, the settings controls, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.
 
 A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
 pieces core draws its own four with, so its dialog is not a look-alike:
@@ -1164,7 +1230,7 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Defaults page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
+| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
@@ -1645,12 +1711,12 @@ model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 — so a thread whose draft named none still gives the hint.
 
 A registered backend's `label` is what the workbench calls it where a new
-thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
+thread's runtime is chosen (the composer's runtime chip, Settings → Models);
 it defaults to the kind. The host publishes every installed backend as
 `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none. The list is in the one order
 every runtime list uses — the model picker's rail, the composer's runtime
-menu, Settings → Defaults and Providers, onboarding: Pi, then backends by the
+menu, Settings → Models and Providers, onboarding: Pi, then backends by the
 provider's `order` (new in API 1.11.0; lower first, unset last, ties in
 registration order). The bundled kits take 10 (the Agent SDK runtime), 20
 (Codex), 30 (Antigravity), 40 (OpenCode), 50 (Cursor) and 60 (Grok); every instance of a program shares its order.
@@ -1660,7 +1726,7 @@ is: `version()` on the provider answers `{ tool, installed?, latest?,
 updateCommand? }` (`RuntimeToolVersion`), or `undefined` when it cannot tell.
 The host asks each backend once a day, never while a snapshot waits for it,
 and publishes the answer as `version` on that backend's `runtimeBackends` entry;
-the picker's runtime tab and Settings → Defaults then say that an update is
+the picker's runtime tab and Settings → Models then say that an update is
 out, with `updateCommand`, whenever `installed` is older than `latest`
 (`compareVersions`). `updateCommand` is what the user runs — a shell command,
 or where in Tau to click. For a CLI that npm publishes, `tau/host-extension`
@@ -1769,7 +1835,7 @@ instance's way to fake a range, or a fix that cannot wait for a release) and
 the bundled one otherwise. `packageInstallCommand(realPath, packageName,
 version)` names the npm, pnpm or bun command that installs exactly that
 release; Homebrew cannot pin one, so it answers `undefined` and the update
-command stands. The picker's runtime tab and Settings → Defaults put an unsafe
+command stands. The picker's runtime tab and Settings → Models put an unsafe
 or broken version before an available update. Tau never runs either command on its own:
 the shipped kits draw `RuntimeVersionBanner` above the composer of the thread
 and on the card, and its button types the command into a new Terminal Kit
@@ -2340,10 +2406,14 @@ it beside the client in Connections — never as a login.
 
 On the desktop side, `registerSettingsSection({ id, page, order?, Component })`
 (new in API 1.13.0) adds a section to one of core's Settings pages, below
-core's own sections; `page` is `"connections"` so far. The component gets
-`onNotify` and `onChanged`, which reads the page's own data again after the
-section changed something it shows (a new endpoint in the address list). It is
-profile-scoped like a panel.
+core's own sections: `"connections"`; `"extensions"`, above the list of
+extensions; or `"extension"`, on every extension's own page after its
+settings, where the component also gets `extensionId` and `cwd` and draws
+nothing for an extension it has nothing to say about (both new in API 1.18.0;
+Packages Kit's Update and Remove for an installed package are one). The
+component gets `onNotify` and `onChanged`, which reads the page's own data
+again after the section changed something it shows (a new endpoint in the
+address list). It is profile-scoped like a panel.
 
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 
@@ -2822,7 +2892,7 @@ The panels of a reloaded package remount, so whatever state they held is gone.
 That is the price of swapping a module in place, and it is why only the package
 you edited is swapped.
 
-**Turning it off.** Settings → Defaults → "Reload files when they change", or
+**Turning it off.** Settings → General → "Reload files when they change", or
 `extensions.watch: false` in `~/.tau/config.json` (or
 `<project>/.tau/config.json`), or `TAU_NO_WATCH=1` in the environment, stops
 the host from watching anything; `/reload` then applies changes as before. The
@@ -3159,7 +3229,7 @@ ever needs `!important` or a deeper selector.
 `light-dark(light, dark)`; the used `color-scheme` picks the side. `data-theme`
 on `<html>` sets that: `system` (the default, and what the document ships with,
 so the OS decides the first paint), `dark` or `light`. The preference lives in
-Settings → Defaults → Theme (and Settings → Appearance → Mode) and in the
+Settings → Appearance → Mode (Settings → General → Theme without that page) and in the
 palette ("Theme: …", "Cycle the theme"); the client writes it onto `<html>` and
 nothing else in the client ever reads a colour.
 

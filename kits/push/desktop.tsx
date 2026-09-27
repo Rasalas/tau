@@ -267,7 +267,7 @@ const push: DesktopExtension = {
   name: "Push",
   activate(context) {
     const store = new StatusStore();
-    return context.registerSettingsPage({ id: "push.settings", label: "Push", Icon: BellRing, order: 46, profiles: ["desktop", "web"], Component: createSettingsPage(context, store) });
+    return context.registerSettingsPage({ id: "push.settings", label: "Push", Icon: BellRing, group: "remote", order: 46, profiles: ["desktop", "web"], Component: createSettingsPage(context, store) });
   },
 };
 

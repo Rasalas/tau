@@ -23,6 +23,8 @@ describe("a phone's routes", () => {
     expect(routePath(chat("t1"))).toEqual([PHONE_HOME, chat("t1")]);
     expect(routePath(page("usage", 2))).toEqual([PHONE_HOME, page("usage"), page("usage", 1), page("usage", 2)]);
     expect(routePath(settings("about"))).toEqual([PHONE_HOME, settings(), settings("about")]);
+    // An extension's page sits under the list of extensions, so back lands there.
+    expect(routePath(settings("extensions/tau.terminal"))).toEqual([PHONE_HOME, settings(), settings("extensions"), settings("extensions/tau.terminal")]);
   });
 });
 

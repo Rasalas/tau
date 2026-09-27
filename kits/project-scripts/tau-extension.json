@@ -1,6 +1,7 @@
 {
   "id": "tau.project-scripts",
   "name": "Project Scripts",
+  "description": "Runs a project's checked-in actions and sets up a new thread's worktree.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

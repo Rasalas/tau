@@ -1,6 +1,7 @@
 {
   "id": "tau.worktree-names",
   "name": "Worktree Names",
+  "description": "Names a new thread's worktree and branch from its first message.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

@@ -130,6 +130,7 @@ export const terminalExtension: DesktopExtension = {
     const settings = plugin.registerSettingsPage({
       id: "terminal.settings",
       label: "Terminal",
+      group: "projects",
       Icon: Terminal,
       order: 30,
       profiles: ["desktop", "web"],

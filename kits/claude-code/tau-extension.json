@@ -1,6 +1,7 @@
 {
   "id": "tau.claude-code",
   "name": "Claude Code",
+  "description": "Runs threads on the Agent SDK runtime, with its sign-in and version on Providers.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.14.0"

@@ -11,7 +11,7 @@ const THINKING_LEVELS = ["none", "low", "medium", "high", "max"];
 
 const openModelPicker = (app: WorkbenchActions) => {
   if (app.openModelPicker) app.openModelPicker();
-  else app.openSettings("defaults");
+  else app.openSettings("models#setting-default-model");
 };
 
 async function copyChat(app: WorkbenchActions, done: string, missing: string): Promise<string | undefined> {
@@ -54,7 +54,7 @@ export const slashRuns: Record<string, SlashRun> = {
       app.notify(`Thinking level set to ${level}.`);
       return undefined;
     }
-    app.openSettings("defaults");
+    app.openSettings("models#setting-thinking-level");
     return undefined;
   },
   new: (_args, app) => { app.newSession(); },

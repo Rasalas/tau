@@ -1,6 +1,7 @@
 {
   "id": "tau.questionnaire",
   "name": "Questionnaires",
+  "description": "Answers an agent's multiple-choice questions in a card in the thread.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.5.0"

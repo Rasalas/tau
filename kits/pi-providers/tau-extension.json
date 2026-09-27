@@ -1,6 +1,7 @@
 {
   "id": "tau.pi-providers",
   "name": "Pi Providers",
+  "description": "Signs Pi in to its model providers from the window, the way /login does.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

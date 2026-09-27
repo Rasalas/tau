@@ -1,6 +1,7 @@
 {
   "id": "tau.cursor",
   "name": "Cursor",
+  "description": "Runs threads on the Cursor agent CLI, with its sign-in and version on Providers.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.14.0"

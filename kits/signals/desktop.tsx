@@ -34,7 +34,7 @@ export const observatoryExtension: DesktopExtension = {
   name: "Signals",
   activate(plugin) {
     plugin.registerSettingsPage({
-      id: SIGNALS_SETTINGS_PAGE, label: "Signals", Icon: Activity, order: 90, profiles: ["desktop", "web"],
+      id: SIGNALS_SETTINGS_PAGE, label: "Signals", Icon: Activity, group: "diagnostics", order: 90, profiles: ["desktop", "web"],
       keywords: ["developer", "debug", "events", "diagnostics"], Component: SignalsPage,
     });
     plugin.registerCommand({ id: "observatory.open", label: "Open Signals", group: "Extensions", access: "read", run: (app) => app.openSettings(SIGNALS_SETTINGS_PAGE) });

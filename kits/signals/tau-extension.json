@@ -1,6 +1,7 @@
 {
   "id": "tau.observatory",
   "name": "Signals",
+  "description": "What the workbench is doing right now: host events, live counts and tool runs.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.16.0"

@@ -1,6 +1,7 @@
 {
   "id": "tau.notifications",
   "name": "Notifications",
+  "description": "A notification, a sound and a badge when a thread finishes, fails or asks you something.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.10.0"

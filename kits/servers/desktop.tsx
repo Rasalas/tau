@@ -27,6 +27,7 @@ const servers: DesktopExtension = {
     const unregisterPage = context.registerSettingsPage({
       id: SERVERS_SETTINGS_PAGE,
       label: "Servers",
+      group: "remote",
       Icon: Server,
       order: 47,
       profiles: ["desktop", "web"],

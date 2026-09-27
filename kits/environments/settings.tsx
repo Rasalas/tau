@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
+  Badge,
+  Button,
   ConfirmDialog,
+  Switch,
   type HostExtensionClient,
   NearbyMachineList,
   SettingRow,
   SettingsSection,
   errorMessage,
+  tooltipProps,
   type DiscoveredHost,
   type EnvironmentPairInput,
   type EnvironmentPairResult,
@@ -55,7 +59,7 @@ function PairingStatus({ pairing, environments }: { pairing: UiEnvironmentPairin
       ) : (
         <p>Connecting to {pairing.address}…</p>
       )}
-      <button type="button" className="text-button" onClick={() => void environments.cancelPairing()}>Cancel</button>
+      <Button variant="ghost" onClick={() => void environments.cancelPairing()}>Cancel</Button>
     </div>
   );
 }
@@ -86,16 +90,14 @@ function AgentsSwitch({ machine, agent, environments, pairing }: {
   return (
     <div className="machine-agents">
       <div className="machine-agents-line">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          aria-label={`This computer's agents may work on ${machine.name}`}
-          className={`switch ${on ? "on" : ""}`}
-          disabled={busy || (!on && (machine.status !== "connected" || machine.readOnly === true))}
-          title={!on && machine.readOnly ? `${machine.name} paired this computer Read only.` : undefined}
-          onClick={toggle}
-        ><i /></button>
+        <span {...tooltipProps(!on && machine.readOnly ? `${machine.name} paired this computer Read only.` : undefined)}>
+          <Switch
+            label={`This computer's agents may work on ${machine.name}`}
+            checked={on}
+            disabled={busy || (!on && (machine.status !== "connected" || machine.readOnly === true))}
+            onChange={toggle}
+          />
+        </span>
         <small title={agent?.detail}>{agentsText(agent, machine.name)}</small>
       </div>
       {busy && pairing ? <PairingStatus pairing={pairing} environments={environments} /> : null}
@@ -145,8 +147,8 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
           <strong>
             <MachineIcon environment={machine} />
             {machine.name}
-            {shown ? <em className="connection-badge">Shown here</em> : null}
-            {machine.readOnly ? <em className="connection-badge">Read only</em> : null}
+            {shown ? <Badge tone="accent">Shown here</Badge> : null}
+            {machine.readOnly ? <Badge>Read only</Badge> : null}
           </strong>
         )}
         <small title={machine.detail}>{details.join(" · ")}</small>
@@ -158,10 +160,10 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
       {machine.local ? null : (
         <>
           {machine.status === "offline" || machine.status === "refused" ? (
-            <button type="button" className="chrome-button" onClick={() => void environments.retry(machine.id)}>Try again</button>
+            <Button onClick={() => void environments.retry(machine.id)}>Try again</Button>
           ) : null}
-          <button type="button" className="chrome-button" onClick={() => { setName(machine.name); setEditing(true); }}>Rename</button>
-          <button type="button" className="chrome-button danger" onClick={onRemove}>Remove</button>
+          <Button onClick={() => { setName(machine.name); setEditing(true); }}>Rename</Button>
+          <Button variant="danger" onClick={onRemove}>Remove</Button>
         </>
       )}
     </div>
@@ -215,16 +217,16 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
   const saved = new Set(list.environments.map((machine) => machine.id));
   const action = (host: DiscoveredHost) => {
     if (host.self) return null;
-    if (saved.has(host.hostId)) return <em className="connection-badge">Added</em>;
-    return <button type="button" className="chrome-button" disabled={busy} aria-label={`Add ${host.name}`} onClick={() => onAdd(host)}>Add</button>;
+    if (saved.has(host.hostId)) return <Badge>Added</Badge>;
+    return <Button disabled={busy} aria-label={`Add ${host.name}`} onClick={() => onAdd(host)}>Add</Button>;
   };
   return (
     <div className="machine-nearby" aria-busy={search.status === "searching"}>
       <div className="machine-nearby-head">
         <span>On this network</span>
-        <button type="button" className="text-button" disabled={search.status === "searching"} onClick={look}>
-          {search.status === "idle" ? "Find Machines" : search.status === "searching" ? "Looking…" : "Search Again"}
-        </button>
+        <Button busy={search.status === "searching"} onClick={look}>
+          {search.status === "idle" ? "Find machines" : search.status === "searching" ? "Looking…" : "Search again"}
+        </Button>
       </div>
       {search.status === "idle" ? (
         <p className="machine-nearby-note">Finds machines whose owner turned on Local network and Announce. This computer may ask to allow local network access.</p>
@@ -291,22 +293,16 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
           title="This computer's agents may work there"
           description="The same approval lets in this computer's host as a second device, so its agents can start threads there while no window is open. Either device can be revoked there alone."
           control={(
-            <button
-              type="button"
-              role="switch"
-              aria-checked={withAgents}
-              aria-label="This computer's agents may work there"
-              className={`switch ${withAgents ? "on" : ""}`}
-              disabled={busy}
-              onClick={() => setWithAgents(!withAgents)}
-            ><i /></button>
+            <Switch label="This computer's agents may work there" checked={withAgents} disabled={busy} onChange={setWithAgents} />
           )}
         />
       ) : null}
       {pairing && waiting ? <PairingStatus pairing={pairing} environments={environments} /> : null}
       {state.kind === "done" ? <p className={`machine-add-result ${state.tone}`} role="status">{state.message}</p> : null}
       <div className="machine-add-actions">
-        <button type="submit" className="primary" disabled={busy} title={secureStorage ? undefined : NO_SECURE_STORAGE}>{waiting ? "Waiting…" : "Add machine"}</button>
+        <span {...tooltipProps(secureStorage ? undefined : NO_SECURE_STORAGE)}>
+          <Button type="submit" variant="primary" disabled={busy}>{waiting ? "Waiting…" : "Add machine"}</Button>
+        </span>
       </div>
     </form>
   );
@@ -371,14 +367,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
             title="Show the last machine again"
             description="After a restart the window shows the machine it showed last, if it answers within a few seconds; otherwise this computer."
             control={(
-              <button
-                type="button"
-                role="switch"
-                aria-checked={list.reopenShown === true}
-                aria-label="Show the last machine again"
-                className={`switch ${list.reopenShown ? "on" : ""}`}
-                onClick={() => void environments.setPreferences({ reopenShown: !list.reopenShown })}
-              ><i /></button>
+              <Switch label="Show the last machine again" checked={list.reopenShown === true} onChange={(next) => void environments.setPreferences({ reopenShown: next })} />
             )}
           />
         </SettingsSection>

@@ -64,7 +64,7 @@ describe("Settings → Connections", () => {
     renderPage({ listConnections: async () => listed, createPairingLink, copyText });
     fireEvent.click(await screen.findByRole("button", { name: /Create link/u }));
     fireEvent.change(screen.getByPlaceholderText("e.g. Kitchen iPad"), { target: { value: "Laptop" } });
-    fireEvent.click(screen.getByRole("button", { name: "Read only" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Read only" }));
     fireEvent.click(screen.getByRole("button", { name: "Create Link" }));
     await waitFor(() => expect(createPairingLink).toHaveBeenCalledWith({ label: "Laptop", lifetimeMs: 600_000, access: "read-only" }));
     expect(await screen.findByText("Laptop is ready")).toBeTruthy();
@@ -89,7 +89,7 @@ describe("Settings → Connections", () => {
     renderPage({ listConnections: async () => connections(), rotateHostToken });
     fireEvent.click(await screen.findByRole("button", { name: "Rotate…" }));
     expect(rotateHostToken).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Rotate Token" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Rotate the host token?" })).getByRole("button", { name: "Rotate" }));
     await waitFor(() => expect(rotateHostToken).toHaveBeenCalledOnce());
   });
 
@@ -134,7 +134,7 @@ describe("Settings → Connections", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings for Kitchen iPad" }));
     const dialog = await screen.findByRole("dialog", { name: "Settings for Kitchen iPad" });
     fireEvent.change(within(dialog).getByDisplayValue("Kitchen iPad"), { target: { value: "Hall iPad" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Read only" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
     fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "never" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateClient).toHaveBeenCalledWith("c1", { label: "Hall iPad", access: "read-only", idleTimeoutDays: null }));
@@ -155,9 +155,9 @@ describe("Settings → Connections", () => {
   it("signs out every other device only after asking", async () => {
     const revokeOtherClients = vi.fn(async () => ({ revoked: 1 }));
     const { notify } = renderPage({ listConnections: async () => connections(), revokeOtherClients });
-    fireEvent.click(await screen.findByRole("button", { name: "Revoke others" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke others…" }));
     expect(revokeOtherClients).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke Others" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Revoke every other device?" })).getByRole("button", { name: "Revoke others" }));
     await waitFor(() => expect(revokeOtherClients).toHaveBeenCalledOnce());
     expect(notify).toHaveBeenCalledWith("1 device signed out");
   });
@@ -276,7 +276,7 @@ describe("Bonjour in Settings → Connections", () => {
       ],
     }));
     renderPage({ listConnections: async () => connections({ network: off }), discoverHosts });
-    fireEvent.click(await screen.findByRole("button", { name: "Find Machines…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Find machines…" }));
     const list = await screen.findByRole("list", { name: "Machines on this network" });
     expect(discoverHosts).toHaveBeenCalledTimes(1);
     expect(within(list).getByText(/^192\.168\.1\.30:7788 ·/u)).toBeTruthy();
@@ -293,7 +293,7 @@ describe("Bonjour in Settings → Connections", () => {
   it("says why it could not look", async () => {
     const discoverHosts = vi.fn(async () => ({ serviceType: "_tau._tcp", hosts: [], problem: "Failed to create client object: Daemon not running" }));
     renderPage({ listConnections: async () => connections({ network: off }), discoverHosts });
-    fireEvent.click(await screen.findByRole("button", { name: "Find Machines…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Find machines…" }));
     expect(await screen.findByText("Tau could not look on this network")).toBeTruthy();
     expect(screen.getByText("Failed to create client object: Daemon not running")).toBeTruthy();
   });

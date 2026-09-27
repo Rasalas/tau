@@ -198,7 +198,7 @@ is worse than having no updates.
 
 ### Stable and nightly
 
-Settings → Defaults → **Update track** writes `updates.channel` (`stable` or
+Settings → General → **Update track** writes `updates.channel` (`stable` or
 `nightly`) to this machine's `~/.tau/config.json`; the row is hidden while the
 window is a client of a host on another machine, because the updater reads the
 file of the machine it runs on. `src/main/app-updates.ts` reads the channel

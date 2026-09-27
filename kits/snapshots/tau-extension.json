@@ -1,6 +1,7 @@
 {
   "id": "tau.snapshots",
   "name": "SnapShots",
+  "description": "A shortcut captures the window in front of you, ready to hand to an agent.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

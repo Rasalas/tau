@@ -9,6 +9,7 @@ const STYLES = new URL("./styles.css", import.meta.url);
 const LAZY_STYLES = [
   "./components/ui/toasts.css",
   "./settings/settings.css",
+  "./settings/controls.css",
   "./components/model-picker.css",
   "./components/command-palette.css",
   "./components/reload-conflict.css",

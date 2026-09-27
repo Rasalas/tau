@@ -1,6 +1,7 @@
 {
   "id": "tau.opencode",
   "name": "OpenCode",
+  "description": "Runs threads on OpenCode, with its sign-in and version on Providers.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.14.0"

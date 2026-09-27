@@ -1,6 +1,7 @@
 {
   "id": "tau.grok",
   "name": "Grok",
+  "description": "Runs threads on the Grok CLI, with its sign-in and version on Providers.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.14.0"

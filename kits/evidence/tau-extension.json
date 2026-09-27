@@ -1,6 +1,7 @@
 {
   "id": "tau.evidence",
   "name": "Evidence",
+  "description": "Keeps pictures of what a turn did in the browser preview and the apps it drove.",
   "version": "1.0.0",
   "engines": { "api": "^1.12.0" },
   "permissions": ["sessions", "runtime:extend"],

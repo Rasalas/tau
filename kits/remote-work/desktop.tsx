@@ -51,6 +51,7 @@ export const remoteWorkExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: REMOTE_WORK_SETTINGS_PAGE,
       label: "Remote work",
+      group: "remote",
       Icon: FolderSync,
       order: 45.5,
       profiles: ["desktop", "web"],

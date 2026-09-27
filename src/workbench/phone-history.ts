@@ -24,7 +24,13 @@ export function routePath(route: PhoneRoute): PhoneRoute[] {
     case "threads": return [PHONE_HOME];
     case "chat": return [PHONE_HOME, route];
     case "page": return [PHONE_HOME, ...Array.from({ length: route.depth + 1 }, (_, depth) => ({ kind: "page" as const, page: route.page, depth }))];
-    case "settings": return route.section === undefined ? [PHONE_HOME, route] : [PHONE_HOME, { kind: "settings" }, route];
+    case "settings": {
+      if (route.section === undefined) return [PHONE_HOME, route];
+      // `extensions/<id>` sits under `extensions`: back from an extension's page lands on the list.
+      const slash = route.section.indexOf("/");
+      const parent = slash > 0 ? [{ kind: "settings" as const, section: route.section.slice(0, slash) }] : [];
+      return [PHONE_HOME, { kind: "settings" }, ...parent, route];
+    }
   }
 }
 

@@ -1,12 +1,18 @@
-import { Package } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Package, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
 import {
+  Button,
+  DangerAction,
+  DangerZone,
+  SegmentedControl,
+  SettingRow,
   SettingsSection,
   errorMessage,
   type DesktopExtension,
   type ExtensionInspection,
   type HostExtensionClient,
   type SettingsPageProps,
+  type SettingsSectionProps,
   type WorkbenchActions,
 } from "tau";
 import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
@@ -102,14 +108,13 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
             spellCheck={false}
             onChange={(event) => setSource(event.target.value)}
           />
-          <button type="submit" className="grant-allow" disabled={!source.trim() || busy !== undefined}>
+          <Button type="submit" variant="primary" disabled={!source.trim()} busy={busy !== undefined}>
             {busy === "install" ? "Installing…" : "Install"}
-          </button>
+          </Button>
         </form>
 
-        <div className="segmented packages-scope">
-          <button type="button" className={scope === "global" ? "active" : ""} onClick={() => setScope("global")}>Every project</button>
-          <button type="button" className={scope === "project" ? "active" : ""} onClick={() => setScope("project")}>This project only</button>
+        <div className="packages-scope">
+          <SegmentedControl label="Install for" value={scope} options={[{ value: "global", label: "Every project" }, { value: "project", label: "This project only" }]} onChange={(next) => setScope(next === "project" ? "project" : "global")} />
         </div>
 
         {log.length > 0 ? (
@@ -157,31 +162,9 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         )}
       </SettingsSection>
 
-      <SettingsSection title={`Bundled kits${inspection?.distribution ? ` · ${inspection.distribution.name} ${inspection.distribution.version}` : ""}`} plain>
-        {bundled.length > 0 ? (
-          <table className="inspector-table" aria-label="Bundled kits">
-            <thead><tr><th>Kit</th><th>Permissions</th><th>Isolation</th><th>Folder</th></tr></thead>
-            <tbody>
-              {bundled.map((kit) => (
-                <tr key={kit.id} data-extension-id={kit.id}>
-                  <td>
-                    <strong>{kit.name}{kit.theme ? <em className="package-kind">Theme</em> : null}</strong>
-                    <small>{kit.id}{kit.version ? ` · ${kit.version}` : ""}</small>
-                  </td>
-                  <td>{kit.permissions?.length ? kit.permissions.join(", ") : "none"}</td>
-                  <td>{kit.isolation ?? "worker"}</td>
-                  <td><code title={kit.directory}>{kit.directory}</code></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="settings-note">
-            {cwd ? "Tau is running without its bundled kits — safe mode does that." : "Open a project to list the kits Tau ships."}
-          </div>
-        )}
-        <div className="settings-note">Kits ship with Tau: shipping one is the approval, so they carry no grant and cannot be removed from here.</div>
-      </SettingsSection>
+      <div className="settings-note">
+        The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off, see what it may do and, for a package, update or remove it.
+      </div>
 
       {error ? <div className="settings-note" data-level="error">{error}</div> : null}
       <div className="settings-note">
@@ -191,6 +174,62 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
       </div>
     </div>
   );
+}
+
+/**
+ * On an installed extension's own page (Settings → Extensions → it): the
+ * source it came from, Update, and Remove behind a confirmation. Nothing for
+ * a kit Tau ships or a folder no source put there.
+ */
+export function createExtensionSection(host: HostExtensionClient): ComponentType<SettingsSectionProps> {
+  return function PackageSourceSection({ extensionId, onNotify, onChanged }: SettingsSectionProps) {
+    const [row, setRow] = useState<PackageRow | null>();
+    const [busy, setBusy] = useState<"update" | "remove">();
+    useEffect(() => {
+      let live = true;
+      host.invoke("list").then((result) => {
+        if (live) setRow((result as { packages: PackageRow[] }).packages.find((entry) => entry.id === extensionId) ?? null);
+      }, () => { if (live) setRow(null); });
+      return () => { live = false; };
+    }, [extensionId]);
+    if (!row) return null;
+    const run = async (verb: "update" | "remove", input: unknown) => {
+      setBusy(verb);
+      try {
+        const result = await host.invoke(verb, input) as PackagesCommandResult;
+        onNotify(result.message ?? "Done.");
+        onChanged();
+      } catch (failure) {
+        onNotify(errorMessage(failure));
+      } finally {
+        setBusy(undefined);
+      }
+    };
+    const name = row.name ?? row.id ?? row.source;
+    return (
+      <>
+        <SettingsSection title="Package">
+          <SettingRow
+            title="Installed from"
+            description={row.scope === "global" ? "For every project." : "For this project only."}
+            status={<code className="settings-value">{row.source}</code>}
+            control={<Button icon={<RefreshCw size={13} />} busy={busy === "update"} disabled={busy !== undefined} onClick={() => void run("update", { source: row.source })}>{busy === "update" ? "Updating…" : "Update"}</Button>}
+          />
+        </SettingsSection>
+        <DangerZone>
+          <DangerAction
+            title={`Remove ${name}`}
+            description="Deletes the package and forgets its source. Its settings stay in the config, so installing it again brings them back."
+            actionLabel="Remove…"
+            busy={busy === "remove"}
+            confirmTitle={`Remove ${name}?`}
+            confirmMessage={<>{name} is deleted {row.scope === "global" ? "for every project" : "from this project"} and its source forgotten. Install it again from <code>{row.source}</code> to get it back.</>}
+            onConfirm={() => void run("remove", { source: row.source, scope: row.scope })}
+          />
+        </DangerZone>
+      </>
+    );
+  };
 }
 
 /**
@@ -214,6 +253,7 @@ export const packagesExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
+      group: "extensions",
       profiles: ["desktop", "web"],
       Icon: Package,
       order: 30,
@@ -221,6 +261,8 @@ export const packagesExtension: DesktopExtension = {
         <PackagesPage {...props} host={plugin.host} inspect={(cwd) => plugin.inspectPackages(cwd)} />
       ),
     });
+
+    plugin.registerSettingsSection({ id: "packages.extension", page: "extension", profiles: ["desktop", "web"], Component: createExtensionSection(plugin.host) });
 
     plugin.registerCommand({
       id: "packages.install",

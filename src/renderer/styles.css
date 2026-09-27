@@ -1422,6 +1422,10 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .confirm-dialog > h2 { margin: 0; font: 600 15px var(--sans); }
 .confirm-dialog > p { margin: 0; color: var(--muted); font: 12.5px/1.5 var(--sans); }
 .confirm-dialog-skip { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 12px var(--sans); }
+.confirm-dialog-type { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font: 12.5px var(--sans); }
+.confirm-dialog-type > span > b { color: var(--ink); font-weight: 600; }
+.confirm-dialog-type > input { height: 32px; padding: 0 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--field); color: var(--ink); font: 13px var(--sans); }
+.confirm-dialog > footer > button:disabled { opacity: .45; cursor: not-allowed; }
 .confirm-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .confirm-dialog > footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 12.5px var(--sans); cursor: pointer; }
 .confirm-dialog > footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }

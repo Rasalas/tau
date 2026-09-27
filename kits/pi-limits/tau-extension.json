@@ -1,6 +1,7 @@
 {
   "id": "tau.pi-limits",
   "name": "Pi Limits",
+  "description": "Shows how much of each subscription's quota Pi's providers have left.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

@@ -1,6 +1,7 @@
 {
   "id": "tau.remote-work",
   "name": "Remote Work",
+  "description": "Moves a project's work to another machine and brings the result back.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.15.0"

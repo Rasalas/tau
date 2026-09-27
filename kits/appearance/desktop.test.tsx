@@ -81,7 +81,7 @@ describe("Settings → Appearance", () => {
     for (const title of ["Mode", "Themes", "Density", "Contrast", "Timestamps", "Panel animations", "Interface font", "Prompt font", "Code font"]) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     }
-    expect(within(screen.getByRole("group", { name: "Density" })).getAllByRole("button").map((button) => button.textContent)).toEqual(["Compact", "Normal", "Comfortable"]);
+    expect(within(screen.getByRole("radiogroup", { name: "Density" })).getAllByRole("radio").map((button) => button.textContent)).toEqual(["Compact", "Normal", "Comfortable"]);
   });
 
   it("chooses the mode from three tiles and gives a theme one scheme from its card", async () => {
@@ -211,8 +211,9 @@ describe("the terminal's row on Settings → Appearance", () => {
     const size = screen.getByRole("spinbutton", { name: "Terminal font size" }) as HTMLInputElement;
     fireEvent.change(size, { target: { value: "99" } });
     fireEvent.blur(size);
-    // Out of range: the field goes back, nothing is written.
-    expect(size.value).toBe("");
+    // Out of range: the draft stays with the reason under it, nothing is written.
+    expect(size.value).toBe("99");
+    expect(screen.getByRole("alert").textContent).toMatch(/from \d+ to \d+/u);
     expect(service.set).toHaveBeenCalledTimes(1);
     fireEvent.change(size, { target: { value: "14.5" } });
     fireEvent.blur(size);

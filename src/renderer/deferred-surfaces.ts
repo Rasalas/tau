@@ -25,6 +25,21 @@ export const Sheet = deferred(() => import("./touch/Sheet").then((module) => mod
 export const ConfirmDialog = deferred(() => import("./components/ui/ConfirmDialog").then((module) => module.ConfirmDialog));
 export const SettingRow = deferred(() => import("./settings/settings-layout").then((module) => module.SettingRow));
 export const SettingsSection = deferred(() => import("./settings/settings-layout").then((module) => module.SettingsSection));
+// The controls those rows hold (API 1.18.0); one chunk with the rows.
+const controls = () => import("./settings/controls");
+export const Switch = deferred(() => controls().then((module) => module.Switch));
+export const SegmentedControl = deferred(() => controls().then((module) => module.SegmentedControl));
+export const Select = deferred(() => controls().then((module) => module.Select));
+export const NumberField = deferred(() => controls().then((module) => module.NumberField));
+export const TextField = deferred(() => controls().then((module) => module.TextField));
+export const ListField = deferred(() => controls().then((module) => module.ListField));
+export const ValueList = deferred(() => controls().then((module) => module.ValueList));
+export const Badge = deferred(() => controls().then((module) => module.Badge));
+export const HelpTip = deferred(() => controls().then((module) => module.HelpTip));
+export const Button = deferred(() => controls().then((module) => module.Button));
+export const DangerZone = deferred(() => controls().then((module) => module.DangerZone));
+export const DangerAction = deferred(() => controls().then((module) => module.DangerAction));
+export const SettingsState = deferred(() => controls().then((module) => module.SettingsState));
 export const ReloadCurtain = deferred(() => import("./components/ReloadCurtain").then((module) => module.ReloadCurtain));
 // Mounted at start-up, but its first look at pairing requests is 1.5 s later.
 export const PairingRequestWatcher = deferred(() => import("./pairing/PairingRequestWatcher").then((module) => module.PairingRequestWatcher));

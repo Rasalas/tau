@@ -1,6 +1,7 @@
 {
   "id": "tau.thread-titles",
   "name": "Thread Title Generator",
+  "description": "Names each new thread from its first message with a small model.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

@@ -1,6 +1,7 @@
 {
   "id": "tau.handoff",
   "name": "Handoff",
+  "description": "Continues a thread on another runtime, and brings a fork or a sub-agent back to its parent.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.15.0"

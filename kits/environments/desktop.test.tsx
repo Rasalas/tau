@@ -272,7 +272,7 @@ describe("Settings → Machines", () => {
     render(withSettings(<Page />));
     const button = screen.getByRole("button", { name: "Add machine" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.title).toMatch(/no encrypted storage/u);
+    expect(button.closest("[data-tooltip]")?.getAttribute("data-tooltip")).toMatch(/no encrypted storage/u);
   });
 
   it("says so when the other owner declines", async () => {
@@ -295,7 +295,7 @@ describe("Settings → Machines", () => {
     render(withSettings(<Page />));
     // Nothing is looked for until asked: looking is what makes macOS ask about the local network.
     expect(environments.discover).not.toHaveBeenCalled();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Find Machines" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Find machines" })); });
     expect(screen.getByText("Added")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^Add [A-Z]/u }).map((button) => button.getAttribute("aria-label"))).toEqual(["Add Attic"]);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add Attic" })); });
@@ -698,10 +698,12 @@ describe("Settings → Machines → Automatic", () => {
     await vi.waitFor(() => expect(updateConfig).toHaveBeenCalled());
     expect(JSON.stringify(updateConfig.mock.calls[0])).toContain(JSON.stringify(JSON.stringify({ studio: 70, laptop: 0 })));
     await vi.waitFor(() => expect(screen.getByText("Never chosen automatically.")).toBeTruthy());
-    // Out of range goes back.
+    // Out of range stays in the field with the reason, and is not written.
     const other = screen.getByRole("spinbutton", { name: "Weight of studio" }) as HTMLInputElement;
     fireEvent.change(other, { target: { value: "140" } });
     fireEvent.blur(other);
-    expect(other.value).toBe("70");
+    expect(other.value).toBe("140");
+    expect(screen.getByRole("alert").textContent).toBe("Enter a number from 0 to 100.");
+    expect(updateConfig).toHaveBeenCalledTimes(1);
   });
 });

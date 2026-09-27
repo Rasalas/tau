@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionInspection, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PackagesPage, packagesExtension } from "./desktop.js";
+import { PackagesPage, createExtensionSection, packagesExtension } from "./desktop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments } from "./protocol.js";
 
 afterEach(cleanup);
@@ -95,7 +95,7 @@ describe("Packages kit", () => {
     expect(invoke).toHaveBeenCalledWith("install", { source: "./ext/hello", scope: "project" });
   });
 
-  it("lists the kits Tau ships apart from the packages a source installed", async () => {
+  it("lists the packages a source installed, and leaves the kits Tau ships to Extensions", async () => {
     const invoke = vi.fn(async (command: string) => command === "list"
       ? {
         packages: [
@@ -115,11 +115,9 @@ describe("Packages kit", () => {
         ])}
       />,
     );
-    const kits = await screen.findByLabelText("Bundled kits");
-    expect(kits.textContent).toContain("tau.packages");
-    expect(kits.textContent).not.toContain("acme.hello");
-
-    const installed = screen.getByLabelText("Installed packages");
+    const installed = await screen.findByLabelText("Installed packages");
+    expect(screen.queryByLabelText("Bundled kits")).toBeNull();
+    expect(await screen.findByText(/listed under Settings → Extensions/u)).toBeTruthy();
     expect(installed.textContent).toContain("signed by ACME");
     expect(installed.textContent).toContain("signature not trusted");
     expect(installed.textContent).not.toContain("tau.packages");
@@ -141,5 +139,27 @@ describe("Packages kit", () => {
       />,
     );
     expect(await screen.findByText(/@tau\/kits 0\.1\.0/u)).toBeTruthy();
+  });
+
+  it("updates and removes an installed package from its own page, after asking", async () => {
+    const invoke = vi.fn(async (command: string) => (command === "list"
+      ? { packages: [{ source: "npm:@acme/hello", scope: "global", directory: "/x", id: "acme.hello", name: "Hello", signatureLabel: "unsigned" }] }
+      : { message: `${command}d` }));
+    const Section = createExtensionSection(host(invoke));
+    const notify = vi.fn();
+    const changed = vi.fn();
+    const { rerender } = render(<Section extensionId="acme.hello" onNotify={notify} onChanged={changed} />);
+    expect(await screen.findByText("npm:@acme/hello")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update", { source: "npm:@acme/hello" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove…" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove Hello?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("remove", { source: "npm:@acme/hello", scope: "global" }));
+    expect(notify).toHaveBeenCalledWith("removed");
+    expect(changed).toHaveBeenCalled();
+    // A kit Tau ships has no source to update or remove.
+    rerender(<Section extensionId="tau.terminal" onNotify={notify} onChanged={changed} />);
+    await waitFor(() => expect(screen.queryByText("npm:@acme/hello")).toBeNull());
   });
 });

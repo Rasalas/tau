@@ -1,6 +1,7 @@
 {
   "id": "tau.packages",
   "name": "Packages",
+  "description": "Installs, updates and removes extension packages from npm, Git or a folder.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.10.0"

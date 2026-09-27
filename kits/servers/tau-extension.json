@@ -1,6 +1,7 @@
 {
   "id": "tau.servers",
   "name": "Servers",
+  "description": "Works on projects deployed to servers over SSH, SFTP or FTP.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.17.0"
