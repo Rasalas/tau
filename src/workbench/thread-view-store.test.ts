@@ -50,7 +50,6 @@ describe("reduceHostEvent", () => {
       { type: "notice", sessionId: "other", message: "nope", level: "info" },
       { type: "error", sessionId: "other", message: "nope" },
       { type: "event-log", sessionId: "other", label: "nope", timestamp: 1 },
-      { type: "extension-ui-resolved", sessionId: "other", id: "p1" },
     ];
     expect(reduceAll(initial, events)).toBe(initial);
   });
@@ -250,6 +249,16 @@ describe("reduceHostEvent", () => {
     const resolved = reduceHostEvent(asked, { type: "extension-ui-resolved", sessionId: SESSION, id: "p1" });
     expect(resolved.uiPrompts).toEqual([]);
     expect(reduceHostEvent(resolved, { type: "extension-ui-resolved", sessionId: SESSION, id: "p1" })).toBe(resolved);
+  });
+
+  it("follows the questions of every thread, not just the one on screen, and holds a replayed one once", () => {
+    const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "other", kind: "select", title: "Which?", options: ["a", "b"] };
+    const asked = reduceHostEvent(state(), { type: "extension-ui-prompt", sessionId: "other", prompt });
+    const replayed = reduceHostEvent(asked, { type: "extension-ui-prompt", sessionId: "other", prompt });
+    expect(replayed.uiPrompts).toEqual([prompt]);
+
+    const answeredElsewhere = reduceHostEvent(replayed, { type: "extension-ui-resolved", sessionId: "other", id: "p1" });
+    expect(answeredElsewhere.uiPrompts).toEqual([]);
   });
 });
 
