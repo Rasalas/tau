@@ -774,6 +774,79 @@ describe("immutable turn snapshots", () => {
     }
   });
 
+  it("checks a thread's checkpoints before it opens with one Git call, however many there are", { timeout: 60_000 }, async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-open-sweep-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["-c", "user.email=tau@example.test", "-c", "user.name=Tau Test", "commit", "-q", "--allow-empty", "-m", "fixture"], { cwd });
+      const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd, encoding: "utf8" }).trim();
+      const commitId = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+      const checkpoint = (turnId: string): StoredTurnCheckpoint => ({
+        id: turnId, turnId, sessionId: "thread", anchorMessageId: `prompt-${turnId}`,
+        beforeSnapshotId: turnSnapshotRef("thread", turnId, "before"), afterSnapshotId: turnSnapshotRef("thread", turnId, "after"),
+        startedAt: 1, endedAt: 2, files: [], added: 1, removed: 1,
+      });
+      const kept = Array.from({ length: 30 }, (_, index) => checkpoint(`turn-${index}`));
+      const refs = kept.flatMap((entry) => [entry.beforeSnapshotId, entry.afterSnapshotId]);
+      // A pair whose "after" names a commit, not a tree, and a ref no entry claims.
+      const broken = checkpoint("broken");
+      const orphan = turnSnapshotRef("thread", "orphan", "before");
+      const lines = [...refs.map((ref) => `create ${ref} ${tree}`), `create ${broken.beforeSnapshotId} ${tree}`, `create ${broken.afterSnapshotId} ${commitId}`, `create ${orphan} ${tree}`];
+      execFileSync("git", ["update-ref", "--stdin"], { cwd, input: `${lines.join("\n")}\n` });
+      const calls: string[][] = [];
+      const counted = (dir: string, args: string[], maxBuffer?: number, signal?: AbortSignal) => {
+        calls.push(args);
+        return runGitCommand(dir, args, maxBuffer, signal);
+      };
+
+      await cleanupOrphanTurnCheckpointRefs(cwd, "thread", [...kept, broken], counted, [], { graceMs: 0 });
+
+      const left = execFileSync("git", ["for-each-ref", "--format=%(refname)", "refs/tau/checkpoints/thread/"], { cwd, encoding: "utf8" }).trim().split("\n");
+      expect(left.sort()).toEqual([...refs].sort());
+      // The listing, the broken pair's own check (four calls) and deleting three refs; none per kept checkpoint.
+      expect(calls.filter((args) => args[0] === "for-each-ref")).toHaveLength(1);
+      expect(calls.filter((args) => args[0] === "rev-parse" || args[0] === "cat-file")).toHaveLength(4);
+      expect(calls.filter((args) => args[0] === "update-ref")).toHaveLength(3);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("sweeps every session's checkpoints in a workspace with one listing", { timeout: 60_000 }, async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-live-sweep-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["-c", "user.email=tau@example.test", "-c", "user.name=Tau Test", "commit", "-q", "--allow-empty", "-m", "fixture"], { cwd });
+      const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd, encoding: "utf8" }).trim();
+      const sessions = ["first", "second"].map((sessionId) => ({
+        sessionId,
+        cwd,
+        checkpoints: Array.from({ length: 20 }, (_, index): StoredTurnCheckpoint => ({
+          id: `turn-${index}`, turnId: `turn-${index}`, sessionId, anchorMessageId: `prompt-${index}`,
+          beforeSnapshotId: turnSnapshotRef(sessionId, `turn-${index}`, "before"), afterSnapshotId: turnSnapshotRef(sessionId, `turn-${index}`, "after"),
+          startedAt: 1, endedAt: 2, files: [], added: 1, removed: 1,
+        })),
+      }));
+      const refs = sessions.flatMap((session) => session.checkpoints.flatMap((entry) => [entry.beforeSnapshotId, entry.afterSnapshotId]));
+      const gone = turnSnapshotRef("deleted", "turn", "before");
+      execFileSync("git", ["update-ref", "--stdin"], { cwd, input: `${[...refs, gone].map((ref) => `create ${ref} ${tree}`).join("\n")}\n` });
+      const calls: string[][] = [];
+      const counted = (dir: string, args: string[], maxBuffer?: number, signal?: AbortSignal) => {
+        calls.push(args);
+        return runGitCommand(dir, args, maxBuffer, signal);
+      };
+
+      await cleanupCheckpointRefsForLiveSessions(cwd, sessions, counted, { graceMs: 0 });
+
+      const left = execFileSync("git", ["for-each-ref", "--format=%(refname)", "refs/tau/checkpoints/"], { cwd, encoding: "utf8" }).trim().split("\n");
+      expect(left.sort()).toEqual([...refs].sort());
+      expect(calls.filter((args) => args[0] === "for-each-ref")).toHaveLength(1);
+      expect(calls.filter((args) => args[0] === "rev-parse" || args[0] === "cat-file")).toHaveLength(0);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("provides immutable snapshots and fork history for a plain folder", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-folder-snapshots-"));
     try {
