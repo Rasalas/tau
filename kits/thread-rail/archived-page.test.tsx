@@ -39,7 +39,7 @@ describe("Settings → Archived", () => {
     const { Page } = setup();
     render(<Page onNotify={() => undefined} />);
     expect(screen.getByText("No archived threads")).toBeTruthy();
-    expect(screen.getByText("Archived threads will appear here.")).toBeTruthy();
+    expect(screen.getByText(/Archive a thread from its menu in the rail/u)).toBeTruthy();
   });
 
   it("lists archived threads by project, newest first, and unarchives from the row", async () => {
@@ -49,29 +49,43 @@ describe("Settings → Archived", () => {
     render(<Page onNotify={() => undefined} />);
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual(["alpha", "beta"]);
-    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Thread b", "Thread a", "Thread c"]);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Archived", "Thread b", "Thread a", "Thread c"]);
     expect(screen.getByText("Archived 2 days ago · Last active 1 hour ago")).toBeTruthy();
     expect(screen.queryByText("Thread live")).toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Unarchive" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive Thread b" }));
     expect(page.unarchive).toHaveBeenCalledWith("b");
     fireEvent.contextMenu(screen.getByText("Thread c"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(page.remove).toHaveBeenCalledWith(expect.objectContaining({ id: "c" }));
   });
 
-  it("restores a deleted thread, and deletes it for good only on a second click", async () => {
+  it("restores a deleted thread, and deletes it for good only once asked", async () => {
     const { page, Page } = setup([{ sessionId: "gone", cwd: "/alpha", title: "Gone thread", backendKind: "pi", deletedAt: NOW - 5 * 60_000, purgeAt: NOW + 30 * 24 * 60 * 60_000 }]);
     render(<Page onNotify={() => undefined} />);
     await waitFor(() => expect(screen.getByText("Gone thread")).toBeTruthy());
     expect(screen.getByText("Deleted 5 minutes ago · removed for good in 30 days")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore Gone thread" }));
     expect(page.restore).toHaveBeenCalledWith("gone");
-    fireEvent.click(screen.getByRole("button", { name: "Delete now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Gone thread now" }));
     expect(page.purge).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Delete “Gone thread” for good?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Gone thread now" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete for good" }));
     expect(page.purge).toHaveBeenCalledWith("gone");
+  });
+
+  it("says when the deleted threads did not load, and asks again", async () => {
+    const { page, Page } = setup();
+    page.trash.mockRejectedValueOnce(new Error("The host did not answer."));
+    render(<Page onNotify={() => undefined} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("The host did not answer.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(page.trash).toHaveBeenCalledTimes(2);
   });
 
   it("speaks of time roughly", () => {

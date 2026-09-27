@@ -59,10 +59,4 @@
 .thread-rail-undo > button:hover, .thread-rail-undo > button:focus-visible { text-decoration: underline; }
 
 /* Settings → Archived. */
-.thread-rail-archived-empty { display: inline-flex; align-items: center; gap: 8px; }
-.thread-rail-archived-empty > svg { color: var(--muted-2); }
-.thread-rail-archived .chrome-button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.thread-rail-archived .chrome-button.danger { color: var(--danger); }
-.thread-rail-archived .chrome-button.danger:hover:not(:disabled) { border-color: var(--danger-line); background: var(--danger-bg); color: var(--danger); }
-.thread-rail-archived-actions { display: inline-flex; gap: 6px; }
 .thread-rail-menu-anchor { position: fixed; z-index: 61; width: 0; height: 0; }
