@@ -60,7 +60,7 @@ export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tool
 // Paths and branches cut in the middle, not at the end (API 1.11.0).
 export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { useContextMenu } from "./components/ui/ContextMenu";
-export { ConfirmDialog, Dialog, Popover } from "./deferred-surfaces";
+export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
 export { useEscapeLayer } from "./components/ui/escape-layers";
