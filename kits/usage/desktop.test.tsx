@@ -115,7 +115,8 @@ describe("Usage page", () => {
     renderPage(answers());
     const days = await screen.findByRole("list", { name: "Cost per day" });
     expect(within(days).getAllByRole("listitem")).toHaveLength(30);
-    expect(within(screen.getByRole("region", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(1);
+    // The days draw before the summary arrives; the rankings follow it.
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(1));
     const models = within(screen.getByRole("region", { name: "Models" })).getAllByRole("listitem");
     expect(models.map((item) => item.querySelector("strong")?.textContent)).toEqual(["gpt-5.6-luna", "haiku", "claude-haiku-4-5"]);
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Range" })).getByText("90 days"));
