@@ -124,10 +124,10 @@ describe("FilesPanel", () => {
     expect(readFile).toHaveBeenCalledWith("src/a.ts");
     expect(openFile).not.toHaveBeenCalled();
     expect(screen.getByRole("note").textContent).toContain("Read only on a phone");
-    expect(screen.queryByRole("button", { name: "refresh" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /refresh/iu })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to the files" }));
-    expect(screen.getByRole("button", { name: "refresh" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /refresh/iu })).toBeTruthy();
     expect(screen.getByTitle("src/a.ts")).toBeTruthy();
   });
 

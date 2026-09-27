@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronRight, FileDiff, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, FileDiff, RotateCw, Search } from "lucide-react";
 import { ChangesTree, FileKindIcon, tooltipProps, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
@@ -148,7 +148,7 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
     {inSheet && reading ? <FileReader path={reading} load={readFile} onBack={() => setReading(undefined)} /> : null}
     <header className="panel-header" hidden={Boolean(inSheet && reading)}>
       {/* The sheet's own header names it already. */}
-      {inSheet ? null : <><h2>Files</h2><small>{extensionName.toLowerCase()}</small></>}
+      {inSheet ? null : <><h2>Files</h2>{touch ? null : <small>{extensionName.toLowerCase()}</small>}</>}
       <span className="spacer" />
       {searcher ? <button
         type="button"
@@ -157,7 +157,9 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
         {...tooltipProps("Go to file", { shortcut: "⌘P", side: "bottom" })}
         onClick={() => searcher.pickFile(inSheet ? setReading : undefined)}
       ><Search size={touch ? 18 : 14} /></button> : null}
-      <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>
+      {touch
+        ? <button type="button" className="icon-button files-panel-search" aria-label="Refresh files" onClick={() => void refreshFiles()}><RotateCw size={18} /></button>
+        : <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>}
     </header>
     <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>
       <FileTree
