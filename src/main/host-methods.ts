@@ -19,6 +19,8 @@ import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { createMachineMethods, type HostMachines } from "./host-machines.js";
+import { createMachinePairingMethods, localWindowPort } from "./host-machine-pairing.js";
+import type { ClientCalls } from "./client-calls.js";
 import { createResourceMethods, type HostResourceSampler } from "./host-resources.js";
 import { createBlobMethods, type HostBlobStore } from "./host-blobs.js";
 import { authorizeMethod } from "./host-method-access.js";
@@ -150,7 +152,8 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
 
 export interface HostMethodDeps {
   /** Answers to the calls this host made into a client's process, when it makes any; `from` is the answering connection. */
-  clientCalls?: { settle(callId: string, result: unknown, error: string | undefined, from: string | undefined): void };
+  clientCalls?: { settle(callId: string, result: unknown, error: string | undefined, from: string | undefined): void }
+    & Partial<Pick<ClientCalls, "call" | "hasLocalWindow">>;
   /** Starts the host on the first call; later calls read what is already running. */
   bootstrap(): Promise<HostBootstrap>;
   /** Resolves once the host finished starting; it never asks for a bootstrap first. */
@@ -419,6 +422,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createConnectionsMethods(() => deps.connections?.()),
     ...createHostServiceMethods(() => deps.service?.()),
     ...createMachineMethods(() => deps.machines?.()),
+    ...createMachinePairingMethods({ machines: () => deps.machines?.(), window: () => localWindowPort(deps.clientCalls) }),
     ...createResourceMethods({ resources: () => deps.resources?.(), runtimes: host }),
     ...createBlobMethods(() => deps.blobs?.()),
 

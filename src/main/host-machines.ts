@@ -94,6 +94,16 @@ export class HostMachines {
     this.changed();
   }
 
+  /** This computer's own name for a machine; the machine keeps calling itself what it does. */
+  async rename(id: string, name: string): Promise<boolean> {
+    const text = name.trim().slice(0, 80);
+    const watched = this.watched.get(id);
+    if (!text || !watched || !(await this.catalog.update(id, { name: text }))) return false;
+    watched.entry = { ...watched.entry, name: text };
+    this.changed();
+    return true;
+  }
+
   /** Forgets a machine and its key. The other machine still lists the device until its owner revokes it. */
   async remove(id: string): Promise<boolean> {
     const removed = await this.catalog.remove(id);

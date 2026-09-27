@@ -126,6 +126,12 @@ export class ClientCalls {
     });
   }
 
+  /** Whether a window on the host's machine runs `extensionId`'s half now; unlike `call`, it never starts one. */
+  hasLocalWindow(extensionId: string): boolean {
+    for (const peer of this.peers.values()) if (onHostMachine(peer) && peer.windowHalves?.includes(extensionId)) return true;
+    return false;
+  }
+
   /**
    * The id of the host-machine window a call with `{ window: "host" }` would
    * reach now, for pinning later calls to it; undefined when there is none

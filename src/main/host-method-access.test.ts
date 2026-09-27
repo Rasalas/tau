@@ -118,7 +118,7 @@ describe("what one host may ask another for its agents (ADR 0027)", () => {
   });
 
   it("keeps the machines' keys to the host token on this machine", () => {
-    for (const method of ["machines-list", "machines-add", "machines-remove"]) {
+    for (const method of ["machines-list", "machines-add", "machines-remove", "machines-overview", "machines-pair", "machines-forget"]) {
       expect(methodAccess(method), method).toBe("owner");
       expect(() => authorizeMethod(full, method), method).toThrow(/host token/u);
       expect(() => authorizeMethod(owner, method), method).not.toThrow();
