@@ -54,7 +54,7 @@ describe("Escape during a running turn", () => {
 
   it("closes the project picker and stops nothing", () => {
     const { abort } = running();
-    open((close) => <ProjectPicker open projects={[{ path: "/p", name: "p" }]} onBrowse={() => {}} onClose={close} onRemove={() => {}} onSelect={() => {}} />);
+    open((close) => <ProjectPicker open projects={[{ path: "/p", name: "p", lastOpenedAt: 1 }]} onBrowse={() => {}} onClose={close} onRemove={() => {}} onSelect={() => {}} />);
     escape(screen.getByRole("textbox", { name: "Search projects" }));
     expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull();
     expect(abort).not.toHaveBeenCalled();
