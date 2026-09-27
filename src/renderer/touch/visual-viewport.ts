@@ -16,8 +16,32 @@ export interface ViewportFit {
 /** Below this, a shorter visual viewport is browser chrome moving, not a keyboard. */
 const KEYBOARD_MIN_PX = 120;
 
-export function viewportFit(layoutHeight: number, visual: { height: number; offsetTop: number } | undefined): ViewportFit {
-  if (!visual) return { height: layoutHeight, top: 0, keyboard: false };
+/**
+ * `resized` covers a web view that shrinks the whole page for the keyboard
+ * (Android's): the page is shorter than the tallest it was at this width while
+ * a text field has the keyboard. Without it a hardware keyboard would pass for
+ * none there, and a return key would send.
+ */
+export function viewportFit(
+  layoutHeight: number,
+  visual: { height: number; offsetTop: number } | undefined,
+  resized?: { tallest: number; editing: boolean },
+): ViewportFit {
+  const shrunk = Boolean(resized?.editing) && (resized?.tallest ?? 0) - layoutHeight >= KEYBOARD_MIN_PX;
+  if (!visual) return { height: layoutHeight, top: 0, keyboard: shrunk };
   const covered = layoutHeight - visual.height - visual.offsetTop;
-  return { height: Math.round(visual.height), top: Math.round(visual.offsetTop), keyboard: covered >= KEYBOARD_MIN_PX };
+  return { height: Math.round(visual.height), top: Math.round(visual.offsetTop), keyboard: covered >= KEYBOARD_MIN_PX || shrunk };
+}
+
+/** The tallest page seen at this width; a rotation or a narrower window starts over. */
+export function tallestHeight(previous: { width: number; height: number } | undefined, width: number, height: number): { width: number; height: number } {
+  return previous && previous.width === width ? { width, height: Math.max(previous.height, height) } : { width, height };
+}
+
+/** A focused element the on-screen keyboard types into. */
+export function editingFocused(active: Element | null | undefined): boolean {
+  if (!active) return false;
+  if (active instanceof HTMLElement && active.isContentEditable) return true;
+  if (active.tagName === "TEXTAREA") return true;
+  return active.tagName === "INPUT" && !/^(checkbox|radio|range|button|submit|reset|color|file|image)$/iu.test((active as HTMLInputElement).type);
 }

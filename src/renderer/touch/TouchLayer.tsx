@@ -7,7 +7,7 @@ import {
 } from "../../workbench/phone-history";
 import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
-import { viewportFit } from "./visual-viewport";
+import { editingFocused, tallestHeight, viewportFit } from "./visual-viewport";
 import "./touch.css";
 
 /** A phone's route and how to go there; see `usePhoneNavigation`. */
@@ -30,8 +30,10 @@ export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; o
   useEffect(() => {
     const root = document.documentElement;
     const visual = window.visualViewport ?? undefined;
+    let tallest: { width: number; height: number } | undefined;
     const update = () => {
-      const fit = viewportFit(window.innerHeight, visual);
+      tallest = tallestHeight(tallest, window.innerWidth, window.innerHeight);
+      const fit = viewportFit(window.innerHeight, visual, { tallest: tallest.height, editing: editingFocused(document.activeElement) });
       root.style.setProperty("--tau-viewport-height", `${fit.height}px`);
       root.style.setProperty("--tau-viewport-top", `${fit.top}px`);
       root.style.setProperty("--tau-keyboard-inset", `${Math.max(0, window.innerHeight - fit.height - fit.top)}px`);
@@ -41,10 +43,14 @@ export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; o
     visual?.addEventListener("resize", update);
     visual?.addEventListener("scroll", update);
     window.addEventListener("resize", update);
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", update);
     return () => {
       visual?.removeEventListener("resize", update);
       visual?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", update);
       root.style.removeProperty("--tau-viewport-height");
       root.style.removeProperty("--tau-viewport-top");
       root.style.removeProperty("--tau-keyboard-inset");
