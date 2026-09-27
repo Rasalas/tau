@@ -884,9 +884,12 @@ page counts as an overlay (`overlayOpen`, see "Keybindings"): the window's
 plain keybindings (Escape stopping a run among them) stay off while it shows,
 chords still run, and Escape leaves it once no dialog, menu or popover over it
 takes the key. On a phone (`compact` without the split list)
-the page is a screen of its own with a back button, addressed as
-`?page=<id>`: a link opens it, opening it adds a history entry, and the
-system's back gesture leaves it.
+the page is a screen of its own, addressed as `?page=<id>`: a link opens it.
+The first three pages that claim `compact` are destinations of the phone's
+bottom navigation, beside Threads and Settings, so a page for a phone keeps its
+label short. There the page is a main page without a back button; a view it
+steps into hides the navigation, gets Back and a history entry, and the
+system's back gesture steps out of it, then out of the page to the thread list.
 
 `layout` is `"readable"` (Settings' reading column, the default), `"wide"`
 (1240 px) or `"fill"`: the page gets the whole area below the bar and scrolls
