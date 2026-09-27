@@ -174,7 +174,8 @@ sidebar beside the thread instead (`compactFormFor`). The touch pieces live in
 T3 Code's swipe to settle and a long press for every action (`TouchThreadList`,
 `SwipeRow`, `ActionSheet`), the list's header with search and More as popovers
 and a floating New thread button (`TouchThreadBrowser`), panels that claim
-`compact` as sheets over the thread (`PanelSheet`, opened from the title bar,
+`compact` as sheets over the thread (`PanelSheet`, opened from the title bar —
+on a phone from its More menu once there are two or more —
 and by `actions.openPanel`/`closePanel`, which reach the sheet there),
 sheets that close on a pull down (`sheet-drag.ts`), and `TouchLayer` — the
 height the on-screen keyboard leaves (`visualViewport`), a tap that shows a

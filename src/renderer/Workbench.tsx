@@ -577,6 +577,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         }))}
         onToggleDock={() => (dockYields ? keepDock() : setDockOpen(!dockOpen))}
         {...(compact ? { onOpenThreads: () => (split ? setTouchSidebarOpen((open) => !open) : setThreadSheetOpen(true)) } : {})}
+        foldSheets={compact && !split}
         sheets={sheetPanels.map((panel) => ({
           id: panel.id,
           label: panel.label,

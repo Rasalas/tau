@@ -411,7 +411,7 @@ npm run cdp:mobile -- wait-for "!document.querySelector('.host-connection-status
 
 The band "Reconnecting to the host…" must appear while the host is frozen (seen 1 to 11 s after the wake) and go within seconds once it thaws. `wake offline` / `wake online` emulate the network going away (Chromium keeps a loopback socket open while "offline", so combine it with `freeze-host` to see the Offline band), `wake foreground` fires `visibilitychange`. `freeze-host` signals only the pid in the instance's `host.json` (or the test host's), and only if its command line runs from this worktree.
 
-The phone's panels open as sheets from the title bar: `tap` the **Terminal** icon, **New terminal**, then `keyboard 320` to see the key bar (esc, ctrl, alt, tab, arrows, ^C) on the keyboard; the **Review** icon opens the review sheet.
+The phone's panels open as sheets from the title bar's **More** menu (a single panel keeps its own icon): `tap` **More**, then **Terminal** (`[role=menuitemcheckbox]`), **New terminal**, then `keyboard 320` to see the key bar (esc, ctrl, alt, tab, arrows, ^C) on the keyboard; **More** → **Review** opens the review sheet.
 
 ### The proxy listener behind a fake Tailscale Serve
 
