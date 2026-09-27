@@ -37,7 +37,8 @@ import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { isWidePanel, usePanelLayout } from "./use-panel-layout";
-import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
+import type { SubmissionControllerPorts } from "./submission-controller";
+import { deferredSubmission } from "./deferred-submission";
 import { followTurnActivity } from "../workbench/turn-activity";
 import { followShownThread } from "../workbench/shown-thread";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -236,7 +237,7 @@ export default function App() {
     : undefined;
   // Renderer prompt contributions adapt to the already-constructed session.
   // Host updates and delivery no longer call back through this controller.
-  const [submission] = useState<SubmissionController>(() => {
+  const [submission] = useState(() => {
     const ports: SubmissionControllerPorts = {
       client: () => clientRef.current,
       view: viewStore,
@@ -265,7 +266,7 @@ export default function App() {
         await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
       },
     };
-    return new SubmissionController(ports);
+    return deferredSubmission(ports);
   });
   const submitPrompt = useCallback<SubmitPrompt>(
     (text, attachments, delivery, skillDraft) => submission.submit({ text, attachments, delivery, skillDraft }),
