@@ -1830,6 +1830,9 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); font-weight: 400; }
 .review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
 .review-toolbar > .text-button { white-space: nowrap; }
+/* Beside the file list at 1280 px its controls outgrow the column: they scroll rather than run under the list. */
+.review-toolbar { overflow-x: auto; scrollbar-width: none; }
+.review-toolbar > :not(.review-scope-summary) { flex-shrink: 0; }
 .review-shell .icon-button, .panel-host .icon-button, .panel-maximize, .stage-strip-actions .icon-button {
   width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0;
   border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;

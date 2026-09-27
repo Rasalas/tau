@@ -22,4 +22,10 @@ describe("panel styles", () => {
     expect(header).toMatch(/min-width:\s*0\b/u);
     expect(header).toMatch(/overflow:\s*auto/u);
   });
+
+  // Squeezed beside the file list, its toggle groups shrank and cut off "Split" and "All lines".
+  it("scrolls the review's toolbar instead of squeezing its controls", async () => {
+    expect(await declarations(".review-toolbar")).toMatch(/overflow-x:\s*auto/u);
+    expect(await declarations(".review-toolbar > :not(.review-scope-summary)")).toMatch(/flex-shrink:\s*0/u);
+  });
 });
