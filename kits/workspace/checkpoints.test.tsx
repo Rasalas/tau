@@ -37,7 +37,7 @@ describe("checkpoint rows", () => {
       turnChanges: () => ({ files: [], added: 0, removed: 0 }),
     } as unknown as WorkspaceStore;
     registry.activate({ id: EXTENSION_ID, name: "Checkpoints", activate: (context) => registerCheckpoints(context, workspaceStore) });
-    const { Component } = registry.getRegions("composer-above")[0]!;
+    const { Component } = registry.getRegions("composer-controls")[0]!;
     const snapshot = { sessionId: "s1", isStreaming: false } as HostSnapshot;
     const actions = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;
     render(

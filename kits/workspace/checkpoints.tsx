@@ -313,7 +313,7 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
       if (event.status === "skipped") store.update({ notice: "Turn changes were not recorded: another turn is active in this workspace." });
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
-  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-above", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });
+  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-controls", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(store, workspaceStore) });
 }
 
