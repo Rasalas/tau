@@ -17,13 +17,18 @@ describe("centerLayout", () => {
     expect(desk(1080, { stageOpen: false, maximized: true })).toEqual(SIDE_BY_SIDE);
   });
 
-  it("keeps chat and stage side by side, with the dock open, where all three fit", () => {
+  it("keeps chat and stage side by side, with the dock open, where the stage gets its reading width", () => {
+    expect(desk(1920)).toEqual(SIDE_BY_SIDE);
     expect(desk(1728)).toEqual(SIDE_BY_SIDE);
-    expect(desk(1512)).toEqual(SIDE_BY_SIDE);
+    // 256 + 46 + 320 + chat 480 + stage 560
+    expect(desk(1662)).toEqual(SIDE_BY_SIDE);
   });
 
-  it("folds the dock to its rail before the chat would give way", () => {
+  it("folds the dock to its rail as soon as the stage would be narrower than its reading width", () => {
+    expect(desk(1661)).toEqual(ON_RAIL);
+    expect(desk(1512)).toEqual(ON_RAIL);
     expect(desk(1440)).toEqual(ON_RAIL);
+    // Short of its reading width even on the rail (stage 498), but beside the chat.
     expect(desk(1280)).toEqual(ON_RAIL);
     expect(desk(1142)).toEqual(ON_RAIL);
   });
@@ -34,8 +39,14 @@ describe("centerLayout", () => {
     expect(desk(390, { sidebarWidth: 0, dock: undefined })).toEqual(TABS);
   });
 
-  it("leaves the dock open once the user opened it with the stage up, and uses tabs instead", () => {
+  it("leaves the dock open once the user opened it with the stage up, beside the chat where both still fit, else in tabs", () => {
+    expect(desk(1512, { keepDock: true })).toEqual(SIDE_BY_SIDE);
     expect(desk(1440, { keepDock: true })).toEqual(TABS);
+  });
+
+  it("leaves the dock open where the sidebar is hidden and the stage has its reading width anyway", () => {
+    expect(desk(1512, { sidebarWidth: 0 })).toEqual(SIDE_BY_SIDE);
+    expect(desk(1280, { sidebarWidth: 0 })).toEqual(ON_RAIL);
   });
 
   it("counts a closed dock as its rail, and no dock as nothing", () => {
@@ -50,7 +61,8 @@ describe("centerLayout", () => {
   });
 
   it("follows a wider dock and a wider sidebar", () => {
-    expect(desk(1512, { dock: { open: true, width: 560 } })).toEqual(ON_RAIL);
+    expect(desk(1920, { dock: { open: true, width: 560 } })).toEqual(SIDE_BY_SIDE);
+    expect(desk(1728, { dock: { open: true, width: 560 } })).toEqual(ON_RAIL);
     expect(desk(1512, { sidebarWidth: 700 })).toEqual(TABS);
   });
 

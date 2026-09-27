@@ -1,8 +1,9 @@
 /**
  * How the centre holds the chat and an open stage in a window this wide: side
- * by side, side by side once the dock yields its panel to its icon rail, or
- * tabs, the chat first, where even that does not fit or the user maximized the
- * stage. Pure, so the decision is tested without a window; the numbers mirror styles.css.
+ * by side, side by side once the dock yields its panel to its icon rail (where
+ * the stage would otherwise be narrower than it wants), or tabs, the chat first,
+ * where even the rail leaves too little room or the user maximized the stage.
+ * Pure, so the decision is tested without a window; the minimums mirror styles.css.
  */
 
 /** The chat's column: the composer's toolbar stays on one line. */
@@ -10,6 +11,8 @@ export const CHAT_MIN_WIDTH = 480;
 /** The stage's column: a file's header and a few dozen columns of code. */
 export const STAGE_MIN_WIDTH = 360;
 export const CENTER_SPLIT_MIN_WIDTH = CHAT_MIN_WIDTH + STAGE_MIN_WIDTH;
+/** The stage's reading width, about 67 columns of 12 px code: the dock folds while the stage would be narrower. */
+export const STAGE_PREFERRED_WIDTH = 560;
 /** The dock's icon rail, which stays when its panel is closed. */
 export const DOCK_RAIL_WIDTH = 46;
 /** Below this the stylesheet shows only the dock's rail, open or not. */
@@ -42,7 +45,9 @@ export function centerLayout({ windowWidth, sidebarWidth, dock, stageOpen, keepD
   const panel = dock?.open && windowWidth > DOCK_PANEL_MIN_WINDOW ? dock.width : 0;
   const room = windowWidth - sidebarWidth - (dock ? DOCK_RAIL_WIDTH : 0) - panel;
   const fits = room >= CENTER_SPLIT_MIN_WIDTH;
-  const fitsOnRail = !fits && panel > 0 && !keepDock && room + panel >= CENTER_SPLIT_MIN_WIDTH;
+  // The chat keeps its minimum first, so the stage reaches its reading width exactly here.
+  const roomy = room >= CHAT_MIN_WIDTH + STAGE_PREFERRED_WIDTH;
+  const fitsOnRail = !roomy && panel > 0 && !keepDock && room + panel >= CENTER_SPLIT_MIN_WIDTH;
   const canSplit = fits || fitsOnRail;
   return { dockYields: fitsOnRail && !maximized, tabs: maximized || !canSplit, canSplit };
 }
