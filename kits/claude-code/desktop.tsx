@@ -1,7 +1,9 @@
-import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Bot, CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
+import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
+import { Bot } from "lucide-react";
 import {
   DEFAULT_INSTANCE_ID,
+  SettingRow,
+  SettingsState,
   isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   loadRuntimeUpdateToasts,
@@ -16,6 +18,7 @@ import {
   type RuntimeUpdateToasts,
   type RuntimeInstanceConfig,
   type SettingsPageProps,
+  type SignInReport,
   type WorkbenchActions,
 } from "tau";
 import {
@@ -40,6 +43,8 @@ const TERMINAL_PANEL = "terminal";
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
+const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
+const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
 
 /** Marks the runtime behind a Claude thread with an icon, its name in the tooltip; Pi threads show nothing. */
 export function ClaudeCodeStatus({ snapshot }: RegionProps) {
@@ -85,26 +90,74 @@ async function typeIntoTerminal(terminal: HostExtensionClient, actions: Workbenc
 
 const whereTheCommandIs = (where: "terminal" | "copied") => where === "terminal" ? "The command is in a terminal; press Enter there to run it." : "No terminal is available; the command is on the clipboard.";
 
-/** The executable's path, saved when the field is left or Enter is pressed; empty goes back to the PATH. */
-function CommandPathField({ status, onSave }: { status: ClaudeStatusReport | undefined; onSave(command: string): Promise<void> }) {
-  const saved = status?.commandSource === "setting" ? status.command : "";
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
-  const fromEnv = status?.commandSource === "env";
-  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
+type ProgramState = ComponentProps<typeof ProgramRows>["state"];
+
+/** The element ids of an instance's rows; every instance's card sits on the same page, so each carries its id. */
+export function rowIds(instance: string) {
+  const prefix = instance === DEFAULT_INSTANCE_ID ? "setting-agent-sdk" : `setting-agent-sdk-${instance}`;
+  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
+}
+
+/** What the Settings search finds on an instance's card. */
+export function searchRows(instance: string, label: string) {
+  const ids = rowIds(instance);
+  return [
+    { id: ids.program, label: `${label} CLI`, keywords: ["agent sdk", "version", "update", "install", "installed", "check"] },
+    { id: ids.account, label: `${label} account`, keywords: ["sign in", "sign out", "login", "plan", "api key"] },
+    { id: ids.executable, label: `${label} executable`, keywords: ["path", "command", "binary"] },
+    { id: ids.setup, label: `${label} instance setup`, keywords: ["instance", "home", "environment", "arguments"] },
+  ];
+}
+
+interface CardRowsProps {
+  host: HostExtensionClient;
+  target: string;
+  /** The instance's name, for the rows' words. */
+  program: string;
+  runInTerminal?(command: string): Promise<{ exitCode?: number }>;
+  openExternal(url: string): void;
+  copyText(text: string): Promise<void>;
+  onNotify(message: string): void;
+  onReport(report: SignInReport): void;
+  isDefault: boolean;
+  state: ProgramState;
+  /** The executable as the host runs it, who named it, and the backend kind. */
+  command?: { command: string; source?: string; kind: string };
+  models?: string;
+  busy: boolean;
+  error?: string;
+  onCheck(): void;
+  onRunCommand(command: string): void;
+  onSaveCommand(command: string): Promise<void>;
+}
+
+/** An instance's rows above its setup: the program, the account, its models and the executable. */
+function CardRows({ host, target, program, runInTerminal, openExternal, copyText, onNotify, onReport, isDefault, state, command, models, busy, error, onCheck, onRunCommand, onSaveCommand }: CardRowsProps) {
+  const rows = rowIds(target);
   return (
     <>
-      <input
-        className="settings-search-input claude-code-path"
-        aria-label="Claude Code executable"
-        value={fromEnv ? status!.command : draft}
-        placeholder="claude, from your login shell's PATH"
-        disabled={fromEnv || !status}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
+      <ProgramRows
+        program={program}
+        idPrefix={rows.prefix}
+        help={isDefault
+          ? "Threads drive the CLI you installed, through the Agent SDK, with its login and the settings in its home. Tau adds nothing to them and reads no credential."
+          : "Another setup of the same CLI: threads started on it keep it, with the login and settings of its own home. Tau reads no credential."}
+        {...(state ? { state } : {})}
+        missing="Install the CLI, or set its executable below."
+        busy={busy}
+        {...(error ? { error } : {})}
+        onCheck={onCheck}
+        onRunCommand={onRunCommand}
       />
-      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_CLAUDE_CODE_COMMAND</code> in Tau's environment.</> : <>A name on the PATH or an absolute path; leave it empty to find <code>claude</code> on the PATH.</>}</p>
+      <SignIn host={host} target={target} program={program} rowId={rows.account} {...(runInTerminal ? { runInTerminal } : {})} openExternal={openExternal} copyText={copyText} onNotify={onNotify} onReport={onReport} />
+      {models ? <SettingRow id={rows.models} title="Models" description={models} /> : null}
+      <CommandRow
+        id={rows.executable}
+        program={program}
+        known={command !== undefined}
+        {...(command ? { command: command.command, kind: command.kind, ...(command.source ? { source: command.source } : {}) } : {})}
+        onSave={onSaveCommand}
+      />
     </>
   );
 }
@@ -211,44 +264,23 @@ export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INST
     onNotify(whereTheCommandIs(await typeIntoTerminal(terminal, actions, command)));
   };
 
-  const known = status !== undefined;
-  const found = Boolean(status?.path);
   const compatibility = status?.compatibility && status.compatibility.status !== "supported" ? status.compatibility : undefined;
   const run = runner?.();
+  const version = probe?.version ?? status?.version ?? status?.installed;
+  const state: ProgramState = status ? {
+    found: Boolean(status.path),
+    ...(version ? { version } : {}),
+    ...(status.path ? { location: status.path } : {}),
+    ...(status.update ? { latest: status.update.latest, ...(status.update.command ? { updateCommand: status.update.command } : {}) } : {}),
+    ...(compatibility ? { compatibility, ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}) } : {}),
+  } : undefined;
+  const models = probe?.models?.length
+    ? `${probe.models.length} models available${probe.defaultModel ? `, ${probe.defaultModel} by default` : ""}${probe.effort ? `, effort ${probe.effort}` : ""}. Pick one per thread in the composer.`
+    : undefined;
   return (
-    <>
-      <p className="settings-note">
-        {isDefault
-          ? <>Threads drive the CLI you installed, through the Agent SDK, with its login and the settings in your {" "}<code>~/.claude</code>. Tau adds nothing to them and reads no credential.</>
-          : <>Another setup of the same CLI: threads started on it keep it, with the login and settings of its own home. Tau reads no credential.</>}
-      </p>
-
-      <div className="settings-label">CLI</div>
-      <div className="settings-field claude-code-field">
-        {found && !compatibility ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : found ? `Found${probe?.version ? ` · ${probe.version}` : ""}` : `${status.command} was not found`}</strong>
-          <small>{!known ? "" : found ? status.path : "Install it from claude.ai/code, or set its path below."}</small>
-        </span>
-        <button className="claude-code-action" disabled={busy} onClick={() => void read(true)}>
-          <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
-        </button>
-      </div>
-      {compatibility && status ? (
-        <div className="claude-code-version">
-          <Suspense fallback={null}>
-            <VersionBanner
-              backend={{ kind: status.kind, label: view?.label ?? "Claude Code", version: { tool: "claude", ...(status.installed ? { installed: status.installed } : {}), ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}), compatibility } }}
-              onInstall={(command) => void runCommand(command)}
-              onCopy={(command) => void actions?.copyText(command)}
-            />
-          </Suspense>
-        </div>
-      ) : null}
-      {!compatibility && status?.update ? <p className="settings-note">Claude Code {status.update.latest} is out; {status.update.installed} is installed.{status.update.command ? <> Update with <code>{status.update.command}</code>.</> : null}</p> : null}
-
+    <Suspense fallback={<SettingsState kind="loading" rows={3} title="Loading the runtime" />}>
       <Suspense fallback={null}>
-        <SignIn
+        <CardRows
           host={host}
           target={instance}
           program={view?.label ?? "Claude Code"}
@@ -257,19 +289,17 @@ export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INST
           copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
           onNotify={onNotify}
           onReport={(next) => { if (next.flow?.phase === "succeeded") void read(true); }}
+          isDefault={isDefault}
+          state={state}
+          {...(status ? { command: { command: status.command, kind: status.kind, ...(status.commandSource ? { source: status.commandSource } : {}) } } : {})}
+          {...(models ? { models } : {})}
+          busy={busy}
+          {...(error ? { error } : {})}
+          onCheck={() => void read(true)}
+          onRunCommand={(command) => void runCommand(command)}
+          onSaveCommand={saveCommand}
         />
       </Suspense>
-
-      {probe?.models?.length ? (
-        <p className="settings-note">
-          {probe.models.length} models available{probe.defaultModel ? `, ${probe.defaultModel} by default` : ""}
-          {probe.effort ? `, effort ${probe.effort}` : ""}. Pick one per thread in the composer.
-        </p>
-      ) : null}
-
-      <div className="settings-label">Path</div>
-      <CommandPathField status={status} onSave={saveCommand} />
-      {error ? <p className="settings-note" data-level="error">{error}</p> : null}
       {view ? (
         <Suspense fallback={null}>
           <InstanceSetup
@@ -279,12 +309,13 @@ export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INST
             commandPlaceholder="claude"
             instance={view}
             instances={report.instances}
+            rowId={rowIds(instance).setup}
             onSave={saveInstance}
             {...(isDefault ? {} : { onRemove: remove })}
           />
         </Suspense>
       ) : null}
-    </>
+    </Suspense>
   );
 }
 
@@ -371,6 +402,7 @@ export const claudeCodeExtension: DesktopExtension = {
       profiles: ["desktop", "web"],
       runtime: entry.kind,
       order,
+      rows: searchRows(entry.id, entry.label),
       keywords: ["claude", "instance", entry.id],
       Component: (props: SettingsPageProps) => <ClaudeCodeProviderCard {...props} host={plugin.host} instance={entry.id} instances={instances} terminal={terminal()} runner={() => runner} />,
     });
