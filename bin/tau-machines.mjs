@@ -376,16 +376,17 @@ export async function acceptOverSsh(io) {
   }
   emit({ type: "ready", version: WIRE_VERSION, host: { id: self.id, name: self.name, version: session.hello.hostVersion } });
   let link;
-  let settled = false;
-  let stop = false;
+  let answered = false;
+  // Set once the other side leaves; the loop below reads it between polls.
+  const leaving = { stopped: false };
   const pollMs = io.pollMs ?? POLL_MS;
   const allow = async (access) => {
     const deadline = Date.parse(link.expiresAt) + 5_000;
-    while (!stop && Date.now() < deadline) {
+    while (!leaving.stopped && Date.now() < deadline) {
       const { requests } = await session.request("connections-list");
       const request = requests.find((entry) => entry.link?.id === link.id);
       if (request) {
-        settled = true;
+        answered = true;
         try {
           const { approved } = await session.request("connections-approve", [request.id, { access }]);
           emit(approved ? { type: "approved" } : { type: "failed", message: "the request stopped waiting before it was allowed" });
@@ -398,7 +399,7 @@ export async function acceptOverSsh(io) {
       }
       await wait(pollMs);
     }
-    if (!stop) emit({ type: "expired" });
+    if (!leaving.stopped) emit({ type: "expired" });
   };
   let allowing;
   try {
@@ -417,10 +418,10 @@ export async function acceptOverSsh(io) {
       }
     }
   } finally {
-    stop = true;
+    leaving.stopped = true;
     await allowing;
     // A link nobody used goes now, not in two minutes.
-    if (link && !settled) await session.request("connections-revoke-link", [link.id]).catch(() => undefined);
+    if (link && !answered) await session.request("connections-revoke-link", [link.id]).catch(() => undefined);
     session.close();
   }
   return 0;
