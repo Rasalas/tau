@@ -600,6 +600,35 @@ Checked and left alone:
 
 `npm run start:budget` passes; its fixture never loads the icon chunk. First paint with the packed set measured 976, 280, 260, 92, 124 and 200 ms, without it 220, 244 and 188 ms, under a load average of 10 to 28.
 
+### Initial script headroom, 0.7.5
+
+On `fix/0.7.5` (`a347435e`) the desktop build's initial script was 805,090 bytes, 5,090 over its 800,000 budget; v0.7.4 measured 796,586. The merges since then (app pages, phone navigation, escape layers, center layout) added about 8.5 KB, mostly small hooks the workbench needs at first paint. Ticket K25 (2026-09-27) moved code that only a user action runs out of the entry, budgets unchanged. Desktop build, from `reports/build-report.json`:
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| initial JavaScript | 805,090 (251,388 gzip) | 782,770 (244,761 gzip) | 800,000 (275,000) |
+| total JavaScript | 1,493,747 (486,153 gzip) | 1,496,403 (489,562 gzip) | 1,900,000 (500,000) |
+| initial CSS | 125,826 (23,624 gzip) | unchanged | 140,000 (30,000) |
+| kits' desktop halves | 3,806,758 | unchanged | 4,000,000 |
+
+The browser client's initial script went from 810,091 to 787,705 bytes (253,779 → 247,214 gzip), its total gzip from 481,367 to 484,797. Nine chunks are new; the other lazy chunks moved by at most 112 bytes.
+
+| moved out of the entry | new chunk (gzip) |
+| --- | ---: |
+| `SubmissionController`, built on the first send (`deferred-submission.ts`) | 10,836 (3,857) |
+| Vim's Normal mode keys (`composer-vim-normal.ts`); Vim starts in Insert | 4,168 (964) |
+| the bodies of core's slash commands and wordier commands (`runtime-control-runs.ts`); names, labels and chords stay | 2,590 (1,092) |
+| `PairingRequestWatcher`, whose first look is 1.5 s after start-up, and `pairing-format` | 2,039 (1,096) + 1,135 (679) |
+| `NearbyMachineList` in the `tau` module | 1,729 (943) |
+| `expandFileMentions`, read when a prompt with `@` is sent | 969 (592) |
+| `ReloadCurtain` | 928 (407) |
+
+- **Deferred modules.** `deferredModule()` (`components/deferred.tsx`) is `deferred()` for code rather than a component: it loads its chunk once, answers synchronously through `.current` once loaded, and is preloaded with the deferred components two seconds after `load`. `deferred-surfaces.ts` lists the new ones, so `deferred-surfaces.test.ts` fails when the start-up graph reaches any of them.
+- **No key is lost.** Vim's hook keeps its state and Insert mode's Escape; it asks for Normal mode's chunk when Vim is on, and a letter typed in Normal mode before it arrives is swallowed, as Normal mode itself does. A send before the preload waits for the controller's chunk; the send path was already asynchronous.
+- **Kept.** Phone navigation's hook (1.3 KB), the app page store and context (1.2 KB) and the escape layers (0.6 KB) hold state the desktop workbench reads at first paint; the screens behind them were already lazy.
+
+`npm run start:budget` passes. The fixture loads 14 files instead of 12: the pairing watcher's two chunks, requested when it mounts. First paint, base and change alternated eight times each against the same fixture under a load average of 7 to 9: base 84 to 152 ms (median 92), after 80 to 124 ms (median 86).
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
