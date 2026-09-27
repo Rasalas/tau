@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Download, GitCommitHorizontal, TerminalSquare, Upload } from "lucide-react";
+import { ChevronDown, Download, GitCommitHorizontal, Upload } from "lucide-react";
 import { Menu, tooltipProps, useHostCapabilities, usePreferences, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { ProjectActionsControl } from "./project-actions.js";
@@ -18,10 +18,8 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
   // Re-render when the editor preference changes.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const [editorMenu, setEditorMenu] = useState(false);
-  const [terminalMenu, setTerminalMenu] = useState(false);
   const [gitMenu, setGitMenu] = useState(false);
   const activeEditor = workspaceStore.activeEditor();
-  const activeTerminal = workspaceStore.activeTerminal();
   const gitAction = useMemo(
     () => resolveGitQuickAction(state.changes, state.workspace, state.committing),
     [state.changes, state.committing, state.workspace],
@@ -34,7 +32,6 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
   };
   void actions;
   const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
-  const terminalTip = tooltipProps(activeTerminal ? `Open in ${activeTerminal.name}` : "No supported terminal found", { side: "bottom", ...(activeTerminal ? { shortcut: mac ? "⌘J" : "Ctrl+J" } : {}) });
 
   return (
     <>
@@ -76,55 +73,6 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
           />
         ) : null}
       </div> : null}
-
-      {localFiles ? (
-        <div className="menu-anchor">
-          {state.terminals.length > 1 ? (
-            <div className="chrome-group" aria-label="Open in terminal">
-              <button
-                className="chrome-button split-main"
-                disabled={!activeTerminal}
-                aria-label="Open in terminal"
-                {...terminalTip}
-                onClick={() => void workspaceStore.openTerminal()}
-              >
-                <TerminalSquare size={13} />
-              </button>
-              <button
-                className="chrome-button split-trigger"
-                aria-label="Choose terminal"
-                onClick={() => setTerminalMenu(true)}
-              >
-                <ChevronDown size={13} />
-              </button>
-            </div>
-          ) : (
-            <button
-              className="chrome-button"
-              disabled={!activeTerminal}
-              aria-label="Open in terminal"
-              {...terminalTip}
-              onClick={() => void workspaceStore.openTerminal()}
-            >
-              <TerminalSquare size={13} />
-            </button>
-          )}
-          {terminalMenu ? (
-            <Menu
-              align="right"
-              heading="Terminal"
-              items={state.terminals.map((terminal) => ({
-                id: terminal.id,
-                label: terminal.name,
-                selected: terminal.id === activeTerminal?.id,
-                icon: <TerminalSquare size={13} />,
-              }))}
-              onSelect={(id) => { workspaceStore.chooseTerminal(id); void workspaceStore.openTerminal(id); }}
-              onClose={() => setTerminalMenu(false)}
-            />
-          ) : null}
-        </div>
-      ) : null}
 
       {readOnly ? null : <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">

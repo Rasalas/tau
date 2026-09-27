@@ -297,18 +297,30 @@ the arrow keys from its top edge, and its height (180 px up to three quarters
 of the window) is kept per client. Terminal Kit's "Show the terminal in"
 setting registers its panel again with the other placement.
 
-`maximizable: true` lets the user move the panel into a stage tab over the
-whole centre, the chat the stage's first tab: the button over the end of the
-panel's header, or
-`rightPanel.toggleMaximized` (`mod+alt+shift+b`), which acts on the panel tab
-in front, else the panel the keyboard is in, else the dock's, else the
-drawer's. Core moves the *mounted* panel — its DOM host goes from dock to
-stage and back — so React state, scroll and a terminal's buffer go with it,
-and the panel is never drawn twice: the dock shows a stand-in with "Show tab"
-and "Move back here" while it is away. Closing the tab, or the same command
-again, puts it back where it was placed; the stage's own maximize button, at
-the right end of its tab strip, puts the chat back beside it. The tab is a core kind
-(`StagePanelTab`, `kind: "panel"`, `panelId`) and is restored with the stage.
+One tool at a time shares the centre with the chat, which keeps at least
+480 px and starts at about 42 % of the centre; the divider between them is
+kept per client (new in API 1.16.0). `width: "wide"` (Preview, Terminal)
+takes the whole space beside the chat as soon as it opens.
+`narrow`, the default (Files, Changes, Agents), floats over the chat's edge
+while nothing is open beside the chat; once a document, a diff or a thread
+opens on the stage, the list docks at the right of it. Opening a document
+while a wide panel is shown puts the documents in its place. A click into
+the chat closes a floating list.
+
+`maximizable: true` lets the user move the panel into a stage tab: the
+button over the end of the panel's header, or `rightPanel.toggleMaximized`
+(`mod+alt+shift+b`), which leaves the maximized layout when it is on, else
+acts on the panel the keyboard is in, the wide panel beside the chat, the
+documents, the dock's list or the drawer's panel, in that order. A panel
+tab maximizes the stage: it fills the centre, the chat is its first tab,
+pinned and set apart, and a wide panel opened meanwhile joins the tabs.
+Dragging the divider well below the chat's minimum maximizes too; the
+button at the right end of the tab strip ("Show chat beside the stage") puts every
+panel back where it was placed. Core moves the *mounted* panel — its DOM
+host goes from dock to stage and back — so React state, scroll and a
+terminal's buffer go with it, and the panel is never drawn twice. The tab
+is a core kind (`StagePanelTab`, `kind: "panel"`, `panelId`) and is
+restored with the stage.
 
 `PanelProps.placement` says where the panel is drawn now (`dock`, `drawer` or
 `stage`); a panel that positions something outside the page, as Preview Kit's
@@ -2395,7 +2407,7 @@ window's machine — a window half, `local-files` — is not offered there.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.15.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.16.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only

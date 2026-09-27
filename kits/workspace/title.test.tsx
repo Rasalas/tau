@@ -88,13 +88,10 @@ describe("Workspace Kit title actions", () => {
     expect(screen.getByRole("button", { name: "Commit" })).toBeTruthy();
   });
 
-  it("opens the preferred terminal and opens a selected terminal from the split menu", () => {
-    const { openTerminal } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
-    expect(openTerminal).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Choose terminal" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Terminal" }));
-    expect(openTerminal).toHaveBeenCalledWith("terminal");
+  it("draws no external terminal button; the terminal opens in the app", () => {
+    setup();
+    expect(screen.queryByRole("button", { name: "Open in terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose terminal" })).toBeNull();
   });
 
   it("chooses commit versus commit and push from upstream state", () => {

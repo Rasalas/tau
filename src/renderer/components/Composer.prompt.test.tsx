@@ -150,6 +150,93 @@ describe("prompt controls in the composer", () => {
     await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledWith("Here", true, [expect.objectContaining({ name: "late.png" })]));
   });
 
+  it("keeps a question the agent asks mid-typing closed until the typing stops, then sets the draft aside until the answer", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const onAnswerPrompt = vi.fn();
+      const onSubmit = vi.fn(async () => ({ accepted: true as const }));
+      const scopeStore = new ComposerScopeStore();
+      const view = (prompt?: ExtensionUiPrompt) => (
+        <TestProviders>
+          <Composer
+            scopeStore={scopeStore}
+            snapshot={snapshot}
+            {...(prompt ? { prompt } : {})}
+            queue={[]}
+            contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+            textareaRef={createRef<HTMLTextAreaElement>()}
+            onSubmit={onSubmit}
+            onAbort={() => {}}
+            onCancelQueued={() => {}}
+            onSteerQueued={() => {}}
+            onSetModel={() => {}}
+            onSetThinking={() => {}}
+            onAnswerPrompt={onAnswerPrompt}
+            onCompactContext={() => {}}
+          />
+        </TestProviders>
+      );
+      const { rerender } = render(view());
+      const field = screen.getByRole("textbox") as HTMLTextAreaElement;
+      fireEvent.keyDown(field, { key: "x" });
+      fireEvent.change(field, { target: { value: "half a thought" } });
+
+      rerender(view({ id: "pick", sessionId: "session", kind: "select", title: "Which one?", options: ["A", "B"] }));
+      expect(screen.getByText(/opens once you stop typing/u)).toBeTruthy();
+      // Enter meant for the draft neither answers nor sends.
+      fireEvent.keyDown(field, { key: "Enter" });
+      expect(onAnswerPrompt).not.toHaveBeenCalled();
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(field.value).toBe("half a thought");
+
+      await vi.advanceTimersByTimeAsync(1600);
+      await waitFor(() => expect(field.value).toBe(""));
+      expect(screen.getByText(/draft is set aside/u)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /B$/u }));
+      expect(onAnswerPrompt).toHaveBeenCalledWith("B", undefined);
+
+      rerender(view());
+      await waitFor(() => expect(field.value).toBe("half a thought"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens a question at once while the user is not typing, and gives a waiting draft back after it", async () => {
+    const scopeStore = new ComposerScopeStore();
+    const view = (prompt?: ExtensionUiPrompt) => (
+      <TestProviders>
+        <Composer
+          scopeStore={scopeStore}
+          snapshot={snapshot}
+          {...(prompt ? { prompt } : {})}
+          queue={[]}
+          contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+          textareaRef={createRef<HTMLTextAreaElement>()}
+          onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+          onAbort={() => {}}
+          onCancelQueued={() => {}}
+          onSteerQueued={() => {}}
+          onSetModel={() => {}}
+          onSetThinking={() => {}}
+          onAnswerPrompt={() => {}}
+          onCompactContext={() => {}}
+        />
+      </TestProviders>
+    );
+    const { rerender } = render(view());
+    const field = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(field, { target: { value: "left here earlier" } });
+
+    rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
+    await waitFor(() => expect(field.value).toBe(""));
+    expect(screen.queryByText(/opens once you stop typing/u)).toBeNull();
+    fireEvent.change(field, { target: { value: "because" } });
+
+    rerender(view());
+    await waitFor(() => expect(field.value).toBe("left here earlier\nbecause"));
+  });
+
   it("submits registered prompt actions from the composer button and on Enter", () => {
     const onSubmit = vi.fn();
     function CustomPrompt() {

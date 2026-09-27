@@ -12,7 +12,6 @@ import {
   PanelRightOpen,
   RefreshCw,
   Search,
-  Sparkles,
   WrapText,
   X,
 } from "lucide-react";
@@ -85,6 +84,13 @@ function sameDiff(left: UiFileDiff | undefined, right: UiFileDiff): boolean {
           && line.text === otherLine.text;
       });
   });
+}
+
+/** What the confirm button does, in words: which files, on which branch, and whether it pushes. */
+function commitSummary(files: number, branch: string | undefined, push: boolean): string {
+  const what = `Commits all ${files} changed ${files === 1 ? "file" : "files"}`;
+  const where = branch ? ` on ${branch}` : "";
+  return push ? `${what}${where}, then pushes ${branch ?? "the branch"}.` : `${what}${where}. Nothing is pushed.`;
 }
 
 export function ReviewMode({
@@ -164,7 +170,6 @@ export function ReviewMode({
   const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
   const [contextMode, setContextMode] = useState<"collapse" | "expand">("collapse");
   const [message, setMessage] = useState(autoSuggestCommitMessage && suggestCommitMessage ? "" : changes.proposedMessage ?? "");
-  const [editingMessage, setEditingMessage] = useState(false);
   const [reviewState, setReviewState] = useState<PersistedReviewState>(() => readReviewState(workspaceKey, scope));
   const [filter, setFilter] = useState("");
   const clientStorage = useClientStorage();
@@ -265,7 +270,7 @@ export function ReviewMode({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !editingMessage && !event.defaultPrevented) {
+      if (event.key === "Escape" && !isTypingTarget(event.target) && !event.defaultPrevented) {
         onBack();
         return;
       }
@@ -412,7 +417,7 @@ export function ReviewMode({
     setMessageError(undefined);
     try {
       const next = await suggestCommitMessage(visibleChanges, [...diffs.values()]);
-      if (next) { setMessage(next); setEditingMessage(false); }
+      if (next) setMessage(next);
     } catch (error) {
       setMessageError(`No suggestion: ${error instanceof Error ? error.message : "the model did not answer."}`);
       setMessage((current) => current || visibleChanges.proposedMessage || "");
@@ -446,18 +451,35 @@ export function ReviewMode({
         </div> : null}
       </div> : null}
       <div className="title-spacer" />
-      {!noCommit && scope === "worktree" ? <button
-        className="chrome-button accent"
-        disabled={busy || paged.fileCount === 0 || message.trim().length === 0}
-        onClick={() => onCommit(message, primaryPush)}
-      >
-        <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
-      </button> : deviceReadOnly && !readOnly && scope === "worktree"
+      {!noCommit && scope === "worktree" ? null : deviceReadOnly && !readOnly && scope === "worktree"
         ? <span className="review-read-only">Read only</span>
         : readOnly
         ? <span className="review-read-only">Historical turn</span>
         : <span className="review-read-only">Committed branch diff</span>}
     </header>
+
+    {paged.fileCount > 0 && !noCommit && scope === "worktree" ? <section className="commit-bar" aria-label="Commit">
+      <div className="commit-bar-message">
+        <textarea
+          aria-label="Commit message"
+          placeholder={generatingMessage ? "Writing from the diff…" : "Commit message"}
+          value={generatingMessage ? "" : message}
+          disabled={generatingMessage}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+        {suggestCommitMessage ? <button className="icon-button compact" aria-label="Generate commit message" title="Write a new message from the diff" disabled={generatingMessage} onClick={() => void generateCommitMessage()}><RefreshCw className={generatingMessage ? "spinning" : ""} size={12} /></button> : null}
+      </div>
+      <div className="commit-bar-actions">
+        <div className="commit-actions">
+          {primaryPush ? <button disabled={busy || generatingMessage || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit only</button> : null}
+          <button className="primary" disabled={busy || generatingMessage || message.trim().length === 0} onClick={() => onCommit(message, primaryPush)}>
+            <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
+          </button>
+        </div>
+        <small>{commitSummary(paged.fileCount, visibleChanges.branch, primaryPush)}</small>
+        {messageError ? <small className="commit-message-error">{messageError}</small> : null}
+      </div>
+    </section> : null}
 
     <div className="review-body">
       <main className="review-stage" ref={stageRef}>
@@ -588,15 +610,6 @@ export function ReviewMode({
               {paged.loading ? "Loading…" : `Load more (${Math.max(0, paged.fileCount - paged.files.length)} remaining)`}
             </button>
             {paged.error ? <small className="file-tree-error">{paged.error}</small> : null}
-          </div> : null}
-          {paged.fileCount > 0 && !noCommit && scope === "worktree" ? <div className="commit-proposal">
-            <div className="commit-proposal-heading"><span><Sparkles size={12} /> Commit message</span>{suggestCommitMessage ? <button className="icon-button compact" aria-label="Generate commit message" title="Generate a new commit message" disabled={generatingMessage} onClick={() => void generateCommitMessage()}><RefreshCw className={generatingMessage ? "spinning" : ""} size={12} /></button> : null}</div>
-            {editingMessage ? <textarea autoFocus value={message} onChange={(event) => setMessage(event.target.value)} onBlur={() => setEditingMessage(false)} /> : <button className="commit-message-preview" onClick={() => setEditingMessage(true)}>{generatingMessage ? "Writing from the diff…" : message || "No suggestion yet"}</button>}
-            {messageError ? <small className="commit-message-error">{messageError}</small> : null}
-            <div className="commit-actions">
-              <button className="primary" disabled={busy || generatingMessage || message.trim().length === 0} onClick={() => onCommit(message, false)}>Commit</button>
-              <button onClick={() => setEditingMessage((value) => !value)}>{editingMessage ? "Done" : "Edit"}</button>
-            </div>
           </div> : null}
         </div>
       </aside> : null}

@@ -559,6 +559,12 @@ export interface PanelContribution extends ProfileScoped {
    */
   placement?: "dock" | "drawer";
   /**
+   * `wide` fills the space beside the chat as soon as it opens; `narrow`, the
+   * default, floats over the chat's edge until a document opens beside it
+   * (API 1.16.0). Ignored in the drawer.
+   */
+  width?: "narrow" | "wide";
+  /**
    * The panel can be maximized into a stage tab (API 1.11.0). Core moves the
    * mounted panel, so its state goes with it, and it is never drawn twice.
    */

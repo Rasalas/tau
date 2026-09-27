@@ -43,12 +43,13 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getAllByRole("button", { name: "Show panel" })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Expand panel" })).toBeNull();
 
+    // No document open yet: the list floats over the chat.
     fireEvent.click(filesButton);
-    expect(shell.classList.contains("dock-closed")).toBe(false);
+    expect(shell.classList.contains("dock-overlay")).toBe(true);
     expect(filesButton.getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(filesButton);
-    expect(shell.classList.contains("dock-closed")).toBe(true);
+    expect(shell.classList.contains("dock-overlay")).toBe(false);
     expect(filesButton.getAttribute("aria-pressed")).toBe("false");
   });
 
