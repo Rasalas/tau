@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettingsPageProps } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
@@ -12,7 +12,7 @@ const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
 const STATUS: PushStatus = {
   apns: { keyId: "ABC123DEFG", teamId: "TEAM123456", savedAt: "2026-09-24T10:00:00.000Z" },
-  devices: [{ id: "iphone", name: "Alex's iPhone", platform: "ios", registeredAt: "2026-09-24T10:05:00.000Z", lastPush: { at: "2026-09-24T10:06:00.000Z", ok: false, detail: "BadDeviceToken" } }],
+  devices: [{ id: "iphone", name: "Test iPhone", platform: "ios", registeredAt: "2026-09-24T10:05:00.000Z", lastPush: { at: "2026-09-24T10:06:00.000Z", ok: false, detail: "BadDeviceToken" } }],
   file: "/userData/kit-state/tau.push/keys.json",
 };
 
@@ -24,7 +24,7 @@ function setup(answer: (command: string, input?: unknown) => unknown) {
   const props: SettingsPageProps = { onNotify: vi.fn() };
   render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
   const event = () => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: PUSH_EXTENSION_ID, name: PUSH_STATE_EVENT }));
-  return { invoke, preferences, props, event };
+  return { invoke, preferences, props, event, page };
 }
 
 describe("Settings → Push", () => {
@@ -32,9 +32,9 @@ describe("Settings → Push", () => {
     setup((command) => (command === "status" ? STATUS : undefined));
     await flush();
     expect(screen.getByText("ABC123DEFG")).toBeTruthy();
-    expect(screen.getByText(STATUS.file)).toBeTruthy();
+    expect(screen.getByLabelText("Key file").textContent).toContain(STATUS.file);
     expect(screen.getByText(/not encrypted/u)).toBeTruthy();
-    expect(screen.getByText("Alex's iPhone")).toBeTruthy();
+    expect(screen.getByText("Test iPhone")).toBeTruthy();
     expect(screen.getByText(/last push failed: BadDeviceToken/u)).toBeTruthy();
     // Firebase is not set up: its form is open.
     expect(screen.getByRole("textbox", { name: "Service account (JSON)" })).toBeTruthy();
@@ -49,15 +49,23 @@ describe("Settings → Push", () => {
       return undefined;
     });
     await flush();
-    fireEvent.change(screen.getByRole("textbox", { name: "Key ID" }), { target: { value: "ABC123DEFG" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Team ID" }), { target: { value: "TEAM123456" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Key (.p8)" }), { target: { value: "-----BEGIN PRIVATE KEY-----" } });
+    const type = (name: string, value: string) => {
+      const field = screen.getByRole("textbox", { name });
+      fireEvent.change(field, { target: { value } });
+      fireEvent.blur(field);
+    };
+    type("Key ID", "ABC123DEFG");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save key" })); });
+    expect(screen.getByRole("alert").textContent).toBe("Enter the Key ID, the Team ID and the key (.p8).");
+    expect(invoke).not.toHaveBeenCalledWith(PUSH_EXTENSION_ID, "set-apns", expect.anything());
+    type("Team ID", "TEAM123456");
+    type("Key (.p8)", "-----BEGIN PRIVATE KEY-----");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save key" })); });
     expect(invoke).toHaveBeenCalledWith(PUSH_EXTENSION_ID, "set-apns", { keyId: "ABC123DEFG", teamId: "TEAM123456", key: "-----BEGIN PRIVATE KEY-----" });
     event();
     await flush();
     expect(screen.getByText("ABC123DEFG")).toBeTruthy();
-    expect(screen.getByText(/No phone has asked yet|Alex's iPhone/u)).toBeTruthy();
+    expect(screen.getByText(/No phone has asked yet|Test iPhone/u)).toBeTruthy();
   });
 
   it("shows the host's refusal at the form", async () => {
@@ -67,7 +75,9 @@ describe("Settings → Push", () => {
       return undefined;
     });
     await flush();
-    fireEvent.change(screen.getByRole("textbox", { name: "Service account (JSON)" }), { target: { value: "{}" } });
+    const json = screen.getByRole("textbox", { name: "Service account (JSON)" });
+    fireEvent.change(json, { target: { value: "{}" } });
+    fireEvent.blur(json);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save service account" })); });
     await flush();
     expect(screen.getByRole("alert").textContent).toMatch(/not a service account/u);
@@ -76,9 +86,9 @@ describe("Settings → Push", () => {
   it("sends a test push and stops a device's pushes from its row", async () => {
     const { invoke, props } = setup((command) => (command === "status" || command === "remove-device" ? STATUS : command === "test" ? { ok: true } : undefined));
     await flush();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send a test push to Alex's iPhone" })); });
-    expect(props.onNotify).toHaveBeenCalledWith("Sent a test push to Alex's iPhone.");
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Stop pushes to Alex's iPhone" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send a test push to Test iPhone" })); });
+    expect(props.onNotify).toHaveBeenCalledWith("Sent a test push to Test iPhone.");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Stop pushes to Test iPhone" })); });
     expect(invoke).toHaveBeenCalledWith(PUSH_EXTENSION_ID, "remove-device", { id: "iphone" });
   });
 
@@ -88,10 +98,30 @@ describe("Settings → Push", () => {
     expect(screen.getByText("Only this machine can set this up")).toBeTruthy();
   });
 
+  it("removes a saved key only after asking, naming it", async () => {
+    const { invoke } = setup((command) => (command === "status" || command === "forget" ? STATUS : undefined));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Remove key…" }));
+    expect(invoke).not.toHaveBeenCalledWith(PUSH_EXTENSION_ID, "forget", expect.anything());
+    const dialog = screen.getByRole("dialog", { name: "Remove the APNs key?" });
+    expect(dialog.textContent).toContain("ABC123DEFG");
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Remove key" })); });
+    expect(invoke).toHaveBeenCalledWith(PUSH_EXTENSION_ID, "forget", { service: "apns" });
+  });
+
+  it("gives every row the search names an element on the page", async () => {
+    const full: PushStatus = { ...STATUS, fcm: { projectId: "test-project", clientEmail: "push@test-project.iam.example", savedAt: "2026-09-24T10:00:00.000Z" } };
+    const { page } = setup((command) => (command === "status" ? full : undefined));
+    await flush();
+    const rows = page.rows ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(document.getElementById(row.id), row.label).toBeTruthy();
+  });
+
   it("switches what a notification says", async () => {
     const { preferences } = setup((command) => (command === "status" ? STATUS : undefined));
     await flush();
-    fireEvent.click(screen.getByRole("button", { name: "Title only" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Title only" }));
     expect(preferences.value(PUSH_EXTENSION_ID, "content")).toBe("title");
   });
 });
