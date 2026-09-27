@@ -5,12 +5,10 @@
 
 .packages-form { display: flex; gap: 8px; max-width: 560px; align-items: center; }
 .packages-form input {
-  flex: 1; min-width: 0; border: 1px solid var(--line-control); border-radius: 9px;
-  background: var(--sunken); color: var(--ink-2); font: 12px var(--mono); padding: 9px 12px;
+  flex: 1; min-width: 0; height: var(--control-h, 30px); padding: 0 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
+  background: var(--field); color: var(--ink); font: 12px var(--mono);
 }
-.packages-form input:focus { outline: 0; border-color: var(--line-field); }
-.packages-form > button { padding: 8px 14px; border-radius: 6px; font-size: 11.5px; cursor: pointer; }
-.packages-form > button:disabled { opacity: .5; cursor: default; }
+.packages-form input:focus-visible { border-color: var(--line-focus); outline: 2px solid var(--focus); outline-offset: 1px; }
 .packages-scope { margin-top: 8px; }
 .packages-log {
   margin-top: 10px; max-width: 560px; padding: 9px 12px;
