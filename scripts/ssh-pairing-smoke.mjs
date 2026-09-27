@@ -2,8 +2,11 @@
 // "rex" are two headless test hosts on 127.0.0.1 (tau-test-host.mjs), and
 // rex is reached through the Servers kit's fake SSH server, which runs the
 // command a real sshd would (`/bin/sh -c …`) with a HOME of its own. ssh runs
-// with the fake's ssh_config (-F), never ~/.ssh. No real machine, no window:
-// A's host pairs its agents alone. Needs `npm run build` first.
+// with the fake's ssh_config (-F), never ~/.ssh. No real machine. First A has
+// no window and its host pairs its agents alone; then a stand-in for A's
+// window process (the app's own WindowEnvironments and core's window half,
+// with a plain box for the keychain) pairs for itself and its agents.
+// Needs `npm run build` first.
 import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,6 +26,7 @@ if (!existsSync(join(ROOT, "dist-electron", "main", "headless.js")) || !existsSy
   process.exit(1);
 }
 const { HostUplink } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-uplink.js")).href);
+const { WindowEnvironments, answerEnvironmentCommand } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "window-environments.js")).href);
 
 const guard = setTimeout(() => { console.error("✗ the smoke ran into its 180 s guard"); process.exit(1); }, 180_000);
 guard.unref();
@@ -31,6 +35,48 @@ const step = (name, detail = "") => console.log(`✓ ${name}${detail ? ` — ${d
 /** An owner connection over a host's loopback listener and token. */
 function owner(host) {
   return new HostUplink({ url: host.url, token: readFileSync(host.tokenFile, "utf8").trim() });
+}
+
+const quiet = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined };
+
+/**
+ * A's window process as far as `tau machines` reaches it: the uplink names
+ * core's window half, and its calls run on the app's WindowEnvironments.
+ */
+async function standInWindow(host, hostId, dir) {
+  const token = readFileSync(host.tokenFile, "utf8").trim();
+  let uplink;
+  const environments = new WindowEnvironments({
+    catalogPath: join(dir, "environments.json"),
+    // Not the keychain: the stand-in keeps keys base64-encoded in its test folder.
+    box: { available: () => true, encrypt: (text) => Buffer.from(text).toString("base64"), decrypt: (data) => Buffer.from(data, "base64").toString() },
+    logger: quiet,
+    deviceName: A.machineName,
+    local: { id: hostId, name: A.machineName },
+    publish: () => undefined,
+    show: async () => undefined,
+    agents: {
+      add: async (entry) => { await uplink.request("machines-add", [entry]); },
+      remove: async (id) => { await uplink.request("machines-remove", [id]); },
+    },
+  });
+  const answer = async (call) => {
+    try {
+      await uplink.request("client-call-result", [call.callId, await answerEnvironmentCommand(environments, call.command, call.input)]);
+    } catch (error) {
+      await uplink.request("client-call-result", [call.callId, undefined, error instanceof Error ? error.message : String(error)]).catch(() => undefined);
+    }
+  };
+  uplink = new HostUplink({
+    url: host.url,
+    token,
+    onCall: (call) => void answer(call),
+    helloFields: () => ({ windowId: "ssh-pairing-smoke", windowHalves: ["window"], subscription: { threads: [], topics: [] } }),
+  });
+  environments.setLocalHost(host.url, token);
+  await environments.start();
+  await uplink.hello();
+  return { environments, close: () => { environments.close(); uplink.close(); } };
 }
 
 /** What a window's supervisor writes, so `tau` finds the host as it would find the app's. */
@@ -54,7 +100,12 @@ function tau(args, env) {
 function writtenCodes(dirs) {
   const found = [];
   for (const dir of dirs.filter((entry) => existsSync(entry))) {
-    for (const file of readdirSync(dir, { recursive: true })) {
+    let files;
+    // A host writes and renames files meanwhile; one that vanished mid-walk is read on the next try.
+    for (let attempt = 0; !files && attempt < 5; attempt += 1) {
+      try { files = readdirSync(dir, { recursive: true }); } catch { /* again */ }
+    }
+    for (const file of files ?? []) {
       const path = join(dir, String(file));
       let text;
       try { text = statSync(path).isFile() && statSync(path).size < 20_000_000 ? readFileSync(path, "latin1") : ""; } catch { continue; }
@@ -139,6 +190,33 @@ try {
   const empty = await aOwner.request("machines-list");
   if (removed.code !== 0 || empty.machines.length !== 0) throw new Error(`remove ended ${removed.code}: ${removed.stdout}${removed.stderr}`);
   step("tau machines remove forgets rex on A", removed.stdout.trim());
+
+  const aId = (await aOwner.hello()).host.id;
+  const window = await standInWindow(a, aId, join(STATE, "window"));
+  cleanup.push(() => window.close());
+  const before = (await rexOwner.request("connections-list")).clients.length;
+  const paired = await tau(["machines", "add", "--ssh", SSH_ALIAS, "--agents", "--name", "Rex"], env);
+  if (paired.code !== 0 || !/^Paired with Rex\.\n {2}window: connected(?: · \d+ ms)?\n {2}agents: connected(?: · \d+ ms)?\n$/u.test(paired.stdout)) throw new Error(`the add through the window ended ${paired.code}: ${paired.stdout}${paired.stderr}`);
+  const saved = window.environments.snapshot().environments.filter((entry) => !entry.local).map((entry) => `${entry.name} ${entry.status}`);
+  const agentsNow = (await aOwner.request("machines-list")).machines.map((machine) => `${machine.name} ${machine.status}`);
+  const rexNow = (await rexOwner.request("connections-list")).clients;
+  const fresh = rexNow.filter((client) => client.companionOf || rexNow.some((other) => other.companionOf === client.id));
+  if (saved.join() !== "Rex connected" || agentsNow.join() !== "Rex connected" || rexNow.length !== before + 2 || fresh.map((client) => client.label).sort().join() !== "mini,mini · Agents") {
+    throw new Error(`the window keeps ${saved}, A's host ${agentsNow}, rex lists ${JSON.stringify(rexNow.map((client) => client.label))}`);
+  }
+  step("with a window on A, the window pairs for itself and its agents under one request", `${paired.stdout.trim().replace(/\n\s*/gu, "; ")}; rex lists ${fresh.map((client) => client.label).join(" and ")}`);
+
+  const both = JSON.parse((await tau(["machines", "list", "--json"], env)).stdout || "{}");
+  const forgot = await tau(["machines", "remove", "Rex"], env);
+  const left = window.environments.snapshot().environments.filter((entry) => !entry.local).length + (await aOwner.request("machines-list")).machines.length;
+  if (both.window !== true || both.machines?.[0]?.window?.status !== "connected" || forgot.code !== 0 || left !== 0) throw new Error(`list answered ${JSON.stringify(both)}, remove ${forgot.stdout}${forgot.stderr}, ${left} left`);
+  step("list shows both sides, remove forgets both", forgot.stdout.trim());
+  const leaked = writtenCodes(DIRS).filter((entry) => !startCodes.has(entry.code));
+  if (leaked.length) throw new Error(`a pairing link was written to ${leaked.map((entry) => entry.path).join(", ")}`);
+  const sessions = readCalls(servers).filter((call) => call.event === "exec");
+  // The login that needed a password never ran a command.
+  if (sessions.length !== 3 || sessions.some((call) => call.command !== execs[0].command)) throw new Error(`the SSH sessions ran ${JSON.stringify(sessions.map((call) => call.command.slice(0, 40)))}`);
+  step("still no pairing code on disk after both pairings", `${sessions.length} SSH sessions, all the same fixed command`);
 } catch (error) {
   failed = true;
   console.error(`✗ ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
