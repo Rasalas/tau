@@ -40,9 +40,10 @@ import type { PanelLayout } from "./use-panel-layout";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
 import {
-  DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
-  drawerMaxHeight, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth, storedDrawerHeight, storedSidebarWidth,
+  DOCK_MAX_WIDTH, DOCK_MIN_WIDTH, DOCKED_CONTENT_MIN_WIDTH, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
+  dockMaxWidth, drawerMaxHeight, shownDockWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth, storedDrawerHeight, storedSidebarWidth,
 } from "../workbench/layout-sizes";
+import { DOCK_PANEL_MIN_WINDOW } from "../workbench/center-layout";
 import { useClientStorage } from "./client-storage-context";
 import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
@@ -70,13 +71,11 @@ import { displayPath } from "./path-display";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const DEFAULT_DOCK_WIDTH = 320;
-const MIN_DOCK_WIDTH = 220;
-const MAX_DOCK_WIDTH = 560;
 const DOCK_WIDTH_KEY = STORAGE_KEYS.dockWidth;
 
 function clampDockWidth(width: number): number {
   return Number.isFinite(width)
-    ? Math.min(MAX_DOCK_WIDTH, Math.max(MIN_DOCK_WIDTH, width))
+    ? Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, width))
     : DEFAULT_DOCK_WIDTH;
 }
 
@@ -374,16 +373,20 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const activeDockPanel = dockPanels.find((panel) => panel.id === activePanel);
   const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
-  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
+  // An open dock panel keeps its narrowest width beside the chat; the sidebar gives way first.
+  const dockPanelDrawn = dockPanels.length > 0 && dockOpen && windowWidth > DOCK_PANEL_MIN_WINDOW;
+  const sidebarReserve = dockPanelDrawn ? DOCKED_CONTENT_MIN_WIDTH : undefined;
+  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth, sidebarReserve) : 0;
   const touchSidebarShown = split && touchSidebarOpen;
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
+  const drawnDockWidth = shownDockWidth(dockWidth, windowWidth, drawnSidebar);
   const stageOpen = stage.tabs.length > 0;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // A compact client draws no stage (profile-compact.css), so its chat never becomes a tab.
   const { dockYields, tabs: centerCompact, canSplit, keepDock } = useCenterLayout({
     windowWidth, sidebarWidth: drawnSidebar, stageOpen: stageOpen && !compact, maximized: stageMaximized,
     tabCount: stage.tabs.length, dockAsks, clearMaximized: clearStageMaximized,
-    ...(dockPanels.length > 0 ? { dock: { open: dockOpen, width: dockWidth } } : {}),
+    ...(dockPanels.length > 0 ? { dock: { open: dockOpen, width: drawnDockWidth } } : {}),
   });
   const dockShown = dockOpen && !dockYields;
   useEffect(() => { if (!compact || split) setThreadSheetOpen(false); }, [compact, split]);
@@ -540,7 +543,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": dockPanels.length === 0 || !dockShown ? "0px" : `${dockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
+    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": dockPanels.length === 0 || !dockShown ? "0px" : `${drawnDockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
         dockOpen={dockShown}
@@ -605,7 +608,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         grows="right"
         value={shownSidebar}
         min={SIDEBAR_MIN_WIDTH}
-        max={sidebarMaxWidth(windowWidth)}
+        max={sidebarMaxWidth(windowWidth, sidebarReserve)}
         defaultValue={SIDEBAR_DEFAULT_WIDTH}
         onChange={setSidebarWidth}
       /> : null}
@@ -710,9 +713,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           label="Resize right sidebar"
           orientation="vertical"
           grows="left"
-          value={dockWidth}
-          min={MIN_DOCK_WIDTH}
-          max={MAX_DOCK_WIDTH}
+          value={drawnDockWidth}
+          min={DOCK_MIN_WIDTH}
+          max={dockMaxWidth(windowWidth, drawnSidebar)}
           defaultValue={DEFAULT_DOCK_WIDTH}
           onChange={setDockWidth}
         /> : null}
