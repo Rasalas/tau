@@ -8,6 +8,7 @@ import {
   ThreadRow,
   tooltipProps,
   useContextMenu,
+  useEscapeLayer,
   useHostCapabilities,
   usePreferences,
   useThreadStore,
@@ -378,6 +379,8 @@ export function ProjectSwitcherPopover({
     setSelected(Math.max(0, projects.findIndex((project) => project.path === currentPath)));
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [currentPath, open, projects]);
+  // Escape closes it wherever the keyboard is, and stops nothing behind it.
+  useEscapeLayer(onClose, open);
   if (!open) return null;
   const activate = () => { const project = matches[selected]; if (project) onSelect(project); };
 
@@ -391,7 +394,6 @@ export function ProjectSwitcherPopover({
         aria-label="Search projects"
         onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
           if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, matches.length - 1))); }
           if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
           if (event.key === "Enter") { event.preventDefault(); activate(); }

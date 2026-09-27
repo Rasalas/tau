@@ -226,8 +226,8 @@ theme editor) opts out with `data-overlay="false"`. A clause Tau cannot read
 throws at registration.
 
 Escape belongs to the topmost overlay. `Dialog`, `Popover` and `Menu` close
-the newest open one on Escape and consume the key; an overlay of your own may
-close itself in its own key handler. Either way no chord without a modifier
+the newest open one on Escape and consume the key; an overlay of your own
+joins them with `useEscapeLayer`, or closes itself in its own key handler. Either way no chord without a modifier
 runs while an overlay was open when the key went down, so core's Escape
 (`runtime.abort`, under `chatFocus`) never stops a turn behind a picker.
 
@@ -954,6 +954,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `ConfirmDialog` | A yes-or-no question on `Dialog`, after T3 Code's: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
+| `useEscapeLayer(onClose, active?)` | Escape for a floating surface of your own: while `active` it closes on Escape when it is the topmost overlay, before anything under it (Stop, a panel) hears the key, as `Dialog`, `Popover` and `Menu` do. New in API 1.16.0. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
 `Menu`, `Dialog`, `Popover`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.

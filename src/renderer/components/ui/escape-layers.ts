@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 interface Layer {
   /** When it opened; a parent renders before its child, so the child is higher. */
@@ -23,18 +23,23 @@ function onKeyDown(event: KeyboardEvent): void {
   top.close();
 }
 
-/** Closes this overlay on Escape while it is the topmost one. */
-export function useEscapeLayer(onClose: () => void): void {
+/** Closes this overlay on Escape while it is `active` and the topmost one. */
+export function useEscapeLayer(onClose: () => void, active = true): void {
   const close = useRef(onClose);
   close.current = onClose;
-  const [order] = useState(() => ++opened);
+  // Taken while rendering, when it opens: a parent renders before its child.
+  const order = useRef(0);
+  const wasActive = useRef(false);
+  if (active && !wasActive.current) order.current = ++opened;
+  wasActive.current = active;
   useLayoutEffect(() => {
-    const layer = { order, close: () => close.current() };
+    if (!active) return undefined;
+    const layer = { order: order.current, close: () => close.current() };
     if (layers.length === 0) window.addEventListener("keydown", onKeyDown, true);
     layers.push(layer);
     return () => {
       layers.splice(layers.indexOf(layer), 1);
       if (layers.length === 0) window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [order]);
+  }, [active]);
 }

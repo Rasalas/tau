@@ -19,14 +19,21 @@ describe("ProjectSwitcherPopover", () => {
         <ProjectSwitcherPopover open={open} projects={[{ name: "tau", path: "/repos/tau", lastOpenedAt: 1 }]} onClose={() => flushSync(() => setOpen(false))} onSelect={() => {}} />
       </main>;
     }
-    render(<Chat />);
+    const view = render(<Chat />);
     const search = screen.getByRole("textbox", { name: "Search projects" });
     search.focus();
     fireEvent.keyDown(search, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Switch project" })).toBeNull();
     expect(abort).not.toHaveBeenCalled();
+
+    // Open while the keyboard is back in the composer: Escape still closes it first.
+    view.unmount();
+    render(<Chat />);
     const composer = screen.getByRole("textbox", { name: "Composer" });
     composer.focus();
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Switch project" })).toBeNull();
+    expect(abort).not.toHaveBeenCalled();
     fireEvent.keyDown(composer, { key: "Escape" });
     expect(abort).toHaveBeenCalledOnce();
   });
