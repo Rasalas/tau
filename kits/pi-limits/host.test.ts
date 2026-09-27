@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,12 +11,13 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 type Handler = (event: { type: string; status: number; headers: Record<string, string> }, ctx: { model?: { provider: string; id: string } }) => void;
 
-async function harness() {
+async function harness(agentDir = "/nonexistent-agent") {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-pi-limits-"));
   directories.push(stateDir);
   const handlers: Handler[] = [];
   const registry = await activateHostKit(createPiLimitsHostExtension({ now: () => 5_000 }), {
     stateDir,
+    agentDir,
     registerRuntimeExtension: (_name: string, factory: RuntimeExtensionFactory) => {
       factory({ on: (_event: string, handler: Handler) => { handlers.push(handler); } } as never, { sessionId: "s", cwd: "/repo" });
       return () => undefined;
@@ -43,5 +44,26 @@ describe("Pi Limits host extension", () => {
     });
     await registry.deactivate(PI_LIMITS_EXTENSION_ID);
     expect(JSON.parse(await readFile(join(stateDir, PI_LIMITS_EXTENSION_ID, "limits.json"), "utf8")).providers["openai-codex"].windows).toHaveLength(2);
+  });
+
+  it("names each login's account by a hash only: ChatGPT's from Pi's auth.json, Anthropic's from its answers", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "tau-pi-limits-agent-"));
+    directories.push(agentDir);
+    const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const access = `${part({ alg: "none" })}.${part({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-fixture-1", chatgpt_user_id: "user-fixture-1" } })}.fixture`;
+    await writeFile(join(agentDir, "auth.json"), JSON.stringify({ "openai-codex": { type: "oauth", access, refresh: "fixture-refresh", expires: 1, accountId: "acct-fixture-1" } }));
+    const { respond, read, registry, stateDir } = await harness(agentDir);
+    respond("openai-codex", { "x-codex-primary-used-percent": "20" });
+    respond("anthropic", { "anthropic-ratelimit-unified-5h-utilization": "0.4", "anthropic-organization-id": "org-fixture-1" });
+    respond("anthropic", { "anthropic-ratelimit-unified-7d-utilization": "0.1" });
+    const answer = await read() as { accounts: Array<{ id: string; identity?: { provider: string; key: string } }> };
+    expect(answer.accounts.map((account) => [account.id, account.identity])).toEqual([
+      ["pi:openai-codex", { provider: "openai", key: "6aebdfd5da11cc4ac9092578eb4af5ffb0b9d3a3dee6976ae83ed5354ce94131" }],
+      ["pi:anthropic", { provider: "anthropic", key: "afc3cb12c42d1e5bc2bdc82626464d958a551fd461eb8a992861f720f57d0ef5" }],
+    ]);
+    await registry.deactivate(PI_LIMITS_EXTENSION_ID);
+    const saved = await readFile(join(stateDir, PI_LIMITS_EXTENSION_ID, "limits.json"), "utf8");
+    expect(saved).not.toMatch(/fixture/u);
+    expect(JSON.parse(saved).providers.anthropic.identity.provider).toBe("anthropic");
   });
 });
