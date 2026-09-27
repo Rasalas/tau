@@ -7,7 +7,7 @@ import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServ
 import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
-import { agentThreadsSource, createMachinesRailSection, createShownMachine } from "./rail.js";
+import { agentThreadsSource, createMachineThreads, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
@@ -69,66 +69,79 @@ describe("Machines Kit", () => {
     expect(registry.getComposerControls()).toEqual([]);
   });
 
-  it("adds its page, command and chip, and a rail section to Workspace Kit's rail", () => {
+  it("adds its page, command and chip, and its threads and arrivals to Workspace Kit's rail", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });
     const registered = vi.fn(() => () => undefined);
-    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered }); } });
+    const listed = vi.fn(() => () => undefined);
+    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed }); } });
     registry.activate(environmentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
     expect(registry.getComposerControls().map((control) => control.id)).toEqual(["environments.run-on"]);
     expect(registry.getCommands().some((command) => command.id === "environments.add")).toBe(true);
     expect(registered).toHaveBeenCalledTimes(1);
+    expect(listed).toHaveBeenCalledTimes(1);
     registry.deactivate(environmentsExtension.id);
     expect(registry.getSettingsPages()).toEqual([]);
   });
 });
 
-describe("the other machines in the rail", () => {
-  it("stays out of the way while this is the only machine", () => {
+describe("the other machines' threads in the rail", () => {
+  const titles = (source: ReturnType<typeof createMachineThreads>) => source.threads().map((thread) => `${thread.session.title} on ${thread.machine.name}`);
+
+  it("lists nothing while this is the only machine", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
-    const Section = createMachinesRailSection(environments);
-    const { container } = render(<Section actions={fakeActions()} />);
-    expect(container.innerHTML).toBe("");
+    expect(createMachineThreads(environments).threads()).toEqual([]);
   });
 
-  it("lists each other machine with its threads, and opens a thread there", () => {
+  it("gives each thread of another machine that machine's mark and a key of its own, and opens it there", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
-    const Section = createMachinesRailSection(environments);
-    render(<Section actions={fakeActions()} />);
-    expect(screen.getByRole("button", { name: "studio" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Connected · 4 ms" })).toBeTruthy();
-    expect(screen.getByLabelText("Working")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Fix the build on studio" }));
+    const source = createMachineThreads(environments);
+    expect(titles(source)).toEqual(["Old idea on attic", "Fix the build on studio", "Write docs on studio"]);
+    const build = source.threads().find((thread) => thread.session.title === "Fix the build")!;
+    expect(build).toMatchObject({ key: "machine:studio:s1", running: true, machine: { name: "studio" } });
+    // Grouped by name with this machine's project, never taken for one of its folders.
+    expect(build.session).toMatchObject({ projectName: "api", projectPath: "studio:api", path: "/s/1" });
+    const listener = vi.fn();
+    const stop = source.subscribe(listener);
+    build.open(fakeActions());
     expect(environments.open).toHaveBeenCalledWith("studio", { thread: { path: "/s/1" } });
+    expect(source.threads().find((thread) => thread.key === "machine:studio:s1")?.opening).toBe(true);
+    expect(listener).toHaveBeenCalled();
+    stop();
   });
 
-  it("keeps an offline machine's threads visible but closed, and offers to try again", () => {
+  it("carries the thread's branch, cost and runtime from that machine's index", () => {
+    const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0.5, turns: 1 };
+    const rich = machine("studio", { threads: [{ id: "s9", path: "/s/9", title: "Tune", projectName: "api", modifiedAt: 5, projectLabel: "feat/x", usage, backendKind: "codex", modelProvider: "openai" }] });
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, rich], secureStorage: true });
+    expect(createMachineThreads(environments).threads()[0]?.session).toMatchObject({ projectLabel: "feat/x", usage, backendKind: "codex", modelProvider: "openai", modifiedAt: 5 });
+  });
+
+  it("keeps an offline machine's threads listed but closed, with the reason", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, attic], secureStorage: true });
-    const Section = createMachinesRailSection(environments);
-    render(<Section actions={fakeActions()} />);
-    const row = screen.getByRole("button", { name: "Old idea on attic" });
-    expect(row.getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(row);
-    expect(environments.open).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Try attic again" }));
-    expect(environments.retry).toHaveBeenCalledWith("attic");
+    const [idea] = createMachineThreads(environments).threads();
+    expect(idea?.unavailable).toMatch(/^attic is offline/u);
   });
 
-  it("looks in on a thread there in a tab here, where the core offers it, and not on an unreachable machine", () => {
-    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+  it("looks in on a thread there in a tab here, where the core offers it, and not on an older core", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const openThread = vi.fn();
-    const Section = createMachinesRailSection({ ...environments, watchThread: () => () => undefined });
-    render(<Section actions={fakeActions({ openThread })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Look in on Fix the build here" }));
+    const [build] = createMachineThreads({ ...environments, watchThread: () => () => undefined }).threads();
+    build?.lookIn?.(fakeActions({ openThread }));
     expect(openThread).toHaveBeenCalledWith("s1", { pin: true, machine: "studio" });
     expect(environments.open).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Look in on Old idea here" })).toBeNull();
-    cleanup();
     // An older core has no look-in, and would read the id as this machine's thread.
-    const Older = createMachinesRailSection(environments);
-    render(<Older actions={fakeActions({ openThread })} />);
-    expect(screen.queryByRole("button", { name: "Look in on Fix the build here" })).toBeNull();
+    expect(createMachineThreads(environments).threads()[0]?.lookIn).toBeUndefined();
+  });
+
+  it("answers the same list until something changed", () => {
+    const { environments, set } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const source = createMachineThreads(environments);
+    const first = source.threads();
+    expect(source.threads()).toBe(first);
+    set({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+    expect(source.threads()).not.toBe(first);
   });
 
   it("leaves out the threads this computer's sub-agents run there", () => {
@@ -146,23 +159,23 @@ describe("the other machines in the rail", () => {
       },
     });
     registry.activate(environmentsExtension);
-    const Section = createMachinesRailSection(environments);
-    render(<Section actions={fakeActions()} />);
-    expect(screen.queryByRole("button", { name: "Fix the build on studio" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Write docs on studio" })).toBeTruthy();
+    const source = createMachineThreads(environments);
+    const stop = source.subscribe(() => undefined);
+    expect(titles(source)).toEqual(["Write docs on studio"]);
     // Once the agent's thread there is let go, it is the machine's own again.
     agents = new Set();
     act(() => listeners.forEach((listener) => listener()));
-    expect(screen.getByRole("button", { name: "Fix the build on studio" })).toBeTruthy();
+    expect(titles(source)).toEqual(["Fix the build on studio", "Write docs on studio"]);
+    stop();
     registry.deactivate(environmentsExtension.id);
     expect(agentThreadsSource.threadsOn("studio")).toBeUndefined();
   });
 
-  it("lists this machine among the others while the window shows another", () => {
+  it("lists this machine's threads, with its mark, while the window shows another", () => {
     const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
-    const Section = createMachinesRailSection(environments);
-    render(<Section actions={fakeActions()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Local work on laptop" }));
+    const source = createMachineThreads(environments);
+    expect(titles(source)).toEqual(["Local work on laptop"]);
+    source.threads()[0]?.open(fakeActions());
     expect(environments.open).toHaveBeenCalledWith("laptop", { thread: { path: "/l/1" } });
   });
 });

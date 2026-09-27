@@ -28,8 +28,6 @@
 }
 .touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
 .touch-browser-header > strong { min-width: 0; font: 650 17px/1.2 var(--sans); letter-spacing: -0.01em; }
-/* The host a native shell is on, under the title. */
-.touch-browser-header > strong > small { display: block; overflow: hidden; color: var(--muted); font: 500 13px var(--sans); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
 .touch-browser-header > .spacer { flex: 1; }
 .touch-icon-button {
   width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
@@ -38,19 +36,25 @@
 .touch-icon-button:active { background: var(--hover-strong); }
 .touch-browser-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* The project filter at the head of the list; the chosen project stays in view. */
-.touch-project-filter { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 6px 10px; }
+.touch-project-filter { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 2px 10px; }
+/* Plain text with its icon, as the desktop rail's project scope; the surface shows on touch only. */
 .touch-project-filter-button {
-  min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px;
-  border: 1px solid var(--line-control); border-radius: 22px; background: var(--raised);
-  color: var(--ink); font: 550 14px var(--sans); cursor: pointer;
+  min-width: 0; min-height: 44px; display: inline-flex; align-items: center; gap: 9px; padding: 0 10px;
+  border: 0; border-radius: 10px; background: transparent;
+  color: var(--ink-2); font: 500 15px var(--sans); cursor: pointer;
 }
 .touch-project-filter-button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .touch-project-filter-button > svg { flex: none; color: var(--muted); }
 .touch-project-filter-button:active { background: var(--hover-strong); }
-.touch-browser .touch-thread-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/*
+ * Active threads above, the settled shelf pinned to the lower third, each scrolling
+ * on its own, as on the desktop rail: the active list keeps two thirds even when short.
+ */
+.touch-thread-lists { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.touch-thread-active { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; }
+.touch-thread-lists > .touch-thread-shelf { flex: 0 0 34%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 12px; }
 /* Room under the last row for the floating button and the home indicator. */
-.touch-browser.screen .touch-thread-list { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
-.touch-browser.sidebar .touch-thread-list { padding: 0 6px 12px; }
+.touch-browser.screen .touch-thread-lists > :last-child { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
 
 /* New thread: the primary action of the list, bottom right above the safe area. */
 .touch-fab {
@@ -102,47 +106,31 @@
 /* ------------------------------------------------------------- the list */
 
 .touch-thread-list { list-style: none; margin: 0; padding: 0; }
+/* Group labels as the desktop rail's: quiet text, no rule. */
 .touch-thread-group {
-  display: flex; align-items: center; gap: 8px; margin: 14px 14px 5px;
-  font: 500 12px var(--sans); color: var(--muted);
+  display: flex; align-items: center; gap: 8px; padding: 16px 12px 6px;
+  color: var(--faint); font: 500 13px var(--sans);
 }
-.touch-thread-group::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
-.touch-thread-row + .touch-thread-row { border-top: 1px solid var(--line-soft); }
-.touch-browser.sidebar .touch-thread-row + .touch-thread-row { border-top: 0; }
-.touch-thread-row .swipe-row-content { display: flex; align-items: stretch; background: var(--rail); }
-.touch-thread-open {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
-  min-height: 56px; padding: 9px 14px; border: 0; background: none; color: inherit;
-  text-align: left; cursor: pointer;
-}
-.touch-browser.sidebar .touch-thread-open { border-radius: 12px; padding: 9px 10px; }
-.touch-thread-row[data-active] .touch-thread-open { background: var(--thread-active); }
-.touch-thread-open:active { background: var(--hover); }
-.touch-thread-line, .touch-thread-meta { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.touch-thread-line > strong {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 550 16px/21px var(--sans); color: var(--ink);
-}
-.touch-thread-line > time, .touch-thread-line > em {
-  flex: none; font: 12px var(--mono); font-style: normal; font-variant-numeric: tabular-nums; color: var(--faint);
-}
-.touch-thread-meta > small {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 13px var(--sans); color: var(--muted);
-}
-.touch-thread-meta > svg { flex: none; color: var(--faint); }
+.touch-thread-row .swipe-row-content { background: var(--rail); }
+/* The desktop rail's card (ThreadRow's classes), at touch sizes: spacing and the active surface, no rules between rows. */
+.touch-thread-row .thread-row:active { background: var(--hover); }
+.touch-thread-row .thread-main { min-height: 44px; padding: 10px 12px; }
+.touch-thread-row .thread-project-line { height: 20px; }
+.touch-thread-row .thread-project-line > strong { font-size: 13px; }
+.touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: 13px; }
+.touch-thread-row .thread-status-age { font-size: 13px; }
+.touch-thread-row .thread-status-age.status-waiting { color: var(--acid-text); }
+.touch-thread-row .thread-title { margin-top: 4px; font: 600 16px/21px var(--sans); }
+.touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 18px; }
+.touch-thread-row .thread-meta-line { margin-top: 3px; line-height: 18px; }
+.touch-thread-row .thread-branch { font-size: 12px; }
+/* No hover on a phone: the cost reads at full strength. */
+.touch-thread-row .thread-cost-meta { opacity: 1; font-size: 12px; }
+.touch-thread-pin { flex: none; color: var(--faint); }
 .touch-thread-provider { flex: none; }
-.touch-thread-status { display: inline-flex; flex: none; color: var(--muted); }
-.touch-thread-unread { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--acid); }
-.touch-thread-row[data-status="running"] .touch-thread-status { color: var(--working); animation: touch-spin 1.4s linear infinite; }
-.touch-thread-row[data-status="running"] .touch-thread-line > time { color: var(--working); }
-.touch-thread-row[data-status="waiting"] :is(.touch-thread-status, .touch-thread-line > em) { color: var(--acid-text); }
-.touch-thread-row[data-status="failed"] :is(.touch-thread-status, .touch-thread-line > em) { color: var(--fail); }
-@keyframes touch-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .touch-thread-row[data-status="running"] .touch-thread-status { animation: none; } }
-/* Settled rows are slim and quiet, as in T3 Code's shelf. */
-.touch-thread-row[data-settled] .touch-thread-open { min-height: 44px; padding-block: 7px; }
-.touch-thread-row[data-settled] .touch-thread-line > strong { font-weight: 450; color: var(--muted); }
+/* Settled rows are the rail's slim, quiet ones. */
+.touch-thread-row .thread-row.compact .thread-main { padding-block: 10px; }
+.touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 450 15px/20px var(--sans); color: var(--muted); }
 .touch-thread-stop {
   flex: none; align-self: center; width: 44px; height: 44px; margin-right: 6px; padding: 0;
   display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
@@ -169,11 +157,14 @@
 }
 .touch-thread-notice > strong { font: 600 14px var(--sans); color: var(--ink-2); }
 .touch-thread-notice.refused > strong { color: var(--danger); }
-.touch-thread-more-rows { padding: 6px 12px 10px; }
+.touch-thread-more-rows { padding: 2px 0 8px; }
 .touch-thread-more-rows > button {
-  width: 100%; min-height: 44px; border: 1px dashed var(--line-strong); border-radius: 10px;
+  width: 100%; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; text-align: left;
   background: transparent; color: var(--muted); font: 500 13px var(--sans); cursor: pointer;
 }
+.touch-thread-more-rows > button:active { background: var(--hover); }
+/* The host a native shell is on, at the head of More. */
+.touch-menu-context { margin: 4px 12px 6px; overflow: hidden; color: var(--muted); font: 500 13px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ------------------------------------------------------------ the swipe */
 

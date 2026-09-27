@@ -177,8 +177,8 @@ describe("the web client at 400 px", () => {
     await screen.findByRole("list", { name: "Threads" });
     swipe(rowNamed("Fix the flaky test").querySelector(".swipe-row")!, 380, 60);
     await waitFor(() => expect(rowNamed("Fix the flaky test").dataset.settled).toBe("true"));
-    const list = screen.getByRole("list", { name: "Threads" });
-    expect(within(list).getByText("Settled")).toBeTruthy();
+    const shelf = screen.getByRole("list", { name: "Settled threads" });
+    expect(within(shelf).getByText("Settled · 1")).toBeTruthy();
     // A short swipe only opens the tray; its primary action takes the thread back out.
     swipe(rowNamed("Fix the flaky test").querySelector(".swipe-row")!, 380, 330);
     fireEvent.click(within(rowNamed("Fix the flaky test")).getByRole("button", { name: /Un-settle/u }));
@@ -300,8 +300,10 @@ describe("the web client at 400 px", () => {
     await screen.findByRole("button", { name: "Threads" });
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
     const threads = await screen.findByRole("dialog", { name: "Threads" });
-    expect(within(threads).getByText("Studio Mac")).toBeTruthy();
+    // The list's title stays "Threads"; the host is named in More.
+    expect(within(threads).queryByText("Studio Mac")).toBeNull();
     fireEvent.click(within(threads).getByRole("button", { name: "More" }));
+    expect(await screen.findByText("On Studio Mac")).toBeTruthy();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Hosts" }));
     expect(switched).toEqual(["hosts"]);
     await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Hosts" })).toBeNull());

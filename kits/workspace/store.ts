@@ -36,6 +36,7 @@ import {
   type WorkspaceMode,
   type ThreadRailOrganizer,
   type ThreadRowAccessoryProps,
+  type RailThreadSource,
   type ThreadWorktreeRequest,
   type TurnStat,
   type WorkspaceStoreApi,
@@ -66,6 +67,7 @@ const INITIAL: WorkspaceKitState = {
   changesSections: [],
   threadRowAccessories: [],
   railSections: [],
+  railThreadSources: [],
   defaultBranches: {},
   turnStats: {},
 };
@@ -627,6 +629,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerRailSection(section: ComponentType<{ actions: WorkbenchActions }>): () => void {
     this.update({ railSections: [...this.state.railSections, section] });
     return () => this.update({ railSections: this.state.railSections.filter((entry) => entry !== section) });
+  }
+
+  registerRailThreads(source: RailThreadSource): () => void {
+    this.update({ railThreadSources: [...this.state.railThreadSources, source] });
+    return () => this.update({ railThreadSources: this.state.railThreadSources.filter((entry) => entry !== source) });
   }
 
   setRailProjectFilter(projectName: string | undefined): void {

@@ -2,11 +2,20 @@ import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "r
 import { ArchiveRestore, Check, CircleAlert, Hourglass, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
-import { threadCostLabel, threadUsageDetail } from "../cost-format";
+import { threadCostLabel, threadCostOrigin } from "../cost-format";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
 
 export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted" | "failed" | "limited";
+
+export interface ThreadRowMachine {
+  name: string;
+  icon: ReactNode;
+}
+
+function MachineMark({ machine }: { machine: ThreadRowMachine }) {
+  return <span className="thread-machine" role="img" aria-label={`On ${machine.name}`} {...tooltipProps(machine.name)}>{machine.icon}</span>;
+}
 
 interface ThreadRowProps {
   activity: ThreadActivity;
@@ -26,6 +35,8 @@ interface ThreadRowProps {
   startedAt?: number;
   /** A kit's own marks for this thread (a request status, say), drawn beside the branch. */
   accessory?: ReactNode;
+  /** The machine a thread of another machine runs on: its icon just before the cost, its name as tooltip. */
+  machine?: ThreadRowMachine;
   /** Buttons drawn beside Settle while the row is hovered or focused (a snooze clock, say). */
   actions?: ReactNode;
   /** Off when the project label says nothing new, e.g. the repository's default branch. */
@@ -33,10 +44,11 @@ interface ThreadRowProps {
   /** A few lines about the thread, shown beside the row on hover in place of the title's own tooltip. */
   details?: string;
   onSelect(path: string): void;
-  onToggleSettled(id: string): void;
+  /** Absent for a thread this rail cannot settle (another machine's): the row has no Settle button. */
+  onToggleSettled?(id: string): void;
 }
 
-function projectHue(value: string): number {
+export function projectHue(value: string): number {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
     hash = (hash * 31 + value.charCodeAt(index)) | 0;
@@ -44,7 +56,7 @@ function projectHue(value: string): number {
   return Math.abs(hash) % 360;
 }
 
-function projectInitial(name: string): string {
+export function projectInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "·";
 }
 
@@ -88,6 +100,7 @@ export const ThreadRow = memo(function ThreadRow({
   showCost,
   startedAt,
   accessory,
+  machine,
   actions,
   showLabel = true,
   details,
@@ -123,19 +136,20 @@ export const ThreadRow = memo(function ThreadRow({
           <span className="thread-title" {...titleTip}>{session.title}</span>
           {childCount}
           {accessory}
+          {machine ? <MachineMark machine={machine} /> : null}
           <time>{age}</time>
         </button>
-        <span className="thread-row-actions">
+        {onToggleSettled || (!settled && actions) ? <span className="thread-row-actions">
           {settled ? null : actions}
-          <button
+          {onToggleSettled ? <button
             className="thread-settle"
             {...tooltipProps(settled ? "Return thread to the rail" : "Settle thread")}
             aria-label={`${settled ? "Return" : "Settle"} ${session.title}`}
             onClick={() => onToggleSettled(session.id)}
           >
             {settled ? <ArchiveRestore size={13} /> : <Check size={13} />}
-          </button>
-        </span>
+          </button> : null}
+        </span> : null}
       </article>
     );
   }
@@ -151,25 +165,29 @@ export const ThreadRow = memo(function ThreadRow({
             : <time>{age}</time>}
         </span>
         <span className="thread-title" {...titleTip}>{session.title}</span>
+        {/* Drawn right to left, so what comes first here stays longest when the card is narrow (see styles.css). */}
         <span className="thread-meta-line">
-          {childCount}
+          <span className="thread-meta-end">
+            {machine ? <MachineMark machine={machine} /> : null}
+            {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadCostOrigin(session.usage))}>{cost}</span> : null}
+            <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
+          </span>
+          {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}
           {showLabel && session.projectLabel ? <MiddleTruncate className="thread-branch" value={session.projectLabel} /> : null}
-          {accessory}
-          {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadUsageDetail(session.usage))}>{cost}</span> : null}
-          <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
+          {childCount}
         </span>
       </button>
-      <span className="thread-row-actions">
+      {actions || onToggleSettled ? <span className="thread-row-actions">
         {actions}
-        <button
+        {onToggleSettled ? <button
           className="thread-settle"
           {...tooltipProps("Settle thread")}
           aria-label={`Settle ${session.title}`}
           onClick={() => onToggleSettled(session.id)}
         >
           <Check size={13} /><span>Settle</span>
-        </button>
-      </span>
+        </button> : null}
+      </span> : null}
     </article>
   );
 });

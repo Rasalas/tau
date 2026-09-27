@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import type { UiThreadUsage } from "../../shared/contracts";
-import { planUsage, threadCostLabel, threadUsageDetail } from "../cost-format";
+import { planUsage, threadCostLabel, threadCostOrigin } from "../cost-format";
 import { tooltipProps } from "./ui/Tooltip";
 
 const ThreadCostPopover = lazy(() => import("./ThreadCostPopover"));
@@ -25,7 +25,7 @@ export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
     >
       <button
         className={onPlan && usage.costUsd <= 0 ? "thread-cost plan" : "thread-cost"}
-        {...tooltipProps(onPlan ? label : threadUsageDetail(usage))}
+        {...tooltipProps(threadCostOrigin(usage))}
         aria-label={`Thread cost ${label}`}
         onClick={() => setOpen((value) => !value)}
       >

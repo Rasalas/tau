@@ -60,7 +60,7 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
 
   const header = <header className="touch-browser-header">
     {modal && onClose ? <button type="button" className="touch-icon-button" aria-label="Close threads" onClick={onClose}><ChevronLeft size={22} /></button> : null}
-    <strong>Threads{shell?.hostLabel ? <small>{shell.hostLabel}</small> : null}</strong>
+    <strong>Threads</strong>
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
     <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>
@@ -73,6 +73,8 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
     </Popover> : null}
     {popover === "menu" ? <Popover anchor={menuButton} side="bottom" align="end" label="More" className="touch-popover touch-menu" onClose={() => setPopover(undefined)}>
       <div role="menu" aria-label="More">
+        {/* Which host a native shell is on: said here, not over the list. */}
+        {shell?.hostLabel ? <p className="touch-menu-context">On {shell.hostLabel}</p> : null}
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings("connections"); }}><MonitorSmartphone size={17} />Connections</button>
         {shell?.actions?.map((action) => <button key={action.id} type="button" role="menuitem" onClick={() => { setPopover(undefined); action.run(); }}>{action.Icon ? <action.Icon size={17} /> : null}{action.label}</button>)}

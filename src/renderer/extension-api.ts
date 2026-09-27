@@ -211,7 +211,7 @@ export type { HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, R
 /** The hosts one Bonjour search found, with a slot per host for an action (API 1.13.0). */
 export { NearbyMachineList } from "./settings/NearbyMachineList";
 export type { ClientStorage } from "../workbench/client-storage";
-export type { ThreadActivity } from "./components/ThreadRow";
+export type { ThreadActivity, ThreadRowMachine } from "./components/ThreadRow";
 /** The line seam of `ReviewMode`'s diffs. */
 export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";

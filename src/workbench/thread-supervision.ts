@@ -1,4 +1,4 @@
-import type { UiProject, UiSession } from "../shared/contracts";
+import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 
 /**
@@ -14,8 +14,11 @@ export interface ThreadSupervisionRow {
   path: string;
   title: string;
   projectName: string;
+  /** What the project's mark is coloured by, as on a rail row. */
+  projectPath?: string;
   /** The project's short label, e.g. its Git branch. */
   projectLabel?: string;
+  usage?: UiThreadUsage;
   status: ThreadSupervisionStatus;
   /** Set while the thread is running, for the elapsed timer. */
   startedAt?: number;
@@ -51,7 +54,9 @@ function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organizatio
     path: thread.path,
     title: thread.title || "Untitled thread",
     projectName: thread.projectName,
+    projectPath: thread.projectPath,
     ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
+    ...(thread.usage ? { usage: thread.usage } : {}),
     status,
     ...(startedAt === undefined ? {} : { startedAt }),
     unread: activity.unreadThreadIds.includes(thread.id),
@@ -153,15 +158,14 @@ export const THREAD_SUPERVISION_LABELS: Record<ThreadSupervisionStatus, string> 
   done: "Done",
 };
 
-/** A row's age, as short as T3 Code's list: `<1m`, `5m`, `3h`, `2d`, `6w`. */
+/** A row's age as T3 Code's list and the desktop rail show it: `now`, `5m`, `3h`, then days (`40d`). */
 export function threadAge(modifiedAt: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - modifiedAt) / 60_000);
-  if (minutes < 1) return "<1m";
+  if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return days < 14 ? `${days}d` : `${Math.floor(days / 7)}w`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 /** The running timer: `42s`, then `3m 05s`. */

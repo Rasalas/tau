@@ -12,6 +12,7 @@ import type {
   PullRequestReviewEvent,
   PullRequestStack,
   PullRequestStackLayer,
+  PullRequestStackMembership,
   PullRequestThread,
   PullRequestViewedState,
 } from "./protocol.js";
@@ -34,6 +35,8 @@ export interface PullRequestCommandOptions {
 /** The view's cached read of a request, for the kit's other commands (a link's snapshot). */
 export interface PullRequestReads {
   detail(ref: PullRequestRef, fresh: boolean): Promise<PullRequestDetail>;
+  /** The stack a request is a layer of; undefined for one on its own or a host without stacks. */
+  stackOf?(ref: PullRequestRef): Promise<PullRequestStackMembership | undefined>;
 }
 
 const VERDICTS: Record<PullRequestReviewEvent, string> = { comment: "review without a verdict", approve: "approval", "request-changes": "request for changes" };
@@ -321,7 +324,13 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     return detail(ref, true);
   }, { long: true });
 
-  return { detail };
+  const stackOf = async (ref: PullRequestRef): Promise<PullRequestStackMembership | undefined> => {
+    const provider = sources.get(ref.service);
+    if (!provider.stackMemberships || !provider.info.capabilities.stacks) return undefined;
+    return (await provider.stackMemberships({ host: ref.host, repo: ref.repo }, [ref.number])).get(ref.number);
+  };
+
+  return { detail, stackOf };
 }
 
 /** The stack as the window showed it, checked field by field: it decides what a stack step may touch. */

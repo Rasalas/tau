@@ -4,7 +4,7 @@ import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type P
 import { createAutoRunOnHook } from "./auto.js";
 import { followArrival, readPendingArrival } from "./machines.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
-import { agentThreadsSource, createMachinesRailSection, createShownMachine } from "./rail.js";
+import { agentThreadsSource, createMachineThreads, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 
@@ -14,12 +14,12 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 export const ARRIVAL_KEY = "tau.environments.arrival";
 
 /**
- * The rail section, plus opening what the page was sent to this machine for.
- * The rail is mounted only while the workbench shows, so the arrival is
- * followed then, and again each time the workbench comes back, until placed.
+ * Opens what the page was sent to this machine for; draws nothing (the other
+ * machines' threads stand in the rail's own list). The rail is mounted only
+ * while the workbench shows, so the arrival is followed then, and again each
+ * time the workbench comes back, until placed.
  */
 export function createRailSection(environments: PlatformEnvironments, pause = wait) {
-  const Section = createMachinesRailSection(environments);
   let taken = false;
   return function MachinesRail({ actions }: { actions: WorkbenchActions }) {
     const latest = useRef(actions);
@@ -51,7 +51,7 @@ export function createRailSection(environments: PlatformEnvironments, pause = wa
       }
       return () => { shown = false; };
     }, []);
-    return <Section actions={actions} />;
+    return null;
   };
 }
 
@@ -87,7 +87,12 @@ export const environmentsExtension: DesktopExtension = {
     context.registerComposerControl({ id: "environments.run-on", placement: "toolbar", order: 5, profiles: ["desktop"], Component: createRunOnControl(environments, context.host) });
     context.registerPromptHook(createAutoRunOnHook(environments, context.host));
     const RailSection = createRailSection(environments);
-    context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => store.registerRailSection?.(RailSection));
+    const threads = createMachineThreads(environments);
+    context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => {
+      const section = store.registerRailSection?.(RailSection);
+      const listed = store.registerRailThreads?.(threads);
+      return () => { section?.(); listed?.(); };
+    });
     context.useService<RemoteAgentThreadsService>(REMOTE_AGENT_THREADS_SERVICE, (service) => {
       agentThreadsSource.set(service);
       return () => agentThreadsSource.set(undefined);

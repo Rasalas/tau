@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Check, CircleAlert, LoaderCircle, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { Check, Mail, MailOpen, Pin, PinOff, RotateCcw, Square } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
@@ -13,6 +13,9 @@ import {
 import type { UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
+import { projectHue, projectInitial } from "../components/ThreadRow";
+import { MiddleTruncate } from "../components/ui/MiddleTruncate";
+import { threadCostLabel } from "../cost-format";
 import { useHostClient } from "../host-client-context";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
@@ -20,15 +23,9 @@ import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
 
-const STATUS_ICON: Record<ThreadSupervisionStatus, typeof Check | undefined> = {
-  waiting: MessageCircleQuestion,
-  running: LoaderCircle,
-  failed: CircleAlert,
-  done: undefined,
-};
-
-/** What the right edge of a row says: the state when it needs a look, else the age. */
+/** What the project line's right edge says when the thread needs a look, in the desktop rail's colours. */
 const STATUS_SHORT: Partial<Record<ThreadSupervisionStatus, string>> = { waiting: "Waiting", failed: "Failed" };
+const STATUS_CLASS: Record<ThreadSupervisionStatus, string> = { waiting: "status-waiting", running: "status-working", failed: "status-failed", done: "" };
 
 function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -40,12 +37,20 @@ function useNow(active: boolean): number {
   return now;
 }
 
+/** The state when the thread needs a look or runs, else its age: the desktop row's project line. */
 function RowTime({ row }: { row: ThreadSupervisionRow }) {
   const now = useNow(row.startedAt !== undefined);
-  if (row.status === "running" && row.startedAt !== undefined) return <time>{threadElapsed(row.startedAt, now)}</time>;
+  if (row.status === "running") {
+    return <span className="thread-status-age status-working"><i />{row.startedAt !== undefined ? <time>{threadElapsed(row.startedAt, now)}</time> : "Working"}</span>;
+  }
   const short = STATUS_SHORT[row.status];
-  return short ? <em>{short}</em> : <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, now)}</time>;
+  if (short) return <span className={`thread-status-age ${STATUS_CLASS[row.status]}`}>{short}</span>;
+  if (row.unread && !row.settled) return <span className="thread-status-age status-ready">Ready</span>;
+  return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, now)}</time>;
 }
+
+/** The branch every checkout starts on says nothing on a row, as on the desktop rail. */
+const DEFAULT_BRANCHES = new Set(["main", "master"]);
 
 export interface TouchThreadListProps {
   registry: ExtensionRegistry;
@@ -70,7 +75,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const preferences = usePreferences();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const current = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
-  const { pinnedThreadIds, settledThreadIds } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { pinnedThreadIds, settledThreadIds, showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [shown, setShown] = useState(THREAD_LIST_PAGE);
   const [openRow, setOpenRow] = useState<string>();
@@ -128,25 +133,34 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
       </div>}
     </>;
   }
+  const rowProps = {
+    activeId: current.activeThreadId,
+    openRow,
+    setOpenRow,
+    swipeActions,
+    onOpen,
+    // A Read-only device may not stop a run; the row's sheet says why.
+    ...(readOnly ? {} : { onStop }),
+    onSheet: setSheetFor,
+    showCosts,
+  };
+  const more = (group: ThreadListGroup) => () => setShown((value) => group.id === "settled"
+    ? { ...value, settled: value.settled + 25 }
+    : { ...value, active: value.active + THREAD_LIST_PAGE.active });
+  const settled = groups.find((group) => group.id === "settled");
+  // The active threads keep two thirds of the list; the settled shelf sits in the lower third, each scrolling on its own.
   return <>
     {connection}
-    <ul className="touch-thread-list" aria-label="Threads" onScroll={() => setOpenRow(undefined)}>
-      {groups.map((group) => <GroupRows
-        key={group.id}
-        group={group}
-        activeId={current.activeThreadId}
-        openRow={openRow}
-        setOpenRow={setOpenRow}
-        swipeActions={swipeActions}
-        onOpen={onOpen}
-        // A Read-only device may not stop a run; the row's sheet says why.
-        {...(readOnly ? {} : { onStop })}
-        onSheet={setSheetFor}
-        onMore={() => setShown((value) => group.id === "settled"
-          ? { ...value, settled: value.settled + 25 }
-          : { ...value, active: value.active + THREAD_LIST_PAGE.active })}
-      />)}
-    </ul>
+    <div className="touch-thread-lists" onScrollCapture={() => setOpenRow(undefined)}>
+      <div className="touch-thread-active">
+        <ul className="touch-thread-list" aria-label="Threads">
+          {groups.filter((group) => group !== settled).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
+        </ul>
+      </div>
+      {settled ? <ul className="touch-thread-list touch-thread-shelf" aria-label="Settled threads">
+        <GroupRows group={settled} {...rowProps} onMore={more(settled)} />
+      </ul> : null}
+    </div>
     {sheetFor ? <ActionSheet title={sheetFor.title} actions={sheetActions(sheetFor)} onClose={() => setSheetFor(undefined)} /> : null}
   </>;
 }
@@ -178,53 +192,80 @@ function shortLabel(label: string): string {
   return label.replace(/…$/u, "").replace(/\s+thread$/iu, "");
 }
 
-function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onStop, onSheet, onMore }: {
+function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onStop, onSheet, onMore, showCosts }: {
   group: ThreadListGroup;
   activeId: string;
-  openRow?: string;
+  openRow?: string | undefined;
   setOpenRow(id: string | undefined): void;
   swipeActions(row: ThreadSupervisionRow): SwipeAction[];
   onOpen(row: ThreadSupervisionRow): void;
   onStop?(row: ThreadSupervisionRow): void;
   onSheet(row: ThreadSupervisionRow): void;
   onMore(): void;
+  showCosts: boolean;
 }) {
   return <>
-    {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}</span></li> : null}
+    {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}{group.id === "settled" ? ` · ${group.rows.length + group.hidden}` : ""}</span></li> : null}
     {group.rows.map((row) => {
-      const Icon = STATUS_ICON[row.status];
-      return <li key={row.id} className="touch-thread-row" data-status={row.status} data-active={row.id === activeId || undefined} data-settled={row.settled || undefined}>
+      const active = row.id === activeId;
+      return <li key={row.id} className="touch-thread-row" data-status={row.status} data-active={active || undefined} data-settled={row.settled || undefined}>
         <SwipeRow
           actions={swipeActions(row)}
           open={openRow === row.id}
           onOpenChange={(open) => setOpenRow(open ? row.id : undefined)}
           onLongPress={() => { setOpenRow(undefined); onSheet(row); }}
         >
-          <button type="button" className="touch-thread-open" aria-label={`Open thread ${row.title}`} aria-description={THREAD_SUPERVISION_LABELS[row.status]} onClick={() => onOpen(row)}>
-            <span className="touch-thread-line">
-              {row.unread ? <b className="touch-thread-unread" aria-label="Unread" /> : null}
-              {Icon ? <i className="touch-thread-status" aria-hidden="true"><Icon size={13} /></i> : null}
-              <strong>{row.title}</strong>
-              <RowTime row={row} />
-            </span>
-            {row.settled ? null : <span className="touch-thread-meta">
-              <small>{row.projectLabel ? `${row.projectName} · ${row.projectLabel}` : row.projectName}</small>
-              {row.pinned ? <Pin size={11} aria-label="Pinned" /> : null}
-              <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
-            </span>}
-          </button>
-          {row.status === "running" && onStop ? <button
-            type="button"
-            className="touch-thread-stop"
-            aria-label={`Stop ${row.title}`}
-            onClick={() => onStop(row)}
-          ><Square size={12} /></button> : null}
-          <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
+          <div className={`thread-row${row.settled ? " compact" : ""}${active ? " active" : ""}`}>
+            <ThreadCard row={row} showCost={showCosts} onOpen={() => onOpen(row)} />
+            {row.status === "running" && onStop ? <button
+              type="button"
+              className="touch-thread-stop"
+              aria-label={`Stop ${row.title}`}
+              onClick={() => onStop(row)}
+            ><Square size={12} /></button> : null}
+            <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
+          </div>
         </SwipeRow>
       </li>;
     })}
     {group.hidden > 0 ? <li role="none" className="touch-thread-more-rows">
-      <button type="button" onClick={onMore}>Show more ({group.hidden} {group.id === "settled" ? "settled " : ""}hidden)</button>
+      <button type="button" onClick={onMore}>Show {group.hidden} more</button>
     </li> : null}
   </>;
+}
+
+/**
+ * A thread as the desktop rail's card draws it: the project line with the
+ * state or age, the title, and the branch, cost and runtime; a settled one
+ * as the rail's slim row.
+ */
+function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; showCost: boolean; onOpen(): void }) {
+  const mark = <i className="thread-project-icon" style={{ "--project-hue": projectHue(row.projectPath ?? row.projectName) } as CSSProperties}>{projectInitial(row.projectName)}</i>;
+  const label = { "aria-label": `Open thread ${row.title}`, "aria-description": THREAD_SUPERVISION_LABELS[row.status] };
+  if (row.settled) {
+    return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
+      {mark}
+      <span className="thread-title">{row.title}</span>
+      <RowTime row={row} />
+    </button>;
+  }
+  const cost = showCost ? threadCostLabel(row.usage) : undefined;
+  const branch = row.projectLabel && !DEFAULT_BRANCHES.has(row.projectLabel) ? row.projectLabel : undefined;
+  return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
+    <span className="thread-project-line">
+      {mark}
+      <strong>{row.projectName}</strong>
+      <RowTime row={row} />
+    </span>
+    <span className="thread-title">{row.title}</span>
+    {/* Right to left, as the rail's card: the branch yields first, the runtime mark last. */}
+    <span className="thread-meta-line">
+      <span className="thread-meta-end">
+        {cost ? <span className="thread-cost-meta">{cost}</span> : null}
+        <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
+      </span>
+      {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}
+      {branch ? <MiddleTruncate className="thread-branch" value={branch} /> : null}
+    </span>
+  </button>;
 }

@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, ChevronRight, CornerLeftUp, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   errorMessage,
   Popover,
@@ -20,8 +20,9 @@ import {
   type UiProject,
   type UiSession,
 } from "tau";
-import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
+import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
+import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { threadDetails } from "./rail-details.js";
 import { groupThreads, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
@@ -498,16 +499,14 @@ export function limitHint(limit: UiSession["limit"], now = Date.now()): string {
   return "A usage limit stopped this thread. Open it to continue.";
 }
 
-function sessionAge(timestamp: number): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+/** T3 Code's compact age: `now`, `5m`, `3h`, then days however many (`40d`), never a date. */
+export function sessionAge(timestamp: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return days < 7
-    ? `${days}d`
-    : new Date(timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${Math.floor(hours / 24)}d`;
 }
 
 const noValue = () => undefined;
@@ -595,6 +594,43 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       onSelect={onSelect}
       onToggleSettled={() => onToggleSettled(session)}
     />
+  );
+});
+
+/**
+ * Another machine's thread among this machine's: the same card, with that
+ * machine's mark before the cost. It opens there; it cannot be settled here.
+ */
+const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLookIn }: {
+  thread: RailExternalThread;
+  onOpen(thread: RailExternalThread): void;
+  onLookIn(thread: RailExternalThread): void;
+}) {
+  const preferences = usePreferences();
+  const showCosts = useSyncExternalStore(preferences.subscribe, () => preferences.getSnapshot().showCosts);
+  const { session, machine, unavailable, opening, running } = thread;
+  const age = sessionAge(session.modifiedAt);
+  const activity: ThreadActivity = opening ? "ready" : running ? "working" : "idle";
+  const label = opening ? "Opening…" : running ? "Working" : undefined;
+  const lookIn = thread.lookIn && !unavailable && !opening
+    ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
+    : undefined;
+  return (
+    <div className={`rail-external${unavailable ? " unavailable" : ""}`} aria-disabled={unavailable ? true : undefined}>
+      <ThreadRow
+        session={session}
+        machine={machine}
+        showLabel={!isDefaultBranch(session.projectLabel)}
+        showCost={showCosts}
+        active={false}
+        age={age}
+        activity={activity}
+        {...(label ? { activityLabel: label } : {})}
+        details={unavailable ?? threadDetails({ session, age, machine: machine.name, ...(label ? { status: label } : {}) })}
+        actions={lookIn}
+        onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
+      />
+    </div>
   );
 });
 
@@ -698,6 +734,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const workspace = useWorkspaceStore();
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
   const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
+  const railThreadSources = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railThreadSources);
+  const externalThreads = useRailExternalThreads(railThreadSources);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
   const projectSettings = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().projectSettings);
@@ -722,7 +760,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   // A Read-only device could never send a new thread's first message.
   const { readOnly: readOnlyDevice } = useHostCapabilities();
   const searchRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const option = (id: string, fallback: boolean) =>
     settings.extensionOptions[`${WORKSPACE_EXTENSION_ID}.${id}`] ?? fallback;
@@ -781,8 +819,23 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     [matching, organizer, organizerVersion, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf],
   );
+  // Other machines' threads join the main list by the same filters and order; the rail's sections stay this machine's.
+  const outside = useMemo(() => {
+    const byKey = new Map<string, RailExternalThread>();
+    for (const thread of externalThreads) {
+      const { session } = thread;
+      if (projectFilter && session.projectName !== projectFilter) continue;
+      if (needle && !`${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle)) continue;
+      byKey.set(thread.key, thread);
+    }
+    return byKey;
+  }, [externalThreads, needle, projectFilter]);
   const mainIndex = Math.max(0, sections.findIndex((section) => !section.label));
-  const main = sections[mainIndex] ?? { id: "active", threads: [] };
+  const ownMain = sections[mainIndex] ?? { id: "active", threads: [] };
+  const main = useMemo(
+    () => outside.size === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, [...outside.values()].map((thread) => thread.session), order.threadSort) },
+    [order.threadSort, outside, ownMain],
+  );
   const grouped = order.grouping !== "none";
   const visibleActive = grouped ? main.threads : main.threads.slice(0, threadLimit);
   const { drag, onPointerDown } = useRailDrag(organizer, sections);
@@ -830,6 +883,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const rowActions = useMemo(() => organizer?.rowActions ? (session: UiSession) => organizer.rowActions!(session) : undefined, [organizer]);
   const runRowAction = useCallback((session: UiSession, itemId: string) => organizer?.runMenu(session, itemId, actions), [actions, organizer]);
 
+  const openExternal = useCallback((thread: RailExternalThread) => thread.open(actions), [actions]);
+  const lookInExternal = useCallback((thread: RailExternalThread) => thread.lookIn?.(actions), [actions]);
+
   const renderRow = (session: UiSession, status: ThreadActivity, label?: string, hint?: string, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
@@ -862,7 +918,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     ...sections.slice(mainIndex + 1).flatMap(shelfRows).map((session) => session.id),
   ];
   const cursorId = orderIds.length ? orderIds[navigationIndex % orderIds.length] : undefined;
-  const selected = selectedInOrder(selection, orderIds);
+  // Another machine's rows are walked by the arrow keys but never picked.
+  const ownIds = outside.size ? orderIds.filter((id) => !outside.has(id)) : orderIds;
+  const selected = selectedInOrder(selection, ownIds);
 
   /** A row's wrapper carries what the drag, the menu and the selection read; its classes show where a drop lands. */
   const rowClass = (sectionId: string, id: string, last: boolean): string => {
@@ -881,6 +939,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     "data-rail-section": sectionId,
     ...(id === cursorId ? { "data-cursor": "" } : {}),
   });
+  // No `data-rail-thread`: drags, drops, menus and picks leave these rows alone.
+  const externalData = (key: string) => ({ "data-rail-external": key, ...(key === cursorId ? { "data-cursor": "" } : {}) });
 
   const renderSection = (section: ThreadRailSection): ReactNode => {
     // An empty section shows its heading only while a thread could be dropped on it.
@@ -982,7 +1042,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       </div>
 
       <nav
-        ref={listRef}
         className={`session-list${drag ? " rail-dragging" : ""}`}
         aria-label="Threads"
         tabIndex={0}
@@ -995,7 +1054,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           if (event.metaKey || event.ctrlKey || event.shiftKey) {
             event.preventDefault();
             event.stopPropagation();
-            setSelection((current) => event.shiftKey ? selectRange(current, id, orderIds, activityState.activeThreadId) : toggleSelected(current, id));
+            setSelection((current) => event.shiftKey ? selectRange(current, id, ownIds, activityState.activeThreadId) : toggleSelected(current, id));
             return;
           }
           setSelection((current) => current.ids.size === 0 && current.anchor === id ? current : { ids: new Set(), anchor: id });
@@ -1025,14 +1084,23 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           if (!orderIds.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
           event.preventDefault();
           const current = navigationIndex % orderIds.length;
-          if (event.key === "Enter") { void actions.switchSession(findSession(orderIds[current]!)?.path ?? ""); return; }
+          if (event.key === "Enter") {
+            const external = outside.get(orderIds[current]!);
+            if (external) { if (!external.unavailable) external.open(actions); }
+            else void actions.switchSession(findSession(orderIds[current]!)?.path ?? "");
+            return;
+          }
           const next = (current + (event.key === "ArrowDown" ? 1 : -1) + orderIds.length) % orderIds.length;
           setNavigationIndex(next);
           // Shift and an arrow grow the selection from where it began; a plain arrow moves where it begins.
-          if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: orderIds[current]! }, orderIds[next]!, orderIds));
+          if (outside.has(orderIds[next]!)) return;
+          if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: orderIds[current]! }, orderIds[next]!, ownIds));
           else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
+        {/* The active threads keep two thirds of the rail; the shelves sit in the lower third, each scrolling on its own. */}
+        <div ref={listRef} className="rail-active">
+        <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
         {main.label === undefined && drag && sections.length > 1 ? (
           <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
@@ -1048,7 +1116,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                 ref={rowVirtualizer.measureElement}
                 data-index={item.index}
                 className={threadRow ? rowClass(main.id, row.id, item.index === navigationRows.length - 1) : undefined}
-                {...(threadRow ? rowData(main.id, row.id) : {})}
+                {...(threadRow ? (outside.has(row.id) ? externalData(row.id) : rowData(main.id, row.id)) : {})}
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "group" ? (
@@ -1056,6 +1124,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                 ) : row.kind === "more" ? (
                   <ShowMoreThreadRow remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
                 ) : (() => {
+                  const external = outside.get(row.id);
+                  if (external) return <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} />;
                   const status = activityFor(row.session.id);
                   return renderRow(row.session, status.activity, status.label, status.hint);
                 })()}
@@ -1071,11 +1141,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           />
         ) : null}
 
-        {matching.length === 0 ? (
+        {matching.length === 0 && outside.size === 0 ? (
           <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
         ) : null}
+        </div>
+        </div>
 
-        {sections.length > mainIndex + 1 ? <div className="rail-shelves">{sections.slice(mainIndex + 1).map(renderSection)}</div> : null}
+        {(() => {
+          const shelves = sections.slice(mainIndex + 1).map(renderSection).filter(Boolean);
+          return shelves.length ? <div className="rail-shelves">{shelves}</div> : null;
+        })()}
       </nav>
 
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
