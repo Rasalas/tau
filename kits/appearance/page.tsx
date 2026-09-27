@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Upload, Wand2 } from "lucide-react";
-import { NumberField, SegmentedControl, SettingRow, SettingsSection, TextField, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
+import { Button, NumberField, SegmentedControl, SettingRow, SettingsSection, Slider, TextField, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
 import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
 import { draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
 import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, withoutOwnStyles, type Mode, type PreviewColors, type ThemeCardModel } from "./previews.js";
@@ -104,7 +104,7 @@ function ColorsAndThemes({ themes, mode, scheme, preferences, onEdit, onImport, 
       title="Mode"
       description="System follows this machine's light or dark setting."
       setting={mode}
-      control={legacy ? <button type="button" className="chrome-button" aria-pressed onClick={() => mode.set("system")}>{legacy.name} · use System</button> : undefined}
+      control={legacy ? <Button onClick={() => mode.set("system")}>Use System instead of {legacy.name}</Button> : undefined}
     >
       <ModeTiles value={mode.value} colors={shown} onChange={(next: Mode) => mode.set(next)} />
     </SettingRow>
@@ -113,8 +113,8 @@ function ColorsAndThemes({ themes, mode, scheme, preferences, onEdit, onImport, 
       title="Themes"
       description="A swatch gives a theme that scheme; its name gives it every scheme it has. Your themes are the files in the themes folder."
       control={<>
-        <button type="button" className="chrome-button" onClick={onNew}><Wand2 size={13} /> New theme</button>
-        <button type="button" className="chrome-button" onClick={onImport}><Upload size={13} /> Import VS Code theme</button>
+        <Button icon={<Wand2 size={13} />} onClick={onNew}>New theme</Button>
+        <Button icon={<Upload size={13} />} onClick={onImport}>Import VS Code theme</Button>
       </>}
     >
       <div className="appearance-theme-grid">
@@ -145,12 +145,10 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
   const codeSize = useSetting<number | undefined>(value(SETTING_KEYS.codeFontSize), { defaultValue: undefined, read: readSize, write: String, format: (next) => (next ? `${next}px` : `${DEFAULT_CODE_FONT_SIZE}px`) });
 
   const timestamps = useSetting<TimestampFormat>(value(SETTING_KEYS.timestamps), { defaultValue: "24h", read: readTimestamps, format: (next) => TIMESTAMP_LABELS[next] });
-  const [contrastDraft, setContrastDraft] = useState(contrast.value);
-  useEffect(() => setContrastDraft(contrast.value), [contrast.value]);
   const panelMotion = useSetting<number>(value(SETTING_KEYS.panelMotion), { defaultValue: 0, read: readPanelMotion, write: String, format: (next) => `${next} ms`, offline: (next) => preferences.setValue(ID, SETTING_KEYS.panelMotion, String(next)) });
+  // The preview follows the thumb; the value is written where it stops.
   const [motionDraft, setMotionDraft] = useState(panelMotion.value);
   useEffect(() => setMotionDraft(panelMotion.value), [panelMotion.value]);
-  const commitMotion = () => { if (motionDraft !== panelMotion.value) panelMotion.set(motionDraft); };
 
   const importFile = async (file: File) => {
     try {
@@ -187,13 +185,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
           title="Contrast"
           description="Draws hairlines and quiet text closer to the ink."
           setting={contrast}
-          control={<span className="appearance-slider">
-            <output htmlFor="appearance-contrast">{contrastDraft}%</output>
-            <input id="appearance-contrast" type="range" aria-label="Contrast" min={0} max={100} step={5} value={contrastDraft}
-              onChange={(event) => setContrastDraft(Number(event.target.value))}
-              onPointerUp={() => { if (contrastDraft !== contrast.value) contrast.set(contrastDraft); }}
-              onKeyUp={() => { if (contrastDraft !== contrast.value) contrast.set(contrastDraft); }} />
-          </span>}
+          control={<Slider label="Contrast" value={contrast.value} min={0} max={100} step={5} unit="%" onCommit={contrast.set} />}
         />
         <SettingRow
           id="setting-appearance-timestamps"
@@ -212,11 +204,8 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
           setting={panelMotion}
           control={<span className="appearance-motion">
             <PanelMotionPreview ms={motionDraft} />
-            <span className="appearance-slider">
-              <output htmlFor="appearance-panel-motion">{motionDraft} ms</output>
-              <input id="appearance-panel-motion" type="range" aria-label="Panel animation duration" min={PANEL_MOTION_RANGE.min} max={PANEL_MOTION_RANGE.max} step={PANEL_MOTION_RANGE.step} value={motionDraft}
-                onChange={(event) => setMotionDraft(Number(event.target.value))} onPointerUp={commitMotion} onKeyUp={commitMotion} />
-            </span>
+            <Slider label="Panel animation duration" value={panelMotion.value} min={PANEL_MOTION_RANGE.min} max={PANEL_MOTION_RANGE.max} step={PANEL_MOTION_RANGE.step}
+              unit=" ms" onPreview={setMotionDraft} onCommit={panelMotion.set} />
           </span>}
         />
       </SettingsSection>
