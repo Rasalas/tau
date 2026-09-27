@@ -107,6 +107,7 @@
 .tau-slider > input {
   --track-h: 4px;
   --thumb: 16px;
+  --fill: 0%;
   flex: 1; min-width: 0; height: 100%; margin: 0; background: transparent; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
