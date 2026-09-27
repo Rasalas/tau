@@ -2035,6 +2035,18 @@ Thread Rail keeps its meta, so a restored thread comes back where it was;
 Composer Context drops the thread's attachments; Workspace Kit's
 "last thread deleted" rule counts a thread in the trash as still there.
 
+A Pi session another process on this machine writes — another Tau host with
+its own data folder, or a Pi CLI that loaded Tau's lock extension — is guarded
+by the same `<session>.jsonl.lock` a runtime holds. `sessions.remove`,
+`sessions.restore`, `sessions.purge` and `sessions.import` refuse while it is
+held, naming the holder ("This thread is open in another Tau host (pid N, data
+folder …); close it there before deleting it."); a due purge waits an hour
+instead. `sessions.open` reads such a file without Pi's repairs on open (Pi
+rewrites an older format and completes a last line while it reads), and
+`appendEntry`, `appendInfo` and `branch` on a `HostSessionFile` throw while
+another process holds its session; `sessions.prepare` refuses a file opened
+that way.
+
 `HostTurnObserver` brackets the turns of every thread the host drives:
 `accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
 `toolEnded`. `closed` is a released runtime, not a deleted thread.

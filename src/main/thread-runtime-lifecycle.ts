@@ -38,6 +38,7 @@ import { ThreadRuntime } from "./thread-runtime.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import { UnavailableThreadBackend } from "./unavailable-thread-backend.js";
 import { isSessionHeldElsewhere, type SessionLocks } from "./session-locks.js";
+import { openRecentSession, readSessionFile } from "./session-read.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { withConfiguredSampling } from "./configured-sampling.js";
@@ -353,6 +354,11 @@ export class ThreadRuntimeLifecycle {
     }
   }
 
+  /** The newest session of `cwd`, opened while this host holds it; throws `SessionHeldElsewhereError` when another process does. */
+  openRecent(cwd: string, sessionsDir: string | undefined): Promise<SessionManager> {
+    return openRecentSession(this.port.sessionLocks, cwd, sessionsDir);
+  }
+
   /** One runtime per session file: concurrent opens for the same path share it. */
   openForPath(
     path: string,
@@ -399,14 +405,20 @@ export class ThreadRuntimeLifecycle {
           }
         }
         if (external) throw new Error("The selected thread is owned by another runtime backend.");
-        const manager = SessionManager.open(path);
         try {
-          const thread = await this.open(manager, { type: "session_start", reason, previousSessionFile: this.port.activeSessionFile() }, { background });
-          this.port.runtimeUnavailable(thread.threadId, undefined);
-          return thread;
+          // Held across Pi's open, which may repair the file, until the runtime holds it too.
+          await this.port.sessionLocks.acquire(path);
+          try {
+            const manager = SessionManager.open(path);
+            const thread = await this.open(manager, { type: "session_start", reason, previousSessionFile: this.port.activeSessionFile() }, { background });
+            this.port.runtimeUnavailable(thread.threadId, undefined);
+            return thread;
+          } finally {
+            this.port.sessionLocks.release(path);
+          }
         } catch (error) {
           if (background || !isSessionHeldElsewhere(error)) throw error;
-          return this.openHeldElsewhere(path, manager, error.message);
+          return this.openHeldElsewhere(path, readSessionFile(path), error.message);
         }
       })().finally(() => {
         if (this.opening.get(path) === pending) this.opening.delete(path);
