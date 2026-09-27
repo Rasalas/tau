@@ -341,9 +341,7 @@
 .settings-screen.stacked .settings-content { padding: 16px 12px 32px; }
 
 /* Settings → About: the version and the licences of what Tau ships. */
-.about-version { font: 12px var(--mono); color: var(--ink-2); }
-.about-licenses-filter { margin: 0 var(--space-6); }
-.about-licenses-loading { display: grid; gap: 8px; padding: var(--space-5) var(--space-6); }
+.about-licenses-filter { height: var(--control-h); margin: var(--space-5) var(--space-6); }
 .about-licenses { list-style: none; margin: 0; padding: 0 0 var(--space-3); }
 .about-license-row { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-5) 0 var(--space-4); }
 .about-license-row:hover { background: var(--hover); }
@@ -356,11 +354,8 @@
 .about-license-toggle > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
 .about-license-toggle > code { flex: none; font: 11px var(--mono); color: var(--faint); }
 .about-license-toggle > small { margin-left: auto; flex: none; font: 11px var(--sans); color: var(--muted); }
-.about-license-source {
-  width: 24px; height: 24px; flex: none; display: grid; place-items: center; padding: 0;
-  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer;
-}
-.about-license-source:hover, .about-license-source:focus-visible { background: var(--raised); color: var(--ink-2); }
+/* Keeps the licence names in one column where a package names no source. */
+.about-license-no-source { flex: none; width: 24px; }
 .about-license-text {
   margin: 0 var(--space-6) var(--space-4) calc(var(--space-6) + 21px); max-width: 84ch; max-height: 320px; overflow: auto;
   white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.55 var(--mono); color: var(--ink-3);

@@ -132,8 +132,8 @@ electron-builder writes it into `app-update.yml` inside the app. From there:
    loads later asks for it (`window-action` `status`).
 3. A user who ignores the toast gets the update the next time they quit Tau,
    except with the `.deb`, whose update waits for the Restart (below).
-4. "Check for Updates…" in the application menu (and on Settings → About) asks
-   on demand and reports what it found.
+4. "Check for Updates…" in the application menu (and Check now on Settings →
+   About) asks on demand and reports what it found.
 5. The first start of the new version shows its release notes once: a toast,
    *Tau 0.3.0 is installed*, whose What's new opens the list; it goes after
    eight seconds unread or at the next click elsewhere

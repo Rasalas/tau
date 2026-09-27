@@ -114,6 +114,8 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     label: "About",
     keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates"],
     rows: [
+      ["Version", ["version", "build", "host version", "about tau"]],
+      ["Check for updates", ["update", "updates", "new release", "upgrade"]],
       ["Open-source licenses", ["licenses", "licences", "third party", "notices", "credits"]],
     ],
   },

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronRight, ExternalLink, Search } from "lucide-react";
+import { ChevronRight, ExternalLink, Search, X } from "lucide-react";
 import { LICENSES_FILE, unpackLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { useHostClient } from "../host-client-context";
 import { usePlatform } from "../platform-context";
-import { Empty, Skeleton } from "../components/ui/Feedback";
+import { tooltipProps } from "../components/ui/Tooltip";
+import { errorMessage } from "../../workbench/error-message";
+import { Button, HelpTip, SettingsState, ValueList, type ValueListItem } from "./controls";
 import { SettingRow, SettingsSection } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
 
@@ -25,52 +27,71 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
   useSyncExternalStore(client?.onVersions ?? noSubscription, () => JSON.stringify(client?.getVersions() ?? {}));
   const versions = client?.getVersions() ?? {};
   const [licenses, setLicenses] = useState<LicenseState>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<string>();
 
   useEffect(() => {
     let live = true;
+    setLicenses({ status: "loading" });
     loader().then(
       (packages) => { if (live) setLicenses({ status: "ready", packages }); },
-      (error: unknown) => { if (live) setLicenses({ status: "error", message: error instanceof Error ? error.message : String(error) }); },
+      (error: unknown) => { if (live) setLicenses({ status: "error", message: errorMessage(error) }); },
     );
     return () => { live = false; };
-  }, [loader]);
+  }, [loader, attempt]);
 
   const query = filter.trim().toLowerCase();
   const shown = useMemo(() => licenses.status !== "ready" ? [] : licenses.packages.filter((entry) =>
     !query || entry.name.toLowerCase().includes(query) || entry.license.toLowerCase().includes(query)), [licenses, query]);
   const skew = versions.window && versions.host && versions.window !== versions.host;
+  const version = versions.window ?? versions.host;
+  const facts: ValueListItem[] = skew
+    ? [
+      { label: "This window", value: versions.window!, mono: true, copy: versions.window! },
+      { label: "Host", value: versions.host!, mono: true, copy: versions.host! },
+    ]
+    : [{ label: "Version", value: version ?? "Unknown", mono: Boolean(version), ...(version ? { copy: version } : {}) }];
+  facts.push({ label: "Licence", value: "MIT, open source" });
 
   return (
     <div className="settings-page">
-      <SettingsSection title="Tau">
-        <SettingRow
-          title="Version"
-          description={skew ? `This window runs ${versions.window}; the host it talks to runs ${versions.host}.` : "Tau is open source under the MIT licence."}
-          control={<code className="about-version">{versions.window ?? versions.host ?? "unknown"}</code>}
-        />
-        {versions.window ? (
-          <SettingRow
-            title="Updates"
-            description="An installed Tau checks for a new release every hour and after start; Settings → Defaults picks the track."
-            control={<button type="button" className="chrome-button" onClick={() => { void client?.windowAction({ kind: "check-for-updates" }).catch(() => undefined); }}>Check for Updates…</button>}
-          />
-        ) : null}
+      <SettingsSection title="Tau" id={settingAnchor("Version")} plain>
+        <ValueList label="Tau" items={facts} />
       </SettingsSection>
 
-      <SettingsSection title={licenses.status === "ready" ? `Open-source licenses (${licenses.packages.length})` : "Open-source licenses"} id={settingAnchor("Open-source licenses")}>
-        <p className="settings-group-note">Tau is built on these packages. Each keeps its own licence; the notice it asks to be passed on opens under its name.</p>
-        <label className="settings-filter about-licenses-filter">
-          <Search size={14} />
-          <input type="search" placeholder="Filter by package or licence…" aria-label="Filter licenses" value={filter} onChange={(event) => setFilter(event.target.value)} />
-        </label>
+      {versions.window ? (
+        <SettingsSection title="Updates">
+          <SettingRow
+            id={settingAnchor("Check for updates")}
+            title="Check for updates"
+            description="An installed Tau checks every hour and after start. The update track is on General."
+            control={<Button onClick={() => { void client?.windowAction({ kind: "check-for-updates" }).catch(() => undefined); }}>Check now</Button>}
+          />
+        </SettingsSection>
+      ) : null}
+
+      <SettingsSection
+        title={licenses.status === "ready" ? `Open-source licenses (${licenses.packages.length})` : "Open-source licenses"}
+        id={settingAnchor("Open-source licenses")}
+        headerAction={<HelpTip label="About the licenses" text="Tau is built on these packages. Each keeps its own licence; the notice it asks to be passed on opens under its name." />}
+      >
+        {licenses.status === "ready" && licenses.packages.length > 0 ? (
+          <label className="settings-filter about-licenses-filter">
+            <Search size={14} aria-hidden />
+            <input type="search" placeholder="Filter by package or licence…" aria-label="Filter licenses" value={filter} onChange={(event) => setFilter(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }} />
+            {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
+          </label>
+        ) : null}
         {licenses.status === "loading" ? (
-          <div className="about-licenses-loading" aria-busy="true"><Skeleton /><Skeleton /><Skeleton /></div>
+          <SettingsState kind="loading" title="Reading the licenses" rows={3} />
         ) : licenses.status === "error" ? (
-          <Empty title="The licenses are not available" description={licenses.message} />
+          <SettingsState kind="error" title="The licenses are not available" description={licenses.message} onRetry={() => setAttempt((count) => count + 1)} />
+        ) : licenses.packages.length === 0 ? (
+          <SettingsState kind="empty" title="No licenses listed" description="The list this build carries names no package." />
         ) : shown.length === 0 ? (
-          <Empty title={`No package matches “${filter.trim()}”`} />
+          <SettingsState kind="empty" title={`No package matches “${filter.trim()}”`} description="Filter by a package's name or its licence." action={<Button onClick={() => setFilter("")}>Clear the filter</Button>} />
         ) : (
           <ul className="about-licenses" aria-label="Open-source licenses">
             {shown.map((entry) => {
@@ -86,10 +107,10 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
                       <small>{entry.license}</small>
                     </button>
                     {entry.repository ? (
-                      <button type="button" className="about-license-source" aria-label={`Project source of ${entry.name}`} title="Project source" onClick={() => platform.openExternal(entry.repository!)}>
-                        <ExternalLink size={12} />
+                      <button type="button" className="tau-icon-button" aria-label={`Project source of ${entry.name}`} {...tooltipProps("Project source")} onClick={() => platform.openExternal(entry.repository!)}>
+                        <ExternalLink size={13} />
                       </button>
-                    ) : null}
+                    ) : <span className="about-license-no-source" aria-hidden />}
                   </div>
                   {expanded ? <pre className="about-license-text">{entry.text ?? `${entry.name} ships no licence file; its package names ${entry.license}.`}</pre> : null}
                 </li>
