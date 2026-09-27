@@ -75,7 +75,10 @@ function fakeHost() {
       case "foreground": return {};
       case "input": typed.push(String(fields.data)); return undefined;
       case "open": {
-        const session: UiTerminalSession = { id: `t${next++}`, label: `shell ${next - 1}`, shell: "zsh", cols: 80, rows: 24, cwd: "/project" };
+        const session: UiTerminalSession = {
+          id: `t${next++}`, label: `shell ${next - 1}`, shell: "zsh", cols: 80, rows: 24, cwd: "/project",
+          ...(typeof fields.sessionId === "string" ? { sessionId: fields.sessionId } : {}),
+        };
         sessions.push(session);
         publish();
         return session;
@@ -331,6 +334,34 @@ describe("the terminal on a compact client", () => {
     expect((key("Escape") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Restart" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("restart", { id: "t1" }));
+    disconnect();
+  });
+
+  it("opens a shell as the sheet opens for a thread that has none", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    await waitFor(() => expect(terminalStore.isKnown()).toBe(true));
+    render(<CompactTerminalPanel {...panelProps()} />);
+    await screen.findByRole("tab", { name: /shell 1/u });
+    expect(fake.invoke).toHaveBeenCalledWith("open", { workspaceId: "workspace-one", sessionId: "s1" });
+    // Its tab carries the × that closes it.
+    fireEvent.click(screen.getByRole("button", { name: "Close shell 1" }));
+    await screen.findByText("No terminal open");
+    disconnect();
+  });
+
+  it("keeps another thread's shells off the strip and shows one from the options on request", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    await fake.host.invoke("open", { sessionId: "s2" });
+    await waitFor(() => expect(terminalStore.getSnapshot().sessions).toHaveLength(1));
+    render(<CompactTerminalPanel {...panelProps()} active={false} />);
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.getByText(/Other threads' shells are under ⋯/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Terminal options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show shell 1" }));
+    const tab = await screen.findByRole("tab", { name: /shell 1/u });
+    expect(tab.textContent).toContain("other thread");
     disconnect();
   });
 

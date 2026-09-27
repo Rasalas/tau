@@ -166,22 +166,61 @@ describe("placeOf", () => {
 });
 
 describe("TerminalPanel", () => {
-  it("opens a terminal for the active thread and marks it when the user moves to another thread", async () => {
-    const { host } = fakeHost();
-    const disconnect = connectTerminalHost(host);
+  it("keeps another thread's shells out of the tabs, running, and shows one here on request", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
     activeSessionId = "s1";
     try {
       render(<TerminalPanel {...panelProps()} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
-      const tab = await screen.findByRole("tab", { name: /shell 1/u });
-      expect(tab.textContent).not.toContain("another thread");
-      expect(screen.queryByRole("status")).toBeNull();
+      await screen.findByRole("tab", { name: /shell 1/u });
+      expect(screen.queryByRole("button", { name: /in other threads/u })).toBeNull();
 
-      // Leaving the thread does not end the shell; the panel says where it still runs.
+      // Leaving the thread does not end the shell: it leaves the tabs for one summary at the strip's end.
       activeSessionId = "s2";
       act(() => terminalStore.setActiveSession("s2"));
-      expect(screen.getByRole("tab", { name: /shell 1/u }).textContent).toContain("another thread");
-      expect(screen.getByRole("status").textContent).toBe("A shell is still running in another thread.");
+      expect(screen.queryByRole("tab")).toBeNull();
+      expect(screen.getByText("No terminal in this thread")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "1 shell in other threads" }));
+      const menu = screen.getByRole("menu", { name: "Shells in other threads" });
+      expect(within(menu).getByText("They stay with their thread. Pick one to show it here.")).toBeTruthy();
+      fireEvent.click(within(menu).getByRole("menuitem", { name: /shell 1/u }));
+      const tab = await screen.findByRole("tab", { name: /shell 1/u });
+      expect(tab.textContent).toContain("other thread");
+      expect(fake.invoke).not.toHaveBeenCalledWith("kill", { id: "t1" });
+
+      // Back in its own thread it is an ordinary tab again.
+      activeSessionId = "s1";
+      act(() => terminalStore.setActiveSession("s1"));
+      expect(screen.getByRole("tab", { name: /shell 1/u }).textContent).not.toContain("other thread");
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("opens a shell as soon as the panel opens for a thread that has none, and only then", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    activeSessionId = "s1";
+    try {
+      // The host's list is in before the button is pressed.
+      await waitFor(() => expect(terminalStore.isKnown()).toBe(true));
+      const { rerender } = render(<TerminalPanel {...panelProps()} active={false} />);
+      expect(fake.invoke).not.toHaveBeenCalledWith("open", expect.anything());
+      rerender(<TerminalPanel {...panelProps()} active />);
+      await screen.findByRole("tab", { name: /shell 1/u });
+      expect(fake.invoke).toHaveBeenCalledWith("open", { workspaceId: "workspace-one", sessionId: "s1" });
+
+      // Closing the last shell leaves the panel empty; it does not start another by itself.
+      fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
+      await screen.findByText("No terminal in this thread");
+      // Pressed again, the button opens the one shell; once there is one, pressing it starts none.
+      rerender(<TerminalPanel {...panelProps()} active={false} />);
+      rerender(<TerminalPanel {...panelProps()} active />);
+      await screen.findByRole("tab", { name: /shell 2/u });
+      rerender(<TerminalPanel {...panelProps()} active={false} />);
+      rerender(<TerminalPanel {...panelProps()} active />);
+      expect(fake.invoke.mock.calls.filter(([command]) => command === "open")).toHaveLength(2);
     } finally {
       disconnect();
     }
@@ -436,7 +475,7 @@ describe("TerminalPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
       await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
       expect(fake.invoke).toHaveBeenCalledWith("kill", { id: "t1" });
-      expect(screen.getByText("Open a terminal to run commands in this workspace.")).toBeTruthy();
+      expect(screen.getByText("No terminal in this thread")).toBeTruthy();
     } finally {
       disconnect();
     }

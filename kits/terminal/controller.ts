@@ -4,6 +4,7 @@ import {
   type SplitDirection, type TerminalGroup,
 } from "./layout.js";
 import { classifyTerminalLink } from "./links.js";
+import { needsFirstShell, threadScope, type ThreadScope } from "./scope.js";
 import { onTerminalEvent, terminalKit, terminalServices, terminalStore } from "./store.js";
 import {
   TERMINAL_EXITED_EVENT,
@@ -32,10 +33,30 @@ export function keyboardShell(): string | undefined {
   return active?.closest("[data-terminal-id]")?.getAttribute("data-terminal-id") ?? undefined;
 }
 
-/** The shell a pane command acts on: the one with the keyboard, else the panel's focused one. */
+/** The thread on screen: the workbench's answer when a view handed its actions over, else the last switch the kit heard of. */
+function activeThreadId(actions: TerminalRunActions | undefined = terminalServices.actions): string | undefined {
+  return actions?.activeThread()?.sessionId ?? terminalStore.getSnapshot().activeSessionId;
+}
+
+/** The panel's tabs as the thread on screen sees them. */
+export function panelScope(actions?: TerminalRunActions): ThreadScope {
+  const { layout, sessions } = terminalStore.getSnapshot();
+  return threadScope(layout, sessions, activeThreadId(actions));
+}
+
+/** The shell a pane command acts on: the one with the keyboard, else the focused one of the tab the panel shows. */
 export function targetShell(): string | undefined {
   const typing = keyboardShell();
-  return typing && session(typing) ? typing : focusedPane(terminalStore.getSnapshot().layout);
+  return typing && session(typing) ? typing : panelScope().current?.focused;
+}
+
+/**
+ * The terminal button's promise: a thread (or a project, without one) that
+ * has no shell yet gets one as the panel opens. Not before the host listed
+ * its shells, never twice, and not on a Read-only device.
+ */
+export function wantsFirstShell(actions: TerminalRunActions): boolean {
+  return terminalStore.isKnown() && !terminalStore.isOpening() && !hostIsReadOnly() && needsFirstShell(panelScope(actions));
 }
 
 /** Where a new shell belongs: beside the one it splits, in the directory that one is in now, or with the thread on screen. */
@@ -228,7 +249,7 @@ export async function toggleTerminal(actions: WorkbenchActions): Promise<void> {
     return;
   }
   const staged = state.layout.stage.at(-1);
-  const inPanel = focusedPane(state.layout);
+  const inPanel = panelScope(actions).current?.focused;
   if (!inPanel && staged && session(staged.focused)) {
     actions.openStageTab(TERMINAL_STAGE_TAB, stageTabParams(staged));
     terminalStore.requestFocus(staged.focused);
@@ -237,7 +258,7 @@ export async function toggleTerminal(actions: WorkbenchActions): Promise<void> {
   actions.openPanel(TERMINAL_PANEL);
   if (inPanel) terminalStore.requestFocus(inPanel);
   // A Read-only device opens the panel to watch; it says why it has no shell to offer.
-  else if (!hostIsReadOnly()) await openTerminal(actions);
+  else if (!hostIsReadOnly() && !terminalStore.isOpening()) await openTerminal(actions);
 }
 
 /** Hands selected output to the composer as an excerpt chip, naming the shell and where it started. */
