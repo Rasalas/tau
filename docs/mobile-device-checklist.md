@@ -50,6 +50,12 @@ Bonjour type, a fake `tailscale` and the iOS Simulator (`docs/agents/testing-the
        line; the send button sends.
 4. [ ] Rotate the phone. The layout follows; nothing is cut off at the notch or the home
        indicator.
+5. [ ] **More** → **Files**: the project's tree in a sheet. Tap a file: it opens to read in
+       the sheet (no editing on a phone); the back arrow returns to the folders as they were.
+6. [ ] On an iPad with a Magic Keyboard: Return in the composer sends, Shift+Return adds a
+       line. Detach it (or bring up the on-screen keyboard): Return adds a line again.
+7. [ ] On an iPad: **Files** on the rail, tap a file, then **Edit file**. Type with the
+       hardware keyboard, ⌘Z undoes, ⌘F searches, ⌘S saves (the dot on the tab goes).
 
 ## 4. Background and reconnect
 

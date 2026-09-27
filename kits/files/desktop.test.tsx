@@ -4,7 +4,8 @@ import { EditorView } from "@codemirror/view";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageTab, StageTabHandle, UiEditor, UiFileContent, UiFileWriteResult, WorkbenchActions } from "tau";
-import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, createMemoryStorage, setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { useAppKeybindings } from "../../src/renderer/test-support/kit-harness.js";
 import filesExtension from "./desktop.js";
 import type { WorkspaceStoreLike } from "./kit.js";
@@ -33,6 +34,7 @@ async function findEditor(path: string) {
 
 afterEach(() => {
   cleanup();
+  setHostClient(undefined);
   vi.useRealTimers();
 });
 
@@ -262,6 +264,7 @@ describe("Files Kit", () => {
   });
 
   it("offers every installed editor and reveals in the file manager without making it the default", async () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => true }));
     const { kind, actions, store } = setup({ "src/a.ts": "const a = 1;\n" });
     render(<>{kind.render({ path: "src/a.ts" }, handle(), actions)}</>);
     await screen.findByLabelText("Contents of src/a.ts");
@@ -270,6 +273,15 @@ describe("Files Kit", () => {
     fireEvent.click(screen.getByText("Reveal in Finder"));
     await waitFor(() => expect(store.opened.at(-1)).toEqual(["src/a.ts", "file-manager", undefined]));
     expect(store.chooseEditor).not.toHaveBeenCalled();
+  });
+
+  it("offers no editor of the host's machine to a client whose files are elsewhere, a tablet's", async () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => false }));
+    const { kind, actions } = setup({ "src/a.ts": "const a = 1;\n" });
+    render(<>{kind.render({ path: "src/a.ts" }, handle(), actions)}</>);
+    await screen.findByLabelText("Contents of src/a.ts");
+    expect(screen.queryByRole("button", { name: "Choose editor" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
   it("opens the editor from a file tab's Edit button and from a double-click in the Files panel", () => {
@@ -311,5 +323,11 @@ describe("Files Kit", () => {
     registry.deactivate(FILES_KIT_ID);
     store.edit("README.md", actions);
     expect(actions.openStageTab).not.toHaveBeenCalled();
+  });
+
+  it("edits on a tablet as on the desktop: the editor tab is drawn on a compact client", () => {
+    const { registry } = createKitHarness(vi.fn(async () => undefined), "compact");
+    registry.activate(filesExtension);
+    expect(registry.getStageTabKinds().map((kind) => kind.kind)).toContain(FILE_EDITOR_TAB);
   });
 });

@@ -6,7 +6,7 @@ import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js
 import { createSearchExtension } from "./desktop.js";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
 import { projectItems, threadContentItems, threadTitleItems } from "./palette-sources.js";
-import { SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type ContentSearchResult, type FileSearchResult, type WorkspaceStoreView } from "./protocol.js";
+import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type ContentSearchResult, type FileSearchResult, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -158,5 +158,37 @@ describe("Search Kit: dialogs", () => {
     expect(document.querySelector(".search-pick-row strong mark")?.textContent).toBe("sb");
     fireEvent.keyDown(input, { key: "Enter" });
     expect(actions.openFile).toHaveBeenCalledWith("src/sb.ts");
+  });
+
+  it("hands a pick to the kit that asked, and closes from its own button on a touch screen", async () => {
+    const answer: FileSearchResult = { total: 1, files: [{ path: "README.md", positions: [0] }] };
+    const host = vi.fn(async () => answer) as unknown as SearchHost;
+    document.body.dataset.profile = "compact";
+    try {
+      const { dialogs, actions } = dialogHarness(host);
+      const onPick = vi.fn();
+      act(() => dialogs.pickFile(onPick));
+      await waitFor(() => expect(document.querySelectorAll(".search-pick-row")).toHaveLength(1));
+      fireEvent.click(document.querySelector(".search-pick-row")!);
+      expect(onPick).toHaveBeenCalledWith("README.md");
+      expect(actions.openFile).not.toHaveBeenCalled();
+      expect(dialogs.getSnapshot()).toBeUndefined();
+
+      // ⌘P afterwards is the stage's again.
+      act(() => dialogs.toggle("files"));
+      fireEvent.click(screen.getByRole("button", { name: "Close Go to file" }));
+      expect(dialogs.getSnapshot()).toBeUndefined();
+    } finally {
+      delete document.body.dataset.profile;
+    }
+  });
+
+  it("offers Go to file to other kits and draws its dialogs on a phone or tablet too", () => {
+    const { registry } = createKitHarness(vi.fn(async () => undefined));
+    let service: SearchFilesService | undefined;
+    registry.activate({ id: "fixture.files", name: "Files", activate: (context) => { context.useService<SearchFilesService>(SEARCH_FILES_SERVICE, (found) => { service = found; return () => undefined; }); } });
+    registry.activate(createSearchExtension());
+    expect(service?.pickFile).toBeTypeOf("function");
+    expect(registry.getRegions("title-bar").find((region) => region.id === "search.dialogs")?.profiles).toContain("compact");
   });
 });

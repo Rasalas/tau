@@ -368,6 +368,33 @@
 
 .file-row > em { color: var(--working); font-size: 10px; font-style: normal; }
 
+/* The Files panel: the tree, and on a phone the file read in its place. */
+.files-panel-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.files-panel-tree[hidden], .files-panel > .panel-header[hidden] { display: none; }
+.files-panel-search { display: inline-grid; place-items: center; }
+/* A finger's rows and buttons on a phone or tablet: the rows are 44 px (FilesPanel's rowHeight). */
+body[data-profile="compact"] .file-row { height: 40px; font-size: 14px; gap: 10px; }
+body[data-profile="compact"] .file-row .file-disclosure { width: 16px; }
+body[data-profile="compact"] .files-panel .panel-header { min-height: 52px; }
+body[data-profile="compact"] .files-panel .panel-header .text-button { min-height: 44px; padding: 0 10px; font-size: 13px; }
+body[data-profile="compact"] .files-panel-search { width: 44px; height: 44px; border-radius: 12px; }
+
+.file-reader { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
+.file-reader-header { display: flex; align-items: center; gap: 4px; flex: none; min-height: 52px; padding: 4px 12px 4px 4px; border-bottom: 1px solid var(--line); }
+.file-reader-back { width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.file-reader-back:active { background: var(--hover-strong); }
+.file-reader-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.file-reader-title > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px var(--sans); color: var(--ink); }
+.file-reader-path { display: block; min-width: 0; color: var(--muted); font: 12.5px var(--mono); }
+.file-reader-meta { flex: none; color: var(--faint); font: 12px var(--mono); }
+.file-reader-note { flex: none; margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 13px var(--sans); }
+.file-reader-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overscroll-behavior: contain; }
+.file-reader-body > .empty-state { margin: auto; padding: 24px 20px; }
+.file-reader-loading { flex: 1; display: grid; place-items: center; }
+.file-reader-image { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; }
+.file-reader-image > img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.file-reader-button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
+
 .restore-dialog-scrim { z-index: 90; }
 .restore-dialog {
   width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px);

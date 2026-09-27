@@ -5,3 +5,8 @@
 export function primaryPointerIsTouch(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 }
+
+/** Whether an on-screen keyboard covers the page now, as the compact layout marks it on `<body>` (touch/TouchLayer.tsx). */
+export function onScreenKeyboardShown(): boolean {
+  return typeof document !== "undefined" && document.body.hasAttribute("data-keyboard");
+}

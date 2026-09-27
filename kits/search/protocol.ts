@@ -5,6 +5,12 @@
  */
 export const SEARCH_KIT_ID = "tau.search";
 
+/** "Go to file" for another kit (Workspace Kit's Files panel); `onPick` takes the path instead of the stage. */
+export const SEARCH_FILES_SERVICE = "tau.search/files";
+export interface SearchFilesService {
+  pickFile(onPick?: (path: string) => void): void;
+}
+
 /** Workspace Kit's store, copied down to what this kit reads; a kit never imports another kit. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceStoreView {

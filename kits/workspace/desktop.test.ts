@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
-import { WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { WORKSPACE_CHANGES_PANEL, WORKSPACE_FILES_PANEL, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 import type { WorkspaceStore } from "./store.js";
 
 describe("Workspace Kit desktop extension", () => {
@@ -92,5 +92,14 @@ describe("Workspace Kit desktop extension", () => {
     await command?.run(actions);
     expect(notify).toHaveBeenCalledWith("Opening in Ghostty…");
     expect(openTerminalSpy).toHaveBeenCalled();
+  });
+
+  it("gives a phone or tablet the Files panel, the documents and the follower that keeps them on the thread's project", () => {
+    const { registry } = createKitHarness(vi.fn(async () => undefined), "compact");
+    registry.activate(workspaceExtension);
+    expect(registry.getPanels().map((panel) => panel.id)).toContain(WORKSPACE_FILES_PANEL);
+    expect(registry.getPanels().map((panel) => panel.id)).not.toContain(WORKSPACE_CHANGES_PANEL);
+    expect(registry.getDocumentSource()?.id).toBe("workspace.documents");
+    expect(registry.getRegions("composer-above").map((region) => region.id)).toContain("workspace.follower");
   });
 });

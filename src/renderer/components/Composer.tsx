@@ -61,8 +61,8 @@ import {
 import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls } from "./ComposerFooterControls";
-import { composerEnter, sendHint } from "./composer-send-keys";
-import { primaryPointerIsTouch } from "../touch-input";
+import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
+import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
@@ -714,9 +714,8 @@ export function Composer({
 
   const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
-  // On-screen keyboards have one return key and no ⇧: it writes a newline, the button sends.
+  // A touch screen's placeholder names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
-  const sendShortcut = touchKeyboard ? "mod-enter" : prefSnapshot.sendShortcut ?? "enter";
   const streamingBase = registry?.streamingDelivery() ?? "followUp";
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -947,7 +946,8 @@ export function Composer({
                 onSteerQueued(queue[0].id);
                 return;
               }
-              const enter = composerEnter({ shift: event.shiftKey, mod: now, shortcut: sendShortcut, text, streaming, base: streamingBase });
+              const shortcut = sendShortcutFor(prefSnapshot.sendShortcut, { touch: touchKeyboard, onScreen: onScreenKeyboardShown() });
+              const enter = composerEnter({ shift: event.shiftKey, mod: now, shortcut, text, streaming, base: streamingBase });
               if (enter === "newline") return;
               event.preventDefault();
               submitCurrent(enter.delivery);
@@ -962,7 +962,7 @@ export function Composer({
                 ? text.trimStart().startsWith("!!")
                   ? "Silent shell mode — runs command without LLM context"
                   : "Shell mode — runs command and shares output with agent"
-                : sendHint(sendShortcut, streaming, streamingBase, touchKeyboard)
+                : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard)
           }
         />
         <Suspense fallback={null}>

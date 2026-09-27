@@ -129,4 +129,32 @@ describe("the composer's buttons while a turn runs", () => {
     expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("steer");
     expect(screen.getByRole("button", { name: "Stop the run" })).toBeTruthy();
   });
+
+  describe("on a touch screen", () => {
+    const coarse = (query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {} });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      document.body.removeAttribute("data-keyboard");
+    });
+
+    it("sends on ↵ from a hardware keyboard and breaks the line on ⇧↵", async () => {
+      vi.stubGlobal("matchMedia", vi.fn(coarse));
+      const { onSubmit, textarea } = renderComposer();
+      expect(textarea.placeholder).toBe("Direct the agent");
+      fireEvent.change(textarea, { target: { value: "hello" } });
+      expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true })).toBe(true);
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(fireEvent.keyDown(textarea, { key: "Enter" })).toBe(false);
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+
+    it("leaves ↵ to the newline while the on-screen keyboard is up", () => {
+      vi.stubGlobal("matchMedia", vi.fn(coarse));
+      const { onSubmit, textarea } = renderComposer();
+      document.body.setAttribute("data-keyboard", "");
+      fireEvent.change(textarea, { target: { value: "hello" } });
+      expect(fireEvent.keyDown(textarea, { key: "Enter" })).toBe(true);
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+  });
 });
