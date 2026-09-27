@@ -4,6 +4,7 @@ import type { ExtensionRegistry, PageProps, WorkbenchActions } from "../extensio
 import type { AppPageStore } from "../../workbench/app-page-store";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "../components/LazyFeature";
 import { WindowControlsInset } from "../components/WindowControlsInset";
+import { openOverlays } from "../keybinding-context";
 import "../settings/settings.css";
 import "./app-page.css";
 
@@ -39,10 +40,15 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   useEffect(() => { mainRef.current?.focus({ preventScroll: true }); }, [state?.id]);
 
   useEffect(() => {
+    // Read as the key goes down: an overlay over the page that closes itself on this Escape is gone by the bubble.
+    const overlaid = new WeakSet<KeyboardEvent>();
+    const early = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && openOverlays().some((element) => !element.matches("[data-app-page]"))) overlaid.add(event);
+    };
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // A dialog or popover the page opened closes first.
-      if (document.querySelector('[aria-modal="true"]')) return;
+      // A dialog, menu or popover over the page closes first.
+      if (overlaid.has(event)) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
         target.blur();
@@ -51,8 +57,12 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
       event.preventDefault();
       if (!store.back()) store.close();
     };
+    window.addEventListener("keydown", early, true);
     window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
+    return () => {
+      window.removeEventListener("keydown", early, true);
+      window.removeEventListener("keydown", keydown);
+    };
   }, [store]);
 
   if (!state) return null;

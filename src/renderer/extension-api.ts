@@ -63,6 +63,7 @@ export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
+export { useEscapeLayer } from "./components/ui/escape-layers";
 export type { FloatingAlign, FloatingSide } from "./components/ui/floating";
 export type { ToastAction, ToastHandle, ToastOptions, ToastType } from "../workbench/toast-store";
 export { FileKindIcon } from "./components/FileKindIcon";

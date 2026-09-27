@@ -182,7 +182,7 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
   };
 
   return createPortal(
-    <aside className="appearance-editor" role="dialog" aria-label="Theme editor" data-preview-overlay="">
+    <aside className="appearance-editor" role="dialog" aria-label="Theme editor" data-preview-overlay="" data-overlay="false">
       <header>
         <strong>Theme editor</strong>
         <span className="appearance-editor-spacer" />

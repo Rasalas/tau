@@ -401,7 +401,8 @@ export const runtimeControls: DesktopExtension = {
     // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session", when: "!terminalFocus" });
-    plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
+    // Only from the chat: Escape elsewhere is a panel's, and an open overlay's always.
+    plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort", when: "chatFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+enter", commandId: "thread.steerQueuedMessage", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+e", commandId: "composer.effort", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });

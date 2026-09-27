@@ -212,24 +212,37 @@ Code: context names joined by `!`, `&&`, `||` and parentheses, e.g.
 come from the page when the key goes down. Mark an element
 `data-keybinding-context="<name>"` (several names may be space-separated) and
 `<name>Focus` holds while the keyboard is inside it, `<name>Open` while one is
-drawn (`src/renderer/keybinding-context.ts`). Core marks `composer`, `stage`
-and `modelPicker`; Terminal Kit marks `terminal`, Files Kit's editor `editor`
-and Preview Kit's panel `preview`. `editableFocus` (new in API 1.11.0) is the
-one context nothing marks: it holds while a text field, a select or anything
-`contenteditable` has the keyboard, so a chord native editing shares yields to
-it — Thread Rail's `mod+z` is `"!terminalFocus && !editableFocus"`, as in T3
-Code. A clause Tau cannot read throws at registration.
+drawn (`src/renderer/keybinding-context.ts`). Core marks `chat` (the
+transcript and the composer), `composer`, `stage` and `modelPicker`; Terminal
+Kit marks `terminal`, Files Kit's editor `editor` and Preview Kit's panel
+`preview`. Two contexts nothing marks: `editableFocus` (new in API 1.11.0)
+holds while a text field, a select or anything `contenteditable` has the
+keyboard, so a chord native editing shares yields to it — Thread Rail's
+`mod+z` is `"!terminalFocus && !editableFocus"`, as in T3 Code; `overlayOpen`
+holds while an overlay is drawn: anything with `aria-modal="true"`, a
+`role="dialog"`, `"alertdialog"` or `"menu"`, an app page (`registerPage`),
+or an element marked `data-overlay`. A non-modal tool window that stays open beside the work (the
+theme editor) opts out with `data-overlay="false"`. A clause Tau cannot read
+throws at registration.
+
+Escape belongs to the topmost overlay. `Dialog`, `Popover` and `Menu` close
+the newest open one on Escape and consume the key; an overlay of your own
+joins them with `useEscapeLayer`, or closes itself in its own key handler. Either way no chord without a modifier
+runs while an overlay was open when the key went down, so core's Escape
+(`runtime.abort`, under `chatFocus`) never stops a turn behind a picker.
 
 A clause that needs a context — false when nothing is focused or open, like
 `terminalFocus` but unlike `!terminalFocus` — makes the binding *specific*. On
 a keydown, of the bindings whose chord and clause match, a config.json
 override beats a replacing binding beats a default; within that, a specific
-one beats one that is not; then the first registered wins. A specific winner
-runs in the capture phase, before the focused element sees the key: that is
-how Terminal Kit's `mod+d` reaches its command before xterm, and Files Kit's
+one beats one that is not; then the first registered wins. The winner is
+chosen against the page as the key went down, before any handler under it
+closes an overlay or moves focus. A specific winner with a modifier runs in
+the capture phase, before the focused element sees the key: that is how
+Terminal Kit's `mod+d` reaches its command before xterm, and Files Kit's
 `mod+s` saves the editor tab before Prompt Tools' stash could hear it. Every
-other binding waits for the bubble phase, so a field or a shell that handled a
-key (`preventDefault()`) keeps it. Two bindings conflict only when they press
+other binding, a bare key under a clause included, waits for the bubble phase,
+so a field or a shell that handled a key (`preventDefault()`) keeps it. Two bindings conflict only when they press
 the same keys on the platform (`mod+p` is `ctrl+p` off macOS), sit in the same
 tier, are both specific or both not, and their clauses can hold together; so
 `mod+n` can be a new thread under `!terminalFocus` and a new shell under
@@ -867,8 +880,10 @@ page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
 `newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
 `focusComposer`, `openWorkspace`) closes the page first, and so does another
 thread coming on screen. Settings opens over a page and returns to it. The
-window's plain keybindings (Escape stopping a run among them) stay off while a
-page shows; chords still run. On a phone (`compact` without the split list)
+page counts as an overlay (`overlayOpen`, see "Keybindings"): the window's
+plain keybindings (Escape stopping a run among them) stay off while it shows,
+chords still run, and Escape leaves it once no dialog, menu or popover over it
+takes the key. On a phone (`compact` without the split list)
 the page is a screen of its own with a back button, addressed as
 `?page=<id>`: a link opens it, opening it adds a history entry, and the
 system's back gesture leaves it.
@@ -1000,6 +1015,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `ConfirmDialog` | A yes-or-no question on `Dialog`, after T3 Code's: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
+| `useEscapeLayer(onClose, active?)` | Escape for a floating surface of your own: while `active` it closes on Escape when it is the topmost overlay, before anything under it (Stop, a panel) hears the key, as `Dialog`, `Popover` and `Menu` do. New in API 1.16.0. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
 `Menu`, `Dialog`, `Popover`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.

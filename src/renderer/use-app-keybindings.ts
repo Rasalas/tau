@@ -1,14 +1,20 @@
 import { useEffect } from "react";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
-import { KEYBINDING_CAPTURE_ATTRIBUTE } from "./keybinding-context";
+import { domKeybindingContext, KEYBINDING_CAPTURE_ATTRIBUTE } from "./keybinding-context";
 import { commandRefusal, hostIsReadOnly } from "./use-host-capabilities";
 
+type Match = NonNullable<ReturnType<ExtensionRegistry["matchKeybinding"]>>;
+
 /**
- * Window keydown to commands. A binding whose `when` needs a context (the
- * terminal's `mod+d` under `terminalFocus`) runs in the capture phase, before
- * the focused element sees the key; every other binding waits for the bubble
- * phase, so a field or a shell that handled the key keeps it.
+ * Window keydown to commands. The binding is chosen in the capture phase,
+ * against the page as the key went down: an overlay that closes itself on
+ * Escape, or hands focus back, must not change what that same key means. A
+ * specific chord with a modifier (the terminal's `mod+d` under
+ * `terminalFocus`) runs right there, before the focused element sees the key;
+ * every other one waits for the bubble phase, so a field or a shell that
+ * handled the key (`preventDefault()`) keeps it. A bare key never runs while
+ * an overlay is open: its Escape closes the overlay and stops nothing.
  */
 export function useAppKeybindings(
   registry: ExtensionRegistry,
@@ -16,22 +22,30 @@ export function useAppKeybindings(
   onNotice: (message: string) => void,
 ): void {
   useEffect(() => {
-    const dispatch = (event: KeyboardEvent, capture: boolean) => {
-      if (event.defaultPrevented) return;
-      // A field that records chords gets every key, the workbench's own included.
-      if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
-      const match = registry.matchKeybinding(event);
-      if (!match || (capture && !match.specific)) return;
-      // A dialog or a page over the thread keeps the plain keys (Escape stops no run behind a page).
-      if (!match.modified && document.querySelector('[aria-modal="true"], [data-app-page]')) return;
-      event.preventDefault();
-      if (capture) event.stopPropagation();
+    const chosen = new WeakMap<KeyboardEvent, Match>();
+    const run = (match: Match) => {
       const refused = commandRefusal(match.command, hostIsReadOnly());
       if (refused) { onNotice(refused); return; }
       Promise.resolve(match.command.run(actions)).catch((error) => onNotice(`${match.command.id}: ${errorMessage(error)}`));
     };
-    const early = (event: KeyboardEvent) => dispatch(event, true);
-    const late = (event: KeyboardEvent) => dispatch(event, false);
+    const early = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      // A field that records chords gets every key, the workbench's own included.
+      if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
+      const context = domKeybindingContext();
+      const match = registry.matchKeybinding(event, context);
+      if (!match || (!match.modified && context("overlayOpen"))) return;
+      if (!match.specific || !match.modified) { chosen.set(event, match); return; }
+      event.preventDefault();
+      event.stopPropagation();
+      run(match);
+    };
+    const late = (event: KeyboardEvent) => {
+      const match = chosen.get(event);
+      if (!match || event.defaultPrevented) return;
+      event.preventDefault();
+      run(match);
+    };
     window.addEventListener("keydown", early, true);
     window.addEventListener("keydown", late);
     return () => {

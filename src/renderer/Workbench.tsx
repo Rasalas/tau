@@ -670,6 +670,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <div className={centerClassName} style={{ "--chat-width": tabs ? "50%" : `${chatWidth}px` } as CSSProperties}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
+          data-keybinding-context="chat"
           onPointerDown={listOverlay ? () => setDockOpen(false) : undefined}
           onDragEnter={dropController.onDragEnter}
           onDragOver={dropController.onDragOver}

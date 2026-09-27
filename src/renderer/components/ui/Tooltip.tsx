@@ -212,6 +212,9 @@ export function TooltipLayer() {
   useLayoutEffect(() => {
     const element = popup.current;
     if (!shown || !element) return;
+    // Measured at the origin: left where the last tooltip was, a wide one wraps narrow and then overflows.
+    element.style.left = "0px";
+    element.style.top = "0px";
     const size = element.getBoundingClientRect();
     const placed = placeFloating(shown.target.getBoundingClientRect(), size, viewportSize(), { side: shown.side, offset: 6 });
     element.style.left = `${placed.left}px`;

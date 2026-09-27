@@ -99,4 +99,29 @@ describe("app pages", () => {
     // Settings opened over the page; closing it shows the page again.
     expect(await screen.findByRole("region", { name: "Reports" })).toBeTruthy();
   });
+
+  it("counts as an overlay: Escape closes the page and runs no plain chord; an overlay over it closes first", async () => {
+    const stop = vi.fn();
+    const stopper: DesktopExtension = {
+      id: "stop-test", name: "Stop test", activate(plugin) {
+        plugin.registerCommand({ id: "stop-test.stop", label: "Stop", group: "Test", access: "read", run: stop });
+        plugin.registerKeybinding({ keys: "escape", commandId: "stop-test.stop", when: "true" });
+      },
+    };
+    const view = renderApp(undefined, { extensions: [workspaceExtension, pages, stopper] });
+    const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
+    fireEvent.click(await footer.findByRole("button", { name: "Reports" }));
+    await screen.findByRole("region", { name: "Reports" });
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    // The palette closes; the page under it stays.
+    fireEvent.keyDown(palette.querySelector("input")!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
+    expect(screen.getByRole("region", { name: "Reports" })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Reports" })).toBeNull());
+    expect(stop).not.toHaveBeenCalled();
+  });
 });
