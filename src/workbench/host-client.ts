@@ -3,6 +3,7 @@ import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
   ExtensionUiAnswer,
+  ExtensionUiPrompt,
   HostExtensionSummary,
   PreparedPrompt,
   PreparedThreadCapability,
@@ -106,7 +107,8 @@ export interface HostClient {
   /** Kits and packages only; every runtime keeps running. */
   reloadExtensions(): Promise<void>;
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
-  syncExtensionUi(): Promise<void>;
+  /** Re-announces the open questions and lists them; a host from before the list answers nothing. */
+  syncExtensionUi(): Promise<readonly ExtensionUiPrompt[] | undefined>;
   /** `only` asks for just those extension ids, so a client can swap one module instead of all of them. */
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
@@ -341,7 +343,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     reloadRuntime: () => call<void>("reload-runtime"),
     reloadExtensions: () => call<void>("reload-extensions"),
     answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
-    syncExtensionUi: () => call<void>("sync-extension-ui"),
+    syncExtensionUi: () => call<readonly ExtensionUiPrompt[] | undefined>("sync-extension-ui"),
     loadDesktopExtensions: (cwd, sharedExports, only) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]),
     // A command an extension declared long-running waits on `job-done` instead
     // of on one long response, so the host can report progress and be cancelled.

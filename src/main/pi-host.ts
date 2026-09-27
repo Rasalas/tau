@@ -5,6 +5,7 @@ import { performance } from "node:perf_hooks";
 import { SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiAnswer,
+  ExtensionUiPrompt,
   HostBootstrap,
   HostEvent,
   HostExtensionSummary,
@@ -2252,8 +2253,8 @@ export class PiHost {
   }
 
   /** Re-announces questions raised before the renderer was listening. */
-  replayOpenUiPrompts(): void {
-    this.extensionUi.replay();
+  replayOpenUiPrompts(): ExtensionUiPrompt[] {
+    return this.extensionUi.replay();
   }
   private logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string, thread?: ThreadRuntime): void {
     this.report.runtimePhase(phase, startedAt, reason, cwd, note, thread);

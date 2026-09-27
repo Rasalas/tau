@@ -171,6 +171,15 @@ bytes. Now a socket client can say what it shows (`HostSubscription`,
   its id; from that detail on the connection follows the thread (it stays
   followed after the request is gone, until the client lists or drops it).
 
+Questions are the host's: it keeps the open ones, pushes
+`extension-ui-prompt` and `extension-ui-resolved` for every thread to every
+client, and a client applies both whatever thread it shows.
+`sync-extension-ui` pushes every open question again and answers the list; a
+client calls it at start and each time its link is back, and drops the
+questions it held before the call that the list no longer names (answered on
+another device while it was away). A host from before the list answers
+nothing, and the client keeps what it holds.
+
 A hello without `subscription`, and any client of a host that does not
 announce `subscriptions`, receives every push as before. The `subscribe`
 method (`[HostSubscription | null]`, `null` for every push) replaces the

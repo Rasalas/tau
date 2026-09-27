@@ -1071,8 +1071,12 @@ export interface HostExtensionServices {
    * always: a write may then arrive twice.
    */
   observeConfigChanges(listener: (change: HostConfigChange) => void): () => void;
-  /** Lets an extension annotate Pi dialogs before the workbench sees them. */
-  decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
+  /**
+   * Lets an extension annotate Pi dialogs before the workbench sees them. A
+   * function the decorator returns runs once the dialog is answered (on any
+   * client), cancelled or expires.
+   */
+  decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void | (() => void)): () => void;
   /** What the user lets external runtimes do; `undefined` restores full access. */
   setPermissionLevel(provider: (() => RuntimePermissionLevel) | undefined): void;
   /** Adds a runtime backend threads can be created with (ADR 0005); its kind names the backend. */
