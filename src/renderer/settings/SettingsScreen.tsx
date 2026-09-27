@@ -215,7 +215,8 @@ export function SettingsScreen({
   const [keybindingFilter, setKeybindingFilter] = useState<{ filter: string; seq: number }>({ filter: "", seq: 0 });
   const commands = registry.getCommands();
   const found = search.trim() ? searchSettings(settingsSearchEntries({
-    pages: pages.map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
+    // A runtime's card is found like a page: its id opens Providers at the card.
+    pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
     sections: (["connections", "extensions"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
