@@ -150,7 +150,10 @@ button.usage-rank-label:hover { background: var(--hover); }
 
 /* A phone: one column, the figures and a window's line stacked. */
 @container (max-width: 640px) {
-  .usage-kpis { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .usage-kpis { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .usage-kpi > h3 { margin-bottom: 6px; }
+  .usage-kpi-figures b { font-size: 22px; }
+  .usage-kpi-detail { margin-top: 6px; }
   .usage-window { grid-template-columns: minmax(0, 1fr) auto; padding-left: 0; }
   .usage-window .usage-meter { grid-column: 1 / -1; grid-row: 2; }
   .usage-window-reset { grid-column: 1 / -1; flex-direction: row; gap: 6px; }
