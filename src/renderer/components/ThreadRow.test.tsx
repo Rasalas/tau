@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadRow } from "./ThreadRow";
@@ -145,7 +147,7 @@ describe("ThreadRow cost", () => {
     totalTokens: 22_400, costUsd: 0.4231, turns: 3,
   };
 
-  it("puts the cost in the meta line, with the split as its title", () => {
+  it("puts the cost in the meta line, with where it comes from and the split as its title", () => {
     const { container } = render(<ThreadRow
       activity="idle"
       active={false}
@@ -158,7 +160,7 @@ describe("ThreadRow cost", () => {
 
     const cost = container.querySelector(".thread-meta-line .thread-cost-meta");
     expect(cost?.textContent).toBe("$0.42");
-    expect(cost?.getAttribute("data-tooltip")).toBe("12.3k in · 2.1k out · 8.0k cache read · 3 turns");
+    expect(cost?.getAttribute("data-tooltip")).toBe("Billed via the API · 12.3k in · 2.1k out · 8.0k cache read · 3 turns");
   });
 
   it("leaves the row alone when costs are hidden or unknown", () => {
@@ -213,6 +215,43 @@ describe("ThreadRow hover actions and label", () => {
       onSelect={() => {}} onToggleSettled={() => {}}
     />);
     expect(settled.container.querySelector("[aria-label='Snooze thread']")).toBeNull();
+  });
+
+  it("marks another machine's thread just before the cost, and offers no Settle without a handler", () => {
+    const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0.5, turns: 1 };
+    const { container } = render(<ThreadRow
+      activity="idle" active={false} age="now" showCost session={{ ...session, usage }}
+      machine={{ name: "rex", icon: <svg /> }}
+      onSelect={() => {}}
+    />);
+    const mark = container.querySelector(".thread-meta-line .thread-machine");
+    expect(mark?.getAttribute("aria-label")).toBe("On rex");
+    expect(mark?.getAttribute("data-tooltip")).toBe("rex");
+    expect(mark?.nextElementSibling?.classList.contains("thread-cost-meta")).toBe(true);
+    expect(container.querySelector(".thread-settle")).toBeNull();
+  });
+
+  it("never lets the meta line run out of a narrow card: what yields first comes last, the provider mark stays", () => {
+    const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 120.14, turns: 1 };
+    const { container } = render(<ThreadRow
+      activity="idle" active={false} age="now" showCost workingChildren={2}
+      session={{ ...session, usage, projectLabel: "feat/meta-line", backendKind: "claude-code", modelProvider: "anthropic" }}
+      machine={{ name: "rex", icon: <svg /> }}
+      accessory={<span className="request-badge">+2</span>}
+      onSelect={() => {}}
+    />);
+    // Drawn right to left and wrapped into a clipped line: the first child is the last to go.
+    const parts = [...container.querySelector(".thread-meta-line")!.children].map((child) => child.className.split(" ")[0]);
+    expect(parts).toEqual(["thread-meta-end", "thread-meta-marks", "thread-branch", "thread-agent-count"]);
+    const end = [...container.querySelector(".thread-meta-end")!.children].map((child) => child.className.split(" ")[0]);
+    expect(end).toEqual(["thread-machine", "thread-cost-meta", "provider-icon-stack"]);
+    // jsdom lays nothing out, so the rule that does is read from the stylesheet itself.
+    const css = readFileSync(join(import.meta.dirname, "..", "styles.css"), "utf8");
+    const rule = /\.thread-meta-line \{([^}]*)\}/u.exec(css)?.[1] ?? "";
+    expect(rule).toMatch(/flex-flow: row-reverse wrap/u);
+    expect(rule).toMatch(/overflow: hidden/u);
+    expect(/\.thread-meta-end \{([^}]*)\}/u.exec(css)?.[1]).toMatch(/min-width: 0/u);
+    expect(/\.thread-cost-meta \{([^}]*)\}/u.exec(css)?.[1]).toMatch(/text-overflow: ellipsis/u);
   });
 
   it("leaves the label line out when the caller says it tells nothing", () => {

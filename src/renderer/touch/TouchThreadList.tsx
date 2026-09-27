@@ -263,11 +263,14 @@ function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; show
       <RowTime row={row} />
     </span>
     <span className="thread-title">{row.title}</span>
+    {/* Right to left, as the rail's card: the branch yields first, the runtime mark last. */}
     <span className="thread-meta-line">
+      <span className="thread-meta-end">
+        {cost ? <span className="thread-cost-meta">{cost}</span> : null}
+        <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
+      </span>
+      {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}
       {branch ? <MiddleTruncate className="thread-branch" value={branch} /> : null}
-      {row.pinned ? <Pin size={12} className="touch-thread-pin" aria-label="Pinned" /> : null}
-      {cost ? <span className="thread-cost-meta">{cost}</span> : null}
-      <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
     </span>
   </button>;
 }

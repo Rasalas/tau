@@ -24,6 +24,8 @@ const RAW_COLOUR = /#[0-9a-fA-F]{3,8}\b|(?<!\/\* )\brgba?\(|\bhsla?\((?!var\()/g
 const RUNTIME_PROPERTIES = [
   "--project-hue",
   "--used",
+  // How tall the settled shelf may grow under the active threads (the rail, the touch list).
+  "--shelf-room",
   "--keep-clear-x",
   "--menu-shift-x",
   "--menu-shift-y",

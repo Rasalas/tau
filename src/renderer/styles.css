@@ -263,7 +263,8 @@ body.resizing-col .app-shell { transition: none; }
   flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.thread-project-line > time { font: 10px var(--mono); color: var(--faint); }
+/* The age as T3 Code shows it: the row's own face, tabular, muted; the same on a settled row. */
+.thread-project-line > time { font: 12px var(--sans); font-variant-numeric: tabular-nums; color: var(--faint); }
 .thread-status-age {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   color: var(--working); font-weight: 500; font-variant-numeric: tabular-nums;
@@ -282,9 +283,20 @@ body.resizing-col .app-shell { transition: none; }
   display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .thread-row.active .thread-title { font-weight: 650; color: var(--ink); }
-.thread-meta-line { display: flex; align-items: center; gap: 7px; height: 16px; margin-top: 2px; }
+/*
+ * Right to left and wrapping into a clipped second line: when the card is narrow the
+ * branch shrinks first, then the agent count and the kits' marks (a request badge) drop;
+ * the machine, the cost and the provider mark stay, the cost cut short as a last resort.
+ */
+.thread-meta-line {
+  display: flex; flex-flow: row-reverse wrap; align-items: center; column-gap: 7px;
+  height: 16px; line-height: 16px; margin-top: 2px; overflow: hidden;
+}
+.thread-meta-line > * { height: 16px; }
+.thread-meta-end { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; }
+.thread-meta-marks { flex: none; display: flex; align-items: center; gap: 7px; }
 .thread-branch {
-  flex: 1; min-width: 0; font: 11px var(--mono); color: var(--muted-2);
+  flex: 1 1 0; min-width: 0; font: 11px var(--mono); color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Threads an agent spawned live in the Agents panel; the rail only counts them. */
@@ -297,18 +309,17 @@ body.resizing-col .app-shell { transition: none; }
   background: var(--working); font-style: normal; animation: blink 1.4s ease-in-out infinite;
 }
 
-/* Sits between the branch and the provider mark; without a branch it keeps the mark at the right edge. */
+/* Quiet until the row is hovered or open. */
 .thread-cost-meta {
-  margin-left: auto; flex: none; font: 11px var(--mono); color: var(--faint);
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 11px var(--mono); color: var(--faint);
   opacity: .55; transition: opacity .12s ease;
 }
 .thread-row:hover .thread-cost-meta, .thread-row.active .thread-cost-meta { opacity: 1; }
 /* Another machine's thread: its mark right before the cost; this machine's threads carry none. */
-.thread-machine { margin-left: auto; flex: none; display: grid; place-items: center; color: var(--muted); }
+.thread-machine { flex: none; display: grid; place-items: center; color: var(--muted); }
 .thread-machine > svg { display: block; }
-.thread-row.compact .thread-machine { margin-left: 0; }
-/* Machine, cost and provider sit together at the right edge, not spread over a line without a branch. */
-:is(.thread-machine, .thread-cost-meta) + :is(.thread-cost-meta, .provider-icon-stack) { margin-left: 0; }
+.thread-meta-end > .provider-icon-stack { margin-left: 0; }
 .provider-icon-stack {
   width: 18px; height: 18px; flex: none; margin-left: auto;
   display: inline-flex; align-items: center;
@@ -354,7 +365,7 @@ body.resizing-col .app-shell { transition: none; }
   flex: 1; min-width: 0; margin: 0; font-size: 12px; font-weight: 500; color: var(--ink-3);
   -webkit-line-clamp: 1; white-space: nowrap;
 }
-.thread-row.compact time { font: 10px var(--mono); color: var(--faint); }
+.thread-row.compact time { flex: none; min-width: 2.5ch; text-align: right; font: 12px var(--sans); font-variant-numeric: tabular-nums; color: var(--faint); }
 .thread-row.compact .thread-row-actions { top: 50%; translate: 0 -50%; }
 
 /* --------------------------------------------------------- conversation */

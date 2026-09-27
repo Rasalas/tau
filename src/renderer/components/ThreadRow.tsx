@@ -165,13 +165,16 @@ export const ThreadRow = memo(function ThreadRow({
             : <time>{age}</time>}
         </span>
         <span className="thread-title" {...titleTip}>{session.title}</span>
+        {/* Drawn right to left, so what comes first here stays longest when the card is narrow (see styles.css). */}
         <span className="thread-meta-line">
-          {childCount}
+          <span className="thread-meta-end">
+            {machine ? <MachineMark machine={machine} /> : null}
+            {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadCostOrigin(session.usage))}>{cost}</span> : null}
+            <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
+          </span>
+          {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}
           {showLabel && session.projectLabel ? <MiddleTruncate className="thread-branch" value={session.projectLabel} /> : null}
-          {accessory}
-          {machine ? <MachineMark machine={machine} /> : null}
-          {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadCostOrigin(session.usage))}>{cost}</span> : null}
-          <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
+          {childCount}
         </span>
       </button>
       {actions || onToggleSettled ? <span className="thread-row-actions">
