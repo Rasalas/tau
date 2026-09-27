@@ -25,21 +25,31 @@ export function planUsage(usage: UiThreadUsage): UiSubscriptionUsage | undefined
 }
 
 /**
- * What a thread has spent, or what it used when nothing priced it. A
- * subscription's share is never added to the money: it reads "plan", with
- * what the API would have charged for it.
+ * What a thread has spent, as short as a row's meta line has room for: the
+ * money, or what a subscription's tokens would have cost over the API, or the
+ * tokens when nothing priced them. Where the figure comes from is
+ * `threadCostOrigin`'s, for the tooltip.
  */
 export function threadCostLabel(usage: UiThreadUsage | undefined): string | undefined {
   if (!usage) return undefined;
   const cost = formatCost(usage.costUsd);
-  const plan = planUsage(usage);
-  if (cost && plan) return `${cost} + plan`;
   if (cost) return cost;
-  if (plan) {
-    const value = formatCost(plan.apiValueUsd);
-    return value ? `plan ≈${value}` : "plan";
-  }
+  const plan = planUsage(usage);
+  if (plan) return formatCost(plan.apiValueUsd) ?? "plan";
   return usage.totalTokens > 0 ? `${formatTokens(usage.totalTokens)} tok` : undefined;
+}
+
+/** Where `threadCostLabel`'s figure comes from (API, plan or neither), then the token split. */
+export function threadCostOrigin(usage: UiThreadUsage): string {
+  const cost = formatCost(usage.costUsd);
+  const plan = planUsage(usage);
+  const value = plan ? formatCost(plan.apiValueUsd) : undefined;
+  const onPlan = value ? `the API would have charged ≈ ${value}` : "no API price known";
+  const origin = cost && plan ? `${cost} billed via the API; the rest on your plan (${onPlan})`
+    : cost ? "Billed via the API"
+      : plan ? `On your plan: ${onPlan}`
+        : "No price known for this model";
+  return `${origin} · ${threadUsageDetail(usage)}`;
 }
 
 /** The expanded form: "12.3k in · 2.1k out · 8.0k cache read · 3 turns". */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCost, formatTokens, threadCostLabel, threadUsageDetail } from "./cost-format";
+import { formatCost, formatTokens, threadCostLabel, threadCostOrigin, threadUsageDetail } from "./cost-format";
 import { threadUsageSections } from "./cost-sections";
 
 const usage = {
@@ -41,9 +41,15 @@ describe("cost formatting", () => {
   it("never adds a subscription's value to the money", () => {
     const plan = { inputTokens: 10_000, outputTokens: 2_000, cacheReadTokens: 8_000, cacheWriteTokens: 0, totalTokens: 20_000, turns: 2, apiValueUsd: 1.5 };
     const onPlan = { ...usage, costUsd: 0, subscription: { ...plan, inputTokens: 12_300, outputTokens: 2_100, totalTokens: 22_400, turns: 3 } };
-    expect(threadCostLabel(onPlan)).toBe("plan ≈$1.50");
+    // The label is the figure alone; where it comes from is the tooltip's.
+    expect(threadCostLabel(onPlan)).toBe("$1.50");
+    expect(threadCostOrigin(onPlan)).toBe("On your plan: the API would have charged ≈ $1.50 · 12.3k in · 2.1k out · 8.0k cache read · 3 turns");
     expect(threadCostLabel({ ...onPlan, subscription: { ...onPlan.subscription, apiValueUsd: 0 } })).toBe("plan");
-    expect(threadCostLabel({ ...usage, subscription: plan })).toBe("$0.42 + plan");
+    expect(threadCostOrigin({ ...onPlan, subscription: { ...onPlan.subscription, apiValueUsd: 0 } })).toMatch(/^On your plan: no API price known · /u);
+    expect(threadCostLabel({ ...usage, subscription: plan })).toBe("$0.42");
+    expect(threadCostOrigin({ ...usage, subscription: plan })).toMatch(/^\$0\.42 billed via the API; the rest on your plan \(the API would have charged ≈ \$1\.50\) · /u);
+    expect(threadCostOrigin(usage)).toMatch(/^Billed via the API · /u);
+    expect(threadCostOrigin({ ...usage, costUsd: 0 })).toMatch(/^No price known for this model · /u);
     expect(threadUsageSections(onPlan)).toEqual({ plan: { value: "$1.50", detail: "12.3k in · 2.1k out · 8.0k cache read · 3 turns" } });
     expect(threadUsageSections({ ...usage, subscription: plan })).toEqual({
       billed: { cost: "$0.42", detail: "2.3k in · 100 out · 1 turn" },

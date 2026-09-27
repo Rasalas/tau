@@ -87,7 +87,7 @@ describe("composer thread cost", () => {
 
   it("shows a subscription's usage apart, with what the API would have charged", async () => {
     renderComposer({ ...usage, costUsd: 0, subscription: { ...usage, apiValueUsd: 1.2 } });
-    const button = screen.getByLabelText("Thread cost plan ≈$1.20");
+    const button = screen.getByLabelText("Thread cost $1.20");
     fireEvent.click(button);
     expect(await screen.findByText("Subscription")).toBeTruthy();
     expect(screen.getByText("Would have cost ≈ $1.20 via the API")).toBeTruthy();
