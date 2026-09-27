@@ -303,6 +303,8 @@ export interface RuntimeProgramRowsProps {
   /** The head's word for a healthy program; "Installed" by default. */
   installedLabel?: string;
   busy?: boolean;
+  /** What went wrong asking the host or saving, under the first row. */
+  error?: string;
   onCheck(): void;
   /** Hands a command to a terminal for the user to run; without it no row offers one. */
   onRunCommand?(command: string): void;
@@ -314,7 +316,7 @@ export interface RuntimeProgramRowsProps {
  * old, or a newer release, each with the step that fixes it. Tau runs none
  * of those commands itself: they go into a terminal the user sees.
  */
-export function RuntimeProgramRows({ program, idPrefix, title = "CLI", help, state, missing, missingAction, installedLabel, busy = false, onCheck, onRunCommand }: RuntimeProgramRowsProps) {
+export function RuntimeProgramRows({ program, idPrefix, title = "CLI", help, state, missing, missingAction, installedLabel, busy = false, error, onCheck, onRunCommand }: RuntimeProgramRowsProps) {
   useProviderCardBadge("program", programBadge(state, installedLabel));
   const compatibility = state?.compatibility && state.compatibility.status !== "supported" ? state.compatibility : undefined;
   const install = compatibility?.installCommand ?? state?.updateCommand;
@@ -328,7 +330,8 @@ export function RuntimeProgramRows({ program, idPrefix, title = "CLI", help, sta
         id={`${idPrefix}-program`}
         title={title}
         {...(help ? { help } : {})}
-        description={!state ? "Checking…"
+        status={error ? <p className="runtime-row-error" role="alert">{error}</p> : undefined}
+        description={!state ? error ? `Tau could not ask about ${program}.` : "Checking…"
           : state.found ? <>{state.version ? `${state.version}${where ? " · " : ""}` : ""}{state.message ?? (state.location ? <code>{state.location}</code> : null)}</>
             : state.message ?? missing}
         control={<>

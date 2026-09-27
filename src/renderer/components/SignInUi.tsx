@@ -162,7 +162,7 @@ function accountBadge(report: SignInReport | undefined, active: boolean): Provid
   if (!report) return undefined;
   if (active) return { label: "Signing in", tone: "neutral" };
   if (report.account?.signedIn) return { label: "Signed in", tone: "success" };
-  return { label: report.methods.length ? "Needs sign-in" : "Not signed in", tone: "warn" };
+  return { label: report.methods?.length ? "Needs sign-in" : "Not signed in", tone: "warn" };
 }
 
 export function SignInSetup({ host, target, program, heading = "Account", runInTerminal, openExternal, copyText, onNotify, onReport, showAccount = true, rowId, cardBadge = true }: SignInSetupProps) {
@@ -277,7 +277,7 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
           description={!report
             ? error ? `Could not ask ${program} who is signed in: ${error}` : "Checking…"
             : account?.signedIn
-              ? <><strong className="sign-in-who">{account.label ?? "Signed in"}</strong>{account.detail ? <span> · {account.detail}</span> : null}</>
+              ? <><strong className="sign-in-who">{account.label ?? "Signed in"}</strong>{account.detail ? <> · <span>{account.detail}</span></> : null}</>
               : "Not signed in"}
           status={messages.length ? <>{messages}</> : undefined}
           control={!report && error ? <Button onClick={() => void load()}>Ask again</Button>
