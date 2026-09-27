@@ -37,6 +37,12 @@ body[data-profile="compact"] .resize-handle[aria-orientation="vertical"] { width
 body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px); }
 body[data-profile="compact"] .dock-resizer { left: -12px; }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }
+body[data-profile="compact"] .panel-maximize { width: 44px; height: 44px; top: 4px; right: 4px; }
+/* A touch panel's own first row keeps clear of the maximize button over its corner. */
+body[data-profile="compact"] .side-panel .panel-body > :first-child { padding-right: 52px; }
+body[data-profile="compact"] .title-bar .title-project { min-height: 44px; }
+/* Beside a tool the chat is a phone's width: the composer keeps a phone's margins. */
+body[data-profile="compact"] .workbench-center:is(.wide-open, .stage-open):not(.compact) .composer-zone { padding-inline: 12px; }
 /* Behind a chat tab's strip, which is taller here. */
 body[data-profile="compact"] .workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { top: 48px; }
 
