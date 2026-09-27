@@ -76,6 +76,41 @@ export function commandProgram(command: string | undefined): string | undefined 
   return program && !program.includes("=") ? program : undefined;
 }
 
+/** The arguments that say what a call did, in the order a reader looks for them. */
+const TELLING_ARGS = ["command", "file_path", "path", "notebook_path", "pattern", "query", "url", "description", "prompt"];
+
+function oneLine(value: string): string {
+  return value.replaceAll(/\s+/gu, " ").trim();
+}
+
+/**
+ * What a call was about, for a tool no renderer claimed: the value of its most
+ * telling argument rather than the argument names.
+ */
+export function toolArgumentSummary(args: Readonly<Record<string, unknown>>): string {
+  const telling = TELLING_ARGS.map((key) => args[key]).find((value) => typeof value === "string" && value.trim());
+  const first = telling ?? Object.values(args).find((value) => typeof value === "string" && value.trim());
+  if (typeof first === "string") return oneLine(first);
+  // No text to show: the names are all there is.
+  return Object.keys(args).join(" · ") || "no arguments";
+}
+
+const EXIT_STATUS = /\bexit(?:ed with)? code -?\d+/iu;
+const FAILURE_REASON_CHARS = 240;
+
+/**
+ * Why a failed tool failed, in one line: a shell's exit status with the last
+ * thing it printed, or else the first line of what the tool answered.
+ */
+export function toolFailureReason(output: string | undefined): string | undefined {
+  const lines = (output ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return undefined;
+  const status = lines.find((line) => EXIT_STATUS.test(line));
+  const said = status ? lines.filter((line) => line !== status).at(-1) : undefined;
+  const reason = status ? (said ? `${status}: ${said}` : status) : lines[0];
+  return reason.length > FAILURE_REASON_CHARS ? `${reason.slice(0, FAILURE_REASON_CHARS - 1)}…` : reason;
+}
+
 export function classifyToolRun(tool: UiToolRun, hint: ToolPresentationHint = {}): ToolFact {
   const action = toolActionClass(tool.name);
   const path = text(tool.args.path) ?? text(tool.args.file_path);
@@ -186,7 +221,7 @@ export type WorkRow =
   /** A batch a registered tool card draws itself; never folded, grouped or hidden. */
   | { kind: "card"; id: string; cardId: string; tools: readonly UiToolRun[] }
   /** The settled turn as one line; its rows come back in place when it is opened. */
-  | { kind: "fold"; id: string; label: string; rows: readonly WorkRow[] }
+  | { kind: "fold"; id: string; label: string; rows: readonly WorkRow[]; open: boolean; failed: boolean }
   /** The one self-replacing line of a turn in flight. */
   | { kind: "live"; id: string; label: string; startedAt: number; tools: readonly UiToolRun[] }
   | {
@@ -214,6 +249,8 @@ export interface WorkGroupInput {
   /** The card that draws this tool, when one is registered. */
   cardIdFor?(tool: UiToolRun): string | undefined;
   presentationOf?(tool: UiToolRun): ToolPresentationHint;
+  /** The reader opened some of this turn's work while it ran; its fold starts open. */
+  keepOpen?: boolean;
 }
 
 /** Lifecycle updates arrive as repeats of one call; the last record wins. */
@@ -329,22 +366,24 @@ function noteTerminalStatus(rows: WorkRow[], input: WorkGroupInput): WorkRow[] {
 function workRowsFor(tools: readonly UiToolRun[], input: WorkGroupInput, key: string): WorkRow[] {
   const live = input.streaming && input.status === "running" ? liveRow(tools, input) : undefined;
   if (live) return [...groupedRows(live.rest, input, key), live.row];
+  if (input.detail !== "focused" || input.status === "running") return noteTerminalStatus(groupedRows(tools, input, key), input);
 
-  const failed = input.status === "error" || tools.some((tool) => tool.status === "error");
-  if (input.detail !== "focused" || failed || input.status === "running") return noteTerminalStatus(groupedRows(tools, input, key), input);
-
-  // A single non-failing tool after the answer belongs to the turn; a larger
-  // trailing run is new work and stays where the reader can see it.
+  // A settled turn folds everything up to its answer, failures included. After
+  // the answer a single tool that did not fail still belongs to the turn; more,
+  // or a failure, is new work and stays where the reader can see it.
   const answerAt = input.answerAt;
   const trailing = answerAt === undefined ? [] : tools.filter((tool) => tool.startedAt > answerAt);
-  const keepTrailing = trailing.length > 1;
+  const keepTrailing = trailing.length > 1 || trailing.some((tool) => tool.status === "error");
   const folded = keepTrailing ? tools.filter((tool) => !trailing.includes(tool)) : tools;
-  if (folded.length === 0) return groupedRows(tools, input, key);
+  if (folded.length === 0) return noteTerminalStatus(groupedRows(tools, input, key), input);
   const fold: WorkRow = {
     kind: "fold",
     id: `${key}:fold`,
     label: foldLabel(folded, input),
-    rows: groupedRows(folded, { ...input, detail: "detailed" }, `${key}:fold`),
+    // The fold row carries the turn's own failure; a row inside fails by its own tools.
+    rows: groupedRows(folded, { ...input, detail: "detailed", status: "completed" }, `${key}:fold`),
+    open: input.keepOpen === true,
+    failed: input.status === "error",
   };
   return keepTrailing ? [fold, ...groupedRows(trailing, input, `${key}:t`)] : [fold];
 }

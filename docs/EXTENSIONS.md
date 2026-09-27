@@ -364,6 +364,11 @@ summary hoists a named source to the front of its sentence ("Used the browser
 3 times and read 2 files") instead of counting those calls as anonymous tools;
 core reads `mcp__<server>__<tool>` as a source by itself, because that spelling
 is the protocol's, not a kit's.
+A call no renderer claims shows the value of its most telling argument
+(`command`, `file_path`, `path`, `pattern`, `query`, `url`, …), so a runtime
+whose tools have names of their own should still register a renderer for its
+glyphs and tones. A failed call (`status: "error"`) shows why under its line:
+the exit status and the last line printed, or the first line of `output`.
 
 `registerToolCard({ id, match, Component })` is the other half: a whole batch
 of consecutive calls of your tools drawn as one card, instead of a row per

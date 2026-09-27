@@ -1,7 +1,7 @@
 import { Square } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import type { UiToolOutputPreview, UiToolRun } from "../../shared/contracts";
-import type { TranscriptDetail } from "../../workbench/transcript-folding";
+import { toolFailureReason, type TranscriptDetail } from "../../workbench/transcript-folding";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
 import { formatBytes } from "../format-bytes";
@@ -90,6 +90,7 @@ export const ToolRun = memo(function ToolRun({
   // A call that is still open — live, waiting on you, or left behind by a dead
   // turn — offers one way out, on hover, right where it sits.
   const stoppable = tool.status === "running" && Boolean(onStop);
+  const failure = tool.status === "error" ? toolFailureReason(shown.output) ?? (deferred ? "Failed; open the call for its output" : "Failed") : undefined;
   const stopTitle = stalled ? "Close the interrupted call" : waiting ? "Stop waiting and end the run" : "Stop the run";
 
   return (
@@ -109,7 +110,10 @@ export const ToolRun = memo(function ToolRun({
             {compactTimestamp(tool.startedAt)}
           </time>
         ) : null}
-        <span className={`tool-run-state ${stalled ? "stalled" : tool.status}${waiting ? " waiting" : ""}`}>
+        <span
+          className={`tool-run-state ${stalled ? "stalled" : tool.status}${waiting ? " waiting" : ""}`}
+          {...(failure ? { role: "img", "aria-label": `Failed: ${failure}`, title: failure } : {})}
+        >
           {waiting
             ? "waiting for you"
             : stalled
@@ -132,6 +136,7 @@ export const ToolRun = memo(function ToolRun({
           <Square size={10} strokeWidth={2.4} />
         </button>
       ) : null}
+      {failure && !showOutput ? <div className="tool-run-reason" title={failure}>{failure}</div> : null}
       {showOutput && pending ? (
         // As tall as the output it stands for, which always fills the box, so nothing moves when it arrives.
         <pre className="tool-output tool-output-pending" aria-busy={loaded === "loading"}>

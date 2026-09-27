@@ -12,6 +12,8 @@ import {
   nextTranscriptDetail,
   summarizeToolFacts,
   toolActionClass,
+  toolArgumentSummary,
+  toolFailureReason,
   type WorkGroupInput,
   type WorkRow,
 } from "./transcript-folding";
@@ -205,14 +207,32 @@ describe("turn fold", () => {
     expect(rows[0]).toMatchObject({ kind: "fold", label: "Stopped after 2m 4s" });
   });
 
-  it("never folds a turn that failed", () => {
+  it("folds a failed call with the rest of the turn and opens it in its own row", () => {
     const rows = deriveWorkRows(input({ tools: [...work, tool({ id: "3", name: "bash", status: "error" })] }));
-    expect(rows.map((row) => row.kind)).toEqual(["group", "group"]);
-    expect(rows.at(-1)).toMatchObject({ failed: true, open: true });
+    expect(rows.map((row) => row.kind)).toEqual(["fold"]);
+    expect(rows[0]).toMatchObject({ open: false, failed: false });
+    const inside = rows[0].kind === "fold" ? rows[0].rows : [];
+    expect(inside.map((row) => row.kind === "group" && row.failed)).toEqual([false, true]);
   });
 
-  it("never folds a group the host marked as an error", () => {
-    expect(deriveWorkRows(input({ tools: work, status: "error" })).map((row) => row.kind)).toEqual(["group"]);
+  it("folds a turn that ended in an error and marks the fold", () => {
+    const rows = deriveWorkRows(input({ tools: work, status: "error" }));
+    expect(rows).toEqual([expect.objectContaining({ kind: "fold", failed: true })]);
+    expect(rows[0].kind === "fold" && rows[0].rows.every((row) => row.kind === "group" && !row.failed)).toBe(true);
+  });
+
+  it("keeps a failure after the answer out of the fold", () => {
+    const rows = deriveWorkRows(input({
+      tools: [...work, tool({ id: "3", name: "bash", args: { command: "npm test" }, status: "error", startedAt: NOW - 5_000 })],
+      answerAt: NOW - 8_000,
+    }));
+    expect(rows.map((row) => row.kind)).toEqual(["fold", "group"]);
+    expect(rows[1]).toMatchObject({ failed: true, open: true, summary: "Ran 1 command" });
+  });
+
+  it("starts the fold open when the reader opened some of the turn while it ran", () => {
+    expect(deriveWorkRows(input({ tools: work, keepOpen: true }))[0]).toMatchObject({ kind: "fold", open: true });
+    expect(deriveWorkRows(input({ tools: work }))[0]).toMatchObject({ kind: "fold", open: false });
   });
 
   it("lets a single non-failing trailing tool join the fold", () => {
@@ -271,9 +291,9 @@ describe("detail levels", () => {
     expect(rows[0]).toMatchObject({ open: true, summary: "Read 1 file and ran 1 command" });
   });
 
-  it("keeps groups closed under focused when a failure blocks the fold", () => {
-    const rows = deriveWorkRows(input({ tools: [...work, tool({ id: "3", name: "bash", status: "error" })] }));
-    expect(rows[0]).toMatchObject({ open: false });
+  it("keeps groups closed under focused while the turn runs", () => {
+    const rows = deriveWorkRows(input({ tools: [...work, tool({ id: "3", name: "bash", status: "error" })], status: "running" }));
+    expect(rows.map((row) => row.kind === "group" && row.open)).toEqual([false, true]);
   });
 
   it("cycles the levels and validates a stored one", () => {
@@ -333,5 +353,33 @@ describe("the turn's answer", () => {
 
   it("reads from the start when the anchor is not loaded", () => {
     expect(answerTimestampAfter(messages, undefined)).toBeUndefined();
+  });
+});
+
+describe("a call no renderer claimed", () => {
+  it("shows what the call was about, not the names of its arguments", () => {
+    expect(toolArgumentSummary({ command: "ls -la\n  src", description: "List files", timeout: 5_000 })).toBe("ls -la src");
+    expect(toolArgumentSummary({ file_path: "/repo/a.ts", limit: 20 })).toBe("/repo/a.ts");
+    expect(toolArgumentSummary({ server: "linear", title: "Fix it" })).toBe("linear");
+  });
+
+  it("falls back to the names when no argument is text", () => {
+    expect(toolArgumentSummary({ todos: [], merge: true })).toBe("todos · merge");
+    expect(toolArgumentSummary({})).toBe("no arguments");
+  });
+});
+
+describe("why a call failed", () => {
+  it("pairs a shell's exit status with the last thing it printed", () => {
+    expect(toolFailureReason("Exit code 1\nls: missing: No such file or directory")).toBe("Exit code 1: ls: missing: No such file or directory");
+    expect(toolFailureReason("building\nerror TS2304: x\n\nCommand exited with code 2")).toBe("Command exited with code 2: error TS2304: x");
+    expect(toolFailureReason("Exit code 127")).toBe("Exit code 127");
+  });
+
+  it("takes the first line of any other answer", () => {
+    expect(toolFailureReason("The user doesn't want to proceed with this tool use.\nMore.")).toBe("The user doesn't want to proceed with this tool use.");
+    expect(toolFailureReason("x".repeat(400))).toHaveLength(240);
+    expect(toolFailureReason("  \n ")).toBeUndefined();
+    expect(toolFailureReason(undefined)).toBeUndefined();
   });
 });

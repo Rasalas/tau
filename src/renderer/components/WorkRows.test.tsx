@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../../shared/contracts";
 import { ExtensionRegistry, type DesktopExtension, type WorkbenchActions } from "../extension-system";
-import { WorkGroup } from "./WorkRows";
+import { WorkGroup, type WorkGroupProps } from "./WorkRows";
+import { WorkDisclosures } from "./work-disclosures";
 
 /** Stands in for whichever kit names the file and shell tools. */
 const toolPresentation: DesktopExtension = {
@@ -58,17 +59,19 @@ describe("a settled turn", () => {
     expect(screen.getByRole("button", { name: /Stopped after/u })).toBeTruthy();
   });
 
-  it("keeps a failure visible instead of folding it away", () => {
+  it("folds a failure with the rest and shows it, with its reason, when opened", () => {
     render(<WorkGroup
       id="turn"
-      tools={[...tools, run("4", "npm run broken", { status: "error", output: "exit 1" })]}
+      tools={[...tools, run("4", "npm run broken", { status: "error", output: "Exit code 1\nnpm error Missing script: broken" })]}
       registry={registryWith()}
       detail="focused"
     />);
 
-    expect(screen.queryByRole("button", { name: /Worked for/u })).toBeNull();
-    expect(screen.getByText("Read 2 files and ran 1 command")).toBeTruthy();
+    expect(screen.queryByText("npm run broken")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Worked for/u }));
     expect(screen.getByText("npm run broken")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Failed: Exit code 1: npm error Missing script: broken" })).toBeTruthy();
+    expect(screen.getByText("Exit code 1: npm error Missing script: broken")).toBeTruthy();
   });
 
   it("opens every group and shows the calls at detailed", () => {
@@ -203,5 +206,66 @@ describe("a tool card", () => {
       detail="focused"
     />);
     expect(view.container.textContent).toContain("Worked for");
+  });
+});
+
+describe("when the turn ends", () => {
+  const registry = registryWith();
+  const running = [read("1", "a.ts"), run("2", "npm test", { status: "running", endedAt: undefined })];
+  const settled = [read("1", "a.ts"), run("2", "npm test")];
+  const turn = (props: Partial<WorkGroupProps>) => <WorkGroup id="turn" tools={settled} registry={registry} detail="focused" {...props} />;
+
+  it("folds what ran into one line", () => {
+    const view = render(turn({ tools: running, status: "running", streaming: true }));
+    expect(screen.getByText("Running npm")).toBeTruthy();
+
+    view.rerender(turn({ status: "completed", streaming: false }));
+    expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("npm test")).toBeNull();
+  });
+
+  it("leaves open what the reader opened while it ran, until they close it", () => {
+    const disclosures = new WorkDisclosures();
+    const view = render(turn({ tools: running, status: "running", streaming: true, disclosures }));
+    fireEvent.click(screen.getByRole("button", { name: /Running npm/u }));
+
+    view.rerender(turn({ status: "completed", streaming: false, disclosures }));
+    const fold = screen.getByRole("button", { name: /Worked for/u });
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("npm test")).toBeTruthy();
+
+    fireEvent.click(fold);
+    view.unmount();
+    render(turn({ status: "completed", streaming: false, disclosures }));
+    expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps it open when the settled turn moves into the history under another id", () => {
+    const disclosures = new WorkDisclosures();
+    const view = render(turn({ id: "turn-activity:1", tools: running, status: "running", streaming: true, disclosures }));
+    fireEvent.click(screen.getByRole("button", { name: /Running npm/u }));
+    view.unmount();
+
+    render(turn({ id: "activity-7", disclosures }));
+    expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps a fold the reader opened open when the list remounts it", () => {
+    const disclosures = new WorkDisclosures();
+    const view = render(turn({ disclosures }));
+    fireEvent.click(screen.getByRole("button", { name: /Worked for/u }));
+    view.unmount();
+
+    render(turn({ disclosures }));
+    expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("folds the next turn however the reader left the last one", () => {
+    const disclosures = new WorkDisclosures();
+    const view = render(turn({ id: "turn-a", tools: running, status: "running", streaming: true, disclosures }));
+    fireEvent.click(screen.getByRole("button", { name: /Running npm/u }));
+
+    view.rerender(turn({ id: "turn-b", tools: [run("3", "ls")], disclosures }));
+    expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("false");
   });
 });

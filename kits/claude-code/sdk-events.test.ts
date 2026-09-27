@@ -24,6 +24,19 @@ function run(frames: SDKMessage[], translator = new SdkTurnTranslator(() => 42, 
 }
 
 describe("SdkTurnTranslator", () => {
+  it("closes a failed call as an error with the reason the CLI gave, unwrapped", () => {
+    const { events } = run([
+      assistant([{ type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "/repo/missing.ts" } }]),
+      toolResult("tool-1", "<tool_use_error>File does not exist.</tool_use_error>", true),
+      assistant([{ type: "tool_use", id: "tool-2", name: "Bash", input: { command: "ls missing", description: "List it" } }]),
+      toolResult("tool-2", "Exit code 1\nls: missing: No such file or directory", true),
+    ]);
+    expect(events.filter((event) => event.type === "tool-end").map((event) => event.type === "tool-end" && [event.tool.status, event.tool.output])).toEqual([
+      ["error", "File does not exist."],
+      ["error", "Exit code 1\nls: missing: No such file or directory"],
+    ]);
+  });
+
   it("streams the main loop's text, opens tool cards from the whole assistant message and closes them on the result", () => {
     let ids = 0;
     const translator = new SdkTurnTranslator(() => 42, () => `a${++ids}`);

@@ -540,9 +540,9 @@ describe("last-turn activity", () => {
     expect(activityRows[0]?.textContent).not.toContain("Completed");
     expect(activityRows[1]?.textContent).not.toContain("1 failed");
     expect(activityRows[0]?.textContent).toContain("Worked for");
-    // A turn that failed never folds; it names what it did and says it failed.
-    expect(activityRows[1]?.textContent).toContain("Read 1 file");
-    expect(activityRows[1]?.querySelector('[aria-label="Activity failed"]')).toBeTruthy();
+    // A turn that failed folds like any other and says on its fold that it failed.
+    expect(activityRows[1]?.textContent).toContain("Worked for");
+    expect(activityRows[1]?.querySelector('[aria-label="Turn failed"]')).toBeTruthy();
   });
 
   it("does not duplicate the live group when its anchor is an assistant message", async () => {

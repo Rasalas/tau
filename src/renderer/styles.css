@@ -949,6 +949,7 @@ body.resizing-col .app-shell { transition: none; }
   flex: none; display: inline-flex; color: var(--faint);
 }
 .tool-activity-summary > .tool-activity-status-icon.error { color: var(--removed); }
+.work-fold-summary > .tool-activity-status-icon { flex: none; display: inline-flex; color: var(--removed); }
 .tool-activity-summary > .tool-activity-status-icon.interrupted { color: var(--working); }
 .tool-activity-detail {
   margin: 5px 0 0 26px; overflow: hidden;
@@ -983,6 +984,11 @@ body.resizing-col .app-shell { transition: none; }
 .tool-run-size { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .tool-run-state { font: 11px var(--mono); color: var(--ready); flex: none; }
 .tool-run-state.error { color: var(--removed); }
+/* Why a call failed, under its line until the output itself is open. */
+.tool-run-reason {
+  margin: -5px 13px 0 39px; padding-bottom: 9px; font: 11.5px var(--mono); color: var(--removed);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tool-run-state.waiting { color: var(--acid-text); }
 .tool-run-state.stalled { color: var(--faint); font-style: italic; }
 /* The stop control sits on the row's right edge and appears on hover or focus. */
