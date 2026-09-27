@@ -263,7 +263,7 @@ export const antigravityExtension: DesktopExtension = {
   name: "Antigravity",
   activate(plugin) {
     const stops = [
-      plugin.registerStatusItem({ id: "antigravity.runtime", align: "left", order: 41, profiles: ["desktop", "web", "compact"], Component: AntigravityStatus }),
+      plugin.registerStatusItem({ id: "antigravity.runtime", align: "left", order: 41, profiles: ["desktop", "web"], Component: AntigravityStatus }),
       plugin.registerSettingsPage({
         id: "antigravity.settings",
         label: "Antigravity",
