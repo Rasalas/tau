@@ -12,7 +12,7 @@ import {
   type EvidenceCaptureService,
   type EvidenceTurn,
 } from "./protocol.js";
-import { EvidenceSettingsPage } from "./settings-page.js";
+import { EVIDENCE_SETTINGS_ROWS, EvidenceSettingsPage } from "./settings-page.js";
 import { EvidenceViewer, type ViewerRequest } from "./viewer.js";
 
 /** What the controller shows over the workbench; kept outside it, so a row drawn by an earlier mount still reaches it. */
@@ -156,6 +156,7 @@ const evidence: DesktopExtension = {
       scope: "both",
       profiles: ["desktop"],
       keywords: ["screenshots", "pictures", "video", "recording", "privacy", "review"],
+      rows: EVIDENCE_SETTINGS_ROWS,
       Component: EvidenceSettingsPage,
     }));
 

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { createKitHarness, setHostClient, WorkbenchContext } from "../../src/renderer/test-support/kit-harness.js";
+import { missingSettingsRows, renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import { EvidenceClient } from "./client.js";
 import evidence from "./desktop.js";
 import { EVIDENCE_CHANGED_EVENT, EVIDENCE_EXTENSION_ID, EVIDENCE_SERVICE, type EvidenceCaptureService, type EvidenceFrame, type EvidenceThread } from "./protocol.js";
@@ -86,6 +87,27 @@ describe("Evidence rows", () => {
     await waitFor(() => expect(calls.filter(([command]) => command === "list")).toHaveLength(2));
     await service!.pause("s1", "Signing in");
     expect(calls).toContainEqual(["pause", { threadId: "s1", reason: "Signing in" }]);
+  });
+});
+
+describe("Settings → Evidence", () => {
+  it("turns capture on and off, chooses how long pictures stay, and has every searched row", async () => {
+    const { registry } = createKitHarness(host().invoke);
+    registry.activate(evidence);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "evidence")!;
+    const { updates } = renderKitSettingsPage(page.Component, { host: { options: { [`${EVIDENCE_EXTENSION_ID}.screen`]: false } } });
+    const screenSwitch = await screen.findByRole("switch", { name: "Pictures of the window the agent drives" });
+    await waitFor(() => expect(screenSwitch.getAttribute("aria-checked")).toBe("false"));
+    fireEvent.click(screenSwitch);
+    await waitFor(() => expect(updates).toContainEqual({ options: { [`${EVIDENCE_EXTENSION_ID}.screen`]: true } }));
+    expect(screenSwitch.getAttribute("aria-checked")).toBe("true");
+
+    const retention = screen.getByRole("combobox", { name: "Keep pictures for" });
+    expect([...(retention as HTMLSelectElement).options].map((entry) => entry.textContent)).toEqual(["3 days", "7 days", "14 days", "30 days", "90 days"]);
+    fireEvent.change(retention, { target: { value: "30" } });
+    await waitFor(() => expect(updates).toContainEqual({ values: { [`${EVIDENCE_EXTENSION_ID}.retention-days`]: "30" } }));
+    expect(screen.getByText(/Tau never pictures the whole screen/u)).toBeTruthy();
+    expect(missingSettingsRows(page)).toEqual([]);
   });
 });
 
