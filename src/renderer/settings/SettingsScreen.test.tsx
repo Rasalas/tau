@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, TauConfig } from "../../shared/contracts";
+import { useState } from "react";
+import type { ExtensionInspection, HostSnapshot, TauConfig } from "../../shared/contracts";
 import { withSetting, withoutSetting } from "../../shared/config-layers";
 import { ExtensionRegistry } from "../extension-system";
 import { HostClientProvider } from "../host-client-context";
@@ -34,25 +35,31 @@ function hostWithFiles() {
   return { files, client };
 }
 
-function renderScreen(options: { page?: string; client?: ReturnType<typeof hostWithFiles>["client"]; onClose?: () => void; extensions?: string[] } = {}) {
+function renderScreen(options: { page?: string; client?: ReturnType<typeof hostWithFiles>["client"]; onClose?: () => void; extensions?: string[]; registry?: ExtensionRegistry } = {}) {
   const onClose = options.onClose ?? vi.fn();
   const onSetPage = vi.fn();
-  const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+  const registry = options.registry ?? new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
   for (const name of options.extensions ?? []) registry.activate({ id: name.toLowerCase(), name, activate() {} });
+  // The page is the caller's state, as the workbench keeps it.
+  function Harness() {
+    const [page, setPage] = useState(options.page ?? "defaults");
+    return <SettingsScreen page={page} snapshot={snapshot} registry={registry} projects={[{ path: "/work/other", workspaceId: "ws-other", name: "other", lastOpenedAt: 1 }]} onSetPage={(next) => { onSetPage(next); setPage(next); }} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={onClose} onNotify={vi.fn()} />;
+  }
   const view = render(<HostClientProvider client={options.client}>
     <TestProviders>
-      <SettingsScreen page={options.page ?? "defaults"} snapshot={snapshot} registry={registry} projects={[{ path: "/work/other", workspaceId: "ws-other", name: "other", lastOpenedAt: 1 }]} onSetPage={onSetPage} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={onClose} onNotify={vi.fn()} />
+      <Harness />
     </TestProviders>
   </HostClientProvider>);
-  return { ...view, onClose, onSetPage, page: screen.getByRole("dialog", { name: "Settings" }) };
+  return { ...view, onClose, onSetPage, registry, page: screen.getByRole("dialog", { name: "Settings" }) };
 }
 
 describe("the Settings screen", () => {
   it("takes the whole window: a section column, a breadcrumb with the page, and a way back", () => {
     const { page, onClose } = renderScreen();
     expect(page.getAttribute("aria-modal")).toBe("true");
-    expect(within(page).getByRole("navigation", { name: "Settings breadcrumb" }).textContent).toContain("Defaults");
-    expect(within(page).getByRole("heading", { level: 1, name: "Defaults" })).toBeTruthy();
+    // "defaults" is the older name of General.
+    expect(within(page).getByRole("navigation", { name: "Settings breadcrumb" }).textContent).toContain("General");
+    expect(within(page).getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
     fireEvent.click(within(page).getByRole("button", { name: "Back" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -82,7 +89,7 @@ describe("the Settings screen", () => {
     const results = within(page).getAllByRole("option");
     expect(results[0]!.getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(search, { key: "Enter" });
-    expect(onSetPage).toHaveBeenCalledWith("defaults");
+    expect(onSetPage).toHaveBeenCalledWith("general#setting-theme");
   });
 
   it("scrolls to the row a search result names", async () => {
@@ -142,26 +149,26 @@ describe("the Settings screen", () => {
   it("writes the update track to this machine, and hides it for a host elsewhere", async () => {
     const { files, client } = hostWithFiles();
     const { page } = renderScreen({ client });
-    const track = await within(page).findByRole("group", { name: "Update track" });
-    fireEvent.click(within(track).getByRole("button", { name: "Nightly" }));
+    const track = await within(page).findByRole("radiogroup", { name: "Update track" });
+    fireEvent.click(within(track).getByRole("radio", { name: "Nightly" }));
     await waitFor(() => expect(files.host).toEqual({ updates: { channel: "nightly" } }));
-    expect(within(track).getByRole("button", { name: "Nightly" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(track).getByRole("radio", { name: "Nightly" }).getAttribute("aria-checked")).toBe("true");
     cleanup();
 
     const remote = createFakeHostClient({ hasCapability: () => false });
     const { page: remotePage } = renderScreen({ client: remote as ReturnType<typeof hostWithFiles>["client"] });
     await act(async () => undefined);
-    expect(within(remotePage).queryByRole("group", { name: "Update track" })).toBeNull();
+    expect(within(remotePage).queryByRole("radiogroup", { name: "Update track" })).toBeNull();
   });
 
   it("turns the thread defaults inert with the reason on a device paired Read only", async () => {
     const readOnly = createFakeHostClient({ isReadOnly: () => true });
-    const { page } = renderScreen({ client: readOnly as ReturnType<typeof hostWithFiles>["client"] });
+    const { page } = renderScreen({ client: readOnly as ReturnType<typeof hostWithFiles>["client"], page: "models" });
     await act(async () => undefined);
     const model = within(page).getByRole("button", { name: /No model selected/u }).closest(".settings-row-control");
     expect(model?.hasAttribute("data-inert")).toBe(true);
     expect(model?.getAttribute("data-tooltip")).toMatch(/^Read only/u);
-    expect(within(page).getByText("The model has no thinking levels").closest(".settings-row-control")?.hasAttribute("data-inert")).toBe(true);
+    expect(within(page).getByText("This model does not think in levels").closest(".settings-row-control")?.hasAttribute("data-inert")).toBe(true);
   });
 
   it("offers the scope only on pages that have project rows", async () => {
@@ -172,19 +179,99 @@ describe("the Settings screen", () => {
   });
 });
 
-describe("the extension lists in the section column", () => {
-  it("start folded, open on a click, and open by themselves around the page on screen", () => {
-    const { page } = renderScreen({ extensions: ["Alpha", "Beta"] });
-    const toggle = within(page).getByRole("button", { name: /· 2$/u });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(within(page).queryByRole("button", { name: "Alpha" })).toBeNull();
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(within(page).getByRole("button", { name: "Alpha" })).toBeTruthy();
+describe("the section column", () => {
+  it("groups core's pages with the ones kits add, each where its group says", () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+    registry.activate({ id: "fixture.pages", name: "Pages", activate(context) {
+      context.registerSettingsPage({ id: "look", label: "Look", group: "general", order: 5, Component: () => null });
+      context.registerSettingsPage({ id: "shell", label: "Shell", group: "projects", Component: () => null });
+      context.registerSettingsPage({ id: "loose", label: "Loose", Component: () => null });
+    } });
+    const { page } = renderScreen({ registry });
+    const groups = within(within(page).getByRole("navigation", { name: "Settings sections" })).getAllByRole("group");
+    expect(groups.map((group) => [group.getAttribute("aria-label"), within(group).getAllByRole("button").map((button) => button.textContent)])).toEqual([
+      ["General", ["General", "Look", "Keybindings"]],
+      ["Threads", ["Models", "Pi"]],
+      ["Projects", ["Shell"]],
+      ["Remote", ["Connections"]],
+      ["Extensions", ["All extensions", "Loose"]],
+      ["Diagnostics", ["Inspector"]],
+    ]);
+  });
+
+  it("opens a row a link names, and an extension's page by its older link", async () => {
+    const { page } = renderScreen({ page: "general#setting-show-costs" });
+    await waitFor(() => expect(document.activeElement?.id).toBe("setting-show-costs"));
+    cleanup();
+    const onBeta = renderScreen({ extensions: ["Alpha", "Beta"], page: "beta" });
+    expect(within(onBeta.page).getByRole("heading", { level: 1, name: "Beta" })).toBeTruthy();
+    expect(within(onBeta.page).getByRole("navigation", { name: "Settings breadcrumb" }).textContent).toBe("Settings/Extensions/Beta");
+    expect(within(onBeta.page).getByRole("button", { name: "All extensions" }).getAttribute("aria-current")).toBe("page");
+    expect(page).toBeTruthy();
+  });
+});
+
+const inspection = (overrides: Partial<ExtensionInspection>): ExtensionInspection => ({ versions: { tau: "0.7.6", pi: "1", api: "1.17.0" }, directories: [], packages: [], errors: [], skipped: [], ...overrides });
+
+describe("Settings → Extensions", () => {
+  it("lists every extension with what needs the user first, filters it and opens one", async () => {
+    const client = createFakeHostClient({
+      inspectExtensions: async () => inspection({
+        packages: [
+          { id: "alpha", name: "Alpha", version: "1.0.0", description: "Draws alpha things.", scope: "bundled", directory: "/kits/alpha", desktop: true, host: false, granted: true, permissions: [] },
+          { id: "acme.waiting", name: "Waiting", scope: "global", directory: "/home/.tau/extensions/waiting", desktop: false, host: true, granted: false, permissions: ["network"] },
+        ],
+        errors: [{ path: "/home/.tau/extensions/old/tau-extension.json", message: "acme.old 2.0.0 needs extension API ^9.0.0, this Tau has 1.17.0", id: "acme.old", name: "Old", version: "2.0.0", incompatible: true }],
+      }),
+    });
+    const { page } = renderScreen({ client: client as ReturnType<typeof hostWithFiles>["client"], extensions: ["Alpha", "Beta"], page: "extensions" });
+    const attention = await within(page).findByRole("region", { name: "Needs attention" });
+    expect(within(attention).getAllByRole("listitem").map((row) => row.querySelector("strong")?.textContent)).toEqual(["Old", "Waiting"]);
+    expect(within(attention).getByText(/needs extension API/u)).toBeTruthy();
+    const bundled = within(page).getByRole("region", { name: "Bundled with Tau" });
+    expect(within(bundled).getByText("Draws alpha things.")).toBeTruthy();
+
+    fireEvent.click(within(page).getByRole("radio", { name: /Turned off/u }));
+    expect(within(page).getByText(/None in this list/u)).toBeTruthy();
+    fireEvent.click(within(page).getByRole("radio", { name: /^All/u }));
+    fireEvent.change(within(page).getByRole("searchbox", { name: "Filter extensions" }), { target: { value: "alpha" } });
+    expect(page.querySelectorAll(".extension-row")).toHaveLength(1);
+
+    fireEvent.click(within(page).getByRole("switch", { name: "Turn off Alpha" }));
+    expect(within(page).getByRole("switch", { name: "Turn on Alpha" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(within(page).getByRole("button", { name: /Alpha/u }));
+    expect(within(page).getByRole("heading", { level: 1, name: "Alpha" })).toBeTruthy();
+    expect(within(page).getByRole("heading", { level: 2, name: "Alpha" })).toBeTruthy();
+    expect(within(page).getByText("Bundled with Tau")).toBeTruthy();
+  });
+
+  it("asks for approval on a waiting package's page and says why an incompatible one does not run", async () => {
+    const grantExtension = vi.fn(async () => undefined);
+    const client = createFakeHostClient({
+      grantExtension,
+      inspectExtensions: async () => inspection({
+        packages: [{ id: "acme.waiting", name: "Waiting", scope: "global", directory: "/w", desktop: false, host: true, granted: false, permissions: ["network", "native"], isolation: "worker" }],
+        errors: [{ path: "/o/tau-extension.json", message: "acme.old 2.0.0 needs extension API ^9.0.0, this Tau has 1.17.0", id: "acme.old", name: "Old", incompatible: true }],
+      }),
+    });
+    const { page } = renderScreen({ client: client as ReturnType<typeof hostWithFiles>["client"], page: "extensions/acme.waiting" });
+    expect(await within(page).findByText("Reach the network")).toBeTruthy();
+    expect(within(page).getByText(/loads compiled code into the host process/u)).toBeTruthy();
+    fireEvent.click(within(page).getByRole("button", { name: "Allow and turn on" }));
+    await waitFor(() => expect(grantExtension).toHaveBeenCalledWith("acme.waiting", true));
     cleanup();
 
-    const onBeta = renderScreen({ extensions: ["Alpha", "Beta"], page: "beta" });
-    expect(within(onBeta.page).getByRole("button", { name: /· 2$/u }).getAttribute("aria-expanded")).toBe("true");
-    expect(within(onBeta.page).getByRole("button", { name: "Beta" }).getAttribute("aria-current")).toBe("page");
+    const old = renderScreen({ client: client as ReturnType<typeof hostWithFiles>["client"], page: "extensions/acme.old" });
+    const problem = await within(old.page).findByRole("alert");
+    expect(problem.textContent).toMatch(/does not run on this version of Tau/u);
+    expect(problem.textContent).toMatch(/Update Tau/u);
+    expect(within(old.page).queryByRole("switch")).toBeNull();
+  });
+
+  it("says so when an extension's page names nothing that is there", async () => {
+    const { page } = renderScreen({ client: createFakeHostClient({}) as ReturnType<typeof hostWithFiles>["client"], page: "extensions/gone.away" });
+    expect(await within(page).findByText("This extension is not here any more")).toBeTruthy();
+    fireEvent.click(within(page.querySelector<HTMLElement>(".settings-content")!).getByRole("button", { name: "All extensions" }));
+    expect(within(page).getByRole("heading", { level: 1, name: "Extensions" })).toBeTruthy();
   });
 });

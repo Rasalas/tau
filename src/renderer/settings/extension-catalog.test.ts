@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import type { ExtensionPackageSummary } from "../../shared/contracts";
+import { extensionBlurb, extensionCatalog, filterCounts, matchesFilter, matchesQuery } from "./extension-catalog";
+
+const pkg = (id: string, overrides: Partial<ExtensionPackageSummary> = {}): ExtensionPackageSummary => ({
+  id, name: id, scope: "bundled", directory: `/kits/${id}`, desktop: true, host: false, granted: true, permissions: [], ...overrides,
+});
+
+describe("the extension catalog", () => {
+  const entries = extensionCatalog({
+    summaries: [
+      { id: "tau.terminal", name: "Terminal", active: true, contributes: "terminal · settings page", options: [] },
+      { id: "tau.review", name: "Review Kit", active: false, contributes: "review", options: [] },
+      { id: "tau.runtime", name: "Runtime Controls", active: true, contributes: "commands", options: [], core: true },
+    ],
+    packages: [
+      pkg("tau.terminal", { description: "A shell beside the chat.", version: "1.0.0" }),
+      pkg("tau.review"),
+      pkg("acme.waiting", { scope: "global", granted: false, host: true, desktop: false }),
+      pkg("acme.broken", { scope: "project" }),
+    ],
+    hostHalves: [{ id: "acme.broken", name: "Broken", active: false, commands: [], error: "boom" }],
+    errors: [
+      { path: "/x/tau-extension.json", message: "acme.old needs extension API ^9.0.0", id: "acme.old", name: "Old", incompatible: true },
+      { path: "/y/tau-extension.json", message: "not valid JSON" },
+    ],
+  });
+  const byId = (id: string) => entries.find((entry) => entry.id === id)!;
+
+  it("gives each extension its state from the three sources", () => {
+    expect(byId("tau.terminal")).toMatchObject({ state: "on", origin: "bundled", version: "1.0.0", description: "A shell beside the chat." });
+    expect(byId("tau.review")).toMatchObject({ state: "off", origin: "bundled" });
+    expect(byId("tau.runtime")).toMatchObject({ state: "on", origin: "app", locked: true });
+    expect(byId("acme.waiting")).toMatchObject({ state: "waiting", origin: "installed" });
+    expect(byId("acme.broken")).toMatchObject({ state: "failed", problem: "boom" });
+    expect(byId("acme.old")).toMatchObject({ state: "incompatible", name: "Old", origin: "installed" });
+    // A folder whose manifest named nothing stays the Inspector's.
+    expect(entries).toHaveLength(6);
+  });
+
+  it("filters and counts by source, by off and by what needs attention", () => {
+    expect(filterCounts(entries)).toEqual({ all: 6, bundled: 3, installed: 3, off: 1, attention: 3 });
+    expect(entries.filter((entry) => matchesFilter(entry, "attention")).map((entry) => entry.id)).toEqual(["acme.broken", "acme.waiting", "acme.old"]);
+  });
+
+  it("finds by name, id, description and what it adds", () => {
+    expect(entries.filter((entry) => matchesQuery(entry, "shell chat")).map((entry) => entry.id)).toEqual(["tau.terminal"]);
+    expect(entries.filter((entry) => matchesQuery(entry, "acme.old")).map((entry) => entry.id)).toEqual(["acme.old"]);
+  });
+
+  it("says in one line what an extension is, from its manifest or else from what it adds", () => {
+    expect(extensionBlurb(byId("tau.terminal"))).toBe("A shell beside the chat.");
+    expect(extensionBlurb(byId("tau.review"))).toBe("Adds review.");
+  });
+});

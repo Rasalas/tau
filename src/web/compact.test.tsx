@@ -279,7 +279,7 @@ describe("the web client at 400 px", () => {
     // A main page: the bar is under it and there is no Close.
     expect(within(settings).getByRole("navigation", { name: "Main" })).toBeTruthy();
     expect(within(settings).queryByRole("button", { name: "Close settings" })).toBeNull();
-    fireEvent.click(within(settings).getByRole("button", { name: "About" }));
+    fireEvent.click(within(settings).getByRole("button", { name: /^About Tau/u }));
     expect(settings.dataset.view).toBe("page");
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     fireEvent.click(within(settings).getByRole("button", { name: "All settings" }));
@@ -528,7 +528,7 @@ describe("a phone's home and bottom navigation", () => {
     fireEvent.click(tab("Settings"));
     const settings = await screen.findByRole("dialog", { name: "Settings" });
     await waitFor(() => expect(param("settings")).toBe(""));
-    fireEvent.click(within(settings).getByRole("button", { name: "About" }));
+    fireEvent.click(within(settings).getByRole("button", { name: /^About Tau/u }));
     await waitFor(() => expect(param("settings")).toBe("about"));
     expect(bar()).toBeNull();
     act(() => window.history.back());
