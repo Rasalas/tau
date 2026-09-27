@@ -88,7 +88,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
   {
     page: "keybindings",
     label: "Keybindings",
-    keywords: ["shortcuts", "chords", "keys", "keymap", "keybindings.json"],
+    keywords: ["shortcuts", "chords", "keys", "keymap", "keybindings.json", "rebind", "when clause", "reset keybindings"],
     rows: [],
   },
   {
