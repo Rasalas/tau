@@ -88,11 +88,71 @@ describe("Packages kit", () => {
     const invoke = vi.fn(async (command: string) => (command === "list" ? { packages: [] } : { message: "installed" }));
     const notify = vi.fn();
     render(<PackagesPage cwd="/project" onNotify={notify} host={host(invoke)} inspect={async () => inspection([])} />);
-    fireEvent.change(screen.getByLabelText("Package source"), { target: { value: "./ext/hello" } });
-    fireEvent.click(screen.getByText("This project only"));
-    fireEvent.click(screen.getByText("Install"));
+    const install = screen.getByRole("button", { name: "Install" }) as HTMLButtonElement;
+    expect(install.disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Package source" }), { target: { value: "./ext/hello" } });
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Install for" })).getByRole("radio", { name: "This project only" }));
+    fireEvent.click(install);
     await waitFor(() => expect(notify).toHaveBeenCalledWith("installed"));
     expect(invoke).toHaveBeenCalledWith("install", { source: "./ext/hello", scope: "project" });
+    expect((screen.getByRole("textbox", { name: "Package source" }) as HTMLInputElement).value).toBe("");
+  });
+
+  it("installs on Return, and says under the field why an install failed", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "list") return { packages: [] };
+      throw new Error("npm could not find @acme/nope.");
+    });
+    render(<PackagesPage cwd="/project" onNotify={vi.fn()} host={host(invoke)} inspect={async () => inspection([])} />);
+    expect(await screen.findByText("No package source is installed")).toBeTruthy();
+    const field = screen.getByRole("textbox", { name: "Package source" });
+    fireEvent.change(field, { target: { value: "npm:@acme/nope" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Install a package" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("npm could not find @acme/nope.");
+    expect(invoke).toHaveBeenCalledWith("install", { source: "npm:@acme/nope", scope: "global" });
+    // The source stays for another try; editing it clears the failure.
+    expect((field as HTMLInputElement).value).toBe("npm:@acme/nope");
+    fireEvent.change(field, { target: { value: "npm:@acme/hello" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says when the package list did not load, and reads it again", async () => {
+    let fail = true;
+    const invoke = vi.fn(async (command: string) => {
+      if (command !== "list") return {};
+      if (fail) throw new Error("The host is gone.");
+      return { packages: [] };
+    });
+    render(<PackagesPage cwd="/project" onNotify={vi.fn()} host={host(invoke)} inspect={async () => inspection([])} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("The host is gone.");
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("No package source is installed")).toBeTruthy();
+  });
+
+  it("asks before it removes a package from the list", async () => {
+    const invoke = vi.fn(async (command: string) => (command === "list"
+      ? { packages: [{ source: "npm:@acme/hello", scope: "global", directory: "/x", id: "acme.hello", name: "Hello", signatureLabel: "unsigned" }] }
+      : { message: `${command}d` }));
+    render(<PackagesPage cwd="/project" onNotify={vi.fn()} host={host(invoke)} inspect={async () => inspection([])} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Update Hello" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update", { source: "npm:@acme/hello" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Remove Hello…" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Hello…" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove Hello?" });
+    expect(dialog.textContent).toContain("npm:@acme/hello");
+    expect(invoke).not.toHaveBeenCalledWith("remove", expect.anything());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("remove", { source: "npm:@acme/hello", scope: "global" }));
+  });
+
+  it("draws each row the settings search lists", async () => {
+    const { registry } = createKitHarness(vi.fn(async (_id: string, command: string) => (command === "list" ? { packages: [] } : {})));
+    registry.activate(packagesExtension);
+    const page = registry.getSettingsPages().find((entry) => entry.id === PACKAGES_SETTINGS_PAGE)!;
+    render(<page.Component cwd="/project" onNotify={vi.fn()} />);
+    expect(page.rows?.length).toBe(3);
+    for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 
   it("lists the packages a source installed, and leaves the kits Tau ships to Extensions", async () => {
@@ -115,14 +175,15 @@ describe("Packages kit", () => {
         ])}
       />,
     );
-    const installed = await screen.findByLabelText("Installed packages");
+    await screen.findByRole("heading", { level: 3, name: /^Hello/u });
+    const installed = document.getElementById("setting-packages-installed")!;
     expect(screen.queryByLabelText("Bundled kits")).toBeNull();
     expect(await screen.findByText(/listed under Settings → Extensions/u)).toBeTruthy();
     expect(installed.textContent).toContain("signed by ACME");
     expect(installed.textContent).toContain("signature not trusted");
     expect(installed.textContent).not.toContain("tau.packages");
     // A package still waiting for its grant says so where it is listed.
-    expect(installed.textContent).toContain("waiting for approval");
+    expect(within(installed).getByText("Waiting for approval")).toBeTruthy();
   });
 
   it("names the distribution the shipped kits came in", async () => {

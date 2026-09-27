@@ -1,13 +1,17 @@
 import { Package, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import {
+  Badge,
   Button,
+  ConfirmDialog,
   DangerAction,
   DangerZone,
   SegmentedControl,
   SettingRow,
   SettingsSection,
+  SettingsState,
   errorMessage,
+  tooltipProps,
   type DesktopExtension,
   type ExtensionInspection,
   type HostExtensionClient,
@@ -29,10 +33,20 @@ interface PageServices {
   inspect: Inspect;
 }
 
+/** What the Settings search finds on the Packages page; each id is a row's anchor. */
+export const PACKAGES_ROWS = [
+  { id: "setting-packages-source", label: "Install from a source", keywords: ["install", "npm", "git", "folder", "package", "extension"] },
+  { id: "setting-packages-scope", label: "Install for", keywords: ["global", "project", "every project", "this project only", "local"] },
+  { id: "setting-packages-installed", label: "Installed packages", keywords: ["update", "remove", "uninstall", "sources", "signature"] },
+];
+
+const SOURCE_HELP = "An npm source installs into ~/.tau/npm, a Git source is cloned shallowly into ~/.tau/git, and a folder is loaded where it lies. "
+  + "The sources are listed in ~/.tau/packages.json, or the project's own .tau/packages.json. A package may carry a tau-extension.sig; "
+  + "a file that no longer matches its signed hash refuses to load.";
+
 /**
  * Settings page of `tau.packages`: Pi's install verbs with a form, above the
- * two sets Tau runs — the kits it ships, which need no approval, and the
- * packages a source installed, which do. Installing never activates a package.
+ * packages a source installed. Installing never activates a package.
  */
 export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps & PageServices) {
   const [source, setSource] = useState("");
@@ -41,16 +55,18 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
   const [inspection, setInspection] = useState<ExtensionInspection>();
   const [busy, setBusy] = useState<string>();
   const [log, setLog] = useState<string[]>([]);
-  const [error, setError] = useState<string>();
+  const [listError, setListError] = useState<string>();
+  const [failure, setFailure] = useState<{ verb: string; message: string }>();
+  const [removing, setRemoving] = useState<PackageRow>();
 
   const refresh = useCallback(async () => {
     try {
       const result = await host.invoke("list") as { packages: PackageRow[] };
       setPackages(result.packages);
-      setError(undefined);
-    } catch (failure) {
+      setListError(undefined);
+    } catch (reason) {
       setPackages([]);
-      setError(errorMessage(failure));
+      setListError(errorMessage(reason));
     }
     if (cwd) await inspect(cwd).then(setInspection).catch(() => undefined);
   }, [cwd, host, inspect]);
@@ -70,108 +86,130 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
   const run = async (label: string, command: string, input: unknown) => {
     setBusy(label);
     setLog([]);
-    setError(undefined);
+    setFailure(undefined);
     try {
       const result = await host.invoke(command, input) as PackagesCommandResult;
       onNotify(result.message ?? "Done.");
+      if (label === "install") setSource("");
       await refresh();
-    } catch (failure) {
-      setError(errorMessage(failure));
+    } catch (reason) {
+      setFailure({ verb: label, message: errorMessage(reason) });
     } finally {
       setBusy(undefined);
     }
   };
+  const install = () => { if (source.trim() && !busy) void run("install", "install", { source: source.trim(), scope }); };
 
   const bundled = (inspection?.packages ?? []).filter((entry) => entry.scope === "bundled");
   const summaryOf = (id: string | undefined) => id ? inspection?.packages.find((entry) => entry.id === id) : undefined;
-  // What the package is, in one word: a theme brings only a stylesheet.
-  const kindOf = (id: string | undefined) => summaryOf(id)?.theme ? "Theme" : undefined;
+  const nameOf = (entry: PackageRow) => entry.name ?? entry.id ?? entry.source;
+  const failed = (verb: string) => failure?.verb === verb ? <p className="packages-failure" role="alert">{failure.message}</p> : null;
+  const busyReason = busy ? "Wait until the running install, update or removal ends." : undefined;
 
   return (
-    <div className="settings-page">
+    <div className="settings-page packages-page">
       <h3>Packages</h3>
       <p className="lede">
-        Install extension packages the way Pi does: <code>npm:&lt;package&gt;</code>, <code>git:&lt;url&gt;</code> or a folder on this machine.
-        An install never starts a package: approve its permissions on its own page, and both halves start there and then.
+        Install extension packages the way Pi does. An install never starts a package: approve its permissions on its own page, and both halves start there and then.
       </p>
 
-      <SettingsSection title="Install from a source" plain>
-        <form
-          className="packages-form"
-          onSubmit={(event) => { event.preventDefault(); if (source.trim()) void run("install", "install", { source: source.trim(), scope }); }}
+      <SettingsSection title="Install from a source">
+        <SettingRow
+          id="setting-packages-source"
+          title="Install from a source"
+          description={<><code>npm:&lt;package&gt;</code>, <code>git:&lt;url&gt;</code> or a folder on this machine.</>}
+          help={SOURCE_HELP}
+          status={failed("install")}
+          control={(
+            <form className="packages-form" aria-label="Install a package" onSubmit={(event) => { event.preventDefault(); install(); }}>
+              {/* A plain field: Return installs, which a draft field that writes on Return would not. */}
+              <span className="tau-field-shell" data-width="full">
+                <span className="tau-field" data-invalid={failure?.verb === "install" ? "" : undefined}>
+                  <input
+                    type="text"
+                    data-mono=""
+                    value={source}
+                    placeholder="npm:@acme/hello or /path/to/folder"
+                    aria-label="Package source"
+                    spellCheck={false}
+                    disabled={busy !== undefined}
+                    onChange={(event) => { setSource(event.target.value); if (failure?.verb === "install") setFailure(undefined); }}
+                  />
+                </span>
+              </span>
+              <span {...tooltipProps(!source.trim() && !busy ? "Enter a source to install from." : undefined)}>
+                <Button type="submit" variant="primary" disabled={!source.trim()} busy={busy === "install"}>
+                  {busy === "install" ? "Installing…" : "Install"}
+                </Button>
+              </span>
+            </form>
+          )}
         >
-          <input
-            type="text"
-            value={source}
-            placeholder="npm:@acme/hello, git:https://example.com/acme/hello.git, or /path/to/folder"
-            aria-label="Package source"
-            spellCheck={false}
-            onChange={(event) => setSource(event.target.value)}
-          />
-          <Button type="submit" variant="primary" disabled={!source.trim()} busy={busy !== undefined}>
-            {busy === "install" ? "Installing…" : "Install"}
-          </Button>
-        </form>
-
-        <div className="packages-scope">
-          <SegmentedControl label="Install for" value={scope} options={[{ value: "global", label: "Every project" }, { value: "project", label: "This project only" }]} onChange={(next) => setScope(next === "project" ? "project" : "global")} />
-        </div>
-
-        {log.length > 0 ? (
-          <div className="packages-log" aria-label="Install progress">
-            {log.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
-          </div>
-        ) : null}
+          {log.length > 0 ? (
+            <div className="packages-log" aria-label="Install progress" aria-live="polite">
+              {log.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+            </div>
+          ) : null}
+        </SettingRow>
+        <SettingRow
+          id="setting-packages-scope"
+          title="Install for"
+          description="Every project lists the source in ~/.tau/packages.json, This project only in the project's .tau/packages.json."
+          control={<SegmentedControl label="Install for" value={scope} disabled={busy !== undefined} options={[{ value: "global", label: "Every project" }, { value: "project", label: "This project only" }]} onChange={(next) => setScope(next === "project" ? "project" : "global")} />}
+        />
       </SettingsSection>
 
-      <SettingsSection title="Installed" plain headerAction={
-        <button type="button" className="text-button" disabled={busy !== undefined || !packages?.length} onClick={() => void run("update", "update", {})}>
-          {busy === "update" ? "Updating…" : "Check every source for updates"}
-        </button>
-      }>
-        {packages && packages.length > 0 ? (
-          <table className="inspector-table" aria-label="Installed packages">
-            <thead><tr><th>Package</th><th>Scope</th><th>Signature</th><th>Source</th><th /></tr></thead>
-            <tbody>
-              {packages.map((entry) => {
-                const granted = summaryOf(entry.id)?.granted;
-                const kind = kindOf(entry.id);
-                return (
-                  <tr key={`${entry.scope}:${entry.source}`} data-extension-id={entry.id}>
-                    <td>
-                      <strong>{entry.name ?? entry.id ?? "unreadable package"}{kind ? <em className="package-kind">{kind}</em> : null}</strong>
-                      <small>{entry.id ?? entry.directory}{entry.version ? ` · ${entry.version}` : ""}</small>
-                    </td>
-                    <td>{entry.scope === "global" ? "every project" : "this project"}</td>
-                    <td>{entry.error ?? entry.signatureLabel}</td>
-                    <td><code title={entry.directory}>{entry.source}</code></td>
-                    <td className="packages-actions">
-                      <button type="button" disabled={busy !== undefined} onClick={() => void run("update", "update", { source: entry.source })}>Update</button>
-                      <button type="button" disabled={busy !== undefined} onClick={() => void run("remove", "remove", { source: entry.source, scope: entry.scope })}>Remove</button>
-                      {granted === false ? <small>waiting for approval</small> : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : packages ? (
-          <div className="settings-note">No package source is installed. Packages you copied into the extension folders by hand are listed in the Inspector.</div>
-        ) : (
-          <div className="settings-note">Reading the package list…</div>
-        )}
+      <SettingsSection title="Installed" id="setting-packages-installed" plain={!packages?.length} headerAction={packages?.length ? (
+        <Button variant="ghost" icon={<RefreshCw size={13} />} busy={busy === "update-all"} disabled={busy !== undefined} onClick={() => void run("update-all", "update", {})}>
+          {busy === "update-all" ? "Updating…" : "Check every source for updates"}
+        </Button>
+      ) : undefined}>
+        {listError ? (
+          <SettingsState kind="error" title="The package list did not load" description={listError} onRetry={() => void refresh()} />
+        ) : packages === undefined ? (
+          <SettingsState kind="loading" title="Reading the package list" rows={2} />
+        ) : packages.length === 0 ? (
+          <SettingsState kind="empty" title="No package source is installed" description="Install one above. Packages copied into the extension folders by hand are listed under Settings → Extensions." />
+        ) : packages.map((entry) => {
+          const name = nameOf(entry);
+          const theme = summaryOf(entry.id)?.theme;
+          const waiting = summaryOf(entry.id)?.granted === false;
+          return (
+            <SettingRow
+              key={`${entry.scope}:${entry.source}`}
+              title={<>{name}{theme ? <> <Badge>Theme</Badge></> : null}{waiting ? <> <Badge tone="warn">Waiting for approval</Badge></> : null}</>}
+              description={[entry.id ?? entry.directory, entry.version, entry.scope === "global" ? "every project" : "this project", entry.error ?? entry.signatureLabel].filter(Boolean).join(" · ")}
+              status={<><code className="settings-value" {...tooltipProps(entry.directory, { variant: "code" })}>{entry.source}</code>{failed(`update:${entry.source}`)}{failed(`remove:${entry.source}`)}</>}
+              control={<>
+                <span {...tooltipProps(busy ? busyReason : undefined)}>
+                  <Button aria-label={`Update ${name}`} busy={busy === `update:${entry.source}`} disabled={busy !== undefined} onClick={() => void run(`update:${entry.source}`, "update", { source: entry.source })}>
+                    {busy === `update:${entry.source}` ? "Updating…" : "Update"}
+                  </Button>
+                </span>
+                <span {...tooltipProps(busy ? busyReason : undefined)}>
+                  <Button variant="ghost" aria-label={`Remove ${name}…`} busy={busy === `remove:${entry.source}`} disabled={busy !== undefined} onClick={() => setRemoving(entry)}>Remove…</Button>
+                </span>
+              </>}
+            />
+          );
+        })}
       </SettingsSection>
+      {failed("update-all")}
 
-      <div className="settings-note">
-        The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off, see what it may do and, for a package, update or remove it.
-      </div>
+      <p className="settings-footnote">
+        The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
+      </p>
 
-      {error ? <div className="settings-note" data-level="error">{error}</div> : null}
-      <div className="settings-note">
-        An npm source installs into <code>~/.tau/npm</code>, a Git source is cloned shallowly into <code>~/.tau/git</code>, and a folder path
-        is loaded where it lies. The list of sources is <code>~/.tau/packages.json</code>, or the project's own <code>.tau/packages.json</code>.
-        A package may carry a <code>tau-extension.sig</code>; a file that no longer matches its signed hash refuses to load.
-      </div>
+      {removing ? (
+        <ConfirmDialog
+          title={`Remove ${nameOf(removing)}?`}
+          message={<>{nameOf(removing)} is deleted {removing.scope === "global" ? "for every project" : "from this project"} and its source forgotten. Install it again from <code>{removing.source}</code> to get it back.</>}
+          confirmLabel="Remove"
+          destructive
+          onCancel={() => setRemoving(undefined)}
+          onConfirm={() => { const entry = removing; setRemoving(undefined); void run(`remove:${entry.source}`, "remove", { source: entry.source, scope: entry.scope }); }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -257,6 +295,7 @@ export const packagesExtension: DesktopExtension = {
       profiles: ["desktop", "web"],
       Icon: Package,
       order: 30,
+      rows: PACKAGES_ROWS,
       Component: (props: SettingsPageProps) => (
         <PackagesPage {...props} host={plugin.host} inspect={(cwd) => plugin.inspectPackages(cwd)} />
       ),
