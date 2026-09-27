@@ -17,4 +17,9 @@ describe("panel styles", () => {
     expect(await declarations(".panel")).toMatch(/min-width:\s*0\b/u);
   });
 
+  it("keeps what a kit adds above the review's file list inside the list", async () => {
+    const header = await declarations(".review-list-header");
+    expect(header).toMatch(/min-width:\s*0\b/u);
+    expect(header).toMatch(/overflow:\s*auto/u);
+  });
 });

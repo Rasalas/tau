@@ -1797,6 +1797,12 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .review-sidebar-meta strong { color: var(--muted); font: 500 9.5px var(--mono); }
 .review-sidebar-meta .spacer { flex: 1; }
 .review-sidebar-meta .stat-add, .review-sidebar-meta .stat-del { font-size: 9px; }
+.review-stale { color: var(--muted); font: 9.5px var(--mono); }
+/* What a kit adds above the file list (the branch's pull request); it scrolls before it crowds the files out. */
+.review-list-header { flex: none; min-width: 0; max-height: 50%; overflow: auto; border-bottom: 1px solid var(--line); }
+.review-staging { flex: none; display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 12px; color: var(--faint); font: 9.5px var(--mono); }
+.review-staging .text-button { font-size: 10px; }
+.review-tree-file:hover .changes-tree-actions, .review-tree-file:focus-within .changes-tree-actions { opacity: 1; }
 /* The commit is confirmed where it is read: the message and the one button, under the title bar. */
 .commit-bar {
   flex: none; display: flex; align-items: flex-start; gap: 16px;
