@@ -117,9 +117,6 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
   },
 ];
 
-/** Core pages whose rows carry `settingAnchor(label)` as their element id. */
-const ANCHORED_PAGES = new Set(["general", "models"]);
-
 export interface SettingsSearchSources {
   /** Pages extensions contributed, with the rows they named for the search. */
   pages: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
@@ -136,7 +133,8 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
     for (const [label, keywords] of core.rows) {
       entries.push({
         id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords,
-        ...(ANCHORED_PAGES.has(core.page) ? { target: settingAnchor(label) } : {}),
+        // Each core row carries `settingAnchor(label)` as its element id.
+        target: settingAnchor(label),
       });
     }
   }
