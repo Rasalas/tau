@@ -1,25 +1,37 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Download, GitCommitHorizontal, TerminalSquare, Upload } from "lucide-react";
-import { Menu, tooltipProps, useHostCapabilities, usePreferences, type RegionProps } from "tau";
+import { useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { ChevronDown, Download, Ellipsis, GitCommitHorizontal, TerminalSquare, Upload } from "lucide-react";
+import { Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
-import { ProjectActionsControl } from "./project-actions.js";
+import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./actions.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
+import { titleCollapse, useTitleCollapse, type TitleCollapse } from "./title-collapse.js";
 
 /**
- * The title-bar controls Workspace Kit owns: project actions, "Open in
- * editor", and the Git quick action. Core's title bar only lends the place.
+ * The title-bar controls Workspace Kit owns: project actions, "Open in"
+ * (editors, then external terminals), and the Git quick action. Core's title
+ * bar only lends the place; the row collapses itself to the room it gets.
  */
-export function WorkspaceTitleActions({ actions }: RegionProps) {
+export function WorkspaceTitleActions(props: RegionProps) {
+  const row = useRef<HTMLDivElement>(null);
+  const level = useTitleCollapse(row);
+  return <TitleActionsRow {...props} row={row} collapse={titleCollapse(level)} />;
+}
+
+const EDITOR_PREFIX = "editor:";
+const TERMINAL_PREFIX = "terminal:";
+
+export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
   const workspaceStore = useWorkspaceStore();
   const preferences = usePreferences();
   const state = useWorkspaceKit();
   const { localFiles, readOnly } = useHostCapabilities();
   // Re-render when the editor preference changes.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
-  const [editorMenu, setEditorMenu] = useState(false);
-  const [terminalMenu, setTerminalMenu] = useState(false);
+  const [openMenu, setOpenMenu] = useState(false);
   const [gitMenu, setGitMenu] = useState(false);
+  const [moreMenu, setMoreMenu] = useState(false);
+  const projectActions = useProjectActions(state.workspaceId ?? state.cwd, (command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name));
   const activeEditor = workspaceStore.activeEditor();
   const activeTerminal = workspaceStore.activeTerminal();
   const gitAction = useMemo(
@@ -32,110 +44,100 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
     if (kind === "pull") void workspaceStore.pull();
     if (kind === "push") void workspaceStore.push();
   };
-  void actions;
   const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
-  const terminalTip = tooltipProps(activeTerminal ? `Open in ${activeTerminal.name}` : "No supported terminal found", { side: "bottom", ...(activeTerminal ? { shortcut: mac ? "⌘J" : "Ctrl+J" } : {}) });
+
+  // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
+  const showActions = !readOnly;
+  const showOpen = localFiles && (state.editors.length > 0 || state.terminals.length > 0);
+  const openSections: MenuSection[] = [
+    ...(state.editors.length > 0 ? [{
+      heading: "Open in",
+      items: state.editors.map((editor) => ({
+        id: `${EDITOR_PREFIX}${editor.id}`,
+        label: editor.name,
+        selected: editor.id === activeEditor?.id,
+        icon: <EditorIcon editorId={editor.id} className="menu-editor-icon" />,
+      })),
+    }] : []),
+    ...(state.terminals.length > 0 ? [{
+      heading: "Terminal",
+      items: state.terminals.map((terminal) => ({
+        id: `${TERMINAL_PREFIX}${terminal.id}`,
+        label: terminal.name,
+        selected: terminal.id === activeTerminal?.id,
+        icon: <TerminalSquare size={13} />,
+      })),
+    }] : []),
+  ];
+  const pickOpen = (id: string) => {
+    if (id.startsWith(EDITOR_PREFIX)) {
+      const editor = id.slice(EDITOR_PREFIX.length);
+      workspaceStore.chooseEditor(editor);
+      void workspaceStore.openInEditor(undefined, editor);
+    } else if (id.startsWith(TERMINAL_PREFIX)) {
+      const terminal = id.slice(TERMINAL_PREFIX.length);
+      workspaceStore.chooseTerminal(terminal);
+      void workspaceStore.openTerminal(terminal);
+    }
+  };
+  const moreSections: MenuSection[] = [
+    ...(showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : []),
+    ...(showOpen && collapse.editor === "overflow" ? openSections : []),
+  ];
+  const gitIcon = gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />;
 
   return (
-    <>
-      {/* A Read-only device runs nothing and changes no branch (ADR 0024); both are left out. */}
-      {readOnly ? null : <ProjectActionsControl cwd={state.workspaceId ?? state.cwd} onRun={(command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name)} />}
+    <div ref={row} className="workspace-title-actions">
+      {showActions && collapse.actions !== "overflow" ? <ProjectActionsControl state={projectActions} iconOnly={collapse.actions === "icon"} /> : null}
 
-      {localFiles ? <div className="menu-anchor">
+      {showOpen && collapse.editor !== "overflow" ? <div className="menu-anchor">
         <div className="chrome-group" aria-label="Open in editor">
           <button
             className="chrome-button split-main"
             disabled={!activeEditor}
+            aria-label="Open"
             {...tooltipProps(activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH", { side: "bottom", ...(activeEditor ? { shortcut: mac ? "⌘O" : "Ctrl+O" } : {}) })}
             onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
           >
             <EditorIcon editorId={activeEditor?.id} className="editor-icon" />
-            Open
+            {collapse.editor === "label" ? <span>Open</span> : null}
           </button>
           <button
             className="chrome-button split-trigger"
-            disabled={state.editors.length === 0}
             aria-label="Choose editor"
-            onClick={() => setEditorMenu(true)}
+            onClick={() => setOpenMenu(true)}
           >
             <ChevronDown size={13} />
           </button>
         </div>
-        {editorMenu ? (
-          <Menu
-            align="right"
-            heading="Open in"
-            items={state.editors.map((editor) => ({
-              id: editor.id,
-              label: editor.name,
-              selected: editor.id === activeEditor?.id,
-              icon: <EditorIcon editorId={editor.id} className="menu-editor-icon" />,
-            }))}
-            onSelect={(id) => { workspaceStore.chooseEditor(id); void workspaceStore.openInEditor(undefined, id); }}
-            onClose={() => setEditorMenu(false)}
-          />
-        ) : null}
+        {openMenu ? <Menu align="right" sections={openSections} label="Open in" onSelect={pickOpen} onClose={() => setOpenMenu(false)} /> : null}
       </div> : null}
 
-      {localFiles ? (
-        <div className="menu-anchor">
-          {state.terminals.length > 1 ? (
-            <div className="chrome-group" aria-label="Open in terminal">
-              <button
-                className="chrome-button split-main"
-                disabled={!activeTerminal}
-                aria-label="Open in terminal"
-                {...terminalTip}
-                onClick={() => void workspaceStore.openTerminal()}
-              >
-                <TerminalSquare size={13} />
-              </button>
-              <button
-                className="chrome-button split-trigger"
-                aria-label="Choose terminal"
-                onClick={() => setTerminalMenu(true)}
-              >
-                <ChevronDown size={13} />
-              </button>
-            </div>
-          ) : (
-            <button
-              className="chrome-button"
-              disabled={!activeTerminal}
-              aria-label="Open in terminal"
-              {...terminalTip}
-              onClick={() => void workspaceStore.openTerminal()}
-            >
-              <TerminalSquare size={13} />
-            </button>
-          )}
-          {terminalMenu ? (
-            <Menu
-              align="right"
-              heading="Terminal"
-              items={state.terminals.map((terminal) => ({
-                id: terminal.id,
-                label: terminal.name,
-                selected: terminal.id === activeTerminal?.id,
-                icon: <TerminalSquare size={13} />,
-              }))}
-              onSelect={(id) => { workspaceStore.chooseTerminal(id); void workspaceStore.openTerminal(id); }}
-              onClose={() => setTerminalMenu(false)}
-            />
-          ) : null}
-        </div>
-      ) : null}
+      {moreSections.length > 0 || (projectActions.editing && collapse.actions === "overflow") ? <div className="menu-anchor">
+        <button className="chrome-button title-more" aria-label="More actions" {...tooltipProps("More actions", { side: "bottom" })} onClick={() => setMoreMenu(true)}>
+          <Ellipsis size={14} />
+        </button>
+        {moreMenu ? <Menu
+          align="right"
+          sections={moreSections}
+          label="More actions"
+          onSelect={(id) => { if (!pickProjectAction(projectActions, id)) pickOpen(id); }}
+          onClose={() => setMoreMenu(false)}
+        /> : null}
+        {projectActions.editing && collapse.actions === "overflow" ? <ProjectActionEditor state={projectActions} /> : null}
+      </div> : null}
 
       {readOnly ? null : <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">
           <button
             className="chrome-button accent split-main"
             disabled={gitAction.disabled}
-            {...tooltipProps(gitAction.hint, { side: "bottom" })}
+            aria-label={gitAction.label}
+            {...tooltipProps(collapse.git === "icon" ? `${gitAction.label}: ${gitAction.hint}` : gitAction.hint, { side: "bottom" })}
             onClick={() => runGitAction(gitAction.kind)}
           >
-            {gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />}
-            {gitAction.label}
+            {gitIcon}
+            {collapse.git === "label" ? <span>{gitAction.label}</span> : null}
           </button>
           <button
             className="chrome-button accent split-trigger"
@@ -183,6 +185,6 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
           />
         ) : null}
       </div>}
-    </>
+    </div>
   );
 }

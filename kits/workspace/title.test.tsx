@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions, WorkspaceInfo } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -13,7 +13,8 @@ import {
 } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
-import { WorkspaceTitleActions } from "./title.js";
+import { TitleActionsRow, WorkspaceTitleActions } from "./title.js";
+import { MAX_TITLE_COLLAPSE, titleCollapse, TITLE_COLLAPSE_STEPS } from "./title-collapse.js";
 import { WorkspaceStore } from "./store.js";
 
 const dirty = {
@@ -26,10 +27,12 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
   return { root: "/project", isRepo: true, isDirty: true, branch: "main", worktrees: [], refs: [], worktreeParent: "/worktrees", ...patch };
 }
 
-function setup(info = workspace(), draftPending = false, localFiles = true) {
+function setup(info = workspace(), draftPending = false, localFiles = true, level?: number) {
   const preferences = new PreferencesStore();
   const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(async () => undefined));
-  const TitleActions = withWorkspaceStore(workspaceStore, WorkspaceTitleActions);
+  const TitleActions = level === undefined
+    ? withWorkspaceStore(workspaceStore, WorkspaceTitleActions)
+    : withWorkspaceStore(workspaceStore, (props: { actions: WorkbenchActions }) => <TitleActionsRow {...props} collapse={titleCollapse(level)} />);
   workspaceStore.update({
     cwd: "/project",
     draftPending,
@@ -88,13 +91,80 @@ describe("Workspace Kit title actions", () => {
     expect(screen.getByRole("button", { name: "Commit" })).toBeTruthy();
   });
 
-  it("opens the preferred terminal and opens a selected terminal from the split menu", () => {
+  it("opens an external terminal from the Open menu instead of a button of its own", () => {
     const { openTerminal } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
-    expect(openTerminal).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Choose terminal" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Terminal" }));
+    // The built-in terminal has the dock's button; the bar keeps no second one.
+    expect(screen.queryByRole("button", { name: "Open in terminal" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Choose editor" }));
+    const menu = screen.getByRole("menu", { name: "Open in" });
+    // The section's heading, and the macOS app of that name.
+    expect(within(menu).getAllByText("Terminal")).toHaveLength(2);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Terminal" }));
     expect(openTerminal).toHaveBeenCalledWith("terminal");
+  });
+
+  it("folds labels first, then the least used actions into More, and the Git action's label last", () => {
+    expect(TITLE_COLLAPSE_STEPS[0]).toEqual({ editor: "label", actions: "label", git: "label" });
+    // Each step takes one more thing away and gives nothing back.
+    const rank = { label: 0, icon: 1, overflow: 2 } as const;
+    for (let level = 1; level <= MAX_TITLE_COLLAPSE; level += 1) {
+      const before = titleCollapse(level - 1);
+      const after = titleCollapse(level);
+      const moved = (["editor", "actions", "git"] as const).filter((item) => rank[after[item]] !== rank[before[item]]);
+      expect(moved).toHaveLength(1);
+      expect(rank[after[moved[0]!]]).toBeGreaterThan(rank[before[moved[0]!]]);
+    }
+    // The Git action keeps its words longest and never leaves the bar.
+    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.git === "icon")).toBe(MAX_TITLE_COLLAPSE);
+    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.actions === "overflow")).toBeLessThan(TITLE_COLLAPSE_STEPS.findIndex((step) => step.editor === "overflow"));
+    expect(titleCollapse(99)).toEqual(titleCollapse(MAX_TITLE_COLLAPSE));
+  });
+
+  it("keeps every action reachable at the tightest fold, through More", () => {
+    const { openInEditor, openReview } = setup(workspace(), false, true, MAX_TITLE_COLLAPSE);
+    expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    // The Git action is an icon now; its name stays its accessible name.
+    const commit = screen.getByRole("button", { name: "Commit" });
+    expect(commit.textContent).toBe("");
+    fireEvent.click(commit);
+    expect(openReview).toHaveBeenCalledWith(undefined, false);
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    const menu = screen.getByRole("menu", { name: "More actions" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(expect.arrayContaining([
+      expect.stringContaining("Add action"), expect.stringContaining("VS Code"), expect.stringContaining("Zed"), expect.stringContaining("Ghostty"),
+    ]));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Zed" }));
+    expect(openInEditor).toHaveBeenCalledWith(undefined, "zed");
+
+    // Adding an action from More opens the same form.
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "More actions" })).getByRole("menuitem", { name: /Add action/u }));
+    expect(screen.getByPlaceholderText("!! npm test")).toBeTruthy();
+  });
+
+  it("folds one step at a time until its row fits the room the title bar gives it", () => {
+    // jsdom lays nothing out: every control is 120 px wide and the row gets 300.
+    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("workspace-title-actions") ? 300 : 0;
+    });
+    setup();
+    // Three controls (376 px with gaps) do not fit until "Open in" joins the actions under More: two do (248 px).
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
+    expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Commit" }).textContent).toBe("Commit");
+  });
+
+  it("drops the labels of Open and the project actions before anything leaves the bar", () => {
+    setup(workspace(), false, true, 2);
+    expect(screen.getByRole("button", { name: "Open" }).textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Add action" }).textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Commit" }).textContent).toBe("Commit");
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
   });
 
   it("chooses commit versus commit and push from upstream state", () => {
