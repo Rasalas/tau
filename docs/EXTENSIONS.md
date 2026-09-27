@@ -993,6 +993,14 @@ approval with each permission in plain words, a failure with the next step,
 the options it declared and links to the pages it adds, what it may do and how
 it is isolated, and its version, source, signature and id.
 
+On and off is the host's choice, not a device's: the switch writes
+`disabledExtensions` in the host's config, and every client connected to that
+host follows it at once. The host pushes `config-changed` after each write,
+each client stops or starts its desktop half (`deactivate` and `activate` run
+as they do for a switch on that device), and the host starts and stops its own
+halves too, including on its next start. The list shows that choice on every
+device; a Read-only device shows it with the switches disabled.
+
 A page is built from the same pieces core builds its own with, all on `tau`:
 
 | Export | What it is |
