@@ -67,19 +67,36 @@ function moduleName(request: string): string {
 
 // Taken before any guard replaces them; only this module holds the originals.
 const getBuiltin = process.getBuiltinModule.bind(process);
-let sqliteGuarded = false;
 
-/** A SQLite extension is a shared library the database opens with dlopen. */
-function guardSqlite(): void {
-  if (sqliteGuarded || granted.has("native")) return;
-  sqliteGuarded = true;
-  const database = (getBuiltin("node:sqlite") as { DatabaseSync?: { prototype: object } } | undefined)?.DatabaseSync;
-  if (!database) return;
-  Object.defineProperty(database.prototype, "loadExtension", {
-    value: function loadExtension(path: unknown): never { return denyPermission("native", `DatabaseSync.loadExtension("${String(path)}")`); },
-    writable: false,
-    configurable: false,
-  });
+/**
+ * Members of a builtin that reach compiled code, replaced the first time the
+ * module is asked for (loading `node:v8` up front moved the memory-limit tests).
+ * The ESM view of a builtin copies its exports when first imported, which is after this.
+ */
+const NATIVE_MEMBERS: Record<string, (module: Record<string, unknown>) => void> = {
+  // A SQLite extension is a shared library the database opens with dlopen.
+  sqlite: (sqlite) => {
+    const database = sqlite.DatabaseSync as { prototype: object } | undefined;
+    if (!database) return;
+    Object.defineProperty(database.prototype, "loadExtension", {
+      value: function loadExtension(path: unknown): never { return denyPermission("native", `DatabaseSync.loadExtension("${String(path)}")`); },
+      writable: false,
+      configurable: false,
+    });
+  },
+  // Process-wide, and `--allow-natives-syntax` alone is enough to abort the host.
+  v8: (v8) => { v8.setFlagsFromString = (): never => denyPermission("native", "v8.setFlagsFromString"); },
+};
+const nativeGuarded = new Set<string>();
+
+function guardNativeMembers(request: string, name: string): void {
+  const guard = NATIVE_MEMBERS[name];
+  if (!guard || granted.has("native") || nativeGuarded.has(name)) return;
+  // `sqlite` without the prefix is an npm package, not the builtin.
+  if (name === "sqlite" && !request.startsWith("node:")) return;
+  nativeGuarded.add(name);
+  const module = getBuiltin(`node:${name}`) as Record<string, unknown> | undefined;
+  if (module) guard(module);
 }
 
 /**
@@ -95,7 +112,7 @@ function refuse(request: string, what: string): void {
   const prefixed = request.startsWith("node:");
   if (!granted.has("network") && NETWORK_MODULES.has(name)) denyPermission("network", what);
   if (!granted.has("process") && (PROCESS_MODULES.has(name) || (prefixed && PREFIXED_PROCESS_MODULES.has(name)))) denyPermission("process", what);
-  if (prefixed && name === "sqlite") guardSqlite();
+  guardNativeMembers(request, name);
   if (name === "worker_threads" && !(granted.has("network") && granted.has("process") && granted.has("native"))) {
     deny(
       `Extension ${boot.id} may not start a worker thread: a nested worker runs outside the guards its grant is enforced by. Declare "isolation": "in-process" in its manifest if it needs one.`,
@@ -150,9 +167,6 @@ if (!granted.has("native")) {
   // The raw handles behind the socket, process and Electron modules.
   internals.binding = (name: unknown): never => refuseNative(`process.binding("${String(name)}")`);
   internals._linkedBinding = (name: unknown): never => refuseNative(`process._linkedBinding("${String(name)}")`);
-  // Process-wide, and `--allow-natives-syntax` alone is enough to abort the host.
-  const v8 = getBuiltin("node:v8") as Record<string, unknown>;
-  v8.setFlagsFromString = (): never => refuseNative("v8.setFlagsFromString");
 }
 /* eslint-enable no-underscore-dangle */
 

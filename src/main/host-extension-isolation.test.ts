@@ -170,6 +170,7 @@ export default {
     });
     context.registerCommand("binding", () => typeof process.binding("spawn_sync").spawn);
     context.registerCommand("linked-binding", () => typeof process._linkedBinding("electron_common_v8_util"));
+    context.registerCommand("import-v8-flags", async () => { (await import("node:v8")).setFlagsFromString("--allow-natives-syntax"); return "set"; });
     context.registerCommand("v8-flags", () => { require("node:v8").setFlagsFromString("--allow-natives-syntax"); return "set"; });
     context.registerCommand("builtin-spawn", () => typeof process.getBuiltinModule("node:child_process").spawn);
     context.registerCommand("builtin-http", () => typeof process.getBuiltinModule("http").request);
@@ -808,6 +809,8 @@ describe("isolated host extensions", () => {
           ["sqlite-extension", { path }, `DatabaseSync.loadExtension("${path}")`],
           ["binding", undefined, 'process.binding("spawn_sync")'],
           ["linked-binding", undefined, 'process._linkedBinding("electron_common_v8_util")'],
+          // Before the require, so the import is what loads the module.
+          ["import-v8-flags", undefined, "v8.setFlagsFromString"],
           ["v8-flags", undefined, "v8.setFlagsFromString"],
         ];
         for (const [command, input] of calls) {
