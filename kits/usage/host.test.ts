@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { assistantLine, DAY, writeSession } from "./fixtures.js";
-import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, SCAN_MAX_AGE_MS } from "./host.js";
+import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readDays, SCAN_MAX_AGE_MS } from "./host.js";
 import type { UsageLimitsSummary, UsageSummary } from "./protocol.js";
 
 const directories: string[] = [];
@@ -112,6 +112,20 @@ describe("Usage host half", () => {
     expect(asked).toEqual([expect.objectContaining({ provider: "openai-codex", model: "gpt-5.6-luna", totalTokens: 110, turns: 1 })]);
     expect(result.rows[0]).toMatchObject({ billing: "subscription", costUsd: 0, apiValueUsd: 0.12 });
     expect(result.totals).toMatchObject({ costUsd: 0, subscription: { apiValueUsd: 0.12, totalTokens: 110 } });
+
+    // Split by the client's days, each entry is priced too.
+    asked.length = 0;
+    const byDay = await registry.invoke("tau.usage", "summary", { since: NOW - DAY, days: [NOW - DAY, NOW - 10_000] }) as UsageSummary;
+    expect(asked).toHaveLength(2);
+    expect(byDay.entries).toEqual([expect.objectContaining({ day: 1, threadId: "s1", billing: "subscription", costUsd: 0, apiValueUsd: 0.12, totalTokens: 110 })]);
+  });
+
+  it("takes only ascending day starts from a client", () => {
+    expect(readDays([1, 2, 3])).toEqual([1, 2, 3]);
+    expect(readDays([2, 1])).toBeUndefined();
+    expect(readDays([1, "2"])).toBeUndefined();
+    expect(readDays([])).toBeUndefined();
+    expect(readDays(Array.from({ length: 400 }, (_, index) => index + 1))).toBeUndefined();
   });
 
   it("asks every kit that reports limits, keeps what it answered a while, and says which could not be asked", async () => {
