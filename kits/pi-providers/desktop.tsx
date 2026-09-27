@@ -1,9 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, CircleCheck, Search } from "lucide-react";
-import { SIGN_IN_EVENT, loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type SettingsPageProps, type SignInEvent, type WorkbenchActions } from "tau";
+import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { Button, HelpTip, ProviderIconStack, SIGN_IN_EVENT, SettingRow, SettingsState, loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type SettingsPageProps, type SignInEvent, type WorkbenchActions } from "tau";
 import { PI_PROVIDERS_EXTENSION_ID, PI_PROVIDERS_PAGE, PROVIDERS_COMMAND, type PiProviderView } from "./protocol.js";
 
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
+const CardBadge = lazy(() => loadSignInUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
 
 function useShellActions(): WorkbenchActions | undefined {
   try {
@@ -31,16 +32,40 @@ export function setUpBy(provider: PiProviderView): string {
   return provider.label ?? "Set up";
 }
 
+/** The element id of the list, which the search opens. */
+export const LIST_ROW = "setting-pi-providers";
+
+/** The element id of one provider's row. */
+export function providerRowId(provider: PiProviderView): string {
+  return `setting-pi-providers-${provider.id.replace(/[^a-z0-9-]+/giu, "-")}`;
+}
+
+/** One provider: its name and how it is set up or could be, opening into the account rows core draws. */
 function ProviderRow({ provider, open, onToggle, children }: { provider: PiProviderView; open: boolean; onToggle(): void; children?: ReactNode }) {
+  const verb = provider.configured ? "Manage" : "Set up";
   return (
-    <div className="pi-provider" data-open={open || undefined}>
-      <button type="button" className="pi-provider-row" aria-expanded={open} onClick={onToggle}>
-        {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
-        <strong>{provider.name}</strong>
-        <small>{provider.configured ? setUpBy(provider) : waysIn(provider)}</small>
-        {provider.configured ? <CircleCheck size={13} className="accent" aria-label="Set up" /> : null}
-      </button>
-      {open ? <div className="pi-provider-body">{children}</div> : null}
+    <SettingRow
+      id={providerRowId(provider)}
+      title={<><span className="pi-provider-mark" aria-hidden><ProviderIconStack modelProvider={provider.id} hint={false} /></span>{provider.name}</>}
+      description={provider.configured ? setUpBy(provider) : waysIn(provider)}
+      control={
+        <Button variant="ghost" aria-expanded={open} aria-label={`${verb} ${provider.name}`} icon={open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />} onClick={onToggle}>
+          {verb}
+        </Button>
+      }
+    >
+      {open ? <div className="pi-provider-detail">{children}</div> : null}
+    </SettingRow>
+  );
+}
+
+/** A group's heading inside the card: its name, how many, and what the user should know about it. */
+function GroupHead({ title, count, help }: { title: string; count: number; help?: string }) {
+  return (
+    <div className="pi-provider-group">
+      <h4>{title}</h4>
+      <small>{count}</small>
+      {help ? <HelpTip text={help} label={`About ${title}`} /> : null}
     </div>
   );
 }
@@ -58,9 +83,9 @@ export function PiProvidersCard({ host, onNotify }: SettingsPageProps & { host: 
   const actions = useShellActions();
 
   const load = useCallback(async () => {
+    setError(undefined);
     try {
       setProviders(await host.invoke(PROVIDERS_COMMAND) as PiProviderView[]);
-      setError(undefined);
     } catch (failure) {
       setError(errorMessage(failure));
     }
@@ -73,44 +98,51 @@ export function PiProvidersCard({ host, onNotify }: SettingsPageProps & { host: 
   const shown = useMemo(() => (providers ?? []).filter((provider) => !query || provider.name.toLowerCase().includes(query) || provider.id.includes(query)), [providers, query]);
   const setUp = shown.filter((provider) => provider.configured);
   const others = shown.filter((provider) => !provider.configured && (provider.oauth || provider.apiKey?.interactive));
+  const configured = (providers ?? []).filter((provider) => provider.configured).length;
 
   const row = (provider: PiProviderView) => (
     <ProviderRow key={provider.id} provider={provider} open={open === provider.id} onToggle={() => setOpen(open === provider.id ? undefined : provider.id)}>
-      <Suspense fallback={null}>
-        <SignIn
-          host={host}
-          target={provider.id}
-          program={provider.name}
-          showAccount
-          openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
-          copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
-          onNotify={onNotify}
-        />
-      </Suspense>
+      <SignIn
+        host={host}
+        target={provider.id}
+        program={provider.name}
+        showAccount
+        cardBadge={false}
+        openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
+        copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
+        onNotify={onNotify}
+      />
     </ProviderRow>
   );
 
+  if (error && !providers) {
+    return <SettingsState kind="error" title="Pi's providers did not load" description={error} onRetry={() => void load()} />;
+  }
+  if (!providers) return <SettingsState kind="loading" rows={4} title="Asking Pi for its providers" />;
   return (
-    <>
-      <p className="settings-note">
-        Pi reaches a model through the providers set up here or in your environment. A sign-in or a key goes to Pi's
-        own <code>auth.json</code>, as Pi's <code>/login</code> does; Tau stores none.
-      </p>
-      {error ? <p className="settings-note" data-level="error" role="alert">{error}</p> : null}
-      {!providers && !error ? <p className="settings-note">Asking Pi for its providers…</p> : null}
-      {providers ? (
-        <>
-          <label className="settings-filter pi-provider-filter">
-            <Search size={13} aria-hidden />
-            <input aria-label="Filter Pi's providers" placeholder="Filter providers" value={filter} onChange={(event) => setFilter(event.target.value)} />
-          </label>
-          <div className="settings-label">Set up ({setUp.length})</div>
-          {setUp.length ? <div className="pi-provider-list">{setUp.map(row)}</div> : <p className="pi-provider-empty">{query ? "None matches." : "None yet: sign in to one below or set its key in your environment."}</p>}
-          <div className="settings-label">Sign in or add a key ({others.length})</div>
-          {others.length ? <div className="pi-provider-list">{others.map(row)}</div> : <p className="pi-provider-empty">{query ? "None matches." : "Every provider is set up."}</p>}
-        </>
+    <Suspense fallback={<SettingsState kind="loading" rows={4} title="Loading Pi's providers" />}>
+      <CardBadge source="program" badge={configured ? { label: `${configured} set up`, tone: "success" } : { label: "None set up", tone: "warn" }} />
+      <div className="pi-provider-filter" id={LIST_ROW} tabIndex={-1}>
+        <label className="settings-filter">
+          <Search size={14} aria-hidden />
+          <input type="search" aria-label="Filter Pi's providers" placeholder="Filter providers" value={filter} spellCheck={false} onChange={(event) => setFilter(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }} />
+          {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
+        </label>
+        {error ? <p className="pi-provider-error" role="alert">{error}</p> : null}
+      </div>
+      {query && setUp.length === 0 && others.length === 0 ? (
+        <SettingsState kind="empty" title={`No provider matches “${filter.trim()}”`} action={<Button onClick={() => setFilter("")}>Show all providers</Button>} />
       ) : null}
-    </>
+      {!query || setUp.length ? <GroupHead title="Set up" count={setUp.length} help="A sign-in or a key goes to Pi's own auth.json, as Pi's /login does; Tau stores none. A key in your environment counts as set up too." /> : null}
+      {setUp.map(row)}
+      {!query && setUp.length === 0 ? (
+        <SettingsState kind="empty" title="No provider set up yet" description="Sign in to one below, or set its key in your environment and check again." action={<Button onClick={() => void load()}>Check again</Button>} />
+      ) : null}
+      {!query || others.length ? <GroupHead title="Sign in or add a key" count={others.length} /> : null}
+      {others.map(row)}
+      {!query && others.length === 0 ? <SettingsState kind="empty" title="Every provider is set up" /> : null}
+    </Suspense>
   );
 }
 
@@ -126,6 +158,7 @@ export const piProvidersExtension: DesktopExtension = {
       runtime: "pi",
       order: 0,
       keywords: ["pi", "login", "sign in", "api key", "provider", "anthropic", "openai", "google", "openrouter"],
+      rows: [{ id: LIST_ROW, label: "Pi's model providers", keywords: ["login", "sign in", "api key", "auth.json", "anthropic", "openai", "google", "openrouter"] }],
       Component: (props: SettingsPageProps) => <PiProvidersCard {...props} host={plugin.host} />,
     });
   },

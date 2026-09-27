@@ -1,16 +1,11 @@
-/* Pi's providers as rows that open into the account rows core draws. */
-.pi-provider-filter { max-width: 460px; margin-top: 12px; }
-.pi-provider-list { display: flex; flex-direction: column; max-width: 460px; border: 1px solid var(--line-control); border-radius: 9px; overflow: hidden; }
-.pi-provider + .pi-provider { border-top: 1px solid var(--line-control); }
-.pi-provider-row {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px;
-  border: 0; background: var(--sunken); color: var(--ink); font: 12.5px var(--sans); text-align: left; cursor: pointer;
-}
-.pi-provider-row:hover { background: var(--raised); }
-.pi-provider-row > svg:first-child { flex: none; color: var(--faint); }
-.pi-provider-row > strong { font-weight: 600; }
-.pi-provider-row > small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: 11px var(--sans); text-align: right; }
-.pi-provider-row > .accent { flex: none; color: var(--acid-text); }
-.pi-provider-body { padding: 2px 12px 12px; background: var(--stage); }
-.pi-provider-body .settings-label:first-child { margin-top: 10px; }
-.pi-provider-empty { max-width: 460px; margin: 0; color: var(--faint); font-size: 12px; }
+/* Pi's providers inside its Providers card: a filter, two groups, rows that open into the account rows core draws. */
+.pi-provider-filter { padding: var(--space-5) var(--space-6); outline: none; }
+.pi-provider-filter > .settings-filter { height: var(--control-h); }
+.pi-provider-error { margin: var(--space-3) 0 0; color: var(--danger); font: 12.5px/1.45 var(--sans); }
+.pi-provider-group { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-6) var(--space-6) var(--space-2); }
+.pi-provider-group > h4 { margin: 0; font: 500 12.5px var(--sans); color: var(--ink-3); }
+.pi-provider-group > small { font: 12px var(--sans); color: var(--faint); }
+.pi-provider-mark { display: inline-flex; margin-right: 8px; vertical-align: -2px; }
+.pi-provider-mark:empty { display: none; }
+.pi-provider-detail { margin-top: var(--space-4); border: 1px solid var(--line-inset); border-radius: var(--radius-md); overflow: hidden; }
+.pi-provider-detail > * + * { border-top: 1px solid var(--line-inset); }
