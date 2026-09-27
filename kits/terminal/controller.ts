@@ -38,6 +38,19 @@ export function targetShell(): string | undefined {
   return typing && session(typing) ? typing : focusedPane(terminalStore.getSnapshot().layout);
 }
 
+/** Along the longer side: a shell taller than it is wide splits into top and bottom. */
+export function splitDirectionFor(width: number, height: number): SplitDirection {
+  return height > width ? "down" : "right";
+}
+
+/** The direction a split of this shell takes by default, read from where it is drawn now. */
+export function naturalSplit(target: string | undefined): SplitDirection {
+  if (!target || typeof document === "undefined") return "right";
+  const views = document.querySelectorAll<HTMLElement>(`[data-terminal-id="${CSS.escape(target)}"]`);
+  const shown = [...views].map((view) => (view.closest(".terminal-pane") ?? view).getBoundingClientRect()).find((rect) => rect.width > 0 && rect.height > 0);
+  return shown ? splitDirectionFor(shown.width, shown.height) : "right";
+}
+
 /** Where a new shell belongs: beside the one it splits, in the directory that one is in now, or with the thread on screen. */
 function placeFor(actions: TerminalRunActions | undefined, beside?: UiTerminalSession): { workspaceId?: string; sessionId?: string; from?: string } {
   if (beside) return { ...(beside.workspaceId ? { workspaceId: beside.workspaceId } : {}), ...(beside.sessionId ? { sessionId: beside.sessionId } : {}), from: beside.id };

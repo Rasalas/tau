@@ -11,5 +11,11 @@
 .event-stream { flex: 1; min-height: 0; overflow: auto; padding: 8px 6px; }
 .event-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 10px; font: 11px var(--mono); }
 .event-row time { color: var(--fainter); flex: none; }
-.event-row strong { color: var(--ink-2); font-weight: 500; }
+.event-row strong { flex: none; color: var(--ink-2); font-weight: 500; white-space: nowrap; }
 .event-row span { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Signals is a Settings page: the stream scrolls with the page instead of filling a panel. */
+.signals-page { display: flex; flex-direction: column; gap: 12px; }
+.signals-note { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--muted); font-size: 12px; }
+.signals-page .state-grid { border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.signals-page .event-stream { max-height: 60vh; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--rail); }

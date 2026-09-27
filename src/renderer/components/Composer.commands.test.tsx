@@ -188,7 +188,8 @@ describe("Composer command menu", () => {
 
     const stack = container.querySelector(".composer-surface");
     expect(Array.from(stack?.children ?? []).slice(0, 2).map((element) => element.classList[0]))
-      .toEqual(["extension-prompt", "composer-frame"]);
+      .toEqual(["prompt-arrival", "composer-frame"]);
+    expect(stack?.querySelector(".prompt-arrival > .extension-prompt")).not.toBeNull();
   });
 
   it("keeps the slash menu closed for a token after Escape, and opens it for the next one", () => {

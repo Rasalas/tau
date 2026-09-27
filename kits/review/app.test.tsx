@@ -96,7 +96,7 @@ describe("Review Kit in the workbench", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Review from example" }));
     await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("const reviewed = true;"));
-    expect(await screen.findByRole("button", { name: "fix: review from another package" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Commit message" })).toHaveProperty("value", "fix: review from another package"));
   });
 
   it("commits the worktree from the changes panel", async () => {
@@ -129,7 +129,7 @@ describe("Review Kit in the workbench", () => {
       branch: "feat/review",
       files: [{ path: "src/a.ts", added: 1, removed: 0 }],
     })));
-    expect(await screen.findByRole("button", { name: "feat(review): describe the change" })).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("feat(review): describe the change"));
   });
 
   it("says in the commit box, not in a toast, why no message was written", async () => {
@@ -140,12 +140,12 @@ describe("Review Kit in the workbench", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
 
     const hint = await waitFor(() => {
-      const found = document.querySelector(".commit-proposal .commit-message-error");
+      const found = document.querySelector(".commit-bar .commit-message-error");
       expect(found?.textContent).toBe("No suggestion: Provider is not configured: openai");
       return found;
     });
     expect(hint).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Update a" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Commit message" })).toHaveProperty("value", "Update a");
     expect(screen.getAllByText(/Provider is not configured/u)).toHaveLength(1);
   });
 
@@ -181,11 +181,11 @@ describe("Review Kit in the workbench", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
-    const message = await screen.findByRole("button", { name: "fix(review): restore commit flow" });
-    const proposal = message.closest(".commit-proposal");
-    expect(proposal).not.toBeNull();
+    const bar = await screen.findByRole("region", { name: "Commit" });
+    await waitFor(() => expect((within(bar).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("fix(review): restore commit flow"));
+    expect(bar.textContent).toContain("Commits all 1 changed file on feat/review, then pushes feat/review.");
 
-    fireEvent.click(within(proposal as HTMLElement).getByRole("button", { name: "Commit" }));
+    fireEvent.click(within(bar).getByRole("button", { name: "Commit only" }));
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith("fix(review): restore commit flow", false));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());

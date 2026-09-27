@@ -64,12 +64,12 @@ describe("ClaudeSdkSession", () => {
   });
 
   it("resolves a steer with the turn it joined, not with a turn of its own", async () => {
-    const { query } = sessionQuery((message, held) => message.priority === "now" && held.length === 0 && message.message.content !== "go"
+    const { query } = sessionQuery((message, held) => held.length === 0 && message.message.content !== "go"
       ? null
       : [assistant("done"), result([...held.map((entry) => entry.uuid!), message.uuid!])]);
     const { session } = open(query);
     // The CLI merges a message that arrives close to another into one turn.
-    const steer = session.send("also this", "now");
+    const steer = session.send("also this", "next");
     const turn = session.send("go", "next");
     const [steerResult, turnResult] = await Promise.all([steer, turn]);
     expect(steerResult).toBe(turnResult);
