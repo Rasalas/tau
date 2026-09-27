@@ -44,11 +44,18 @@ entry under the command id wins in Tau and Pi keeps its own key; an empty list
 drops every entry that is not a Pi action (`app.*`, `tui.*`) and writes that
 empty list for a command a Pi action still names.
 
-Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
-`stageFocus`, `modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
+Contexts: `chatFocus` (the transcript and the composer), `terminalFocus`,
+`editorFocus`, `previewFocus`, `composerFocus`, `stageFocus`,
+`modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
 `terminalOpen`, …). `editableFocus` holds while any text field, select or
-`contenteditable` element has the keyboard. Any extension can add its own with
+`contenteditable` element has the keyboard; `overlayOpen` while a menu,
+popover, picker, dialog or sheet is open. Any extension can add its own with
 `data-keybinding-context`.
+
+Escape closes the topmost overlay and does nothing else: no chord without a
+modifier runs while an overlay is open, whatever its `when` says. Escape
+stops a running turn only with no overlay open and the keyboard in the chat;
+in the transcript, Escape first goes back to the composer.
 
 ## Defaults
 
@@ -65,7 +72,7 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | `mod+w` | | `workbench.close-stage-tab` | Close the stage tab | core | `rightPanel.close` |
 | `mod+,` | | `runtime.settings` | Settings | core | same |
 | `mod+i` | | `runtime.instructions` | System prompt and instructions | core | – |
-| `escape` | | `runtime.abort` | Stop the run | core | – |
+| `escape` | `chatFocus` | `runtime.abort` | Stop the run | core | – |
 | `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core | same |
 | `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core | same |
 | `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access | same |

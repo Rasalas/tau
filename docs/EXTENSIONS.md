@@ -212,24 +212,37 @@ Code: context names joined by `!`, `&&`, `||` and parentheses, e.g.
 come from the page when the key goes down. Mark an element
 `data-keybinding-context="<name>"` (several names may be space-separated) and
 `<name>Focus` holds while the keyboard is inside it, `<name>Open` while one is
-drawn (`src/renderer/keybinding-context.ts`). Core marks `composer`, `stage`
-and `modelPicker`; Terminal Kit marks `terminal`, Files Kit's editor `editor`
-and Preview Kit's panel `preview`. `editableFocus` (new in API 1.11.0) is the
-one context nothing marks: it holds while a text field, a select or anything
-`contenteditable` has the keyboard, so a chord native editing shares yields to
-it — Thread Rail's `mod+z` is `"!terminalFocus && !editableFocus"`, as in T3
-Code. A clause Tau cannot read throws at registration.
+drawn (`src/renderer/keybinding-context.ts`). Core marks `chat` (the
+transcript and the composer), `composer`, `stage` and `modelPicker`; Terminal
+Kit marks `terminal`, Files Kit's editor `editor` and Preview Kit's panel
+`preview`. Two contexts nothing marks: `editableFocus` (new in API 1.11.0)
+holds while a text field, a select or anything `contenteditable` has the
+keyboard, so a chord native editing shares yields to it — Thread Rail's
+`mod+z` is `"!terminalFocus && !editableFocus"`, as in T3 Code; `overlayOpen`
+holds while an overlay is drawn: anything with `aria-modal="true"`, a
+`role="dialog"`, `"alertdialog"` or `"menu"`, or an element marked
+`data-overlay`. A non-modal tool window that stays open beside the work (the
+theme editor) opts out with `data-overlay="false"`. A clause Tau cannot read
+throws at registration.
+
+Escape belongs to the topmost overlay. `Dialog`, `Popover` and `Menu` close
+the newest open one on Escape and consume the key; an overlay of your own may
+close itself in its own key handler. Either way no chord without a modifier
+runs while an overlay was open when the key went down, so core's Escape
+(`runtime.abort`, under `chatFocus`) never stops a turn behind a picker.
 
 A clause that needs a context — false when nothing is focused or open, like
 `terminalFocus` but unlike `!terminalFocus` — makes the binding *specific*. On
 a keydown, of the bindings whose chord and clause match, a config.json
 override beats a replacing binding beats a default; within that, a specific
-one beats one that is not; then the first registered wins. A specific winner
-runs in the capture phase, before the focused element sees the key: that is
-how Terminal Kit's `mod+d` reaches its command before xterm, and Files Kit's
+one beats one that is not; then the first registered wins. The winner is
+chosen against the page as the key went down, before any handler under it
+closes an overlay or moves focus. A specific winner with a modifier runs in
+the capture phase, before the focused element sees the key: that is how
+Terminal Kit's `mod+d` reaches its command before xterm, and Files Kit's
 `mod+s` saves the editor tab before Prompt Tools' stash could hear it. Every
-other binding waits for the bubble phase, so a field or a shell that handled a
-key (`preventDefault()`) keeps it. Two bindings conflict only when they press
+other binding, a bare key under a clause included, waits for the bubble phase,
+so a field or a shell that handled a key (`preventDefault()`) keeps it. Two bindings conflict only when they press
 the same keys on the platform (`mod+p` is `ctrl+p` off macOS), sit in the same
 tier, are both specific or both not, and their clauses can hold together; so
 `mod+n` can be a new thread under `!terminalFocus` and a new shell under
