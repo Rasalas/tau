@@ -150,7 +150,7 @@ export default function App() {
     newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
     projectSourcesOpen, projectSource, openProjectSources, closeProjectSources,
     activeOverlayId, openOverlay, closeOverlay,
-    settingsPage, setSettingsPage,
+    settingsPage, setSettingsPage, pages,
   } = useAppOverlays();
   const pendingNewThread = useSyncExternalStore(newThreadController.subscribe, newThreadController.current);
   const {
@@ -508,7 +508,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController,
+    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController, pages,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -615,14 +615,14 @@ export default function App() {
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    setNotice, activeOverlayId, closeOverlay,
+    setNotice, activeOverlayId, closeOverlay, pages,
   }), [
     activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, dockAsks, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
-    setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,
+    setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);
 

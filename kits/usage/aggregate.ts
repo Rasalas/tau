@@ -5,6 +5,7 @@ import {
   type BackendUsageSource,
   type BackendUsageTurn,
   type UsageBilling,
+  type UsageEntry,
   type UsageRow,
   type UsageShare,
   type UsageSourceReport,
@@ -30,6 +31,8 @@ export interface SummarizeOptions {
   since?: number;
   /** A project's name; the folder's name when this says nothing. */
   nameOf?(cwd: string): string | undefined;
+  /** Day starts, ascending: the summary adds `entries` split by them. */
+  days?: readonly number[];
 }
 
 export function emptyShare(): UsageShare {
@@ -94,6 +97,60 @@ class Rows {
   }
 }
 
+type Tally = Pick<UsageEntry, "requests" | "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "totalTokens" | "costUsd">;
+
+/** The day `at` falls on: the last start at or before it, or -1 before the first. */
+export function dayIndex(days: readonly number[], at: number): number {
+  let low = 0;
+  let high = days.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (days[middle]! <= at) { found = middle; low = middle + 1; } else high = middle - 1;
+  }
+  return found;
+}
+
+/** What each thread used of each model per day, keyed like the rows plus day and thread. */
+class Entries {
+  private readonly entries = new Map<string, UsageEntry>();
+
+  add(day: number, key: RowKey, threadId: string, tally: Tally): void {
+    const id = `${day}\u0000${key.backend}\u0000${threadId}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}`;
+    let entry = this.entries.get(id);
+    if (!entry) {
+      entry = {
+        day, backend: key.backend, threadId, cwd: key.cwd, model: key.model,
+        ...(key.provider ? { provider: key.provider } : {}),
+        ...(key.modelId ? { modelId: key.modelId } : {}),
+        ...(key.billing ? { billing: key.billing } : {}),
+        requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, apiValueUsd: 0,
+      };
+      this.entries.set(id, entry);
+    }
+    entry.requests += tally.requests;
+    entry.inputTokens += tally.inputTokens;
+    entry.outputTokens += tally.outputTokens;
+    entry.cacheReadTokens += tally.cacheReadTokens;
+    entry.cacheWriteTokens += tally.cacheWriteTokens;
+    entry.totalTokens += tally.totalTokens;
+    entry.costUsd += tally.costUsd;
+  }
+
+  list(): UsageEntry[] {
+    return [...this.entries.values()];
+  }
+}
+
+/** Entries priced the way rows are; `prices` lines up with `entries`. */
+export function priceEntries(entries: readonly UsageEntry[], prices: ReadonlyArray<RowPrice | undefined>): UsageEntry[] {
+  return entries.map((entry, index) => {
+    const price = prices[index] ?? runtimePrice(entry);
+    const { billing: _billing, ...rest } = entry;
+    return { ...rest, ...(price.billing ? { billing: price.billing } : {}), costUsd: price.costUsd, apiValueUsd: price.apiValueUsd };
+  });
+}
+
 /** Totals over rows; a subscription's rows add their tokens to both, their value only to `subscription`. */
 export function totalsOf(rows: readonly UsageRow[], threads: number): UsageTotals {
   const totals = emptyTotals();
@@ -132,7 +189,7 @@ export interface RowPrice {
 }
 
 /** Without core's prices: the runtime's own figure, a subscription's as its value. */
-export function runtimePrice(row: UsageRow): RowPrice {
+export function runtimePrice(row: Pick<UsageRow, "billing" | "costUsd">): RowPrice {
   return row.billing === "subscription"
     ? { billing: row.billing, costUsd: 0, apiValueUsd: row.costUsd, source: row.costUsd > 0 ? "runtime" : "none" }
     : { ...(row.billing ? { billing: row.billing } : {}), costUsd: row.costUsd, apiValueUsd: 0, source: row.costUsd > 0 ? "runtime" : "none" };
@@ -186,6 +243,13 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
   const since = options.since;
   const rows = new Rows(options.nameOf ?? (() => undefined));
   const inPeriod = (at: number | undefined) => since === undefined || (at !== undefined && at >= since);
+  const days = options.days && options.days.length > 0 ? options.days : undefined;
+  const entries = days ? new Entries() : undefined;
+  const split = (at: number | undefined, key: RowKey, threadId: string, tally: Tally) => {
+    if (!entries || !days || at === undefined) return;
+    const day = dayIndex(days, at);
+    if (day >= 0) entries.add(day, key, threadId, tally);
+  };
 
   const seen = new Set<string>();
   const piThreads = new Set<string>();
@@ -195,7 +259,12 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
       if (seen.has(record.key)) continue;
       seen.add(record.key);
       if (!inPeriod(record.at)) continue;
-      const row = rows.row({ backend: PI_BACKEND, backendLabel: "Pi", cwd: session.cwd, model: record.model, ...splitModel(record.model) });
+      const key: RowKey = { backend: PI_BACKEND, backendLabel: "Pi", cwd: session.cwd, model: record.model, ...splitModel(record.model) };
+      const row = rows.row(key);
+      split(record.at, key, session.sessionId, {
+        requests: record.requests, inputTokens: record.input, outputTokens: record.output, cacheReadTokens: record.cacheRead,
+        cacheWriteTokens: record.cacheWrite, totalTokens: record.total, costUsd: record.cost,
+      });
       row.requests += record.requests;
       row.inputTokens += record.input;
       row.outputTokens += record.output;
@@ -217,7 +286,7 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
       for (const turn of turns) {
         if (!inPeriod(turn.at)) continue;
         const model = turn.model ?? thread.model ?? "default model";
-        const row = rows.row({
+        const key: RowKey = {
           backend: backend.source.backend,
           backendLabel: backend.source.label,
           cwd: thread.cwd,
@@ -225,7 +294,9 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
           ...(turn.provider ? { provider: turn.provider } : {}),
           modelId: model,
           ...(turn.billing ? { billing: turn.billing } : {}),
-        });
+        };
+        const row = rows.row(key);
+        split(turn.at, key, thread.threadId, { ...turn, requests: turn.turns });
         row.requests += turn.turns;
         row.inputTokens += turn.inputTokens;
         row.outputTokens += turn.outputTokens;
@@ -243,11 +314,12 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
 
   const { rows: list, threads } = rows.finish();
   const priced = list.map(runtimePrice);
-  return applyPrices({
+  const summary = applyPrices({
     ...(since === undefined ? {} : { since }),
     scannedAt: scan.scannedAt,
     totals: { ...emptyTotals(), threads },
     rows: list,
     sources: [piReport(scan, piThreads.size), ...reports],
   }, priced);
+  return entries ? { ...summary, entries: priceEntries(entries.list(), []) } : summary;
 }

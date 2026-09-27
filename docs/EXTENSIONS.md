@@ -850,6 +850,53 @@ the row), a contributed page by its label and `keywords`, an extension's page
 by its name and its options, and every live keybinding — which opens the
 Keybindings page filtered to its command.
 
+#### App pages: `registerPage`
+
+`registerPage` adds a page of the app like Settings — Usage and Pull Requests
+are two — typed `PageContribution`: `id`, `label`, an `Icon` and an `order`
+(the sidebar's foot lists every page after Settings in that order,
+`registry.getPages()`, which a phone's navigation can take as well), optional `keywords`, `profiles`, a `layout`
+and a `Component` receiving `PageProps`. `actions.openPage(id, params?)` opens
+it and `actions.closePage()` closes it; both are optional on `WorkbenchActions`,
+absent in a client without pages.
+
+On a desktop the page takes the place of the thread, the stage and the dock,
+title bar included, in Settings' frame: a bar with the page's label, the page
+below. The sidebar stays beside it, and its foot leads with Back and marks the
+page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
+`newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
+`focusComposer`, `openWorkspace`) closes the page first, and so does another
+thread coming on screen. Settings opens over a page and returns to it. The
+window's plain keybindings (Escape stopping a run among them) stay off while a
+page shows; chords still run. On a phone (`compact` without the split list)
+the page is a screen of its own with a back button, addressed as
+`?page=<id>`: a link opens it, opening it adds a history entry, and the
+system's back gesture leaves it.
+
+`layout` is `"readable"` (Settings' reading column, the default), `"wide"`
+(1240 px) or `"fill"`: the page gets the whole area below the bar and scrolls
+itself, as a stage tab does. `PageProps` carries `actions`, the `params` of the
+view on screen, `navigate(params, { label?, replace? })` and `close()`. A page
+steps into a view of itself with `navigate` — a request's detail, a sub-page —
+and `label` follows the page's own in the bar; Escape and a click on the
+page's label step back out, and at the page's own view Escape closes it.
+
+```tsx
+plugin.registerPage({
+  id: "acme.reports", label: "Reports", Icon: ChartColumn, order: 30, layout: "wide",
+  profiles: ["desktop", "web", "compact"],
+  Component: ({ params, navigate }) => params.report
+    ? <Report id={String(params.report)} />
+    : <ReportList onOpen={(report) => navigate({ report: report.id }, { label: report.title })} />,
+});
+plugin.registerCommand({ id: "acme.reports.open", label: "Reports", group: "Extensions", access: "read", run: (actions) => actions.openPage?.("acme.reports") });
+```
+
+`useOpenPage()` from `tau` answers the page on screen (`{ id, views }`) or
+undefined, for a sidebar that marks it. A `standalone` Settings page (API
+1.15.0) still opens alone, without Settings' navigation; it is deprecated in
+favour of `registerPage`.
+
 #### Settings pages: the full page, the levels and the rows
 
 Settings is a page of its own that covers the whole window (T3 Code's layout):

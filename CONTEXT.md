@@ -54,6 +54,10 @@ The document area of the workbench beside the conversation. It shows workspace f
 
 One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed.
 
+## App page
+
+A page of the app beside the sidebar, like Settings: Usage and Pull Requests. It takes the place of the thread and the stage while it is open, and the sidebar's foot leads with Back; on a phone it is a screen of its own. Opening a thread leaves it.
+
 ## Extension
 
 An installable module that contributes behavior through a declared interface and can be activated or deactivated without editing Tau core.

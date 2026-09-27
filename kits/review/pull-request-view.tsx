@@ -139,7 +139,7 @@ function useCopied(): [string | undefined, (key: string) => void] {
 
 export function PullRequestView({ params, handle, actions, client, chips, rows, shared }: {
   params: PullRequestTabParams;
-  handle: StageTabHandle;
+  handle: Pick<StageTabHandle, "setTitle">;
   actions: WorkbenchActions;
   client: PullRequestClient;
   chips(): ComposerContextChips | undefined;
