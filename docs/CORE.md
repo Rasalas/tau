@@ -171,7 +171,7 @@ and Settings are the phone's main pages, with a bottom navigation (`PhoneNav`)
 as their last row; a chat, a page's view and a Settings section are sub-pages
 without it. `usePhoneNavigation` derives the route (`src/workbench/phone-route.ts`)
 from the workbench's state, and `TouchLayer` keeps the browser's history as the
-path from the list to it, so the system's back (Android back, the iOS edge swipe
+path from the list to it (`phone-history.ts`), so the system's back (Android back, the iOS edge swipe
 of the native shell) steps out one level and stops at the list; the address
 names the route (`?thread=`, `?page=`, `?settings=`) for a reload or a link —
 through `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
