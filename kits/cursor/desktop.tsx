@@ -1,7 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { CircleCheck, MousePointer2, RefreshCw, TriangleAlert } from "lucide-react";
+import { MousePointer2, SquareTerminal } from "lucide-react";
 import {
+  Button,
   DEFAULT_INSTANCE_ID,
+  SettingRow,
+  SettingsState,
   isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   loadRuntimeUpdateToasts,
@@ -38,6 +41,12 @@ const TERMINAL_PANEL = "terminal";
 
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
+const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
+const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
+const CardBadge = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
+
+/** The CLI's own installer, typed into a terminal for the user to run. */
+const INSTALL_COMMAND = "curl https://cursor.com/install -fsS | bash";
 
 /** Marks the runtime behind a Cursor thread with an icon, its name in the tooltip; other threads show nothing. */
 export function CursorStatus({ snapshot }: RegionProps) {
@@ -78,30 +87,6 @@ export function loginCommand(command: string, home: string | undefined): string 
   if (!home) return `${command} login`;
   const quoted = /\s/u.test(home) ? JSON.stringify(home) : home;
   return `CURSOR_CONFIG_DIR=${quoted} CURSOR_DATA_DIR=${quoted} AGENT_CLI_CREDENTIAL_STORE=file ${command} login`;
-}
-
-/** The executable's path, saved when the field is left or Enter is pressed; empty goes back to the PATH. */
-function CommandPathField({ status, onSave }: { status: CursorStatusReport | undefined; onSave(command: string): Promise<void> }) {
-  const saved = status?.commandSource === "setting" ? status.command : "";
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
-  const fromEnv = status?.commandSource === "env";
-  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
-  return (
-    <>
-      <input
-        className="settings-search-input cursor-path"
-        aria-label="Cursor executable"
-        value={fromEnv ? status!.command : draft}
-        placeholder="cursor-agent, from your login shell's PATH"
-        disabled={fromEnv || !status}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
-      />
-      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_CURSOR_COMMAND</code> in Tau's environment.</> : <>A name on the PATH or an absolute path; leave it empty to find <code>cursor-agent</code> on the PATH.</>}</p>
-    </>
-  );
 }
 
 export class CursorInstances {
@@ -199,78 +184,92 @@ export function CursorProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE
     onNotify(where === "terminal" ? "The command is in a terminal; press Enter there to run it." : "No terminal is available; the command is on the clipboard.");
   };
 
-  const known = status !== undefined;
   const found = Boolean(status?.path);
   const compatibility = status?.compatibility && status.compatibility.status !== "supported" ? status.compatibility : undefined;
   const login = loginCommand(status?.path && /\s/u.test(status.path) ? JSON.stringify(status.path) : status?.command ?? "cursor-agent", view?.home);
   const signedIn = status?.signedIn === true;
+  const label = view?.label ?? "Cursor";
+  const rows = rowIds(instance);
+  const account = found && !status?.unsupported;
   return (
-    <>
-      <p className="settings-note">
-        {isDefault
-          ? <>Threads drive the Cursor CLI over ACP, with the models of your Cursor plan. Tau reads no credential; the CLI signs in itself.</>
-          : <>A second Cursor setup: threads started on it keep it, with the login and chats of its own home.</>}
-      </p>
-
-      <div className="settings-label">CLI</div>
-      <div className="settings-field cursor-field">
-        {found && !status?.unsupported && !compatibility && !status?.message ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : found ? `Found${status?.version ? ` · ${status.version}` : ""}` : `${status.command} was not found`}</strong>
-          <small>{!known ? "" : status.message ?? (found ? status.path : <>Install it with <code>curl https://cursor.com/install -fsS | bash</code>, or set its path below.</>)}</small>
-        </span>
-        <button className="cursor-action" disabled={busy} onClick={() => void read(true)}>
-          <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
-        </button>
-      </div>
-      {compatibility && status ? (
-        <div className="cursor-version">
-          <Suspense fallback={null}>
-            <VersionBanner
-              backend={{ kind: view?.kind ?? CURSOR_BACKEND_KIND, label: view?.label ?? "Cursor", version: { tool: "cursor-agent", ...(status.version ? { installed: status.version } : {}), ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}), compatibility } }}
-              onInstall={(command) => void runCommand(command)}
-              onCopy={(command) => void actions?.copyText(command)}
-            />
-          </Suspense>
-        </div>
-      ) : null}
-      {!compatibility && status?.unsupported ? <p className="settings-note" data-level="error">Tau speaks to the Cursor CLI {MIN_CURSOR_VERSION} and newer.</p> : null}
-      {!compatibility && !status?.unsupported && status?.updateAvailable ? <p className="settings-note">Cursor CLI {status.latest} is out. Update with <code>{status.updateCommand}</code>.</p> : null}
-
-      {found && !status?.unsupported ? (
+    <Suspense fallback={<SettingsState kind="loading" rows={3} title={`Loading ${label}`} />}>
+      <ProgramRows
+        program={label}
+        idPrefix={rows.prefix}
+        help={isDefault
+          ? "Threads drive the Cursor CLI over ACP, with the models of your Cursor plan. Tau reads no credential; the CLI signs in itself."
+          : "A second Cursor setup: threads started on it keep it, with the login and chats of its own home."}
+        {...(status ? { state: {
+          found,
+          ...(status.version ? { version: status.version } : {}),
+          ...(status.path ? { location: status.path } : {}),
+          ...(status.message ? { message: status.message } : {}),
+          ...(status.unsupported ? { unsupported: true, minimum: MIN_CURSOR_VERSION } : {}),
+          ...(status.updateAvailable && status.latest ? { latest: status.latest } : {}),
+          ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}),
+          ...(compatibility ? { compatibility } : {}),
+        } } : {})}
+        missing="Install it in a terminal, or set its executable below."
+        missingAction={<Button icon={<SquareTerminal size={13} aria-hidden />} onClick={() => void runCommand(INSTALL_COMMAND)}>Install in a terminal</Button>}
+        busy={busy}
+        {...(error ? { error } : {})}
+        onCheck={() => void read(true)}
+        onRunCommand={(command) => void runCommand(command)}
+      />
+      {account ? (
         <>
-          <div className="settings-label">Account</div>
-          <div className="settings-field cursor-field">
-            {signedIn ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-            <span>
-              <strong>{busy && !known ? "Checking…" : signedIn ? `${status?.account ?? "Signed in"}${status?.plan ? ` · ${status.plan}` : ""}` : status?.signedIn === false ? "Not signed in" : "Sign-in unknown"}</strong>
-              <small>{signedIn ? `${status?.models ?? 0} models; pick one and its reasoning effort per thread in the composer.` : <>Run <code>{login}</code> in a terminal.</>}</small>
-            </span>
-            {!signedIn ? <button className="cursor-action" onClick={() => void runCommand(login)}>Sign in…</button> : null}
-          </div>
+          <CardBadge source="account" badge={status?.signedIn === undefined ? undefined : signedIn ? { label: "Signed in", tone: "success" } : { label: "Needs sign-in", tone: "warn" }} />
+          <SettingRow
+            id={rows.account}
+            title="Account"
+            description={signedIn ? `${status?.account ?? "Signed in"}${status?.plan ? ` · ${status.plan}` : ""}` : status?.signedIn === false ? "Not signed in" : "The CLI did not say who is signed in."}
+            {...(signedIn ? {} : { help: "Sign in types the CLI's login into a terminal, pointed at this instance's home; press Enter there and follow it." })}
+            control={signedIn ? undefined : <Button icon={<SquareTerminal size={13} aria-hidden />} onClick={() => void runCommand(login)}>Sign in in a terminal</Button>}
+          />
+          {signedIn ? <SettingRow id={rows.models} title="Models" description={`${status?.models ?? 0} models; pick one and its reasoning effort per thread in the composer.`} /> : null}
         </>
       ) : null}
-
-      <div className="settings-label">Path</div>
-      <CommandPathField status={status} onSave={saveCommand} />
-
-      {error ? <p className="settings-note" data-level="error">{error}</p> : null}
+      <CommandRow
+        id={rows.executable}
+        program={label}
+        commandName="cursor-agent"
+        variable="TAU_CURSOR_COMMAND"
+        known={status !== undefined}
+        {...(status ? { command: status.command } : {})}
+        {...(status?.commandSource ? { source: status.commandSource } : {})}
+        onSave={saveCommand}
+      />
       {view ? (
-        <Suspense fallback={null}>
-          <InstanceSetup
-            program="Cursor"
-            homeVariable={CURSOR_HOME_VARIABLE}
-            homePlaceholder="~/.cursor (the CLI's own)"
-            commandPlaceholder="cursor-agent"
-            instance={view}
-            instances={report.instances}
-            onSave={saveInstance}
-            {...(isDefault ? {} : { onRemove: remove })}
-          />
-        </Suspense>
+        <InstanceSetup
+          program="Cursor"
+          homeVariable={CURSOR_HOME_VARIABLE}
+          homePlaceholder="~/.cursor (the CLI's own)"
+          commandPlaceholder="cursor-agent"
+          instance={view}
+          instances={report.instances}
+          rowId={rows.setup}
+          onSave={saveInstance}
+          {...(isDefault ? {} : { onRemove: remove })}
+        />
       ) : null}
-    </>
+    </Suspense>
   );
+}
+
+/** The element ids of an instance's rows; every instance's card sits on the same page, so each carries its id. */
+export function rowIds(instance: string) {
+  const prefix = instance === DEFAULT_INSTANCE_ID ? "setting-cursor" : `setting-cursor-${instance}`;
+  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
+}
+
+/** What the Settings search finds on an instance's card. */
+export function searchRows(instance: string, label: string) {
+  const ids = rowIds(instance);
+  return [
+    { id: ids.program, label: `${label} CLI`, keywords: ["cursor", "cursor-agent", "version", "update", "install", "installed", "check"] },
+    { id: ids.executable, label: `${label} executable`, keywords: ["cursor-agent", "path", "command", "binary"] },
+    { id: ids.setup, label: `${label} instance setup`, keywords: ["cursor", "instance", "home", "environment", "arguments"] },
+  ];
 }
 
 const dismissedBanners = new Set<string>();
@@ -349,6 +348,7 @@ export const cursorExtension: DesktopExtension = {
       runtime: entry.kind,
       order,
       keywords: ["cursor", "cursor-agent", "acp", "instance", entry.id],
+      rows: searchRows(entry.id, entry.label),
       Component: card(entry.id),
     });
     const sync = (report: CursorInstancesReport) => {

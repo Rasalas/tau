@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { CursorInstances, CursorProviderCard, cursorExtension, loginCommand } from "./desktop.js";
+import { CursorInstances, CursorProviderCard, cursorExtension, loginCommand, searchRows } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -39,25 +39,36 @@ describe("Cursor desktop extension", () => {
   it("reports the CLI, the update that is out and the account", async () => {
     const invoke = vi.fn(async () => READY);
     render(<CursorProviderCard onNotify={vi.fn()} host={host(invoke)} instances={instances()} />);
-    await waitFor(() => expect(screen.getByText("Found · 2026.09.18-9a7762b")).toBeTruthy());
+    await waitFor(() => expect(document.getElementById("setting-cursor-program")?.textContent).toContain("2026.09.18-9a7762b · /Users/me/.local/bin/cursor-agent"));
     expect(screen.getByText("me@example.com · Pro")).toBeTruthy();
-    expect(screen.getByText(/Cursor CLI 2026\.10\.02-abc1234 is out/u)).toBeTruthy();
+    expect(screen.getByText("Cursor 2026.10.02-abc1234 is out; 2026.09.18-9a7762b is installed.")).toBeTruthy();
+    for (const row of searchRows("default", "Cursor")) expect(document.getElementById(row.id), row.id).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Check again/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: true }));
   });
 
-  it("offers the login command for the instance's home when the CLI is signed out", async () => {
+  it("types the login for the instance's home into a terminal when the CLI is signed out, without showing it", async () => {
     const onNotify = vi.fn();
-    render(<CursorProviderCard onNotify={onNotify} host={host(async () => ({ ...READY, signedIn: false, account: undefined, plan: undefined, models: undefined }))} instances={instances({ home: "/shadow" })} />);
+    const terminal = { invoke: vi.fn(async (command: string) => command === "open" ? { id: "term-1" } : undefined), onEvent: () => () => undefined };
+    render(<CursorProviderCard onNotify={onNotify} host={host(async () => ({ ...READY, signedIn: false, account: undefined, plan: undefined, models: undefined }))} instances={instances({ home: "/shadow" })} terminal={terminal} />);
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
-    expect(screen.getByText("CURSOR_CONFIG_DIR=/shadow CURSOR_DATA_DIR=/shadow AGENT_CLI_CREDENTIAL_STORE=file cursor-agent login")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Sign in…" }));
-    await waitFor(() => expect(onNotify).toHaveBeenCalled());
+    expect(screen.queryByText(/cursor-agent login/u)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in in a terminal" }));
+    await waitFor(() => expect(terminal.invoke).toHaveBeenCalledWith("input", { id: "term-1", data: "CURSOR_CONFIG_DIR=/shadow CURSOR_DATA_DIR=/shadow AGENT_CLI_CREDENTIAL_STORE=file cursor-agent login" }));
+    expect(onNotify).toHaveBeenCalledWith("The command is in a terminal; press Enter there to run it.");
+  });
+
+  it("offers the CLI's installer in a terminal when it is not found", async () => {
+    const terminal = { invoke: vi.fn(async (command: string) => command === "open" ? { id: "term-1" } : undefined), onEvent: () => () => undefined };
+    render(<CursorProviderCard onNotify={vi.fn()} host={host(async () => ({ command: "cursor-agent" }))} instances={instances()} terminal={terminal} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install in a terminal" }));
+    await waitFor(() => expect(terminal.invoke).toHaveBeenCalledWith("input", { id: "term-1", data: "curl https://cursor.com/install -fsS | bash" }));
+    expect(screen.queryByText("Account")).toBeNull();
   });
 
   it("says why an old CLI is not used", async () => {
     render(<CursorProviderCard onNotify={vi.fn()} host={host(async () => ({ ...READY, version: "2025.09.18-7ae6800", unsupported: true, updateAvailable: false }))} instances={instances()} />);
-    await waitFor(() => expect(screen.getByText(/Tau speaks to the Cursor CLI 2026\.04\.08 and newer/u)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Tau speaks to Cursor 2026.04.08 and newer; 2025.09.18-7ae6800 is installed.")).toBeTruthy());
     expect(screen.queryByText("Account")).toBeNull();
   });
 
