@@ -236,7 +236,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             onRevoke={() => void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} can no longer connect`)} />
         ))}
         {data.owners.map((owner) => <OwnerRow key={owner.id} owner={owner} now={now} />)}
-        {nothing ? <p className="settings-group-note">No pairing links or clients.</p> : null}
+        {nothing ? <SettingsState kind="empty" title="No device is paired yet" description="Create a link and open it on a phone or another computer; you allow the device here when it asks." /> : null}
       </SettingsSection>
 
       <HostServiceSection onNotify={onNotify} />
