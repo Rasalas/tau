@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
-import { errorMessage, SettingsSection, type HostExtensionClient } from "tau";
+import { Plus, RefreshCw, X } from "lucide-react";
+import { Badge, Button, errorMessage, Select, SettingRow, SettingsSection, SettingsState, TextField, type HostExtensionClient } from "tau";
 import { PROVIDERS, REQUEST_SERVICES, type ProviderCapabilities, type RequestService, type SourceHosts, type SourceProviderStatus } from "./protocol.js";
 
 /** What a provider leaves to the website, in the words the settings row uses. */
@@ -17,11 +17,10 @@ export function missingAbilities(capabilities: ProviderCapabilities): string[] {
   return missing;
 }
 
-type Tone = "ready" | "warn" | "off";
-
-function tone(status: SourceProviderStatus): Tone {
-  if (!status.installed) return "off";
-  return status.signedIn === false ? "warn" : status.signedIn ? "ready" : "off";
+function signIn(status: SourceProviderStatus): { text: string; tone: "success" | "warn" | "neutral" } {
+  if (!status.installed) return { text: "Not installed", tone: "neutral" };
+  if (status.signedIn) return { text: "Signed in", tone: "success" };
+  return status.signedIn === false ? { text: "Not signed in", tone: "warn" } : { text: "Installed", tone: "neutral" };
 }
 
 function ProviderRow({ status }: { status: SourceProviderStatus }) {
@@ -31,15 +30,15 @@ function ProviderRow({ status }: { status: SourceProviderStatus }) {
     : status.signedIn
       ? `Signed in${status.account ? ` as ${status.account}` : ""}.`
       : status.signedIn === false ? `Not signed in. ${status.hint ?? ""}` : status.hint ?? "Installed.";
+  const badge = signIn(status);
   return (
-    <li className="review-source-row" data-tone={tone(status)} aria-label={`${status.name}: ${summary}`}>
-      <i className="review-source-dot" aria-hidden="true" />
-      <div className="review-source-main">
-        <span className="review-source-name"><strong>{status.name}</strong><small>{status.tool}</small></span>
-        <span className="review-source-summary">{summary}</span>
-        {missing.length > 0 ? <span className="review-source-missing">Left to the website: {missing.join(", ")}.</span> : null}
-      </div>
-    </li>
+    <SettingRow
+      title={status.name}
+      description={summary}
+      help={`Tau reaches ${status.name} through ${status.tool}.`}
+      status={missing.length > 0 ? `Left to the website: ${missing.join(", ")}.` : undefined}
+      control={<Badge tone={badge.tone} dot>{badge.text}</Badge>}
+    />
   );
 }
 
@@ -49,7 +48,7 @@ function ProviderRow({ status }: { status: SourceProviderStatus }) {
  * server whose name does not say. Credentials stay with each provider's own
  * CLI or Git's credential helper; this page only reads whether they are there.
  */
-export function SourceControlSettings({ host }: { host: HostExtensionClient }) {
+export function SourceControlSettings({ host, onNotify }: { host: HostExtensionClient; onNotify(message: string): void }) {
   const [statuses, setStatuses] = useState<SourceProviderStatus[]>();
   const [hosts, setHosts] = useState<SourceHosts>({});
   const [loading, setLoading] = useState(false);
@@ -74,13 +73,16 @@ export function SourceControlSettings({ host }: { host: HostExtensionClient }) {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const choose = async (name: string, kind: RequestService | null) => {
-    setError(undefined);
     try {
       setHosts(await host.invoke("set-source-host", { host: name, service: kind }) as SourceHosts);
       if (kind) setServer("");
     } catch (reason) {
-      setError(errorMessage(reason));
+      onNotify(`${kind ? `${name} was not added` : `${name} was not forgotten`}: ${errorMessage(reason)}`);
     }
+  };
+  const add = () => {
+    if (server.trim()) void choose(server.trim(), service);
+    else onNotify("Enter the server's host name first, such as git.example.com.");
   };
 
   const entries = Object.entries(hosts).sort(([left], [right]) => left.localeCompare(right));
@@ -88,38 +90,29 @@ export function SourceControlSettings({ host }: { host: HostExtensionClient }) {
   return (
     <>
       <SettingsSection
+        id="setting-review-git-hosts"
         title="Git hosts"
-        headerAction={<button type="button" className="text-button" disabled={loading} onClick={() => void refresh()}>{loading ? "Checking…" : "Check again"}</button>}
+        headerAction={<Button variant="ghost" icon={<RefreshCw size={13} />} busy={loading} onClick={() => void refresh()}>Check again</Button>}
       >
-        {!statuses ? <p className="review-source-empty">{loading ? "Checking the tools on this machine…" : "Not checked yet."}</p> : (
-          <ul className="review-source-list" aria-label="Git hosts">
-            {statuses.map((status) => <ProviderRow key={status.service} status={status} />)}
-          </ul>
-        )}
+        {error ? <SettingsState kind="error" title="The Git hosts could not be checked" description={error} onRetry={() => void refresh()} />
+          : !statuses ? <SettingsState kind="loading" title="Checking the tools on this machine" rows={3} />
+          : statuses.map((status) => <ProviderRow key={status.service} status={status} />)}
       </SettingsSection>
-      <SettingsSection title="Self-hosted servers">
-        <p className="review-source-lede">
-          Tau reads a remote's host to choose its provider. When the name does not say (git.example.com), choose it here; a port counts when the remote has one.
-        </p>
-        {entries.length > 0 ? (
-          <ul className="review-source-hosts" aria-label="Self-hosted servers">
-            {entries.map(([name, kind]) => (
-              <li key={name}>
-                <code>{name}</code>
-                <span>{PROVIDERS[kind].name}</span>
-                <button type="button" className="icon-button compact" aria-label={`Forget ${name}`} title="Forget this server" onClick={() => void choose(name, null)}><X size={11} /></button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <form className="review-source-add" onSubmit={(event) => { event.preventDefault(); if (server.trim()) void choose(server, service); }}>
-          <input type="text" className="settings-input" spellCheck={false} aria-label="Server" placeholder="git.example.com" value={server} onChange={(event) => setServer(event.target.value)} />
-          <select className="settings-input" aria-label="Provider" value={service} onChange={(event) => setService(event.target.value as RequestService)}>
-            {REQUEST_SERVICES.map((kind) => <option key={kind} value={kind}>{PROVIDERS[kind].name}</option>)}
-          </select>
-          <button type="submit" className="mini-button" disabled={!server.trim()}>Add</button>
-        </form>
-        {error ? <div className="settings-note" data-level="error" role="alert">{error}</div> : null}
+      <SettingsSection id="setting-review-servers" title="Self-hosted servers">
+        {entries.map(([name, kind]) => (
+          <SettingRow key={name} title={<code>{name}</code>} description={PROVIDERS[kind].name}
+            control={<Button variant="ghost" icon={<X size={13} />} aria-label={`Forget ${name}`} onClick={() => void choose(name, null)}>Forget</Button>} />
+        ))}
+        <SettingRow
+          title="Add a server"
+          description="Tau reads a remote's host to choose its provider. When the name does not say, choose it here."
+          help="A port counts when the remote has one: git.example.com:8443."
+          control={<>
+            <TextField label="Server" mono width="md" placeholder="git.example.com" value={server} onCommit={setServer} />
+            <Select label="Provider" width="sm" value={service} options={REQUEST_SERVICES.map((kind) => ({ value: kind, label: PROVIDERS[kind].name }))} onChange={setService} />
+            <Button icon={<Plus size={13} />} onClick={add}>Add</Button>
+          </>}
+        />
       </SettingsSection>
     </>
   );

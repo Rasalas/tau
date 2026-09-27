@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { SettingRow, SettingsSection, useSetting, type HostExtensionClient, type SettingHandle } from "tau";
+import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type HostExtensionClient, type SettingHandle, type SettingsPageProps } from "tau";
 import { REVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { COLLAPSED_OPTION, COLORS_KEY, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION, type DiffColorScheme } from "./diff-settings.js";
 import { SourceControlSettings } from "./source-settings.js";
@@ -23,45 +22,31 @@ const COLORS: ReadonlyArray<{ value: DiffColorScheme; label: string }> = [
   { value: "blue-orange", label: "Blue & orange" },
 ];
 
-function Toggle({ label, setting }: { label: string; setting: SettingHandle<boolean> }) {
-  return (
-    <button type="button" className={`switch ${setting.value ? "on" : ""}`} role="switch" aria-checked={setting.value} aria-label={label} disabled={!setting.writable} onClick={() => setting.set(!setting.value)}>
-      <i />
-    </button>
-  );
+function Swatch({ scheme }: { scheme: DiffColorScheme }) {
+  return <span className={`review-color-swatch ${scheme}`} aria-hidden="true"><i /><i /></span>;
 }
 
-function Choice({ label, setting, choices, swatches = false }: { label: string; setting: SettingHandle<string>; choices: ReadonlyArray<{ value: string; label: string }>; swatches?: boolean }) {
-  return (
-    <div className="segmented" role="group" aria-label={label}>
-      {choices.map((choice) => (
-        <button key={choice.value} type="button" disabled={!setting.writable} className={setting.value === choice.value ? "active" : ""} aria-pressed={setting.value === choice.value} onClick={() => setting.set(choice.value)}>
-          {swatches ? <span className={`review-color-swatch ${choice.value}`} aria-hidden="true"><i /><i /></span> : null}
-          {choice.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Several lines of the user's own words; committed when the field loses focus. */
-function Instructions({ setting }: { setting: SettingHandle<string> }) {
-  const [draft, setDraft] = useState(setting.value);
-  useEffect(() => setDraft(setting.value), [setting.value]);
-  const commit = () => {
-    const next = draft.trim();
-    if (next === setting.value) return;
-    if (next) setting.set(next);
-    else setting.reset();
-  };
-  return <textarea className="settings-input review-instructions" rows={4} aria-label="Your instructions" disabled={!setting.writable}
-    placeholder="Write in English. Mention the issue number when the branch names one." value={draft}
-    onChange={(event) => setDraft(event.target.value)} onBlur={commit} />;
-}
+/** The page's rows, for the Settings search. */
+export const REVIEW_SETTINGS_ROWS = [
+  { id: "setting-review-propose", label: "Write a commit message when review opens", keywords: ["commit message", "propose", "model"] },
+  { id: "setting-review-format", label: "Commit message format", keywords: ["conventional commits", "gitmoji", "plain"] },
+  { id: "setting-review-instructions", label: "Your instructions", keywords: ["commit message", "pull request", "description", "prompt"] },
+  { id: "setting-review-template", label: "Follow the request template", keywords: ["pull request template", "merge request", "description"] },
+  { id: "setting-review-delete-branch", label: "Delete the branch after merging", keywords: ["merge", "branch", "cleanup"] },
+  { id: "setting-review-proactive", label: "Proactive panels", keywords: ["open pull request", "changes panel", "automatic"] },
+  { id: "setting-review-strip", label: "Show the pull request above the composer", keywords: ["strip", "composer", "pull request state"] },
+  { id: "setting-review-colors", label: "Diff colours", keywords: ["colors", "red", "green", "blue", "orange", "colour blindness"] },
+  { id: "setting-review-wrap", label: "Wrap long lines", keywords: ["diff", "wrap"] },
+  { id: "setting-review-split", label: "Split view", keywords: ["diff", "side by side"] },
+  { id: "setting-review-whitespace", label: "Hide whitespace changes", keywords: ["diff", "whitespace"] },
+  { id: "setting-review-collapsed", label: "Files start collapsed", keywords: ["diff", "collapse"] },
+  { id: "setting-review-git-hosts", label: "Git hosts", keywords: ["github", "gitlab", "forgejo", "bitbucket", "azure devops", "signed in"] },
+  { id: "setting-review-servers", label: "Self-hosted servers", keywords: ["self-hosted", "gitea", "forgejo", "provider", "host"] },
+];
 
 /** The page bound to the kit's host half, which answers for the Git hosts. */
 export function createReviewSettingsPage(host: HostExtensionClient) {
-  return function ReviewSettings() { return <ReviewSettingsPage host={host} />; };
+  return function ReviewSettings({ onNotify }: SettingsPageProps) { return <ReviewSettingsPage host={host} onNotify={onNotify} />; };
 }
 
 /**
@@ -70,7 +55,7 @@ export function createReviewSettingsPage(host: HostExtensionClient) {
  * machine reaches. The model that writes them stays on Review Kit's own page,
  * beside the extension's switch.
  */
-export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}) {
+export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?: HostExtensionClient; onNotify?(message: string): void } = {}) {
   const propose = useSetting<boolean>(option("propose-message"), { defaultValue: true, read: readBoolean });
   const format = useSetting<string>(value("commit-style"), { defaultValue: "conventional", scope: "both", read: readString, format: (next) => FORMATS.find((entry) => entry.value === next)?.label ?? next });
   const instructions = useSetting<string>(value(INSTRUCTIONS_OPTION), { defaultValue: "", scope: "both", read: readString, format: (next) => (next ? `${next.slice(0, 40)}${next.length > 40 ? "…" : ""}` : "None") });
@@ -84,37 +69,49 @@ export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}
   const proactive = useSetting<boolean>(option(PROACTIVE_OPTION), { defaultValue: false, read: readBoolean });
   const strip = useSetting<boolean>(option(STRIP_OPTION), { defaultValue: true, read: readBoolean });
 
+  const toggle = (label: string, setting: SettingHandle<boolean>) => <Switch label={label} checked={setting.value} onChange={setting.set} />;
+
   return (
     <div className="settings-page review-settings-page">
       <h3>Review</h3>
       <SettingsSection title="Commit messages and pull requests">
         <SettingRow id="setting-review-propose" title="Write a commit message when review opens" description="The model proposes one from the diff; you can always edit it." setting={propose}
-          control={<Toggle label="Write a commit message when review opens" setting={propose} />} />
+          control={toggle("Write a commit message when review opens", propose)} />
         <SettingRow id="setting-review-format" title="Commit message format" setting={format}
-          control={<Choice label="Commit message format" setting={format} choices={FORMATS} />} />
-        <SettingRow id="setting-review-instructions" title="Your instructions" description="Added to every commit message and pull or merge request the model writes; where they differ from the format, yours win. A project can have its own." setting={instructions}
-          control={<Instructions setting={instructions} />} />
+          control={<Select label="Commit message format" value={format.value} options={FORMATS} onChange={format.set} />} />
+        <SettingRow id="setting-review-instructions" title="Your instructions" description="Added to every commit message and pull or merge request the model writes. A project can have its own."
+          help="Where they differ from the format, yours win. ⌘Return or leaving the box saves them." setting={instructions}
+          control={<TextField label="Your instructions" rows={4} placeholder="Write in English. Mention the issue number when the branch names one." value={instructions.value}
+            onCommit={(draft) => {
+              const next = draft.trim();
+              if (next === instructions.value) return;
+              if (next) instructions.set(next);
+              else instructions.reset();
+            }} />} />
         <SettingRow id="setting-review-template" title="Follow the request template" description="Fill in the repository's pull or merge request template instead of writing a description from scratch." setting={template}
-          control={<Toggle label="Follow the request template" setting={template} />} />
+          control={toggle("Follow the request template", template)} />
       </SettingsSection>
       <SettingsSection title="Merging and panels">
-        <SettingRow id="setting-review-delete-branch" title="Delete the branch after merging" description="A merge's confirmation starts with this ticked. GitHub keeps a branch another open request is based on, and the default branch." setting={deleteBranch}
-          control={<Toggle label="Delete the branch after merging" setting={deleteBranch} />} />
-        <SettingRow id="setting-review-proactive" title="Proactive panels" description="Open a pull request when the thread links a new one. Otherwise, open the Changes panel after a turn that changed at least 3 files or 50 lines." setting={proactive}
-          control={<Toggle label="Proactive panels" setting={proactive} />} />
-        <SettingRow id="setting-review-strip" title="Show the pull request above the composer" description="The thread's pull or merge request, or the one it links, with its state. Its × hides it in that thread until the request or its state changes." setting={strip}
-          control={<Toggle label="Show the pull request above the composer" setting={strip} />} />
+        <SettingRow id="setting-review-delete-branch" title="Delete the branch after merging" description="A merge's confirmation starts with this ticked."
+          help="GitHub keeps a branch another open request is based on, and the default branch." setting={deleteBranch}
+          control={toggle("Delete the branch after merging", deleteBranch)} />
+        <SettingRow id="setting-review-proactive" title="Proactive panels" description="Open a pull request when the thread links a new one, else the Changes panel after a large turn."
+          help="A large turn changed at least 3 files or 50 lines." setting={proactive}
+          control={toggle("Proactive panels", proactive)} />
+        <SettingRow id="setting-review-strip" title="Show the pull request above the composer" description="The thread's pull or merge request, or the one it links, with its state."
+          help="Its × hides it in that thread until the request or its state changes." setting={strip}
+          control={toggle("Show the pull request above the composer", strip)} />
       </SettingsSection>
       <SettingsSection title="Diffs">
-        <SettingRow id="setting-review-colors" title="Colours" description="Additions and removals, including change counts. Blue and orange read apart for most kinds of colour blindness." setting={colors}
-          control={<Choice label="Diff colours" setting={colors} choices={COLORS} swatches />} />
+        <SettingRow id="setting-review-colors" title="Diff colours" description="Additions and removals, including change counts. Blue and orange read apart for most kinds of colour blindness." setting={colors}
+          control={<SegmentedControl label="Diff colours" value={colors.value} options={COLORS.map((choice) => ({ ...choice, icon: <Swatch scheme={choice.value} /> }))} onChange={colors.set} />} />
         <SettingRow id="setting-review-wrap" title="Wrap long lines" description="Off keeps each line on one row and scrolls the diff sideways. The review's toolbar switches it too." setting={wrap}
-          control={<Toggle label="Wrap long lines" setting={wrap} />} />
-        <SettingRow id="setting-review-split" title="Split view" setting={split} control={<Toggle label="Split view" setting={split} />} />
-        <SettingRow id="setting-review-whitespace" title="Hide whitespace changes" setting={whitespace} control={<Toggle label="Hide whitespace changes" setting={whitespace} />} />
-        <SettingRow id="setting-review-collapsed" title="Files start collapsed" setting={collapsed} control={<Toggle label="Files start collapsed" setting={collapsed} />} />
+          control={toggle("Wrap long lines", wrap)} />
+        <SettingRow id="setting-review-split" title="Split view" setting={split} control={toggle("Split view", split)} />
+        <SettingRow id="setting-review-whitespace" title="Hide whitespace changes" setting={whitespace} control={toggle("Hide whitespace changes", whitespace)} />
+        <SettingRow id="setting-review-collapsed" title="Files start collapsed" setting={collapsed} control={toggle("Files start collapsed", collapsed)} />
       </SettingsSection>
-      {host ? <SourceControlSettings host={host} /> : null}
+      {host ? <SourceControlSettings host={host} onNotify={onNotify} /> : null}
     </div>
   );
 }

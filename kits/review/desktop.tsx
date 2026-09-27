@@ -5,7 +5,7 @@ import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-message
 import { ReviewCommentStore } from "./comments.js";
 import { createReviewOverlay } from "./overlay.js";
 import { trackDiffSettings } from "./diff-settings.js";
-import { createReviewSettingsPage } from "./settings-page.js";
+import { createReviewSettingsPage, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   REVIEW_COMPACT_PANEL,
@@ -88,6 +88,7 @@ export const reviewExtension: DesktopExtension = {
       keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace",
         "delete branch", "merge", "proactive panels", "composer", "strip",
         "git hosts", "github", "gitlab", "forgejo", "gitea", "codeberg", "bitbucket", "azure devops", "self-hosted", "tea", "az"],
+      rows: REVIEW_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
       Component: createReviewSettingsPage(plugin.host),
     });

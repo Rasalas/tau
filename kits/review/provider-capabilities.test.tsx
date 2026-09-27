@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, HostExtensionClient, PreferencesStore, StageTabHandle, WorkbenchActions } from "tau";
 import { PendingReviewStore } from "./pending-review.js";
@@ -12,7 +12,9 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import { parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import { PullRequestView } from "./pull-request-view.js";
 import { RowRequests } from "./requests.js";
+import { createReviewSettingsPage, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
 import { SourceControlSettings } from "./source-settings.js";
+import { missingSettingsRows, renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 
 afterEach(cleanup);
@@ -96,8 +98,8 @@ describe("what a provider cannot do is hidden", () => {
   });
 });
 
-describe("Settings → Review's Git hosts", () => {
-  it("lists each provider's setup and keeps the self-hosted servers", async () => {
+describe("Settings → Review", () => {
+  function sourceHost() {
     const statuses: SourceProviderStatus[] = [
       { service: "github", name: "GitHub", tool: "GitHub CLI (gh)", installed: true, signedIn: true, account: "octo" },
       { service: "forgejo", name: "Forgejo", tool: "Gitea CLI (tea)", installed: false, hint: "Gitea CLI (tea) is not installed or not on your PATH." },
@@ -110,16 +112,68 @@ describe("Settings → Review's Git hosts", () => {
       hosts = service ? { ...hosts, [host]: service } : Object.fromEntries(Object.entries(hosts).filter(([name]) => name !== host));
       return hosts;
     });
-    render(<SourceControlSettings host={{ invoke, onEvent: () => () => undefined } as unknown as HostExtensionClient} />);
+    return { invoke, host: { invoke, onEvent: () => () => undefined } as unknown as HostExtensionClient };
+  }
+
+  it("lists each provider's setup and keeps the self-hosted servers", async () => {
+    const { invoke, host } = sourceHost();
+    const onNotify = vi.fn();
+    render(<SourceControlSettings host={host} onNotify={onNotify} />);
     expect(await screen.findByText("Signed in as octo.")).toBeTruthy();
-    expect(screen.getByLabelText(/^Forgejo: Gitea CLI \(tea\) is not installed/u)).toBeTruthy();
+    expect(screen.getByText("Signed in")).toBeTruthy();
+    expect(screen.getByText("Not installed")).toBeTruthy();
     expect(screen.getByText(/Left to the website: replies, resolving conversations, publishing\./u)).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", { name: "Server" }), { target: { value: "code.example.com:8443" } });
+
+    // An empty server says what is missing instead of adding nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(onNotify).toHaveBeenCalledWith("Enter the server's host name first, such as git.example.com.");
+    const server = screen.getByRole("textbox", { name: "Server" });
+    fireEvent.change(server, { target: { value: "code.example.com:8443" } });
+    fireEvent.blur(server);
     fireEvent.change(screen.getByRole("combobox", { name: "Provider" }), { target: { value: "gitlab" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-source-host", { host: "code.example.com:8443", service: "gitlab" }));
     expect(await screen.findByText("code.example.com:8443")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Forget git.example.com" }));
     await waitFor(() => expect(screen.queryByText("git.example.com")).toBeNull());
+  });
+
+  it("says when the hosts could not be checked, and checks again", async () => {
+    const { invoke, host } = sourceHost();
+    invoke.mockRejectedValueOnce(new Error("gh crashed"));
+    render(<SourceControlSettings host={host} onNotify={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("gh crashed");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Signed in as octo.")).toBeTruthy();
+  });
+
+  it("writes the format, the instructions and the diff colours, and has every searched row", async () => {
+    const { host } = sourceHost();
+    const Page = createReviewSettingsPage(host);
+    const { updates, cleared } = renderKitSettingsPage(Page, { host: { values: { "tau.review.writing-instructions": "Say why." } } });
+    const key = (name: string) => `tau.review.${name}`;
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Commit message format" }), { target: { value: "gitmoji" } });
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("commit-style")]: "gitmoji" } }));
+
+    const instructions = screen.getByRole("textbox", { name: "Your instructions" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(instructions.value).toBe("Say why."));
+    expect(instructions.tagName).toBe("TEXTAREA");
+    fireEvent.change(instructions, { target: { value: "  Say why.\nName the ticket.  " } });
+    fireEvent.keyDown(instructions, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("writing-instructions")]: "Say why.\nName the ticket." } }));
+    fireEvent.change(instructions, { target: { value: "" } });
+    fireEvent.blur(instructions);
+    await waitFor(() => expect(cleared).toContainEqual([`values.${key("writing-instructions")}`]));
+
+    const colours = screen.getByRole("radiogroup", { name: "Diff colours" });
+    expect(within(colours).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Red & green", "Blue & orange"]);
+    fireEvent.click(within(colours).getByRole("radio", { name: "Blue & orange" }));
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("diff-colors")]: "blue-orange" } }));
+
+    fireEvent.click(screen.getByRole("switch", { name: "Split view" }));
+    await waitFor(() => expect(updates).toContainEqual({ options: { [key("split-diff")]: true } }));
+    await screen.findByText("Signed in as octo.");
+    expect(missingSettingsRows({ rows: REVIEW_SETTINGS_ROWS })).toEqual([]);
   });
 });
