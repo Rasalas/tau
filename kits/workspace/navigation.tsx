@@ -497,16 +497,14 @@ export function limitHint(limit: UiSession["limit"], now = Date.now()): string {
   return "A usage limit stopped this thread. Open it to continue.";
 }
 
-function sessionAge(timestamp: number): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+/** T3 Code's compact age: `now`, `5m`, `3h`, then days however many (`40d`), never a date. */
+export function sessionAge(timestamp: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return days < 7
-    ? `${days}d`
-    : new Date(timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${Math.floor(hours / 24)}d`;
 }
 
 const noValue = () => undefined;

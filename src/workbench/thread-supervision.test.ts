@@ -103,11 +103,11 @@ describe("the compact thread list", () => {
 
   it("says how old a row is in a few characters", () => {
     const now = 10 * 86_400_000;
-    expect(threadAge(now - 20_000, now)).toBe("<1m");
+    expect(threadAge(now - 20_000, now)).toBe("now");
     expect(threadAge(now - 5 * 60_000, now)).toBe("5m");
     expect(threadAge(now - 3 * 3_600_000, now)).toBe("3h");
     expect(threadAge(now - 2 * 86_400_000, now)).toBe("2d");
-    expect(threadAge(now - 21 * 86_400_000, now)).toBe("3w");
+    expect(threadAge(now - 21 * 86_400_000, now)).toBe("21d");
     expect(threadElapsed(0, 42_000)).toBe("42s");
     expect(threadElapsed(0, 185_000)).toBe("3m 05s");
   });
