@@ -409,6 +409,36 @@ describe("Workspace Kit in the workbench", () => {
       expect(screen.queryByText("Persisted content")).toBeNull();
     });
 
+    it("pages from the host's answer, not from the longer page it showed first", async () => {
+      let answer!: (result: HostActionResult) => void;
+      start(
+        () => new Promise<HostActionResult>((resolvePromise) => { answer = resolvePromise; }),
+        async (sessionId) => ({ sessionId, messages: [{ id: "target-answer", role: "assistant", text: "Persisted content", timestamp: 1 }], hasMore: false, historyCompleteness: "complete" as const }),
+      );
+      await openTarget();
+      expect(await screen.findByText("Persisted content")).toBeTruthy();
+      await act(async () => {
+        answer({
+          version: 1,
+          updates: [{
+            version: 1,
+            type: "thread-detail",
+            detail: {
+              sessionId: "target",
+              messages: [{ id: "target-answer", role: "assistant", text: "Persisted content", timestamp: 1 }],
+              isStreaming: false,
+              activeTools: [],
+              hasMore: true,
+              historyCompleteness: "has-more",
+              olderCursor: "tau-host-cursor.v1.older" as never,
+              cursorBeforeMessageId: "target-answer",
+            },
+          }],
+        });
+      });
+      await waitFor(() => expect(document.querySelector("[data-older-turns]")).not.toBeNull());
+    });
+
     it("drops a page that arrives after the host answered the switch", async () => {
       let page!: () => void;
       start(

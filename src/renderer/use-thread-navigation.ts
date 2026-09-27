@@ -152,6 +152,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     // Before the switch is asked for, so the host streams the target from its snapshot on.
     const releaseTarget = target ? client!.watchThread(target.id) : undefined;
     let confirmed = false;
+    let previewed = false;
     // Nothing cached: the persisted page is on screen before the host has opened the thread's runtime.
     if (!cached && previous && target) {
       void client!.loadTranscript(target.id).then((page) => {
@@ -159,12 +160,15 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
         applySnapshot(optimisticThreadSnapshot(previous, target, threadDetailFromPage(page, target)));
         // Painting the page settles the history's transition; the host's answer needs one of its own.
         transition = history.beginThreadSwitch(target.id);
+        previewed = true;
         view.addEvent("thread.switch.preview", target.title);
       }, () => undefined);
     }
     try {
       const next = await client!.switchSession(path);
       confirmed = true;
+      // The page is longer than the host's first one; merged, it would stand for history the host never paged.
+      if (previewed && history.isCurrentThreadTransition(transition)) view.details.delete(target!.id);
       if (!applyActionResult(next, transition)) return false;
       threads.markRead(target?.id ?? "");
       view.addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
