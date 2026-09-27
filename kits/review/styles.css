@@ -33,15 +33,17 @@
 .request-draft { display: flex; align-items: center; gap: 5px; color: var(--muted); font: 11px var(--sans); }
 .request-form .toggle-group > button.active { background: var(--raised); color: var(--ink); }
 
+/* A thread's requests on its rail row (T3 Code's): the state's glyph in its colour and the number, or "+N". */
 .request-badge {
-  display: inline-flex; align-items: center; gap: 4px; flex: none;
-  font: 10px var(--mono); color: var(--muted-2);
+  display: inline-flex; align-items: center; gap: 3px; flex: none;
+  font: 11px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted);
 }
-.request-badge.state-open { color: var(--acid-text); }
-.request-checks-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
-.request-checks-dot.passed { background: var(--acid); }
-.request-checks-dot.failed { background: var(--danger); }
-.request-checks-dot.pending { background: var(--warn); }
+.request-badge > svg { flex: none; }
+.request-badge.state-open { color: var(--done); }
+.request-badge.state-merged { color: var(--merged); }
+.request-badge.state-closed { color: var(--danger); }
+/* Settled rows are quiet: grey until the row is hovered. Snoozed and active rows keep the colour. */
+.thread-row.activity-settled:not(:hover) .request-badge { color: var(--faint); }
 
 /* Line comments: the one being written and the saved ones sit under their last line. */
 .review-comment-editor, .review-comment-note { margin: 4px 10px 6px 34px; border: 1px solid var(--line-control); border-radius: 7px; background: var(--field); }
@@ -260,7 +262,6 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .request-state.state-closed { color: var(--removed); }
 .request-state.state-armed { color: var(--info-ink); }
 .request-state.state-draft { color: var(--muted); }
-.request-badge-more { margin-left: 3px; color: var(--faint); }
 
 /* The link dialog, laid out like the other dialogs of the workbench. */
 .pr-link-dialog {
