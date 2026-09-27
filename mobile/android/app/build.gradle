@@ -1,5 +1,9 @@
 apply plugin: 'com.android.application'
 
+// The app carries Tau's own version, from the repository's package.json.
+def tauVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../../package.json')).version
+def tauVersionCode = tauVersion.tokenize('.-')[0..2].collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
+
 android {
     namespace = "de.tbuck.tau"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +11,8 @@ android {
         applicationId "de.tbuck.tau"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode tauVersionCode
+        versionName tauVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
