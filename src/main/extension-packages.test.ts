@@ -143,10 +143,16 @@ describe("extension packages", () => {
     expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", description: "x".repeat(201), host: "./h.ts" }))).toThrow("at most 200 characters");
   });
 
+  it("reads a manifest's icon by its Lucide name and refuses anything else", () => {
+    expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", icon: "KeyRound", host: "./h.ts" })).manifest.icon).toBe("KeyRound");
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", icon: "key-round", host: "./h.ts" }))).toThrow('"icon" must be a Lucide icon name');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", icon: "<svg/>", host: "./h.ts" }))).toThrow('"icon" must be a Lucide icon name');
+  });
+
   it("summarizes the package folders for the inspector without loading code", async () => {
     const home = await scratch();
     const project = await scratch();
-    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", description: "Says hello.", engines: { api: "^1" }, permissions: ["workspace:read"], source: { url: "https://example.com/repo" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
+    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", description: "Says hello.", icon: "Hand", engines: { api: "^1" }, permissions: ["workspace:read"], source: { url: "https://example.com/repo" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
     await writePackage(project, "local", { id: "acme.local", name: "Local", desktop: "./d.tsx" }, { "d.tsx": "export default {}" });
     const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
     const inspection = await inspectExtensionPackages(project, "/agent", { home, trusted: () => false, versions });
@@ -157,6 +163,7 @@ describe("extension packages", () => {
       name: "Hello",
       version: "0.3.0",
       description: "Says hello.",
+      icon: "Hand",
       engines: { api: "^1" },
       permissions: ["workspace:read"],
       isolation: "worker",

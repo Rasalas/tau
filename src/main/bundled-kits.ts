@@ -278,6 +278,7 @@ export async function inspectBundledKits(
     name: kit.manifest.name,
     ...(kit.manifest.version ? { version: kit.manifest.version } : {}),
     ...(kit.manifest.description ? { description: kit.manifest.description } : {}),
+    ...(kit.manifest.icon ? { icon: kit.manifest.icon } : {}),
     ...(kit.manifest.engines ? { engines: { ...kit.manifest.engines } } : {}),
     permissions: kit.manifest.permissions ?? [],
     isolation: packageIsolation(kit.manifest),

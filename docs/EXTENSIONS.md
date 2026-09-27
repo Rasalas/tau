@@ -160,6 +160,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `id` | Lowercase, dot-separated; both halves must export it. |
 | `name` | Shown in Settings. |
 | `description` | One sentence, at most 200 characters, that Settings → Extensions shows under the name (optional; new in API 1.18.0). Say what the package does for the user, not how. |
+| `icon` | The [Lucide](https://lucide.dev/icons) icon Settings → Extensions shows beside the name, by its component name: `"Search"`, `"KeyRound"` (optional; new in API 1.18.0). A runtime's mark or the icon of a page or panel the package adds comes first; without all three the list shows the name's first letter. |
 | `version` | The package's own semver (optional). |
 | `engines` | Ranges of `tau`, `pi` and `api` this package runs on (all optional; see below). |
 | `permissions` | The permission vocabulary this package asks for (§ below); missing means none. |
