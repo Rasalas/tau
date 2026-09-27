@@ -53,7 +53,9 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  * not. `test-support` is excluded from the walk, so harnesses are free.
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
-  "./app-menu.js",   "./app-shell.js",   "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
+  "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
+  // An AppImage without sandbox installing the .deb and restarting from it (K26).
+  "./appimage-install.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
   "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",
   "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./configured-sampling.js",   "./dangling-tool-calls.js",   "./data-folder-lock.js",   "./dependency-loader.js",   "./desktop-extensions.js",

@@ -1,4 +1,4 @@
-import { app, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell } from "electron";
+import { app, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +46,7 @@ import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, linuxInstall, linuxUpdates, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { offerPackageInstall } from "./appimage-install.js";
 import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
 import { createAppShell } from "./app-shell.js";
 import { createQuitShortcut } from "./quit-shortcut.js";
@@ -813,6 +814,30 @@ if (primaryInstance) app.whenReady().then(async () => {
   });
   if (appIconPath) app.dock?.setIcon(appIconPath);
   const feed = app.isPackaged ? readUpdateFeedFile() : undefined;
+  // An AppImage without Chromium's sandbox offers the .deb and restarts from it before anything starts.
+  if (process.platform === "linux" && app.isPackaged && !backgroundMode && process.env.TAU_NO_NATIVE_DIALOGS !== "1") {
+    const restarting = await offerPackageInstall({
+      env: process.env,
+      version: app.getVersion(),
+      arch: process.arch,
+      pid: process.pid,
+      argv: process.argv.slice(1),
+      noSandbox: app.commandLine.hasSwitch("no-sandbox"),
+      ...(feed ? { feed } : {}),
+      folder: join(app.getPath("userData"), "package-install"),
+      ask: async (prompt, signal) => (await dialog.showMessageBox({ title: app.getName(), ...prompt, noLink: true, ...(signal ? { signal } : {}) })).response,
+      copyText: (text) => clipboard.writeText(text),
+      fetch: (url, init) => net.fetch(url, init),
+      log: hostLog,
+    }).catch((error: unknown) => {
+      hostLog.warn("package-install.failed", error);
+      return false;
+    });
+    if (restarting) {
+      app.exit(0);
+      return;
+    }
+  }
   // A fixture stands in for the release where nothing may be fetched (a dev instance, a test).
   const notesFile = process.env.TAU_RELEASE_NOTES_FILE;
   releaseNotes = new ReleaseNotesStore({
