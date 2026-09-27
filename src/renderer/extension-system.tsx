@@ -151,6 +151,10 @@ export interface WorkbenchActions {
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
   openOverlay(id: string): void;
   closeOverlay(): void;
+  /** Opens a page `registerPage` added, beside the sidebar; `params` is what it opens on. */
+  openPage?(id: string, params?: Record<string, unknown>): void;
+  /** Closes the open page, back to the thread. */
+  closePage?(): void;
   /** Manually compact the active thread's context window. */
   compactContext?(): Promise<void>;
   /** Opens the model picker modal for selecting a model. */
@@ -610,6 +614,41 @@ export interface SettingsPageProps {
   onNotify(message: string): void;
 }
 
+/** What a page `registerPage` added is drawn with. */
+export interface PageProps {
+  actions: WorkbenchActions;
+  /** The view on screen: what the page was opened with, or what `navigate` stepped into. */
+  params: Readonly<Record<string, unknown>>;
+  /**
+   * Steps into another view of the page (a detail, a sub-page): `label` follows
+   * the page's own in the bar, and Escape, the bar and a phone's back gesture
+   * return. `replace` swaps the view on top instead of adding one.
+   */
+  navigate(params: Record<string, unknown>, options?: { label?: string; replace?: boolean }): void;
+  /** Back to the thread. */
+  close(): void;
+}
+
+/**
+ * A page of the app, like Settings: it takes the place of the thread and the
+ * stage, and the sidebar stays beside it with Back at its foot; on a phone it
+ * is a screen of its own. The sidebar's foot lists every page, in `order`.
+ */
+export interface PageContribution extends ProfileScoped {
+  id: string;
+  label: string;
+  Icon?: PanelIconComponent;
+  order?: number;
+  /**
+   * `readable`, the default, is Settings' reading column; `wide` a wider one;
+   * `fill` hands the page the whole area to scroll itself, as a stage tab.
+   */
+  layout?: "readable" | "wide" | "fill";
+  /** Words the palette finds the page by, besides its label. */
+  keywords?: readonly string[];
+  Component: ComponentType<PageProps>;
+}
+
 /**
  * A page of Settings an extension owns. Core keeps the Settings screen, its
  * navigation and the pages that must survive safe mode; a page like this one is
@@ -618,7 +657,7 @@ export interface SettingsPageProps {
 export interface SettingsPageContribution extends ProfileScoped {
   id: string;
   label: string;
-  /** Opens without Settings navigation. Its kit supplies the navigation command. */
+  /** @deprecated A page of its own is `registerPage`'s; this one opens without Settings navigation. */
   standalone?: boolean;
   /** The nav glyph, the way a panel passes one. */
   Icon?: PanelIconComponent;
@@ -1131,6 +1170,8 @@ export interface DesktopExtensionContext {
   registerSettingsPage(page: SettingsPageContribution): () => void;
   /** A section on one of core's Settings pages (API 1.13.0). */
   registerSettingsSection(section: SettingsSectionContribution): () => void;
+  /** A page of the app beside the sidebar, like Settings; `actions.openPage(id)` opens it. */
+  registerPage(page: PageContribution): () => void;
   /**
    * What the host sees in the package folders and in the kits it ships: the
    * same scan Settings' inspector reads, without loading any code.
@@ -1309,6 +1350,7 @@ export class ExtensionRegistry {
   private panels = new Map<string, Owned<PanelContribution>>();
   private stageTabKinds = new Map<string, Owned<StageTabContribution>>();
   private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
+  private pages = new Map<string, Owned<PageContribution>>();
   private settingsSections = new Map<string, Owned<SettingsSectionContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
   private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
@@ -1463,6 +1505,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "settings page", page.id, page.label, page)) return noContribution;
         note("settings page");
         return this.register(this.settingsPages, page.id, { ...page, ...owner }, disposers);
+      },
+      registerPage: (page) => {
+        if (!this.scopeToProfile(owner, "page", page.id, page.label, page)) return noContribution;
+        note("page");
+        return this.register(this.pages, page.id, { ...page, ...owner }, disposers);
       },
       registerSettingsSection: (section) => {
         if (!this.scopeToProfile(owner, "settings section", section.id, section.id, section)) return noContribution;
@@ -1791,6 +1838,15 @@ export class ExtensionRegistry {
   /** Pages extensions added to Settings, in `order`. */
   getSettingsPages(): Array<Owned<SettingsPageContribution>> {
     return this.sorted("settings-pages", this.settingsPages);
+  }
+
+  /** Pages of the app extensions added, in `order`. */
+  getPages(): Array<Owned<PageContribution>> {
+    return this.sorted("pages", this.pages);
+  }
+
+  getPage(id: string | undefined): Owned<PageContribution> | undefined {
+    return id ? this.pages.get(id) : undefined;
   }
 
   /** Sections packages added to one of core's Settings pages, in `order`. */

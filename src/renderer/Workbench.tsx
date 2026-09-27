@@ -53,6 +53,8 @@ import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
 import type { ThreadStore } from "../workbench/thread-store";
+import type { AppPageStore } from "../workbench/app-page-store";
+import { AppPageContext } from "./app-page-context";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import { contextBreakdownFor, conversationMessagesFor, toolOutputKiloTokens } from "../workbench/app-state";
 import type { TranscriptHistoryController } from "../workbench/transcript-history";
@@ -87,6 +89,7 @@ function storedDockWidth(storage: ClientStorage): number {
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
+const LazyAppPageScreen = lazy(() => import("./pages/AppPageScreen").then(({ AppPageScreen }) => ({ default: AppPageScreen })));
 const LazySettingsScreen = lazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
 const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
@@ -191,6 +194,8 @@ export interface WorkbenchLayout {
   setNotice(message?: string, level?: "info" | "warning" | "error"): void;
   activeOverlayId?: string;
   closeOverlay(): void;
+  /** The app page on screen, beside the sidebar. */
+  pages: AppPageStore;
 }
 
 /** What the visible thread is, and how its transcript is navigated. */
@@ -286,7 +291,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette, commands,
     projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    setNotice, activeOverlayId, closeOverlay,
+    setNotice, activeOverlayId, closeOverlay, pages,
   } = layout;
   const {
     snapshot, conversationSnapshot, pendingNewThread, showStartScreen, startProjectPath, startProjectName,
@@ -337,6 +342,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const [panelSheet, setPanelSheet] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
+  // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
+  const pageScreen = compact && !split;
+  useCloseOnThreadChange(pages, snapshot?.sessionId, pendingNewThread);
   const stageRef = useRef<HTMLElement>(null);
   useImperativeHandle(layout.controlRef, () => ({
     openInstructions: () => setSystemPromptOpen(true),
@@ -447,6 +456,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     actions={actions}
   />;
 
+  const appPage = openPage ? <LazyFeatureBoundary label="page">
+    <Suspense fallback={<section className={`app-page${pageScreen ? " stacked" : ""}`}><LazyFeatureFallback label="page" /></section>}>
+      <LazyAppPageScreen registry={registry} store={pages} actions={actions} stacked={pageScreen} sidebarShown={split ? touchSidebarShown : sidebarShown} />
+    </Suspense>
+  </LazyFeatureBoundary> : null;
+
   const overlays = <>
     {compact ? <Suspense fallback={null}><LazyTouchLayer syncUrl={clientProfile !== "desktop"} openThread={actions.switchSession} /></Suspense> : null}
     {phoneHome && !threadSheetOpen ? <Suspense fallback={null}>
@@ -494,6 +509,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onSelect={createThreadInProject}
       />
     </Suspense>
+    {openPage && pageScreen ? appPage : null}
     {settingsPage ? <LazyFeatureBoundary label="settings">
       <Suspense fallback={<div className="settings-screen loading"><LazyFeatureFallback label="settings" /></div>}>
         <LazySettingsScreen
@@ -609,7 +625,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         defaultValue={SIDEBAR_DEFAULT_WIDTH}
         onChange={setSidebarWidth}
       /> : null}
-      <div className="workbench-main">
+      <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
       <div className={centerClassName}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
@@ -704,7 +720,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         {drawerPanel.maximizable ? <PanelMaximizeButton label={drawerPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout?.maximize(drawerPanel.id)} /> : null}
       </section> : null}
       </div>
-      {dockPanels.length > 0 ? <aside className="instrument-dock">
+      {dockPanels.length > 0 ? <aside className="instrument-dock" inert={Boolean(openPage) && !pageScreen}>
         {dockShown ? <ResizeHandle
           className="dock-resizer"
           label="Resize right sidebar"
@@ -740,6 +756,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <span className="spacer" />
         </nav>
       </aside> : null}
+      {openPage && !pageScreen ? appPage : null}
     </div>
     {overlays}
     {floats}
@@ -788,10 +805,22 @@ function WorkbenchProviders({ model, threadStore, children }: { model: Workbench
   return <ThreadStoreContext.Provider value={threadStore}>
     <WorkbenchShellContext.Provider value={model.shellContext}>
       <WorkbenchContext.Provider value={context}>
-        <ObservatoryContext.Provider value={observatory}>{children}</ObservatoryContext.Provider>
+        <AppPageContext.Provider value={model.layout.pages}>
+          <ObservatoryContext.Provider value={observatory}>{children}</ObservatoryContext.Provider>
+        </AppPageContext.Provider>
       </WorkbenchContext.Provider>
     </WorkbenchShellContext.Provider>
   </ThreadStoreContext.Provider>;
+}
+
+/** Another thread on screen, or a new one's draft, leaves the open page. */
+function useCloseOnThreadChange(pages: AppPageStore, sessionId: string | undefined, draft: boolean): void {
+  const shown = useRef({ sessionId, draft });
+  useEffect(() => {
+    if (shown.current.sessionId === sessionId && shown.current.draft === draft) return;
+    shown.current = { sessionId, draft };
+    pages.close();
+  }, [draft, pages, sessionId]);
 }
 
 /**

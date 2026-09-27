@@ -39,6 +39,8 @@ export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
 // Read only: preferences sync them from the host, and emit when they do.
 export { listUserThemes as userThemes } from "./theme";
 export { useClientStorage } from "./client-storage-context";
+// The app page on screen, for a sidebar that marks it and offers Back.
+export { useOpenPage } from "./app-page-context";
 export { getClientStorage } from "../workbench/client-storage";
 export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
@@ -139,6 +141,8 @@ export type {
   StageTabHandle,
   SettingsPageContribution,
   SettingsPageProps,
+  PageContribution,
+  PageProps,
   SettingsSectionContribution,
   SettingsSectionPage,
   SettingsSectionProps,

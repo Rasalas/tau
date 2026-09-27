@@ -22,7 +22,8 @@ export function useAppKeybindings(
       if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
       const match = registry.matchKeybinding(event);
       if (!match || (capture && !match.specific)) return;
-      if (!match.modified && document.querySelector('[aria-modal="true"]')) return;
+      // A dialog or a page over the thread keeps the plain keys (Escape stops no run behind a page).
+      if (!match.modified && document.querySelector('[aria-modal="true"], [data-app-page]')) return;
       event.preventDefault();
       if (capture) event.stopPropagation();
       const refused = commandRefusal(match.command, hostIsReadOnly());
