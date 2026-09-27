@@ -156,6 +156,29 @@ describe("tool run output", () => {
     expect(view.container.querySelector(".tool-output")?.textContent).toContain("found it");
   });
 
+  it("says why a call failed until its output is open", () => {
+    render(<ToolRun
+      tool={command({ args: { command: "ls missing" }, status: "error", output: "Exit code 1\nls: missing: No such file or directory" })}
+      registry={registryWithBundledExtensions()}
+    />);
+    const reason = "Exit code 1: ls: missing: No such file or directory";
+    expect(screen.getByRole("img", { name: `Failed: ${reason}` }).getAttribute("title")).toBe(reason);
+    expect(screen.getByText(reason)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /ls missing/u }));
+    expect(screen.queryByText(reason)).toBeNull();
+    expect(screen.getByText(/No such file or directory/u)).toBeTruthy();
+  });
+
+  it("names the command of a call no renderer claimed, not its arguments", () => {
+    render(<ToolRun
+      tool={{ id: "t", name: "Shell", args: { command: "npm test", description: "Run the tests", timeout: 60_000 }, status: "done", startedAt: 0, endedAt: 10 }}
+      registry={new ExtensionRegistry()}
+    />);
+    expect(screen.getByText("npm test")).toBeTruthy();
+    expect(screen.queryByText(/description/u)).toBeNull();
+  });
+
   it("keeps waiting and interrupted states distinct", () => {
     const registry = registryWithBundledExtensions();
     const { rerender } = render(<ToolRun

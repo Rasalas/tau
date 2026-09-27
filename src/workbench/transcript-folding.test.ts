@@ -12,6 +12,8 @@ import {
   nextTranscriptDetail,
   summarizeToolFacts,
   toolActionClass,
+  toolArgumentSummary,
+  toolFailureReason,
   type WorkGroupInput,
   type WorkRow,
 } from "./transcript-folding";
@@ -333,5 +335,33 @@ describe("the turn's answer", () => {
 
   it("reads from the start when the anchor is not loaded", () => {
     expect(answerTimestampAfter(messages, undefined)).toBeUndefined();
+  });
+});
+
+describe("a call no renderer claimed", () => {
+  it("shows what the call was about, not the names of its arguments", () => {
+    expect(toolArgumentSummary({ command: "ls -la\n  src", description: "List files", timeout: 5_000 })).toBe("ls -la src");
+    expect(toolArgumentSummary({ file_path: "/repo/a.ts", limit: 20 })).toBe("/repo/a.ts");
+    expect(toolArgumentSummary({ server: "linear", title: "Fix it" })).toBe("linear");
+  });
+
+  it("falls back to the names when no argument is text", () => {
+    expect(toolArgumentSummary({ todos: [], merge: true })).toBe("todos · merge");
+    expect(toolArgumentSummary({})).toBe("no arguments");
+  });
+});
+
+describe("why a call failed", () => {
+  it("pairs a shell's exit status with the last thing it printed", () => {
+    expect(toolFailureReason("Exit code 1\nls: missing: No such file or directory")).toBe("Exit code 1: ls: missing: No such file or directory");
+    expect(toolFailureReason("building\nerror TS2304: x\n\nCommand exited with code 2")).toBe("Command exited with code 2: error TS2304: x");
+    expect(toolFailureReason("Exit code 127")).toBe("Exit code 127");
+  });
+
+  it("takes the first line of any other answer", () => {
+    expect(toolFailureReason("The user doesn't want to proceed with this tool use.\nMore.")).toBe("The user doesn't want to proceed with this tool use.");
+    expect(toolFailureReason("x".repeat(400))).toHaveLength(240);
+    expect(toolFailureReason("  \n ")).toBeUndefined();
+    expect(toolFailureReason(undefined)).toBeUndefined();
   });
 });

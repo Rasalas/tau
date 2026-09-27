@@ -34,6 +34,7 @@ import type { Platform, PlatformAttention } from "../workbench/platform";
 import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
 import { errorMessage } from "../workbench/error-message";
+import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 
@@ -2302,7 +2303,7 @@ export class ExtensionRegistry {
       glyph: "◇",
       title: tool.name,
       tone: "neutral",
-      detail: Object.keys(tool.args).join(" · ") || "no arguments",
+      detail: toolArgumentSummary(tool.args),
     };
   }
 

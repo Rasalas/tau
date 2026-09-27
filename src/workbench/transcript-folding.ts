@@ -76,6 +76,41 @@ export function commandProgram(command: string | undefined): string | undefined 
   return program && !program.includes("=") ? program : undefined;
 }
 
+/** The arguments that say what a call did, in the order a reader looks for them. */
+const TELLING_ARGS = ["command", "file_path", "path", "notebook_path", "pattern", "query", "url", "description", "prompt"];
+
+function oneLine(value: string): string {
+  return value.replaceAll(/\s+/gu, " ").trim();
+}
+
+/**
+ * What a call was about, for a tool no renderer claimed: the value of its most
+ * telling argument rather than the argument names.
+ */
+export function toolArgumentSummary(args: Readonly<Record<string, unknown>>): string {
+  const telling = TELLING_ARGS.map((key) => args[key]).find((value) => typeof value === "string" && value.trim());
+  const first = telling ?? Object.values(args).find((value) => typeof value === "string" && value.trim());
+  if (typeof first === "string") return oneLine(first);
+  // No text to show: the names are all there is.
+  return Object.keys(args).join(" · ") || "no arguments";
+}
+
+const EXIT_STATUS = /\bexit(?:ed with)? code -?\d+/iu;
+const FAILURE_REASON_CHARS = 240;
+
+/**
+ * Why a failed tool failed, in one line: a shell's exit status with the last
+ * thing it printed, or else the first line of what the tool answered.
+ */
+export function toolFailureReason(output: string | undefined): string | undefined {
+  const lines = (output ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return undefined;
+  const status = lines.find((line) => EXIT_STATUS.test(line));
+  const said = status ? lines.filter((line) => line !== status).at(-1) : undefined;
+  const reason = status ? (said ? `${status}: ${said}` : status) : lines[0];
+  return reason.length > FAILURE_REASON_CHARS ? `${reason.slice(0, FAILURE_REASON_CHARS - 1)}…` : reason;
+}
+
 export function classifyToolRun(tool: UiToolRun, hint: ToolPresentationHint = {}): ToolFact {
   const action = toolActionClass(tool.name);
   const path = text(tool.args.path) ?? text(tool.args.file_path);
