@@ -4,6 +4,16 @@ export type StreamingDelivery = "followUp" | "steer";
 
 export const SEND_SHORTCUTS: readonly SendShortcut[] = ["enter", "mod-enter-multiline", "mod-enter"];
 
+/**
+ * The chord that sends on the keyboard typing now. An on-screen keyboard has
+ * one return key and no ⇧: it writes a newline and the button sends. A
+ * hardware keyboard on a touch screen, with none slid in over the page, sends
+ * the way the desktop does.
+ */
+export function sendShortcutFor(preferred: SendShortcut | undefined, keyboard: { touch: boolean; onScreen: boolean }): SendShortcut {
+  return keyboard.touch && keyboard.onScreen ? "mod-enter" : preferred ?? "enter";
+}
+
 const needsModifier = (shortcut: SendShortcut, text: string) =>
   shortcut === "mod-enter" || (shortcut === "mod-enter-multiline" && text.includes("\n"));
 

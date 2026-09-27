@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composerEnter, sendHint } from "./composer-send-keys";
+import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 
 const enter = (overrides: Partial<Parameters<typeof composerEnter>[0]> = {}) =>
   composerEnter({ shift: false, mod: false, shortcut: "enter", text: "hi", streaming: false, base: "followUp", ...overrides });
@@ -42,5 +42,15 @@ describe("composer send keys", () => {
     expect(sendHint("mod-enter", false, "followUp", true)).toBe("Direct the agent");
     expect(sendHint("mod-enter", true, "steer", true)).toBe("Steer this turn");
     expect(enter({ shortcut: "mod-enter" })).toBe("newline");
+  });
+
+  it("sends on a touch screen's hardware keyboard as on the desktop, and leaves an on-screen keyboard's return to the newline", () => {
+    expect(sendShortcutFor(undefined, { touch: true, onScreen: true })).toBe("mod-enter");
+    expect(sendShortcutFor("enter", { touch: true, onScreen: true })).toBe("mod-enter");
+    expect(sendShortcutFor(undefined, { touch: true, onScreen: false })).toBe("enter");
+    expect(sendShortcutFor("mod-enter-multiline", { touch: true, onScreen: false })).toBe("mod-enter-multiline");
+    expect(sendShortcutFor(undefined, { touch: false, onScreen: false })).toBe("enter");
+    // A desktop has no on-screen keyboard to yield to, whatever the attribute says.
+    expect(sendShortcutFor("mod-enter", { touch: false, onScreen: true })).toBe("mod-enter");
   });
 });
