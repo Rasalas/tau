@@ -137,10 +137,16 @@ describe("extension packages", () => {
     expect(manifestIncompatibility({ ...parsed.manifest, engines: { api: "^2" } }, versions)).toBe("a.b 1.2.0 needs the extension API ^2, this Tau has 1.0.0");
   });
 
+  it("reads the one sentence a manifest says about its package, and refuses a long or empty one", () => {
+    expect(parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", description: "  Does a thing.  ", host: "./h.ts" })).manifest.description).toBe("Does a thing.");
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", description: "", host: "./h.ts" }))).toThrow('"description" must be a sentence');
+    expect(() => parseExtensionManifest("/p", JSON.stringify({ id: "a.b", name: "x", description: "x".repeat(201), host: "./h.ts" }))).toThrow("at most 200 characters");
+  });
+
   it("summarizes the package folders for the inspector without loading code", async () => {
     const home = await scratch();
     const project = await scratch();
-    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", engines: { api: "^1" }, permissions: ["workspace:read"], source: { url: "https://example.com/repo" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
+    await writePackage(home, "hello", { id: "acme.hello", name: "Hello", version: "0.3.0", description: "Says hello.", engines: { api: "^1" }, permissions: ["workspace:read"], source: { url: "https://example.com/repo" }, desktop: "./d.tsx", host: "./h.ts" }, { "d.tsx": "export default {}", "h.ts": "export default { activate() {} }" });
     await writePackage(project, "local", { id: "acme.local", name: "Local", desktop: "./d.tsx" }, { "d.tsx": "export default {}" });
     const versions = { tau: "0.0.0", pi: "0.84.4", api: "1.0.0" };
     const inspection = await inspectExtensionPackages(project, "/agent", { home, trusted: () => false, versions });
@@ -150,6 +156,7 @@ describe("extension packages", () => {
       id: "acme.hello",
       name: "Hello",
       version: "0.3.0",
+      description: "Says hello.",
       engines: { api: "^1" },
       permissions: ["workspace:read"],
       isolation: "worker",
@@ -179,6 +186,10 @@ describe("extension packages", () => {
       "acme.future 3.0.0 needs the extension API ^2.0.0, this Tau has 1.0.0",
       expect.stringContaining("does not exist"),
     ]);
+    // A folder that did not load still names its package, so Settings can list it with the reason.
+    expect(trusted.errors[0]).toMatchObject({ id: "acme.future", name: "Future", version: "3.0.0", incompatible: true });
+    expect(trusted.errors[1]).toMatchObject({ id: "acme.broken", name: "Broken" });
+    expect(trusted.errors[1]).not.toHaveProperty("incompatible");
     // Without versions to check against, engines are not enforced.
     const unchecked = await listExtensionPackages(project, "/agent", { home, trusted: () => true });
     expect(unchecked.packages.map((pkg) => pkg.manifest.id)).toContain("acme.future");

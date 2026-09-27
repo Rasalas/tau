@@ -734,6 +734,8 @@ export interface ExtensionPackageSummary {
   id: string;
   name: string;
   version?: string;
+  /** The manifest's one sentence about the package. */
+  description?: string;
   engines?: Record<string, string>;
   permissions?: string[];
   /** Where the host half runs; a package that declares none runs in a worker. */
@@ -763,7 +765,12 @@ export interface ExtensionInspection {
   distribution?: { name: string; version: string };
   directories: Array<{ scope: "global" | "project"; directory: string }>;
   packages: ExtensionPackageSummary[];
-  errors: Array<{ path: string; message: string }>;
+  /**
+   * Package folders that did not load. Where the manifest could be read, the
+   * package's `id`, `name` and `version`; `incompatible` when its `engines`
+   * rule this Tau out.
+   */
+  errors: Array<{ path: string; message: string; id?: string; name?: string; version?: string; incompatible?: boolean }>;
   skipped: Array<{ directory: string; reason: string }>;
 }
 

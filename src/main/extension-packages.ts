@@ -21,6 +21,7 @@ import { describeSignature, readTrustedPublishers, verifyExtensionSignature, typ
 export const MANIFEST_FILE = "tau-extension.json";
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 const ENGINE_NAMES = ["tau", "pi", "api"] as const;
+const DESCRIPTION_LIMIT = 200;
 
 /**
  * `tau-extension.json` in a package folder under `~/.tau/extensions` or
@@ -32,6 +33,8 @@ export interface ExtensionManifest {
   name: string;
   /** The package's own version, semver. */
   version?: string;
+  /** One sentence Settings shows under the name. */
+  description?: string;
   /** Ranges of Tau, Pi and the extension API the package runs on; a miss keeps it off. */
   engines?: ExtensionEngines;
   /** Permissions the package requests from the host. Missing means []. */
@@ -123,10 +126,13 @@ export function parseExtensionManifest(directory: string, source: string): { man
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host, window: windowHalf, styles, pi } = raw as Record<string, unknown>;
+  const { id, name, version, description, engines, permissions, isolation, source: manifestSource, desktop, host, window: windowHalf, styles, pi } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
+  if (description !== undefined && (typeof description !== "string" || !description.trim() || description.length > DESCRIPTION_LIMIT)) {
+    throw new Error(`"description" must be a sentence of at most ${DESCRIPTION_LIMIT} characters`);
+  }
   const parsedEngines = parseEngines(engines);
   const parsedPermissions = parsePermissions(permissions);
   const parsedIsolation = parseIsolation(isolation);
@@ -148,6 +154,7 @@ export function parseExtensionManifest(directory: string, source: string): { man
       id,
       name: name.trim(),
       ...(typeof version === "string" ? { version: version.trim() } : {}),
+      ...(typeof description === "string" ? { description: description.trim() } : {}),
       ...(parsedEngines ? { engines: parsedEngines } : {}),
       permissions: parsedPermissions,
       ...(parsedIsolation ? { isolation: parsedIsolation } : {}),
@@ -193,6 +200,21 @@ export function packageIsolation(manifest: { isolation?: ExtensionIsolation }): 
   return manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION;
 }
 
+/** A package folder that did not load, with the package it names when its manifest could be read. */
+export type PackageLoadError = ExtensionInspection["errors"][number];
+
+class PackageFolderError extends Error {
+  constructor(message: string, readonly identity: { id: string; name: string; version?: string; incompatible?: true }) {
+    super(message);
+  }
+}
+
+/** The entry `errors` gets for a folder that failed: the package's id and name where the manifest named them. */
+export function packageLoadError(path: string, error: unknown): PackageLoadError {
+  const message = error instanceof Error ? error.message : String(error);
+  return error instanceof PackageFolderError ? { path, message, ...error.identity } : { path, message };
+}
+
 /** Why a manifest cannot run on these versions, or undefined when it can. */
 export function manifestIncompatibility(manifest: ExtensionManifest, versions: ExtensionHostVersions | undefined): string | undefined {
   if (!versions) return undefined;
@@ -202,7 +224,7 @@ export function manifestIncompatibility(manifest: ExtensionManifest, versions: E
 
 export interface PackageScanResult {
   packages: ExtensionPackage[];
-  errors: Array<{ path: string; message: string }>;
+  errors: PackageLoadError[];
   skipped: Array<{ directory: string; reason: string }>;
 }
 
@@ -223,15 +245,16 @@ async function readPackageFolder(
   publishers: readonly TrustedPublisher[],
 ): Promise<ExtensionPackage> {
   const parsed = parseExtensionManifest(packageDir, await readFile(join(packageDir, MANIFEST_FILE), "utf8"));
+  const identity = { id: parsed.manifest.id, name: parsed.manifest.name, ...(parsed.manifest.version ? { version: parsed.manifest.version } : {}) };
   const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
-  if (incompatible) throw new Error(incompatible);
+  if (incompatible) throw new PackageFolderError(incompatible, { ...identity, incompatible: true });
   for (const entry of [parsed.desktopEntry, parsed.hostEntry, parsed.windowEntry, parsed.piEntry, parsed.stylesEntry]) {
-    if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
+    if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new PackageFolderError(`entry ${entry} does not exist`, identity);
   }
   const signature = await verifyExtensionSignature(packageDir, parsed.manifest, publishers);
   // A hash that no longer matches means the folder changed after it was signed:
   // that is a broken package, not a weaker one, so it does not load at all.
-  if (signature.state === "tampered") throw new Error(describeSignature(signature));
+  if (signature.state === "tampered") throw new PackageFolderError(describeSignature(signature), identity);
   return { scope, directory: packageDir, ...parsed, signature };
 }
 
@@ -259,7 +282,7 @@ export async function listExtensionPackages(
       try {
         found.push(await readPackageFolder(scope, packageDir, options, publishers));
       } catch (error) {
-        result.errors.push({ path: manifestPath, message: error instanceof Error ? error.message : String(error) });
+        result.errors.push(packageLoadError(manifestPath, error));
       }
     }
     if (found.length === 0) continue;
@@ -312,7 +335,7 @@ async function addInstalledSources(
       seen.add(entry.directory);
       result.packages.push({ ...pkg, installedFrom: entry.source.raw });
     } catch (error) {
-      result.errors.push({ path: manifestPath, message: error instanceof Error ? error.message : String(error) });
+      result.errors.push(packageLoadError(manifestPath, error));
     }
   }
 }
@@ -330,6 +353,7 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       id: pkg.manifest.id,
       name: pkg.manifest.name,
       ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
+      ...(pkg.manifest.description ? { description: pkg.manifest.description } : {}),
       ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
       permissions: pkg.manifest.permissions ?? [],
       isolation: packageIsolation(pkg.manifest),
