@@ -426,7 +426,7 @@ export const openCodeExtension: DesktopExtension = {
     let runner: TerminalRunService | undefined;
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "opencode.runtime", align: "left", order: 43, profiles: ["desktop", "web", "compact"], Component: OpenCodeStatus }),
+      plugin.registerStatusItem({ id: "opencode.runtime", align: "left", order: 43, profiles: ["desktop", "web"], Component: OpenCodeStatus }),
       plugin.registerRegion({ id: "opencode.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "opencode.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {
