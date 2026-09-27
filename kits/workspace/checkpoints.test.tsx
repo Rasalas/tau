@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { createKitHarness, setHostClient, WorkbenchContext } from "../../src/renderer/test-support/kit-harness.js";
-import { checkpointHasCard, registerCheckpoints } from "./checkpoints.js";
+import { registerCheckpoints } from "./checkpoints.js";
 import { CHECKPOINT_EVENT } from "./protocol.js";
 import type { WorkspaceStore } from "./store.js";
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
@@ -23,26 +23,21 @@ function checkpoint(id: string, paths: string[], extra: Partial<UiTurnCheckpoint
   };
 }
 
-describe("checkpointHasCard", () => {
-  it("draws a card only for a turn that changed files, or whose capture may have missed some", () => {
-    expect(checkpointHasCard(checkpoint("t1", []))).toBe(false);
-    expect(checkpointHasCard(checkpoint("t2", ["a.ts"]))).toBe(true);
-    expect(checkpointHasCard(checkpoint("t3", [], { completeness: "partial" }))).toBe(true);
-    // A summary without its file list still counts its files.
-    expect(checkpointHasCard({ ...checkpoint("t4", []), fileCount: 3 })).toBe(true);
-  });
-});
-
 describe("checkpoint rows", () => {
-  it("leaves no row for a turn without file changes, and the others still rewind", async () => {
+  it("pins the latest turn over the composer, leaves earlier ones in the transcript, and skips turns without changes", async () => {
     setHostClient(createFakeHostClient());
     const host = {
       checkpoints: vi.fn(async () => ({ checkpoints: [], restoreSupported: true })),
       canRestoreCheckpoint: vi.fn(async (_sessionId: string, _id: string) => true),
     };
     const { registry } = createKitHarness();
-    registry.activate({ id: EXTENSION_ID, name: "Checkpoints", activate: (context) => registerCheckpoints(context, { host, recordTurnStat: vi.fn() } as unknown as WorkspaceStore) });
-    const { Component } = registry.getRegions("transcript-header")[0]!;
+    const kitState = { changes: { files: [], added: 0, removed: 0 }, draftPending: false, turnSettled: false };
+    const workspaceStore = {
+      host, recordTurnStat: vi.fn(), subscribe: () => () => undefined, getSnapshot: () => kitState,
+      turnChanges: () => ({ files: [], added: 0, removed: 0 }),
+    } as unknown as WorkspaceStore;
+    registry.activate({ id: EXTENSION_ID, name: "Checkpoints", activate: (context) => registerCheckpoints(context, workspaceStore) });
+    const { Component } = registry.getRegions("composer-above")[0]!;
     const snapshot = { sessionId: "s1", isStreaming: false } as HostSnapshot;
     const actions = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;
     render(
@@ -59,12 +54,18 @@ describe("checkpoint rows", () => {
     announce(checkpoint("t3", [], { completeness: "partial" }));
 
     await waitFor(() => expect(host.checkpoints).toHaveBeenCalled());
-    expect(registry.getTranscriptRows("s1").map((row) => row.id)).toEqual(["checkpoints:t1", "checkpoints:t3"]);
-    // Only drawn cards are asked about; the hidden turn is still counted as a later turn by a rewind.
+    expect(registry.getTranscriptRows("s1").map((row) => row.id)).toEqual(["checkpoints:t1"]);
+    // The partial capture is the latest turn: it sits over the composer, never restorable.
+    expect(screen.getByRole("button", { name: /^Turn changes: 0\+ files/u })).toBeTruthy();
+    // Only turns with a pill are asked about; the hidden turn is still counted as a later turn by a rewind.
     await waitFor(() => expect(host.canRestoreCheckpoint.mock.calls.map(([, id]) => id)).toEqual(["t1"]));
     await waitFor(() => {
-      const card = render(<>{registry.getTranscriptRows("s1")[0]!.content}</>);
-      try { expect(within(card.container).getByText("Rewind")).toBeTruthy(); } finally { card.unmount(); }
+      const row = render(<>{registry.getTranscriptRows("s1")[0]!.content}</>);
+      try {
+        fireEvent.click(within(row.container).getByRole("button", { name: /^Turn changes: 1 file/u }));
+        // The detail loads lazily; a later attempt draws it at once.
+        expect(screen.getByRole("button", { name: "Rewind" })).toBeTruthy();
+      } finally { row.unmount(); }
     });
   });
 });
