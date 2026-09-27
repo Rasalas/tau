@@ -1336,8 +1336,12 @@ by time without touching the rail's own order), `running`, `opening`, `machine`
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
-The shelves after the main list (snoozed, settled) are pinned to the rail's lower third
-and scroll on their own; the main list keeps the two thirds above, even when short.
+The shelves after the main list (snoozed, settled) share its scroll, as in T3 Code: they
+sit at the rail's bottom while the main list is short and follow its end when it is long.
+`collapsed` is only the default; the client remembers each shelf it opened or folded
+(`tau.workspace.rail-shelves-open.v1` in its storage). A folded shelf's label adds the
+count, an open settled shelf shows ten rows and then 25 a page, and the thread on screen
+keeps its row on a folded or paged shelf.
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,
