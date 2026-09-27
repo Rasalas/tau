@@ -15,10 +15,13 @@ import {
 } from "./extension-catalog";
 import { ExtensionGlyph, StateBadge, extensionMarks, useExtensionSwitch, type ExtensionMark } from "./ExtensionPage";
 import { extensionPage } from "./settings-nav";
+import { useHostCapabilities } from "../use-host-capabilities";
 
-function ExtensionRow({ entry, mark, onOpen, onToggle }: {
+function ExtensionRow({ entry, mark, readOnly, onOpen, onToggle }: {
   entry: ExtensionEntry;
   mark: ExtensionMark | undefined;
+  /** The host's list is every device's, and a Read-only one may not change it. */
+  readOnly: boolean;
   onOpen(): void;
   onToggle(next: boolean): void;
 }) {
@@ -36,7 +39,7 @@ function ExtensionRow({ entry, mark, onOpen, onToggle }: {
         {entry.locked ? <span className="extension-row-note">Always on</span>
           : entry.state === "waiting" ? <Button onClick={onOpen}>Review</Button>
             : entry.state === "incompatible" ? null
-              : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running} onChange={onToggle} />}
+              : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running} disabled={readOnly} onChange={onToggle} />}
       </span>
       <ChevronRight className="extension-row-chevron" size={16} aria-hidden />
     </li>
@@ -44,7 +47,7 @@ function ExtensionRow({ entry, mark, onOpen, onToggle }: {
 }
 
 /**
- * Settings → Extensions: every extension this window runs or could, as one
+ * Settings → Extensions: every extension the host runs or could, as one
  * list to search and filter — kits Tau ships, packages installed for every
  * project or this one, and folders that did not load — with a switch each.
  * A row opens the extension's own page.
@@ -65,6 +68,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
   onChanged(): void;
 }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const { readOnly } = useHostCapabilities();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   const toggle = useExtensionSwitch(registry, onNotify, onHostHalves);
@@ -80,7 +84,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
     ].filter((group) => group.items.length > 0)
     : [{ id: "results", title: "", items: shown }];
   const row = (entry: ExtensionEntry) => (
-    <ExtensionRow key={entry.id} entry={entry} mark={marks.get(entry.id)} onOpen={() => onOpen(extensionPage(entry.id))} onToggle={(next) => { toggle(entry, next); onChanged(); }} />
+    <ExtensionRow key={entry.id} entry={entry} mark={marks.get(entry.id)} readOnly={readOnly} onOpen={() => onOpen(extensionPage(entry.id))} onToggle={(next) => { toggle(entry, next); onChanged(); }} />
   );
 
   return (
