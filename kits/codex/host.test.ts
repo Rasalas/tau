@@ -249,7 +249,11 @@ describe("Codex host half", () => {
   });
 
   it("reads the account's quota windows for the Usage kit without changing the account, and keeps them a while", async () => {
-    const { registry } = await harness();
+    const { registry, root } = await harness();
+    // A made-up ChatGPT login in the stub's CODEX_HOME: the account shows as a hash only.
+    const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    await mkdir(join(root, "home"), { recursive: true });
+    await writeFile(join(root, "home", "auth.json"), JSON.stringify({ tokens: { access_token: `${part({ alg: "none" })}.${part({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-fixture-1", chatgpt_user_id: "user-fixture-1" } })}.fixture`, account_id: "acct-fixture-1" } }));
     let read: (() => Promise<unknown>) | undefined;
     await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.codex", "usage-limits"); } });
     const answer = await read!() as { accounts: Array<Record<string, unknown>> };
@@ -258,7 +262,9 @@ describe("Codex host half", () => {
       label: "Codex",
       plan: "pro",
       windows: [expect.objectContaining({ id: "primary", usedPercent: 34 }), expect.objectContaining({ id: "secondary", usedPercent: 12.5 })],
+      identity: { provider: "openai", key: "6aebdfd5da11cc4ac9092578eb4af5ffb0b9d3a3dee6976ae83ed5354ce94131" },
     })]);
+    expect(JSON.stringify(answer)).not.toMatch(/fixture/u);
     const again = await read!() as { accounts: Array<{ checkedAt: number }> };
     expect(again.accounts[0]?.checkedAt).toBe(answer.accounts[0]?.checkedAt);
   });
