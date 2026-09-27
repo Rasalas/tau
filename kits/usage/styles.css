@@ -140,18 +140,19 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-sources > li[data-status="unavailable"] .usage-status { background: var(--warn-chip); color: var(--warn); }
 
 /* Model prices: a table of the user's own, and a row that adds one. */
-.usage-price-table .usage-number { width: 100px; white-space: nowrap; }
-.usage-price-table th.usage-number:last-child { width: 130px; }
-.usage-rate { width: 100%; min-width: 0; font: 11.5px var(--mono); text-align: right; padding: 4px 6px; }
-.usage-price-error { color: var(--warn); }
-.usage-price-add { display: grid; grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) auto; gap: 6px; margin-top: 8px; align-items: center; }
-.usage-price-add .usage-rate { text-align: left; }
-.usage-price-model { min-width: 0; font: 11.5px var(--mono); padding: 4px 6px; }
-.usage-price-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
-.usage-price-add .settings-input, .usage-price-table .settings-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.usage-prices { display: flex; flex-direction: column; gap: 12px; }
+.usage-prices-lede { margin: 0; max-width: 640px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.usage-prices-lede code { font: 11.5px var(--mono); }
+.usage-price-table .usage-number { width: 112px; white-space: nowrap; }
+.usage-price-table th.usage-number:last-child { width: auto; }
+.usage-price-add { display: grid; grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) auto; gap: 6px; align-items: start; }
+.usage-price-message { margin: 0; font-size: 12px; color: var(--muted); }
+.usage-price-message[data-problem] { color: var(--warn); }
 
 /* A phone: one column, the figures and a window's line stacked. */
 @container (max-width: 640px) {
+  .usage-price-add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usage-price-add > :first-child, .usage-price-add > button { grid-column: 1 / -1; }
   .usage-kpis { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .usage-kpi > h3 { margin-bottom: 6px; }
   .usage-kpi-figures b { font-size: 22px; }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { useSetting } from "tau";
+import { Plus } from "lucide-react";
+import { Button, NumberField, SettingsState, tooltipProps, useSetting } from "tau";
 
 /** US dollars per million tokens, as `modelPrices` in Tau's config keeps them. */
 export interface ModelPrice {
@@ -56,47 +57,49 @@ export function priceFromDraft(draft: Draft, base?: ModelPrice): ModelPrice | st
 }
 
 const EMPTY: Readonly<Record<string, ModelPrice>> = {};
+const UNIT = "$/M";
+const optional = (field: Field) => field === "cacheRead" || field === "cacheWrite";
 
-function RateInput({ label, value, placeholder, disabled, onChange }: { label: string; value: string; placeholder: string; disabled: boolean; onChange(value: string): void }) {
-  return (
-    <input
-      className="settings-input usage-rate"
-      inputMode="decimal"
-      aria-label={label}
-      value={value}
-      placeholder={placeholder}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  );
-}
-
-/** One saved price; removing it clears its entry, so the automatic price shows through again. */
-function PriceRow({ model, price, draft, disabled, onDraft }: { model: string; price: ModelPrice; draft: Draft | undefined; disabled: boolean; onDraft(draft: Draft | undefined): void }) {
+/**
+ * One saved price, each rate written when its field is left. An emptied cache
+ * rate goes back to the input rate; Reset removes the entry, so the automatic
+ * price shows through again.
+ */
+function PriceRow({ model, price, disabled, onChange }: { model: string; price: ModelPrice; disabled: boolean; onChange(price: ModelPrice): void }) {
   const entry = useSetting<ModelPrice | undefined>(`modelPrices.${model}`, { defaultValue: undefined });
-  const error = draft ? priceFromDraft(draft, price) : undefined;
+  const without = (field: Field): ModelPrice => {
+    const next = { ...price };
+    delete next[field];
+    return next;
+  };
   return (
-    <tr data-changed={draft ? "true" : undefined}>
-      <td><code>{model}</code>{typeof error === "string" ? <small className="usage-price-error">{error}</small> : null}</td>
+    <tr>
+      <td><code>{model}</code></td>
       {FIELDS.map((field) => (
         <td key={field} className="usage-number">
-          <RateInput
+          <NumberField
             label={`${FIELD_LABELS[field]} price of ${model}`}
-            value={draft?.[field] ?? (price[field] === undefined ? "" : String(price[field]))}
-            placeholder={field === "input" || field === "output" ? "" : "= input"}
+            value={price[field]}
+            min={0}
+            unit={UNIT}
+            width="full"
+            placeholder={optional(field) ? "= input" : ""}
             disabled={disabled}
-            onChange={(value) => onDraft({ ...draft, [field]: value })}
+            onCommit={(value) => onChange({ ...price, [field]: value })}
+            {...(optional(field) ? { onClear: () => { if (price[field] !== undefined) onChange(without(field)); } } : {})}
           />
         </td>
       ))}
       <td className="usage-number">
-        <button type="button" className="usage-link" disabled={disabled} onClick={() => { onDraft(undefined); entry.reset(); }}>
+        <Button variant="ghost" aria-label={`Reset ${model} to automatic`} {...tooltipProps("Remove this price; the automatic one applies again")} disabled={disabled} onClick={() => entry.reset()}>
           Reset to automatic
-        </button>
+        </Button>
       </td>
     </tr>
   );
 }
+
+type Adding = { model: string } & Partial<Record<Field, number>>;
 
 /**
  * The user's own model prices (`modelPrices`). They replace every other price
@@ -107,42 +110,34 @@ export function ModelPrices({ suggestions }: { suggestions: readonly string[] })
   const setting = useSetting<Readonly<Record<string, ModelPrice>>>("modelPrices", { defaultValue: EMPTY, read: readPrices });
   const prices = setting.value;
   const models = useMemo(() => Object.keys(prices).sort(), [prices]);
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [adding, setAdding] = useState<{ model: string } & Draft>({ model: "" });
-  const [message, setMessage] = useState<string>();
+  const [adding, setAdding] = useState<Adding>({ model: "" });
+  const [message, setMessage] = useState<{ text: string; problem: boolean }>();
   const disabled = !setting.writable;
-
-  const edited = Object.entries(drafts).filter(([model]) => prices[model]);
-  const errors = edited.map(([model, draft]) => priceFromDraft(draft, prices[model])).filter((result): result is string => typeof result === "string");
-
-  const save = () => {
-    if (errors.length > 0) return;
-    const next = { ...prices };
-    for (const [model, draft] of edited) next[model] = priceFromDraft(draft, prices[model]) as ModelPrice;
-    setting.set(next);
-    setDrafts({});
-    setMessage(`Saved ${edited.length} ${edited.length === 1 ? "price" : "prices"}.`);
-  };
 
   const add = () => {
     const model = adding.model.trim();
-    if (!model) { setMessage("Enter a model id: provider/id, or the id alone for every provider."); return; }
-    if (prices[model]) { setMessage("This model already has a price. Edit it in its row."); return; }
-    const price = priceFromDraft(adding);
-    if (typeof price === "string") { setMessage(price); return; }
+    if (!model) { setMessage({ text: "Enter a model id: provider/id, or the id alone for every provider.", problem: true }); return; }
+    if (prices[model]) { setMessage({ text: "This model already has a price. Change it in its row.", problem: true }); return; }
+    const price = priceFromDraft(Object.fromEntries(FIELDS.flatMap((field) => (adding[field] === undefined ? [] : [[field, String(adding[field])]]))));
+    if (typeof price === "string") { setMessage({ text: price, problem: true }); return; }
     setting.set({ ...prices, [model]: price });
     setAdding({ model: "" });
-    setMessage(`Added a price for ${model}.`);
+    setMessage({ text: `Added a price for ${model}.`, problem: false });
   };
+  const setRate = (field: Field) => (value: number | undefined) => setAdding((held) => {
+    const next = { ...held };
+    if (value === undefined) delete next[field]; else next[field] = value;
+    return next;
+  });
 
   return (
     <div className="usage-prices" aria-label="Model prices">
-      <p className="settings-note">
-        US dollars per million tokens. A price here replaces the runtime&apos;s and the provider&apos;s list price wherever Tau prices tokens:
-        what a thread cost, what a subscription&apos;s usage would have cost over the API, and the model picker&apos;s price column and sort.
+      <p className="usage-prices-lede">
+        US dollars per million tokens ({UNIT}). A price here replaces the runtime&apos;s and the provider&apos;s list price wherever Tau
+        prices tokens: what a thread cost, what a subscription&apos;s usage would have cost over the API, and the model picker.
         Name a model as <code>provider/id</code>, or by its id alone for every provider. A blank cache rate is the input rate.
       </p>
-      {disabled ? <div className="settings-note">Prices are kept for this machine; switch Settings to This machine to change them.</div> : null}
+      {disabled ? <p className="usage-prices-lede">{setting.readOnly ? "This device is paired Read only: it can see the prices, not change them." : "Prices are kept for this machine; switch Settings to This machine to change them."}</p> : null}
       {models.length > 0 ? (
         <table className="inspector-table usage-table usage-price-table" aria-label="Your model prices">
           <thead>
@@ -154,54 +149,49 @@ export function ModelPrices({ suggestions }: { suggestions: readonly string[] })
           </thead>
           <tbody>
             {models.map((model) => (
-              <PriceRow
-                key={model}
-                model={model}
-                price={prices[model]!}
-                draft={drafts[model]}
-                disabled={disabled}
-                onDraft={(draft) => setDrafts((held) => {
-                  const next = { ...held };
-                  if (draft) next[model] = draft; else delete next[model];
-                  return next;
-                })}
-              />
+              <PriceRow key={model} model={model} price={prices[model]!} disabled={disabled} onChange={(price) => setting.set({ ...prices, [model]: price })} />
             ))}
           </tbody>
         </table>
-      ) : null}
-      {edited.length > 0 ? (
-        <div className="usage-price-actions">
-          <button type="button" className="usage-refresh" disabled={disabled || errors.length > 0} onClick={save}>Save changes</button>
-          <button type="button" className="usage-link" onClick={() => setDrafts({})}>Discard</button>
-        </div>
-      ) : null}
-      <div className="usage-price-add" role="group" aria-label="Add a model price">
-        <input
-          className="settings-input usage-price-model"
-          aria-label="Model id"
-          placeholder="openai/gpt-5.6-luna"
-          list="usage-price-models"
-          value={adding.model}
-          disabled={disabled}
-          onChange={(event) => setAdding((held) => ({ ...held, model: event.target.value }))}
-        />
+      ) : (
+        <SettingsState kind="empty" title="No prices of your own" description="Tau uses the runtime's or the provider's list price. Add a model below to price it yourself." />
+      )}
+      <form className="usage-price-add" aria-label="Add a model price" onSubmit={(event) => { event.preventDefault(); add(); }}>
+        {/* A native field for the model id: the ids this machine used are offered as suggestions. */}
+        <span className="tau-field-shell" data-width="full">
+          <span className="tau-field">
+            <input
+              data-mono=""
+              aria-label="Model id"
+              placeholder="openai/gpt-5.6-luna"
+              list="usage-price-models"
+              spellCheck={false}
+              value={adding.model}
+              disabled={disabled}
+              onChange={(event) => setAdding((held) => ({ ...held, model: event.target.value }))}
+            />
+          </span>
+        </span>
         <datalist id="usage-price-models">
           {suggestions.filter((model) => !prices[model]).map((model) => <option key={model} value={model} />)}
         </datalist>
         {FIELDS.map((field) => (
-          <RateInput
+          <NumberField
             key={field}
             label={`${FIELD_LABELS[field]} price`}
-            value={adding[field] ?? ""}
-            placeholder={field === "input" || field === "output" ? FIELD_LABELS[field] : `${FIELD_LABELS[field]} (= input)`}
+            value={adding[field]}
+            min={0}
+            unit={UNIT}
+            width="full"
+            placeholder={optional(field) ? `${FIELD_LABELS[field]} (= input)` : FIELD_LABELS[field]}
             disabled={disabled}
-            onChange={(value) => setAdding((held) => ({ ...held, [field]: value }))}
+            onCommit={setRate(field)}
+            onClear={() => setRate(field)(undefined)}
           />
         ))}
-        <button type="button" className="usage-refresh" disabled={disabled} onClick={add}>Add price</button>
-      </div>
-      {message ? <div className="settings-note" role="status">{message}</div> : null}
+        <Button type="submit" icon={<Plus size={13} />} disabled={disabled}>Add price</Button>
+      </form>
+      {message ? <p className="usage-price-message" data-problem={message.problem ? "" : undefined} role="status">{message.text}</p> : null}
     </div>
   );
 }
