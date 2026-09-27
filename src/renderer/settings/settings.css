@@ -250,10 +250,15 @@
 .inspector-table td small { display: block; font: 10px var(--mono); color: var(--faint); }
 .inspector-table td code { font: 10.5px var(--mono); }
 .inspector-table td[data-host-status="failed"] { color: var(--removed); }
-.inspector-folder { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; font-size: 11.5px; color: var(--muted); }
-.inspector-folder span { min-width: 52px; font-weight: 500; color: var(--faint); }
-.inspector-folder code { font: 10.5px var(--mono); color: var(--ink-2); word-break: break-all; }
-.inspector-folder + .inspector-table { margin-top: 10px; }
+.inspector-table td[data-host-status] { min-width: 120px; }
+.inspector-table td[data-isolation] { white-space: nowrap; }
+.inspector-state { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.inspector-table .inspector-state > small { font: 11.5px/1.4 var(--sans); color: var(--muted); }
+.inspector-none { color: var(--faint); }
+.inspector-profile { display: inline-flex; align-items: center; gap: var(--space-2); }
+.inspector-finding { display: flex; align-items: baseline; gap: var(--space-4); padding: var(--space-4) var(--space-6); }
+.inspector-finding > p { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; }
+.inspector-finding code { font: 11.5px var(--mono); }
 
 .settings-model-button {
   display: inline-flex; align-items: center; gap: 8px; width: 260px; max-width: 100%; height: var(--control-h); padding: 0 10px;

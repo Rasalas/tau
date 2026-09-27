@@ -121,7 +121,11 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     page: "inspector",
     label: "Inspector",
     keywords: ["extensions", "packages", "versions", "system prompt", "problems", "debug"],
-    rows: [],
+    rows: [
+      ["Versions", ["tau version", "pi version", "extension api", "engines"]],
+      ["System prompt and persona", ["system prompt", "instructions", "agents.md", "persona"]],
+      ["Packages on disk", ["package folders", "tau-extension.json", "load errors", "incompatible"]],
+    ],
   },
 ];
 
