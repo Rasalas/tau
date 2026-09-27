@@ -130,8 +130,15 @@ async function acquireSocket(path: string, owner: LockOwner, address: string): P
 
 /** Takes the lock named by `path`, or answers undefined while another holder has it (this process included). */
 export async function tryLock(path: string, owner: LockOwner, strategy: LockStrategy = defaultLockStrategy()): Promise<ProcessLock | undefined> {
-  return strategy.kind === "flock" ? acquireFlock(path, owner) : acquireSocket(path, owner, strategy.address(path));
+  if (strategy.kind === "flock") return acquireFlock(path, owner);
+  const lock = await acquireSocket(path, owner, strategy.address(path));
+  if (!lock) return undefined;
+  socketLocksHere.add(path);
+  return { ...lock, release: () => { socketLocksHere.delete(path); lock.release(); } };
 }
+
+/** Socket locks this process holds: the sync probe cannot tell them from its caller's by pid. */
+const socketLocksHere = new Set<string>();
 
 /** Whether somebody holds the lock right now. A holder that hangs still holds it. */
 export async function lockHeld(path: string, strategy: LockStrategy = defaultLockStrategy()): Promise<boolean> {
@@ -205,5 +212,6 @@ export function lockHeldElsewhereSync(path: string, strategy: LockStrategy = def
     }
   }
   const owner = readOwner(path);
+  if (socketLocksHere.has(path)) return { held: true, owner };
   return owner && owner.pid !== process.pid && processAlive(owner.pid) ? { held: true, owner } : { held: false };
 }
