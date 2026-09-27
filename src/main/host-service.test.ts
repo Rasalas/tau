@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -125,6 +125,53 @@ describe("the host service on macOS", () => {
     const status = await other.status();
     expect(status.stale).toBe(true);
     expect(status.problems.map((problem) => problem.code)).toEqual(["not-loaded"]);
+  });
+
+  it("repairs a LaunchAgent a release before de.tbuck.tau wrote, in place under the same label", async () => {
+    const { service, units, calls } = manager("darwin");
+    await service.install();
+    const plist = join(units, `${service.names.label}.plist`);
+    writeFileSync(plist, readFileSync(plist, "utf8").replace("<string>de.tbuck.tau</string>", "<string>dev.tbuck.tau</string>"));
+    expect(await service.status()).toMatchObject({ installed: true, stale: true });
+    calls.length = 0;
+
+    await service.install();
+
+    const target = `gui/501/${service.names.label}`;
+    expect(calls).toEqual([`launchctl bootout --wait ${target}`, `launchctl enable ${target}`, `launchctl bootstrap gui/501 ${plist}`]);
+    expect(readFileSync(plist, "utf8")).toContain("<key>AssociatedBundleIdentifiers</key>\n  <string>de.tbuck.tau</string>");
+    expect((await service.status()).stale).toBe(false);
+  });
+
+  it("leaves one agent running after that repair, through the fake launchctl", async () => {
+    const root = temp();
+    const units = join(root, "units");
+    const entry = join(root, "sleep.js");
+    writeFileSync(entry, "setTimeout(() => {}, 60_000);\n");
+    mkdirSync(join(root, "home"));
+    const env = { TAU_SERVICE_UNIT_DIR: units, TAU_SERVICE_CONTROL: join(process.cwd(), "scripts", "fake-service-manager.mjs") };
+    const service = new HostServiceManager({
+      execPath: process.execPath, entry, userData: join(root, "userdata"), platform: "darwin", home: join(root, "home"), uid: 501, env,
+      runner: serviceCommandRunner(env, process.execPath, "darwin"),
+    });
+    const loaded = () => JSON.parse(readFileSync(join(units, ".fake-state.json"), "utf8")) as Record<string, { pid: number }>;
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    try {
+      await service.install();
+      const plist = join(units, `${service.names.label}.plist`);
+      writeFileSync(plist, readFileSync(plist, "utf8").replace("<string>de.tbuck.tau</string>", "<string>dev.tbuck.tau</string>"));
+      const before = loaded()[service.names.label]!.pid;
+      expect((await service.status()).stale).toBe(true);
+
+      await service.install();
+
+      expect(Object.keys(loaded())).toEqual([service.names.label]);
+      const after = loaded()[service.names.label]!.pid;
+      expect([alive(before), alive(after)]).toEqual([false, true]);
+      expect(await service.status()).toMatchObject({ stale: false, problems: [] });
+    } finally {
+      for (const { pid } of Object.values(loaded())) if (alive(pid)) process.kill(pid, "SIGKILL");
+    }
   });
 
   it("removes the LaunchAgent and boots it out", async () => {

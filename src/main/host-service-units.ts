@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
+import { APP_ID } from "./single-instance.js";
 
 /**
  * What a service manager needs to run Tau's host: the files it reads and the
@@ -15,12 +16,13 @@ export const HOST_SERVICE_ENV = "TAU_HOST_SERVICE";
 /** `configureAppIdentity` and `bin/tau.mjs` name the default userData folder the same way. */
 export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
 
-/** Distinct from the app's bundle id, so launchd and privacy records never mix the two up. */
+/**
+ * Distinct from the app's bundle id, so launchd and privacy records never mix the two up.
+ * Named after the bundle id before de.tbuck.tau; a new label would leave an installed agent running beside it.
+ */
 const LAUNCHD_LABEL = "dev.tbuck.tau.host";
 const SYSTEMD_UNIT = "tau-host";
 const TASK_NAME = "Tau Host";
-/** Login Items names the app this belongs to (macOS 13+). */
-const APP_BUNDLE_ID = "dev.tbuck.tau";
 
 /**
  * What a service host keeps from the environment it was installed from: where
@@ -119,8 +121,9 @@ export function renderLaunchAgent(label: string, spec: HostServiceSpec): string 
     `<dict>`,
     `  <key>Label</key>`,
     `  <string>${xml(label)}</string>`,
+    // Login Items names the app this belongs to (macOS 13+).
     `  <key>AssociatedBundleIdentifiers</key>`,
-    `  <string>${APP_BUNDLE_ID}</string>`,
+    `  <string>${APP_ID}</string>`,
     `  <key>ProgramArguments</key>`,
     `  <array>`,
     ...spec.program.map((argument) => `    <string>${xml(argument)}</string>`),

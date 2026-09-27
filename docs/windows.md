@@ -26,7 +26,7 @@ running them.
 | "Open in" | `code`, Toolbox scripts, app bundles | `code.cmd` through `cmd.exe`, Toolbox's `idea.cmd` & co. under `%LOCALAPPDATA%\JetBrains\Toolbox\scripts` |
 | External editor (`$VISUAL`/`$EDITOR`) | POSIX quoting, backslash escapes | backslash is a separator, only `"` quotes; `code --wait` runs through `cmd.exe` |
 | Badge | `app.setBadgeCount` | a dot on the taskbar button (`setOverlayIcon`), the count in its description |
-| Notifications | – | the app sets its AppUserModelID to `dev.tbuck.tau`, the installer shortcut's |
+| Notifications | – | the app sets its AppUserModelID to `de.tbuck.tau`, the installer shortcut's; an update stamps it on the shortcuts it keeps (`packaging/windows/installer.nsh`) |
 | Paths from a client | `relPath` is POSIX | a backslash in a `relPath` is refused, since Windows reads it as a separator |
 | Preview `file://` | `/path` | `C:\path` becomes a file URL; containment compares case-insensitively |
 

@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { APP_USER_MODEL_ID, configureAppIdentity, installSingleInstance } from "./single-instance.js";
+import { APP_ID, configureAppIdentity, installSingleInstance } from "./single-instance.js";
 
 function fakeApp(lock: boolean) {
   const listeners = new Map<string, () => void>();
@@ -36,10 +37,16 @@ describe("single Electron instance", () => {
     const app = { getPath: () => "C:\\Users\\me\\AppData\\Roaming", setPath: vi.fn(), setName: vi.fn(), setAppUserModelId };
     configureAppIdentity(app, undefined, "win32");
     const builder = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
-    expect(builder).toContain(`appId: ${APP_USER_MODEL_ID}`);
-    expect(setAppUserModelId).toHaveBeenCalledWith(APP_USER_MODEL_ID);
+    expect(builder).toContain(`appId: ${APP_ID}`);
+    expect(setAppUserModelId).toHaveBeenCalledWith(APP_ID);
     configureAppIdentity(app, undefined, "darwin");
     expect(setAppUserModelId).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the Windows install the former appId made, so the installer replaces it", async () => {
+    const builder = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    expect(builder).toMatch(new RegExp(`^  guid: ${electronBuilderGuid("dev.tbuck.tau")}$`, "mu"));
+    expect(builder).toContain("include: packaging/windows/installer.nsh");
   });
 
   it("quits a second process before it starts the workbench", () => {
@@ -68,3 +75,13 @@ describe("single Electron instance", () => {
     expect(window.focus).toHaveBeenCalledOnce();
   });
 });
+
+/** UUID v5 of `name` in electron-builder's namespace: the NSIS GUID it derives from an appId. */
+function electronBuilderGuid(name: string): string {
+  const namespace = Buffer.from("50e065bc313411e69bab38c9862bdaf3", "hex");
+  const hash = createHash("sha1").update(namespace).update(name).digest().subarray(0, 16);
+  hash[6] = (hash[6]! & 0x0f) | 0x50;
+  hash[8] = (hash[8]! & 0x3f) | 0x80;
+  const hex = hash.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
