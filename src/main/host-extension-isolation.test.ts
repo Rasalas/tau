@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { bundleHostExtension, writeHostExtensionBundle } from "./extension-packages.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
+import { setProcessMemoryLimit } from "./worker-memory-cap.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions } from "./host-extensions.js";
 
 /**
@@ -15,6 +16,7 @@ import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, 
  */
 
 const FIXTURE = `
+const MB = 1024 * 1024;
 export default {
   id: "acme.worker",
   name: "Worker Package",
@@ -47,6 +49,30 @@ export default {
     };
     context.registerCommand("eat-buffers", eatBuffers);
     context.registerCommand("eat-buffers-later", () => { setTimeout(eatBuffers, 100); });
+    // Memory no V8 statistic counts everywhere; each stops by itself too.
+    context.registerCommand("eat-wasm", () => {
+      const memory = new WebAssembly.Memory({ initial: 0, maximum: 768 * 16 });
+      while (memory.buffer.byteLength < 768 * MB) {
+        memory.grow(64);
+        new Uint8Array(memory.buffer, memory.buffer.byteLength - 4 * MB).fill(1);
+      }
+      return memory.buffer.byteLength / MB;
+    });
+    context.registerCommand("eat-shared", () => {
+      const held = [];
+      while (held.length < 192) held.push(new Uint8Array(new SharedArrayBuffer(4 * MB)).fill(held.length % 255 + 1));
+      return held.length * 4;
+    });
+    context.registerCommand("eat-native", () => {
+      // SQLite's pages are a native library's malloc, as an addon's would be; ~1.3 bytes per blob byte.
+      const { DatabaseSync } = require("node:sqlite");
+      const db = new DatabaseSync(":memory:");
+      db.exec("create table blobs (data blob)");
+      const insert = db.prepare("insert into blobs values (?)");
+      const blob = new Uint8Array(4 * MB).fill(7);
+      for (let index = 0; index < 128; index++) insert.run(blob);
+      return 128 * 4;
+    });
     context.registerCommand("facade", async () => {
       const inside = await services.sessions.exclusive(async () => (await services.thread())?.sessionId ?? "none");
       await services.pinTranscriptEntries({ "session-1": ["entry-1"] });
@@ -485,6 +511,96 @@ describe("isolated host extensions", () => {
       await registry.dispose();
     }
   }, 40_000);
+
+  describe("the host process's memory limit", () => {
+    const MB = 1024 * 1024;
+
+    /** The growth a limit message reports; every fixture stops by itself at 768 MB or less. */
+    function grownMegabytes(error: string | undefined): number {
+      const match = /stopped at the host's memory limit: it grew the host process by about (\d+) MB/u.exec(error ?? "");
+      if (!match) throw new Error(`not a memory limit error: ${error}`);
+      return Number(match[1]);
+    }
+
+    /**
+     * The process is past its limit from the start; what decides is whose growth
+     * it was. A limit above the process's size would move with memory earlier
+     * tests give back late.
+     */
+    function pastLimit(): void {
+      setProcessMemoryLimit({ limitBytes: 1, minGrowthBytes: 192 * MB });
+    }
+
+    /** Until the resident size stops moving; macOS takes back what earlier tests freed in large steps. */
+    async function quiet(): Promise<void> {
+      let last = process.memoryUsage.rss();
+      for (let round = 0; round < 20; round++) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const now = process.memoryUsage.rss();
+        if (Math.abs(now - last) < 16 * MB) return;
+        last = now;
+      }
+    }
+
+    async function eater() {
+      await quiet();
+      const eating = harness({ resourceLimits: { maxExternalMb: 4096 }, commandTimeoutMs: 20_000 });
+      await eating.registry.activate(eating.extension);
+      await quiet();
+      return eating;
+    }
+
+    afterAll(() => { setProcessMemoryLimit(); });
+
+    it("leaves packages alone when the host itself grows past it", async () => {
+      await quiet();
+      const { registry, extension } = harness();
+      await registry.activate(extension);
+      await quiet();
+      try {
+        pastLimit();
+        const held = Array.from({ length: 64 }, (_, index) => Buffer.alloc(4 * MB, index + 1));
+        // A second of ticks past the limit while only the host grew.
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(held).toHaveLength(64);
+        expect(registry.summaries()[0]?.error).toBeUndefined();
+        await expect(registry.invoke("acme.worker", "hello")).resolves.toMatchObject({ cwd: "/project" });
+      } finally {
+        setProcessMemoryLimit();
+        await registry.dispose();
+      }
+    }, 40_000);
+
+    it("stops the package that grew, not an idle one beside it", async () => {
+      const idle = harness({ id: "acme.idle", name: "Idle Package" });
+      await idle.registry.activate(idle.extension);
+      const eating = await eater();
+      try {
+        pastLimit();
+        await expect(eating.registry.invoke("acme.worker", "eat-wasm")).rejects.toThrow(/stopped at the host's memory limit/u);
+        expect(idle.registry.isActive("acme.idle")).toBe(true);
+      } finally {
+        setProcessMemoryLimit();
+        await idle.registry.dispose();
+        await eating.registry.dispose();
+      }
+    }, 40_000);
+
+    // The buffer cap stays out of the way: Node 22 counts WebAssembly memory as buffers, Electron's Node does not.
+    // Native last: SQLite keeps what it had in its allocator, which hides the next package's growth from the resident size.
+    it.each(["eat-wasm", "eat-shared", "eat-native"])("stops the package that grew the process past it (%s)", async (command) => {
+      const { registry } = await eater();
+      try {
+        pastLimit();
+        await expect(registry.invoke("acme.worker", command)).rejects.toThrow(/stopped at the host's memory limit/u);
+        await until(() => !registry.isActive("acme.worker"));
+        expect(grownMegabytes(registry.summaries()[0]?.error)).toBeLessThan(768);
+      } finally {
+        setProcessMemoryLimit();
+        await registry.dispose();
+      }
+    }, 40_000);
+  });
 
   const spawner = (permissions: string[]) => harness({ permissions, id: "acme.process", name: "Process Package", file: processBundle });
 
