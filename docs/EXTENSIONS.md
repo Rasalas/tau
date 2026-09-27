@@ -1181,6 +1181,15 @@ project the window does not know yet (new in API 1.10.0). Workspace Kit's
 `tau app <path>` is the caller: it opens the folder with `openWorkspace` first,
 so a project Tau never saw arrives on its own empty thread.
 
+`actions.activeThread().covered` (new in API 1.20.0) is true while something
+covers the thread on screen: a page, Settings, an overlay, or a phone's thread
+list, which is its home and leaves the last thread open behind it. A kit that
+moves the reader because of the thread on screen checks it first.
+`actions.threadListOrder()` (new in API 1.20.0) answers the thread ids of the
+list core draws itself, a compact client's, top to bottom and past its paging;
+it is undefined where a kit's rail is the list. Thread Rail reads both when the
+user parks the thread on screen (below).
+
 One consequence for `pinTranscriptEntries`: your provider is now also called
 with a thread the host has only a file for. `sessionId`, `cwd`, `sessionFile`,
 `parentThreadId`, `sessionName()`, `entries()` and `transcript()` answer as
@@ -1401,7 +1410,15 @@ a selection) opens the optional `bulkMenu(sessions)`, and a pick goes to
 `runBulkMenu(sessions, itemId, actions)`. Without them a selection has no
 menu. Without an
 organizer the rail keeps its own order: pins first, then newest, settled
-threads on their shelf. Thread Rail is the organizer Tau ships.
+threads on their shelf. Thread Rail is the organizer Tau ships. As in T3 Code,
+settling or snoozing the thread on screen moves the reader on once the host
+has the change: to the next pinned or active thread below it in the rail
+(on a compact client, in `threadListOrder()`), wrapping round to the top and
+skipping threads parked in the same batch, else to a new draft in its project.
+That holds for the user's own settle and snooze (row button and menu, title
+menu, shortcut, palette, drag onto the shelf, a selection, a phone's swipe),
+not for the host's automatic settles, and not while `covered` or once the
+reader has moved elsewhere.
 `prepareThreadWorktree({ prompt, preparing, force?, branchSuffix? })` makes the
 worktree a new thread of the followed project runs in, the way the new-thread
 gate does and named by the same naming kit; `force` makes one although the
