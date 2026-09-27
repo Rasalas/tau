@@ -1900,15 +1900,26 @@ its own store, so removing an instance only takes its threads out of the list
 until an instance with that id comes back.
 
 On the desktop side `loadRuntimeInstanceUi()` on `tau` loads one chunk (with
-its stylesheet) that holds `RuntimeInstanceSetup` — the SETUP rows of a card:
-how the instance is set up, Edit, Remove with a confirmation in place, and on
-the default instance's card "Add instance…" — the dialog behind it
-(`RuntimeInstanceDialog`: name, id taken from the name, executable, home,
-environment as `NAME=value` lines, launch arguments) and
-`RuntimeVersionBanner`. Codex and the Agent SDK runtime use all three: the
-default card keeps its page id, each other instance gets a page naming its
-kind, and an `instances` event from the host half keeps every client's cards
-in step.
+its stylesheet) that holds the settings rows of a Providers card.
+`RuntimeProgramRows` is the program itself: found where and which version
+with Check again, then a version the policy calls unsafe or broken, one older
+than Tau speaks to, or a newer release, each with a button that hands the
+command to a terminal (`onRunCommand`) rather than showing it; its rows' ids
+start with `idPrefix`. `RuntimeCommandRow` is the executable as a text field,
+inert with the reason while Tau's environment names it (`TAU_<KIND>_COMMAND`
+from `kind` unless `variable` says otherwise). `RuntimeInstanceSetup` (new in
+API 1.18.0: `rowId`) is the instance's setup, Edit, "Add instance…" on the
+default instance's card and Remove, which asks through `ConfirmDialog`; the
+dialog behind it is `RuntimeInstanceDialog` (name, id taken from the name,
+executable, home, environment as `NAME=value` lines, launch arguments). The
+chunk also holds `RuntimeVersionBanner`, for above the composer. A card's head
+shows the runtime's mark, its name and a badge each for the program and the
+account: `RuntimeProgramRows` and `SignInSetup` report theirs, and a kit whose
+rows are its own reports through `ProviderCardBadgeReport({ source, badge })`
+(on both chunks). Every runtime kit Tau ships uses them: the default card
+keeps its page id, each other instance gets a page naming its kind, its rows
+carry the instance in their ids and its `rows` list them for the search, and
+an `instances` event from the host half keeps every client's cards in step.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
 `cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and
@@ -2003,16 +2014,19 @@ changed what a method needs. `commandLine(executable, args, env, platform)`
 builds the line a terminal runs, with the instance's home set for it.
 
 On the desktop side `loadSignInUi()` on `tau` loads `SignInSetup` (a chunk
-with its stylesheet): the account row with sign-out (confirmed in place),
-the methods while signed out, and the flow drawn after T3 Code's provider
-setup — Open sign-in page and Copy link, the device code with Copy and the
-page's host, the question's field (a password field for a secret) or its
-choices, Cancel sign-in and the time the flow gives up. A `terminal` step of
-a flow this window started runs once through `runInTerminal` — the shipped
-kits pass Terminal Kit's `tau.terminal/run`, so the login runs where the user
-sees it — and its exit status answers the flow; without a terminal the
-command is shown to copy with "I have signed in". `showAccount: false` leaves
-the account row to a caller that draws its own.
+with its stylesheet): the account as a settings row (`rowId` is its element
+id) with sign-out, asked through `ConfirmDialog`, and the note on where the
+credential lives as its help; each method while signed out, with its button;
+and the flow drawn after T3 Code's provider setup — Open sign-in page and
+Copy link, the device code with Copy and the page's host, the question's
+field (a password field for a secret) or its choices, Cancel sign-in and the
+time the flow gives up. A `terminal` step of a flow this window started runs
+once through `runInTerminal` — the shipped kits pass Terminal Kit's
+`tau.terminal/run`, so the login runs where the user sees it — and its exit
+status answers the flow; only without a terminal is the command shown, to
+copy, with "I have signed in". `showAccount: false` leaves the account row to
+a caller that draws its own; `cardBadge: false` keeps a sign-in nested in a
+card's list (Pi's providers) out of the card's head.
 
 The shipped kits: Codex signs in over its app server (`account/login/start`:
 ChatGPT through the page its own login server serves, a device code, an API
