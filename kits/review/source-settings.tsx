@@ -107,11 +107,11 @@ export function SourceControlSettings({ host, onNotify }: { host: HostExtensionC
           title="Add a server"
           description="Tau reads a remote's host to choose its provider. When the name does not say, choose it here."
           help="A port counts when the remote has one: git.example.com:8443."
-          control={<>
-            <TextField label="Server" mono width="md" placeholder="git.example.com" value={server} onCommit={setServer} />
+          control={<form className="review-server-add" aria-label="Add a server" onSubmit={(event) => { event.preventDefault(); add(); }}>
+            <TextField label="Server" mono width="md" placeholder="git.example.com" value={server} onChange={setServer} />
             <Select<RequestService> label="Provider" width="sm" value={service} options={REQUEST_SERVICES.map((kind) => ({ value: kind, label: PROVIDERS[kind].name }))} onChange={setService} />
-            <Button icon={<Plus size={13} />} onClick={add}>Add</Button>
-          </>}
+            <Button type="submit" icon={<Plus size={13} />}>Add</Button>
+          </form>}
         />
       </SettingsSection>
     </>

@@ -730,3 +730,6 @@ body[data-profile="compact"] .pr-composer textarea { font-size: 16px; }
 body[data-profile="compact"] .pr-composer .toggle-group > button,
 body[data-profile="compact"] .pr-composer footer > button { min-height: 44px; padding-inline: 14px; font-size: 14px; }
 body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; font-size: 14px; }
+.review-server-add { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: var(--space-4); }
+.settings-screen.stacked .review-server-add { justify-content: stretch; }
+.settings-screen.stacked .review-server-add > * { flex: 1 1 100%; }

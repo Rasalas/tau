@@ -129,9 +129,9 @@ describe("Settings → Review", () => {
     expect(onNotify).toHaveBeenCalledWith("Enter the server's host name first, such as git.example.com.");
     const server = screen.getByRole("textbox", { name: "Server" });
     fireEvent.change(server, { target: { value: "code.example.com:8443" } });
-    fireEvent.blur(server);
     fireEvent.change(screen.getByRole("combobox", { name: "Provider" }), { target: { value: "gitlab" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    // Return in the field adds, as the button does.
+    fireEvent.submit((server as HTMLInputElement).form!);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-source-host", { host: "code.example.com:8443", service: "gitlab" }));
     expect(await screen.findByText("code.example.com:8443")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Forget git.example.com" }));
