@@ -180,9 +180,15 @@ describe("the web client at 400 px", () => {
     renderHome();
     await screen.findByRole("list", { name: "Threads" });
     swipe(rowNamed("Fix the flaky test").querySelector(".swipe-row")!, 380, 60);
-    await waitFor(() => expect(rowNamed("Fix the flaky test").dataset.settled).toBe("true"));
+    // The shelf starts folded, as in T3 Code: the thread leaves the list and the count takes it.
+    const toggle = await screen.findByRole("button", { name: "Settled · 1" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("list", { name: "Settled threads" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toBe("Settled");
     const shelf = screen.getByRole("list", { name: "Settled threads" });
-    expect(within(shelf).getByText("Settled · 1")).toBeTruthy();
+    expect(within(shelf).getByText("Fix the flaky test")).toBeTruthy();
+    expect(rowNamed("Fix the flaky test").dataset.settled).toBe("true");
     // A short swipe only opens the tray; its primary action takes the thread back out.
     swipe(rowNamed("Fix the flaky test").querySelector(".swipe-row")!, 380, 330);
     fireEvent.click(within(rowNamed("Fix the flaky test")).getByRole("button", { name: /Un-settle/u }));
