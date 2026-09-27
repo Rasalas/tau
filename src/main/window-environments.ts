@@ -708,7 +708,11 @@ function recordMatchesPin(saved: Pick<SavedEnvironment, "publicKey" | "fingerpri
  * link as Settings → Machines does, and forgetting one.
  */
 export async function answerEnvironmentCommand(environments: WindowEnvironments | undefined, command: string, input: unknown): Promise<unknown> {
-  if (!environments) throw new Error("This window's machine list is not ready yet.");
+  if (!environments) {
+    // A window attached to a host by address, or one still starting, keeps no machines.
+    if (command === "environments") return null;
+    throw new Error("This window keeps no machine list.");
+  }
   const item = (input ?? {}) as Record<string, unknown>;
   switch (command) {
     case "environments":

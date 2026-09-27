@@ -89,10 +89,11 @@ function state(entry: MachineLinkState): MachineLinkState {
 
 async function overview(deps: MachinePairingDeps): Promise<MachinesOverview> {
   const window = deps.window();
-  const open = window?.available() === true;
-  const listed = open ? await window!.call("environments", undefined, WINDOW_TIMEOUT_MS) as WindowMachine[] : [];
+  // `null`: a window that keeps no machines, such as one attached to this host by address.
+  const listed = window?.available() ? await window.call("environments", undefined, WINDOW_TIMEOUT_MS) as WindowMachine[] | null : null;
+  const open = Array.isArray(listed);
   const byId = new Map<string, MachineOverviewEntry>();
-  for (const machine of listed) byId.set(machine.id, { id: machine.id, name: machine.name, window: state(machine) });
+  for (const machine of listed ?? []) byId.set(machine.id, { id: machine.id, name: machine.name, window: state(machine) });
   for (const machine of deps.machines()?.list() ?? []) {
     const known = byId.get(machine.id);
     byId.set(machine.id, { ...(known ?? { id: machine.id, name: machine.name }), agents: state(machine) });

@@ -82,6 +82,9 @@ describe("machines-overview", () => {
     const window = { ...fakeWindow(), available: () => false };
     expect(await invokeHostMethod(table({ machines: () => undefined, window: () => window }), "machines-overview", [], owner)).toEqual({ window: false, machines: [] });
     expect(window.calls).toEqual([]);
+    // A window that keeps no machines (attached to this host by address) counts as none.
+    const attached = { available: () => true, call: async () => null };
+    expect(await invokeHostMethod(table({ machines: () => undefined, window: () => attached }), "machines-overview", [], owner)).toEqual({ window: false, machines: [] });
   });
 });
 

@@ -524,7 +524,8 @@ describe("core's window half for `tau machines`", () => {
     expect(await answerEnvironmentCommand(environments, "remove-environment", { id: "host-studio" })).toEqual({ removed: true });
     await expect(answerEnvironmentCommand(environments, "pair-environment", {})).rejects.toThrow(/pairing link/u);
     await expect(answerEnvironmentCommand(environments, "open-anything", {})).rejects.toThrow(/no service/u);
-    await expect(answerEnvironmentCommand(undefined, "environments", undefined)).rejects.toThrow(/not ready/u);
+    expect(await answerEnvironmentCommand(undefined, "environments", undefined)).toBeNull();
+    await expect(answerEnvironmentCommand(undefined, "pair-environment", { text: "x" })).rejects.toThrow(/keeps no machine list/u);
   });
 
   it("asks for no agents unless told to", async () => {
