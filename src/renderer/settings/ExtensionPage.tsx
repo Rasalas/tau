@@ -5,6 +5,7 @@ import type { ExtensionRegistry, ExtensionSummary, SettingsSectionProps } from "
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NOTES, type ExtensionPermission } from "../../shared/extension-permissions";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
+import { useHostCapabilities } from "../use-host-capabilities";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { ProviderIconStack } from "../components/ProviderIconStack";
@@ -138,8 +139,9 @@ export function useExtensionSources(cwd: string | undefined, revision: number): 
 }
 
 /**
- * Turns an extension on or off: its desktop half here and now, its host half
- * on the host, and the choice in the preferences so the next start keeps it.
+ * Turns an extension on or off: the choice goes to the host's list, which
+ * every client follows; this client's desktop half and the host half switch
+ * at once rather than waiting for that round trip.
  */
 export function useExtensionSwitch(registry: ExtensionRegistry, onNotify: (message: string) => void, onHostHalves?: (halves: HostExtensionSummary[]) => void) {
   const client = useHostClient();
@@ -251,6 +253,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const toggle = useExtensionSwitch(registry, onNotify, onHostHalves);
+  const { readOnly } = useHostCapabilities();
   const summary = entry.summary;
   const mark = extensionMarks(registry, [entry]).get(entry.id);
   const pages = registry.getSettingsPages().filter((page) => page.extensionId === entry.id && !page.standalone);
@@ -301,7 +304,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
         <div className="extension-hero-control">
           {entry.locked ? <Badge tone="accent">Always on</Badge>
             : entry.state === "waiting" || entry.state === "incompatible" ? null
-              : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running || entry.state === "failed"} onChange={(next) => { toggle(entry, next); onChanged(); }} />}
+              : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running || entry.state === "failed"} disabled={readOnly} onChange={(next) => { toggle(entry, next); onChanged(); }} />}
         </div>
       </header>
 

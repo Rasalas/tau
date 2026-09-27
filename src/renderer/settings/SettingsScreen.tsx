@@ -157,7 +157,7 @@ export function SettingsScreen({
   const preferences = usePreferences();
   const client = useHostClient();
   const { readOnly } = useHostCapabilities();
-  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { disabledExtensions } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
   const project = currentProject(snapshot, projects);
@@ -177,6 +177,7 @@ export function SettingsScreen({
     packages: sources.inspection?.packages ?? [],
     hostHalves: sources.hostHalves,
     errors: sources.inspection?.errors ?? [],
+    disabled: disabledExtensions,
   });
   // Pages extensions own. Core keeps General, Models, Keybindings and the
   // Inspector, so safe mode still has a model picker and a way to see what is loaded.

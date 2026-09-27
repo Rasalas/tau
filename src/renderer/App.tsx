@@ -17,6 +17,7 @@ import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
 import { runtimeControls } from "./settings/runtime-controls";
+import { followExtensionChoices } from "./extension-choices";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
@@ -139,6 +140,8 @@ export default function App() {
   const events = useSyncExternalStore(viewStore.subscribeToEvents, viewStore.getEvents);
   const setNotice = viewStore.setNotice;
   const addEvent = viewStore.addEvent;
+  // A switch on any device reaches this one: the host's list is every client's.
+  useEffect(() => safeMode ? undefined : followExtensionChoices(registry, preferences, addEvent), [registry, preferences, safeMode, addEvent]);
   // Run state lives in the thread store, fed by the host's per-thread status
   // events. Every other reading of "is this thread working" is this selector,
   // so the composer, the live row and the rail cannot disagree.

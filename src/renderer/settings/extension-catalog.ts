@@ -65,11 +65,13 @@ export function matchesQuery(entry: ExtensionEntry, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-export function extensionCatalog({ summaries, packages = [], hostHalves = [], errors = [] }: {
+export function extensionCatalog({ summaries, packages = [], hostHalves = [], errors = [], disabled }: {
   summaries: readonly ExtensionSummary[];
   packages?: readonly ExtensionPackageSummary[];
   hostHalves?: readonly HostExtensionSummary[];
   errors?: ExtensionInspection["errors"];
+  /** The host's list of extensions turned off; with it, on and off are the host's, not this client's. */
+  disabled?: readonly string[];
 }): ExtensionEntry[] {
   const entries = new Map<string, ExtensionEntry>();
   const ids = new Set([...summaries.map((entry) => entry.id), ...packages.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)]);
@@ -78,7 +80,10 @@ export function extensionCatalog({ summaries, packages = [], hostHalves = [], er
     const pkg = packages.find((entry) => entry.id === id);
     const host = hostHalves.find((entry) => entry.id === id);
     const granted = pkg ? pkg.granted !== false : summary?.granted !== false;
-    const active = summary ? summary.active : host ? host.active : false;
+    const loaded = Boolean(summary ?? host);
+    const active = summary?.core ? summary.active
+      : disabled && loaded ? !disabled.includes(id)
+        : summary ? summary.active : host ? host.active : false;
     const state: ExtensionState = !granted ? "waiting" : host?.error ? "failed" : active ? "on" : "off";
     entries.set(id, {
       id,
