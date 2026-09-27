@@ -297,7 +297,8 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   const [searchOpen, setSearchOpen] = useState(false);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (searchOpen) return;
+    // The rows' own keys (the message cursor, its actions) come first.
+    if (searchOpen || event.defaultPrevented) return;
     const node = scrollRef.current;
     if (!node) return;
 

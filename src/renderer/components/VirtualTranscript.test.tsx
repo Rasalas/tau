@@ -773,6 +773,69 @@ describe("virtual transcript", () => {
       view.unmount();
     });
 
+    it("walks from a message into its actions and back: → in, ←/→ along, ← or Escape out, ↑/↓ to the next message", async () => {
+      const messages: UiMessage[] = [
+        { id: "msg-0", role: "user", text: "First prompt", timestamp: 1, sourceEntryId: "e0" },
+        { id: "msg-1", role: "assistant", text: "An answer", timestamp: 2, sourceEntryId: "e1" },
+      ];
+      const onFocusComposer = vi.fn();
+      const onForkMessage = vi.fn();
+      const view = render(<Fixture messages={messages} onCopyMessage={vi.fn()} onForkMessage={onForkMessage} onFocusComposer={onFocusComposer} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+      const rows = view.container.querySelectorAll<HTMLElement>(".virtual-transcript-row");
+      const actionsOf = (row: HTMLElement) => [...row.querySelectorAll<HTMLButtonElement>(".message-actions button")];
+      // The transcript is the one tab stop; the actions are reached through their message.
+      expect(actionsOf(rows[0]!).map((button) => button.tabIndex)).toEqual([-1, -1]);
+
+      // Focus puts the cursor on the first message in view.
+      act(() => transcript.focus());
+      expect(transcript.dataset.focusedIndex).toBe("0");
+      fireEvent.keyDown(transcript, { key: "ArrowRight" });
+      expect(document.activeElement).toBe(actionsOf(rows[0]!)[0]);
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+      expect(document.activeElement?.textContent).toBe("Fork");
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+      expect(document.activeElement?.textContent).toBe("Fork");
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+      expect(document.activeElement?.textContent).toBe("Copy");
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+      expect(document.activeElement).toBe(transcript);
+
+      fireEvent.keyDown(transcript, { key: "ArrowRight" });
+      fireEvent.keyDown(document.activeElement!, { key: "End" });
+      // Enter is the button's own: it forks, and the transcript does not take the key.
+      fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+      fireEvent.click(document.activeElement!);
+      expect(onForkMessage).toHaveBeenCalledWith(messages[0]);
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(document.activeElement).toBe(transcript);
+      expect(onFocusComposer).not.toHaveBeenCalled();
+      expect(transcript.dataset.focusedIndex).toBe("0");
+
+      fireEvent.keyDown(transcript, { key: "ArrowRight" });
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(transcript);
+      expect(transcript.dataset.focusedIndex).toBe("1");
+      view.unmount();
+    });
+
+    it("keeps an action's Escape in the transcript, not the composer, inside the scrolling viewport", async () => {
+      const messages: UiMessage[] = [{ id: "msg-0", role: "user", text: "A prompt", timestamp: 1 }];
+      const onFocusComposer = vi.fn();
+      const scrollRef = createRef<HTMLDivElement>();
+      const view = render(<TranscriptViewport messages={messages} scrollRef={scrollRef} sessionId="s" isStreaming onCopyMessage={vi.fn()} onFocusComposer={onFocusComposer} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+      act(() => transcript.focus());
+      fireEvent.keyDown(transcript, { key: "ArrowRight" });
+      expect(document.activeElement?.textContent).toBe("Copy");
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(document.activeElement).toBe(transcript);
+      expect(onFocusComposer).not.toHaveBeenCalled();
+      fireEvent.keyDown(transcript, { key: "Escape" });
+      expect(onFocusComposer).toHaveBeenCalledOnce();
+      view.unmount();
+    });
+
     it("moves the cursor to a clicked message", async () => {
       const messages: UiMessage[] = [
         { id: "msg-0", role: "user", text: "First message", timestamp: 1 },

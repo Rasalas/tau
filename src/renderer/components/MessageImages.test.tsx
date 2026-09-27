@@ -34,8 +34,8 @@ describe("message images", () => {
     expect(view.container.querySelector(".message-text")).toBeNull();
     expect(screen.queryByText("Image attached")).toBeNull();
     expect(screen.getByLabelText(/^Sent /u)).toBeTruthy();
-    fireEvent.click(screen.getByTitle("Copy message"));
-    fireEvent.click(screen.getByTitle("Fork through this message"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
     expect(onCopy).toHaveBeenCalledWith(message);
     expect(onFork).toHaveBeenCalledWith(message);
   });

@@ -44,7 +44,7 @@ describe("Long user messages", () => {
     const fullMessage = message(longText);
     render(<Message message={fullMessage} onCopy={onCopy} />);
 
-    fireEvent.click(screen.getByTitle("Copy message"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(onCopy).toHaveBeenCalledWith(fullMessage);
   });
 
@@ -54,7 +54,7 @@ describe("Long user messages", () => {
     render(<Message message={fullMessage} onCopy={onCopy} />);
 
     expect(visibleUserMessageText(fullMessage.text)).toContain("Caption 1");
-    fireEvent.click(screen.getByTitle("Copy message"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(onCopy).toHaveBeenCalledWith({ ...fullMessage, text: Array.from({ length: 9 }, (_, index) => `Caption ${index + 1}`).join("\n") });
     expect(onCopy.mock.calls[0][0].text).not.toContain("/tmp/CleanShot/image.png");
   });
@@ -68,8 +68,8 @@ describe("Message actions", () => {
     const message = { id: "message", sourceEntryId: "entry", role: "assistant" as const, text: "Answer", timestamp: 0 };
     render(<Message message={message} onCopy={onCopy} onFork={onFork} />);
 
-    fireEvent.click(screen.getByTitle("Copy message"));
-    fireEvent.click(screen.getByTitle("Fork through this message"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fork" }));
     expect(onCopy).toHaveBeenCalledWith(message);
     expect(onFork).toHaveBeenCalledWith(message);
   });
@@ -80,7 +80,7 @@ describe("Message actions", () => {
       onCopy={() => {}}
       onFork={() => {}}
     />);
-    expect(screen.queryByTitle("Fork through this message")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fork" })).toBeNull();
   });
 });
 

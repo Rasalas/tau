@@ -57,6 +57,14 @@ modifier runs while an overlay is open, whatever its `when` says. Escape
 stops a running turn only with no overlay open and the keyboard in the chat;
 in the transcript, Escape first goes back to the composer.
 
+The transcript is one tab stop with a cursor on one message: `↑`/`↓` (or
+`j`/`k`) move it, and its ring hugs the message (the prompt's bubble, the
+answer's text). `→` walks into that message's actions (Copy, Edit from here,
+Fork, a package's own), `←`/`→` move along them, and `←` on the first or
+`Escape` goes back to the message; `↑`/`↓` from an action go on to the
+previous or next message. Tab leaves the transcript, as it leaves any
+composite widget. The ring shows for the keyboard only (`:focus-visible`).
+
 ## Defaults
 
 | Chord | When | Command | What it does | From | T3 Code |

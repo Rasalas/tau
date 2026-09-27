@@ -611,11 +611,19 @@ body.resizing-col .app-shell { transition: none; }
  * one it was: a pointer-made focus never matches it, a click that is then
  * followed by a key press does, and blur takes the ring away by itself.
  */
-.virtual-transcript:focus-visible .virtual-transcript-row.focused {
+.virtual-transcript:focus-visible .virtual-transcript-row.focused :is(.message.user .message-text, .message.assistant) {
   outline: 1px solid var(--focus);
-  outline-offset: -2px;
+  outline-offset: 2px;
+}
+.virtual-transcript:focus-visible .virtual-transcript-row.focused .message.assistant { border-radius: 6px; }
+/* A row with neither (a tool run, a notice) rings what it draws. */
+.virtual-transcript:focus-visible .virtual-transcript-row.focused:not(:has(.message.user .message-text, .message.assistant)) > :first-child {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
   border-radius: 8px;
 }
+/* The focused message shows its actions: → walks into them. */
+.virtual-transcript:focus-visible .virtual-transcript-row.focused :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
 .transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
 .transcript-jump {
@@ -659,7 +667,7 @@ body.resizing-col .app-shell { transition: none; }
   font: 500 10px var(--sans); cursor: pointer;
 }
 .message-actions button:hover { background: var(--raised); color: var(--ink-2); }
-.message-actions button:focus-visible { opacity: 1; outline: 1px solid var(--line-strong); }
+.message-actions button:focus-visible { opacity: 1; outline: 1px solid var(--focus); outline-offset: 0; }
 
 .message.user {
   align-self: flex-end; max-width: 78%;

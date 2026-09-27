@@ -40,6 +40,12 @@ export interface VirtualTranscriptProps {
 }
 
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
+const ACTION_SELECTOR = ".message-actions button";
+
+/** The actions of a message's row, in reading order. */
+function messageActions(row: Element | null): HTMLElement[] {
+  return row ? [...row.querySelectorAll<HTMLElement>(`${ACTION_SELECTOR}:not(:disabled)`)] : [];
+}
 const MAX_EXPANDED_MESSAGE_IDS = 64;
 
 interface ActivityLayoutSnapshot {
@@ -262,6 +268,40 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     const target = event.target as HTMLElement | null;
     const isInput = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
     if (isInput && event.key !== "Escape") return;
+    const container = transcriptRef.current;
+    const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+
+    // Deeper: → from the focused message walks into its actions, ← or Escape comes back.
+    const action = target?.closest<HTMLElement>(ACTION_SELECTOR);
+    if (action && container) {
+      const actions = messageActions(action.closest(".virtual-transcript-row"));
+      const at = actions.indexOf(action);
+      const next = !plain ? undefined
+        : event.key === "ArrowRight" ? actions[at + 1] ?? action
+        : event.key === "ArrowLeft" ? actions[at - 1] ?? container
+        : event.key === "Home" ? actions[0]
+        : event.key === "End" ? actions.at(-1)
+        : event.key === "Escape" ? container
+        : undefined;
+      if (next) {
+        event.preventDefault();
+        next.focus({ preventScroll: true });
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      container.focus({ preventScroll: true });
+    } else if (target !== container && (event.key === "Enter" || event.key === " ") && target?.closest("button, a, summary")) {
+      // A control inside a row answers its own Enter and Space.
+      return;
+    }
+    if (event.key === "ArrowRight" && plain && focusedIndex !== undefined) {
+      const first = messageActions(container?.querySelector(`[data-index="${focusedIndex}"]`) ?? null)[0];
+      if (first) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+      return;
+    }
 
     if (event.key === "j" || event.key === "ArrowDown") {
       event.preventDefault();
