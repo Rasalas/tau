@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { CircleCheck, Copy, ExternalLink, SquareTerminal, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Copy, ExternalLink, SquareTerminal } from "lucide-react";
 import {
   SIGN_IN_COMMANDS,
   SIGN_IN_EVENT,
@@ -10,6 +10,10 @@ import {
   type SignInReport,
 } from "../../shared/sign-in";
 import type { HostExtensionClient } from "../extension-system";
+import { Button, TextField } from "../settings/controls";
+import { SettingRow } from "../settings/settings-layout";
+import { ProviderCardBadgeReport, useProviderCardBadge, type ProviderCardBadge } from "../settings/provider-card-state";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import "./sign-in.css";
 
 /**
@@ -19,6 +23,9 @@ import "./sign-in.css";
  * The kit's host half runs the flow (`registerSignIn`); this draws and answers.
  * One chunk, loaded with `loadSignInUi` from `tau`.
  */
+/** Puts a badge into the head of the Providers card it is drawn in, for a kit whose rows are its own. */
+export { ProviderCardBadgeReport };
+
 export interface SignInSetupProps {
   /** The kit's host half. */
   host: HostExtensionClient;
@@ -37,6 +44,10 @@ export interface SignInSetupProps {
   onReport?(report: SignInReport): void;
   /** Draws the account row too; a caller that shows its own leaves it out. */
   showAccount?: boolean;
+  /** The account row's element id, for a search result to scroll to. */
+  rowId?: string;
+  /** Whether the account's state goes into the head of the Providers card this is drawn in; on by default. */
+  cardBadge?: boolean;
 }
 
 const DEFAULT_TARGET = "default";
@@ -62,8 +73,9 @@ export function flowLine(flow: SignInFlowState, program: string): string {
   }
 }
 
-function methodLabel(method: SignInMethod): string {
-  return method.label;
+/** What a method's button does, in a word or two; the method's own label names it beside the button. */
+function methodVerb(method: SignInMethod): string {
+  return method.kind === "api-key" ? "Add key" : "Sign in";
 }
 
 function hostOf(url: string): string {
@@ -93,8 +105,8 @@ function PromptForm({ flow, busy, onAnswer }: { flow: SignInFlowState; busy: boo
       <div className="sign-in-choices" role="group" aria-label={prompt.message}>
         <span>{prompt.message}</span>
         {prompt.options?.map((option) => (
-          <button key={option.id} type="button" className="sign-in-button" disabled={busy} onClick={() => onAnswer(option.id)}>
-            {option.label}
+          <button key={option.id} type="button" className="sign-in-choice" disabled={busy} onClick={() => onAnswer(option.id)}>
+            <strong>{option.label}</strong>
             {option.description ? <small>{option.description}</small> : null}
           </button>
         ))}
@@ -106,23 +118,52 @@ function PromptForm({ flow, busy, onAnswer }: { flow: SignInFlowState; busy: boo
     <form className="sign-in-prompt" onSubmit={submit}>
       <label htmlFor={id}>{prompt.message}</label>
       <div className="sign-in-prompt-row">
-        <input
+        <TextField
           id={id}
-          type={prompt.kind === "secret" ? "password" : "text"}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={prompt.placeholder}
+          label={prompt.message}
           value={value}
+          width="full"
+          secret={prompt.kind === "secret"}
+          mono={prompt.kind !== "text"}
+          placeholder={prompt.placeholder}
           disabled={busy}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={setValue}
         />
-        <button type="submit" className="sign-in-button primary" disabled={busy || !value.trim()}>Continue</button>
+        <Button type="submit" disabled={busy || !value.trim()}>Continue</Button>
       </div>
     </form>
   );
 }
 
-export function SignInSetup({ host, target, program, heading = "Account", runInTerminal, openExternal, copyText, onNotify, onReport, showAccount = true }: SignInSetupProps) {
+/** One way in: what it is on the left, its button on the right, or why it cannot start. */
+function MethodRow({ method, busy, onStart }: { method: SignInMethod; busy: boolean; onStart(): void }) {
+  const titleId = useId();
+  const note = method.unavailable ?? method.description;
+  return (
+    <div className="sign-in-method" data-unavailable={method.unavailable ? "" : undefined}>
+      <div className="sign-in-method-text">
+        <strong id={titleId}>{method.label}</strong>
+        {note ? <small>{note}</small> : null}
+      </div>
+      <Button
+        aria-describedby={titleId}
+        icon={method.kind === "terminal" ? <SquareTerminal size={13} aria-hidden /> : undefined}
+        disabled={busy || method.unavailable !== undefined}
+        onClick={onStart}
+      >{methodVerb(method)}</Button>
+    </div>
+  );
+}
+
+/** The badge the card's head shows for the account, once the program answered. */
+function accountBadge(report: SignInReport | undefined, active: boolean): ProviderCardBadge | undefined {
+  if (!report) return undefined;
+  if (active) return { label: "Signing in", tone: "neutral" };
+  if (report.account?.signedIn) return { label: "Signed in", tone: "success" };
+  return { label: report.methods?.length ? "Needs sign-in" : "Not signed in", tone: "warn" };
+}
+
+export function SignInSetup({ host, target, program, heading = "Account", runInTerminal, openExternal, copyText, onNotify, onReport, showAccount = true, rowId, cardBadge = true }: SignInSetupProps) {
   const [report, setReport] = useState<SignInReport>();
   const [flow, setFlow] = useState<SignInFlowState>();
   const [busy, setBusy] = useState<string>();
@@ -145,6 +186,7 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
   }, []);
 
   const load = useCallback(async () => {
+    setError(undefined);
     try {
       take(await host.invoke(SIGN_IN_COMMANDS.state, target ? { target } : undefined) as SignInReport);
     } catch (failure) {
@@ -213,94 +255,93 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
   const active = signInActive(flow);
   const methods = report?.methods ?? [];
   const ended = flow && !active ? flow : undefined;
+  useProviderCardBadge("account", showAccount && cardBadge ? accountBadge(report, active) : undefined);
+  const who = account?.label && account.label !== program ? ` (${account.label})` : "";
+
+  const messages: ReactNode[] = [];
+  if (ended?.message && ended.phase !== "succeeded") {
+    messages.push(<p key="ended" className="sign-in-status" data-level={ended.phase === "failed" ? "error" : undefined} role={ended.phase === "failed" ? "alert" : "status"}>{flowLine(ended, program)}</p>);
+  }
+  if (error && (report || !showAccount)) messages.push(<p key="error" className="sign-in-status" data-level="error" role="alert">{error}</p>);
+  if (report?.note && !showAccount) messages.push(<p key="note" className="sign-in-status">{report.note}</p>);
+
   return (
-    <div className="sign-in" data-state={active ? "active" : account?.signedIn ? "signed-in" : "signed-out"}>
-      {showAccount ? <div className="settings-label">{heading}</div> : null}
+    <>
       {showAccount ? (
-        <div className="settings-field sign-in-field">
-          {account?.signedIn ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-          <span>
-            <strong>{!report ? "Checking…" : account?.signedIn ? account.label ?? "Signed in" : "Not signed in"}</strong>
-            {account?.detail ? <small>{account.detail}</small> : null}
-          </span>
-          {account?.signedIn && account.canSignOut && !active ? (
-            <button type="button" className="sign-in-button" disabled={busy !== undefined} onClick={() => setConfirming(true)}>{busy === "sign-out" ? "Signing out…" : "Sign out"}</button>
-          ) : null}
-        </div>
-      ) : null}
+        <SettingRow
+          {...(rowId ? { id: rowId } : {})}
+          title={heading}
+          {...(report?.note ? { help: report.note } : {})}
+          description={!report
+            ? error ? `Could not ask ${program} who is signed in: ${error}` : "Checking…"
+            : account?.signedIn
+              ? <><strong className="sign-in-who">{account.label ?? "Signed in"}</strong>{account.detail ? <> · <span>{account.detail}</span></> : null}</>
+              : "Not signed in"}
+          status={messages.length ? <>{messages}</> : undefined}
+          control={!report && error ? <Button onClick={() => void load()}>Ask again</Button>
+            : account?.signedIn && account.canSignOut && !active ? (
+              <Button busy={busy === "sign-out"} disabled={busy !== undefined} onClick={() => setConfirming(true)}>{busy === "sign-out" ? "Signing out…" : "Sign out"}</Button>
+            ) : undefined}
+        />
+      ) : messages.length ? <div className="sign-in-messages">{messages}</div> : null}
       {confirming ? (
-        <div className="sign-in-row" role="alert">
-          <span>Sign out of {program}{account?.label && account.label !== program ? ` (${account.label})` : ""}? Threads on it stop working until you sign in again; their history stays.</span>
-          <button type="button" className="sign-in-button" onClick={() => setConfirming(false)}>Keep</button>
-          <button type="button" className="sign-in-button danger" onClick={signOut}>Sign out</button>
-        </div>
+        <ConfirmDialog
+          title={`Sign out of ${program}${who}?`}
+          message={`Threads on ${program} stop working until you sign in again; their history stays.`}
+          confirmLabel="Sign out"
+          destructive
+          onCancel={() => setConfirming(false)}
+          onConfirm={signOut}
+        />
       ) : null}
 
       {active && flow ? (
         <div className="sign-in-flow">
-          <p className="sign-in-status" role="status">{flowLine(flow, program)}</p>
+          <div className="sign-in-flow-head">
+            <p className="sign-in-status" role="status">{flowLine(flow, program)}</p>
+            <Button variant="ghost" disabled={busy === "cancel"} onClick={cancel}>Cancel sign-in</Button>
+          </div>
           {flow.browser ? (
-            <div className="sign-in-row">
-              <button type="button" className="sign-in-button primary" onClick={() => openExternal(flow.browser!.url)}><ExternalLink size={13} aria-hidden /> Open sign-in page</button>
-              <button type="button" className="sign-in-button" onClick={() => copy(flow.browser!.url, "link")}>{copied === "link" ? "Link copied" : "Copy sign-in link"}</button>
+            <div className="sign-in-actions">
+              <Button icon={<ExternalLink size={13} aria-hidden />} onClick={() => openExternal(flow.browser!.url)}>Open sign-in page</Button>
+              <Button variant="ghost" onClick={() => copy(flow.browser!.url, "link")}>{copied === "link" ? "Link copied" : "Copy sign-in link"}</Button>
             </div>
           ) : null}
           {flow.deviceCode ? (
-            <div className="sign-in-device">
-              <code aria-label="Device code">{flow.deviceCode.code}</code>
-              <button type="button" className="sign-in-button" onClick={() => copy(flow.deviceCode!.code, "code")}><Copy size={12} aria-hidden /> {copied === "code" ? "Copied" : "Copy code"}</button>
-              <button type="button" className="sign-in-button primary" onClick={() => openExternal(flow.deviceCode!.url)}><ExternalLink size={13} aria-hidden /> Open {hostOf(flow.deviceCode.url)}</button>
+            <div className="sign-in-actions">
+              <code className="sign-in-device-code" aria-label="Device code">{flow.deviceCode.code}</code>
+              <Button icon={<Copy size={12} aria-hidden />} onClick={() => copy(flow.deviceCode!.code, "code")}>{copied === "code" ? "Copied" : "Copy code"}</Button>
+              <Button icon={<ExternalLink size={13} aria-hidden />} onClick={() => openExternal(flow.deviceCode!.url)}>Open {hostOf(flow.deviceCode.url)}</Button>
             </div>
           ) : null}
-          {flow.terminal ? (
+          {/* The command shows only where this window cannot run it: then the user has to. */}
+          {flow.terminal && (!runInTerminal || !mine.current.has(flow.flowId)) ? (
             <div className="sign-in-terminal">
-              <div className="sign-in-row">
+              <div className="sign-in-actions">
                 <SquareTerminal size={13} aria-hidden />
                 <code>{flow.terminal.command}</code>
-                <button type="button" className="sign-in-button" aria-label="Copy the command" onClick={() => copy(flow.terminal!.command, "command")}>{copied === "command" ? "Copied" : <Copy size={12} aria-hidden />}</button>
+                <button type="button" className="tau-icon-button" aria-label="Copy the command" onClick={() => copy(flow.terminal!.command, "command")}><Copy size={12} aria-hidden /></button>
               </div>
-              {!runInTerminal || !mine.current.has(flow.flowId) ? (
-                <div className="sign-in-row">
-                  <span>{runInTerminal ? "It runs in the terminal of the window that started it." : "Run it in a terminal, then say so here."}</span>
-                  {flow.prompt ? <button type="button" className="sign-in-button" disabled={busy !== undefined} onClick={() => answer("done")}>I have signed in</button> : null}
-                </div>
-              ) : null}
+              <div className="sign-in-actions">
+                <span>{copied === "command" ? "Copied. " : ""}{runInTerminal ? "It runs in the terminal of the window that started it." : "Run it in a terminal, then say so here."}</span>
+                {flow.prompt ? <Button disabled={busy !== undefined} onClick={() => answer("done")}>I have signed in</Button> : null}
+              </div>
             </div>
-          ) : flow.prompt ? <PromptForm flow={flow} busy={busy !== undefined} onAnswer={answer} /> : null}
+          ) : !flow.terminal && flow.prompt ? <PromptForm flow={flow} busy={busy !== undefined} onAnswer={answer} /> : null}
           {flow.links?.length ? (
-            <div className="sign-in-row">
+            <div className="sign-in-actions">
               {flow.links.map((link) => <button key={link.url} type="button" className="sign-in-link" onClick={() => openExternal(link.url)}>{link.label ?? link.url}</button>)}
             </div>
           ) : null}
-          <div className="sign-in-row">
-            {flow.deviceCode?.expiresAt ?? flow.expiresAt ? <span>Expires at {expiresLabel(flow.deviceCode?.expiresAt ?? flow.expiresAt)}.</span> : <span />}
-            <button type="button" className="sign-in-button" disabled={busy === "cancel"} onClick={cancel}>Cancel sign-in</button>
-          </div>
+          {flow.deviceCode?.expiresAt ?? flow.expiresAt ? <p className="sign-in-expiry">Expires at {expiresLabel(flow.deviceCode?.expiresAt ?? flow.expiresAt)}.</p> : null}
         </div>
       ) : null}
 
       {!active && report && !account?.signedIn && methods.length > 0 ? (
         <div className="sign-in-methods" role="group" aria-label={`Sign in to ${program}`}>
-          {methods.map((method, index) => (
-            <div key={method.id} className="sign-in-method">
-              <button
-                type="button"
-                className={`sign-in-button${index === 0 ? " primary" : ""}`}
-                disabled={busy !== undefined || method.unavailable !== undefined}
-                onClick={() => start(method)}
-              >
-                {method.kind === "terminal" ? <SquareTerminal size={13} aria-hidden /> : null}
-                {methodLabel(method)}
-              </button>
-              {method.unavailable ?? method.description ? <small>{method.unavailable ?? method.description}</small> : null}
-            </div>
-          ))}
+          {methods.map((method) => <MethodRow key={method.id} method={method} busy={busy !== undefined} onStart={() => start(method)} />)}
         </div>
       ) : null}
-
-      {ended?.message && ended.phase !== "succeeded" ? <p className="sign-in-status" data-level={ended.phase === "failed" ? "error" : undefined} role={ended.phase === "failed" ? "alert" : "status"}>{flowLine(ended, program)}</p> : null}
-      {report?.note ? <p className="settings-note">{report.note}</p> : null}
-      {error ? <p className="settings-note" data-level="error" role="alert">{error}</p> : null}
-    </div>
+    </>
   );
 }

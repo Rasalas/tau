@@ -66,21 +66,29 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     label: "Pi",
     keywords: ["agent", "settings.json"],
     rows: [
-      ["Write Pi settings to", ["global", "project", "scope", "settings.json"]],
-      ["Startup model", ["default model", "thinking level"]],
-      ["Compaction", ["compact", "reserve tokens", "keep recent tokens", "context"]],
-      ["Retry", ["retries", "transient errors", "delay"]],
-      ["Message delivery", ["steering", "follow-up", "queue"]],
-      ["Built-in tools", ["tools", "read", "bash", "edit", "write"]],
-      ["Shell", ["shell path", "command prefix", "npm command"]],
-      ["Quiet startup", ["startup"]],
-      ["Project trust", ["trust"]],
+      ["Write Pi settings to", ["global", "project", "scope", "settings.json", "all projects"]],
+      ["Project trust", ["trust", "ask", "always", "never", "project settings"]],
+      ["Startup model", ["default model", "pi model"]],
+      ["Startup thinking level", ["thinking", "reasoning", "effort", "default thinking"]],
+      ["Quiet startup", ["startup", "header", "banner"]],
+      ["Automatic compaction", ["compaction", "compact", "summarize", "context window"]],
+      ["Reserve tokens", ["compaction", "reply", "context"]],
+      ["Keep recent tokens", ["compaction", "unsummarized", "context"]],
+      ["Retry on transient errors", ["retry", "retries", "errors", "backoff"]],
+      ["Max retries", ["retry", "retries", "attempts"]],
+      ["Base delay", ["retry", "delay", "backoff", "ms"]],
+      ["Steering messages", ["message delivery", "steering", "steer", "queue"]],
+      ["Follow-up messages", ["message delivery", "follow-up", "follow up", "queue"]],
+      ["Built-in tools", ["tools", "read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]],
+      ["Shell path", ["shell", "bash", "cygwin"]],
+      ["Command prefix", ["shell", "bash", "prefix"]],
+      ["npm command", ["npm", "packages", "mise"]],
     ],
   },
   {
     page: "keybindings",
     label: "Keybindings",
-    keywords: ["shortcuts", "chords", "keys", "keymap", "keybindings.json"],
+    keywords: ["shortcuts", "chords", "keys", "keymap", "keybindings.json", "rebind", "when clause", "reset keybindings"],
     rows: [],
   },
   {
@@ -88,11 +96,19 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     label: "Connections",
     keywords: ["pairing", "pair", "devices", "clients", "web client", "browser", "phone", "qr", "revoke", "sessions", "host token", "rotate", "remote"],
     rows: [
-      ["Host token", ["rotate", "token", "secret"]],
-      ["Authorized clients", ["pairing link", "revoke", "sessions", "devices"]],
+      ["Address", ["url", "endpoint", "reachable", "ip"]],
+      ["Other machines", ["nearby", "bonjour", "find machines", "discover"]],
+      ["Local network", ["lan", "wifi", "listen", "network access"]],
+      ["Announce on this network", ["bonjour", "mdns", "discover", "announce"]],
+      ["Tailscale", ["tailnet", "magicdns", "vpn"]],
+      ["Port", ["listen", "network access"]],
+      ["Certificate", ["tls", "https", "fingerprint", "self-signed", "own certificate", "pem"]],
+      ["Authorized clients", ["pairing link", "create link", "revoke", "sessions", "devices"]],
       ["Run as a system service", ["service", "background", "launchd", "launchagent", "systemd", "task scheduler", "login", "boot", "daemon"]],
       ["Invisible display", ["xvfb", "display", "headless", "linux", "preview", "screen", "x11"]],
       ["Keep this machine awake while turns run", ["awake", "sleep", "caffeinate", "power"]],
+      ["Sign out every other device", ["revoke others", "sign out", "devices"]],
+      ["Rotate the host token", ["host token", "rotate", "token", "secret"]],
     ],
   },
   {
@@ -106,6 +122,8 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     label: "About",
     keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates"],
     rows: [
+      ["Version", ["version", "build", "host version", "about tau"]],
+      ["Check for updates", ["update", "updates", "new release", "upgrade"]],
       ["Open-source licenses", ["licenses", "licences", "third party", "notices", "credits"]],
     ],
   },
@@ -113,16 +131,19 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     page: "inspector",
     label: "Inspector",
     keywords: ["extensions", "packages", "versions", "system prompt", "problems", "debug"],
-    rows: [],
+    rows: [
+      ["Versions", ["tau version", "pi version", "extension api", "engines"]],
+      ["System prompt and persona", ["system prompt", "instructions", "agents.md", "persona"]],
+      ["Packages on disk", ["package folders", "tau-extension.json", "load errors", "incompatible"]],
+    ],
   },
 ];
-
-/** Core pages whose rows carry `settingAnchor(label)` as their element id. */
-const ANCHORED_PAGES = new Set(["general", "models"]);
 
 export interface SettingsSearchSources {
   /** Pages extensions contributed, with the rows they named for the search. */
   pages: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
+  /** Sections extensions added to a core page, with the rows they named. */
+  sections?: ReadonlyArray<{ page: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Every extension with a page of its own in the nav. */
   extensions: ReadonlyArray<{ id: string; name: string; core?: boolean; options?: ReadonlyArray<{ label: string }> }>;
   /** Live keybindings; leave out for a search that should find pages only. */
@@ -136,7 +157,8 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
     for (const [label, keywords] of core.rows) {
       entries.push({
         id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords,
-        ...(ANCHORED_PAGES.has(core.page) ? { target: settingAnchor(label) } : {}),
+        // Each core row carries `settingAnchor(label)` as its element id.
+        target: settingAnchor(label),
       });
     }
   }
@@ -150,6 +172,13 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
     });
     for (const row of page.rows ?? []) {
       entries.push({ id: `${page.id}:${row.id}`, page: page.id, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
+    }
+  }
+  for (const section of sources.sections ?? []) {
+    const page = CORE_PAGES.find((core) => core.page === section.page);
+    if (!page) continue;
+    for (const row of section.rows ?? []) {
+      entries.push({ id: `${page.page}:${row.id}`, page: page.page, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
     }
   }
   for (const extension of sources.extensions) {

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, ToastOptions, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { CodexInstances, CodexProviderCard, codexExtension, createUpdateToasts, createVersionBanner } from "./desktop.js";
+import { CodexInstances, CodexProviderCard, codexExtension, createUpdateToasts, createVersionBanner, searchRows } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -35,9 +35,10 @@ describe("Codex desktop extension", () => {
       account: { kind: "chatgpt", plan: "pro" }, signedIn: true, models: 5, codexHome: "/Users/me/.codex",
     });
     render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
-    await waitFor(() => expect(screen.getByText("Found · 0.154.0")).toBeTruthy());
-    expect(screen.getByText("brew upgrade --cask codex")).toBeTruthy();
-    expect(screen.getByText(/Codex 0\.155\.1 is out/u)).toBeTruthy();
+    await waitFor(() => expect(document.getElementById("setting-codex-program")?.textContent).toContain("0.154.0 · /opt/homebrew/bin/codex"));
+    expect(screen.queryByText(/brew upgrade/u)).toBeNull();
+    expect(screen.getByText("Codex 0.155.1 is out; 0.154.0 is installed.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update in a terminal" })).toBeTruthy();
     expect(await screen.findByText("ChatGPT Pro")).toBeTruthy();
     expect(screen.getByText("me@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
@@ -52,8 +53,9 @@ describe("Codex desktop extension", () => {
       : { command: "/opt/codex/bin/codex" });
     const onNotify = vi.fn();
     render(<CodexProviderCard onNotify={onNotify} host={host(invoke)} />);
-    const field = await screen.findByRole("textbox", { name: "Codex executable" });
-    await waitFor(() => expect((field as HTMLInputElement).disabled).toBe(false));
+    // The row is inert until the host answered; then the field is drawn anew.
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Codex executable" }).closest("[inert]")).toBeNull());
+    const field = screen.getByRole("textbox", { name: "Codex executable" });
     fireEvent.change(field, { target: { value: "/opt/codex/bin/codex" } });
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-command", { command: "/opt/codex/bin/codex" }));
@@ -65,8 +67,8 @@ describe("Codex desktop extension", () => {
     render(<CodexProviderCard onNotify={vi.fn()} host={host(async () => ({ command: "/dev/codex", commandSource: "env", path: "/dev/codex", version: "0.155.1" }))} />);
     const field = await screen.findByRole("textbox", { name: "Codex executable" });
     await waitFor(() => expect((field as HTMLInputElement).value).toBe("/dev/codex"));
-    expect((field as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText("TAU_CODEX_COMMAND")).toBeTruthy();
+    expect(field.closest("[inert]")).toBeTruthy();
+    expect(screen.getByText("Set by TAU_CODEX_COMMAND in Tau's environment.")).toBeTruthy();
   });
 
   it("offers Codex's ways to sign in when no account is there, and starts the one chosen", async () => {
@@ -76,7 +78,7 @@ describe("Codex desktop extension", () => {
       : { command: "codex", path: "/usr/local/bin/codex", version: "0.155.1", signedIn: false });
     render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in with ChatGPT" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in", description: "Sign in with ChatGPT" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("sign-in", { target: "default", method: "chatgpt" }));
     expect(await screen.findByText("Starting the Codex sign-in…")).toBeTruthy();
   });
@@ -97,7 +99,7 @@ describe("Codex desktop extension", () => {
     expect(registry.getSettingsPages()).toEqual([]);
   });
 
-  it("asks for the instance it is about, and removes it after asking in place", async () => {
+  it("asks for the instance it is about, and removes it after asking", async () => {
     const instances = new CodexInstances();
     instances.set({ instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }, { id: "work", kind: "codex@work", label: "Codex · Work", home: "~/.codex-work", threads: 3 }] });
     const invoke = vi.fn(async (command: string) => command === "status"
@@ -109,8 +111,8 @@ describe("Codex desktop extension", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: false, instance: "work" }));
     expect(await screen.findByText("home ~/.codex-work")).toBeTruthy();
     expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "work" });
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    expect(screen.getByText(/Its 3 threads leave the thread list/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove…" }));
+    expect(screen.getByRole("dialog", { name: "Remove “Codex · Work”?" }).textContent).toMatch(/Its 3 threads leave the thread list/u);
     fireEvent.click(screen.getByRole("button", { name: "Remove instance" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("remove-instance", { instance: "work" }));
     await waitFor(() => expect(instances.snapshot.instances).toHaveLength(1));
@@ -137,6 +139,22 @@ describe("Codex desktop extension", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("save-instance", { instance: { id: "work-account", name: "Work account", home: "~/.codex-work", env: { OPENAI_BASE_URL: "http://localhost:1" } } }));
     await waitFor(() => expect(dialog.isConnected).toBe(false));
     expect(instances.snapshot.instances.map((entry) => entry.id)).toEqual(["default", "work-account"]);
+  });
+
+  it("draws every row the search names, on the default card and on another instance's", async () => {
+    const instances = new CodexInstances();
+    instances.set({ instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }, { id: "work", kind: "codex@work", label: "Codex · Work", threads: 0 }] });
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state"
+      ? { methods: [], account: { signedIn: true, label: "me@example.com" } }
+      : { command: "codex", path: "/opt/homebrew/bin/codex", version: "0.155.1" });
+    for (const [instance, label] of [["default", "Codex"], ["work", "Codex · Work"]] as const) {
+      const { unmount } = render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} instance={instance} instances={instances} />);
+      for (const row of searchRows(instance, label)) await waitFor(() => expect(document.getElementById(row.id), row.id).toBeTruthy());
+      unmount();
+    }
+    const { registry } = createKitHarness();
+    registry.activate(codexExtension);
+    expect(registry.getSettingsPages()[0]?.rows?.map((row) => row.label)).toEqual(["Codex CLI", "Codex account", "Codex executable", "Codex instance setup"]);
   });
 
   it("warns above the composer of a thread on an unsafe CLI and types the install command into a terminal without running it", async () => {

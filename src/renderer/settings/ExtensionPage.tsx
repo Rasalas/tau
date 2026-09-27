@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Settings2, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary, SettingsSectionProps } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NOTES, type ExtensionPermission } from "../../shared/extension-permissions";
@@ -9,6 +9,7 @@ import { ModelPicker, modelKey } from "../components/ModelPicker";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { tooltipProps } from "../components/ui/Tooltip";
+import { loadSharedIcons } from "../runtime-extensions";
 import { Badge, Button, Select, SettingsState, Switch, ValueList, type ValueListItem } from "./controls";
 import { extensionBlurb, stateLabel, type ExtensionEntry } from "./extension-catalog";
 import { SettingRow, SettingsSection } from "./settings-layout";
@@ -156,26 +157,51 @@ export function useExtensionSwitch(registry: ExtensionRegistry, onNotify: (messa
 
 /**
  * The glyph each extension shows, kept when it is turned off: the mark of the
- * runtime it runs threads on, else the icon of a page or panel it adds.
+ * runtime it runs threads on, else the icon of a page or panel it adds (on any
+ * client, drawn here or not), else the icon its manifest names.
  */
-export type ExtensionMark = { runtime: string } | { Icon: PanelIconComponent };
-const rememberedMarks = new Map<string, ExtensionMark>();
+export type ExtensionMark = { runtime: string } | { Icon: PanelIconComponent } | { iconName: string };
 
-export function extensionMarks(registry: ExtensionRegistry): ReadonlyMap<string, ExtensionMark> {
-  for (const page of registry.getSettingsPages()) {
-    if (page.runtime && !("runtime" in (rememberedMarks.get(page.extensionId) ?? {}))) rememberedMarks.set(page.extensionId, { runtime: page.runtime });
+export function extensionMarks(registry: ExtensionRegistry, entries: readonly ExtensionEntry[] = []): ReadonlyMap<string, ExtensionMark> {
+  const marks = new Map<string, ExtensionMark>();
+  for (const [id, mark] of registry.getContributionMarks()) {
+    if (mark.runtime) marks.set(id, { runtime: mark.runtime });
+    else if (mark.Icon) marks.set(id, { Icon: mark.Icon });
   }
-  for (const contribution of [...registry.getSettingsPages(), ...registry.getPages(), ...registry.getPanels()]) {
-    if (contribution.Icon && !rememberedMarks.has(contribution.extensionId)) rememberedMarks.set(contribution.extensionId, { Icon: contribution.Icon });
+  for (const entry of entries) {
+    if (marks.has(entry.id)) continue;
+    if (entry.pkg?.icon) marks.set(entry.id, { iconName: entry.pkg.icon });
+    // Part of Tau's window, with no package to name an icon.
+    else if (entry.origin === "app") marks.set(entry.id, { Icon: Settings2 });
   }
-  return rememberedMarks;
+  return marks;
+}
+
+let sharedIcons: Record<string, unknown> | undefined;
+
+/** A Lucide icon by name, from the icon set packages share; its chunk loads the first time one is asked for. */
+function useNamedIcon(name: string | undefined): PanelIconComponent | undefined {
+  const [icons, setIcons] = useState(sharedIcons);
+  useEffect(() => {
+    if (!name || icons) return;
+    let live = true;
+    void loadSharedIcons().then((module) => {
+      sharedIcons = module as Record<string, unknown>;
+      if (live) setIcons(sharedIcons);
+    }, () => undefined);
+    return () => { live = false; };
+  }, [name, icons]);
+  const icon = name && icons ? icons[name] : undefined;
+  return typeof icon === "function" || (typeof icon === "object" && icon !== null) ? icon as PanelIconComponent : undefined;
 }
 
 export function ExtensionGlyph({ name, mark, size = "md" }: { name: string; mark?: ExtensionMark | undefined; size?: "md" | "lg" }) {
+  const Named = useNamedIcon(mark && "iconName" in mark ? mark.iconName : undefined);
+  const Icon = mark && "Icon" in mark ? mark.Icon : Named;
   return (
     <span className="extension-glyph" data-size={size} aria-hidden>
       {mark && "runtime" in mark ? <ProviderIconStack runtimeProvider={mark.runtime} hint={false} />
-        : mark ? <PanelIcon Icon={mark.Icon} size={size === "lg" ? 22 : 16} />
+        : Icon ? <PanelIcon Icon={Icon} size={size === "lg" ? 22 : 16} />
           : <b>{name.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1).toUpperCase() || "?"}</b>}
     </span>
   );
@@ -226,7 +252,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const toggle = useExtensionSwitch(registry, onNotify, onHostHalves);
   const summary = entry.summary;
-  const mark = extensionMarks(registry).get(entry.id);
+  const mark = extensionMarks(registry, [entry]).get(entry.id);
   const pages = registry.getSettingsPages().filter((page) => page.extensionId === entry.id && !page.standalone);
   const running = entry.state === "on";
 

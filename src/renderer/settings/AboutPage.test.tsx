@@ -6,6 +6,7 @@ import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
 import { packLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { AboutPage, loadLicenses } from "./AboutPage";
+import { settingsSearchEntries } from "./settings-search";
 
 afterEach(cleanup);
 
@@ -34,24 +35,46 @@ describe("Settings → About", () => {
     expect(screen.getByRole("button", { name: "Project source of react" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Filter licenses"), { target: { value: "nothing" } });
     expect(screen.getByText("No package matches “nothing”")).toBeTruthy();
+    // The empty state offers the way back, beside the field's own clear button.
+    fireEvent.click(screen.getAllByRole("button", { name: "Clear the filter" }).at(-1)!);
+    expect(screen.getByText("react")).toBeTruthy();
   });
 
-  it("says so when the list did not load", async () => {
-    renderAbout(async () => { throw new Error("The list of licenses did not load (404)."); });
+  it("says so when the list did not load, and reads it again", async () => {
+    let fail = true;
+    renderAbout(async () => { if (fail) throw new Error("The list of licenses did not load (404)."); return LICENSES; });
     expect(await screen.findByText("The licenses are not available")).toBeTruthy();
     expect(screen.getByText("The list of licenses did not load (404).")).toBeTruthy();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Open-source licenses (2)")).toBeTruthy();
   });
 
-  it("shows the version and asks the window's process to check for updates", async () => {
+  it("shows the version with a copy button and asks the window's process to check for updates", async () => {
     const { windowAction } = renderAbout(async () => []);
     expect(screen.getByText("0.5.0")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Check for Updates…" }));
+    expect(screen.getByRole("button", { name: "Copy Version" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(windowAction).toHaveBeenCalledWith({ kind: "check-for-updates" }));
+  });
+
+  it("names both versions when the window and the host differ", () => {
+    renderAbout(async () => [], { host: "0.5.0", window: "0.5.1" });
+    expect(screen.getByText("0.5.1")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy Host" })).toBeTruthy();
   });
 
   it("offers no update check where there is no window process", () => {
     renderAbout(async () => [], { host: "0.5.0" });
-    expect(screen.queryByRole("button", { name: "Check for Updates…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check now" })).toBeNull();
+  });
+
+  it("has every row the search names for it", async () => {
+    renderAbout(async () => LICENSES);
+    await screen.findByText("Open-source licenses (2)");
+    const rows = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "about" && entry.target);
+    expect(rows.length).toBe(3);
+    for (const row of rows) expect(document.getElementById(row.target!), row.label).not.toBeNull();
   });
 
   it("reads the manifest beside the page", async () => {

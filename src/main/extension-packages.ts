@@ -22,6 +22,8 @@ export const MANIFEST_FILE = "tau-extension.json";
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 const ENGINE_NAMES = ["tau", "pi", "api"] as const;
 const DESCRIPTION_LIMIT = 200;
+// A Lucide icon by its component name: `Search`, `KeyRound`.
+const ICON_NAME = /^[A-Z][A-Za-z0-9]{0,63}$/u;
 
 /**
  * `tau-extension.json` in a package folder under `~/.tau/extensions` or
@@ -35,6 +37,8 @@ export interface ExtensionManifest {
   version?: string;
   /** One sentence Settings shows under the name. */
   description?: string;
+  /** The Lucide icon Settings shows for the package, by name (`Search`), when no page or panel of it has one. */
+  icon?: string;
   /** Ranges of Tau, Pi and the extension API the package runs on; a miss keeps it off. */
   engines?: ExtensionEngines;
   /** Permissions the package requests from the host. Missing means []. */
@@ -126,13 +130,14 @@ export function parseExtensionManifest(directory: string, source: string): { man
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, description, engines, permissions, isolation, source: manifestSource, desktop, host, window: windowHalf, styles, pi } = raw as Record<string, unknown>;
+  const { id, name, version, description, icon, engines, permissions, isolation, source: manifestSource, desktop, host, window: windowHalf, styles, pi } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
   if (description !== undefined && (typeof description !== "string" || !description.trim() || description.length > DESCRIPTION_LIMIT)) {
     throw new Error(`"description" must be a sentence of at most ${DESCRIPTION_LIMIT} characters`);
   }
+  if (icon !== undefined && (typeof icon !== "string" || !ICON_NAME.test(icon))) throw new Error(`"icon" must be a Lucide icon name like "Search"`);
   const parsedEngines = parseEngines(engines);
   const parsedPermissions = parsePermissions(permissions);
   const parsedIsolation = parseIsolation(isolation);
@@ -155,6 +160,7 @@ export function parseExtensionManifest(directory: string, source: string): { man
       name: name.trim(),
       ...(typeof version === "string" ? { version: version.trim() } : {}),
       ...(typeof description === "string" ? { description: description.trim() } : {}),
+      ...(typeof icon === "string" ? { icon } : {}),
       ...(parsedEngines ? { engines: parsedEngines } : {}),
       permissions: parsedPermissions,
       ...(parsedIsolation ? { isolation: parsedIsolation } : {}),
@@ -354,6 +360,7 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       name: pkg.manifest.name,
       ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
       ...(pkg.manifest.description ? { description: pkg.manifest.description } : {}),
+      ...(pkg.manifest.icon ? { icon: pkg.manifest.icon } : {}),
       ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
       permissions: pkg.manifest.permissions ?? [],
       isolation: packageIsolation(pkg.manifest),

@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
-import { RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { ExternalLink, RefreshCw, X } from "lucide-react";
 import {
+  Button,
   ConfirmDialog,
   Dialog,
+  NumberField,
   SettingRow,
   SettingsSection,
-  Skeleton,
+  SettingsState,
+  Switch,
   errorMessage,
   tooltipProps,
   useWorkbenchShell,
@@ -38,21 +41,13 @@ function useOpenExternal(): (url: string) => void {
   return (url) => { if (actions) actions.openExternal(url); else window.open(url, "_blank", "noopener"); };
 }
 
-function Switch({ on, disabled, onChange }: { on: boolean; disabled: boolean; onChange(on: boolean): void }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label="Tailscale HTTPS" className={`switch ${on ? "on" : ""}`} disabled={disabled} onClick={() => onChange(!on)}>
-      <i />
-    </button>
-  );
-}
-
 /** What another program has Serve forward on a port, if `/` is among it. */
 function takenBy(view: TailscaleView, port: number): string | undefined {
   return view.serve.others.find((other) => other.httpsPort === port && (other.path === "/" || other.path === ""))?.target;
 }
 
 function describe(view: TailscaleView, open: (url: string) => void): { description: ReactNode; action?: ReactNode } {
-  const link = (label: string, url: string) => <button type="button" className="chrome-button" onClick={() => open(url)}>{label}</button>;
+  const link = (label: string, url: string) => <Button icon={<ExternalLink size={13} />} onClick={() => open(url)}>{label}</Button>;
   switch (view.state) {
     case "no-host-network": return { description: "This host opens no listeners of its own, so Tailscale has nothing to forward to." };
     case "not-installed": return { description: "Install Tailscale on this machine and sign in to reach Tau from your tailnet over HTTPS.", action: link("Get Tailscale", DOWNLOAD_URL) };
@@ -65,11 +60,11 @@ function describe(view: TailscaleView, open: (url: string) => void): { descripti
       description: <>Devices in your tailnet open Tau at <code>{view.serve.url}</code> with a certificate their browser trusts. A device still needs a pairing link.</>,
     };
   }
-  if (!view.magicDns || !view.dnsName) return { description: "MagicDNS is off in your tailnet. Turn it on in the admin console’s DNS page, then check again.", action: link("DNS Settings", ADMIN_DNS_URL) };
+  if (!view.magicDns || !view.dnsName) return { description: "MagicDNS is off in your tailnet. Turn it on in the admin console’s DNS page, then check again.", action: link("Open DNS settings", ADMIN_DNS_URL) };
   if (!view.https) {
     return {
       description: <>HTTPS certificates are off in your tailnet. Turn them on in the admin console’s DNS page, then check again. Each certificate puts this machine’s name in a public log.</>,
-      action: link("DNS Settings", ADMIN_DNS_URL),
+      action: link("Open DNS settings", ADMIN_DNS_URL),
     };
   }
   return { description: <>Let devices in your tailnet open Tau at <code>{serveUrl(view.dnsName, DEFAULT_HTTPS_PORT)}</code> with a certificate their browser trusts, through Tailscale Serve.</> };
@@ -119,14 +114,14 @@ export function createTailscaleSection(host: HostExtensionClient): ComponentType
     };
 
     const recheck = (
-      <button type="button" className="tailscale-recheck" aria-label="Check Tailscale again" {...tooltipProps("Check Tailscale again")} disabled={busy} onClick={() => void look()}>
-        <RefreshCw size={13} />
-      </button>
+      <Button variant="ghost" icon={<RefreshCw size={13} />} busy={busy} onClick={() => void look()}>Check again</Button>
     );
     if (!view) {
       return (
         <SettingsSection title="Tailscale" headerAction={recheck}>
-          {failed ? <SettingRow title="Tailscale HTTPS" description={`Tau could not ask Tailscale: ${failed}`} /> : <div className="tailscale-loading" aria-busy="true"><Skeleton shape="block" /></div>}
+          {failed
+            ? <SettingsState kind="error" title="Tau could not ask Tailscale" description={failed} onRetry={() => void look()} />
+            : <SettingsState kind="loading" rows={1} title="Asking Tailscale" />}
         </SettingsSection>
       );
     }
@@ -136,26 +131,30 @@ export function createTailscaleSection(host: HostExtensionClient): ComponentType
     const canSwitch = view.serve.on || ready;
     return (
       <SettingsSection title="Tailscale" headerAction={recheck}>
-        {view.notice ? <p className="tailscale-notice" role="status">{view.notice}</p> : null}
         <SettingRow
+          id="setting-tailscale-https"
           title="Tailscale HTTPS"
           description={description}
-          status={view.serve.on ? (
+          status={view.serve.on || view.notice ? (
             <>
-              Tailscale Serve forwards it to Tau on <code>http://127.0.0.1:{view.proxyPort}</code>, and keeps doing so after Tau quits; turn this off to remove it.
-              {view.proxyListening ? null : <p className="tailscale-warning-line">Tau’s proxy listener is not open, so devices get an error. Settings above say why.</p>}
+              {view.notice ? <p className="tailscale-notice" role="status">{view.notice}</p> : null}
+              {view.serve.on ? <>
+                Tailscale Serve forwards it to Tau on <code>http://127.0.0.1:{view.proxyPort}</code>, and keeps doing so after Tau quits; turn this off to remove it.
+                {view.proxyListening ? null : <p className="tailscale-warning-line">Tau’s proxy listener is not open, so devices get an error. Settings above say why.</p>}
+              </> : null}
             </>
           ) : undefined}
-          control={canSwitch ? <Switch on={view.serve.on} disabled={busy} onChange={(on) => setAsking(on ? "on" : "off")} /> : action}
+          control={canSwitch ? <Switch label="Tailscale HTTPS" checked={view.serve.on} disabled={busy} onChange={(on) => setAsking(on ? "on" : "off")} /> : action}
         />
         {view.state === "running" && view.dnsName ? (
           <SettingRow
+            id="setting-tailscale-machine-name"
             title="Machine name"
             description={view.serve.on
               ? "Part of the address. Its certificate is in the public Certificate Transparency logs."
               : "Part of the address. Turning Tailscale HTTPS on publishes it in the Certificate Transparency logs."}
             status={<code className="tailscale-name">{view.dnsName}</code>}
-            control={<button type="button" className="chrome-button" onClick={() => open(ADMIN_MACHINES_URL)}>Rename…</button>}
+            control={<Button icon={<ExternalLink size={13} />} onClick={() => open(ADMIN_MACHINES_URL)}>Rename in Tailscale</Button>}
           />
         ) : null}
         {asking === "on" && view.dnsName ? (
@@ -173,7 +172,7 @@ export function createTailscaleSection(host: HostExtensionClient): ComponentType
           <ConfirmDialog
             title="Turn off Tailscale HTTPS?"
             message={<>Tau removes its path from Tailscale Serve. Devices that use <code>{view.serve.url}</code> disconnect now. The certificate stays in the public logs.</>}
-            confirmLabel="Turn Off"
+            confirmLabel="Turn off"
             destructive
             onCancel={() => setAsking(undefined)}
             onConfirm={() => { setAsking(undefined); void change(() => api("serve-off"), () => "Tailscale HTTPS is off"); }}
@@ -192,11 +191,15 @@ function ConsentDialog({ view, dnsName, busy, onOpen, onCancel, onConfirm }: {
   onCancel(): void;
   onConfirm(httpsPort: number): void;
 }) {
-  const [port, setPort] = useState(() => String(takenBy(view, DEFAULT_HTTPS_PORT) && !takenBy(view, ALTERNATE_PORT) ? ALTERNATE_PORT : DEFAULT_HTTPS_PORT));
+  const [port, setPort] = useState(() => (takenBy(view, DEFAULT_HTTPS_PORT) && !takenBy(view, ALTERNATE_PORT) ? ALTERNATE_PORT : DEFAULT_HTTPS_PORT));
   const [agreed, setAgreed] = useState(false);
-  const number = Number(port);
-  const valid = /^\d+$/u.test(port) && number >= 1 && number <= 65535;
-  const taken = valid ? takenBy(view, number) : undefined;
+  const field = useRef<HTMLSpanElement>(null);
+  const taken = takenBy(view, port);
+  const submit = () => {
+    // A refused draft stays in the field with its reason; the port it shows is not the one to set up.
+    if (field.current?.querySelector("input")?.value.trim() !== String(port)) return;
+    if (agreed && !taken) onConfirm(port);
+  };
   return (
     <Dialog className="confirm-dialog tailscale-consent" label="Set up Tailscale HTTPS" onClose={onCancel}>
       <h2>Set up Tailscale HTTPS?</h2>
@@ -212,34 +215,43 @@ function ConsentDialog({ view, dnsName, busy, onOpen, onCancel, onConfirm }: {
         </p>
         <p>If the name says more than you want (your name, your employer, a project), rename the machine in the Tailscale admin console first, then check again here.</p>
         <div className="tailscale-public-links">
-          <button type="button" className="chrome-button" onClick={() => onOpen(ADMIN_MACHINES_URL)}>Rename Machine…</button>
-          <button type="button" className="chrome-button" onClick={() => onOpen(HTTPS_DOCS_URL)}>About Certificates</button>
+          <Button icon={<ExternalLink size={13} />} onClick={() => onOpen(ADMIN_MACHINES_URL)}>Rename in Tailscale</Button>
+          <Button variant="ghost" icon={<ExternalLink size={13} />} onClick={() => onOpen(HTTPS_DOCS_URL)}>About certificates</Button>
         </div>
       </section>
-      <label className="connection-field">
+      <label className="tailscale-field">
         <span>HTTPS port</span>
-        <input
-          className="settings-input narrow"
-          inputMode="numeric"
-          aria-invalid={!valid || taken !== undefined}
-          value={port}
-          disabled={busy}
-          onChange={(event) => setPort(event.target.value.replace(/\D/gu, "").slice(0, 5))}
-        />
+        <span ref={field}>
+          <NumberField
+            label="HTTPS port"
+            value={port}
+            min={1}
+            max={65535}
+            integer
+            disabled={busy}
+            validate={(next) => {
+              const holder = takenBy(view, next);
+              return holder ? `Serve already forwards port ${next} to ${holder}. Pick another port.` : undefined;
+            }}
+            onCommit={setPort}
+          />
+        </span>
       </label>
-      {!valid ? <p className="tailscale-warning-line">Enter a port from 1 to 65535.</p> : null}
-      {taken ? <p className="tailscale-warning-line">Serve already forwards port {number} to {taken}. Pick another port.</p> : null}
-      <p className="tailscale-address">Address: <code>{valid ? serveUrl(dnsName, number) : "—"}</code></p>
+      {taken ? <p className="tailscale-warning-line">Serve already forwards port {port} to {taken}. Pick another port.</p> : null}
+      <p className="tailscale-address">Address: <code>{serveUrl(dnsName, port)}</code></p>
       <label className="tailscale-agree">
-        <input type="checkbox" checked={agreed} disabled={busy} onChange={(event) => setAgreed(event.target.checked)} />
-        <span>I understand that <code>{dnsName}</code> will be published.</span>
+        <Switch role="checkbox" label={`I understand that ${dnsName} will be published`} checked={agreed} disabled={busy} onChange={setAgreed} />
+        <span aria-hidden="true">I understand that <code>{dnsName}</code> will be published.</span>
       </label>
       <footer>
-        <button type="button" className="text-button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="primary" disabled={busy || !agreed || !valid || taken !== undefined} onClick={() => onConfirm(number)}>
-          {busy ? "Setting Up…" : "Set Up"}
-        </button>
+        <Button onClick={onCancel}>Cancel</Button>
+        <span {...tooltipProps(agreed ? undefined : "Confirm that the name will be published first.")}>
+          <Button variant="primary" busy={busy} disabled={!agreed || taken !== undefined} onClick={submit}>
+            {busy ? "Setting up…" : "Set up"}
+          </Button>
+        </span>
       </footer>
+      <Button variant="ghost" className="tailscale-dialog-close" icon={<X size={16} />} aria-label="Close" {...tooltipProps("Close")} onClick={onCancel} />
     </Dialog>
   );
 }

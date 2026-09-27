@@ -178,19 +178,46 @@ describe("Usage page", () => {
     view.show({ view: "prices" });
     const table = await screen.findByRole("table", { name: "Your model prices" });
     await waitFor(() => expect(within(table).getByText("openai/o4-mini")).toBeTruthy());
-    fireEvent.change(within(table).getByLabelText("Output price of openai/o4-mini"), { target: { value: "4" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const output = within(table).getByRole("spinbutton", { name: "Output price of openai/o4-mini" });
+    fireEvent.change(output, { target: { value: "4" } });
+    fireEvent.blur(output);
     await waitFor(() => expect(config.updates.at(-1)).toEqual({ modelPrices: { "openai/o4-mini": { input: 1.1, output: 4 } } }));
+    // A required rate is refused when emptied; nothing is written.
+    const input = within(table).getByRole("spinbutton", { name: "Input price of openai/o4-mini" });
+    const written = config.updates.length;
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(within(table).getByRole("alert").textContent).toBe("Enter a number.");
+    fireEvent.change(input, { target: { value: "-1" } });
+    fireEvent.blur(input);
+    expect(within(table).getByRole("alert").textContent).toBe("Enter 0 or more.");
+    expect(config.updates.length).toBe(written);
+    fireEvent.keyDown(input, { key: "Escape" });
 
-    const add = screen.getByRole("group", { name: "Add a model price" });
-    fireEvent.change(within(add).getByLabelText("Model id"), { target: { value: "gpt-5.6-luna" } });
-    fireEvent.change(within(add).getByLabelText("Input price"), { target: { value: "0.2" } });
-    fireEvent.change(within(add).getByLabelText("Output price"), { target: { value: "1.2" } });
+    const add = screen.getByRole("form", { name: "Add a model price" });
+    fireEvent.click(within(add).getByRole("button", { name: "Add price" }));
+    expect(screen.getByRole("status").textContent).toMatch(/Enter a model id/u);
+    fireEvent.change(within(add).getByRole("combobox", { name: "Model id" }), { target: { value: "gpt-5.6-luna" } });
+    for (const [name, value] of [["Input price", "0.2"], ["Output price", "1.2"]] as const) {
+      const field = within(add).getByRole("spinbutton", { name });
+      fireEvent.change(field, { target: { value } });
+      fireEvent.blur(field);
+    }
     fireEvent.click(within(add).getByRole("button", { name: "Add price" }));
     await waitFor(() => expect(config.updates.at(-1)?.modelPrices?.["gpt-5.6-luna"]).toEqual({ input: 0.2, output: 1.2 }));
+    expect(screen.getByRole("status").textContent).toBe("Added a price for gpt-5.6-luna.");
 
-    fireEvent.click(within(screen.getByRole("table", { name: "Your model prices" })).getAllByRole("button", { name: "Reset to automatic" })[0]!);
+    fireEvent.click(within(screen.getByRole("table", { name: "Your model prices" })).getByRole("button", { name: "Reset gpt-5.6-luna to automatic" }));
     await waitFor(() => expect(config.cleared.at(-1)).toEqual(["modelPrices.gpt-5.6-luna"]));
+  });
+
+  it("says when there are no prices of the user's own", async () => {
+    const view = renderPage(answers());
+    await screen.findByLabelText("Totals");
+    view.show({ view: "prices" });
+    expect(await screen.findByText("No prices of your own")).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Your model prices" })).toBeNull();
+    expect(screen.getByRole("form", { name: "Add a model price" })).toBeTruthy();
   });
 
   it("says so when the host half cannot answer", async () => {

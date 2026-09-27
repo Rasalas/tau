@@ -4,7 +4,7 @@
   "description": "A shortcut captures the window in front of you, ready to hand to an agent.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.12.0"
+    "api": "^1.18.0"
   },
   "permissions": [],
   "isolation": "in-process",

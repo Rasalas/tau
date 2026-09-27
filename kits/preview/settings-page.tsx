@@ -1,4 +1,4 @@
-import { SettingRow, SettingsSection, useSetting, type SettingHandle } from "tau";
+import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, useSetting, type SettingHandle } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { PREVIEW_SETTINGS as KEYS } from "./settings.js";
 import { FRAME_RATES, VIEWPORT_PRESETS, ZOOM_LEVELS, readAppearance, readFrameRate, readViewport, readZoom, viewportLabel } from "./viewport.js";
@@ -21,22 +21,17 @@ const LINK_TARGETS = [
 
 const percent = (factor: number) => `${Math.round(factor * 100)}%`;
 
-function Toggle({ label, setting }: { label: string; setting: SettingHandle<boolean> }) {
-  return <button type="button" className={`switch ${setting.value ? "on" : ""}`} role="switch" aria-checked={setting.value} aria-label={label} disabled={!setting.writable} onClick={() => setting.set(!setting.value)}><i /></button>;
-}
-
-function Choice({ label, setting, choices }: { label: string; setting: SettingHandle<string>; choices: ReadonlyArray<{ value: string; label: string }> }) {
-  return <div className="segmented" role="group" aria-label={label}>
-    {choices.map((choice) => <button
-      key={choice.value}
-      type="button"
-      disabled={!setting.writable}
-      className={setting.value === choice.value ? "active" : ""}
-      aria-pressed={setting.value === choice.value}
-      onClick={() => setting.set(choice.value)}
-    >{choice.label}</button>)}
-  </div>;
-}
+/** The page's rows, for the Settings search. */
+export const PREVIEW_SETTINGS_ROWS = [
+  { id: "setting-preview-viewport", label: "Viewport", keywords: ["size", "device", "mobile", "fill"] },
+  { id: "setting-preview-zoom", label: "Zoom", keywords: ["scale", "percent"] },
+  { id: "setting-preview-appearance", label: "Appearance", keywords: ["dark mode", "light", "prefers-color-scheme"] },
+  { id: "setting-preview-links", label: "Open links from a thread in", keywords: ["browser", "links", "system browser"] },
+  { id: "setting-preview-frame-rate", label: "Frame rate", keywords: ["recording", "fps", "video"] },
+  { id: "setting-preview-clicks", label: "Show clicks", keywords: ["recording", "pointer", "ring"] },
+  { id: "setting-preview-keys", label: "Show key presses", keywords: ["recording", "keys", "keystrokes"] },
+  { id: "setting-preview-floating", label: "Float what an agent drives", keywords: ["floating", "picture in picture", "mini player"] },
+];
 
 /**
  * Settings → Preview, after T3 Code's Browser settings: what a page opens
@@ -58,34 +53,34 @@ export function PreviewSettingsPage() {
   const keys = useSetting<boolean>(option(KEYS.showKeys), { defaultValue: false, scope: "both", read: readBoolean });
   const floating = useSetting<boolean>(option(KEYS.floating), { defaultValue: true, read: readBoolean });
 
+  const toggle = (label: string, setting: SettingHandle<boolean>) => <Switch label={label} checked={setting.value} onChange={setting.set} />;
+
   return <div className="settings-page preview-settings">
     <h3>Preview</h3>
     <SettingsSection title="New pages">
       <SettingRow id="setting-preview-viewport" title="Viewport" description="A fixed size keeps its CSS width and is scaled down to fit the panel." setting={viewport}
-        control={<select className="settings-select" aria-label="Default viewport" disabled={!viewport.writable} value={viewport.value} onChange={(event) => viewport.set(event.target.value)}>
-          <option value="fill">Fill the panel</option>
-          {VIEWPORT_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label} · {preset.width}×{preset.height}</option>)}
-        </select>} />
+        control={<Select label="Default viewport" width="lg" value={viewport.value} onChange={viewport.set}
+          options={[{ value: "fill", label: "Fill the panel" }, ...VIEWPORT_PRESETS.map((preset) => ({ value: preset.id, label: `${preset.label} · ${preset.width}×${preset.height}` }))]} />} />
       <SettingRow id="setting-preview-zoom" title="Zoom" description="⌘+, ⌘− and ⌘0 zoom the page while it has the keyboard." setting={zoom}
-        control={<select className="settings-select" aria-label="Default zoom" disabled={!zoom.writable} value={String(readZoom(zoom.value) ?? 1)} onChange={(event) => zoom.set(event.target.value)}>
-          {ZOOM_LEVELS.map((level) => <option key={level} value={String(level)}>{percent(level)}</option>)}
-        </select>} />
+        control={<Select label="Default zoom" width="sm" value={String(readZoom(zoom.value) ?? 1)} onChange={zoom.set}
+          options={ZOOM_LEVELS.map((level) => ({ value: String(level), label: percent(level) }))} />} />
       <SettingRow id="setting-preview-appearance" title="Appearance" description="The prefers-color-scheme the page sees." setting={appearance}
-        control={<Choice label="Default appearance" setting={appearance} choices={APPEARANCES} />} />
+        control={<SegmentedControl label="Default appearance" value={appearance.value} options={APPEARANCES} onChange={appearance.set} />} />
     </SettingsSection>
     <SettingsSection title="Links">
       <SettingRow id="setting-preview-links" title="Open links from a thread in" description="A web link in a reply opens here or in the system browser; ⌘-click always takes the browser." setting={linkTarget}
-        control={<Choice label="Open links in" setting={linkTarget} choices={LINK_TARGETS} />} />
+        control={<SegmentedControl label="Open links in" value={linkTarget.value} options={LINK_TARGETS} onChange={linkTarget.set} />} />
     </SettingsSection>
     <SettingsSection title="Recording">
       <SettingRow id="setting-preview-frame-rate" title="Frame rate" description="Frames per second the recording asks for." setting={frameRate}
-        control={<Choice label="Frame rate" setting={frameRate} choices={FRAME_RATES.map((rate) => ({ value: String(rate), label: String(rate) }))} />} />
-      <SettingRow id="setting-preview-clicks" title="Show clicks" description="A ring where the pointer presses." setting={clicks} control={<Toggle label="Show clicks" setting={clicks} />} />
-      <SettingRow id="setting-preview-keys" title="Show key presses" description="Keys and chords at the bottom of the page, never while a password field has focus." setting={keys} control={<Toggle label="Show key presses" setting={keys} />} />
+        control={<SegmentedControl label="Frame rate" value={frameRate.value} options={FRAME_RATES.map((rate) => ({ value: String(rate), label: `${rate} fps` }))} onChange={frameRate.set} />} />
+      <SettingRow id="setting-preview-clicks" title="Show clicks" description="A ring where the pointer presses." setting={clicks} control={toggle("Show clicks", clicks)} />
+      <SettingRow id="setting-preview-keys" title="Show key presses" description="Keys and chords at the bottom of the page, never while a password field has focus." setting={keys} control={toggle("Show key presses", keys)} />
     </SettingsSection>
     <SettingsSection title="Floating preview">
-      <SettingRow id="setting-preview-floating" title="Float what an agent drives" description="While the Preview panel is out of sight, a picture of the page or window an agent uses stays in a corner of the chat. It only shows; a click opens the Preview." setting={floating}
-        control={<Toggle label="Float what an agent drives" setting={floating} />} />
+      <SettingRow id="setting-preview-floating" title="Float what an agent drives" description="While the Preview panel is out of sight, a picture of the page or window an agent uses stays in a corner of the chat."
+        help="It only shows; a click opens the Preview." setting={floating}
+        control={toggle("Float what an agent drives", floating)} />
     </SettingsSection>
   </div>;
 }

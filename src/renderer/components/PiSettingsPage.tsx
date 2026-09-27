@@ -1,7 +1,14 @@
-import { useEffect, useState } from "react";
-import type { HostSnapshot, TauConfig } from "../../shared/contracts";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Sparkles } from "lucide-react";
+import type { HostSnapshot, TauCompactionConfig, TauConfig, TauRetryConfig, UiModel } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
-import { SettingRow, SettingsSection, Switch } from "../settings/settings-layout";
+import { errorMessage } from "../../workbench/error-message";
+import { ModelPicker, modelKey } from "./ModelPicker";
+import { ProviderIconStack } from "./ProviderIconStack";
+import { tooltipProps } from "./ui/Tooltip";
+import { Badge, NumberField, SegmentedControl, Select, SettingsState, Switch, TextField } from "../settings/controls";
+import { SettingRow, SettingsSection } from "../settings/settings-layout";
+import { settingAnchor } from "../settings/settings-search";
 
 /**
  * Pi's own settings, the ones Pi reads from `~/.pi/agent/settings.json` and
@@ -11,98 +18,57 @@ import { SettingRow, SettingsSection, Switch } from "../settings/settings-layout
  */
 const PI_BUILTIN_TOOLS = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"] as const;
 
-/** A text field that keeps what is typed locally and commits it on blur or Enter. */
-function PiTextField({
-  label,
-  hint,
-  value,
-  placeholder,
-  disabled,
-  commit,
-}: {
-  label: string;
-  hint?: string;
-  value: string;
-  placeholder?: string;
-  disabled?: boolean;
-  commit(value: string): void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => { setDraft(value); }, [value]);
-  const send = () => { if (draft.trim() && draft.trim() !== value.trim()) commit(draft.trim()); };
-  return (
-    <SettingRow
-      title={label}
-      description={hint}
-      control={<input
-        aria-label={label}
-        type="text"
-        className="settings-input"
-        value={draft}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={send}
-        onKeyDown={(event) => { if (event.key === "Enter") send(); }}
-      />}
-    />
-  );
+/** Pi's `defaultThinkingLevel` values (docs/settings.md). */
+const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LABELS: Record<(typeof PI_THINKING_LEVELS)[number], string> = {
+  off: "Off", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max",
+};
+
+type Delivery = "one-at-a-time" | "all";
+const DELIVERY_OPTIONS = [{ value: "one-at-a-time", label: "One at a time" }, { value: "all", label: "All at once" }] as const;
+type Trust = NonNullable<TauConfig["defaultProjectTrust"]>;
+const TRUST_OPTIONS = [{ value: "ask", label: "Ask" }, { value: "always", label: "Always" }, { value: "never", label: "Never" }] as const;
+
+const TRUST_REASON = "A global setting of Pi. Write Pi settings to All projects to change it.";
+
+/** Why `text` is no model Pi's file can name. */
+function modelProblem(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return "Enter a model, as provider/model-id.";
+  if (/\s/u.test(trimmed)) return "A model id has no spaces.";
+  if (trimmed.startsWith("/") || trimmed.endsWith("/")) return "Write it as provider/model-id.";
+  return undefined;
 }
 
-/** A whole number that is written when focus leaves the field. */
-function PiNumberField({
-  label,
-  hint,
-  value,
-  placeholder,
-  disabled,
-  commit,
-}: {
-  label: string;
-  hint?: string;
-  value: number | undefined;
-  placeholder?: string;
-  disabled?: boolean;
-  commit(value: number): void;
-}) {
-  const [draft, setDraft] = useState(value !== undefined ? String(value) : "");
-  useEffect(() => { setDraft(value !== undefined ? String(value) : ""); }, [value]);
-  const send = () => {
-    const parsed = Number.parseInt(draft, 10);
-    if (Number.isFinite(parsed) && parsed !== value) commit(parsed);
-  };
-  return (
-    <SettingRow
-      title={label}
-      description={hint}
-      control={<input
-        aria-label={label}
-        type="number"
-        className="settings-input narrow"
-        value={draft}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={send}
-        onKeyDown={(event) => { if (event.key === "Enter") send(); }}
-      />}
-    />
-  );
+/** The copy of `record` without `key`: what the file holds once a field is emptied. */
+function without<T extends object>(record: T, key: keyof T): T {
+  const next = { ...record };
+  delete next[key];
+  return next;
 }
 
-function PiToggleRow({ label, hint, checked, disabled, onChange }: {
-  label: string;
-  hint: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange(checked: boolean): void;
-}) {
+/** The startup model: Pi's models in the picker when the host named them, else the id typed. */
+function StartupModel({ value, models, onChange }: { value: string; models: readonly UiModel[]; onChange(value: string): void }) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  if (models.length === 0) {
+    return <TextField label="Startup model" value={value} mono placeholder="provider/model-id" validate={modelProblem} onCommit={(text) => onChange(text.trim())} />;
+  }
+  const chosen = value ? models.find((model) => modelKey(model) === value) : undefined;
+  const shown = chosen?.name ?? (value || "Not set");
   return (
-    <SettingRow
-      title={label}
-      description={hint}
-      control={<Switch label={label} checked={checked} disabled={disabled} onChange={onChange} />}
-    />
+    <div className="settings-row-inline">
+      <button ref={anchor} type="button" className="settings-model-button" aria-haspopup="dialog" aria-expanded={open}
+        aria-label={`Startup model: ${shown}`} onClick={() => setOpen((current) => !current)}
+        {...tooltipProps(value || undefined, { when: "truncated" })}>
+        {chosen ? <ProviderIconStack modelProvider={chosen.provider} runtimeProvider="pi" className="chip-icon" hint={false} /> : <Sparkles size={14} className="accent" />}
+        <span>{shown}</span>
+        <ChevronDown size={14} aria-hidden />
+      </button>
+      {open ? (
+        <ModelPicker models={models} activeKey={value || undefined} onSelect={(model) => onChange(modelKey(model))} onClose={() => setOpen(false)} anchor={anchor} side="bottom" runtime="pi" />
+      ) : null}
+    </div>
   );
 }
 
@@ -111,216 +77,222 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
   // The opaque id is how a workspace is addressed; `cwd` is display data.
   const workspaceId = snapshot?.workspaceId ?? snapshot?.cwd;
   const [config, setConfig] = useState<TauConfig>();
+  const [loadError, setLoadError] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
   const [scope, setScope] = useState<"global" | "project">("global");
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(undefined);
     client?.getConfig(workspaceId)
       .then((next) => { if (!cancelled) setConfig(next); })
-      .catch(() => undefined);
+      .catch((error: unknown) => { if (!cancelled) setLoadError(errorMessage(error)); });
     return () => { cancelled = true; };
-  }, [client, workspaceId]);
+  }, [client, workspaceId, attempt]);
 
   const write = (patch: Partial<TauConfig>) => {
     if (!client) return;
     client.updateConfig(patch, scope, workspaceId)
       .then((next) => setConfig(next))
-      .catch((error: unknown) => onNotify(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => onNotify(`Pi's settings were not written: ${errorMessage(error)}`));
   };
 
   if (!client) {
-    return <div className="settings-page"><p className="lede">Pi's settings need a host connection.</p></div>;
+    return <div className="settings-page"><SettingsState kind="empty" title="No host connected" description="Pi's settings live on the host. Connect to one to read and change them." /></div>;
   }
   // Nothing is drawn before the file has been read: a control that shows a
   // default while the real value is still on its way would be a guess.
   if (!config) {
-    return <div className="settings-page"><p className="lede">Reading Pi's settings…</p></div>;
+    return (
+      <div className="settings-page">
+        {loadError
+          ? <SettingsState kind="error" title="Pi's settings did not load" description={loadError} onRetry={() => setAttempt((count) => count + 1)} />
+          : <SettingsState kind="loading" title="Reading Pi's settings" rows={4} />}
+      </div>
+    );
   }
 
-  const compaction = config.compaction ?? {};
-  const retry = config.retry ?? {};
+  const compaction: TauCompactionConfig = config.compaction ?? {};
+  const retry: TauRetryConfig = config.retry ?? {};
   const tools = config.defaultTools;
-
-  const modeGroup = (label: string, current: "all" | "one-at-a-time" | undefined, key: "steeringMode" | "followUpMode") => (
-    <div className="segmented" role="group" aria-label={label}>
-      {(["one-at-a-time", "all"] as const).map((mode) => (
-        <button key={mode} className={(current ?? "one-at-a-time") === mode ? "active" : ""} onClick={() => write({ [key]: mode })}>
-          {mode === "all" ? "All at once" : "One at a time"}
-        </button>
-      ))}
-    </div>
-  );
+  const piModels = snapshot?.completionModels ?? (snapshot?.backendKind === "pi" ? snapshot.models : undefined) ?? [];
+  const thinking = config.models?.thinkingLevel;
 
   return (
     <div className="settings-page">
       <p className="lede">
-        Pi's own settings, in <code>~/.pi/agent/settings.json</code> and <code>&lt;project&gt;/.pi/settings.json</code>.
-        Tau reads and writes that file, so the Pi CLI sees the same configuration. A change applies to the next
-        runtime Tau builds; a thread that is already running keeps what it started with.
+        Pi's own settings, in <code>~/.pi/agent/settings.json</code> and <code>&lt;project&gt;/.pi/settings.json</code>, shared
+        with the Pi CLI. A change applies to the next runtime Tau builds; a running thread keeps what it started with.
       </p>
 
-      <SettingsSection title="Scope">
+      <SettingsSection title="Projects">
         <SettingRow
+          id={settingAnchor("Write Pi settings to")}
           title="Write Pi settings to"
           description={scope === "project"
-            ? <>Writes to <code>{snapshot?.cwd}/.pi/settings.json</code>.</>
-            : <>Writes to <code>~/.pi/agent/settings.json</code>.</>}
-          control={<div className="segmented" role="group" aria-label="Settings scope">
-            <button className={scope === "global" ? "active" : ""} onClick={() => setScope("global")}>All projects</button>
-            <button
-              className={scope === "project" ? "active" : ""}
-              aria-pressed={scope === "project"}
-              disabled={!snapshot?.cwd}
-              onClick={() => setScope("project")}
-            >
-              This project
-            </button>
-          </div>}
+            ? <>Changes go to <code>{snapshot?.cwd}/.pi/settings.json</code>.</>
+            : <>Changes go to <code>~/.pi/agent/settings.json</code>.</>}
+          help="A project's file overrides the global one for that project."
+          control={<SegmentedControl<"global" | "project">
+            label="Write Pi settings to"
+            value={scope}
+            options={[{ value: "global", label: "All projects" }, { value: "project", label: "This project", disabled: !snapshot?.cwd }]}
+            onChange={setScope}
+          />}
         />
-      </SettingsSection>
-
-      <SettingsSection title="Startup model">
-        <PiTextField
-          label="Model"
-          hint="provider/modelId, e.g. anthropic/claude-sonnet-4"
-          value={config.models?.default ?? ""}
-          placeholder="unset"
-          commit={(value) => write({ models: { ...config.models, default: value } })}
-        />
-        <PiTextField
-          label="Thinking level"
-          hint="off, minimal, low, medium, high, xhigh or max"
-          value={config.models?.thinkingLevel ?? ""}
-          placeholder="unset"
-          commit={(value) => write({ models: { ...config.models, thinkingLevel: value } })}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Compaction">
-        <PiToggleRow
-          label="Automatic compaction"
-          hint="Summarize the conversation when it approaches the context window."
-          checked={compaction.enabled !== false}
-          onChange={(enabled) => write({ compaction: { ...compaction, enabled } })}
-        />
-        <PiNumberField
-          label="Reserve tokens"
-          hint="Held back for the model's reply"
-          value={compaction.reserveTokens}
-          placeholder="16384"
-          commit={(reserveTokens) => write({ compaction: { ...compaction, reserveTokens } })}
-        />
-        <PiNumberField
-          label="Keep recent tokens"
-          hint="Left unsummarized"
-          value={compaction.keepRecentTokens}
-          placeholder="20000"
-          commit={(keepRecentTokens) => write({ compaction: { ...compaction, keepRecentTokens } })}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Retry">
-        <PiToggleRow
-          label="Retry on transient errors"
-          hint="Pi retries a failed agent turn with exponential backoff."
-          checked={retry.enabled !== false}
-          onChange={(enabled) => write({ retry: { ...retry, enabled } })}
-        />
-        <PiNumberField
-          label="Max retries"
-          value={retry.maxRetries}
-          placeholder="3"
-          commit={(maxRetries) => write({ retry: { ...retry, maxRetries } })}
-        />
-        <PiNumberField
-          label="Base delay (ms)"
-          hint="2s, then doubled per attempt"
-          value={retry.baseDelayMs}
-          placeholder="2000"
-          commit={(baseDelayMs) => write({ retry: { ...retry, baseDelayMs } })}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Message delivery">
-        <SettingRow title="Steering messages" description="Sent while the agent is running" control={modeGroup("Steering messages", config.steeringMode, "steeringMode")} />
-        <SettingRow title="Follow-up messages" description="Queued behind the current turn" control={modeGroup("Follow-up messages", config.followUpMode, "followUpMode")} />
-      </SettingsSection>
-
-      <SettingsSection title="Built-in tools">
         <SettingRow
-          title="Tools"
-          description={tools === undefined
-            ? "Pi's standard set is in use. Choosing any of them pins the list; choosing none turns every built-in tool off, which Pi allows on purpose. Extension and SDK tools are not affected."
-            : "This list is pinned. Choosing none turns every built-in tool off. Extension and SDK tools are not affected."}
-        >
-          <div className="chip-row settings-row-extra">
-            {PI_BUILTIN_TOOLS.map((tool) => {
-              const selected = tools === undefined || tools.includes(tool);
-              return (
-                <button
-                  key={tool}
-                  type="button"
-                  className="chip"
-                  aria-pressed={selected}
-                  title={tools === undefined ? "On through Pi's defaults; choosing any tool pins the list" : undefined}
-                  onClick={() => {
-                    const current = tools ?? [...PI_BUILTIN_TOOLS];
-                    const next = current.includes(tool) ? current.filter((entry) => entry !== tool) : [...current, tool];
-                    write({ defaultTools: next });
-                  }}
-                >
-                  {tool}
-                </button>
-              );
-            })}
-          </div>
-        </SettingRow>
-      </SettingsSection>
-
-      <SettingsSection title="Shell">
-        <PiTextField
-          label="Shell path"
-          hint="A leading ~ is resolved; for a non-standard bash such as Cygwin"
-          value={config.shellPath ?? ""}
-          placeholder="system default"
-          commit={(shellPath) => write({ shellPath })}
-        />
-        <PiTextField
-          label="Command prefix"
-          hint="Prepended to every bash command"
-          value={config.shellCommandPrefix ?? ""}
-          placeholder="none"
-          commit={(shellCommandPrefix) => write({ shellCommandPrefix })}
-        />
-        <PiTextField
-          label="npm command"
-          hint="argv, space separated, for npm package operations"
-          value={config.npmCommand?.join(" ") ?? ""}
-          placeholder="npm"
-          commit={(value) => write({ npmCommand: value.split(/\s+/u) })}
+          id={settingAnchor("Project trust")}
+          title="Project trust"
+          description="What Pi does with a project's own settings, resources and extensions when nobody has answered for that folder."
+          help="Always trusts them, Never ignores them, Ask asks in the Pi CLI and ignores them where it cannot ask."
+          disabledReason={scope === "project" ? TRUST_REASON : undefined}
+          control={<SegmentedControl<Trust> label="Project trust" value={config.defaultProjectTrust ?? "ask"} options={TRUST_OPTIONS} onChange={(defaultProjectTrust) => write({ defaultProjectTrust })} />}
         />
       </SettingsSection>
 
       <SettingsSection title="Startup">
-        <PiToggleRow
-          label="Quiet startup"
-          hint="Hide the header the Pi CLI prints on start."
-          checked={config.quietStartup === true}
-          onChange={(quietStartup) => write({ quietStartup })}
+        <SettingRow
+          id={settingAnchor("Startup model")}
+          title="Startup model"
+          description="The model Pi starts on."
+          help="Pi's file stores it as provider/model-id."
+          control={<StartupModel value={config.models?.default ?? ""} models={piModels} onChange={(value) => write({ models: { ...config.models, default: value } })} />}
         />
-        {scope === "global" ? (
-          <SettingRow
-            title="Project trust"
-            description="What Pi does with a project's own settings, resources and extensions when nobody has answered for that folder. A global setting only."
-            control={<div className="segmented" role="group" aria-label="Default project trust">
-              {(["ask", "always", "never"] as const).map((mode) => (
-                <button key={mode} className={(config.defaultProjectTrust ?? "ask") === mode ? "active" : ""} onClick={() => write({ defaultProjectTrust: mode })}>
-                  {mode}
-                </button>
-              ))}
-            </div>}
-          />
-        ) : null}
+        <SettingRow
+          id={settingAnchor("Startup thinking level")}
+          title="Startup thinking level"
+          description="How much the startup model reasons before it answers."
+          help="A model that does not think in levels ignores it."
+          control={<Select
+            label="Startup thinking level"
+            value={thinking}
+            placeholder={thinking ? `${thinking} (unknown)` : "Pi's default"}
+            options={PI_THINKING_LEVELS.map((level) => ({ value: level, label: THINKING_LABELS[level] }))}
+            onChange={(value) => write({ models: { ...config.models, thinkingLevel: value } })}
+          />}
+        />
+        <SettingRow
+          id={settingAnchor("Quiet startup")}
+          title="Quiet startup"
+          description="Hide the header the Pi CLI prints on start."
+          control={<Switch label="Quiet startup" checked={config.quietStartup === true} onChange={(quietStartup) => write({ quietStartup })} />}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Compaction">
+        <SettingRow
+          id={settingAnchor("Automatic compaction")}
+          title="Automatic compaction"
+          description="Summarize the conversation when it nears the context window."
+          control={<Switch label="Automatic compaction" checked={compaction.enabled !== false} onChange={(enabled) => write({ compaction: { ...compaction, enabled } })} />}
+        />
+        <SettingRow
+          id={settingAnchor("Reserve tokens")}
+          title="Reserve tokens"
+          description="Held back for the model's reply. Empty uses Pi's 16,384."
+          control={<NumberField label="Reserve tokens" value={compaction.reserveTokens} integer min={1} max={1_000_000} step={1024} unit="tokens" placeholder="16384" width="md"
+            onCommit={(reserveTokens) => write({ compaction: { ...compaction, reserveTokens } })}
+            onClear={() => write({ compaction: without(compaction, "reserveTokens") })} />}
+        />
+        <SettingRow
+          id={settingAnchor("Keep recent tokens")}
+          title="Keep recent tokens"
+          description="The latest part of the conversation left unsummarized. Empty uses Pi's 20,000."
+          control={<NumberField label="Keep recent tokens" value={compaction.keepRecentTokens} integer min={0} max={1_000_000} step={1000} unit="tokens" placeholder="20000" width="md"
+            onCommit={(keepRecentTokens) => write({ compaction: { ...compaction, keepRecentTokens } })}
+            onClear={() => write({ compaction: without(compaction, "keepRecentTokens") })} />}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Retry">
+        <SettingRow
+          id={settingAnchor("Retry on transient errors")}
+          title="Retry on transient errors"
+          description="Pi tries a failed turn again, waiting longer each time."
+          control={<Switch label="Retry on transient errors" checked={retry.enabled !== false} onChange={(enabled) => write({ retry: { ...retry, enabled } })} />}
+        />
+        <SettingRow
+          id={settingAnchor("Max retries")}
+          title="Max retries"
+          description="Attempts after the first. Empty uses Pi's 3."
+          control={<NumberField label="Max retries" value={retry.maxRetries} integer min={0} max={20} placeholder="3" width="md"
+            onCommit={(maxRetries) => write({ retry: { ...retry, maxRetries } })}
+            onClear={() => write({ retry: without(retry, "maxRetries") })} />}
+        />
+        <SettingRow
+          id={settingAnchor("Base delay")}
+          title="Base delay"
+          description="The wait before the first retry, doubled for each one after. Empty uses Pi's 2,000 ms."
+          control={<NumberField label="Base delay" value={retry.baseDelayMs} integer min={0} max={60_000} step={500} unit="ms" placeholder="2000" width="md"
+            onCommit={(baseDelayMs) => write({ retry: { ...retry, baseDelayMs } })}
+            onClear={() => write({ retry: without(retry, "baseDelayMs") })} />}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Message delivery">
+        <SettingRow
+          id={settingAnchor("Steering messages")}
+          title="Steering messages"
+          description="Sent while the agent is working."
+          control={<SegmentedControl<Delivery> label="Steering messages" value={config.steeringMode ?? "one-at-a-time"} options={DELIVERY_OPTIONS} onChange={(steeringMode) => write({ steeringMode })} />}
+        />
+        <SettingRow
+          id={settingAnchor("Follow-up messages")}
+          title="Follow-up messages"
+          description="Queued behind the current turn."
+          control={<SegmentedControl<Delivery> label="Follow-up messages" value={config.followUpMode ?? "one-at-a-time"} options={DELIVERY_OPTIONS} onChange={(followUpMode) => write({ followUpMode })} />}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Tools and shell">
+        <SettingRow
+          id={settingAnchor("Built-in tools")}
+          title="Built-in tools"
+          description={tools === undefined
+            ? "Pi's standard set is in use. Changing one pins the list."
+            : "The list is pinned. With none chosen, every built-in tool is off."}
+          help="Extension and SDK tools stay on whatever this list holds. Pi allows an empty list on purpose."
+          status={tools === undefined ? <Badge>Pi's standard set</Badge> : <Badge tone="accent">Pinned</Badge>}
+        >
+          <div className="pi-tools" role="group" aria-label="Built-in tools">
+            {PI_BUILTIN_TOOLS.map((tool) => (
+              <label key={tool}>
+                <Switch
+                  role="checkbox"
+                  label={tool}
+                  checked={tools === undefined || tools.includes(tool)}
+                  onChange={(on) => {
+                    const current = tools ?? [...PI_BUILTIN_TOOLS];
+                    write({ defaultTools: on ? [...current, tool] : current.filter((entry) => entry !== tool) });
+                  }}
+                />
+                <code aria-hidden>{tool}</code>
+              </label>
+            ))}
+          </div>
+        </SettingRow>
+        <SettingRow
+          id={settingAnchor("Shell path")}
+          title="Shell path"
+          description="For a bash outside the usual places, such as Cygwin. Empty uses the system's."
+          help="A leading ~ stands for the home folder."
+          control={<TextField label="Shell path" value={config.shellPath ?? ""} mono placeholder="System default" onCommit={(value) => write({ shellPath: value.trim() })} />}
+        />
+        <SettingRow
+          id={settingAnchor("Command prefix")}
+          title="Command prefix"
+          description="Run before every bash command, on its own line."
+          control={<TextField label="Command prefix" value={config.shellCommandPrefix ?? ""} mono placeholder="None" onCommit={(value) => write({ shellCommandPrefix: value.trim() })} />}
+        />
+        <SettingRow
+          id={settingAnchor("npm command")}
+          title="npm command"
+          description="The command Pi installs and looks up packages with, its words separated by spaces."
+          help="For example mise exec node@20 -- npm."
+          control={<TextField label="npm command" value={config.npmCommand?.join(" ") ?? ""} mono placeholder="npm"
+            validate={(value) => (value.trim() ? undefined : "Enter a command, such as npm.")}
+            onCommit={(value) => write({ npmCommand: value.trim().split(/\s+/u) })} />}
+        />
       </SettingsSection>
     </div>
   );

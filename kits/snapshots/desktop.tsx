@@ -24,7 +24,7 @@ import {
   type SnapShotMeta,
   type SnapShotsHostCommands,
 } from "./protocol.js";
-import { createSnapShotsSettingsPage } from "./settings.js";
+import { createSnapShotsSettingsPage, SNAPSHOTS_SETTINGS_ROWS } from "./settings.js";
 import { ShotStore, type Shot, type ShotContent } from "./shots.js";
 
 type Commands = SnapShotsHostCommands;
@@ -241,6 +241,7 @@ const snapshots: DesktopExtension = {
       Icon: Camera,
       order: 46,
       keywords: ["snapshot", "screenshot", "capture", "window", "accessibility", "shortcut", "screen recording"],
+      rows: SNAPSHOTS_SETTINGS_ROWS,
       profiles: ["desktop"],
       Component: createSnapShotsSettingsPage(context, host, () => { void host("arm", undefined).catch(() => undefined); }),
     });

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PiProvidersCard, piProvidersExtension, setUpBy, waysIn } from "./desktop.js";
+import { PiProvidersCard, piProvidersExtension, providerRowId, setUpBy, waysIn } from "./desktop.js";
 import type { PiProviderView } from "./protocol.js";
 
 afterEach(cleanup);
@@ -38,25 +38,55 @@ describe("Pi Providers desktop half", () => {
   it("lists what is set up apart from what can be, and leaves out a provider without a way in", async () => {
     const { host } = fakeHost(PROVIDERS);
     render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
-    expect(await screen.findByText("Set up (1)")).toBeTruthy();
-    expect(screen.getByText("Sign in or add a key (1)")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /OpenAI.*OPENAI_API_KEY/u })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Anthropic.*Subscription · API key/u })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Set up" })).toBeTruthy();
+    const openai = document.getElementById(providerRowId(PROVIDERS[1]!))!;
+    expect(within(openai).getByRole("heading", { name: "OpenAI" })).toBeTruthy();
+    expect(within(openai).getByText("OPENAI_API_KEY")).toBeTruthy();
+    expect(within(openai).getByRole("button", { name: "Manage OpenAI" })).toBeTruthy();
+    const anthropic = document.getElementById(providerRowId(PROVIDERS[0]!))!;
+    expect(within(anthropic).getByText("Subscription · API key")).toBeTruthy();
+    expect(within(anthropic).getByRole("button", { name: "Set up Anthropic" }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Amazon Bedrock")).toBeNull();
+    // The search's row is the list itself.
+    const [page] = (() => { const { registry } = createKitHarness(); registry.activate(piProvidersExtension); return registry.getSettingsPages(); })();
+    for (const row of page!.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Filter Pi's providers"), { target: { value: "open" } });
-    expect(screen.getByText("Sign in or add a key (0)")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter Pi's providers" }), { target: { value: "open" } });
+    expect(screen.queryByRole("heading", { name: "Sign in or add a key" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Manage OpenAI" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter Pi's providers" }), { target: { value: "nothing like it" } });
+    expect(screen.getByText("No provider matches “nothing like it”")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show all providers" }));
+    expect(screen.getByRole("button", { name: "Set up Anthropic" })).toBeTruthy();
   });
 
   it("opens a provider's sign-in and reads the list again once a sign-in finished", async () => {
     const { host, invoke, push } = fakeHost(PROVIDERS);
     render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Anthropic/u }));
-    expect(await screen.findByRole("button", { name: "Sign in to Anthropic (Claude Pro/Max)" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Set up Anthropic" }));
+    expect(await screen.findByRole("button", { name: "Sign in", description: /^Sign in to Anthropic \(/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set up Anthropic" }).getAttribute("aria-expanded")).toBe("true");
     expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "anthropic" });
 
     push({ target: "anthropic", report: { methods: [], account: { signedIn: true, label: "Anthropic (Claude Pro/Max)" } } }, [{ ...PROVIDERS[0]!, configured: true, stored: "oauth" }, PROVIDERS[1]!]);
-    await waitFor(() => expect(screen.getByText("Set up (2)")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Manage Anthropic" })).toBeTruthy());
+    expect(screen.getByText("Every provider is set up")).toBeTruthy();
+  });
+
+  it("says when Pi could not be asked, and asks again", async () => {
+    const { host, invoke } = fakeHost(PROVIDERS);
+    invoke.mockRejectedValueOnce(new Error("Pi's host half is not running."));
+    render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
+    expect(await screen.findByText("Pi's providers did not load")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: "Manage OpenAI" })).toBeTruthy();
+  });
+
+  it("offers a next step while nothing is set up", async () => {
+    const { host } = fakeHost([PROVIDERS[0]!]);
+    render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
+    expect(await screen.findByText("No provider set up yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
   });
 
   it("words a provider's row", () => {

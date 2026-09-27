@@ -2,6 +2,7 @@
   "id": "tau.pi-ui",
   "name": "Pi UI",
   "description": "Draws what Pi extensions show: statuses, a working message and widgets by the composer.",
+  "icon": "PanelsTopLeft",
   "version": "1.0.0",
   "engines": {
     "api": "^1.5.0"

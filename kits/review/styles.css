@@ -469,35 +469,13 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   --diff-del-mark-line: var(--working);
   --diff-del-edge: var(--working);
 }
-.review-color-swatch { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: 1px; }
+/* Settings → Review: a diff colour choice is its two swatches, the name in the tooltip. */
+.review-color-swatch { display: inline-flex; gap: 3px; }
 .review-color-swatch > i { width: 7px; height: 7px; border-radius: 50%; }
 .review-color-swatch.red-green > i:first-child { background: var(--removed); }
 .review-color-swatch.red-green > i:last-child { background: var(--ready); }
 .review-color-swatch.blue-orange > i:first-child { background: var(--working); }
 .review-color-swatch.blue-orange > i:last-child { background: var(--info-ink); }
-.review-instructions { width: min(420px, 100%); min-height: 84px; resize: vertical; font: inherit; line-height: 1.45; }
-
-/* Settings → Review: the Git hosts and the self-hosted servers. */
-.review-source-list, .review-source-hosts { list-style: none; margin: 0; padding: 0; }
-.review-source-row { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: start; padding: var(--space-4) var(--space-6); border-top: 1px solid var(--line-soft); }
-.review-source-row:first-child { border-top: 0; }
-.review-source-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--fainter); }
-.review-source-row[data-tone="ready"] .review-source-dot { background: var(--ready); }
-.review-source-row[data-tone="warn"] .review-source-dot { background: var(--warn); }
-.review-source-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.review-source-name { display: flex; align-items: baseline; gap: 8px; }
-.review-source-name > strong { font-size: 12.5px; color: var(--ink-2); }
-.review-source-name > small { font: 10.5px var(--mono); color: var(--faint); }
-.review-source-summary { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.review-source-missing { font-size: 11px; color: var(--muted-2); }
-.review-source-empty, .review-source-lede { margin: 0; padding: var(--space-4) var(--space-6) 0; font-size: 12px; color: var(--muted); }
-.review-source-hosts { margin-top: var(--space-3); }
-.review-source-hosts > li { display: flex; align-items: center; gap: 10px; padding: var(--space-2) var(--space-6); border-top: 1px solid var(--line-soft); }
-.review-source-hosts > li:first-child { border-top: 0; }
-.review-source-hosts code { font: 11.5px var(--mono); color: var(--ink-2); }
-.review-source-hosts span { flex: 1; font-size: 12px; color: var(--muted); }
-.review-source-add { display: flex; gap: 8px; align-items: center; padding: var(--space-4) var(--space-6); }
-.review-source-add > input { flex: 1; min-width: 0; }
 
 /* The thread's request over the composer: calm, tinted by its state. */
 .review-pr-strip {
@@ -752,3 +730,6 @@ body[data-profile="compact"] .pr-composer textarea { font-size: 16px; }
 body[data-profile="compact"] .pr-composer .toggle-group > button,
 body[data-profile="compact"] .pr-composer footer > button { min-height: 44px; padding-inline: 14px; font-size: 14px; }
 body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; font-size: 14px; }
+.review-server-add { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: var(--space-4); }
+.settings-screen.stacked .review-server-add { justify-content: stretch; }
+.settings-screen.stacked .review-server-add > * { flex: 1 1 100%; }

@@ -37,11 +37,10 @@ describe("Claude Code desktop extension", () => {
       : command === "sign-in-state" ? { methods: [], account: { signedIn: true, label: "me@example.com", detail: "Claude Max", canSignOut: true } }
       : { version: "2.1.4", account: "Claude Max", defaultModel: "sonnet", effort: "medium", models: [{ id: "sonnet", name: "Sonnet 5" }, { id: "haiku", name: "Haiku 4.5" }], fresh: (input as { fresh?: boolean } | undefined)?.fresh });
     render(<ClaudeCodeProviderCard onNotify={vi.fn()} host={host(invoke)} />);
-    await waitFor(() => expect(screen.getByText("Found · 2.1.4")).toBeTruthy());
-    expect(screen.getByText("/usr/local/bin/claude")).toBeTruthy();
+    await waitFor(() => expect(document.getElementById("setting-agent-sdk-program")?.textContent).toMatch(/^CLI.*2\.1\.4 · \/usr\/local\/bin\//u));
     expect(await screen.findByText("Claude Max")).toBeTruthy();
     expect(screen.getByText("me@example.com")).toBeTruthy();
-    expect(screen.getByText(/2 models available, sonnet by default, effort medium/u)).toBeTruthy();
+    expect(screen.getByText("2 models available, sonnet by default, effort medium. Pick one per thread in the composer.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Check again/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("probe", { fresh: true }));
@@ -54,7 +53,9 @@ describe("Claude Code desktop extension", () => {
     const onNotify = vi.fn();
     render(<ClaudeCodeProviderCard onNotify={onNotify} host={host(invoke)} />);
     expect(await screen.findByText(/Claude Code 2\.1\.300 is out; 2\.1\.280 is installed/u)).toBeTruthy();
-    expect(screen.getByText("claude update")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update in a terminal" })).toBeTruthy();
+    // The row is inert until the host answered; then the field is drawn anew.
+    await waitFor(() => expect(document.getElementById("setting-agent-sdk-executable")?.querySelector("[inert]")).toBeNull());
     const field = screen.getByRole("textbox", { name: "Claude Code executable" });
     fireEvent.change(field, { target: { value: "/opt/claude" } });
     fireEvent.blur(field);
@@ -69,8 +70,7 @@ describe("Claude Code desktop extension", () => {
       : command === "sign-in-state" ? { methods: [{ id: "plan", label: "Sign in with a Claude plan", kind: "terminal", unavailable: "Install the CLI first; \"claude\" was not found." }], account: { signedIn: false } }
       : Promise.reject(new Error("The Claude Code CLI \"claude\" was not found on the PATH of your login shell.")));
     render(<ClaudeCodeProviderCard onNotify={vi.fn()} host={host(invoke)} />);
-    await waitFor(() => expect(screen.getByText("claude was not found")).toBeTruthy());
-    expect(screen.getByText(/claude.ai\/code, or set its path below/u)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Install the CLI, or set its executable below.")).toBeTruthy());
     // The probe's rejection lands one turn after the status; wait for it rather than assume it.
     expect(await screen.findByText(/was not found on the PATH/u)).toBeTruthy();
     expect(await screen.findByText(/Install the CLI first/u)).toBeTruthy();
@@ -92,7 +92,11 @@ describe("Claude Code desktop extension", () => {
     expect(invoke).toHaveBeenCalledWith("probe", { fresh: false, instance: "second" });
     expect(await screen.findByText("home ~/.claude-second")).toBeTruthy();
     expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "second" });
-    expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove…" })).toBeTruthy();
+    // Every row the search names for this card is drawn, under the instance's own ids.
+    const named = registry.getSettingsPages()[1]?.rows ?? [];
+    expect(named.map((row) => row.id)).toEqual(["program", "account", "executable", "setup"].map((row) => `setting-agent-sdk-second-${row}`));
+    for (const row of named) await waitFor(() => expect(document.getElementById(row.id), row.id).toBeTruthy());
   });
 
   it("warns above the composer of a thread whose CLI is broken, and copies the command", async () => {

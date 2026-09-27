@@ -6,7 +6,8 @@
 .servers-issue.error > svg { color: var(--danger); }
 .servers-issue.warning > svg { color: var(--warn); }
 .servers-issue.info > svg { color: var(--info); }
-.servers-secret-actions { display: inline-flex; gap: 6px; }
+.servers-secret-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
+.servers-settings .tau-list-field { margin-top: var(--space-4); }
 
 /* The host half's questions: a password, a consent, a command to allow. */
 .servers-prompt { width: 460px; max-width: calc(100vw - 48px); padding: 18px; border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3); color: var(--ink); animation: fade-up .14s ease; }
@@ -261,13 +262,6 @@
 .servers-size-children { padding-left: 24px; }
 
 /* Settings → Servers → Network: the hosts a server project's agent may reach. */
-.servers-hosts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
-.servers-hosts li { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; border: 1px solid var(--line-card); border-radius: var(--radius-sm); background: var(--field); font-size: 12px; }
-.servers-host-remove { display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
-.servers-host-remove:hover:not(:disabled) { background: var(--raised); color: var(--ink-2); }
-.servers-host-remove:disabled { opacity: .45; cursor: default; }
-.servers-host-add { display: flex; gap: 6px; margin-top: 8px; }
-.servers-host-add .settings-input { flex: 1; min-width: 0; }
 .servers-package-sources summary { cursor: pointer; }
 .servers-package-sources code { display: block; margin-top: 6px; font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 

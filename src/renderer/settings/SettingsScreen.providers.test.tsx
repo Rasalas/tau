@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
+import { ProviderCardBadgeReport } from "./provider-card-state";
 import { SettingsScreen } from "./SettingsScreen";
 
 afterEach(cleanup);
@@ -14,8 +15,11 @@ function registryWithCards(): ExtensionRegistry {
     id: "acme.runtimes",
     name: "Runtimes",
     activate(plugin) {
-      plugin.registerSettingsPage({ id: "late.card", label: "Late", runtime: "antigravity", order: 27, Component: () => <p>late body</p> });
-      plugin.registerSettingsPage({ id: "early.card", label: "Early", runtime: "claude-code", order: 25, Component: () => <p>early body</p> });
+      plugin.registerSettingsPage({
+        id: "late.card", label: "Late", runtime: "antigravity", order: 27,
+        Component: () => <><ProviderCardBadgeReport source="account" badge={{ label: "Needs sign-in", tone: "warn" }} /><ProviderCardBadgeReport source="program" badge={{ label: "Installed", tone: "success" }} /><p>late body</p></>,
+      });
+      plugin.registerSettingsPage({ id: "early.card", label: "Early", runtime: "claude-code", order: 25, rows: [{ id: "setting-early-path", label: "Early program path" }], Component: () => <p id="setting-early-path" tabIndex={-1}>early body</p> });
       plugin.registerSettingsPage({ id: "plain.page", label: "Plain", order: 30, Component: () => <p>plain body</p> });
     },
   });
@@ -44,6 +48,22 @@ describe("Settings → Providers", () => {
     const cards = screen.getAllByRole("region");
     expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual(["Early", "Late"]);
     expect(within(cards[0]!).getByText("early body")).toBeTruthy();
+  });
+
+  it("finds a card's rows in the Settings search and opens Providers at the row", () => {
+    const onSetPage = renderScreen("general");
+    const search = screen.getByRole("searchbox", { name: "Search settings" });
+    fireEvent.change(search, { target: { value: "early program path" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(onSetPage).toHaveBeenCalledWith("early.card#setting-early-path");
+  });
+
+  it("heads each card with the runtime's name and the state its rows report, the program's first", () => {
+    renderScreen("providers");
+    const [early, late] = screen.getAllByRole("region");
+    expect(within(late!).getByRole("heading", { name: "Late" })).toBeTruthy();
+    expect([...late!.querySelectorAll(".provider-card-badges .tau-badge")].map((badge) => badge.textContent)).toEqual(["Installed", "Needs sign-in"]);
+    expect(early!.querySelectorAll(".provider-card-badges .tau-badge")).toHaveLength(0);
   });
 
   it("opens Providers for a card's own id, so an old link to the page still lands, scrolled to that card", () => {

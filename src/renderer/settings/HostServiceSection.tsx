@@ -3,6 +3,7 @@ import type { UiHostService } from "../../shared/connections";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { useHostClient } from "../host-client-context";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { Badge, Button, SettingsState, ValueList, type ValueListItem } from "./controls";
 import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
 
@@ -25,12 +26,14 @@ const WHAT_IT_DOES: Record<NonNullable<UiHostService["manager"]>, string> = {
   "task-scheduler": "A scheduled task starts Tau’s host when you log in and keeps it running after you quit Tau.",
 };
 
-function serviceSummary(service: UiHostService): { tone: "live" | "idle" | "pending"; text: string } {
-  if (!service.installed) return { tone: "idle", text: "Not installed" };
-  if (service.stale || service.problems.length > 0) return { tone: "pending", text: service.running ? "Running, needs repair" : "Needs repair" };
-  if (!service.running) return { tone: "pending", text: "Installed, not running" };
-  return { tone: "live", text: service.version ? `Running · Tau ${service.version}` : "Running" };
+function serviceSummary(service: UiHostService): { tone: "neutral" | "success" | "warn"; text: string } {
+  if (!service.installed) return { tone: "neutral", text: "Not installed" };
+  if (service.stale || service.problems.length > 0) return { tone: "warn", text: service.running ? "Running, needs repair" : "Needs repair" };
+  if (!service.running) return { tone: "warn", text: "Installed, not running" };
+  return { tone: "success", text: service.version ? `Running · Tau ${service.version}` : "Running" };
 }
+
+const SERVICE_TITLE = "Run as a system service";
 
 /**
  * Settings → Connections, Background: the host as a service of the machine it
@@ -114,57 +117,59 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
   };
 
   const serviceRow = (() => {
-    if (state.status === "loading") return <SettingRow title="Run as a system service" description="Reading the service…" />;
-    if (state.status === "absent") return <SettingRow title="Run as a system service" description="This host does not manage a service of its machine." />;
-    if (state.status === "error") return <SettingRow title="Run as a system service" description={state.message} />;
+    const id = settingAnchor(SERVICE_TITLE);
+    if (state.status === "loading") return <SettingsState kind="loading" rows={1} title="Reading the service" />;
+    if (state.status === "error") {
+      return <SettingsState kind="error" title="The service did not answer" description={state.message} onRetry={() => { setState({ status: "loading" }); void load(); }} />;
+    }
+    if (state.status === "absent") return <SettingRow id={id} title={SERVICE_TITLE} description="This host does not manage a service of its machine." />;
     const service = state.service;
-    if (!service.supported || !service.manager) return <SettingRow title="Run as a system service" description={service.reason ?? "This machine has no service manager Tau knows."} />;
+    if (!service.supported || !service.manager) return <SettingRow id={id} title={SERVICE_TITLE} description={service.reason ?? "This machine has no service manager Tau knows."} />;
     const summary = serviceSummary(service);
     const needsRepair = service.installed && (service.stale || service.problems.length > 0 || !service.running);
+    const files: ValueListItem[] = [
+      ...(service.installed && service.unitPath ? [{ label: "Unit", value: service.unitPath, mono: true, copy: service.unitPath }] : []),
+      { label: "Log", value: service.logPath, mono: true, copy: service.logPath },
+    ];
     return (
       <SettingRow
-        id={settingAnchor("Run as a system service")}
-        title="Run as a system service"
-        description={`${WHAT_IT_DOES[service.manager]} Threads, terminals and paired devices keep working without a window; the preview and computer use still need one on this machine.`}
+        id={id}
+        title={SERVICE_TITLE}
+        description={WHAT_IT_DOES[service.manager]}
+        help="Threads, terminals and paired devices keep working without a window; the preview and computer use still need one on this machine."
         status={(
           <div className="host-service-status">
-            <span className="host-service-summary">
-              <span className={`connection-dot ${summary.tone}`} aria-hidden="true" />
-              {summary.text}
-            </span>
+            <Badge tone={summary.tone} dot>{summary.text}</Badge>
             {service.problems.map((problem) => (
-              <p key={problem.code} className="host-service-problem">
-                {problem.message}
+              <div key={problem.code} className="host-service-problem">
+                <p>{problem.message}</p>
                 {problem.code === SANDBOX_PROBLEM ? (
                   problem.command ? (
-                    <span>
-                      <button type="button" className="chrome-button" disabled={busy !== undefined} onClick={() => void run("sandbox")}>
-                        {busy === "sandbox" ? "Waiting for the password…" : "Add AppArmor Profile…"}
-                      </button>
-                    </span>
+                    <Button busy={busy === "sandbox"} disabled={busy !== undefined} onClick={() => void run("sandbox")}>
+                      {busy === "sandbox" ? "Waiting for the password…" : "Add AppArmor profile…"}
+                    </Button>
                   ) : null
                 ) : problem.command ? <code>{problem.command}</code> : null}
-              </p>
+              </div>
             ))}
-            {service.installed && service.unitPath ? <small>Unit <code>{service.unitPath}</code></small> : null}
-            <small>Log <code>{service.logPath}</code></small>
+            <ValueList label="Service files" items={files} />
           </div>
         )}
         control={(
           <div className="host-service-actions">
             {needsRepair ? (
-              <button type="button" className="chrome-button" disabled={busy !== undefined} onClick={() => setConfirm("repair")}>
+              <Button busy={busy === "repair"} disabled={busy !== undefined} onClick={() => setConfirm("repair")}>
                 {busy === "repair" ? "Repairing…" : "Repair…"}
-              </button>
+              </Button>
             ) : null}
             {service.installed ? (
-              <button type="button" className="chrome-button danger" disabled={busy !== undefined} onClick={() => setConfirm("uninstall")}>
+              <Button variant="danger" busy={busy === "uninstall"} disabled={busy !== undefined} onClick={() => setConfirm("uninstall")}>
                 {busy === "uninstall" ? "Removing…" : "Uninstall…"}
-              </button>
+              </Button>
             ) : (
-              <button type="button" className="chrome-button accent" disabled={busy !== undefined} onClick={() => setConfirm("install")}>
+              <Button busy={busy === "install"} disabled={busy !== undefined} onClick={() => setConfirm("install")}>
                 {busy === "install" ? "Installing…" : "Install…"}
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -181,33 +186,27 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
     const text = display.installed
       ? `${display.display ?? "Display"} · window ${display.windowRunning ? "running" : "starts when needed"}`
       : "Off";
-    const tone = !display.installed ? "idle" : display.xvfbRunning ? "live" : "pending";
+    const tone = !display.installed ? "neutral" : display.xvfbRunning ? "success" : "warn";
     return (
       <SettingRow
         id={settingAnchor("Invisible display")}
         title="Invisible display"
-        description={`A screen nobody sees (Xvfb): agents’ GUI apps and headed browsers run there, and a Tau window on it gives threads the preview while no one has Tau open on this machine. The window starts when a thread needs it and stops after ${display.idleMinutes} minutes without use.`}
+        description="A screen nobody sees (Xvfb) where agents’ GUI apps, headed browsers and the preview run while no one has Tau open on this machine."
+        help={`A Tau window on it gives threads the preview. The window starts when a thread needs it and stops after ${display.idleMinutes} minutes without use.`}
         status={(
           <div className="host-service-status">
-            <span className="host-service-summary">
-              <span className={`connection-dot ${tone}`} aria-hidden="true" />
-              {text}
-            </span>
+            <Badge tone={tone} dot>{text}</Badge>
             {display.installed && !display.xvfbRunning ? <p className="host-service-problem">Xvfb is not running. Repair the service, or see its log.</p> : null}
           </div>
         )}
-        control={(
-          <div className="host-service-actions">
-            {display.installed ? (
-              <button type="button" className="chrome-button danger" disabled={busy !== undefined} onClick={() => setConfirm("display-remove")}>
-                {busy === "display-remove" ? "Removing…" : "Remove…"}
-              </button>
-            ) : (
-              <button type="button" className="chrome-button" disabled={busy !== undefined} onClick={() => setConfirm("display-add")}>
-                {busy === "display-add" ? "Adding…" : "Add…"}
-              </button>
-            )}
-          </div>
+        control={display.installed ? (
+          <Button variant="danger" busy={busy === "display-remove"} disabled={busy !== undefined} onClick={() => setConfirm("display-remove")}>
+            {busy === "display-remove" ? "Removing…" : "Remove…"}
+          </Button>
+        ) : (
+          <Button busy={busy === "display-add"} disabled={busy !== undefined} onClick={() => setConfirm("display-add")}>
+            {busy === "display-add" ? "Adding…" : "Add…"}
+          </Button>
         )}
       />
     );
@@ -239,7 +238,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
           message={confirm === "display-add"
             ? "Tau’s host restarts with the display. Turns running now stop for a moment and continue if “Continue threads after restarts” is on. Where the system restricts Chromium’s sandbox (Ubuntu 24.04 and later), it asks for your password once."
             : "Tau’s host restarts without it. The window on the display closes, and agents’ shells no longer get a DISPLAY."}
-          confirmLabel={confirm === "display-add" ? "Add Display" : "Remove Display"}
+          confirmLabel={confirm === "display-add" ? "Add display" : "Remove display"}
           destructive={confirm === "display-remove"}
           onCancel={() => setConfirm(undefined)}
           onConfirm={() => void run(confirm)}
@@ -249,7 +248,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
         <ConfirmDialog
           title="Remove the service?"
           message="The host stops and no longer starts at login. Running turns stop; this window starts a host of its own again."
-          confirmLabel="Remove Service"
+          confirmLabel="Remove service"
           destructive
           onCancel={() => setConfirm(undefined)}
           onConfirm={() => void run("uninstall")}

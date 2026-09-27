@@ -2,6 +2,7 @@
   "id": "tau.access",
   "name": "Access Kit",
   "description": "Asks before an agent writes or runs something, at the level you choose: read only, ask, or full.",
+  "icon": "ShieldCheck",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

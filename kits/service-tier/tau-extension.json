@@ -2,6 +2,7 @@
   "id": "tau.service-tier",
   "name": "Service Tier",
   "description": "Switches OpenAI models between the standard and the faster priority tier.",
+  "icon": "Zap",
   "version": "1.0.0",
   "engines": {
     "api": "^1.5.0"

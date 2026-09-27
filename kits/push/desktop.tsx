@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { BellRing, FileKey, Lock, Send, Smartphone, Trash2 } from "lucide-react";
-import { Empty, SettingRow, SettingsSection, Skeleton, errorMessage, tooltipProps, useSetting } from "tau";
+import { BellRing, FileKey, Lock, Send } from "lucide-react";
+import {
+  Badge,
+  Button,
+  DangerAction,
+  DangerZone,
+  Empty,
+  SegmentedControl,
+  SettingRow,
+  SettingsSection,
+  SettingsState,
+  TextField,
+  ValueList,
+  errorMessage,
+  useSetting,
+} from "tau";
 import type { DesktopExtension, DesktopExtensionContext, SettingsPageProps } from "tau";
 import {
   DEFAULT_PUSH_CONTENT,
@@ -42,7 +56,7 @@ function when(iso: string): string {
 function FilePick({ label, accept, onText }: { label: string; accept: string; onText(text: string): void }) {
   const input = useRef<HTMLInputElement>(null);
   return <>
-    <button type="button" className="chrome-button" onClick={() => input.current?.click()}><FileKey size={13} aria-hidden="true" /> {label}</button>
+    <Button icon={<FileKey size={13} aria-hidden="true" />} onClick={() => input.current?.click()}>{label}</Button>
     <input ref={input} type="file" accept={accept} hidden onChange={(event) => {
       const file = event.target.files?.[0];
       event.target.value = "";
@@ -51,18 +65,17 @@ function FilePick({ label, accept, onText }: { label: string; accept: string; on
   </>;
 }
 
-function ApnsForm({ context, onDone }: { context: DesktopExtensionContext; onDone(): void }) {
-  const [keyId, setKeyId] = useState("");
-  const [teamId, setTeamId] = useState("");
-  const [key, setKey] = useState("");
+/** Saves through the host; what is missing or refused shows at the form, and the draft stays. */
+function useKeyForm(save: () => Promise<void>, missing: () => string | undefined, onDone: () => void) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const save = async () => {
+  const submit = async () => {
+    const lacking = missing();
+    if (lacking) { setError(lacking); return; }
     setBusy(true);
     setError(undefined);
     try {
-      await context.host.invoke("set-apns", { keyId, teamId, key });
-      setKey("");
+      await save();
       onDone();
     } catch (failure) {
       setError(errorMessage(failure));
@@ -70,20 +83,32 @@ function ApnsForm({ context, onDone }: { context: DesktopExtensionContext; onDon
       setBusy(false);
     }
   };
+  return { error, busy, submit: () => void submit() };
+}
+
+function ApnsForm({ context, onDone }: { context: DesktopExtensionContext; onDone(): void }) {
+  const [keyId, setKeyId] = useState("");
+  const [teamId, setTeamId] = useState("");
+  const [key, setKey] = useState("");
+  const form = useKeyForm(
+    async () => { await context.host.invoke("set-apns", { keyId: keyId.trim(), teamId: teamId.trim(), key }); setKey(""); },
+    () => (!keyId.trim() || !teamId.trim() || !key.trim() ? "Enter the Key ID, the Team ID and the key (.p8)." : undefined),
+    onDone,
+  );
   return (
     <div className="push-form">
       <div className="push-form-row">
-        <label className="push-field"><span>Key ID</span><input className="settings-input" value={keyId} placeholder="ABC123DEFG" maxLength={10} spellCheck={false} onChange={(event) => setKeyId(event.target.value)} /></label>
-        <label className="push-field"><span>Team ID</span><input className="settings-input" value={teamId} placeholder="DEF123GHIJ" maxLength={10} spellCheck={false} onChange={(event) => setTeamId(event.target.value)} /></label>
+        <label className="push-field"><span>Key ID</span><TextField label="Key ID" value={keyId} placeholder="ABC123DEFG" width="md" mono onCommit={setKeyId} /></label>
+        <label className="push-field"><span>Team ID</span><TextField label="Team ID" value={teamId} placeholder="DEF123GHIJ" width="md" mono onCommit={setTeamId} /></label>
       </div>
       <label className="push-field">
         <span>Key (.p8)</span>
-        <textarea className="settings-input push-key" value={key} rows={4} spellCheck={false} autoComplete="off" placeholder="-----BEGIN PRIVATE KEY-----" onChange={(event) => setKey(event.target.value)} />
+        <TextField label="Key (.p8)" value={key} rows={4} width="full" mono placeholder="-----BEGIN PRIVATE KEY-----" onCommit={setKey} />
       </label>
-      {error ? <p className="push-error" role="alert">{error}</p> : null}
+      {form.error ? <p className="push-error" role="alert">{form.error}</p> : null}
       <div className="push-form-actions">
         <FilePick label="Choose .p8 file…" accept=".p8,.pem,text/plain" onText={setKey} />
-        <button type="button" className="primary" disabled={busy || !keyId.trim() || !teamId.trim() || !key.trim()} onClick={() => void save()}>{busy ? "Checking…" : "Save key"}</button>
+        <Button busy={form.busy} onClick={form.submit}>{form.busy ? "Checking…" : "Save key"}</Button>
       </div>
     </div>
   );
@@ -91,58 +116,48 @@ function ApnsForm({ context, onDone }: { context: DesktopExtensionContext; onDon
 
 function FcmForm({ context, onDone }: { context: DesktopExtensionContext; onDone(): void }) {
   const [text, setText] = useState("");
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const save = async () => {
-    setBusy(true);
-    setError(undefined);
-    try {
-      await context.host.invoke("set-fcm", { serviceAccount: text });
-      setText("");
-      onDone();
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const form = useKeyForm(
+    async () => { await context.host.invoke("set-fcm", { serviceAccount: text }); setText(""); },
+    () => (text.trim() ? undefined : "Paste the service account's JSON, or choose its file."),
+    onDone,
+  );
   return (
     <div className="push-form">
       <label className="push-field">
         <span>Service account (JSON)</span>
-        <textarea className="settings-input push-key" value={text} rows={4} spellCheck={false} autoComplete="off" placeholder='{ "type": "service_account", "project_id": … }' onChange={(event) => setText(event.target.value)} />
+        <TextField label="Service account (JSON)" value={text} rows={4} width="full" mono placeholder='{ "type": "service_account", "project_id": … }' onCommit={setText} />
       </label>
-      {error ? <p className="push-error" role="alert">{error}</p> : null}
+      {form.error ? <p className="push-error" role="alert">{form.error}</p> : null}
       <div className="push-form-actions">
         <FilePick label="Choose JSON file…" accept=".json,application/json" onText={setText} />
-        <button type="button" className="primary" disabled={busy || !text.trim()} onClick={() => void save()}>{busy ? "Checking…" : "Save service account"}</button>
+        <Button busy={form.busy} onClick={form.submit}>{form.busy ? "Checking…" : "Save service account"}</Button>
       </div>
     </div>
   );
 }
 
-/** One service: what is saved, or the form to save it. */
-function KeySection({ title, description, saved, form, onForget }: {
+/** One service: what is saved, or the form to save it. Removing it is in the danger zone. */
+function KeySection({ title, id, row, description, saved, form }: {
   title: string;
+  id: string;
+  row: string;
   description: ReactNode;
   saved: ReactNode | undefined;
   form(done: () => void): ReactNode;
-  onForget(): Promise<void>;
 }) {
   const [replacing, setReplacing] = useState(false);
-  const [busy, setBusy] = useState(false);
   const editing = !saved || replacing;
   return (
     <SettingsSection title={title}>
       <SettingRow
-        title={saved ? "Saved" : "Not set up"}
+        id={id}
+        title={row}
         description={saved ?? description}
-        control={saved ? <>
-          <button type="button" className="chrome-button" onClick={() => setReplacing(!replacing)}>{replacing ? "Keep" : "Replace…"}</button>
-          <button type="button" className="chrome-button danger" disabled={busy} onClick={() => { setBusy(true); void onForget().finally(() => setBusy(false)); }}>Remove</button>
-        </> : undefined}
-      />
-      {editing ? form(() => setReplacing(false)) : null}
+        status={saved ? <Badge tone="success" dot>Saved</Badge> : <Badge>Not set up</Badge>}
+        control={saved ? <Button onClick={() => setReplacing(!replacing)}>{replacing ? "Keep this one" : "Replace…"}</Button> : undefined}
+      >
+        {editing ? form(() => setReplacing(false)) : null}
+      </SettingRow>
     </SettingsSection>
   );
 }
@@ -150,21 +165,19 @@ function KeySection({ title, description, saved, form, onForget }: {
 function DeviceRow({ device, onTest, onRemove }: { device: PushDeviceRow; onTest(): Promise<void>; onRemove(): Promise<void> }) {
   const [busy, setBusy] = useState<"test" | "remove">();
   const run = (what: "test" | "remove", work: () => Promise<void>) => { setBusy(what); void work().finally(() => setBusy(undefined)); };
-  const service = device.platform === "ios" ? "iPhone · Apple Push Notification service" : "Android · Firebase Cloud Messaging";
   const last = device.lastPush;
   return (
-    <div className="connection-row push-device">
-      <span className="push-device-icon" aria-label={service} {...tooltipProps(service)}><Smartphone size={15} aria-hidden="true" /></span>
-      <div className="connection-row-text">
-        <strong>{device.name}</strong>
-        <small>
-          Asked {when(device.registeredAt)}
-          {last ? <> · {last.ok ? `last push ${when(last.at)}` : <span className="push-error">last push failed: {last.detail ?? "no reason given"}</span>}</> : null}
-        </small>
-      </div>
-      <button type="button" className="icon-button bordered" aria-label={`Send a test push to ${device.name}`} disabled={busy !== undefined} {...tooltipProps("Send a test push")} onClick={() => run("test", onTest)}><Send size={13} /></button>
-      <button type="button" className="icon-button bordered" aria-label={`Stop pushes to ${device.name}`} disabled={busy !== undefined} {...tooltipProps("Stop pushes to this device")} onClick={() => run("remove", onRemove)}><Trash2 size={13} /></button>
-    </div>
+    <SettingRow
+      title={<>{device.name} <Badge>{device.platform === "ios" ? "iPhone · APNs" : "Android · FCM"}</Badge></>}
+      description={<>
+        Asked {when(device.registeredAt)}
+        {last ? <> · {last.ok ? `last push ${when(last.at)}` : <span className="push-error">last push failed: {last.detail ?? "no reason given"}</span>}</> : null}
+      </>}
+      control={<span className="push-device-actions">
+        <Button icon={<Send size={13} />} busy={busy === "test"} disabled={busy !== undefined} aria-label={`Send a test push to ${device.name}`} onClick={() => run("test", onTest)}>Send test</Button>
+        <Button variant="ghost" busy={busy === "remove"} disabled={busy !== undefined} aria-label={`Stop pushes to ${device.name}`} onClick={() => run("remove", onRemove)}>Stop pushes</Button>
+      </span>}
+    />
   );
 }
 
@@ -193,7 +206,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
       </p>
     </>;
     if (!status && error) return <div className="settings-page push-settings">{header}<Empty icon={<Lock size={18} />} title="Only this machine can set this up" description={error} /></div>;
-    if (!status) return <div className="settings-page push-settings" aria-busy="true">{header}<Skeleton shape="card" /></div>;
+    if (!status) return <div className="settings-page push-settings">{header}<SettingsState kind="loading" rows={3} title="Reading the push keys" /></div>;
 
     const forget = (service: "apns" | "fcm") => act("forget", { service });
     return (
@@ -207,35 +220,37 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
               ? "The thread's title and what happened: finished, failed, your turn, a question."
               : "The thread's title and the first line of the agent's last message; the reason when it is your turn, the question when it asks."}
             setting={content}
-            control={<div className="segmented" role="group" aria-label="Content">
-              {CONTENTS.map((entry) => (
-                <button key={entry.value} type="button" className={content.value === entry.value ? "active" : ""} aria-pressed={content.value === entry.value} onClick={() => content.set(entry.value)}>{entry.label}</button>
-              ))}
-            </div>}
+            control={<SegmentedControl label="Content" value={content.value} options={CONTENTS} onChange={content.set} />}
           />
         </SettingsSection>
         <KeySection
           title="iPhone: Apple Push Notification service"
+          id="setting-push-apns"
+          row="APNs key"
           description="An APNs key (.p8) from your Apple Developer account, its Key ID and your Team ID."
           saved={status.apns ? <>Key <code>{status.apns.keyId}</code> of team <code>{status.apns.teamId}</code>, saved {when(status.apns.savedAt)}</> : undefined}
           form={(done) => <ApnsForm context={context} onDone={done} />}
-          onForget={() => forget("apns")}
         />
         <KeySection
           title="Android: Firebase Cloud Messaging"
+          id="setting-push-fcm"
+          row="Service account"
           description="A service account of your Firebase project (Project settings → Service accounts → Generate new private key)."
           saved={status.fcm ? <>Project <code>{status.fcm.projectId}</code> as <code>{status.fcm.clientEmail}</code>, saved {when(status.fcm.savedAt)}</> : undefined}
           form={(done) => <FcmForm context={context} onDone={done} />}
-          onForget={() => forget("fcm")}
         />
-        <p className="settings-group-note push-warning">
-          <Lock size={12} aria-hidden="true" /> The keys are kept in <code>{status.file}</code>, a file only your user account
-          can read. They are not encrypted: the host runs without a window, often as a background service, where no
-          keychain is at hand. Anyone who can read your files can send notifications to your phones with them.
-        </p>
-        <SettingsSection title="Devices" plain>
+        <SettingsSection title="Where the keys are kept">
+          <SettingRow
+            id="setting-push-key-file"
+            title="Key file"
+            description="Only your user account can read it, but it is not encrypted: anyone who can read your files can send notifications to your phones with these keys."
+            help="The host runs without a window, often as a background service, where no keychain is at hand."
+            status={<ValueList label="Key file" items={[{ label: "File", value: status.file, mono: true, copy: status.file }]} />}
+          />
+        </SettingsSection>
+        <SettingsSection title="Devices" id="setting-push-devices">
           {status.devices.length === 0
-            ? <Empty size="compact" icon={<BellRing size={16} />} title="No phone has asked yet" description="Open this machine in the Tau app on your phone and allow notifications when it asks." />
+            ? <SettingsState kind="empty" title="No phone has asked yet" description="Open this machine in the Tau app on your phone and allow notifications when it asks." />
             : status.devices.map((device) => (
               <DeviceRow
                 key={device.id}
@@ -252,10 +267,43 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
               />
             ))}
         </SettingsSection>
+        {status.apns || status.fcm ? (
+          <DangerZone>
+            {status.apns ? (
+              <DangerAction
+                title="Remove the APNs key"
+                description="iPhones get no more pushes until you save a key again. Apple lets you download a .p8 key only once."
+                actionLabel="Remove key…"
+                confirmTitle="Remove the APNs key?"
+                confirmMessage={<>Tau deletes key {status.apns.keyId} from this machine and stops sending to iPhones. To send again you need the .p8 file, which Apple offers for download only once.</>}
+                onConfirm={() => void forget("apns")}
+              />
+            ) : null}
+            {status.fcm ? (
+              <DangerAction
+                title="Remove the Firebase service account"
+                description="Android phones get no more pushes until you save a service account again."
+                actionLabel="Remove service account…"
+                confirmTitle="Remove the Firebase service account?"
+                confirmMessage={<>Tau deletes the service account of project {status.fcm.projectId} from this machine and stops sending to Android phones. Firebase can generate a new private key for it.</>}
+                onConfirm={() => void forget("fcm")}
+              />
+            ) : null}
+          </DangerZone>
+        ) : null}
       </div>
     );
   };
 }
+
+/** The rows the Settings search finds; each id is a row's on the page. */
+export const PUSH_ROWS = [
+  { id: "setting-push-content", label: "Content", keywords: ["notification text", "excerpt", "title only"] },
+  { id: "setting-push-apns", label: "APNs key", keywords: ["apple", "iphone", "ios", "p8", "key id", "team id"] },
+  { id: "setting-push-fcm", label: "Service account", keywords: ["firebase", "android", "fcm", "json"] },
+  { id: "setting-push-key-file", label: "Key file", keywords: ["encrypted", "keychain", "storage"] },
+  { id: "setting-push-devices", label: "Devices", keywords: ["phones", "test push", "stop pushes"] },
+];
 
 /**
  * Push's desktop half: Settings → Push, where the owner enters the APNs key
@@ -267,7 +315,17 @@ const push: DesktopExtension = {
   name: "Push",
   activate(context) {
     const store = new StatusStore();
-    return context.registerSettingsPage({ id: "push.settings", label: "Push", Icon: BellRing, group: "remote", order: 46, profiles: ["desktop", "web"], Component: createSettingsPage(context, store) });
+    return context.registerSettingsPage({
+      id: "push.settings",
+      label: "Push",
+      Icon: BellRing,
+      group: "remote",
+      order: 46,
+      profiles: ["desktop", "web"],
+      keywords: ["notifications", "phone", "apns", "firebase", "fcm"],
+      rows: PUSH_ROWS,
+      Component: createSettingsPage(context, store),
+    });
   },
 };
 

@@ -59,13 +59,6 @@
 .appearance-motion-preview > .main > i:nth-child(2) { width: 80%; }
 .appearance-motion-preview > .main > i:nth-child(3) { width: 60%; }
 @media (prefers-reduced-motion: reduce) { .appearance-motion-preview > span { transition: none; } }
-.appearance-page .chrome-button { min-height: 30px; padding: 4px 10px; font-size: 12px; }
-.appearance-slider { display: inline-flex; align-items: center; gap: 12px; width: 220px; }
-.appearance-slider > output {
-  min-width: 48px; padding: 3px 6px; border-radius: var(--radius-sm); background: var(--raised);
-  font: 500 11px var(--mono); color: var(--ink); text-align: center;
-}
-.appearance-slider > input { flex: 1; min-width: 0; accent-color: var(--acid); }
 
 .appearance-editor {
   position: fixed; z-index: 75; top: 58px; right: 12px; bottom: 12px; width: 344px;

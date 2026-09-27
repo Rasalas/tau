@@ -9,6 +9,7 @@ import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
 import { ConnectionsPage } from "./ConnectionsPage";
 import { PairingQrCode, encodePairingQr, qrPath } from "./PairingQrCode";
+import { settingsSearchEntries } from "./settings-search";
 
 afterEach(cleanup);
 
@@ -63,9 +64,12 @@ describe("Settings → Connections", () => {
     const copyText = vi.fn(async () => undefined);
     renderPage({ listConnections: async () => listed, createPairingLink, copyText });
     fireEvent.click(await screen.findByRole("button", { name: /Create link/u }));
-    fireEvent.change(screen.getByPlaceholderText("e.g. Kitchen iPad"), { target: { value: "Laptop" } });
-    fireEvent.click(screen.getByRole("radio", { name: "Read only" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create Link" }));
+    const dialog = screen.getByRole("dialog", { name: "Create pairing link" });
+    const label = within(dialog).getByRole("textbox", { name: "Client label" });
+    fireEvent.change(label, { target: { value: "Laptop" } });
+    fireEvent.blur(label);
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
     await waitFor(() => expect(createPairingLink).toHaveBeenCalledWith({ label: "Laptop", lifetimeMs: 600_000, access: "read-only" }));
     expect(await screen.findByText("Laptop is ready")).toBeTruthy();
     expect(screen.getByText(/No QR code for a loopback address/u)).toBeTruthy();
@@ -114,7 +118,7 @@ describe("Settings → Connections", () => {
     expect(screen.getByText(/without a pairing link/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Allow…" }));
     const dialog = await screen.findByRole("dialog", { name: "Alex’s iPhone wants to connect" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Read only" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(approvePairing).toHaveBeenCalledWith("r1", { access: "read-only" }));
     expect(notify).toHaveBeenCalledWith("Alex’s iPhone can connect now");
@@ -133,9 +137,15 @@ describe("Settings → Connections", () => {
     renderPage({ listConnections: async () => connections(), updateClient });
     fireEvent.click(await screen.findByRole("button", { name: "Settings for Kitchen iPad" }));
     const dialog = await screen.findByRole("dialog", { name: "Settings for Kitchen iPad" });
-    fireEvent.change(within(dialog).getByDisplayValue("Kitchen iPad"), { target: { value: "Hall iPad" } });
+    const name = within(dialog).getByRole("textbox", { name: "Name" });
+    fireEvent.change(name, { target: { value: "" } });
+    fireEvent.blur(name);
+    expect(within(dialog).getByRole("alert").textContent).toBe("Give the device a name to save.");
+    expect((within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(name, { target: { value: "Hall iPad" } });
+    fireEvent.blur(name);
     fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
-    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "never" } });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Sign out after" }), { target: { value: "never" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateClient).toHaveBeenCalledWith("c1", { label: "Hall iPad", access: "read-only", idleTimeoutDays: null }));
   });
@@ -160,6 +170,29 @@ describe("Settings → Connections", () => {
     fireEvent.click(within(screen.getByRole("dialog", { name: "Revoke every other device?" })).getByRole("button", { name: "Revoke others" }));
     await waitFor(() => expect(revokeOtherClients).toHaveBeenCalledOnce());
     expect(notify).toHaveBeenCalledWith("1 device signed out");
+  });
+});
+
+describe("the search's rows on Settings → Connections", () => {
+  it("each lands on an element of the page", async () => {
+    const network: UiNetworkAccess = {
+      settings: { ...DEFAULT_NETWORK_SETTINGS, lan: true, tailscale: true },
+      listeners: [{ host: "::", port: 7788, kind: "network" }],
+      problems: [],
+      tailscaleUp: true,
+      certificate: { source: "self-signed", fingerprint: "AB:CD", validTo: "2028-12-01T00:00:00.000Z", certPath: "/u/tls/host-cert.pem", warnings: [] },
+    };
+    const linux = {
+      supported: true, manager: "systemd" as const, label: "tau-host.service", installed: true, running: true, serving: true, stale: false,
+      logPath: "/u/logs/host-service.log", problems: [],
+      display: { supported: true, installed: true, display: ":99", xvfbRunning: true, windowRunning: false, idleMinutes: 10 },
+    };
+    renderPage({ listConnections: async () => connections({ network, fingerprint: "AB:CD" }), serviceStatus: async () => linux });
+    await screen.findByText(":99 · window starts when needed");
+    const targets = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "connections" && entry.target);
+    expect(targets.length).toBeGreaterThan(10);
+    for (const entry of targets) expect(document.getElementById(entry.target!), entry.label).toBeTruthy();
+    expect(document.querySelectorAll("#setting-certificate")).toHaveLength(1);
   });
 });
 
@@ -188,7 +221,7 @@ describe("Settings → Connections → Network access", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Local network" }));
     expect(setNetworkAccess).not.toHaveBeenCalled();
     expect(screen.getByText("Let devices on your network connect?")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Turn On" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ lan: true }));
     expect(notify).toHaveBeenCalledWith("Local network on");
     expect(await screen.findByText("https://192.168.1.20:7788/")).toBeTruthy();
@@ -212,15 +245,16 @@ describe("Settings → Connections → Network access", () => {
   it("changes the port only to one in range that is not the proxy's", async () => {
     const setNetworkAccess = vi.fn(async () => off);
     renderPage({ listConnections: async () => connections({ network: off }), setNetworkAccess });
-    const port = await screen.findByRole("textbox", { name: "Port" });
-    const apply = screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement;
-    expect(apply.disabled).toBe(true);
-    for (const refused of ["80", "7789"]) {
-      fireEvent.change(port, { target: { value: refused } });
-      expect(apply.disabled).toBe(true);
-    }
+    const port = await screen.findByRole("spinbutton", { name: "Port" });
+    fireEvent.change(port, { target: { value: "80" } });
+    fireEvent.blur(port);
+    expect(screen.getByRole("alert").textContent).toBe("Enter a number from 1024 to 65535.");
+    fireEvent.change(port, { target: { value: String(off.settings.proxyPort) } });
+    fireEvent.blur(port);
+    expect(screen.getByRole("alert").textContent).toBe(`${off.settings.proxyPort} is the proxy listener’s port. Pick another.`);
+    expect(setNetworkAccess).not.toHaveBeenCalled();
     fireEvent.change(port, { target: { value: "8443" } });
-    fireEvent.click(apply);
+    fireEvent.keyDown(port, { key: "Enter" });
     await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ port: 8443 }));
   });
 
@@ -229,16 +263,23 @@ describe("Settings → Connections → Network access", () => {
     const reloadCertificate = vi.fn(async () => ({ changed: true }));
     const network: UiNetworkAccess = { ...off, certificate: { source: "self-signed", fingerprint: "AB:CD", validTo: "2028-12-01T00:00:00.000Z", certPath: "/u/tls/host-cert.pem", warnings: [] } };
     const { notify } = renderPage({ listConnections: async () => connections({ network }), setNetworkAccess, reloadCertificate });
-    fireEvent.click(await screen.findByRole("button", { name: "Use Own…" }));
-    fireEvent.change(screen.getByPlaceholderText("/path/to/machine.crt"), { target: { value: "/c.pem" } });
-    fireEvent.change(screen.getByPlaceholderText("/path/to/machine.key"), { target: { value: "/k.pem" } });
-    fireEvent.click(screen.getByRole("button", { name: "Use Certificate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own…" }));
+    const dialog = screen.getByRole("dialog", { name: "Use your own certificate" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use certificate" }));
+    expect(within(dialog).getByRole("alert").textContent).toBe("Enter the path of both files.");
+    const cert = within(dialog).getByRole("textbox", { name: "Certificate file" });
+    fireEvent.change(cert, { target: { value: "/c.pem" } });
+    fireEvent.blur(cert);
+    const key = within(dialog).getByRole("textbox", { name: "Key file" });
+    fireEvent.change(key, { target: { value: "/k.pem" } });
+    // Enter in a field commits it and submits the dialog.
+    fireEvent.keyDown(key, { key: "Enter" });
     await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ certificate: { certPath: "/c.pem", keyPath: "/k.pem" } }));
     expect(notify).toHaveBeenCalledWith("/c.pem holds no PEM certificate");
     expect(screen.getByText("Use your own certificate")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    fireEvent.click(screen.getByRole("button", { name: "Read again" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau now serves the renewed certificate"));
   });
 });
@@ -284,9 +325,9 @@ describe("Bonjour in Settings → Connections", () => {
     expect(within(list).getAllByTitle(`SHA-256 ${FP}`)).toHaveLength(2);
 
     discoverHosts.mockResolvedValueOnce({ serviceType: "_tau._tcp", hosts: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Search Again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search again" }));
     expect(await screen.findByText("No Tau on this network")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByText("Machines on this network")).toBeNull();
   });
 

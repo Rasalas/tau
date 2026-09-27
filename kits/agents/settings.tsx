@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SettingRow, SettingsSection, errorMessage, useSetting, type HostExtensionClient, type SettingsPageProps } from "tau";
+import { Button, Select, SettingRow, SettingsSection, errorMessage, useSetting, type HostExtensionClient, type SettingsPageProps } from "tau";
 import {
   AGENTS_HOST_EXTENSION_ID,
   AUTO_MACHINE,
@@ -36,6 +36,7 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
   return function AgentsSettingsPage(_props: SettingsPageProps) {
     const [view, setView] = useState<AgentMachinesView>();
     const [error, setError] = useState<string>();
+    const [attempt, setAttempt] = useState(0);
     const setting = useSetting<string>(`values.${AGENTS_HOST_EXTENSION_ID}.${MACHINE_SETTING}`, {
       defaultValue: LOCAL_MACHINE,
       read: readMachineChoice,
@@ -43,18 +44,19 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
     });
     useEffect(() => {
       let live = true;
+      setError(undefined);
       host.invoke("machines").then((answer) => { if (live && isAgentMachinesView(answer)) setView(answer); }, (reason: unknown) => { if (live) setError(errorMessage(reason)); });
       return () => { live = false; };
-    }, []);
+    }, [attempt]);
     const machines = view?.machines.filter((machine) => !machine.readOnly) ?? [];
     const choices = [
       { value: LOCAL_MACHINE, label: "This computer" },
-      ...machines.map((machine) => ({ value: machine.id, label: machine.name })),
+      ...machines.map((machine) => ({ value: machine.id, label: machine.status === "connected" ? machine.name : `${machine.name} (${machine.status})` })),
       // A choice that points at a machine no longer listed stays visible, so it can be changed.
-      ...(setting.value !== LOCAL_MACHINE && setting.value !== AUTO_MACHINE && !machines.some((machine) => machine.id === setting.value) ? [{ value: setting.value, label: setting.value }] : []),
+      ...(setting.value !== LOCAL_MACHINE && setting.value !== AUTO_MACHINE && !machines.some((machine) => machine.id === setting.value) ? [{ value: setting.value, label: `${setting.value} (not reachable)` }] : []),
       { value: AUTO_MACHINE, label: "Automatic" },
     ];
-    const none = view && !view.available ? "This host keeps no other machines for its agents." : view && machines.length === 0 ? "Pair a machine in Settings → Machines and let this computer's agents in to run sub-agents there." : undefined;
+    const none = view && !view.available ? "This host keeps no other machines for its agents." : view && machines.length === 0 ? "To run them elsewhere, pair a machine in Settings → Machines and let this computer's agents in." : undefined;
     return (
       <div className="settings-page agents-settings">
         <h3>Agents</h3>
@@ -62,13 +64,16 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
           <SettingRow
             id="setting-agents-machine"
             title="Run sub-agents on"
-            description={[machineChoiceText(setting.value, view?.machines ?? []), none ?? error].filter(Boolean).join(" ")}
+            description={machineChoiceText(setting.value, view?.machines ?? [])}
+            help="Where a sub-agent runs when its spawn names no machine. A spawn that names one goes there."
+            status={error ? (
+              <p role="alert">
+                The list of machines did not load: {error} Only This computer and Automatic are offered.{" "}
+                <Button variant="ghost" onClick={() => setAttempt((count) => count + 1)}>Try again</Button>
+              </p>
+            ) : none ? <p>{none}</p> : undefined}
             setting={setting}
-            control={<div className="segmented" role="group" aria-label="Run sub-agents on">
-              {choices.map((choice) => (
-                <button key={choice.value} type="button" className={choice.value === setting.value ? "active" : ""} aria-pressed={choice.value === setting.value} onClick={() => setting.set(choice.value)}>{choice.label}</button>
-              ))}
-            </div>}
+            control={<Select label="Run sub-agents on" value={setting.value} options={choices} width="md" onChange={setting.set} />}
           />
         </SettingsSection>
       </div>

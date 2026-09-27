@@ -1,7 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { CircleCheck, RefreshCw, SquareTerminal, TriangleAlert } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import {
   DEFAULT_INSTANCE_ID,
+  SettingRow,
+  SettingsState,
   isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   loadRuntimeUpdateToasts,
@@ -39,6 +41,8 @@ const TERMINAL_PANEL = "terminal";
 
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
+const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
+const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 
 /** Marks the runtime behind a Codex thread with an icon, its name in the tooltip; other threads show nothing. */
@@ -77,30 +81,6 @@ export async function typeIntoTerminal(terminal: HostExtensionClient, actions: W
     await (actions?.copyText(command) ?? navigator.clipboard?.writeText(command));
     return "copied";
   }
-}
-
-/** The executable's path, saved when the field is left or Enter is pressed; empty goes back to the PATH. */
-export function CommandPathField({ status, onSave }: { status: CodexStatusReport | undefined; onSave(command: string): Promise<void> }) {
-  const saved = status?.commandSource === "setting" ? status.command : "";
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
-  const fromEnv = status?.commandSource === "env";
-  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
-  return (
-    <>
-      <input
-        className="settings-search-input codex-path"
-        aria-label="Codex executable"
-        value={fromEnv ? status!.command : draft}
-        placeholder="codex, from your login shell's PATH"
-        disabled={fromEnv || !status}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
-      />
-      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_CODEX_COMMAND</code> in Tau's environment.</> : <>A name on the PATH or an absolute path; leave it empty to find <code>codex</code> on the PATH.</>}</p>
-    </>
-  );
 }
 
 /** The instances the host keeps, for every card and the banner; updated by the host's push. */
@@ -202,77 +182,95 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
     onNotify(where === "terminal" ? "The command is in a terminal; press Enter there to run it." : "No terminal is available; the command is on the clipboard.");
   };
 
-  const known = status !== undefined;
-  const found = Boolean(status?.path);
   const run = runner?.();
+  const rows = rowIds(instance);
+  const label = view?.label ?? "Codex";
   const compatibility = status?.compatibility && status.compatibility.status !== "supported" ? status.compatibility : undefined;
   return (
-    <>
-      <p className="settings-note">
-        {isDefault
-          ? <>Threads drive the CLI you installed, through its app server, with its login and the sessions in your {" "}<code>~/.codex</code> (or <code>CODEX_HOME</code>). Tau reads no credential.</>
-          : <>A second Codex setup: threads started on it keep it, with the login and sessions of its own home. Tau reads no credential.</>}
-      </p>
-
-      <div className="settings-label">CLI</div>
-      <div className="settings-field codex-field">
-        {found && !status?.unsupported && !compatibility ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : found ? `Found${status?.version ? ` · ${status.version}` : ""}` : `${status.command} was not found`}</strong>
-          <small>{!known ? "" : found ? status.path : status.message ?? "Install it, or set its path below."}</small>
-        </span>
-        <button className="codex-action" disabled={busy} onClick={() => void read(true)}>
-          <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
-        </button>
-      </div>
-      {compatibility && status ? (
-        <div className="codex-version">
-          <Suspense fallback={null}>
-            <VersionBanner
-              backend={{ kind: view?.kind ?? CODEX_BACKEND_KIND, label: view?.label ?? "Codex", version: { tool: "codex", ...(status.version ? { installed: status.version } : {}), ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}), compatibility } }}
-              onInstall={(command) => void runCommand(command)}
-              onCopy={(command) => void actions?.copyText(command)}
-            />
-          </Suspense>
-        </div>
-      ) : null}
-      {!compatibility && status?.unsupported ? <p className="settings-note" data-level="error">Tau speaks to Codex {MIN_CODEX_VERSION} and newer. Update it with <code>{status.updateCommand}</code>.</p> : null}
-      {!compatibility && !status?.unsupported && status?.updateAvailable ? <p className="settings-note">Codex {status.latest} is out. Update with <code>{status.updateCommand}</code>.</p> : null}
-
-      <Suspense fallback={null}>
-        <SignIn
-          host={host}
-          target={instance}
-          program={view?.label ?? "Codex"}
-          {...(run ? { runInTerminal: (command: string) => run.run({ command, label: `Sign in to ${view?.label ?? "Codex"}` }, actions) } : {})}
-          openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
-          copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
-          onNotify={onNotify}
-          onReport={(next) => { if (next.flow?.phase === "succeeded") void read(false); }}
+    <Suspense fallback={<SettingsState kind="loading" rows={3} title={`Loading ${label}`} />}>
+      <ProgramRows
+        program={label}
+        idPrefix={rows.prefix}
+        help={isDefault
+          ? "Threads drive the CLI you installed, through its app server, with its login and the sessions in its home. Tau reads no credential."
+          : "A second Codex setup: threads started on it keep it, with the login and sessions of its own home. Tau reads no credential."}
+        {...(status ? { state: {
+          found: Boolean(status.path),
+          ...(status.version ? { version: status.version } : {}),
+          ...(status.path ? { location: status.path } : {}),
+          ...(status.message ? { message: status.message } : {}),
+          ...(status.unsupported ? { unsupported: true, minimum: MIN_CODEX_VERSION } : {}),
+          ...(status.updateAvailable && status.latest ? { latest: status.latest } : {}),
+          ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}),
+          ...(compatibility ? { compatibility } : {}),
+        } } : {})}
+        missing="Install it, or set its executable below."
+        busy={busy}
+        {...(error ? { error } : {})}
+        onCheck={() => void read(true)}
+        onRunCommand={(command) => void runCommand(command)}
+      />
+      <SignIn
+        host={host}
+        target={instance}
+        program={label}
+        rowId={rows.account}
+        {...(run ? { runInTerminal: (command: string) => run.run({ command, label: `Sign in to ${label}` }, actions) } : {})}
+        openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
+        copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
+        onNotify={onNotify}
+        onReport={(next) => { if (next.flow?.phase === "succeeded") void read(false); }}
+      />
+      {status?.codexHome ? (
+        <SettingRow
+          id={rows.home}
+          title="Home"
+          description={<><code>{status.codexHome}</code>{status.models ? ` · ${status.models} models; pick one and its reasoning effort per thread in the composer.` : ""}</>}
         />
-      </Suspense>
-      {status?.codexHome ? <p className="settings-note">Home: <code>{status.codexHome}</code>{status.models ? ` · ${status.models} models; pick one and its reasoning effort per thread in the composer.` : ""}</p> : null}
-
-      <div className="settings-label">Path</div>
-      <CommandPathField status={status} onSave={saveCommand} />
-
-      {error ? <p className="settings-note" data-level="error">{error}</p> : null}
-      {view ? (
-        <Suspense fallback={null}>
-          <InstanceSetup
-            program="Codex"
-            homeVariable={CODEX_HOME_VARIABLE}
-            homePlaceholder="~/.codex"
-            commandPlaceholder="codex"
-            instance={view}
-            instances={report.instances}
-            onSave={saveInstance}
-            {...(isDefault ? {} : { onRemove: remove })}
-          />
-        </Suspense>
       ) : null}
-    </>
+      <CommandRow
+        id={rows.executable}
+        program={label}
+        commandName="codex"
+        variable="TAU_CODEX_COMMAND"
+        known={status !== undefined}
+        {...(status ? { command: status.command } : {})}
+        {...(status?.commandSource ? { source: status.commandSource } : {})}
+        placeholder="codex, from your login shell's PATH"
+        onSave={saveCommand}
+      />
+      {view ? (
+        <InstanceSetup
+          program="Codex"
+          homeVariable={CODEX_HOME_VARIABLE}
+          homePlaceholder="~/.codex"
+          commandPlaceholder="codex"
+          instance={view}
+          instances={report.instances}
+          rowId={rows.setup}
+          onSave={saveInstance}
+          {...(isDefault ? {} : { onRemove: remove })}
+        />
+      ) : null}
+    </Suspense>
   );
+}
+
+/** The element ids of an instance's rows; every instance's card sits on the same page, so each carries its id. */
+export function rowIds(instance: string) {
+  const prefix = instance === DEFAULT_INSTANCE_ID ? "setting-codex" : `setting-codex-${instance}`;
+  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, home: `${prefix}-home`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
+}
+
+/** What the Settings search finds on an instance's card. */
+export function searchRows(instance: string, label: string) {
+  const ids = rowIds(instance);
+  return [
+    { id: ids.program, label: `${label} CLI`, keywords: ["codex", "version", "update", "install", "installed", "check"] },
+    { id: ids.account, label: `${label} account`, keywords: ["codex", "sign in", "sign out", "login", "chatgpt", "api key"] },
+    { id: ids.executable, label: `${label} executable`, keywords: ["codex", "path", "command", "binary"] },
+    { id: ids.setup, label: `${label} instance setup`, keywords: ["codex", "instance", "home", "CODEX_HOME", "environment", "arguments"] },
+  ];
 }
 
 const EMPTY_REPORT: CodexInstancesReport = { instances: [] };
@@ -377,6 +375,7 @@ export const codexExtension: DesktopExtension = {
       runtime: entry.kind,
       order,
       keywords: ["codex", "instance", entry.id],
+      rows: searchRows(entry.id, entry.label),
       Component: card(entry.id),
     });
     cards.set(DEFAULT_INSTANCE_ID, {

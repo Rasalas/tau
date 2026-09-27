@@ -24,10 +24,10 @@ import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } fr
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { WorkspaceTitleActions } from "./title.js";
-import { createStoragePage } from "./storage-page.js";
+import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
-import { SourceControlPage } from "./source-control-page.js";
+import { SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage } from "./source-control-page.js";
 
 /** T3 Code asks every 30 s while it fetches anyway; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -145,6 +145,7 @@ export const workspaceExtension: DesktopExtension = {
       Icon: HardDrive,
       order: 50,
       keywords: ["worktrees", "cleanup", "disk space", "delete worktree"],
+      rows: STORAGE_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
       Component: createStoragePage({
         report: () => storageCall("storage-report", undefined),
@@ -162,6 +163,7 @@ export const workspaceExtension: DesktopExtension = {
       order: 35,
       scope: "both",
       keywords: ["git", "worktree", "submodules", "pull", "fast-forward", "default branch", "clone", "base folder", "origin"],
+      rows: SOURCE_CONTROL_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
       Component: SourceControlPage,
     });

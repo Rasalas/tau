@@ -2,9 +2,21 @@ import { useState } from "react";
 import type { DeviceAccess, UiPairingRequest } from "../../shared/connections";
 import { formatVerification } from "../../shared/pairing";
 import { Dialog } from "../components/ui/Dialog";
+import { Button, SegmentedControl } from "../settings/controls";
 import { describeDevice } from "../settings/connections-format";
+import { DialogClose } from "./dialog-parts";
 import { ACCESS_CHOICES, requestTitle } from "./pairing-format";
 import "./pairing.css";
+
+/** Full or Read only, with what the chosen one allows under it. */
+export function AccessChoice({ value, disabled, onChange }: { value: DeviceAccess; disabled?: boolean; onChange(value: DeviceAccess): void }) {
+  return (
+    <div className="pairing-access">
+      <SegmentedControl label="Access" value={value} disabled={disabled} options={ACCESS_CHOICES.map((choice) => ({ value: choice.value, label: choice.label }))} onChange={onChange} />
+      <small>{ACCESS_CHOICES.find((choice) => choice.value === value)?.hint}</small>
+    </div>
+  );
+}
 
 /**
  * "<device> wants to connect": the owner compares the code with the one on
@@ -30,17 +42,12 @@ export function PairingRequestDialog({ request, busy, onAllow, onDeny, onClose }
       {request.companion ? (
         <p>Its agents come in too, as a second device “{request.companion.name}” with the same access, so they can work here while no window of it is open. Revoke either one alone later.</p>
       ) : null}
-      <div className="segmented pairing-access" role="group" aria-label="Access">
-        {ACCESS_CHOICES.map((choice) => (
-          <button key={choice.value} type="button" title={choice.hint} className={choice.value === access ? "active" : ""} aria-pressed={choice.value === access} onClick={() => setAccess(choice.value)}>
-            {choice.label}
-          </button>
-        ))}
-      </div>
+      <AccessChoice value={access} disabled={busy} onChange={setAccess} />
       <footer>
-        <button type="button" className="danger" disabled={busy} onClick={onDeny}>Deny</button>
-        <button type="button" className="primary" disabled={busy} onClick={() => onAllow(access)}>{busy ? "Allowing…" : "Allow"}</button>
+        <Button variant="danger" disabled={busy} onClick={onDeny}>Deny</Button>
+        <Button variant="primary" busy={busy} onClick={() => onAllow(access)}>{busy ? "Allowing…" : "Allow"}</Button>
       </footer>
+      <DialogClose label="Decide later" onClose={onClose} />
     </Dialog>
   );
 }

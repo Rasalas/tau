@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { AntigravityProviderCard, antigravityExtension, signInLinks } from "./desktop.js";
+import { AntigravityProviderCard, SEARCH_ROWS, antigravityExtension, signInLinks } from "./desktop.js";
 import { ANTIGRAVITY_INSTALL_EVENT, type AntigravityInstallEvent } from "./protocol.js";
 
 afterEach(() => { cleanup(); signInLinks.clear(); });
@@ -58,17 +58,17 @@ describe("Antigravity desktop extension", () => {
     const onNotify = vi.fn();
     render(<AntigravityProviderCard onNotify={onNotify} host={host} />);
     // The page says "Checking…" until the host answers, so this waits for a real state.
-    expect(screen.getAllByText("Checking…").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText("Checking…").length).toBeGreaterThan(0));
     fireEvent.click(await screen.findByRole("button", { name: /Install agy_acp_server_1\.1\.1/u }));
-    expect(screen.getByText("Not installed")).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("Installing…")).toBeTruthy());
+    expect(screen.getByText("Antigravity is not installed.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Installing…" })).toBeTruthy());
     emit(ANTIGRAVITY_INSTALL_EVENT, { phase: "downloading", downloadedBytes: 150 * 1024 * 1024, totalBytes: 300 * 1024 * 1024 } satisfies AntigravityInstallEvent);
     expect(screen.getByRole("status").textContent).toBe("Downloading 50% (150 of 300 MB)");
     emit(ANTIGRAVITY_INSTALL_EVENT, { phase: "verifying" } satisfies AntigravityInstallEvent);
     expect(screen.getByRole("status").textContent).toBe("Verifying…");
 
     finish();
-    await waitFor(() => expect(screen.getByText(/^Installed/u)).toBeTruthy());
+    await waitFor(() => expect(document.getElementById("setting-antigravity-runtime")?.textContent).toContain("agy_acp_server_1.1.1 · downloaded by Tau · /state/agy_acp_server.par"));
     expect(onNotify).toHaveBeenCalledWith("Antigravity is installed.");
     expect(screen.queryByRole("button", { name: /Install/u })).toBeNull();
   });
@@ -87,12 +87,15 @@ describe("Antigravity desktop extension", () => {
     expect(await screen.findByText("Google account")).toBeTruthy();
     expect(screen.getByText(/pencil/u)).toBeTruthy();
     await waitFor(() => expect((screen.getByLabelText("Google Cloud project") as HTMLInputElement).value).toBe("acme-dev"));
+    for (const row of SEARCH_ROWS) expect(document.getElementById(row.id), row.id).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Sign out" }).at(-1)!);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Sign out of Antigravity (Google account)?" })).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
     expect(onNotify).toHaveBeenCalledWith("Signed out of Antigravity.");
-    expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in", description: "Sign in with Google" })).toBeTruthy();
 
+    // The fields are inert until the host answered, then drawn anew.
+    await waitFor(() => expect(screen.getByLabelText("Google Cloud location").closest("[inert]")).toBeNull());
     const field = screen.getByLabelText("Google Cloud location");
     fireEvent.change(field, { target: { value: "europe-west4" } });
     fireEvent.blur(field);

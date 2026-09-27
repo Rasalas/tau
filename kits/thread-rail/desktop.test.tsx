@@ -546,6 +546,20 @@ describe("Thread Rail on the desktop", () => {
       expect(getByRole("switch", { name: "Before deleting a thread" }).getAttribute("aria-checked")).toBe("true");
       act(() => { fireEvent.click(archive); });
       expect(preferences.optionValue(THREAD_RAIL_EXTENSION_ID, "confirm-archive", false)).toBe(true);
+      for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
+    });
+
+    it("settles after a quiet spell chosen from a menu", async () => {
+      const { registry, preferences, calls } = setup({ confirmations: true });
+      await flush();
+      const page = registry.getSettingsPages().find((entry) => entry.id === "thread-rail.settings")!;
+      const { getByRole } = render(<TestProviders preferences={preferences}><page.Component cwd="/project" onNotify={() => undefined} /></TestProviders>);
+      const menu = getByRole("combobox", { name: "Settle after a quiet spell" }) as HTMLSelectElement;
+      expect([...menu.options].map((option) => option.textContent)).toEqual(["Off", "1 day", "3 days", "7 days", "30 days"]);
+      await act(async () => { fireEvent.change(menu, { target: { value: "7" } }); await flush(); });
+      expect(calls("settings").at(-1)).toEqual({ inactiveDays: 7 });
+      await act(async () => { fireEvent.change(menu, { target: { value: "off" } }); await flush(); });
+      expect(calls("settings").at(-1)).toEqual({ inactiveDays: null });
     });
   });
 });

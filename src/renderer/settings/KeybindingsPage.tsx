@@ -4,12 +4,13 @@ import type { ExtensionRegistry, KeybindingCollision, ResolvedKeybinding, UserKe
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { chordFromKeyboardEvent, formatKeyChord, isMacPlatform, parseKeyChord } from "../keybindings";
 import { Menu } from "../components/Menu";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { errorMessage } from "../../workbench/error-message";
 import { chordsAfterEdit, keybindingSource, pressesKeys, whenError, whenSuggestions } from "./keybinding-editor";
+import { Badge, Button, HelpTip, SettingsState, TextField } from "./controls";
 import { SettingsSection } from "./settings-layout";
 
-const SUGGESTIONS_ID = "keybinding-when-suggestions";
 
 const chordLabel = (keys: string, mac: boolean) => {
   const chord = parseKeyChord(keys);
@@ -135,18 +136,18 @@ function DraftPanel({ context, commandId, label, editor, commandLabel }: {
     >
       <label className="keybinding-when">
         <span>When</span>
-        <input
-          className="settings-input"
-          list={SUGGESTIONS_ID}
+        {/* Checked, with its collisions, at each key. */}
+        <TextField
+          label={`When clause for ${label}`}
           value={draft.when}
           placeholder="Everywhere"
-          aria-label={`When clause for ${label}`}
-          aria-invalid={error ? true : undefined}
+          mono
           autoFocus={draft.whenOnly}
-          onChange={(event) => editor.setWhen(event.target.value)}
+          suggestions={whenSuggestions(context.registry.getKeybindings())}
+          error={error}
+          onChange={editor.setWhen}
         />
       </label>
-      {error ? <p className="keybinding-draft-error" role="alert">{error}</p> : null}
       {[...here.map((hit) => [hit, context.mac, ""] as const), ...there.map((hit) => [hit, !context.mac, ` ${elsewhere}`] as const)].map(([hit, mac, where]) => (
         <p className="keybinding-collision" data-outcome={hit.outcome} key={`${hit.binding.commandId}${where}`}>
           <TriangleAlert size={12} aria-hidden />
@@ -154,10 +155,8 @@ function DraftPanel({ context, commandId, label, editor, commandLabel }: {
         </p>
       ))}
       <div className="keybinding-draft-actions">
-        <button type="button" className="chrome-button" onClick={editor.cancel} disabled={editor.saving}>Cancel</button>
-        <button type="button" className="chrome-button accent" autoFocus={!draft.whenOnly} onClick={() => void editor.save()} disabled={!editor.dirty || Boolean(error) || editor.saving}>
-          {editor.saving ? "Saving…" : "Save"}
-        </button>
+        <Button onClick={editor.cancel} disabled={editor.saving}>Cancel</Button>
+        <Button variant="primary" autoFocus={!draft.whenOnly} busy={editor.saving} onClick={() => void editor.save()} disabled={!editor.dirty || Boolean(error)}>Save</Button>
       </div>
     </div>
   );
@@ -182,7 +181,7 @@ function RowMenu({ label, items, onSelect }: { label: string; items: Array<{ id:
   if (items.length === 0) return null;
   return (
     <span className="menu-anchor keybinding-row-menu">
-      <button type="button" className="text-button" aria-label={`More for ${label}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="tau-icon-button" aria-label={`More for ${label}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <MoreHorizontal size={14} />
       </button>
       {open ? <Menu align="right" label={`More for ${label}`} items={items} onSelect={onSelect} onClose={() => setOpen(false)} /> : null}
@@ -205,8 +204,8 @@ function KeybindingRow({ binding, commandLabel, context, siblings }: {
     <span>
       <strong>
         {label}
-        {source === "custom" ? <em className="keybinding-badge">Custom</em> : null}
-        {source === "config" ? <em className="keybinding-badge" {...tooltipProps("Set in config.json's keybindings; change it there")}>config.json</em> : null}
+        {source === "custom" ? <Badge>Custom</Badge> : null}
+        {source === "config" ? <span {...tooltipProps("Set in config.json's keybindings; change it there")}><Badge>config.json</Badge></span> : null}
       </strong>
       <small>{binding.commandId} · {binding.extensionName.toLowerCase()}{binding.when ? <> · when <code>{binding.when}</code></> : null}</small>
     </span>
@@ -291,7 +290,7 @@ function EditableCommandRow({ command, context, commandLabel, row }: {
   return (
     <div className="keybinding-row-group" data-editing={adder.draft ? "" : undefined}>
       {row(adder.draft ? <ChordControl label={command.label} editor={adder} mac={context.mac} /> : (
-        <button type="button" className="text-button" aria-label={`Add a chord for ${command.label}`} {...tooltipProps("Add a chord")} onClick={adder.record}><Plus size={13} /></button>
+        <button type="button" className="tau-icon-button" aria-label={`Add a chord for ${command.label}`} {...tooltipProps("Add a chord")} onClick={adder.record}><Plus size={14} /></button>
       ))}
       <DraftPanel context={context} commandId={command.id} label={command.label} editor={adder} commandLabel={commandLabel} />
     </div>
@@ -334,7 +333,7 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
   const filteredCommands = commands.filter((c) => (!keyFilter || keybindings.some((b) => b.commandId === c.id && pressed(b))) && matches(c.label, c.id, c.group));
   // Pi actions Tau has no command for stay Pi's, so they do not call for Reset all.
   const custom = implemented.some((binding) => keybindingSource(binding, keymap?.extensionId) === "custom");
-  const noMatch = keyFilter ? `No keybindings press ${chordLabel(keyFilter, mac)}.` : <>No keybindings match &ldquo;{filter}&rdquo;.</>;
+  const noMatch = keyFilter ? `No keybinding presses ${chordLabel(keyFilter, mac)}` : `No keybinding matches “${filter.trim()}”`;
 
   const resetAll = async () => {
     setConfirmReset(false);
@@ -345,57 +344,56 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
     }
   };
 
+  const clearFilter = () => { setFilter(""); setKeyFilter(undefined); };
+  const filtering = Boolean(query || keyFilter);
+
   return (
     <div className="settings-page">
       {keymap ? (
-        <p className="lede">Chords bound to workbench commands and Pi actions. Click a chord and press the new keys, or pick where it applies; a save writes <code>{keymap.label}</code> and applies at once. A chord without a <code>when</code> clause keeps its default&rsquo;s.</p>
+        <p className="lede">Chords bound to workbench commands and Pi actions. Click a chord and press the new keys, or pick where it applies from its menu; a save writes <code>{keymap.label}</code> and applies at once. A chord without a <code>when</code> clause keeps its default&rsquo;s.</p>
       ) : (
         <p className="lede">Chords bound to workbench commands and Pi actions. Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>, as a chord or as <code>{"{"} "key": "mod+d", "when": "terminalFocus" {"}"}</code> to say where it applies; a rebound chord without <code>when</code> keeps the default&rsquo;s.</p>
       )}
 
       <div className="keybinding-search">
         <label className="settings-filter">
-          <Search size={14} />
+          <Search size={14} aria-hidden />
           {searchingKeys ? (
             <ChordRecorder label="Press the keys to search for" placeholder="Press the keys to search for…" mac={mac} onRecord={(keys) => { setKeyFilter(keys); setFilter(""); setSearchingKeys(false); }} onStop={() => setSearchingKeys(false)} />
           ) : keyFilter ? (
             <span className="keybinding-key-filter">
               <kbd>{chordLabel(keyFilter, mac)}</kbd>
-              <button type="button" className="text-button" aria-label="Clear the key search" onClick={() => setKeyFilter(undefined)}><X size={12} /></button>
+              <button type="button" className="tau-icon-button" aria-label="Clear the key search" onClick={() => setKeyFilter(undefined)}><X size={13} /></button>
             </span>
           ) : (
-            <input
-              type="search"
-              placeholder="Filter keybindings or commands…"
-              aria-label="Filter keybindings or commands"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
+            <>
+              <input
+                type="search"
+                placeholder="Filter keybindings or commands…"
+                aria-label="Filter keybindings or commands"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }}
+              />
+              {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
+            </>
           )}
         </label>
-        <button
-          type="button"
-          className="icon-button bordered"
+        <Button
+          className="keybinding-keys-button"
+          icon={<Keyboard size={15} />}
           aria-label="Search by keys"
           aria-pressed={searchingKeys}
           {...tooltipProps("Search by pressing the keys")}
           onClick={() => setSearchingKeys(!searchingKeys)}
-        ><Keyboard size={15} /></button>
+        />
       </div>
-
-      {confirmReset ? (
-        <div className="settings-note keybinding-reset-confirm" role="alertdialog" aria-label="Reset all keybindings">
-          <span>Give every command its default chords back? This rewrites <code>{keymap?.label}</code>.</span>
-          <button type="button" className="chrome-button" onClick={() => setConfirmReset(false)}>Cancel</button>
-          <button type="button" className="chrome-button accent" autoFocus onClick={() => void resetAll()}>Reset all</button>
-        </div>
-      ) : null}
 
       <SettingsSection
         title={`Active keybindings (${filteredBindings.length})`}
         headerAction={<>
-          {keymap && custom ? <button className="text-button" onClick={() => setConfirmReset(true)}>Reset all</button> : null}
-          <button className="text-button" onClick={() => setShowAllCommands((v) => !v)}>{showAllCommands ? "Hide command ids" : "Show all command ids"}</button>
+          {keymap && custom ? <Button variant="ghost" onClick={() => setConfirmReset(true)}>Reset all</Button> : null}
+          <Button variant="ghost" onClick={() => setShowAllCommands((v) => !v)}>{showAllCommands ? "Hide command ids" : "Show all command ids"}</Button>
         </>}
       >
         {filteredBindings.map((binding) => (
@@ -408,15 +406,17 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
           />
         ))}
         {filteredBindings.length === 0 ? (
-          <div className="keybinding-row"><span>{noMatch}</span></div>
+          filtering
+            ? <SettingsState kind="empty" title={noMatch} description="Search by a command's name, its id, its keys or where it applies." action={<Button onClick={clearFilter}>Clear the search</Button>} />
+            : <SettingsState kind="empty" title="No keybindings" description="Extensions bind their chords as they load; none has bound one yet." />
         ) : null}
       </SettingsSection>
 
       {filteredUnimplemented.length > 0 ? (
-        <SettingsSection title={`Not implemented by Tau (${filteredUnimplemented.length})`}>
-          <p className="settings-group-note">
-            <code>~/.pi/agent/keybindings.json</code> names these Pi actions, but Tau has no command for them, so pressing the chord does nothing.
-          </p>
+        <SettingsSection
+          title={`Not implemented by Tau (${filteredUnimplemented.length})`}
+          headerAction={<HelpTip label="Why" text="~/.pi/agent/keybindings.json names these Pi actions, but Tau has no command for them, so pressing the chord does nothing." />}
+        >
           {filteredUnimplemented.map((binding) => (
             <div className="keybinding-row" key={rowKey(binding)} data-level="unimplemented">
               <span>
@@ -429,26 +429,43 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
         </SettingsSection>
       ) : null}
 
-      {conflicts.map((conflict) => (
-        <div className="settings-note" key={`${conflict.keys}:${conflict.commandId}`}>
-          {conflict.keys} from {conflict.extensionId} ({conflict.commandId}) was ignored: {conflict.boundTo.extensionId} bound it to {conflict.boundTo.commandId} first.
-        </div>
-      ))}
-
-      {showAllCommands ? (
-        <SettingsSection title={`All registered commands (${filteredCommands.length})`}>
-          <p className="settings-group-note">{keymap ? "Add a chord to any command with +." : <>Use any of these command ids in <code>~/.pi/agent/keybindings.json</code> to bind a chord.</>}</p>
-          {filteredCommands.map((command) => (
-            <CommandRow key={command.id} command={command} bound={keybindings.filter((b) => b.commandId === command.id)} context={context} commandLabel={commandLabel} />
+      {conflicts.length > 0 ? (
+        <SettingsSection title={`Ignored chords (${conflicts.length})`}>
+          {conflicts.map((conflict) => (
+            <div className="keybinding-row" key={`${conflict.keys}:${conflict.commandId}`} data-level="ignored">
+              <span>
+                <strong>{commandLabel(conflict.commandId)} <Badge tone="warn">Ignored</Badge></strong>
+                <small>{conflict.extensionId} · {conflict.boundTo.extensionId} bound it to {conflict.boundTo.commandId} first</small>
+              </span>
+              <kbd>{chordLabel(conflict.keys, mac)}</kbd>
+            </div>
           ))}
         </SettingsSection>
       ) : null}
 
-      {keymap ? (
-        <datalist id={SUGGESTIONS_ID}>
-          {whenSuggestions(keybindings).map((clause) => <option key={clause} value={clause} />)}
-        </datalist>
+      {showAllCommands ? (
+        <SettingsSection
+          title={`All registered commands (${filteredCommands.length})`}
+          headerAction={<HelpTip label="How to bind" text={keymap ? "Add a chord to any command with its + button." : "Use any of these command ids in ~/.pi/agent/keybindings.json to bind a chord."} />}
+        >
+          {filteredCommands.map((command) => (
+            <CommandRow key={command.id} command={command} bound={keybindings.filter((b) => b.commandId === command.id)} context={context} commandLabel={commandLabel} />
+          ))}
+          {filteredCommands.length === 0 ? <SettingsState kind="empty" title="No command matches" action={<Button onClick={clearFilter}>Clear the search</Button>} /> : null}
+        </SettingsSection>
       ) : null}
+
+      {confirmReset ? (
+        <ConfirmDialog
+          title="Reset every keybinding?"
+          message={<>Every command gets its default chords back, and the chords you set are removed from <code>{keymap?.label}</code>.</>}
+          confirmLabel="Reset all"
+          destructive
+          onCancel={() => setConfirmReset(false)}
+          onConfirm={() => void resetAll()}
+        />
+      ) : null}
+
     </div>
   );
 }

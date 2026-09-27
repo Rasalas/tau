@@ -2,6 +2,7 @@
   "id": "tau.takeover",
   "name": "Takeover",
   "description": "Hands you the controls when an agent needs a sign-in, a code or a captcha.",
+  "icon": "Hand",
   "version": "1.0.0",
   "engines": { "api": "^1.13.0" },
   "permissions": ["sessions", "runtime:extend"],

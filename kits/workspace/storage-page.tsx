@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FolderGit2, RefreshCw } from "lucide-react";
-import { SettingRow, SettingsSection, errorMessage, useThreadStore, type SettingsPageProps, type ThreadStore } from "tau";
+import { Badge, Button, NumberField, SegmentedControl, SettingRow, SettingsSection, SettingsState, Switch, errorMessage, useThreadStore, type SettingsPageProps, type ThreadStore } from "tau";
 import type {
   CleanupBlocker,
   CleanupPolicy,
@@ -71,75 +71,53 @@ function useThreadTitles(): ThreadStore | undefined {
   }
 }
 
-function Switch({ label, on, onChange }: { label: string; on: boolean; onChange(next: boolean): void }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "on" : ""}`} onClick={() => onChange(!on)}><i /></button>
-  );
-}
+/** The page's rows, for the Settings search: the rules as this machine holds them. */
+export const STORAGE_SETTINGS_ROWS = [
+  { id: "setting-workspace-storage-scope", label: "Rules for", keywords: ["repository", "project", "this machine", "override"] },
+  { id: "setting-workspace-storage-thread-deleted", label: "Delete worktrees with deleted threads", keywords: ["cleanup", "remove", "thread"] },
+  { id: "setting-workspace-storage-inactive", label: "Delete inactive worktrees", keywords: ["cleanup", "days", "retention", "old"] },
+  { id: "setting-workspace-storage-merged", label: "Delete merged worktrees", keywords: ["cleanup", "pull request", "merged branch"] },
+  { id: "setting-workspace-storage-unchanged", label: "Delete unchanged worktrees", keywords: ["cleanup", "no commits"] },
+  { id: "setting-workspace-storage-worktrees", label: "Worktrees", keywords: ["disk space", "size", "measure", "clean up now", "remove worktree"] },
+];
 
-/** A cleanup rule: the policy is Workspace Kit's own file with its own per-repository scope, so no config level. */
-function Row({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
-  return <SettingRow title={title} description={hint} control={children} />;
-}
-
-/** Days, or off: T3 Code's retention control, eight days when switched on. */
-function Retention({ value, onChange }: { value: number | null; onChange(next: number | null): void }) {
-  const [draft, setDraft] = useState(value === null ? "" : String(value));
-  useEffect(() => { setDraft(value === null ? "" : String(value)); }, [value]);
-  const commit = () => {
-    const days = Number(draft);
-    if (value !== null && Number.isFinite(days) && days >= 1 && Math.round(days) !== value) onChange(Math.round(days));
-    else setDraft(value === null ? "" : String(value));
-  };
-  return (
-    <span className="workspace-storage-retention">
-      {value === null ? <small>Off</small> : (
-        <label>
-          <input
-            type="number"
-            min={1}
-            max={3650}
-            value={draft}
-            aria-label="Delete inactive worktrees in days"
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={commit}
-            onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
-          />
-          <small>days</small>
-        </label>
-      )}
-      <Switch label="Delete inactive worktrees" on={value !== null} onChange={(on) => onChange(on ? 8 : null)} />
-    </span>
-  );
-}
+/** Days since the last activity; switched on, T3 Code's eight. */
+const DEFAULT_DAYS = 8;
 
 function RuleRows({ rules, onChange }: { rules: WorktreeCleanupRules; onChange(patch: Partial<WorktreeCleanupRules>): void }) {
+  // The policy is Workspace Kit's own file with its own per-repository scope, so these rows have no config level.
   return (
     <>
-      <Row title="Delete worktrees with deleted threads" hint="Once the last thread that worked there is deleted">
-        <Switch label="Delete worktrees with deleted threads" on={rules.onThreadDelete} onChange={(onThreadDelete) => onChange({ onThreadDelete })} />
-      </Row>
-      <Row title="Delete inactive worktrees" hint="No thread, commit or change there for this long">
-        <Retention value={rules.afterDays} onChange={(afterDays) => onChange({ afterDays })} />
-      </Row>
-      <Row title="Delete merged worktrees" hint="Every commit of the branch is in the default branch, or its pull request was merged">
-        <Switch label="Delete merged worktrees" on={rules.onMerge} onChange={(onMerge) => onChange({ onMerge })} />
-      </Row>
-      <Row title="Delete unchanged worktrees" hint="No commits beyond the branch they started from">
-        <Switch label="Delete unchanged worktrees" on={rules.unchanged} onChange={(unchanged) => onChange({ unchanged })} />
-      </Row>
+      <SettingRow id="setting-workspace-storage-thread-deleted" title="Delete worktrees with deleted threads" description="Once the last thread that worked there is deleted."
+        control={<Switch label="Delete worktrees with deleted threads" checked={rules.onThreadDelete} onChange={(onThreadDelete) => onChange({ onThreadDelete })} />} />
+      <SettingRow id="setting-workspace-storage-inactive" title="Delete inactive worktrees" description="No thread, commit or change there for this many days."
+        control={<>
+          {rules.afterDays !== null ? (
+            <NumberField label="Delete inactive worktrees after" value={rules.afterDays} min={1} max={3650} integer unit="days"
+              onCommit={(days) => { if (days !== rules.afterDays) onChange({ afterDays: days }); }} />
+          ) : null}
+          <Switch label="Delete inactive worktrees" checked={rules.afterDays !== null} onChange={(on) => onChange({ afterDays: on ? DEFAULT_DAYS : null })} />
+        </>} />
+      <SettingRow id="setting-workspace-storage-merged" title="Delete merged worktrees" description="Every commit of the branch is in the default branch, or its pull request was merged."
+        control={<Switch label="Delete merged worktrees" checked={rules.onMerge} onChange={(onMerge) => onChange({ onMerge })} />} />
+      <SettingRow id="setting-workspace-storage-unchanged" title="Delete unchanged worktrees" description="No commits beyond the branch they started from."
+        control={<Switch label="Delete unchanged worktrees" checked={rules.unchanged} onChange={(unchanged) => onChange({ unchanged })} />} />
     </>
   );
 }
 
 type Scope = "host" | "project";
 
+const CLEANUP_MODES = [
+  { value: "inherit", label: "Inherit" },
+  { value: "off", label: "Off" },
+  { value: "custom", label: "Custom" },
+] as const;
+
 function Status({ tree }: { tree: UiStorageWorktree }) {
   const { verdict } = tree;
-  if (verdict.remove) return <span className="workspace-storage-status due">Next cleanup · {verdict.reasons.map((reason) => REASONS[reason]).join(", ")}</span>;
-  if (verdict.reasons.length > 0) {
-    return <span className="workspace-storage-status kept">Kept · {verdict.blockers.map((blocker) => BLOCKERS[blocker]).join(", ")}</span>;
-  }
+  if (verdict.remove) return <Badge tone="warn">Next cleanup · {verdict.reasons.map((reason) => REASONS[reason]).join(", ")}</Badge>;
+  if (verdict.reasons.length > 0) return <Badge>Kept · {verdict.blockers.map((blocker) => BLOCKERS[blocker]).join(", ")}</Badge>;
   return null;
 }
 
@@ -180,15 +158,15 @@ function WorktreeRow({ tree, now, titles, busy, onRemove }: {
           {tree.dirtyFiles > 0 ? <span>{tree.dirtyFiles} uncommitted</span> : null}
           {tree.unpushedCommits > 0 ? <span>{tree.unpushedCommits} unpushed</span> : null}
         </span>
-        <Status tree={tree} />
+        <span className="workspace-storage-status"><Status tree={tree} /></span>
       </div>
       <span className="workspace-storage-size">{formatBytes(tree.sizeBytes)}</span>
-      <button type="button" className="text-button workspace-storage-remove" aria-label={`Remove ${tree.path}`} disabled={busy} onClick={() => void remove(false)}>Remove</button>
+      <Button variant="ghost" aria-label={`Remove ${tree.path}`} disabled={busy} onClick={() => void remove(false)}>Remove</Button>
       {confirming ? (
         <div className="workspace-storage-confirm" role="alert">
           <span>{removalWarning(confirming)}</span>
-          <button type="button" className="text-button" onClick={() => setConfirming(undefined)}>Cancel</button>
-          <button type="button" className="text-button danger" disabled={busy} onClick={() => void remove(true)}>Remove anyway</button>
+          <Button onClick={() => setConfirming(undefined)}>Cancel</Button>
+          <Button variant="danger" disabled={busy} onClick={() => void remove(true)}>Remove anyway</Button>
         </div>
       ) : null}
     </li>
@@ -269,6 +247,22 @@ export function createStoragePage(host: StorageHost) {
     const override = repository && policy ? policy.projects[repository.path] : undefined;
     const mode = override?.mode ?? "inherit";
     const now = report?.generatedAt ?? Date.now();
+    const lastSweep = report?.lastSweep ? ` Last cleanup ${formatAge(report.lastSweep.at, now)} removed ${report.lastSweep.removed.length}.` : "";
+
+    const rules = !policy ? (
+      error ? <SettingsState kind="error" title="The cleanup rules did not load" description={error} onRetry={() => void refresh()} />
+        : <SettingsState kind="loading" title="Reading the cleanup rules" rows={4} />
+    ) : scope === "project" && repository ? <>
+      <SettingRow
+        id="setting-workspace-storage-mode"
+        title="Automatic worktree cleanup"
+        description={mode === "off" ? "This repository keeps its worktrees until you delete them." : mode === "custom" ? "The rules below, for this repository only." : "This repository follows this machine's rules."}
+        control={<SegmentedControl label="Automatic worktree cleanup" value={mode} options={CLEANUP_MODES} onChange={(choice) => void change({ project: repository.path, mode: choice })} />}
+      />
+      {mode === "custom" ? (
+        <RuleRows rules={rulesFor(policy, repository.path)} onChange={(next) => void change({ project: repository.path, mode: "custom", rules: next })} />
+      ) : null}
+    </> : <RuleRows rules={policy.host ?? NO_CLEANUP} onChange={(next) => void change({ rules: next })} />;
 
     return (
       <div className="settings-page workspace-storage">
@@ -278,65 +272,40 @@ export function createStoragePage(host: StorageHost) {
           uncommitted work, unpushed commits or ignored files other than node_modules, and every branch stays.
         </p>
 
-        <SettingsSection title="Worktree cleanup" headerAction={repository ? (
-          <div className="segmented workspace-storage-scope" role="group" aria-label="Rules for">
-            <button type="button" className={scope === "host" ? "active" : ""} aria-pressed={scope === "host"} onClick={() => setScope("host")}>This host</button>
-            <button type="button" className={scope === "project" ? "active" : ""} aria-pressed={scope === "project"} onClick={() => setScope("project")}>{repository.name}</button>
-          </div>
-        ) : undefined}>
-        {policy ? (
-          scope === "project" && repository ? (
-            <>
-              <Row
-                title="Automatic worktree cleanup"
-                hint={mode === "off" ? "Keep this repository's worktrees until you delete them" : mode === "custom" ? "These rules, for this repository" : "The host's rules"}
-              >
-                <div className="segmented" role="group" aria-label="Automatic worktree cleanup">
-                  {(["inherit", "off", "custom"] as const).map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      className={mode === choice ? "active" : ""}
-                      aria-pressed={mode === choice}
-                      onClick={() => void change({ project: repository.path, mode: choice })}
-                    >{choice === "inherit" ? "Inherit" : choice === "off" ? "Off" : "Custom"}</button>
-                  ))}
-                </div>
-              </Row>
-              {mode === "custom" ? (
-                <RuleRows rules={rulesFor(policy, repository.path)} onChange={(rules) => void change({ project: repository.path, mode: "custom", rules })} />
-              ) : null}
-            </>
-          ) : (
-            <RuleRows rules={policy.host ?? NO_CLEANUP} onChange={(rules) => void change({ rules })} />
-          )
-        ) : <p className="workspace-storage-empty">Reading the rules…</p>}
+        <SettingsSection title="Worktree cleanup">
+          {repository && policy ? (
+            <SettingRow
+              id="setting-workspace-storage-scope"
+              title="Rules for"
+              description={`This machine's rules apply to every repository without its own; ${repository.name} is the one on screen.`}
+              control={<SegmentedControl<Scope> label="Rules for" value={scope} options={[{ value: "host", label: "This machine" }, { value: "project", label: repository.name }]} onChange={setScope} />}
+            />
+          ) : null}
+          {rules}
         </SettingsSection>
 
-        <SettingsSection plain title={`Worktrees${report ? ` · ${formatBytes(report.totalBytes)}` : ""}`} headerAction={
-          <button type="button" className="text-button workspace-storage-measure" disabled={loading} onClick={() => void refresh()}>
-            <RefreshCw size={11} /> {loading ? "Measuring…" : "Measure again"}
-          </button>
-        }>
-        {error ? <div className="settings-note" data-level="error">{error}</div> : null}
-        {!report && loading ? <p className="workspace-storage-empty"><span className="spinner small" /> Measuring worktrees…</p> : null}
-        {report && report.worktrees.length === 0 ? <p className="workspace-storage-empty">No worktree Tau made is on disk.</p> : null}
-        {report && report.worktrees.length > 0 ? (
-          <>
-            <div className="workspace-storage-actions">
-              <span>{due.length === 0 ? "The rules would remove nothing now." : `The rules would remove ${due.length} worktree${due.length === 1 ? "" : "s"} now.`}</span>
-              <button type="button" className="primary" disabled={busy || due.length === 0} onClick={() => void cleanUp()}>
-                {due.length === 0 ? "Clean up now" : `Clean up ${due.length} now`}
-              </button>
-            </div>
+        <SettingsSection
+          id="setting-workspace-storage-worktrees"
+          title={`Worktrees${report ? ` · ${formatBytes(report.totalBytes)}` : ""}`}
+          headerAction={<Button variant="ghost" icon={<RefreshCw size={13} />} busy={loading} onClick={() => void refresh()}>Measure again</Button>}
+        >
+          {error && report ? <SettingsState kind="error" title="The worktrees could not be measured" description={error} onRetry={() => void refresh()} /> : null}
+          {!report && !error ? <SettingsState kind="loading" title="Measuring worktrees" rows={3} /> : null}
+          {!report && error ? <SettingsState kind="empty" title="Nothing measured yet" description="The worktrees show here once the rules above load." /> : null}
+          {report && report.worktrees.length === 0 ? (
+            <SettingsState kind="empty" title="No worktree Tau made is on disk" description={`A thread that runs in a new worktree adds one here, with its size and what the next cleanup would do with it.${lastSweep}`} />
+          ) : null}
+          {report && report.worktrees.length > 0 ? <>
+            <SettingRow
+              title="Clean up now"
+              description={`${due.length === 0 ? "The rules would remove nothing now." : `The rules would remove ${due.length} worktree${due.length === 1 ? "" : "s"} now.`}${lastSweep}`}
+              {...(due.length === 0 ? { disabledReason: "No worktree matches the rules now." } : {})}
+              control={<Button variant="primary" busy={busy} disabled={due.length === 0} onClick={() => void cleanUp()}>{due.length === 0 ? "Clean up now" : `Clean up ${due.length} now`}</Button>}
+            />
             <ul className="workspace-storage-list" aria-label="Worktrees">
               {report.worktrees.map((tree) => <WorktreeRow key={tree.path} tree={tree} now={now} titles={titles} busy={busy} onRemove={onRemove} />)}
             </ul>
-          </>
-        ) : null}
-        {report?.lastSweep ? (
-          <p className="workspace-storage-empty">Last cleanup {formatAge(report.lastSweep.at, now)} removed {report.lastSweep.removed.length}.</p>
-        ) : null}
+          </> : null}
         </SettingsSection>
       </div>
     );

@@ -1,21 +1,12 @@
 /*
- * Signals' own rules: the live marker, the state grid and the event stream.
+ * Signals' own rules: the stream of host events, a log in the page's card.
  */
 
-.live-marker { display: flex; align-items: center; gap: 6px; font: 10px var(--mono); color: var(--ready); }
-.live-marker i { width: 6px; height: 6px; border-radius: 50%; background: var(--ready); }
-.state-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 0; padding: 0; background: var(--line); border-bottom: 1px solid var(--line); }
-.state-grid > div { background: var(--rail); padding: 11px 14px; }
-.state-grid dt { font: var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint); }
-.state-grid dd { margin: 3px 0 0; font: 500 13px var(--mono); color: var(--ink); }
-.event-stream { flex: 1; min-height: 0; overflow: auto; padding: 8px 6px; }
+.signals-page .event-stream {
+  max-height: 60vh; overflow: auto; padding: var(--space-3) var(--space-2);
+  border: 1px solid var(--line-card); border-radius: var(--radius-lg); background: var(--stage);
+}
 .event-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 10px; font: 11px var(--mono); }
 .event-row time { color: var(--fainter); flex: none; }
 .event-row strong { flex: none; color: var(--ink-2); font-weight: 500; white-space: nowrap; }
-.event-row span { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Signals is a Settings page: the stream scrolls with the page instead of filling a panel. */
-.signals-page { display: flex; flex-direction: column; gap: 12px; }
-.signals-note { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--muted); font-size: 12px; }
-.signals-page .state-grid { border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
-.signals-page .event-stream { max-height: 60vh; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--rail); }
+.event-row span { min-width: 0; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

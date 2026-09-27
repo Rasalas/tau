@@ -4,7 +4,7 @@
   "description": "What the workbench is doing right now: host events, live counts and tool runs.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.16.0"
+    "api": "^1.18.0"
   },
   "permissions": [],
   "isolation": "worker",

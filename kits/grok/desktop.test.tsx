@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { GrokInstances, GrokProviderCard, grokExtension, loginCommand } from "./desktop.js";
+import { GrokInstances, GrokProviderCard, grokExtension, loginCommand, searchRows } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -36,23 +36,27 @@ describe("Grok desktop extension", () => {
   it("reports the CLI and the login", async () => {
     const invoke = vi.fn(async () => READY);
     render(<GrokProviderCard onNotify={vi.fn()} host={host(invoke)} instances={instances()} />);
-    await waitFor(() => expect(screen.getByText("Found · 0.9.12")).toBeTruthy());
+    await waitFor(() => expect(document.getElementById("setting-grok-program")?.textContent).toContain("0.9.12 · /Users/me/.local/bin/grok"));
     expect(screen.getByText("Signed in with grok.com")).toBeTruthy();
+    expect(screen.getByText("2 models; pick one and its reasoning effort per thread in the composer.")).toBeTruthy();
+    for (const row of searchRows("default", "Grok")) expect(document.getElementById(row.id), row.id).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Check again/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: true }));
   });
 
-  it("offers the login command for the instance's home when the CLI is signed out, and none for an API key", async () => {
+  it("types the login for the instance's home into a terminal when the CLI is signed out, and offers none for an API key", async () => {
     const onNotify = vi.fn();
-    render(<GrokProviderCard onNotify={onNotify} host={host(async () => ({ ...READY, signedIn: false, account: undefined, models: undefined }))} instances={instances({ home: "/shadow" })} />);
+    const terminal = { invoke: vi.fn(async (command: string) => command === "open" ? { id: "term-1" } : undefined), onEvent: () => () => undefined };
+    render(<GrokProviderCard onNotify={onNotify} host={host(async () => ({ ...READY, signedIn: false, account: undefined, models: undefined }))} instances={instances({ home: "/shadow" })} terminal={terminal} />);
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
-    expect(screen.getByText("GROK_HOME=/shadow grok login")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Sign in…" }));
-    await waitFor(() => expect(onNotify).toHaveBeenCalled());
+    expect(screen.queryByText(/grok login/u)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in in a terminal" }));
+    await waitFor(() => expect(terminal.invoke).toHaveBeenCalledWith("input", { id: "term-1", data: "GROK_HOME=/shadow grok login" }));
+    expect(onNotify).toHaveBeenCalledWith("The command is in a terminal; press Enter there to run it.");
     cleanup();
     render(<GrokProviderCard onNotify={vi.fn()} host={host(async () => ({ ...READY, login: "api-key", account: "XAI_API_KEY" }))} instances={instances()} />);
-    await waitFor(() => expect(screen.getByText("xAI API key")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "Sign in…" })).toBeNull();
+    await waitFor(() => expect(screen.getByText("xAI API key: XAI_API_KEY is set in Tau's environment; threads are billed to the API.")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Sign in in a terminal" })).toBeNull();
   });
 
   it("quotes a home with spaces in the login command", () => {

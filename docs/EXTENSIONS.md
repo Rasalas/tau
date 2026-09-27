@@ -160,6 +160,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `id` | Lowercase, dot-separated; both halves must export it. |
 | `name` | Shown in Settings. |
 | `description` | One sentence, at most 200 characters, that Settings → Extensions shows under the name (optional; new in API 1.18.0). Say what the package does for the user, not how. |
+| `icon` | The [Lucide](https://lucide.dev/icons) icon Settings → Extensions shows beside the name, by its component name: `"Search"`, `"KeyRound"` (optional; new in API 1.18.0). A runtime's mark or the icon of a page or panel the package adds comes first; without all three the list shows the name's first letter. |
 | `version` | The package's own semver (optional). |
 | `engines` | Ranges of `tau`, `pi` and `api` this package runs on (all optional; see below). |
 | `permissions` | The permission vocabulary this package asks for (§ below); missing means none. |
@@ -874,7 +875,7 @@ of Settings with its own nav entry, typed `SettingsPageContribution` (`id`,
 `label`, an optional `Icon` the way panels pass theirs, an optional `order`,
 optional `keywords` — the words the Settings search field and the palette find
 the page by besides its label — an optional `scope` (below) and a `Component`
-receiving `SettingsPageProps`: `cwd` and `onNotify`). A page that also names a
+receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.18.0). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
@@ -1009,16 +1010,17 @@ page still draws itself take the same height and look inside Settings.
 | Export | What it is |
 |---|---|
 | `Switch({ label, checked, disabled?, role?, onChange })` | On or off, for a change that applies at once. `role: "checkbox"` for one option of several. On a narrow page it stays beside its row's text. |
-| `SegmentedControl({ label, value, options, disabled?, onChange })` | Two to four short choices, one chosen: a radio group, one tab stop, arrow keys move and choose. An option with an `icon` is drawn as the glyph alone with `label` as its tooltip and name — runtimes and providers are shown this way. More or longer choices belong in a `Select`. |
+| `SegmentedControl({ label, value, options, disabled?, onChange })` | Two to four short choices, one chosen: a radio group, one tab stop, arrow keys move and choose. An option with an `icon` is drawn as the glyph alone with `label` as its tooltip and name — runtimes and providers are shown this way. With `labelled` the label stays beside the glyph, for one that does not say the choice alone (a colour swatch). More or longer choices belong in a `Select`. |
 | `Select({ label, value, options, width?, placeholder?, disabled?, onChange })` | One choice of many, as the system's own menu. `width` is `sm` (112 px), `md` (200), `lg` (280) or `full`; a phone gives it the row's width. |
 | `NumberField({ label, value, min?, max?, step?, integer?, unit?, placeholder?, width?, validate?, onCommit, onClear? })` | A number with its unit drawn inside the field, written on blur or Enter and put back on Escape; ↑ and ↓ step it. Out of range, not whole when `integer`, or refused by `validate`: the draft stays with the reason under it and nothing is written. Emptied, `onClear` runs (the level's value goes and the placeholder, the default, shows). |
-| `TextField({ label, value, placeholder?, width?, mono?, validate?, disabled?, onCommit })` | A line of text with the same draft rules; `mono` for paths, commands and ids. |
+| `TextField({ label, value, placeholder?, width?, mono?, secret?, rows?, suggestions?, id?, autoFocus?, inputRef?, validate?, disabled?, onCommit })` | A line of text with the same draft rules; `mono` for paths, commands and ids. `rows` above 1 makes it a box of that many lines: Return breaks the line, ⌘Return (Ctrl+Return) or leaving the box writes it. `suggestions` offers values as it is typed in; `secret` draws a password or a key as dots. With `onChange` (and `error`) instead of `onCommit` it is a field of a form — an install source, a name to add: it shows `value`, reports each keystroke, shows the page's `error` under it, and Return submits the form. |
+| `Slider({ label, value, min, max, step?, unit?, format?, disabled?, onCommit, onPreview? })` | A value on a scale: drag, or arrow keys, Page Up/Down, Home and End. The value beside the track (`unit` after the number, or `format`) follows the thumb and is the screen reader's text; `onPreview` gets each value on the way for a live preview, `onCommit` the one where the move ends. |
 | `ListField({ label, items, placeholder?, empty?, mono?, validate?, onChange })` | Short values to add and remove (hosts, folders, patterns): a row each with a Remove button named after it, an add field that refuses an empty value, a twin and what `validate` refuses, and `empty` while there is none. Each change calls `onChange` with the whole list. |
 | `ValueList({ items, label? })` | Facts, label beside value (`{ label, value, mono?, copy? }`); `copy` puts a copy button beside the value. |
 | `Badge({ tone?, dot?, children })` | A state in a word or two: `neutral`, `accent`, `success`, `warn` or `danger`, never the colour alone. |
 | `HelpTip({ text, label? })` | An info glyph whose tooltip holds `text`; `SettingRow`'s `help` draws one. |
 | `Button({ variant?, icon?, busy?, ...button })` | `default`, `primary` (one per page, the accent), `danger` or `ghost`; `busy` keeps it inert while its work runs. |
-| `DangerZone({ title?, children })`, `DangerAction({ title, description?, actionLabel, confirmTitle, confirmMessage, confirmText?, disabled?, disabledReason?, busy?, onConfirm })` | The actions that cannot be taken back, apart and last on the page. Each names the object and the consequence and asks through `ConfirmDialog`; `confirmText` makes the user type it (a name) first, for a loss that is hard to repair. `ConfirmDialog` takes the same `confirmText`. |
+| `DangerZone({ title?, children })`, `DangerAction({ id?, title, description?, actionLabel, confirmTitle, confirmMessage, confirmText?, disabled?, disabledReason?, busy?, onConfirm })` | The actions that cannot be taken back, apart and last on the page. Each names the object and the consequence and asks through `ConfirmDialog`; `confirmText` makes the user type it (a name) first, for a loss that is hard to repair. `ConfirmDialog` takes the same `confirmText`. |
 | `SettingsState({ kind, title?, description?, action?, rows?, onRetry? })` | What a page or a section shows instead of its rows: `loading` (skeleton rows), `empty` (what is missing and the next step in `action`) or `error` (what happened, and Try again with `onRetry`). |
 
 The types `ChoiceOption`, `SelectOption`, `ValueListItem`, `FieldWidth` and
@@ -1898,15 +1900,26 @@ its own store, so removing an instance only takes its threads out of the list
 until an instance with that id comes back.
 
 On the desktop side `loadRuntimeInstanceUi()` on `tau` loads one chunk (with
-its stylesheet) that holds `RuntimeInstanceSetup` — the SETUP rows of a card:
-how the instance is set up, Edit, Remove with a confirmation in place, and on
-the default instance's card "Add instance…" — the dialog behind it
-(`RuntimeInstanceDialog`: name, id taken from the name, executable, home,
-environment as `NAME=value` lines, launch arguments) and
-`RuntimeVersionBanner`. Codex and the Agent SDK runtime use all three: the
-default card keeps its page id, each other instance gets a page naming its
-kind, and an `instances` event from the host half keeps every client's cards
-in step.
+its stylesheet) that holds the settings rows of a Providers card.
+`RuntimeProgramRows` is the program itself: found where and which version
+with Check again, then a version the policy calls unsafe or broken, one older
+than Tau speaks to, or a newer release, each with a button that hands the
+command to a terminal (`onRunCommand`) rather than showing it; its rows' ids
+start with `idPrefix`. `RuntimeCommandRow` is the executable as a text field,
+inert with the reason while Tau's environment names it (`TAU_<KIND>_COMMAND`
+from `kind` unless `variable` says otherwise). `RuntimeInstanceSetup` (new in
+API 1.18.0: `rowId`) is the instance's setup, Edit, "Add instance…" on the
+default instance's card and Remove, which asks through `ConfirmDialog`; the
+dialog behind it is `RuntimeInstanceDialog` (name, id taken from the name,
+executable, home, environment as `NAME=value` lines, launch arguments). The
+chunk also holds `RuntimeVersionBanner`, for above the composer. A card's head
+shows the runtime's mark, its name and a badge each for the program and the
+account: `RuntimeProgramRows` and `SignInSetup` report theirs, and a kit whose
+rows are its own reports through `ProviderCardBadgeReport({ source, badge })`
+(on both chunks). Every runtime kit Tau ships uses them: the default card
+keeps its page id, each other instance gets a page naming its kind, its rows
+carry the instance in their ids and its `rows` list them for the search, and
+an `instances` event from the host half keeps every client's cards in step.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
 `cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and
@@ -2001,16 +2014,19 @@ changed what a method needs. `commandLine(executable, args, env, platform)`
 builds the line a terminal runs, with the instance's home set for it.
 
 On the desktop side `loadSignInUi()` on `tau` loads `SignInSetup` (a chunk
-with its stylesheet): the account row with sign-out (confirmed in place),
-the methods while signed out, and the flow drawn after T3 Code's provider
-setup — Open sign-in page and Copy link, the device code with Copy and the
-page's host, the question's field (a password field for a secret) or its
-choices, Cancel sign-in and the time the flow gives up. A `terminal` step of
-a flow this window started runs once through `runInTerminal` — the shipped
-kits pass Terminal Kit's `tau.terminal/run`, so the login runs where the user
-sees it — and its exit status answers the flow; without a terminal the
-command is shown to copy with "I have signed in". `showAccount: false` leaves
-the account row to a caller that draws its own.
+with its stylesheet): the account as a settings row (`rowId` is its element
+id) with sign-out, asked through `ConfirmDialog`, and the note on where the
+credential lives as its help; each method while signed out, with its button;
+and the flow drawn after T3 Code's provider setup — Open sign-in page and
+Copy link, the device code with Copy and the page's host, the question's
+field (a password field for a secret) or its choices, Cancel sign-in and the
+time the flow gives up. A `terminal` step of a flow this window started runs
+once through `runInTerminal` — the shipped kits pass Terminal Kit's
+`tau.terminal/run`, so the login runs where the user sees it — and its exit
+status answers the flow; only without a terminal is the command shown, to
+copy, with "I have signed in". `showAccount: false` leaves the account row to
+a caller that draws its own; `cardBadge: false` keeps a sign-in nested in a
+card's list (Pi's providers) out of the card's head.
 
 The shipped kits: Codex signs in over its app server (`account/login/start`:
 ChatGPT through the page its own login server serves, a device code, an API
@@ -2404,7 +2420,7 @@ shipped caller: it keeps the proxy listener and publishes
 Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
 it beside the client in Connections — never as a login.
 
-On the desktop side, `registerSettingsSection({ id, page, order?, Component })`
+On the desktop side, `registerSettingsSection({ id, page, order?, rows?, Component })`
 (new in API 1.13.0) adds a section to one of core's Settings pages, below
 core's own sections: `"connections"`; `"extensions"`, above the list of
 extensions; or `"extension"`, on every extension's own page after its
@@ -2413,7 +2429,9 @@ nothing for an extension it has nothing to say about (both new in API 1.18.0;
 Packages Kit's Update and Remove for an installed package are one). The
 component gets `onNotify` and `onChanged`, which reads the page's own data
 again after the section changed something it shows (a new endpoint in the
-address list). It is profile-scoped like a panel.
+address list). It is profile-scoped like a panel. `rows` (new in API 1.18.0)
+are the section's rows the Settings search finds, as on a page: `{ id, label,
+keywords? }`, each the `id` of a `SettingRow` in the section.
 
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 

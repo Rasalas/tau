@@ -137,6 +137,23 @@ describe("kits boundary", () => {
     }
   });
 
+  it("a kit's manifest icon is a Lucide icon, and a kit without a page or panel icon names one", async () => {
+    const { icons } = await import("lucide-react");
+    const missing: string[] = [];
+    for (const name of kitDirectories()) {
+      const directory = join("kits", name);
+      const manifest = JSON.parse(readFileSync(join(directory, "tau-extension.json"), "utf8")) as { icon?: string };
+      if (manifest.icon !== undefined) {
+        expect(Object.hasOwn(icons, manifest.icon), `${name}: ${manifest.icon}`).toBe(true);
+        continue;
+      }
+      // Settings → Extensions draws a runtime's mark or a contribution's `Icon`; without either the kit needs `icon`.
+      const drawsOwn = sourceFiles(directory).some((path) => /\bIcon:\s*[A-Z]|\bruntime:\s*[\w"]/u.test(readFileSync(path, "utf8")));
+      if (!drawsOwn) missing.push(name);
+    }
+    expect(missing).toEqual([]);
+  });
+
   // The shared icon module is this package as a whole; a name missing from it binds to undefined at runtime.
   it("every icon a kit imports is an export of the shared icon module", async () => {
     const icons = await import("lucide-react") as Record<string, unknown>;

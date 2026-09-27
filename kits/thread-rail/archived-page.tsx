@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Archive, ArchiveRestore, RotateCcw } from "lucide-react";
-import { Menu, SettingRow, SettingsSection, errorMessage, useThreadStore, type SettingsPageProps, type UiSession } from "tau";
+import { ArchiveRestore, RotateCcw } from "lucide-react";
+import { Button, ConfirmDialog, Menu, SettingRow, SettingsSection, SettingsState, errorMessage, useThreadStore, type SettingsPageProps, type UiSession } from "tau";
 import type { TrashedThread } from "./protocol.js";
 import type { RailStore } from "./store.js";
 
@@ -43,14 +43,16 @@ export function createArchivedPage(store: RailStore, page: ArchivedPageActions, 
     const [trash, setTrash] = useState<readonly TrashedThread[] | undefined>();
     const [error, setError] = useState<string>();
     const [menu, setMenu] = useState<{ session: UiSession; x: number; y: number }>();
-    const [confirming, setConfirming] = useState<string>();
+    const [purging, setPurging] = useState<TrashedThread>();
+    const [attempt, setAttempt] = useState(0);
 
     useEffect(() => {
       let live = true;
+      setError(undefined);
       page.trash().then((list) => { if (live) setTrash(list); }, (reason: unknown) => { if (live) { setTrash([]); setError(errorMessage(reason)); } });
-      const stop = page.subscribeTrash((list) => setTrash(list));
+      const stop = page.subscribeTrash((list) => { setTrash(list); setError(undefined); });
       return () => { live = false; stop(); };
-    }, []);
+    }, [attempt]);
 
     const meta = store.getState().threads;
     const archived = threads
@@ -61,68 +63,65 @@ export function createArchivedPage(store: RailStore, page: ArchivedPageActions, 
     const run = (work: Promise<void>, failure: string) => { work.catch((reason: unknown) => onNotify(`${failure}: ${errorMessage(reason)}`)); };
 
     return (
-      <div className="thread-rail-archived">
+      <div className="settings-page thread-rail-archived">
+        <h3>Archived</h3>
         {groups.size === 0 ? (
-          <SettingsSection title="Archived threads">
-            <SettingRow
-              title={<span className="thread-rail-archived-empty"><Archive size={14} aria-hidden="true" />No archived threads</span>}
-              description="Archived threads will appear here."
-            />
+          <SettingsSection title="Archived threads" plain>
+            <SettingsState kind="empty" title="No archived threads" description="Archive a thread from its menu in the rail to put it away without deleting it. It waits here until you unarchive it." />
           </SettingsSection>
         ) : [...groups].map(([project, sessions]) => (
           <SettingsSection key={project} title={project}>
-            {sessions.map((session) => (
-              <div
-                key={session.id}
-                className="thread-rail-archived-row"
-                onContextMenu={(event) => { event.preventDefault(); setMenu({ session, x: event.clientX, y: event.clientY }); }}
-              >
-                <SettingRow
-                  title={session.title || "Untitled thread"}
-                  description={`Archived ${relativeTime(meta[session.id]?.archivedAt ?? now(), now())} · Last active ${relativeTime(session.modifiedAt, now())}`}
-                  control={(
-                    <button type="button" className="chrome-button" onClick={() => page.unarchive(session.id)}>
-                      <ArchiveRestore size={13} aria-hidden="true" />Unarchive
-                    </button>
-                  )}
-                />
-              </div>
-            ))}
+            {sessions.map((session) => {
+              const title = session.title || "Untitled thread";
+              return (
+                <div
+                  key={session.id}
+                  className="thread-rail-archived-row"
+                  onContextMenu={(event) => { event.preventDefault(); setMenu({ session, x: event.clientX, y: event.clientY }); }}
+                >
+                  <SettingRow
+                    title={title}
+                    description={`Archived ${relativeTime(meta[session.id]?.archivedAt ?? now(), now())} · Last active ${relativeTime(session.modifiedAt, now())}`}
+                    control={<Button icon={<ArchiveRestore size={13} aria-hidden="true" />} aria-label={`Unarchive ${title}`} onClick={() => page.unarchive(session.id)}>Unarchive</Button>}
+                  />
+                </div>
+              );
+            })}
           </SettingsSection>
         ))}
 
-        {trash && trash.length > 0 ? (
+        {error ? (
+          <SettingsSection title="Recently deleted" plain>
+            <SettingsState kind="error" title="The deleted threads did not load" description={error} onRetry={() => setAttempt((count) => count + 1)} />
+          </SettingsSection>
+        ) : trash && trash.length > 0 ? (
           <SettingsSection title="Recently deleted">
-            {trash.map((entry) => (
-              <SettingRow
-                key={entry.sessionId}
-                title={entry.title || "Untitled thread"}
-                description={`Deleted ${relativeTime(entry.deletedAt, now())} · removed for good ${relativeTime(entry.purgeAt, now())}`}
-                control={(
-                  <span className="thread-rail-archived-actions">
-                    <button type="button" className="chrome-button" onClick={() => run(page.restore(entry.sessionId), "Failed to restore thread")}>
-                      <RotateCcw size={13} aria-hidden="true" />Restore
-                    </button>
-                    <button
-                      type="button"
-                      className="chrome-button danger"
-                      onClick={() => {
-                        // A second click, because this one cannot be undone.
-                        if (confirming !== entry.sessionId) { setConfirming(entry.sessionId); return; }
-                        setConfirming(undefined);
-                        run(page.purge(entry.sessionId), "Failed to delete thread");
-                      }}
-                      onBlur={() => setConfirming((current) => current === entry.sessionId ? undefined : current)}
-                    >
-                      {confirming === entry.sessionId ? "Delete for good" : "Delete now"}
-                    </button>
-                  </span>
-                )}
-              />
-            ))}
+            {trash.map((entry) => {
+              const title = entry.title || "Untitled thread";
+              return (
+                <SettingRow
+                  key={entry.sessionId}
+                  title={title}
+                  description={`Deleted ${relativeTime(entry.deletedAt, now())} · removed for good ${relativeTime(entry.purgeAt, now())}`}
+                  control={<>
+                    <Button icon={<RotateCcw size={13} aria-hidden="true" />} aria-label={`Restore ${title}`} onClick={() => run(page.restore(entry.sessionId), "Failed to restore thread")}>Restore</Button>
+                    <Button variant="ghost" aria-label={`Delete ${title} now`} onClick={() => setPurging(entry)}>Delete now</Button>
+                  </>}
+                />
+              );
+            })}
           </SettingsSection>
         ) : null}
-        {error ? <p className="settings-note">{error}</p> : null}
+        {purging ? (
+          <ConfirmDialog
+            title={`Delete “${purging.title || "Untitled thread"}” for good?`}
+            message="Its conversation is removed now rather than when its time in the trash runs out. It cannot be restored."
+            confirmLabel="Delete for good"
+            destructive
+            onCancel={() => setPurging(undefined)}
+            onConfirm={() => { const entry = purging; setPurging(undefined); run(page.purge(entry.sessionId), "Failed to delete thread"); }}
+          />
+        ) : null}
 
         {menu ? (
           <div className="thread-rail-menu-anchor" style={{ left: menu.x, top: menu.y }}>

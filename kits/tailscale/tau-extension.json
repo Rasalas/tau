@@ -2,9 +2,10 @@
   "id": "tau.tailscale",
   "name": "Tailscale",
   "description": "Reaches Tau from your other devices over Tailscale, with HTTPS.",
+  "icon": "Network",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.13.0"
+    "api": "^1.18.0"
   },
   "permissions": [
     "process",

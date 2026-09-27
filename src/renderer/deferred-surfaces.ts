@@ -40,6 +40,7 @@ export const Button = deferred(() => controls().then((module) => module.Button))
 export const DangerZone = deferred(() => controls().then((module) => module.DangerZone));
 export const DangerAction = deferred(() => controls().then((module) => module.DangerAction));
 export const SettingsState = deferred(() => controls().then((module) => module.SettingsState));
+export const Slider = deferred(() => controls().then((module) => module.Slider));
 export const ReloadCurtain = deferred(() => import("./components/ReloadCurtain").then((module) => module.ReloadCurtain));
 // Mounted at start-up, but its first look at pairing requests is 1.5 s later.
 export const PairingRequestWatcher = deferred(() => import("./pairing/PairingRequestWatcher").then((module) => module.PairingRequestWatcher));

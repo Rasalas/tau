@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlatformAttention, SettingsPageProps, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
@@ -167,12 +167,25 @@ describe("Notifications on the desktop", () => {
     const props: SettingsPageProps = { onNotify: vi.fn() };
     render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
     for (const title of ["Tell me with", "Sound", "Show a toast instead", "Also for the thread on screen"]) expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Both" }));
+    const modes = screen.getByRole("radiogroup", { name: "Tell me with" });
+    expect(within(modes).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Off", "Notification", "Sound", "Both"]);
+    fireEvent.click(within(modes).getByRole("radio", { name: "Both" }));
     expect(preferences.value(NOTIFICATIONS_EXTENSION_ID, "mode")).toBe("both");
     expect(attention.requestPermission).toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Sound" })).getByRole("radio", { name: "Ping" }));
+    expect(preferences.value(NOTIFICATIONS_EXTENSION_ID, "sound")).toBe("ping");
+    expect(screen.getByRole("button", { name: /^Play / })).toBeTruthy();
     fireEvent.click(screen.getByRole("switch", { name: "Show a toast instead" }));
     expect(preferences.optionValue(NOTIFICATIONS_EXTENSION_ID, "toasts", false)).toBe(true);
-    fireEvent.click(screen.getByText("Send a test notification"));
+    fireEvent.click(screen.getByRole("button", { name: "Send a test notification" }));
     expect(attention.notify).toHaveBeenCalledWith(expect.objectContaining({ tag: "tau.test" }));
+  });
+
+  it("names each row it lists for the search, and the page draws each one", () => {
+    const { registry, preferences } = setup();
+    const page = registry.getSettingsPages().find((entry) => entry.id === "notifications.settings")!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    expect(page.rows?.length).toBeGreaterThan(0);
+    for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 });

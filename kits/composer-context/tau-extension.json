@@ -2,6 +2,7 @@
   "id": "tau.composer-context",
   "name": "Composer Context",
   "description": "Chips in the composer: files with @, pull requests with #, attachments and excerpts.",
+  "icon": "AtSign",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

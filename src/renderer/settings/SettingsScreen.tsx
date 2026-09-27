@@ -215,7 +215,9 @@ export function SettingsScreen({
   const [keybindingFilter, setKeybindingFilter] = useState<{ filter: string; seq: number }>({ filter: "", seq: 0 });
   const commands = registry.getCommands();
   const found = search.trim() ? searchSettings(settingsSearchEntries({
-    pages: pages.map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
+    // A runtime's card is found like a page: its id opens Providers at the card.
+    pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
+    sections: (["connections", "extensions"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
       commandId: binding.commandId,
@@ -238,20 +240,45 @@ export function SettingsScreen({
     onSetPage(page);
   }, [anchor, onSetPage, page]);
 
-  // A row a link named scrolls into view once its page is drawn.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // A row a link named scrolls into view once it is drawn. Some rows wait for the host, and what
+  // loads above one moves it, so it is kept in view for a moment, until the user scrolls.
   useEffect(() => {
     if (!scrollTarget) return;
-    const row = document.getElementById(scrollTarget);
-    if (!row) return;
-    row.scrollIntoView?.({ block: "center" });
-    row.focus({ preventScroll: true });
-    row.classList.remove("settings-target-pulse");
-    void row.offsetWidth;
-    row.classList.add("settings-target-pulse");
-    setScrollTarget(undefined);
+    let shown: HTMLElement | undefined;
+    let settle: number | undefined;
+    const finish = () => { observer.disconnect(); setScrollTarget(undefined); };
+    const show = () => {
+      const row = document.getElementById(scrollTarget);
+      if (!row) return;
+      row.scrollIntoView?.({ block: "center" });
+      if (row === shown) return;
+      shown = row;
+      row.focus({ preventScroll: true });
+      row.classList.remove("settings-target-pulse");
+      void row.offsetWidth;
+      row.classList.add("settings-target-pulse");
+      window.clearTimeout(settle);
+      settle = window.setTimeout(finish, 3_000);
+    };
+    const observer = new MutationObserver(show);
+    observer.observe(document.body, { childList: true, subtree: true });
+    show();
+    const scroller = scrollRef.current;
+    const userMoved = () => { if (shown) finish(); };
+    scroller?.addEventListener("wheel", userMoved, { passive: true });
+    scroller?.addEventListener("touchmove", userMoved, { passive: true });
+    // A row that never comes (a section of a kit that is off) ends the watch.
+    const giveUp = window.setTimeout(finish, 10_000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(giveUp);
+      window.clearTimeout(settle);
+      scroller?.removeEventListener("wheel", userMoved);
+      scroller?.removeEventListener("touchmove", userMoved);
+    };
   }, [page, scrollTarget]);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   // A card's own id opens Providers at that card; every other page starts at the top.
   useEffect(() => {
     const card = onProviders && page !== "providers" ? document.getElementById(providerCardId(page)) : null;
@@ -331,7 +358,7 @@ export function SettingsScreen({
           </header>
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
-              <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
+              <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
             </div>
           </div>
         </main>
@@ -443,7 +470,7 @@ export function SettingsScreen({
               ) : onProviders ? (
                 <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : contributed ? (
-                <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
+                <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
               ) : page === "extensions" ? (
                 <ExtensionsPage
                   entries={sources.loading && !sources.inspection && snapshot?.cwd ? [] : catalog}

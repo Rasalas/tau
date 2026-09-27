@@ -38,14 +38,27 @@ function renderSection(answers: Record<string, (input: unknown) => TailscaleView
   const changed = vi.fn();
   const Component = section!.Component;
   render(<TestProviders><Component onNotify={notify} onChanged={changed} /></TestProviders>);
-  return { invoke, notify, changed };
+  return { invoke, notify, changed, registry };
 }
 
 describe("Tailscale on Settings → Connections", () => {
+  it("says when Tailscale did not answer, and asks again", async () => {
+    let calls = 0;
+    const { registry } = renderSection({ status: () => { calls += 1; if (calls === 1) throw new Error("tailscale: command not found"); return view(); } });
+    expect(await screen.findByText("tailscale: command not found")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("switch", { name: "Tailscale HTTPS" })).toBeTruthy();
+    // Every row the section names for the search is on it.
+    const rows = registry.getSettingsSections("connections")[0]!.rows ?? [];
+    expect(rows.length).toBe(2);
+    for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
+  });
+
+
   it("sends the owner to the admin console while the tailnet has HTTPS certificates off, and offers no switch", async () => {
     renderSection({ status: () => view({ https: false }) });
     expect(await screen.findByText(/HTTPS certificates are off in your tailnet/u)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "DNS Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open DNS settings" })).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.getByText(NAME)).toBeTruthy();
   });
@@ -66,15 +79,20 @@ describe("Tailscale on Settings → Connections", () => {
     expect(dialog.textContent).toContain("This machine’s name becomes public.");
     expect(dialog.textContent).toContain("Certificate Transparency logs");
     expect(dialog.textContent).toContain(`https://${NAME}:8443/`);
-    const setUp = screen.getByRole("button", { name: "Set Up" }) as HTMLButtonElement;
+    const setUp = screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement;
     expect(setUp.disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText("HTTPS port"), { target: { value: "443" } });
-    expect(dialog.textContent).toContain("Serve already forwards port 443 to http://127.0.0.1:3773");
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(setUp.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("HTTPS port"), { target: { value: "8443" } });
+    const port = screen.getByRole("spinbutton", { name: "HTTPS port" });
+    fireEvent.change(port, { target: { value: "443" } });
+    fireEvent.blur(port);
+    expect(screen.getByRole("alert").textContent).toBe("Serve already forwards port 443 to http://127.0.0.1:3773. Pick another port.");
+    fireEvent.click(screen.getByRole("checkbox", { name: `I understand that ${NAME} will be published` }));
     expect(setUp.disabled).toBe(false);
+    // The refused draft is still in the field: nothing is set up on the port before it.
+    fireEvent.click(setUp);
+    expect(invoke).not.toHaveBeenCalledWith(TAILSCALE_EXTENSION_ID, "serve-on", expect.anything());
+    fireEvent.change(port, { target: { value: "8443" } });
+    fireEvent.blur(port);
     fireEvent.click(setUp);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(TAILSCALE_EXTENSION_ID, "serve-on", { httpsPort: 8443, name: NAME }));
@@ -92,7 +110,7 @@ describe("Tailscale on Settings → Connections", () => {
     expect(await screen.findByText(/proxy listener is not open/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("switch", { name: "Tailscale HTTPS" }));
     expect(invoke).not.toHaveBeenCalledWith(TAILSCALE_EXTENSION_ID, "serve-off", undefined);
-    fireEvent.click(await screen.findByRole("button", { name: "Turn Off" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Turn off" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(TAILSCALE_EXTENSION_ID, "serve-off", undefined));
     await waitFor(() => expect(changed).toHaveBeenCalledOnce());
   });
@@ -104,7 +122,7 @@ describe("Tailscale on Settings → Connections", () => {
     });
     fireEvent.click(await screen.findByRole("switch", { name: "Tailscale HTTPS" }));
     fireEvent.click(await screen.findByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Set Up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("Tailscale refused: this user may not change Serve."));
     expect(screen.getByRole("dialog", { name: "Set up Tailscale HTTPS" })).toBeTruthy();
     expect(changed).not.toHaveBeenCalled();

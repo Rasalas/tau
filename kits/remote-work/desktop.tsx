@@ -3,7 +3,7 @@ import { FolderSync } from "lucide-react";
 import type { DesktopExtension, RegionProps, WorkbenchActions } from "tau";
 import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } from "./protocol.js";
 import { QuestionNotices } from "./questions.js";
-import { createRemoteWorkPage } from "./settings.js";
+import { REMOTE_WORK_ROWS, createRemoteWorkPage } from "./settings.js";
 
 export const REMOTE_WORK_SETTINGS_PAGE = "remote-work.settings";
 
@@ -56,6 +56,7 @@ export const remoteWorkExtension: DesktopExtension = {
       order: 45.5,
       profiles: ["desktop", "web"],
       keywords: ["other machine", "rex", "transfer", "bundle", "ignored files", ".env", "bring back", "merge"],
+      rows: REMOTE_WORK_ROWS,
       // A client without a window process (a browser, a phone) cannot move to another machine.
       Component: createRemoteWorkPage(context.host, context.environments ? (link) => notices.openThere(link) : undefined),
     });

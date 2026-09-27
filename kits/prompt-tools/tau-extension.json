@@ -2,6 +2,7 @@
   "id": "tau.prompt-tools",
   "name": "Prompt Tools",
   "description": "Stash a draft, recall earlier prompts, quote a reply, and queue or steer a running turn.",
+  "icon": "MessageSquareText",
   "version": "1.0.0",
   "engines": {
     "api": "^1.10.0"

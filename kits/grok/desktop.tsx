@@ -1,7 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { CircleCheck, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { Sparkles, SquareTerminal } from "lucide-react";
 import {
+  Button,
   DEFAULT_INSTANCE_ID,
+  SettingRow,
+  SettingsState,
   isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   useWorkbenchShell,
@@ -26,7 +29,9 @@ const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
 const TERMINAL_PANEL = "terminal";
 
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
-const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
+const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
+const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
+const CardBadge = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
 
 /** Marks the runtime behind a Grok thread with an icon, its name in the tooltip; other threads show nothing. */
 export function GrokStatus({ snapshot }: RegionProps) {
@@ -66,30 +71,6 @@ export async function typeIntoTerminal(terminal: HostExtensionClient, actions: W
 export function loginCommand(command: string, home: string | undefined): string {
   if (!home) return `${command} login`;
   return `GROK_HOME=${/\s/u.test(home) ? JSON.stringify(home) : home} ${command} login`;
-}
-
-/** The executable's path, saved when the field is left or Enter is pressed; empty goes back to the PATH. */
-function CommandPathField({ status, onSave }: { status: GrokStatusReport | undefined; onSave(command: string): Promise<void> }) {
-  const saved = status?.commandSource === "setting" ? status.command : "";
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
-  const fromEnv = status?.commandSource === "env";
-  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
-  return (
-    <>
-      <input
-        className="settings-search-input grok-path"
-        aria-label="Grok executable"
-        value={fromEnv ? status!.command : draft}
-        placeholder="grok, from your login shell's PATH"
-        disabled={fromEnv || !status}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
-      />
-      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_GROK_COMMAND</code> in Tau's environment.</> : <>A name on the PATH or an absolute path; leave it empty to find <code>grok</code> on the PATH.</>}</p>
-    </>
-  );
 }
 
 export class GrokInstances {
@@ -187,81 +168,91 @@ export function GrokProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_I
     onNotify(where === "terminal" ? "The command is in a terminal; press Enter there to run it." : "No terminal is available; the command is on the clipboard.");
   };
 
-  const known = status !== undefined;
   const found = Boolean(status?.path);
   const compatibility = status?.compatibility && status.compatibility.status !== "supported" ? status.compatibility : undefined;
   const login = loginCommand(status?.path && /\s/u.test(status.path) ? JSON.stringify(status.path) : status?.command ?? "grok", view?.home);
   const signedIn = status?.signedIn === true;
   const apiKey = status?.login === "api-key";
+  const label = view?.label ?? "Grok";
+  const rows = rowIds(instance);
+  const models = status?.models !== undefined ? `${status.models} models; pick one and its reasoning effort per thread in the composer.` : undefined;
   return (
-    <>
-      <p className="settings-note">
-        {isDefault
-          ? <>Threads drive the Grok CLI over ACP, with the models of your Grok plan or of an xAI API key. Tau reads no credential for a thread; the CLI signs in itself.</>
-          : <>A second Grok setup: threads started on it keep it, with the login and sessions of its own home.</>}
-      </p>
-
-      <div className="settings-label">CLI</div>
-      <div className="settings-field grok-field">
-        {found && !compatibility && !status?.message ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : found ? `Found${status?.version ? ` · ${status.version}` : ""}` : `${status.command} was not found`}</strong>
-          <small>{!known ? "" : status.message ?? (found ? status.path : "Install Grok Build's CLI, or set its path below.")}</small>
-        </span>
-        <button className="grok-action" disabled={busy} onClick={() => void read(true)}>
-          <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
-        </button>
-      </div>
-      {compatibility && status ? (
-        <div className="grok-version">
-          <Suspense fallback={null}>
-            <VersionBanner
-              backend={{ kind: view?.kind ?? GROK_BACKEND_KIND, label: view?.label ?? "Grok", version: { tool: "grok", ...(status.version ? { installed: status.version } : {}), compatibility } }}
-              onInstall={(command) => void runCommand(command)}
-              onCopy={(command) => void actions?.copyText(command)}
-            />
-          </Suspense>
-        </div>
-      ) : null}
-
+    <Suspense fallback={<SettingsState kind="loading" rows={3} title={`Loading ${label}`} />}>
+      <ProgramRows
+        program={label}
+        idPrefix={rows.prefix}
+        help={isDefault
+          ? "Threads drive the Grok CLI over ACP, with the models of your Grok plan or of an xAI API key. Tau reads no credential for a thread; the CLI signs in itself."
+          : "A second Grok setup: threads started on it keep it, with the login and sessions of its own home."}
+        {...(status ? { state: {
+          found,
+          ...(status.version ? { version: status.version } : {}),
+          ...(status.path ? { location: status.path } : {}),
+          ...(status.message ? { message: status.message } : {}),
+          ...(compatibility ? { compatibility } : {}),
+        } } : {})}
+        missing="Install Grok Build's CLI, or set its executable below."
+        busy={busy}
+        {...(error ? { error } : {})}
+        onCheck={() => void read(true)}
+        onRunCommand={(command) => void runCommand(command)}
+      />
       {found ? (
         <>
-          <div className="settings-label">Account</div>
-          <div className="settings-field grok-field">
-            {signedIn ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-            <span>
-              <strong>{busy && !known ? "Checking…" : apiKey ? "xAI API key" : signedIn ? `Signed in${status?.account ? ` with ${status.account}` : ""}` : status?.signedIn === false ? "Not signed in" : "Sign-in unknown"}</strong>
-              <small>
-                {apiKey
-                  ? <><code>XAI_API_KEY</code> is set in Tau's environment; threads are billed to the API.{status?.models !== undefined ? ` ${status.models} models.` : ""}</>
-                  : signedIn ? `${status?.models ?? 0} models; pick one and its reasoning effort per thread in the composer.` : <>Run <code>{login}</code> in a terminal.</>}
-              </small>
-            </span>
-            {!signedIn && !apiKey ? <button className="grok-action" onClick={() => void runCommand(login)}>Sign in…</button> : null}
-          </div>
+          <CardBadge source="account" badge={apiKey ? { label: "API key", tone: "success" } : status?.signedIn === undefined ? undefined : signedIn ? { label: "Signed in", tone: "success" } : { label: "Needs sign-in", tone: "warn" }} />
+          <SettingRow
+            id={rows.account}
+            title="Account"
+            description={apiKey ? "xAI API key: XAI_API_KEY is set in Tau's environment; threads are billed to the API."
+              : signedIn ? `Signed in${status?.account ? ` with ${status.account}` : ""}`
+                : status?.signedIn === false ? "Not signed in" : "The CLI did not say who is signed in."}
+            {...(signedIn || apiKey ? {} : { help: "Sign in types the CLI's login into a terminal, pointed at this instance's home; press Enter there and follow it." })}
+            control={signedIn || apiKey ? undefined : <Button icon={<SquareTerminal size={13} aria-hidden />} onClick={() => void runCommand(login)}>Sign in in a terminal</Button>}
+          />
+          {(signedIn || apiKey) && models ? <SettingRow id={rows.models} title="Models" description={models} /> : null}
         </>
       ) : null}
-
-      <div className="settings-label">Path</div>
-      <CommandPathField status={status} onSave={saveCommand} />
-
-      {error ? <p className="settings-note" data-level="error">{error}</p> : null}
+      <CommandRow
+        id={rows.executable}
+        program={label}
+        commandName="grok"
+        variable="TAU_GROK_COMMAND"
+        known={status !== undefined}
+        {...(status ? { command: status.command } : {})}
+        {...(status?.commandSource ? { source: status.commandSource } : {})}
+        onSave={saveCommand}
+      />
       {view ? (
-        <Suspense fallback={null}>
-          <InstanceSetup
-            program="Grok"
-            homeVariable={GROK_HOME_VARIABLE}
-            homePlaceholder="~/.grok (the CLI's own)"
-            commandPlaceholder="grok"
-            instance={view}
-            instances={report.instances}
-            onSave={saveInstance}
-            {...(isDefault ? {} : { onRemove: remove })}
-          />
-        </Suspense>
+        <InstanceSetup
+          program="Grok"
+          homeVariable={GROK_HOME_VARIABLE}
+          homePlaceholder="~/.grok (the CLI's own)"
+          commandPlaceholder="grok"
+          instance={view}
+          instances={report.instances}
+          rowId={rows.setup}
+          onSave={saveInstance}
+          {...(isDefault ? {} : { onRemove: remove })}
+        />
       ) : null}
-    </>
+    </Suspense>
   );
+}
+
+/** The element ids of an instance's rows; every instance's card sits on the same page, so each carries its id. */
+export function rowIds(instance: string) {
+  const prefix = instance === DEFAULT_INSTANCE_ID ? "setting-grok" : `setting-grok-${instance}`;
+  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
+}
+
+/** What the Settings search finds on an instance's card. */
+export function searchRows(instance: string, label: string) {
+  const ids = rowIds(instance);
+  return [
+    { id: ids.program, label: `${label} CLI`, keywords: ["grok", "grok build", "version", "install", "installed", "check"] },
+    { id: ids.executable, label: `${label} executable`, keywords: ["grok", "path", "command", "binary"] },
+    { id: ids.setup, label: `${label} instance setup`, keywords: ["grok", "instance", "home", "GROK_HOME", "environment", "arguments"] },
+  ];
 }
 
 function settingsPageOf(instance: string): string {
@@ -289,6 +280,7 @@ export const grokExtension: DesktopExtension = {
       runtime: entry.kind,
       order,
       keywords: ["grok", "xai", "grok build", "acp", "instance", entry.id],
+      rows: searchRows(entry.id, entry.label),
       Component: card(entry.id),
     });
     const sync = (report: GrokInstancesReport) => {

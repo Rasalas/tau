@@ -736,6 +736,8 @@ export interface ExtensionPackageSummary {
   version?: string;
   /** The manifest's one sentence about the package. */
   description?: string;
+  /** The manifest's Lucide icon name, for a package no page or panel gives an icon. */
+  icon?: string;
   engines?: Record<string, string>;
   permissions?: string[];
   /** Where the host half runs; a package that declares none runs in a worker. */
