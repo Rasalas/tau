@@ -146,7 +146,7 @@ npm run cdp:mobile -- stop
 ```
 
 - Commands: `tap`, `longpress`, `swipe <expr> <dx>`, `type`, `insert`, `press`, `keyboard <px|off>`, `wake sleep|offline|online|foreground`, `eval`, `wait-for`, `snapshot`, `screenshot`, `link`, `host <method> [json]` (an owner call), `freeze-host <ms>`, `device <name>`.
-- On touch, Return adds a line; tap the send button.
+- On touch, Return adds a line while the on-screen keyboard is up (`keyboard <px>`); tap the send button. With none up (a hardware keyboard) Return sends, Shift+Return adds a line.
 - `node scripts/tau-test-host.mjs start --proxy` is a headless host with the proxy listener; `--test-host` points `pair`, `host` and `freeze-host` at it (`--test-host=<name>` at a named one). Never turn on the instance's Tailscale switch.
 - The iOS app: `node mobile/scripts/sim-device.mjs up` / `down` (one simulator, load below 40, deleted at the end).
 - What needs the user's own phone is in `docs/mobile-device-checklist.md`; point the user there instead of testing on a device.

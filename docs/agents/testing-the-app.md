@@ -392,7 +392,7 @@ npm run cdp:mobile -- tap "document.querySelector('.send-button[aria-label=\"Sen
 npm run cdp:mobile -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 120000
 ```
 
-On touch, Return in the composer adds a line; the send button sends. Prove the model in `.tau-dev/pi-sessions/` as for the desktop.
+On touch, Return in the composer adds a line while the on-screen keyboard is up (`keyboard <px>`); the send button sends. Without it (a hardware keyboard, `press Enter`) Return sends and Shift+Return adds a line, as on the desktop. Prove the model in `.tau-dev/pi-sessions/` as for the desktop.
 
 Gestures and the rest of the phone:
 

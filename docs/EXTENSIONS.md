@@ -1262,7 +1262,11 @@ matter. The shipped kits publish, among others, Workspace Kit's store as
 `tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
 `open(url, actions)` brings the Preview panel forward and navigates — Project
 Scripts opens a script's `previewUrl` through it, and falls back to
-`actions.openExternal` when Preview Kit is off. Its `jump(target, actions)`
+`actions.openExternal` when Preview Kit is off. Search Kit publishes
+`tau.search/files`: `pickFile(onPick?)` opens its "Go to file" dialog, and
+with `onPick` hands the chosen path there instead of opening it on the stage;
+the Files panel's search button uses it, and a phone's Files sheet reads the
+pick itself. Its `jump(target, actions)`
 (new in API 1.12.0) brings forward what an agent drives: `{ kind: "browser" }`
 the Preview panel with the page, `{ kind: "app", threadId }` the window that
 thread's Computer Use driver steers, raised by the driver itself; a handover
