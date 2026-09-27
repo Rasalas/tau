@@ -129,6 +129,8 @@ export interface WorkbenchControlHandle {
   /** On a compact layout a panel is a sheet: true when this opened or closed one, false where the dock does it. */
   openSheet(id: string): boolean;
   closeSheet(id: string): boolean;
+  /** A thread was picked: the chat takes the front of a tabbed centre, and a compact client drops its panel sheet. */
+  showThread(): void;
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -329,7 +331,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // A tablet-sized compact client keeps the list beside the thread instead.
   const clientProfile = useClientEnvironment().profile;
   const split = compact && compactFormFor(clientProfile, windowWidth, windowHeight) === "split";
-  const compactRef = useRef({ compact, split, sheets: [] as readonly string[] });
+  const compactRef = useRef({ compact, split, stacked: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
@@ -365,7 +367,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       setPanelSheet((open) => (open === id ? undefined : open));
       return true;
     },
-  }), [clientStorage]);
+    showThread: () => {
+      setPanelSheet(undefined);
+      // Beside the stage the chat is already in view; the choice made there stays.
+      if (compactRef.current.stacked) setChatFocused(true);
+    },
+  }), [clientStorage, setChatFocused]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   const sheetPanels = useMemo(() => compact ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, compact]);
@@ -397,6 +404,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     ...(dockPanels.length > 0 ? { dock: { open: Boolean(listPanel) && stageShown, width: dockWidth } } : {}),
   });
   const stacked = stageShown && tabs;
+  compactRef.current.stacked = stacked;
   // A list with nothing open beside it floats over the chat's edge instead of taking room.
   const listOverlay = Boolean(listPanel) && !stageShown;
   const listDocked = Boolean(listPanel) && stageShown && !dockYields;

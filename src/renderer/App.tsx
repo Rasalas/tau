@@ -206,6 +206,7 @@ export default function App() {
   const openModelPicker = useCallback(() => composerControlRef.current?.openModelPicker(), []);
   const openInstructions = useCallback(() => workbenchControlRef.current?.openInstructions(), []);
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
+  const showThread = useCallback(() => workbenchControlRef.current?.showThread(), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);
@@ -334,6 +335,7 @@ export default function App() {
     activeDraftKey: currentDraftKey,
     composerRef,
     closeNewThreadPicker,
+    showThread,
   });
   const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree, editFromMessage } = useThreadTree({
     ...(client ? { client } : {}),
