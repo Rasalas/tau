@@ -1,4 +1,4 @@
-import type { UiProject, UiSession } from "../shared/contracts";
+import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 
 /**
@@ -14,8 +14,11 @@ export interface ThreadSupervisionRow {
   path: string;
   title: string;
   projectName: string;
+  /** What the project's mark is coloured by, as on a rail row. */
+  projectPath?: string;
   /** The project's short label, e.g. its Git branch. */
   projectLabel?: string;
+  usage?: UiThreadUsage;
   status: ThreadSupervisionStatus;
   /** Set while the thread is running, for the elapsed timer. */
   startedAt?: number;
@@ -51,7 +54,9 @@ function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organizatio
     path: thread.path,
     title: thread.title || "Untitled thread",
     projectName: thread.projectName,
+    projectPath: thread.projectPath,
     ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
+    ...(thread.usage ? { usage: thread.usage } : {}),
     status,
     ...(startedAt === undefined ? {} : { startedAt }),
     unread: activity.unreadThreadIds.includes(thread.id),
