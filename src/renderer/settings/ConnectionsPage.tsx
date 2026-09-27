@@ -16,9 +16,10 @@ import {
 } from "../../shared/connections";
 import { formatVerification } from "../../shared/pairing";
 import { useHostClient } from "../host-client-context";
-import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { tooltipProps } from "../components/ui/Tooltip";
 import { Dialog } from "../components/ui/Dialog";
-import { Empty, Skeleton } from "../components/ui/Feedback";
+import { Empty } from "../components/ui/Feedback";
+import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, SettingsState } from "./controls";
 import { PairingRequestDialog } from "../pairing/PairingRequestDialog";
 import { ACCESS_CHOICES, requestTitle } from "../pairing/pairing-format";
 import { SettingRow, SettingsSection } from "./settings-layout";
@@ -54,13 +55,10 @@ function StatusDot({ tone, label }: { tone: "live" | "idle" | "pending"; label: 
 }
 
 function AccessChoice({ value, onChange, disabled }: { value: DeviceAccess; onChange(value: DeviceAccess): void; disabled?: boolean }) {
-  return <div className="segmented" role="group" aria-label="Access">
-    {ACCESS_CHOICES.map((choice) => (
-      <button key={choice.value} type="button" title={choice.hint} disabled={disabled} className={choice.value === value ? "active" : ""} aria-pressed={choice.value === value} onClick={() => onChange(choice.value)}>
-        {choice.label}
-      </button>
-    ))}
-  </div>;
+  return <>
+    <SegmentedControl label="Access" value={value} disabled={disabled} options={ACCESS_CHOICES.map((choice) => ({ value: choice.value, label: choice.label }))} onChange={onChange} />
+    <small className="connection-field-hint">{ACCESS_CHOICES.find((choice) => choice.value === value)?.hint}</small>
+  </>;
 }
 
 const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : days === 365 ? "1 year unused" : `${days} days unused`);
@@ -80,8 +78,6 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [created, setCreated] = useState<UiCreatedPairingLink>();
   const [creating, setCreating] = useState(false);
-  const [confirmRotate, setConfirmRotate] = useState(false);
-  const [confirmRevokeOthers, setConfirmRevokeOthers] = useState(false);
   const [reviewing, setReviewing] = useState<UiPairingRequest>();
   const [editing, setEditing] = useState<UiPairedClient>();
   const [findingMachines, setFindingMachines] = useState(false);
@@ -141,7 +137,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   };
 
   if (state.status === "loading") {
-    return <div className="settings-page" aria-busy="true"><Skeleton shape="card" /><Skeleton shape="card" /></div>;
+    return <div className="settings-page"><SettingsState kind="loading" rows={5} title="Loading connections" /></div>;
   }
   if (state.status === "error") {
     const title = state.code === "forbidden" ? "Connections are managed on the host’s machine"
@@ -150,7 +146,9 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
     const description = state.code === "forbidden" ? "Pairing links, waiting devices and revocations are handled in a Tau window on the machine that runs the host, with the host token. A paired device, or the host token from another machine, can use the host but not change who may reach it."
       : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or revoke. The host a Tau window starts for itself has one."
         : state.message;
-    return <div className="settings-page"><Empty icon={<Link2 size={18} />} title={title} description={description} /></div>;
+    return <div className="settings-page">{state.code === "forbidden" || state.code === "unsupported" || state.code === "unknown-method"
+      ? <Empty icon={<Link2 size={18} />} title={title} description={description} />
+      : <SettingsState kind="error" title={title} description={description} onRetry={() => { setState({ status: "loading" }); void refresh(); }} />}</div>;
   }
 
   const data = state.data;
@@ -183,14 +181,9 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           />
         ) : null}
         <SettingRow
-          title="Host token"
-          description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Rotating it disconnects every other client that uses it; paired clients keep their own tokens.</>}
-          control={<button type="button" className="chrome-button" disabled={busy === "rotate"} onClick={() => setConfirmRotate(true)}>{busy === "rotate" ? "Rotating…" : "Rotate…"}</button>}
-        />
-        <SettingRow
           title="Other machines"
           description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
-          control={<button type="button" className="chrome-button" onClick={() => setFindingMachines(true)}>Find Machines…</button>}
+          control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
         />
       </SettingsSection>
 
@@ -212,19 +205,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         title="Authorized clients"
         headerAction={(
           <div className="connection-header-actions">
-            <button
-              type="button"
-              className="chrome-button danger"
-              disabled={others === 0 || busy === "revoke-others"}
-              title="Signs out every paired device; each needs a new pairing to come back."
-              onClick={() => setConfirmRevokeOthers(true)}
-            >{busy === "revoke-others" ? "Revoking…" : "Revoke others"}</button>
-            <button
-              type="button"
-              className="chrome-button accent"
-              title={data.webClient ? undefined : "This host serves no web client, so only the Tau app can open a link (npm run build:web)."}
-              onClick={() => setCreating(true)}
-            ><Plus size={13} /> Create link</button>
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}
+              {...tooltipProps(data.webClient ? undefined : "This build serves no web client, so only the Tau app can open a link.")}>Create link</Button>
           </div>
         )}
       >
@@ -255,6 +237,32 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       </SettingsSection>
 
       <HostServiceSection onNotify={onNotify} />
+
+      <DangerZone>
+        <DangerAction
+          title="Sign out every other device"
+          description="Every paired device loses its token at once; each needs a new pairing to come back. Windows with the host token stay."
+          actionLabel="Revoke others…"
+          disabled={others === 0}
+          disabledReason="No other device is paired."
+          busy={busy === "revoke-others"}
+          confirmTitle="Revoke every other device?"
+          confirmMessage="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the host token are not affected."
+          onConfirm={() => void act("revoke-others", async () => {
+            const { revoked } = await client!.revokeOtherClients();
+            onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
+          })}
+        />
+        <DangerAction
+          title="Rotate the host token"
+          description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own tokens.</>}
+          actionLabel="Rotate…"
+          busy={busy === "rotate"}
+          confirmTitle="Rotate the host token?"
+          confirmMessage="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
+          onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
+        />
+      </DangerZone>
 
       {creating ? (
         <CreateLinkDialog
@@ -289,32 +297,6 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         />
       ) : null}
       {findingMachines ? <NearbyMachinesDialog onClose={() => setFindingMachines(false)} /> : null}
-      {confirmRevokeOthers ? (
-        <ConfirmDialog
-          title="Revoke every other device?"
-          message="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the host token are not affected."
-          confirmLabel="Revoke Others"
-          destructive
-          onCancel={() => setConfirmRevokeOthers(false)}
-          onConfirm={() => {
-            setConfirmRevokeOthers(false);
-            void act("revoke-others", async () => {
-              const { revoked } = await client!.revokeOtherClients();
-              onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
-            });
-          }}
-        />
-      ) : null}
-      {confirmRotate ? (
-        <ConfirmDialog
-          title="Rotate the host token?"
-          message="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
-          confirmLabel="Rotate Token"
-          destructive
-          onCancel={() => setConfirmRotate(false)}
-          onConfirm={() => { setConfirmRotate(false); void act("rotate", () => client!.rotateHostToken(), "Host token rotated"); }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -324,10 +306,10 @@ function LinkRow({ link, now, busy, onRevoke }: { link: UiPairingLink; now: numb
     <div className="connection-row">
       <StatusDot tone="pending" label={`Created ${formatAgo(link.createdAt, now)}`} />
       <div className="connection-row-text">
-        <strong>{link.label ?? "Pairing link"}{link.access === "read-only" ? <em className="connection-badge">Read only</em> : null}</strong>
+        <strong>{link.label ?? "Pairing link"}{link.access === "read-only" ? <Badge>Read only</Badge> : null}</strong>
         <small title={new Date(link.expiresAt).toLocaleString()}>{formatExpiresIn(link.expiresAt, now)} · single use · you allow the device when it asks</small>
       </div>
-      <button type="button" className="chrome-button danger" disabled={busy} onClick={onRevoke}>{busy ? "Revoking…" : "Revoke"}</button>
+      <Button variant="danger" busy={busy} onClick={onRevoke}>{busy ? "Revoking…" : "Revoke"}</Button>
     </div>
   );
 }
@@ -343,8 +325,8 @@ function RequestRow({ request, now, busy, onReview, onDeny }: { request: UiPairi
         <strong>{requestTitle(request)} wants to connect <code className="connection-request-code">{formatVerification(request.verification)}</code></strong>
         <small>{details.join(" · ")}</small>
       </div>
-      <button type="button" className="chrome-button danger" disabled={busy} onClick={onDeny}>Deny</button>
-      <button type="button" className="chrome-button accent" disabled={busy} onClick={onReview}>Allow…</button>
+      <Button variant="danger" disabled={busy} onClick={onDeny}>Deny</Button>
+      <Button variant="primary" disabled={busy} onClick={onReview}>Allow…</Button>
     </div>
   );
 }
@@ -362,17 +344,17 @@ function ClientRow({ paired, companionOf, now, busy, onEdit, onRevoke }: { paire
       <div className="connection-row-text">
         <strong>
           {paired.label}
-          {paired.current ? <em className="connection-badge">This device</em> : null}
-          {paired.access === "read-only" ? <em className="connection-badge">Read only</em> : null}
+          {paired.current ? <Badge tone="accent">This device</Badge> : null}
+          {paired.access === "read-only" ? <Badge>Read only</Badge> : null}
         </strong>
         <small>{details.join(" · ")}</small>
         {expiring ? <small className="connection-expiring">Signed out {formatExpiresIn(paired.expiresAt!, now).replace("Expires in", "in").replace("Expired", "now")} unless it connects</small> : null}
       </div>
-      <button type="button" className="icon-button bordered" aria-label={`Settings for ${paired.label}`} title="Name, access and sign-out" disabled={busy} onClick={onEdit}>
-        <SlidersHorizontal size={14} />
+      <button type="button" className="tau-icon-button connection-edit" aria-label={`Settings for ${paired.label}`} {...tooltipProps("Name, access and sign-out")} disabled={busy} onClick={onEdit}>
+        <SlidersHorizontal size={15} />
       </button>
       {paired.current ? null : (
-        <button type="button" className="chrome-button danger" disabled={busy} onClick={onRevoke}>{busy ? "Revoking…" : "Revoke"}</button>
+        <Button variant="danger" busy={busy} onClick={onRevoke}>{busy ? "Revoking…" : "Revoke"}</Button>
       )}
     </div>
   );
@@ -405,10 +387,9 @@ function DeviceDialog({ paired, busy, onSave, onCancel }: { paired: UiPairedClie
       </div>
       <label className="connection-field">
         <span>Sign out after</span>
-        <select className="settings-select" value={idle === null ? "never" : String(idle)} disabled={busy}
-          onChange={(event) => setIdle(event.target.value === "never" ? null : Number(event.target.value) as IdleTimeoutDays)}>
-          {IDLE_TIMEOUT_CHOICES.map((days) => <option key={String(days)} value={days === null ? "never" : String(days)}>{idleLabel(days)}</option>)}
-        </select>
+        <Select label="Sign out after" width="full" value={idle === null ? "never" : String(idle)} disabled={busy}
+          options={IDLE_TIMEOUT_CHOICES.map((days) => ({ value: days === null ? "never" : String(days), label: idleLabel(days) }))}
+          onChange={(next) => setIdle(next === "never" ? null : Number(next) as IdleTimeoutDays)} />
       </label>
       <p>A change of access applies to its next request. Every use restarts the sign-out clock.</p>
       <footer>
@@ -426,7 +407,7 @@ function OwnerRow({ owner, now }: { owner: UiOwnerConnection; now: number }) {
     <div className="connection-row">
       <StatusDot tone="live" label="Connected" />
       <div className="connection-row-text">
-        <strong>{name}{owner.current ? <em className="connection-badge">This device</em> : null}</strong>
+        <strong>{name}{owner.current ? <Badge tone="accent">This device</Badge> : null}</strong>
         <small>{details.join(" · ")}</small>
       </div>
     </div>
@@ -462,7 +443,7 @@ function CreatedLink({ created, now, onCopy, onDismiss }: {
         {shown ? (
           <div className="connection-link-box">
             <code title={shown.url}>{shown.url}</code>
-            <button type="button" className="chrome-button" onClick={() => onCopy(shown.url, "Pairing link")}>Copy link</button>
+            <Button onClick={() => onCopy(shown.url, "Pairing link")}>Copy link</Button>
           </div>
         ) : <p>This host listens nowhere another device could reach.</p>}
         <button type="button" className="text-button connection-copy-code" onClick={() => onCopy(created.code, "Pairing code")}>Copy code only</button>
@@ -498,9 +479,9 @@ function CreateLinkDialog({ busy, onCreate, onCancel }: { busy: boolean; onCreat
       </label>
       <label className="connection-field">
         <span>Expires after</span>
-        <select className="settings-select" value={lifetime} disabled={busy} onChange={(event) => setLifetime(Number(event.target.value))}>
-          {LINK_LIFETIMES.map((entry) => <option key={entry.ms} value={entry.ms}>{entry.label}</option>)}
-        </select>
+        <Select label="Expires after" width="full" value={String(lifetime)} disabled={busy}
+          options={LINK_LIFETIMES.map((entry) => ({ value: String(entry.ms), label: entry.label }))}
+          onChange={(next) => setLifetime(Number(next))} />
       </label>
       <div className="connection-field">
         <span>Access</span>
