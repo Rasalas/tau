@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Command, Cpu, Folder, Info, Monitor, MonitorSmartphone, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
@@ -117,6 +117,9 @@ export function SettingsScreen({
   onClose,
   onNotify,
   stacked = false,
+  view,
+  onViewChange,
+  nav,
 }: {
   page: string;
   snapshot?: HostSnapshot;
@@ -129,6 +132,11 @@ export function SettingsScreen({
   onNotify(message: string): void;
   /** One column, as on a phone: the section list first, a page after a tap, and back. */
   stacked?: boolean;
+  /** Stacked, which of the two shows, when the caller keeps it (a phone's history does). */
+  view?: "sections" | "page";
+  onViewChange?(view: "sections" | "page"): void;
+  /** A phone's bottom navigation, under the list of sections; Settings is then a main page, without Close. */
+  nav?: ReactNode;
 }) {
   const preferences = usePreferences();
   const client = useHostClient();
@@ -165,7 +173,9 @@ export function SettingsScreen({
   // A page without project rows edits this machine; leaving one puts the scope back.
   useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
 
-  const [showingPage, setShowingPage] = useState(!stacked);
+  const [ownShowingPage, setOwnShowingPage] = useState(!stacked);
+  const showingPage = view && stacked ? view === "page" : ownShowingPage;
+  const setShowingPage = (showing: boolean) => { if (onViewChange) onViewChange(showing ? "page" : "sections"); else setOwnShowingPage(showing); };
   // What the section list opens; stacked, it also turns from the list to the page.
   const openPage = (id: string) => { onSetPage(id); setShowingPage(true); };
   const [search, setSearch] = useState("");
@@ -292,7 +302,7 @@ export function SettingsScreen({
         <nav className="settings-nav" aria-label="Settings sections">
           <div className="settings-nav-header">{stacked ? <>
             <h1>Settings</h1>
-            {showingPage ? null : <button type="button" className="settings-sections-back" aria-label="Close settings" onClick={onClose}><X size={18} /></button>}
+            {showingPage || nav ? null : <button type="button" className="settings-sections-back" aria-label="Close settings" onClick={onClose}><X size={18} /></button>}
           </> : <WindowControlsInset />}</div>
           <label className="settings-nav-search">
             <Search size={14} />
@@ -375,6 +385,7 @@ export function SettingsScreen({
               <ArrowLeft size={15} /><span>Back</span>
             </button>
           </div>
+          {stacked && !showingPage ? nav : null}
         </nav>
 
         <main className="settings-main">
@@ -391,7 +402,7 @@ export function SettingsScreen({
                 </> : null}
               </ol>
             </nav>
-            {stacked && showingPage ? <button type="button" className="settings-sections-back settings-close" aria-label="Close settings" onClick={onClose}><X size={18} /></button> : null}
+            {stacked && showingPage && !nav ? <button type="button" className="settings-sections-back settings-close" aria-label="Close settings" onClick={onClose}><X size={18} /></button> : null}
           </header>
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>

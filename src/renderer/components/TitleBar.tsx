@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Ellipsis, ListTree, PanelBottom, PanelBottomClose, PanelRight, PanelRightClose } from "lucide-react";
+import { ChevronLeft, Ellipsis, ListTree, PanelBottom, PanelBottomClose, PanelRight, PanelRightClose } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "./PanelIcon";
@@ -75,6 +75,7 @@ export function TitleBar({
   drawers = [],
   onToggleDock,
   onOpenThreads,
+  onBack,
   sheets = [],
   hasDock = true,
   foldSheets = false,
@@ -90,6 +91,8 @@ export function TitleBar({
   onToggleDock(): void;
   /** Set only on a compact layout, where the thread list is a screen or a touch sidebar. */
   onOpenThreads?(): void;
+  /** A phone: the chat is a screen over the thread list, and this goes back to it. */
+  onBack?(): void;
   /** Panels a compact layout draws over the thread; empty elsewhere. */
   sheets?: readonly SheetToggle[];
   /** False when no extension registered a panel: there is no dock to show or hide. */
@@ -110,6 +113,11 @@ export function TitleBar({
           aria-label="Threads"
           onClick={onOpenThreads}
         ><ListTree size={15} /></button> : null}
+        {onBack ? <button
+          className="chrome-ghost glyph"
+          aria-label="Back to threads"
+          onClick={onBack}
+        ><ChevronLeft size={15} /></button> : null}
       </div>
       <nav className="title-breadcrumb" aria-label="Thread breadcrumb">
         <button

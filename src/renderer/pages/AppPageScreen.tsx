@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowLeft, ChevronLeft } from "lucide-react";
 import type { ExtensionRegistry, PageProps, WorkbenchActions } from "../extension-system";
 import type { AppPageStore } from "../../workbench/app-page-store";
@@ -14,7 +14,7 @@ import "./app-page.css";
  * sidebar, whose foot has Back; on a phone it is a screen with its own back.
  * Escape steps out of a view, then leaves the page.
  */
-export function AppPageScreen({ registry, store, actions, stacked = false, sidebarShown = true }: {
+export function AppPageScreen({ registry, store, actions, stacked = false, sidebarShown = true, nav }: {
   registry: ExtensionRegistry;
   store: AppPageStore;
   actions: WorkbenchActions;
@@ -22,6 +22,8 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   stacked?: boolean;
   /** Without the sidebar beside it the bar carries Back, and keeps clear of the window controls. */
   sidebarShown?: boolean;
+  /** A phone's bottom navigation: the page is a main page, with no Back of its own until it steps into a view. */
+  nav?: ReactNode;
 }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -68,10 +70,11 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   if (!state) return null;
   const label = page?.label ?? "Page";
   const trail = views.slice(1);
-  const showBack = stacked || !sidebarShown;
+  const showBack = nav ? trail.length > 0 : stacked || !sidebarShown;
+  const navShown = Boolean(nav) && trail.length === 0;
 
   return (
-    <section className={`app-page${stacked ? " stacked" : ""}`} aria-label={label} data-app-page={state.id}>
+    <section className={`app-page${stacked ? " stacked" : ""}${navShown ? " with-nav" : ""}`} aria-label={label} data-app-page={state.id}>
       <main className="settings-main" ref={mainRef} tabIndex={-1}>
         <header className="settings-topbar app-page-bar">
           {stacked ? null : sidebarShown ? null : <WindowControlsInset />}
@@ -118,6 +121,7 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
           </div>
         </div>
       </main>
+      {navShown ? nav : null}
     </section>
   );
 }

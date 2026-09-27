@@ -71,6 +71,8 @@ import {
   type WorkbenchShellContextValue,
 } from "./workbench-context";
 import { displayPath } from "./path-display";
+import { usePhoneNavigation } from "./use-phone-navigation";
+import { phoneTab } from "../workbench/phone-route";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const DEFAULT_DOCK_WIDTH = 320;
@@ -98,6 +100,9 @@ const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal"
 // The touch layout's own pieces: none of them is in a desktop window's first paint.
 const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
 const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
+const LazyPhoneNav = lazy(() => import("./touch/PhoneNav").then(({ PhoneNav, phoneNavItems }) => ({
+  default: (props: { registry: ExtensionRegistry } & Omit<Parameters<typeof PhoneNav>[0], "items">) => <PhoneNav {...props} items={phoneNavItems(props.registry)} />,
+})));
 const LazyPanelSheet = lazy(() => import("./touch/PanelSheet").then(({ PanelSheet }) => ({ default: PanelSheet })));
 // Mounted closed from the start, like the palette, so its chunk is in before the first open.
 const LazyProjectPicker = lazy(() => import("./components/ProjectPicker").then(({ ProjectPicker }) => ({ default: ProjectPicker })));
@@ -336,13 +341,14 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const split = compact && compactFormFor(clientProfile, windowWidth, windowHeight) === "split";
   const compactRef = useRef({ compact, split, stacked: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
-  const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
   // The project the touch thread list is narrowed to; a new thread from it starts there.
   const [touchProjectPath, setTouchProjectPath] = useState<string>();
   const touchProject = touchProjectPath === undefined ? undefined : projects.find((project) => project.path === touchProjectPath);
-  // A phone with no thread open shows its thread list as the start page, not an empty composer.
-  const phoneHome = compact && !split && showStartScreen && !pendingNewThread;
+  // A phone's home is its thread list; a chat, a page or Settings is a screen over it.
+  const phone = compact && !split;
+  const phoneNav = usePhoneNavigation({ phone, pages, settingsPage, setSettingsPage, sessionId: snapshot?.sessionId, drafting: pendingNewThread });
+  const phoneHome = phone && !phoneNav.chatShown;
   // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
   const [panelSheet, setPanelSheet] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
@@ -357,7 +363,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     focusStage: () => stageRef.current?.focus(),
     toggleSidebar: () => {
       if (compactRef.current.split) { setTouchSidebarOpen((open) => !open); return; }
-      if (compactRef.current.compact) { setThreadSheetOpen((open) => !open); return; }
+      if (compactRef.current.compact) { phoneNav.toggleChat(); return; }
       setSidebarOpen((open) => {
         clientStorage.set(STORAGE_KEYS.sidebarOpen, String(!open));
         return !open;
@@ -365,7 +371,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     },
     openSheet: (id) => {
       if (!compactRef.current.sheets.includes(id)) return false;
-      setThreadSheetOpen(false);
       setPanelSheet(id);
       return true;
     },
@@ -376,10 +381,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     },
     showThread: () => {
       setPanelSheet(undefined);
+      phoneNav.showChat();
       // Beside the stage the chat is already in view; the choice made there stays.
       if (compactRef.current.stacked) setChatFocused(true);
     },
-  }), [clientStorage, setChatFocused]);
+  }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, setChatFocused]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   const sheetPanels = useMemo(() => compact ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, compact]);
@@ -423,7 +429,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const sideOpen = (stageShown || wideShown) && !tabs;
   const centerWidth = windowWidth - drawnSidebar - (dockPanels.length > 0 ? DOCK_RAIL_WIDTH : 0) - (listDocked && windowWidth > DOCK_PANEL_MIN_WINDOW ? drawnDockWidth : 0);
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
-  useEffect(() => { if (!compact || split) setThreadSheetOpen(false); }, [compact, split]);
   // Opening another thread (from a panel, say) puts the thread in front again.
   useEffect(() => { setPanelSheet(undefined); }, [compact, snapshot?.sessionId]);
 
@@ -463,15 +468,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     listOverlay ? "dock-overlay" : "",
   ].filter(Boolean).join(" ");
 
-  const openSupervisedThread = (row: { path: string }) => {
-    setThreadSheetOpen(false);
-    void actions.switchSession(row.path);
-  };
+  const openSupervisedThread = (row: { path: string }) => { void actions.switchSession(row.path); };
   // In the filtered project, else where the host last worked; with neither, ask.
   const startTouchThread = () => {
-    setThreadSheetOpen(false);
     const project = touchProject ?? lastUsedProject(projects, threadStore.getSnapshot().threads);
-    if (project) createThreadInProject(project);
+    if (project) { createThreadInProject(project); phoneNav.showChat(); }
     else openNewThreadPicker();
   };
   const threadBrowserProps = {
@@ -483,8 +484,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     projects,
     onProjectChange: (project: UiProject | undefined) => setTouchProjectPath(project?.path),
     onNewThread: startTouchThread,
-    onOpenSettings: (page?: string) => { setThreadSheetOpen(false); actions.openSettings(page); },
+    onOpenSettings: (page?: string) => (phone ? phoneNav.openSettings(page) : actions.openSettings(page)),
   };
+  // The bottom navigation, drawn by each main page as its last row.
+  const bottomNav = phone ? <Suspense fallback={null}>
+    <LazyPhoneNav registry={registry} current={phoneTab(phoneNav.route)} onSelect={phoneNav.openTab} />
+  </Suspense> : undefined;
 
   const conversationComposer = <ConversationComposer
     view={view}
@@ -500,17 +505,19 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   const appPage = openPage ? <LazyFeatureBoundary label="page">
     <Suspense fallback={<section className={`app-page${pageScreen ? " stacked" : ""}`}><LazyFeatureFallback label="page" /></section>}>
-      <LazyAppPageScreen registry={registry} store={pages} actions={actions} stacked={pageScreen} sidebarShown={split ? touchSidebarShown : sidebarShown} />
+      <LazyAppPageScreen registry={registry} store={pages} actions={actions} stacked={pageScreen} sidebarShown={split ? touchSidebarShown : sidebarShown} nav={bottomNav} />
     </Suspense>
   </LazyFeatureBoundary> : null;
 
   const overlays = <>
-    {compact ? <Suspense fallback={null}><LazyTouchLayer syncUrl={clientProfile !== "desktop"} openThread={actions.switchSession} /></Suspense> : null}
-    {phoneHome && !threadSheetOpen ? <Suspense fallback={null}>
-      <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} />
-    </Suspense> : null}
-    {compact && threadSheetOpen ? <Suspense fallback={null}>
-      <LazyTouchThreadBrowser variant="screen" {...threadBrowserProps} onClose={() => setThreadSheetOpen(false)} />
+    {compact ? <Suspense fallback={null}><LazyTouchLayer
+      syncUrl={clientProfile !== "desktop"}
+      openThread={actions.switchSession}
+      {...(phone ? { phone: { route: phoneNav.route, onRoute: phoneNav.applyRoute } } : {})}
+    /></Suspense> : null}
+    {phoneHome ? <Suspense fallback={null}>
+      {/* Under a page or Settings the list stays mounted, keeping its scroll; the bar is the covering page's. */}
+      <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} nav={phoneNav.route.kind === "threads" ? bottomNav : undefined} />
     </Suspense> : null}
     {sheetPanel ? <Suspense fallback={null}>
       <LazyPanelSheet label={sheetPanel.label} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
@@ -548,7 +555,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onBrowse={() => actions.openProjectSources()}
         onClose={closeNewThreadPicker}
         onRemove={removeProject}
-        onSelect={createThreadInProject}
+        onSelect={(project) => { createThreadInProject(project); if (phone) phoneNav.showChat(); }}
       />
     </Suspense>
     {openPage && pageScreen ? appPage : null}
@@ -557,6 +564,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         <LazySettingsScreen
           page={settingsPage}
           stacked={compact && !split}
+          {...(phone ? { view: phoneNav.settingsView, onViewChange: phoneNav.setSettingsView, nav: bottomNav } : {})}
           snapshot={snapshot}
           registry={registry}
           projects={projects}
@@ -634,7 +642,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           onToggle: () => (drawer === panel.id ? actions.closePanel?.(panel.id) : openPanel(panel.id)),
         }))}
         onToggleDock={() => (dockYields ? keepDock() : setDockOpen(!dockOpen))}
-        {...(compact ? { onOpenThreads: () => (split ? setTouchSidebarOpen((open) => !open) : setThreadSheetOpen(true)) } : {})}
+        {...(split ? { onOpenThreads: () => setTouchSidebarOpen((open) => !open) } : phone ? { onBack: phoneNav.showList } : {})}
         foldSheets={compact && !split}
         sheets={sheetPanels.map((panel) => ({
           id: panel.id,
@@ -706,7 +714,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               {snapshot?.sessionId ? <ThreadRuntimeBanner
                 sessionId={snapshot.sessionId}
                 onRetry={(path) => void actions.switchSession(path)}
-                onOpenProviders={() => actions.openSettings("providers")}
+                onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
               <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />

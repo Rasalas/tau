@@ -1,20 +1,32 @@
 import { useEffect, useRef } from "react";
 import { useThreadStore } from "../workbench-context";
 import { useAppPageStore } from "../app-page-context";
+import {
+  PHONE_HOME, historySteps, routeFromState, routeFromUrl, routeKey, routePath, sameRoute, stateWithRoute, urlWithRoute,
+  type HistorySteps, type PhoneRoute,
+} from "../../workbench/phone-route";
 import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
 import { viewportFit } from "./visual-viewport";
 import "./touch.css";
 
+/** A phone's route and how to go there; see `usePhoneNavigation`. */
+export interface PhoneRouting {
+  route: PhoneRoute;
+  onRoute(route: PhoneRoute): void;
+}
+
 /**
  * What the compact layout needs of the page beyond its components: the room
  * the on-screen keyboard leaves, a tap that reveals a message's actions where
- * a mouse would hover, and (in a browser) the open thread in the address.
- * Mounted only while the layout is compact.
+ * a mouse would hover, and (in a browser) where it is in the address and the
+ * history. Mounted only while the layout is compact; `phone` is set on one
+ * screen, where the list is home and back steps out of a chat.
  */
-export function TouchLayer({ syncUrl, openThread }: { syncUrl: boolean; openThread(path: string): Promise<boolean> }) {
-  useThreadUrl(syncUrl, openThread);
-  usePageUrl(syncUrl);
+export function TouchLayer({ syncUrl, openThread, phone }: { syncUrl: boolean; openThread(path: string): Promise<boolean>; phone?: PhoneRouting }) {
+  useThreadUrl(syncUrl && !phone, openThread);
+  usePageUrl(syncUrl && !phone);
+  usePhoneHistory(syncUrl ? phone : undefined, openThread);
   useEffect(() => {
     const root = document.documentElement;
     const visual = window.visualViewport ?? undefined;
@@ -127,4 +139,103 @@ function usePageUrl(enabled: boolean): void {
     window.addEventListener("popstate", onPop);
     return () => { stop(); window.removeEventListener("popstate", onPop); };
   }, [enabled, pages]);
+}
+
+/**
+ * The history as the path from home to the phone's route: a sub-page adds an
+ * entry, leaving it goes back one, so the system's back (Android back, an iOS
+ * swipe) steps out of a chat, a page's view or a Settings section, and stops
+ * at the list. The address names the route for a reload, a link or a push.
+ */
+function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: string) => Promise<boolean>): void {
+  const store = useThreadStore();
+  const latest = useRef({ phone, openThread });
+  latest.current = { phone, openThread };
+  const enabled = Boolean(phone);
+  // The route the history's top entry holds, and steps waiting for a back to land.
+  const shown = useRef<PhoneRoute | undefined>(undefined);
+  const pending = useRef<HistorySteps | undefined>(undefined);
+  const sync = useRef<() => void>(() => undefined);
+  // The route the last sync saw; a change from it is the user's move.
+  const seen = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const write = (steps: HistorySteps) => {
+      const href = window.location.href;
+      if (steps.replace) window.history.replaceState(stateWithRoute(window.history.state, steps.replace), "", urlWithRoute(href, steps.replace));
+      for (const route of steps.push) window.history.pushState(stateWithRoute(null, route), "", urlWithRoute(href, route));
+    };
+    sync.current = () => {
+      const to = latest.current.phone?.route;
+      const from = shown.current;
+      if (!to || !from || pending.current || sameRoute(from, to)) return;
+      const steps = historySteps(from, to);
+      shown.current = to;
+      if (steps.back === 0) { write(steps); return; }
+      pending.current = steps;
+      window.history.go(-steps.back);
+    };
+
+    // A thread the history names opens once the index has it; one the host does not know leaves for the list.
+    let waiting: PhoneRoute | undefined;
+    const apply = (route: PhoneRoute) => {
+      waiting = undefined;
+      const go = latest.current.phone?.onRoute;
+      if (route.kind !== "chat" || !route.thread) { go?.(route); return; }
+      const { threads, activeThreadId } = store.getSnapshot();
+      const target = threads.find((thread) => thread.id === route.thread);
+      if (!target) {
+        if (threads.length === 0) waiting = route;
+        else go?.(PHONE_HOME);
+        return;
+      }
+      if (target.id === activeThreadId) go?.(route);
+      else void latest.current.openThread(target.path);
+    };
+
+    // An entry this client wrote keeps its route; a fresh load builds the path to the address's.
+    const stamped = routeFromState(window.history.state);
+    const start = stamped ?? routeFromUrl(window.location.href);
+    if (!stamped) {
+      const href = window.location.href;
+      const [home, ...rest] = routePath(start);
+      window.history.replaceState(stateWithRoute(window.history.state, home!), "", urlWithRoute(href, home!));
+      for (const route of rest) window.history.pushState(stateWithRoute(null, route), "", urlWithRoute(href, route));
+    }
+    shown.current = start;
+    seen.current = routeKey(latest.current.phone!.route);
+    if (routeKey(start) !== seen.current) apply(start);
+
+    const onPop = (event: PopStateEvent) => {
+      const steps = pending.current;
+      if (steps) {
+        pending.current = undefined;
+        write(steps);
+        sync.current();
+        return;
+      }
+      // The user's back or forward, or a link that pushed an address.
+      const stampedRoute = routeFromState(event.state);
+      const route = stampedRoute ?? routeFromUrl(window.location.href);
+      if (!stampedRoute) window.history.replaceState(stateWithRoute(event.state, route), "", urlWithRoute(window.location.href, route));
+      shown.current = route;
+      apply(route);
+    };
+    const stop = store.subscribe(() => { if (waiting) apply(waiting); });
+    window.addEventListener("popstate", onPop);
+    return () => {
+      stop();
+      window.removeEventListener("popstate", onPop);
+      shown.current = undefined;
+      pending.current = undefined;
+    };
+  }, [enabled, store]);
+
+  const key = phone ? routeKey(phone.route) : undefined;
+  useEffect(() => {
+    if (key === undefined || key === seen.current) return;
+    seen.current = key;
+    sync.current();
+  }, [key]);
 }
