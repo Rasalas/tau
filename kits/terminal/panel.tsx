@@ -5,7 +5,7 @@ import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { paneIds, type TerminalGroup } from "./layout.js";
 import { closeTerminals, groupPanes, moveTerminalToStage, openTerminal, syncStageTabs, TERMINAL_READ_ONLY, wantsFirstShell } from "./controller.js";
 import { groupLabel, PaneTree, shellDirectory, useOpenFolder, type Run } from "./panes.js";
-import { chipLabels, threadScope } from "./scope.js";
+import { chipLabels, tabTitle, threadScope } from "./scope.js";
 import type { UiTerminalSession } from "./protocol.js";
 
 export { placeOf, type TerminalPlace } from "./panes.js";
@@ -18,6 +18,7 @@ function below(button: HTMLElement | null): { x: number; y: number } {
 
 /** Below this the split buttons fold into the tab bar's menu. */
 const NARROW_PANEL = 300;
+const ROOMY_PANEL = 520;
 
 export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const { sessions, activeSessionId: switched, layout } = useTerminalKit();
@@ -72,7 +73,7 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
     if (current && layout.active !== current.id) terminalStore.updateLayout((next) => ({ ...next, active: current.id }));
   }, [current?.id, layout.active]);
   const onStage = layout.stage.flatMap((group) => paneIds(group.root)).filter((id) => byId(id)).length;
-  const tabNames = chipLabels(scope.shown.map((group) => ({ id: group.id, label: groupLabel(group, sessions) ?? "Terminal" })));
+  const tabNames = chipLabels(scope.shown.map((group) => ({ id: group.id, label: tabTitle(groupLabel(group, sessions) ?? "Terminal") })));
   const tabs = useRef<HTMLDivElement>(null);
   // The tab on screen stays in view when the strip scrolls.
   useEffect(() => { tabs.current?.querySelector<HTMLElement>("[aria-selected=true]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }, [current?.id, scope.shown.length]);
@@ -80,6 +81,8 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const folder = useOpenFolder(focused);
   // Unmeasured (a test, a first frame) counts as wide.
   const narrow = width > 0 && width < NARROW_PANEL;
+  // The other threads' button keeps its words where the tabs keep room for theirs.
+  const roomy = width === 0 || width >= ROOMY_PANEL;
 
   const select = (group: TerminalGroup) => {
     terminalStore.updateLayout((next) => ({ ...next, active: group.id }));
@@ -127,7 +130,7 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
         aria-label={`${scope.elsewhere.length} ${scope.elsewhere.length === 1 ? "shell" : "shells"} in other threads`}
         {...tooltipProps("Shells opened in other threads keep running there. Pick one to show it here.")}
         onClick={() => setMenu("elsewhere")}
-      ><SquareStack size={13} aria-hidden="true" /><span>{scope.elsewhere.length}</span>{narrow ? null : <span>in other threads</span>}</button> : null}
+      ><SquareStack size={13} aria-hidden="true" /><span>{scope.elsewhere.length}</span>{roomy ? <span>in other threads</span> : null}</button> : null}
       <span className="terminal-panel-actions">
         {readOnly ? null : <button className="icon-button" aria-label="New terminal" {...tooltipProps("New terminal", { shortcut: "⌘N in a terminal" })} disabled={busy} onClick={newTerminal}><Plus size={14} /></button>}
         {readOnly || narrow ? null : <>

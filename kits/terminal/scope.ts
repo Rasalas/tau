@@ -65,3 +65,8 @@ export function chipLabels(items: ReadonlyArray<{ id: string; label: string }>):
     return [item.id, (total.get(item.label) ?? 0) > 1 ? `${item.label} ${count}` : item.label];
   }));
 }
+
+/** A tab's name: a shell named after its directory ("src — shell") is just "src" there; the tooltip keeps the path. */
+export function tabTitle(label: string): string {
+  return label.replace(/ — shell$/u, "") || label;
+}

@@ -6,7 +6,7 @@ import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { focusedPane, focusPane, isStaged, paneIds, type TerminalLayout } from "./layout.js";
 import { closeTerminals, wantsFirstShell, openTerminal, restartTerminal, TERMINAL_READ_ONLY } from "./controller.js";
 import { placeOf, shellDirectory } from "./panes.js";
-import { chipLabels } from "./scope.js";
+import { chipLabels, tabTitle } from "./scope.js";
 
 export { chipLabels } from "./scope.js";
 import { TerminalView, type TerminalTouchBinding } from "./view.js";
@@ -164,8 +164,9 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const elsewhere = all.filter((id) => id !== picked && placeOf(sessionOf(id), activeSessionId) === "elsewhere");
   const ids = all.filter((id) => !elsewhere.includes(id));
   // Numbered among their own list: the strip's, and the options menu's of other threads' shells.
-  const names = chipLabels(ids.map(sessionOf));
-  const elsewhereNames = chipLabels(elsewhere.map(sessionOf));
+  const titled = (id: string) => ({ id, label: tabTitle(sessionOf(id).label) });
+  const names = chipLabels(ids.map(titled));
+  const elsewhereNames = chipLabels(elsewhere.map(titled));
   const shownId = [picked, focusedPane(layout), ...ids].find((id): id is string => Boolean(id && ids.includes(id)));
   const shown = sessions.find((session) => session.id === shownId);
   const exited = shown?.exitCode !== undefined;
