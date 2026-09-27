@@ -128,9 +128,15 @@ anything else starts the app. It also installs an AppArmor profile,
 `/etc/apparmor.d/tau`, that lets Tau's binary use user namespaces and nothing
 more, the way Chrome and VS Code do on Ubuntu 24.04 and later: Chromium keeps
 its sandbox there, and `chrome-sandbox` needs no root. On **other
-distributions**, use the `.AppImage`. It needs FUSE 2 (`libfuse2`), and where
-the kernel restricts user namespaces electron-builder's launcher starts it
-without Chromium's sandbox; it cannot run as a service either. A copy
+distributions**, use the `.AppImage`. It needs FUSE 2 (`libfuse2`) and cannot
+run as a service. Where the kernel restricts user namespaces (Ubuntu 24.04 and
+later), electron-builder's launcher starts it without Chromium's sandbox; on a
+system with `apt`, Tau then offers at start to install itself properly: it
+downloads the `.deb` of the same release (checked against the release's
+SHA-512), installs it after one password dialog, restarts from `/opt/Tau` with
+your threads and settings, and offers to delete the AppImage. "Later" waits
+for the next version. Without a desktop session that can show the password
+dialog, it shows the one `sudo apt install` command to run instead. A copy
 unpacked by hand (an extracted AppImage) runs, but cannot update itself.
 
 Once the repository is public, the package managers carry it too:

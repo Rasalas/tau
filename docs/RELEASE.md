@@ -159,6 +159,23 @@ no polkit agent (no desktop session) pkexec fails and the update waits. The
 release workflow's Linux job checks the package after building it (Xvfb in
 `Recommends`, the AppArmor profile and `bin/tau` inside, the feed naming it).
 
+An AppImage that runs without Chromium's sandbox offers the `.deb` instead
+(`src/main/appimage-install.ts`, before the host and the window start): when
+`APPIMAGE` is set, `--no-sandbox` is on the command line (electron-builder's
+`AppRun` adds it when `unshare -Ur true` fails), `unshare -Ur true` fails for
+Tau too, and `dpkg` and `apt-get` exist. It reads `latest-linux.yml` of its own
+release (`releases/download/v<version>/`, or `nightly/`), downloads the `.deb`
+into `<userData>/package-install/` and keeps it only when size and SHA-512
+match. One `pkexec` call copies it where the user cannot change it, checks the
+SHA-512 again as root and runs `apt-get install -y` on it, which brings the
+`Depends` and `Recommends`. Tau then exits, and a detached shell starts
+`/opt/Tau/tau` once the old process is gone, with AppRun's variables and
+`--no-sandbox` removed; the installed Tau offers to delete the AppImage. A
+package already installed at least as new skips the download. "Later" is kept
+per version in `<userData>/package-install/state.json`. Where pkexec has no
+polkit agent, Tau shows `sudo apt install <the downloaded .deb>`.
+`TAU_INSTALL_FEED_URL` points the offer at a local feed for tests.
+
 The `.deb`'s maintainer scripts are electron-builder's templates with two
 changes (`packaging/linux/`): `/usr/bin/tau` links to `/opt/Tau/bin/tau`, a
 wrapper that runs `tau app`/`tau service` on Tau's binary as Node and starts
