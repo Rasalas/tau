@@ -825,7 +825,7 @@ if (primaryInstance) app.whenReady().then(async () => {
       noSandbox: app.commandLine.hasSwitch("no-sandbox"),
       ...(feed ? { feed } : {}),
       folder: join(app.getPath("userData"), "package-install"),
-      ask: async (prompt, signal) => (await dialog.showMessageBox({ ...prompt, noLink: true, ...(signal ? { signal } : {}) })).response,
+      ask: async (prompt, signal) => (await dialog.showMessageBox({ title: app.getName(), ...prompt, noLink: true, ...(signal ? { signal } : {}) })).response,
       copyText: (text) => clipboard.writeText(text),
       fetch: (url, init) => net.fetch(url, init),
       log: hostLog,
