@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  PHONE_HOME, historySteps, phoneTab, routeFromState, routeFromUrl, routePath, showsPhoneNav, stateWithRoute, urlWithRoute,
-  type PhoneRoute,
-} from "./phone-route";
+import { historySteps, routeFromState, routeFromUrl, routePath, stateWithRoute, urlWithRoute } from "./phone-history";
+import { PHONE_HOME, phoneTab, showsPhoneNav, type PhoneRoute } from "./phone-route";
 
 const chat = (thread?: string): PhoneRoute => (thread ? { kind: "chat", thread } : { kind: "chat" });
 const page = (id: string, depth = 0): PhoneRoute => ({ kind: "page", page: id, depth });
