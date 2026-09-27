@@ -854,7 +854,7 @@ async function pushScenario() {
     const pixel = await connect((await pairDevice(host.url, owner, { code: (await owner.request("connections-create-link", [{}])).code, name: "Smoke Pixel" })).token);
     const push = (client, command, input) => client.request("host-extension", ["tau.push", command, input]);
     const iosToken = "ab".repeat(32);
-    await push(iphone, "register", { platform: "ios", token: iosToken, host: "smoke-host", topic: "io.github.rasalas.tau" });
+    await push(iphone, "register", { platform: "ios", token: iosToken, host: "smoke-host", topic: "de.tbuck.tau" });
     await push(pixel, "register", { platform: "android", token: "fcm:smoke-registration-token", host: "smoke-host" });
     const refusedRegister = await push(owner, "register", { platform: "ios", token: iosToken, host: "h", topic: "a.b" }).then(() => "taken", (error) => error.message);
     if (!/paired device/u.test(refusedRegister)) fail(`the host token registered for pushes: ${refusedRegister}`);
@@ -877,7 +877,7 @@ async function pushScenario() {
     const sent = await Promise.all([push(owner, "test", { id: ios.id }), push(owner, "test", { id: android.id })]);
     if (!sent.every((outcome) => outcome.ok)) fail(`test pushes: ${JSON.stringify(sent)}`);
     const [appleRequest] = apple.requests;
-    if (appleRequest?.path !== `/3/device/${iosToken}` || appleRequest.headers["apns-topic"] !== "io.github.rasalas.tau") fail(`APNs request: ${JSON.stringify(appleRequest)}`);
+    if (appleRequest?.path !== `/3/device/${iosToken}` || appleRequest.headers["apns-topic"] !== "de.tbuck.tau") fail(`APNs request: ${JSON.stringify(appleRequest)}`);
     const jwt = fakes.readSignedJwt(appleRequest.headers.authorization.replace(/^bearer /u, ""), apnsKey.publicKey, true);
     if (jwt?.header.kid !== fakes.FAKE_KEY_ID || jwt.claims.iss !== fakes.FAKE_TEAM_ID) fail(`APNs provider token: ${JSON.stringify(jwt)}`);
     if (JSON.parse(appleRequest.body).aps?.alert?.body !== "Push notifications reach this device.") fail(`APNs payload: ${appleRequest.body}`);

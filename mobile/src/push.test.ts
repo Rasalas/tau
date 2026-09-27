@@ -11,7 +11,7 @@ function port(overrides: Partial<PushPort> = {}): PushPort & { token: ReturnType
     permission: async () => "prompt",
     requestPermission: vi.fn(async () => "granted" as const),
     token: vi.fn(async () => "ab".repeat(32)),
-    topic: async () => "io.github.rasalas.tau",
+    topic: async () => "de.tbuck.tau",
     onTap: () => () => undefined,
     ...overrides,
   } as PushPort & { token: ReturnType<typeof vi.fn> };
@@ -27,8 +27,8 @@ describe("push registration", () => {
     expect(platform.requestPermission).toHaveBeenCalledTimes(2);
     expect(platform.token).toHaveBeenCalledTimes(1);
     expect(invokeHostExtension.mock.calls).toEqual([
-      ["tau.push", "register", { platform: "ios", token: "ab".repeat(32), host: "host-1", topic: "io.github.rasalas.tau" }],
-      ["tau.push", "register", { platform: "ios", token: "ab".repeat(32), host: "host-2", topic: "io.github.rasalas.tau" }],
+      ["tau.push", "register", { platform: "ios", token: "ab".repeat(32), host: "host-1", topic: "de.tbuck.tau" }],
+      ["tau.push", "register", { platform: "ios", token: "ab".repeat(32), host: "host-2", topic: "de.tbuck.tau" }],
     ]);
   });
 

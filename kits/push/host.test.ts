@@ -63,7 +63,7 @@ async function harness(options: { content?: "title" | "excerpt"; attended?: bool
   const setUp = async () => {
     await invoke("set-apns", { keyId: "ABC123DEFG", teamId: "TEAM123456", key: throwawayApnsKey().pem });
     await invoke("set-fcm", { serviceAccount: throwawayServiceAccount(google.tokenUri).json });
-    await invoke("register", { platform: "ios", token: IOS_TOKEN, host: "host-1", topic: "io.github.rasalas.tau" }, phone("iphone"));
+    await invoke("register", { platform: "ios", token: IOS_TOKEN, host: "host-1", topic: "de.tbuck.tau" }, phone("iphone"));
     await invoke("register", { platform: "android", token: ANDROID_TOKEN, host: "host-1" }, phone("pixel"));
   };
   /** Pushes run after the hook returns; this waits for every one started so far. */
@@ -195,7 +195,7 @@ describe("the push host half", () => {
   it("forgets a device whose token is gone, and one that was revoked", async () => {
     const { invoke, observers, clientObservers, setUp, settle, setDevices, events } = await harness();
     await setUp();
-    await invoke("register", { platform: "ios", token: `${IOS_TOKEN}dead`.slice(0, 200), host: "host-1", topic: "io.github.rasalas.tau" }, phone("iphone"));
+    await invoke("register", { platform: "ios", token: `${IOS_TOKEN}dead`.slice(0, 200), host: "host-1", topic: "de.tbuck.tau" }, phone("iphone"));
     await observers[0]!.ended!("t1", "turn-1", "completed");
     await settle();
     expect((await invoke("status") as PushStatus).devices.map((device) => device.id)).toEqual(["pixel"]);
