@@ -30,6 +30,8 @@ export {
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
 export { DiffView, ReviewMode } from "./extension-components";
 export { ChangesTree } from "./deferred-surfaces";
+// A text file with line numbers and highlighting, as a file tab shows it (API 1.20.0).
+export { FileSource } from "./deferred-surfaces";
 export { usePreferences } from "./renderer-services-context";
 // The rows a Settings page is built from, and one config key read across the levels.
 export { SettingRow, SettingsSection } from "./deferred-surfaces";

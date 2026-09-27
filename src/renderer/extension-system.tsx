@@ -553,8 +553,12 @@ export interface PanelProps {
   actions: WorkbenchActions;
 }
 
-/** `stage` is where a maximized panel is drawn; a contribution asks for `dock` or `drawer`. */
-export type PanelPlacement = "dock" | "drawer" | "stage";
+/**
+ * `stage` is where a maximized panel is drawn; a contribution asks for `dock`
+ * or `drawer`. `sheet` is a phone's sheet over the thread (API 1.20.0): no
+ * stage is drawn there, so a document the panel opens must show in the panel.
+ */
+export type PanelPlacement = "dock" | "drawer" | "stage" | "sheet";
 
 export interface PanelContribution extends ProfileScoped {
   id: string;

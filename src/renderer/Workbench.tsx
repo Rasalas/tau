@@ -851,7 +851,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     {sheetPanel ? createPortal(<MountedPanel
       Component={sheetPanel.Component}
       active
-      placement="stage"
+      placement="sheet"
       label={sheetPanel.label}
       extensionId={sheetPanel.extensionId}
       extensionName={sheetPanel.extensionName}

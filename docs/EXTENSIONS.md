@@ -350,8 +350,8 @@ terminal's buffer go with it, and the panel is never drawn twice. The tab
 is a core kind (`StagePanelTab`, `kind: "panel"`, `panelId`) and is
 restored with the stage.
 
-`PanelProps.placement` says where the panel is drawn now (`dock`, `drawer` or
-`stage`); a panel that positions something outside the page, as Preview Kit's
+`PanelProps.placement` says where the panel is drawn now (`dock`, `drawer`,
+`stage`, or `sheet` on a phone, API 1.20.0); a panel that positions something outside the page, as Preview Kit's
 native view does, reports its bounds again when it changes. `active` is false
 while the panel's tab is behind another. `actions.openPanel(id)` shows a panel
 wherever it is, bringing its tab forward when it is maximized;
@@ -824,7 +824,10 @@ context.registerToolRenderer("git.rows", match, render, { profiles: ["desktop", 
 a touch screen, and the native app around the web client. There the thread list
 is a screen of its own and diffs do not split. On a phone a panel that claims
 `compact` is not docked: its glyph sits in the title bar and opens the panel as
-a sheet over the thread, with `placement` reading `stage`. Two or more such
+a sheet over the thread, with `placement` reading `sheet` (API 1.20.0; `stage`
+before). A phone draws no stage, so `openFile` and `openStageTab` show nothing
+there: a panel that opens documents shows them itself in the sheet, as Workspace
+Kit's Files panel reads a file with `FileSource`. Two or more such
 panels fold into the bar's More menu, by label and icon.
 `actions.openPanel(id)` and `actions.closePanel(id)` open and close that sheet
 there (API 1.13.0), so a panel can close itself after it handed something to the composer.
@@ -1118,11 +1121,12 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `ConfirmDialog` | A yes-or-no question on `Dialog`, after T3 Code's: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
+| `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `useEscapeLayer(onClose, active?)` | Escape for a floating surface of your own: while `active` it closes on Escape when it is the topmost overlay, before anything under it (Stop, a panel) hears the key, as `Dialog`, `Popover` and `Menu` do. New in API 1.17.0. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
-`Menu`, `Dialog`, `Popover`, `Sheet`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, the settings controls, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.
+`Menu`, `Dialog`, `Popover`, `Sheet`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, the settings controls, `ChangesTree`, `FileSource`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.
 
 A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
 pieces core draws its own four with, so its dialog is not a look-alike:
