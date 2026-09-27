@@ -28,10 +28,22 @@ export const appearanceExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: APPEARANCE_SETTINGS_PAGE,
       label: "Appearance",
+      group: "general",
       Icon: Palette,
       order: 5,
       profiles: ["desktop", "web", "compact"],
       scope: "both",
+      rows: [
+        { id: "setting-appearance-mode", label: "Mode", keywords: ["theme", "dark", "light", "system"] },
+        { id: "setting-appearance-themes", label: "Themes", keywords: ["theme", "colors", "colours", "vs code", "import", "new theme"] },
+        { id: "setting-appearance-density", label: "Density", keywords: ["compact", "comfortable", "spacing"] },
+        { id: "setting-appearance-contrast", label: "Contrast", keywords: ["hairlines", "quiet text"] },
+        { id: "setting-appearance-timestamps", label: "Timestamps", keywords: ["12-hour", "24-hour", "clock", "time"] },
+        { id: "setting-appearance-panel-animations", label: "Panel animations", keywords: ["motion", "animation", "sidebar", "dock"] },
+        { id: "setting-appearance-interface-font", label: "Interface font", keywords: ["font", "font size", "typeface"] },
+        { id: "setting-appearance-prompt-font", label: "Prompt font", keywords: ["font", "composer", "monospace"] },
+        { id: "setting-appearance-code-font", label: "Code font", keywords: ["font", "monospace", "diff"] },
+      ],
       keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "terminal", "ghostty", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "animation", "motion", "panels"],
       Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} terminalFont={terminalFont} />,
     });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ProviderIconStack, errorMessage, type HostExtensionClient, type HostReadiness, type HostResources } from "tau";
+import { Button, ProviderIconStack, errorMessage, type HostExtensionClient, type HostReadiness, type HostResources } from "tau";
 import { readinessFacts, resourcesText, runtimeText } from "./machines.js";
 
 type Load<T> = { state: "loading" } | { state: "done"; value: T } | { state: "failed"; message: string };
@@ -34,7 +34,7 @@ export function MachineHealth({ host, machine, name }: { host: HostExtensionClie
         <small className={resources.state === "failed" ? "problem" : undefined}>
           {resources.state === "done" ? resourcesText(resources.value) : resources.state === "loading" ? "Measuring load…" : `Load unknown: ${resources.message}`}
         </small>
-        <button type="button" className="text-button" disabled={busy} onClick={() => setRound((value) => value + 1)}>Check again</button>
+        <Button variant="ghost" busy={busy} onClick={() => setRound((value) => value + 1)}>Check again</Button>
       </div>
       {readiness.state === "done" ? (
         <div className="machine-health-line">

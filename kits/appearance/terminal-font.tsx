@@ -1,5 +1,5 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { SettingRow } from "tau";
+import { useEffect, useSyncExternalStore } from "react";
+import { Button, NumberField, SettingRow, TextField } from "tau";
 import type { TerminalFontService, TerminalFontServiceState, TerminalFontSource } from "./protocol.js";
 
 /** The Terminal Kit's font service while it is there; the page follows it coming and going. */
@@ -48,27 +48,15 @@ export function terminalSizeInput(text: string, range: { min: number; max: numbe
 }
 
 function Fields({ state, service }: { state: TerminalFontServiceState; service: TerminalFontService }) {
-  const [family, setFamily] = useState(state.family);
-  const [size, setSize] = useState(state.size);
-  useEffect(() => setFamily(state.family), [state.family]);
-  useEffect(() => setSize(state.size), [state.size]);
-  const commitFamily = () => { if (family.trim() !== state.family) service.set({ family }); };
-  const commitSize = () => {
-    const next = terminalSizeInput(size, state.sizeRange);
-    if (next === undefined) setSize(state.size);
-    else if (next !== state.size) service.set({ size: next });
-  };
-  const onEnter = (commit: () => void) => (event: { key: string }) => { if (event.key === "Enter") commit(); };
   return <>
-    <input type="text" className="settings-input" aria-label="Terminal font family" placeholder={state.ghostty?.face ?? "SF Mono, Menlo"} value={family}
-      onChange={(event) => setFamily(event.target.value)} onBlur={commitFamily} onKeyDown={onEnter(commitFamily)} />
-    <span className="appearance-size">
-      <input type="number" className="settings-input narrow" aria-label="Terminal font size" min={state.sizeRange.min} max={state.sizeRange.max} step={0.5}
-        placeholder={String(state.ghostty?.size ?? state.resolved.size)} value={size}
-        onChange={(event) => setSize(event.target.value)} onBlur={commitSize} onKeyDown={onEnter(commitSize)} />
-      <small>px</small>
-    </span>
-    {state.family || state.size ? <button type="button" className="chrome-button" onClick={() => service.set({ family: "", size: "" })}>Reset</button> : null}
+    <TextField label="Terminal font family" width="md" placeholder={state.ghostty?.face ?? "SF Mono, Menlo"} value={state.family}
+      onCommit={(family) => { if (family.trim() !== state.family) service.set({ family }); }} />
+    <NumberField label="Terminal font size" value={state.size ? Number(state.size) : undefined} min={state.sizeRange.min} max={state.sizeRange.max} step={0.5} unit="px"
+      placeholder={String(state.ghostty?.size ?? state.resolved.size)}
+      validate={(value) => (terminalSizeInput(String(value), state.sizeRange) === undefined ? "Use whole or half pixels." : undefined)}
+      onCommit={(value) => { if (String(value) !== state.size) service.set({ size: String(value) }); }}
+      onClear={() => { if (state.size) service.set({ size: "" }); }} />
+    {state.family || state.size ? <Button onClick={() => service.set({ family: "", size: "" })}>Reset</Button> : null}
   </>;
 }
 

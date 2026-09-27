@@ -1,31 +1,6 @@
-import { useEffect, useState } from "react";
-import { SettingRow, SettingsSection, useSetting, type UiEnvironment } from "tau";
+import { NumberField, SettingRow, SettingsSection, useSetting, type UiEnvironment } from "tau";
 import { MAX_WEIGHT, readWeights, weightOf } from "./choice.js";
 import { ENVIRONMENTS_EXTENSION_ID, WEIGHTS_SETTING, type AgentMachines } from "./protocol.js";
-
-function WeightInput({ name, value, onChange }: { name: string; value: number; onChange(value: number): void }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
-    const next = Number(draft);
-    if (draft.trim() && Number.isInteger(next) && next >= 0 && next <= MAX_WEIGHT) { if (next !== value) onChange(next); }
-    else setDraft(String(value));
-  };
-  return (
-    <input
-      type="number"
-      className="settings-input narrow"
-      aria-label={`Weight of ${name}`}
-      min={0}
-      max={MAX_WEIGHT}
-      step={5}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
-    />
-  );
-}
 
 /**
  * Settings → Machines → Automatic: how strongly each machine is preferred
@@ -53,7 +28,7 @@ export function MachineWeights({ machines, agents }: { machines: readonly UiEnvi
             id={`machine-weight-${machine.id}`}
             title={machine.local ? `${machine.name} (this computer)` : machine.name}
             description={value === 0 ? "Never chosen automatically." : undefined}
-            control={<WeightInput name={machine.name} value={value} onChange={(next) => set(machine.id, next)} />}
+            control={<NumberField label={`Weight of ${machine.name}`} value={value} min={0} max={MAX_WEIGHT} step={5} integer onCommit={(next) => set(machine.id, next)} />}
           />
         );
       })}

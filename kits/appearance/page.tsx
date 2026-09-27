@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Upload, Wand2 } from "lucide-react";
-import { SettingRow, SettingsSection, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
+import { NumberField, SegmentedControl, SettingRow, SettingsSection, TextField, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
 import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
 import { draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
 import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, withoutOwnStyles, type Mode, type PreviewColors, type ThemeCardModel } from "./previews.js";
@@ -26,34 +26,22 @@ function readText(file: File): Promise<string> {
   });
 }
 
-/** A text field committed on blur or Enter; empty clears the level's value. */
+/** A font family, written on blur or Enter; empty clears the level's value. */
 function TextSetting({ label, placeholder, setting }: { label: string; placeholder: string; setting: SettingHandle<string> }) {
-  const [draft, setDraft] = useState(setting.value);
-  useEffect(() => setDraft(setting.value), [setting.value]);
-  const commit = () => {
-    const next = cleanFontFamily(draft);
-    if (next === setting.value) return;
-    if (next) setting.set(next);
-    else setting.reset();
-  };
-  return <input type="text" className="settings-input" aria-label={label} placeholder={placeholder} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} />;
+  return (
+    <TextField label={label} placeholder={placeholder} width="md" value={setting.value} onCommit={(draft) => {
+      const next = cleanFontFamily(draft);
+      if (next === setting.value) return;
+      if (next) setting.set(next);
+      else setting.reset();
+    }} />
+  );
 }
 
 function SizeSetting({ label, setting, fallback }: { label: string; setting: SettingHandle<number | undefined>; fallback: number }) {
-  const [draft, setDraft] = useState(setting.value !== undefined ? String(setting.value) : "");
-  useEffect(() => setDraft(setting.value !== undefined ? String(setting.value) : ""), [setting.value]);
-  const commit = () => {
-    if (!draft.trim()) { if (setting.value !== undefined) setting.reset(); return; }
-    const size = Number(draft);
-    if (Number.isInteger(size) && size >= FONT_SIZE_RANGE.min && size <= FONT_SIZE_RANGE.max) { if (size !== setting.value) setting.set(size); }
-    else setDraft(setting.value !== undefined ? String(setting.value) : "");
-  };
   return (
-    <span className="appearance-size">
-      <input type="number" className="settings-input narrow" aria-label={label} min={FONT_SIZE_RANGE.min} max={FONT_SIZE_RANGE.max} placeholder={String(fallback)} value={draft}
-        onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} />
-      <small>px</small>
-    </span>
+    <NumberField label={label} value={setting.value} min={FONT_SIZE_RANGE.min} max={FONT_SIZE_RANGE.max} integer unit="px" placeholder={String(fallback)}
+      onCommit={setting.set} onClear={() => { if (setting.value !== undefined) setting.reset(); }} />
   );
 }
 
@@ -192,11 +180,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
           title="Density"
           description="How much room rows, lists and panels take. A project can have its own."
           setting={density}
-          control={<div className="segmented" role="group" aria-label="Density">
-            {DENSITIES.map((next) => (
-              <button key={next} type="button" className={density.value === next ? "active" : ""} aria-pressed={density.value === next} onClick={() => density.set(next)}>{DENSITY_LABELS[next]}</button>
-            ))}
-          </div>}
+          control={<SegmentedControl label="Density" value={density.value} options={DENSITIES.map((next) => ({ value: next, label: DENSITY_LABELS[next] }))} onChange={density.set} />}
         />
         <SettingRow
           id="setting-appearance-contrast"
@@ -216,11 +200,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
           title="Timestamps"
           description="The clock message and tool times are written in; Locale follows this machine's region. Rows already on screen change when they are drawn again."
           setting={timestamps}
-          control={<div className="segmented" role="group" aria-label="Timestamps">
-            {TIMESTAMP_FORMATS.map((next) => (
-              <button key={next} type="button" className={timestamps.value === next ? "active" : ""} aria-pressed={timestamps.value === next} onClick={() => timestamps.set(next)}>{TIMESTAMP_LABELS[next]}</button>
-            ))}
-          </div>}
+          control={<SegmentedControl label="Timestamps" value={timestamps.value} options={TIMESTAMP_FORMATS.map((next) => ({ value: next, label: TIMESTAMP_LABELS[next] }))} onChange={timestamps.set} />}
         />
       </SettingsSection>
 

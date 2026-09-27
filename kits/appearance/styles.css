@@ -59,9 +59,6 @@
 .appearance-motion-preview > .main > i:nth-child(2) { width: 80%; }
 .appearance-motion-preview > .main > i:nth-child(3) { width: 60%; }
 @media (prefers-reduced-motion: reduce) { .appearance-motion-preview > span { transition: none; } }
-.appearance-size { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-2); font-size: 11px; }
-.appearance-size .settings-input.narrow { width: 64px; }
-.appearance-page .settings-input:not(.narrow) { width: 200px; }
 .appearance-page .chrome-button { min-height: 30px; padding: 4px 10px; font-size: 12px; }
 .appearance-slider { display: inline-flex; align-items: center; gap: 12px; width: 220px; }
 .appearance-slider > output {
