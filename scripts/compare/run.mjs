@@ -2,6 +2,7 @@
 // seeds the same Codex sessions through each onboarding, then measures start,
 // a large thread's scroll and one replayed turn over CDP.
 // Usage: node scripts/compare/run.mjs [--apps tau,t3] [--runs 5] [--warmup 1] [--seed] [--check] [--out <file>]
+//        node scripts/compare/run.mjs --thread-switch [--apps tau,t3] [--runs 5] [--warmup 1] [--check]   (the switch launch alone)
 //        node scripts/compare/run.mjs --large-thread [--runs 5] [--warmup 1] [--seed] [--check]   (Tau only)
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -19,6 +20,7 @@ import {
   LARGE_THREAD_ROOT, LARGE_THREAD_TITLE, LARGE_THREAD_TURNS, LEAD_ROW, OLDER_PAGES_AT_TOP, SCROLL_UP_NOTCH_PX, SCROLL_UP_NOTCHES,
   TWO_PAGE_THREAD_TITLE, TWO_PAGE_THREAD_TURNS, largeThreadRows, newestTurnVisible, notchSettled, olderPageDrift, writePiThread,
 } from "./large-thread.mjs";
+import { armSwitchProbe, codexTargets, writeAgentPiThread, PI_SWITCH_THREADS, piTargets, STARTER_TITLE, summarizeSwitches, SWITCH_RESULT, threadSwitchRows, WARM_ROUNDS } from "./thread-switch.mjs";
 import { clickWhenReady, locate } from "./ui.mjs";
 import { machineClass } from "../machine-class.mjs";
 
@@ -31,7 +33,7 @@ const PROMPT = "Replay the recorded comparison turn.";
 const wait = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 export function parseArgs(argv) {
-  const options = { apps: ["tau", "t3"], runs: 5, warmup: 1, seed: false, check: false, out: undefined, idleMs: 5_000, scrollSteps: 60, largeThread: false };
+  const options = { apps: ["tau", "t3"], runs: 5, warmup: 1, seed: false, check: false, out: undefined, idleMs: 5_000, scrollSteps: 60, largeThread: false, threadSwitch: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = () => {
@@ -47,7 +49,8 @@ export function parseArgs(argv) {
     else if (arg === "--out") options.out = next();
     else if (arg === "--idle-ms") options.idleMs = Number(next());
     else if (arg === "--large-thread") options.largeThread = true;
-    else throw new Error(`unknown flag ${arg} (known: --apps, --runs, --warmup, --seed, --check, --out, --idle-ms, --large-thread)`);
+    else if (arg === "--thread-switch") options.threadSwitch = true;
+    else throw new Error(`unknown flag ${arg} (known: --apps, --runs, --warmup, --seed, --check, --out, --idle-ms, --large-thread, --thread-switch)`);
   }
   // T3 has no way to hold a Pi session; its importers also stop at 200 messages.
   if (options.largeThread) options.apps = ["tau"];
@@ -260,6 +263,68 @@ async function measureRun(app, root, options, turn) {
   }
 }
 
+/** Switches to `target` from the rail and reports what the page probe saw. */
+async function switchTo(app, session, target) {
+  await evaluate(session, armSwitchProbe({ text: target.text, composer: app.selectors.composer, messageRow: app.selectors.messageRow }));
+  await clickWhenReady(session, app.selectors.threadRowClick, target.row);
+  const result = await evaluate(session, SWITCH_RESULT);
+  if (result.timedOut) {
+    const shows = await evaluate(session, `(() => {
+      const rows = [...document.querySelectorAll(${JSON.stringify(app.selectors.messageRow)})];
+      const row = rows.find((candidate) => candidate.textContent.includes(${JSON.stringify(target.text)}));
+      const rect = row?.getBoundingClientRect();
+      return { last: rows.slice(-2).map((entry) => entry.textContent.slice(0, 120)), rect: rect && { top: rect.top, bottom: rect.bottom, height: rect.height }, visible: row?.checkVisibility({ opacityProperty: true, visibilityProperty: true }), composer: Boolean(document.querySelector(${JSON.stringify(app.selectors.composer)})), innerHeight };
+    })()`).catch((error) => error.message);
+    throw new Error(`${app.label}: switching to "${target.title}" did not settle (${JSON.stringify(result)}); the page shows ${JSON.stringify(shows)}`);
+  }
+  return result;
+}
+
+/**
+ * A launch of its own, so no earlier step has opened a thread: after the idle
+ * wait it opens a starter thread, then switches to every target once (cold)
+ * and WARM_ROUNDS times more (warm).
+ */
+async function measureThreadSwitchRun(app, root, options) {
+  resetRunFromTemplate(app, root);
+  const loadAtStart = round(loadavg()[0]);
+  const targets = [...codexTargets()];
+  if (app.id === "tau") {
+    const { workspace } = app.paths(root);
+    const sessionDir = app.env(root).PI_CODING_AGENT_SESSION_DIR;
+    // Tau opens the newest Pi thread at start-up: this one, so the measured ones stay cold.
+    await writePiThread(ROOT, { sessionDir, cwd: workspace, title: "Pi start-up thread", turns: 2, tag: "switch", modifiedAt: new Date() });
+    for (const [index, thread] of PI_SWITCH_THREADS.entries()) {
+      await writeAgentPiThread(ROOT, { sessionDir, cwd: workspace, title: thread.title, turns: thread.turns, endsAt: Date.now() - (12 + index) * 3_600_000 });
+    }
+    targets.push(...piTargets());
+  }
+  return withApp(app, root, async (session) => {
+    await waitFor(session, app.ready(THREADS), { timeoutMs: 90_000, pollMs: 10 });
+    await app.revealThreads(session, { clickWhenReady, waitFor, expectedThreads: THREADS });
+    await evaluate(session, INSTALL_PROBE);
+    await setViewport(session);
+    await wait(options.idleMs);
+    const starter = new RegExp(STARTER_TITLE, "u");
+    await clickWhenReady(session, app.selectors.threadRowClick, starter);
+    await waitFor(session, `[...document.querySelectorAll(${JSON.stringify(app.selectors.messageRow)})].length > 0`, { timeoutMs: 30_000 });
+    await wait(1_000);
+    const switches = [];
+    for (let roundIndex = 0; roundIndex <= WARM_ROUNDS; roundIndex += 1) {
+      for (const target of targets) {
+        const result = await switchTo(app, session, target);
+        switches.push({ round: roundIndex, kind: target.kind, size: target.size, result });
+        await wait(300);
+      }
+    }
+    return { loadAtStart, threadSwitch: summarizeSwitches(switches), switches };
+  });
+}
+
+function switchLine(summary, temperature) {
+  return ["short", "medium", "long"].map((size) => summary.codex?.[size]?.[temperature]?.visibleMs ?? "–").join("/") + " ms";
+}
+
 /** One launch of `app` from its template; `work` gets the page session and the spawn time. */
 async function withApp(app, root, work) {
   const { child, session, spawnedAt } = await start(app, root, {});
@@ -427,7 +492,15 @@ export async function seed(app, root, turnFile, plan = {}) {
     await stopTree([child.pid]);
   }
   saveTemplate(app, root);
+  writeFileSync(join(root, "fixture.json"), `${JSON.stringify(sessionPlan(plan))}\n`);
   console.log(`[compare] ${app.label}: seeded ${written.length} threads into ${root}`);
+}
+
+/** A template seeded from another session plan lacks threads this run clicks. */
+export function assertSeededPlan(app, root) {
+  const file = join(root, "fixture.json");
+  const seeded = existsSync(file) ? readFileSync(file, "utf8").trim() : undefined;
+  if (seeded !== JSON.stringify(sessionPlan())) throw new Error(`${app.label}: ${root} was seeded with another session fixture; run once with --seed`);
 }
 
 /**
@@ -475,7 +548,9 @@ export function markdownTable(report) {
     ["turn: messages sent", "replay.wire.sent"],
     ["memory after turn, whole tree (MiB)", "afterTurnMemory.totalMiB"],
     ["renderer JS heap after turn (MiB)", "afterTurnMemory.rendererHeapMiB"],
+    ...threadSwitchRows(),
     ["load average (1 min) at run start", "loadAtStart"],
+    ["load average (1 min) at the switch launch", "switchLoadAtStart"],
   ];
   const one = (id, path) => {
     const value = report.aggregate[id]?.[path];
@@ -542,14 +617,21 @@ async function main() {
     mkdirSync(roots[id], { recursive: true });
     writeFileSync(join(roots[id], "turn.json"), turnFile);
     if (options.seed) await seed(app, roots[id], turnFile);
+    else assertSeededPlan(app, roots[id]);
   }
   const results = Object.fromEntries(options.apps.map((id) => [id, []]));
   // Apps alternate run by run, so drift in machine load hits both alike.
   for (let run = 0; run < options.warmup + options.runs; run += 1) {
     for (const id of run % 2 ? [...options.apps].reverse() : options.apps) {
       const warmup = run < options.warmup;
-      const result = await measureRun(APPS[id], roots[id], options, turn);
-      console.log(`[compare] ${APPS[id].label} ${warmup ? "warmup" : `run ${run - options.warmup + 1}/${options.runs}`}: ready ${result.startup.interactiveMs} ms, stream p95 ${result.replay.streamFrames.p95} ms, end ${result.replay.endVisibleMs} ms`);
+      const label = `${APPS[id].label} ${warmup ? "warmup" : `run ${run - options.warmup + 1}/${options.runs}`}`;
+      const result = options.threadSwitch ? { loadAtStart: round(loadavg()[0]) } : await measureRun(APPS[id], roots[id], options, turn);
+      if (!options.threadSwitch) console.log(`[compare] ${label}: ready ${result.startup.interactiveMs} ms, stream p95 ${result.replay.streamFrames.p95} ms, end ${result.replay.endVisibleMs} ms`);
+      const switched = await measureThreadSwitchRun(APPS[id], roots[id], options);
+      result.threadSwitch = switched.threadSwitch;
+      result.switches = switched.switches;
+      result.switchLoadAtStart = switched.loadAtStart;
+      console.log(`[compare] ${label}: switch cold ${switchLine(switched.threadSwitch, "cold")}, warm ${switchLine(switched.threadSwitch, "warm")} (load ${switched.loadAtStart})`);
       if (!warmup) results[id].push(result);
     }
   }
@@ -571,8 +653,11 @@ async function main() {
   console.log(`\n${markdownTable(report)}\n\nReport: ${out}`);
   if (options.check) {
     if (!report.aggregate.tau) throw new Error("--check needs --apps to include tau");
-    const budgets = JSON.parse(readFileSync(fileURLToPath(new URL("./budgets.json", import.meta.url)), "utf8")).tau;
-    const failures = evaluateBudgets(report.aggregate.tau, budgets);
+    const budgets = JSON.parse(readFileSync(fileURLToPath(new URL("./budgets.json", import.meta.url)), "utf8"));
+    const failures = [
+      ...(options.threadSwitch ? [] : evaluateBudgets(report.aggregate.tau, budgets.tau)),
+      ...evaluateBudgets(report.aggregate.tau, budgets.tauThreadSwitch),
+    ];
     if (failures.length) {
       console.error(`Budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
       process.exitCode = 1;

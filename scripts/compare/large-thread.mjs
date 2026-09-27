@@ -33,11 +33,12 @@ async function sessionManager(tauRoot) {
  * each run, so the window cannot show the newest turn from a cache of an
  * earlier run; `modifiedAt` decides whether Pi starts in it.
  */
-export async function writePiThread(tauRoot, { sessionDir, cwd, title, turns, tag, modifiedAt }) {
+export async function writePiThread(tauRoot, { sessionDir, cwd, title, turns, tag, modifiedAt, endsAt = Date.now() }) {
   const SessionManager = await sessionManager(tauRoot);
   const manager = SessionManager.create(cwd, sessionDir);
   manager.appendSessionInfo(title);
-  const at = Date.now() - turns * 60_000;
+  // The rail orders by the newest message, so `endsAt` places the thread in it.
+  const at = endsAt - turns * 60_000;
   const usage = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 20, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   const assistant = (content, offset) => ({ role: "assistant", content, api: "openai-responses", provider: "openai", model: "gpt-5.6-luna", usage, stopReason: "stop", timestamp: at + offset * 15_000 });
   for (let turn = 0; turn < turns; turn += 1) {

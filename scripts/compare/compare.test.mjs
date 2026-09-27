@@ -358,6 +358,16 @@ describe("clicking by text", () => {
     expect(runInNewContext(locate("button", /^Continue/u), context).y).toBe(316);
   });
 
+  it("brings a match under a sticky header to the middle of its list before it names the point", () => {
+    const { button, context } = page(100);
+    const header = {};
+    let centred = false;
+    button.contains = () => false;
+    button.scrollIntoView = ({ block }) => { if (block === "center") { centred = true; button.top = 336; } };
+    context.document.elementFromPoint = () => (centred ? button : header);
+    expect(runInNewContext(locate("button", /^Continue/u), context).y).toBe(352);
+  });
+
   it("names no point while the match stays out of view", () => {
     const { button, context } = page(854);
     button.scrollIntoView = () => undefined;

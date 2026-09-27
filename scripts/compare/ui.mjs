@@ -18,9 +18,21 @@ export function locate(selector, pattern) {
         element.scrollIntoView({ block: "nearest", inline: "nearest" });
         rect = element.getBoundingClientRect();
       }
-      const x = rect.left + rect.width / 2;
-      const y = rect.top + rect.height / 2;
+      let x = rect.left + rect.width / 2;
+      let y = rect.top + rect.height / 2;
       if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return null;
+      // Scrolled to the edge of a list, a match can sit under the list's sticky header.
+      const covered = () => {
+        const hit = document.elementFromPoint?.(x, y);
+        return hit !== undefined && hit !== null && hit !== element && !element.contains(hit);
+      };
+      if (covered()) {
+        element.scrollIntoView({ block: "center", inline: "nearest" });
+        rect = element.getBoundingClientRect();
+        x = rect.left + rect.width / 2;
+        y = rect.top + rect.height / 2;
+        if (covered()) return null;
+      }
       return { x, y, label: label.slice(0, 120) };
     }
     return null;

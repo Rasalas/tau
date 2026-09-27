@@ -19,7 +19,7 @@ const EDIT_COMMANDS = { "mod+a": ["selectAll"] };
 const wait = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 /** 30 threads, so the rail has enough rows to pin, snooze and settle some (screen 02). */
-export const SCREEN_PLAN = { largeTurns: 100, smallThreads: 29, smallTurns: 4 };
+export const SCREEN_PLAN = { largeTurns: 100, smallThreads: 29, smallTurns: 4, switchThreads: false };
 
 /**
  * A short, slow turn: slow enough to capture thinking, a running command and

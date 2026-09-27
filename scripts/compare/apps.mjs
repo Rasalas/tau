@@ -197,7 +197,8 @@ export const tau = {
 export const t3 = {
   id: "t3",
   label: "T3 Code",
-  defaultRoot: () => realTmp("t3-harness-home"),
+  // COMPARE_T3_ROOT keeps a checkout's T3 profile apart, as COMPARE_TAU_ROOT does for Tau.
+  defaultRoot: () => process.env.COMPARE_T3_ROOT || realTmp("t3-harness-home"),
   sourceDir: realTmp("t3-harness"),
   describe() {
     const desktop = join(this.sourceDir, "apps", "desktop");
