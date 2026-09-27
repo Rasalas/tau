@@ -726,7 +726,7 @@ body[data-profile="compact"] .pr-tabs > .toggle-group > button { flex: 1; min-he
 body[data-profile="compact"] .pr-tabs > .spacer { display: none; }
 body[data-profile="compact"] .pr-tab-context { flex-wrap: wrap; min-height: 32px; font-size: 12px; }
 body[data-profile="compact"] .pr-tab-context .text-button { min-height: 44px; font-size: 13px; }
-.pr-comment-bar { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); border-top: 1px solid var(--line); background: var(--chrome); }
+.pr-comment-bar { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--chrome); }
 .pr-comment-bar-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
 .pr-comment-bar-button > svg { flex: none; color: var(--acid-text); }
 .pr-comment-bar-button:active:not(:disabled) { background: var(--hover-strong); }
@@ -744,7 +744,9 @@ body[data-profile="compact"] .pr-meta-grid { gap: 0 12px; }
 body[data-profile="compact"] .pr-meta-grid dt { font-size: 12.5px; }
 body[data-profile="compact"] .pr-meta-grid dd { align-items: center; }
 /* The comment and review composer on a phone: across the bottom, text a phone does not zoom into, 44 px controls. */
-body[data-profile="compact"] .pr-composer { left: 8px; right: 8px; bottom: calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); width: auto; border-radius: 16px; }
+body[data-profile="compact"] .pr-composer { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; border-radius: 16px; }
+/* The keyboard covers the home indicator. */
+body[data-keyboard] .pr-composer { bottom: 8px; }
 body[data-profile="compact"] .pr-composer textarea { font-size: 16px; }
 body[data-profile="compact"] .pr-composer .toggle-group > button,
 body[data-profile="compact"] .pr-composer footer > button { min-height: 44px; padding-inline: 14px; font-size: 14px; }
