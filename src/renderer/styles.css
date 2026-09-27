@@ -473,7 +473,7 @@ body.resizing-col .app-shell { transition: none; }
 .conversation-column:not(.conversation-start) .conversation-start-screen,
 .conversation-column:not(.conversation-start) .conversation-start-content { display: contents; }
 .conversation-column.conversation-start .conversation-thread { display: none; }
-.conversation-column:not(.conversation-start) :is(.region-composer-controls, .region-composer-above) { order: 2; }
+.conversation-column:not(.conversation-start) .region-composer-above { order: 2; }
 .conversation-column:not(.conversation-start) .conversation-composer-host { order: 3; }
 .conversation-column:not(.conversation-start) .region-composer-below { order: 4; }
 .conversation-column:not(.conversation-start) .conversation-thread { order: 1; }
@@ -659,13 +659,29 @@ body.resizing-col .app-shell { transition: none; }
 .virtual-transcript:focus-visible .virtual-transcript-row.focused :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
 .transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
-/* A centred row between the transcript and the composer. It takes its own height, so it never covers the last message. */
+/*
+ * A centred row under the transcript. A kit's pill gives it height, so the pill never covers the last message;
+ * Jump to latest floats and never changes that height (K42: a row that grew with it made the transcript jump).
+ */
 .workbench-region.region-composer-controls {
-  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
+  --controls-gap: 8px;
+  position: relative; flex: none;
+  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--controls-gap);
   padding: 8px var(--composer-inset, 0) 0; margin-bottom: -4px;
 }
-/* 10 px to what sits under the row: the composer zone's own 14 px, or this when a kit draws something above it (an empty anchor draws nothing). */
-.region-composer-controls + .region-composer-above:has(> :not(:empty)) { margin-top: 14px; }
+/* Only the arrow: no row at all, the arrow floats over the transcript's bottom edge. */
+.workbench-region.region-composer-controls:not(:has(> :not(.jump-to-latest-float))) { height: 0; padding: 0; margin: 0; }
+/* 10 px to what sits under a pill: the composer zone's own 14 px, or this when something else comes first (an empty anchor draws nothing). */
+.region-composer-controls:has(> :not(.jump-to-latest-float)) + .region-transcript-footer:not(:empty) { margin-top: 14px; }
+.conversation-column:has(.region-composer-controls > :not(.jump-to-latest-float)):not(:has(.region-transcript-footer:not(:empty))) .region-composer-above:has(> :not(:empty)) { margin-top: 14px; }
+/* Takes no room: the gap before it is given back, so the pills stay centred and the arrow hangs off their right. */
+.jump-to-latest-float {
+  position: relative; z-index: 4; flex: none; align-self: center;
+  width: 0; height: 0; margin-left: calc(-1 * var(--controls-gap));
+}
+.jump-to-latest-float > .jump-to-latest { position: absolute; top: 0; left: var(--controls-gap); translate: 0 -50%; }
+.region-composer-controls:not(:has(> :not(.jump-to-latest-float))) > .jump-to-latest-float { position: absolute; left: 50%; bottom: 10px; margin: 0; }
+.region-composer-controls:not(:has(> :not(.jump-to-latest-float))) > .jump-to-latest-float > .jump-to-latest { top: auto; bottom: 0; left: 0; translate: -50% 0; }
 .jump-to-latest {
   position: relative; flex: none; width: 32px; height: 32px; padding: 0;
   display: grid; place-items: center;
