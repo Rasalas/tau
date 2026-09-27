@@ -303,6 +303,12 @@ body.resizing-col .app-shell { transition: none; }
   opacity: .55; transition: opacity .12s ease;
 }
 .thread-row:hover .thread-cost-meta, .thread-row.active .thread-cost-meta { opacity: 1; }
+/* Another machine's thread: its mark right before the cost; this machine's threads carry none. */
+.thread-machine { margin-left: auto; flex: none; display: grid; place-items: center; color: var(--muted); }
+.thread-machine > svg { display: block; }
+.thread-row.compact .thread-machine { margin-left: 0; }
+/* Machine, cost and provider sit together at the right edge, not spread over a line without a branch. */
+:is(.thread-machine, .thread-cost-meta) + :is(.thread-cost-meta, .provider-icon-stack) { margin-left: 0; }
 .provider-icon-stack {
   width: 18px; height: 18px; flex: none; margin-left: auto;
   display: inline-flex; align-items: center;

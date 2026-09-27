@@ -93,6 +93,16 @@ describe("a machine's thread list", () => {
     expect(threads[0]!.running).toBeUndefined();
   });
 
+  it("carries what a rail row shows besides the title: branch, cost, runtime and model", () => {
+    const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0.5, turns: 1 };
+    const [listed] = environmentThreads({ projects: [], sessions: [session("a", 1, { projectLabel: "feat/x", usage, backendKind: "codex", modelProvider: "openai", createdAt: 0 })] }, new Set());
+    expect(listed).toMatchObject({ projectLabel: "feat/x", usage, backendKind: "codex", modelProvider: "openai", createdAt: 0 });
+    expect(environmentThreads({ projects: [], sessions: [session("b", 1)] }, new Set())[0]).not.toHaveProperty("usage");
+    // As in this machine's rail: a session nobody wrote in yet is no thread, unless it already runs.
+    const drafts = environmentThreads({ projects: [], sessions: [session("empty", 1, { messageCount: 0 }), session("busy", 2, { messageCount: 0 })] }, new Set(["busy"]));
+    expect(drafts.map((thread) => thread.id)).toEqual(["busy"]);
+  });
+
   it("names its projects most recent first", () => {
     const projects = environmentProjects({
       sessions: [],

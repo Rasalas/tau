@@ -1,4 +1,4 @@
-import type { ThreadIndexSnapshot, UiThreadUsage } from "./contracts.js";
+import type { ThreadBackendKind, ThreadIndexSnapshot, UiThreadUsage } from "./contracts.js";
 import type { PairingEndpoint, UiHostEndpointKind } from "./connections.js";
 
 /**
@@ -21,6 +21,12 @@ export interface UiEnvironmentThread {
   workspaceId?: string;
   modifiedAt: number;
   running?: boolean;
+  /** As that machine's index lists them, so its rail row reads like one of this machine's. */
+  projectLabel?: string;
+  usage?: UiThreadUsage;
+  backendKind?: ThreadBackendKind;
+  modelProvider?: string;
+  createdAt?: number;
 }
 
 export interface UiEnvironmentProject {
@@ -244,8 +250,8 @@ export function addressPageUrl(text: string, defaultPort = 7788): string | undef
 
 /** The list a machine's row shows: the user's own threads, newest first, capped, the running ones marked. */
 export function environmentThreads(index: ThreadIndexSnapshot, running: ReadonlySet<string>, limit = ENVIRONMENT_THREAD_LIMIT): UiEnvironmentThread[] {
-  // A spawned agent's thread shows under its parent on that machine, not here.
-  return index.sessions.filter((session) => !session.parentThreadId)
+  // A spawned agent's thread shows under its parent on that machine, not here; nor does a session nobody wrote in yet.
+  return index.sessions.filter((session) => !session.parentThreadId && (session.messageCount > 0 || running.has(session.id)))
     .sort((a, b) => b.modifiedAt - a.modifiedAt)
     .slice(0, limit)
     .map((session) => {
@@ -258,6 +264,11 @@ export function environmentThreads(index: ThreadIndexSnapshot, running: Readonly
       };
       if (session.workspaceId) thread.workspaceId = session.workspaceId;
       if (running.has(session.id)) thread.running = true;
+      if (session.projectLabel) thread.projectLabel = session.projectLabel;
+      if (session.usage) thread.usage = session.usage;
+      if (session.backendKind) thread.backendKind = session.backendKind;
+      if (session.modelProvider) thread.modelProvider = session.modelProvider;
+      if (session.createdAt !== undefined) thread.createdAt = session.createdAt;
       return thread;
     });
 }
