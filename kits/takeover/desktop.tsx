@@ -84,6 +84,10 @@ const takeover: DesktopExtension = {
     disposers.push(context.host.onEvent(TAKEOVER_STATE_EVENT, (payload) => apply(readTakeovers(payload))));
     void context.host.invoke("state").then((list) => { if (!loaded) apply(readTakeovers(list)); }, () => undefined);
     disposers.push(context.events.on("thread-index", (event) => announcer.threadIndex(event.threadIndex.sessions)));
+    // A request that ended while the link was down sent its last list to nobody.
+    disposers.push(context.events.on("host-connection", ({ state }) => {
+      if (state === "connected") void context.host.invoke("state").then((list) => apply(readTakeovers(list)), () => undefined);
+    }));
 
     const hosts = { own: context.host, preview: context.hostExtension(PREVIEW_EXTENSION_ID) };
     disposers.push(context.registerRegion({ id: "takeover.card", placement: "composer-above", order: 1, profiles: [...PROFILES], Component: createTakeoverRegion(hosts) }));

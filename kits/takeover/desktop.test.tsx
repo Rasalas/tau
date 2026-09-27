@@ -137,6 +137,21 @@ describe("Takeover card", () => {
     await waitFor(() => expect(calls).toContainEqual([TAKEOVER_EXTENSION_ID, "cancel", { id: other.id }]));
   });
 
+  it("reads the host's list again when the link comes back, so a request finished on another device goes", async () => {
+    const hostList = [takeover({ kind: "none" })];
+    const { card, publish, registry } = setup(hostList);
+    const view = card();
+    publish([...hostList]);
+    expect(view.getByRole("region", { name: "Your turn" })).toBeTruthy();
+
+    // Done on the phone while this window's link was down: the push that said so never came.
+    hostList.splice(0);
+    act(() => { registry.dispatchWorkbenchEvent({ type: "host-connection", state: "reconnecting" }); });
+    act(() => { registry.dispatchWorkbenchEvent({ type: "host-connection", state: "connected" }); });
+
+    await waitFor(() => expect(view.queryByRole("region", { name: "Your turn" })).toBeNull());
+  });
+
   it("leaves a thread that is not on screen alone", () => {
     const { card, publish } = setup();
     const view = card("s2");
