@@ -104,7 +104,7 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
       </SettingsSection>
       <SettingsSection title="Diffs">
         <SettingRow id="setting-review-colors" title="Diff colours" description="Additions and removals, including change counts. Blue and orange read apart for most kinds of colour blindness." setting={colors}
-          control={<SegmentedControl label="Diff colours" value={colors.value} options={COLORS.map((choice) => ({ ...choice, icon: <Swatch scheme={choice.value} /> }))} onChange={colors.set} />} />
+          control={<SegmentedControl label="Diff colours" value={colors.value} options={COLORS.map((choice) => ({ ...choice, icon: <Swatch scheme={choice.value} />, labelled: true }))} onChange={colors.set} />} />
         <SettingRow id="setting-review-wrap" title="Wrap long lines" description="Off keeps each line on one row and scrolls the diff sideways. The review's toolbar switches it too." setting={wrap}
           control={toggle("Wrap long lines", wrap)} />
         <SettingRow id="setting-review-split" title="Split view" setting={split} control={toggle("Split view", split)} />

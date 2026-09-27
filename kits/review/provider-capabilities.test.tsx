@@ -167,7 +167,7 @@ describe("Settings → Review", () => {
     await waitFor(() => expect(cleared).toContainEqual([`values.${key("writing-instructions")}`]));
 
     const colours = screen.getByRole("radiogroup", { name: "Diff colours" });
-    expect(within(colours).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Red & green", "Blue & orange"]);
+    expect(within(colours).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Red & green", "Blue & orange"]);
     fireEvent.click(within(colours).getByRole("radio", { name: "Blue & orange" }));
     await waitFor(() => expect(updates).toContainEqual({ values: { [key("diff-colors")]: "blue-orange" } }));
 
