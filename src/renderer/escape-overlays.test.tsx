@@ -20,13 +20,13 @@ afterEach(cleanup);
  * `dispatchEvent` does not, so `flushSync` stands in for that.
  */
 function Chat({ overlay }: { overlay(close: () => void): ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);
   return <>
     <nav aria-label="Threads"><button type="button">A thread</button></nav>
     <main data-keybinding-context="chat">
       <textarea aria-label="Composer" />
-      <button type="button" onClick={() => setOpen(true)}>Open</button>
-      {open ? overlay(() => flushSync(() => setOpen(false))) : null}
+      <button type="button" onClick={() => setShown(true)}>Open</button>
+      {shown ? overlay(() => flushSync(() => setShown(false))) : null}
     </main>
   </>;
 }
