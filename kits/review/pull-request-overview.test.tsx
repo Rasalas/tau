@@ -26,6 +26,20 @@ const handle = (): StageTabHandle => ({ id: "ext:review.pull-requests", setTitle
 const actions = () => ({ openExternal: vi.fn(), notify: vi.fn() }) as unknown as WorkbenchActions;
 
 describe("the Pull Requests page", () => {
+  it("keeps a thread's tab to its project and leads to the page for the rest", async () => {
+    const client = listClient(() => ({ service: "github", host: "github.com", repo: "cli/cli", entries: rows.slice(0, 1), truncated: false, limit: 100 }));
+    const openPage = vi.fn();
+    render(<PullRequestListView params={{ workspace: "/project" }} handle={handle()} actions={{ ...actions(), openPage } as unknown as WorkbenchActions} client={client} open={vi.fn()} />);
+    await screen.findByRole("button", { name: /^#/u });
+    expect(screen.queryByRole("button", { name: /^Projects:/u })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
+    expect(screen.queryByRole("menuitem", { name: /Project/u })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "All projects" }));
+    expect(openPage).toHaveBeenCalledWith("review.pull-requests");
+  });
+
+
   it("lists every project across hosts, each row with its repository and its host's own viewer", async () => {
     const gitlab = { ...rows[0]!, ref: { ...rows[0]!.ref, service: "gitlab" as const, host: "gitlab.com", repo: "acme/tools", number: 3, url: "https://gitlab.com/acme/tools/-/merge_requests/3" }, author: { login: "mona" }, stack: { number: 9, size: 3, position: 2 } };
     const client = {
@@ -39,24 +53,26 @@ describe("the Pull Requests page", () => {
       })),
     } as unknown as PullRequestClient;
     const open = vi.fn();
-    const tab = handle();
     const projects = [
       { path: "/cli", workspaceId: "/cli", name: "cli", lastOpenedAt: 1 },
       { path: "/tools", workspaceId: "/tools", name: "tools", lastOpenedAt: 2 },
       { path: "/scratch", workspaceId: "/scratch", name: "scratch", lastOpenedAt: 3 },
     ];
-    render(<TestThreadStore threads={[]} projects={projects}><PullRequestListView params={{ scope: "all" }} handle={tab} actions={actions()} client={client} open={open} /></TestThreadStore>);
+    render(<TestThreadStore threads={[]} projects={projects}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={client} open={open} /></TestThreadStore>);
     const authored = await screen.findByRole("region", { name: "Authored" });
     expect(client.listMany).toHaveBeenCalledWith({ workspaces: ["/cli", "/tools", "/scratch"], state: "open", limit: 100 });
     // mona is the viewer on GitLab, so her request counts as her own.
     expect(within(authored).getAllByRole("button").map((row) => row.getAttribute("aria-label"))).toContain("#3 " + gitlab.title);
-    expect(screen.getByText("All projects · 2 repositories")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Projects: All projects" }).textContent).toContain("All projects · 2 repositories");
     expect(screen.getByText("acme/tools")).toBeTruthy();
     expect(screen.getByLabelText("Stack layer 2 of 3")).toBeTruthy();
     expect(screen.getByText("Not listed: scratch.")).toBeTruthy();
-    await waitFor(() => expect(tab.setTitle).toHaveBeenCalledWith("Pull requests · all projects"));
     fireEvent.click(screen.getByRole("button", { name: /^#3 /u }));
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ ref: expect.objectContaining({ number: 3 }) }), "/tools");
+
+    // Grouped by project in the order of their first row, each named as the project list names it.
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Group by" })).getByRole("radio", { name: "Project" }));
+    expect(screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["tools", "cli"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Host/u }));

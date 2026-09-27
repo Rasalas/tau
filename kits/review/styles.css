@@ -328,6 +328,14 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-list-count { color: var(--faint); font: 10.5px var(--mono); }
 .pr-list-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 8px 24px; display: flex; flex-direction: column; }
 .pr-list-group + .pr-list-group { margin-top: 12px; }
+/* The app's Pull Requests page: the list, or a request's view in its place. */
+.pr-page, .pr-page-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pr-page-pane[hidden] { display: none; }
+.pr-list-view.on-page { background: var(--shell); font-size: 12.5px; }
+.pr-list-view.on-page .pr-list-head { padding: 14px 24px 12px; border-bottom-color: var(--line-soft); }
+.pr-list-view.on-page .pr-list-body { padding: 10px 16px 32px; }
+.pr-list-scope { color: var(--ink-2); }
+.pr-list-caption { margin-left: 6px; color: var(--faint); font-size: 11.5px; }
 .pr-list-group > h2 { margin: 0; padding: 6px 8px 4px; color: var(--muted); font: 600 11px var(--sans); }
 .pr-list-group > h2 small { margin-left: 4px; color: var(--faint); font: 10.5px var(--mono); }
 .pr-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-block-size: 40px; }
