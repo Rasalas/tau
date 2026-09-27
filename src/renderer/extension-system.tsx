@@ -573,6 +573,12 @@ export interface PanelContribution extends ProfileScoped {
    * mounted panel, so its state goes with it, and it is never drawn twice.
    */
   maximizable?: boolean;
+  /**
+   * Shows the tool somewhere else instead of this panel (a page, an overlay);
+   * true when it did. Every way in asks first — the rail button, `openPanel`,
+   * a command — and false opens the panel as usual.
+   */
+  redirect?(actions: WorkbenchActions): boolean;
   /** The rail glyph; `lucide-react` is shared, so pass one of its icons. Missing draws core's fallback. */
   Icon?: PanelIconComponent;
   order?: number;

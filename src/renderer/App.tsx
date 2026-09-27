@@ -183,18 +183,14 @@ export default function App() {
   useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
-  // A document opened beside the chat takes the place of a tool that filled it.
+  // A document opened beside the chat takes the tool that filled that space into the tabs.
   const revealDocuments = useRef(() => {});
   const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
   // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
   const [chatFocused, setChatFocused] = useState(false);
-  // Documents maximized on their own; a panel tab on the stage maximizes it too.
+  // Documents maximized on their own; a list's tab on the stage came by maximizing, a wide tool's by opening.
   const [stageMaximized, setStageMaximized] = useState(false);
-  const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel");
-  revealDocuments.current = () => {
-    setChatFocused(false);
-    if (!maximized && dockOpen && isWidePanel(panels, activePanel)) setDockOpen(false);
-  };
+  const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel" && !isWidePanel(panels, tab.panelId));
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
@@ -446,7 +442,9 @@ export default function App() {
     showStage: () => setChatFocused(false),
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
     sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
+    actions: () => actionsRef.current,
   });
+  revealDocuments.current = () => { setChatFocused(false); panelLayout.documentOpened(); };
   const openPanel = panelLayout.openPanel;
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); revealDocuments.current(); }, []);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {

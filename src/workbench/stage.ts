@@ -173,6 +173,13 @@ export function openPanelTab(state: StageState, panelId: string): StageState {
   return openTab(state, { id, kind: "panel", panelId, preview: false });
 }
 
+/** A panel that was on screen before the tab in front: it joins at the strip's start, behind the active tab. */
+export function addPanelTabBehind(state: StageState, panelId: string): StageState {
+  const id = panelTabId(panelId);
+  if (state.tabs.some((tab) => tab.id === id)) return state;
+  return { tabs: [{ id, kind: "panel", panelId, preview: false }, ...state.tabs], activeId: state.activeId ?? id };
+}
+
 /** Panel ids that sit on the stage now. */
 export function stagedPanelIds(state: StageState): string[] {
   return state.tabs.flatMap((tab) => tab.kind === "panel" ? [tab.panelId] : []);

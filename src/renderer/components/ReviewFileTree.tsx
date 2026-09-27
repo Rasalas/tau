@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import type { UiChangedFile } from "../../shared/workspace-kit-types";
-import { buildChangesTree } from "./ChangesTree";
+import { buildChangesTree, ChangeFileActions } from "./ChangesTree";
 import { FileKindIcon } from "./FileKindIcon";
 
 const STATUS_GLYPH: Record<string, string> = {
@@ -11,6 +11,12 @@ const STATUS_GLYPH: Record<string, string> = {
   renamed: "R",
   untracked: "?",
 };
+
+export interface ReviewFileActions {
+  stage(path: string): Promise<void> | void;
+  unstage(path: string): Promise<void> | void;
+  revert(path: string): Promise<void> | void;
+}
 
 type ReviewTreeNode = ReturnType<typeof buildChangesTree>[number];
 
@@ -32,6 +38,7 @@ export function ReviewFileTree({
   readOnly,
   onOpen,
   onToggleViewed,
+  fileActions,
 }: {
   files: readonly UiChangedFile[];
   activePath?: string;
@@ -39,6 +46,8 @@ export function ReviewFileTree({
   readOnly: boolean;
   onOpen(path: string): void;
   onToggleViewed(path: string): void;
+  /** Staging and reverting in the worktree. */
+  fileActions?: ReviewFileActions;
 }) {
   const tree = useMemo(() => buildChangesTree(files), [files]);
   const paths = useMemo(() => directoryPaths(tree), [tree]);
@@ -92,6 +101,7 @@ export function ReviewFileTree({
         <span className="review-tree-name">{file.name}</span>
         <i className={file.status} title={file.status}>{STATUS_GLYPH[file.status] ?? "M"}</i>
       </button>
+      {fileActions && !readOnly ? <ChangeFileActions file={file} onStage={fileActions.stage} onUnstage={fileActions.unstage} onRevert={fileActions.revert} /> : null}
       {!readOnly ? <button
         className="review-tree-viewed"
         title={viewed ? "Mark unread" : "Mark viewed"}

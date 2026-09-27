@@ -49,6 +49,33 @@ function directoryPaths(nodes: readonly ChangeNode[]): string[] {
   return nodes.flatMap((node) => node.kind === "directory" ? [node.path, ...directoryPaths(node.children)] : []);
 }
 
+/** Stage or unstage one changed file, or discard it after asking; nothing on a Read-only device (ADR 0024). */
+export function ChangeFileActions({ file, onStage, onUnstage, onRevert }: {
+  file: UiChangedFile;
+  onStage(path: string): Promise<void> | void;
+  onUnstage(path: string): Promise<void> | void;
+  onRevert(path: string): Promise<void> | void;
+}) {
+  const { readOnly } = useHostCapabilities();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  if (readOnly) return null;
+  const run = async (action: (path: string) => Promise<void> | void) => {
+    setBusy(true);
+    try { await action(file.path); } finally { setBusy(false); setConfirming(false); }
+  };
+  return <span className="changes-tree-actions">
+    <button disabled={busy} title={file.staged ? "Unstage file" : "Stage file"} aria-label={`${file.staged ? "Unstage" : "Stage"} ${file.path}`} onClick={() => void run(file.staged ? onUnstage : onStage)}>
+      {file.staged ? <Minus size={14} /> : <Plus size={14} />}
+    </button>
+    <button disabled={busy} title="Revert file" aria-label={`Revert ${file.path}`} onClick={() => setConfirming(true)}><RotateCcw size={13} /></button>
+    {confirming ? <div className="changes-action-popover" role="dialog" aria-label={`Confirm revert ${file.path}`}>
+      <strong>Discard this file?</strong><small>This cannot be undone.</small>
+      <span><button onClick={() => setConfirming(false)}>Cancel</button><button className="danger" onClick={() => void run(onRevert)}>Revert</button></span>
+    </div> : null}
+  </span>;
+}
+
 export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onRevert }: {
   files: readonly UiChangedFile[];
   activePath?: string;
@@ -58,15 +85,7 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
   onRevert(path: string): Promise<void> | void;
 }) {
   const tree = useMemo(() => buildChangesTree(files), [files]);
-  // A Read-only device looks; staging and reverting are the host's to refuse (ADR 0024).
-  const { readOnly } = useHostCapabilities();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(directoryPaths(tree)));
-  const [busy, setBusy] = useState<string>();
-  const [confirmRevert, setConfirmRevert] = useState<string>();
-  const run = async (path: string, action: (path: string) => Promise<void> | void) => {
-    setBusy(path);
-    try { await action(path); } finally { setBusy(undefined); setConfirmRevert(undefined); }
-  };
   const render = (nodes: readonly ChangeNode[], depth = 0): ReactNode => nodes.map((node) => {
     if (node.kind === "directory") {
       const open = expanded.has(node.path);
@@ -85,8 +104,6 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
       </div>;
     }
     const { file } = node;
-    const waiting = busy === file.path;
-    const confirming = confirmRevert === file.path;
     return <div key={file.path} className={`changes-tree-file ${file.path === activePath ? "active" : ""}`} style={{ paddingLeft: 27 + depth * 15 }}>
       <button className="changes-tree-open" title={file.path} onClick={() => onOpen(file.path)}>
         <FileKindIcon name={file.name} />
@@ -94,16 +111,7 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
         <i>{file.status.charAt(0).toUpperCase()}</i>
         <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
       </button>
-      {readOnly ? null : <span className="changes-tree-actions">
-        <button disabled={waiting} title={file.staged ? "Unstage file" : "Stage file"} aria-label={`${file.staged ? "Unstage" : "Stage"} ${file.path}`} onClick={() => void run(file.path, file.staged ? onUnstage : onStage)}>
-          {file.staged ? <Minus size={14} /> : <Plus size={14} />}
-        </button>
-        <button disabled={waiting} title="Revert file" aria-label={`Revert ${file.path}`} onClick={() => setConfirmRevert(file.path)}><RotateCcw size={13} /></button>
-        {confirming ? <div className="changes-action-popover" role="dialog" aria-label={`Confirm revert ${file.path}`}>
-          <strong>Discard this file?</strong><small>This cannot be undone.</small>
-          <span><button onClick={() => setConfirmRevert(undefined)}>Cancel</button><button className="danger" onClick={() => void run(file.path, onRevert)}>Revert</button></span>
-        </div> : null}
-      </span>}
+      <ChangeFileActions file={file} onStage={onStage} onUnstage={onUnstage} onRevert={onRevert} />
     </div>;
   });
 

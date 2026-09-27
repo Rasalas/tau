@@ -30,6 +30,8 @@ export interface WorkspaceStoreApi {
     committing: boolean;
     workspace?: { branch?: string; upstream?: string };
     review?: { path?: string; primaryPush: boolean };
+    /** What other kits add to the Changes view. */
+    changesSections?: readonly ComponentType<ChangesSectionProps>[];
   };
   subscribe(listener: () => void): () => void;
   activeEditor(): UiEditor | undefined;
@@ -46,6 +48,12 @@ export interface WorkspaceStoreApi {
   }) => Promise<string>): () => void;
   refresh(): Promise<void>;
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
+  /** Absent on a Workspace Kit that keeps its Changes panel whatever draws the review. */
+  registerReviewView?(): () => void;
+  stageFile?(path: string): Promise<void>;
+  unstageFile?(path: string): Promise<void>;
+  stageAll?(): Promise<void>;
+  revertFile?(path: string): Promise<void>;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
 }
 

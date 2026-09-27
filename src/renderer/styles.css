@@ -1375,7 +1375,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .panel-rail button.active { background: var(--raised); color: var(--ink); }
 .panel-rail .spacer { flex: 1; }
 
-.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* min-width: 0, or the widest unbreakable line (a long title) widens the panel past the window's edge. */
+.panel-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .panel-header {
   flex: none; display: flex; align-items: center; gap: 9px;
   height: 52px; padding: 0 var(--space-6); border-bottom: 1px solid var(--line);
@@ -1797,6 +1798,12 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .review-sidebar-meta strong { color: var(--muted); font: 500 9.5px var(--mono); }
 .review-sidebar-meta .spacer { flex: 1; }
 .review-sidebar-meta .stat-add, .review-sidebar-meta .stat-del { font-size: 9px; }
+.review-stale { color: var(--muted); font: 9.5px var(--mono); }
+/* What a kit adds above the file list (the branch's pull request); it scrolls before it crowds the files out. */
+.review-list-header { flex: none; min-width: 0; max-height: 50%; overflow: auto; border-bottom: 1px solid var(--line); }
+.review-staging { flex: none; display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 12px; color: var(--faint); font: 9.5px var(--mono); }
+.review-staging .text-button { font-size: 10px; }
+.review-tree-file:hover .changes-tree-actions, .review-tree-file:focus-within .changes-tree-actions { opacity: 1; }
 /* The commit is confirmed where it is read: the message and the one button, under the title bar. */
 .commit-bar {
   flex: none; display: flex; align-items: flex-start; gap: 16px;
@@ -1824,6 +1831,9 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); font-weight: 400; }
 .review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
 .review-toolbar > .text-button { white-space: nowrap; }
+/* Beside the file list at 1280 px its controls outgrow the column: they scroll rather than run under the list. */
+.review-toolbar { overflow-x: auto; scrollbar-width: none; }
+.review-toolbar > :not(.review-scope-summary) { flex-shrink: 0; }
 .review-shell .icon-button, .panel-host .icon-button, .panel-maximize, .stage-strip-actions .icon-button {
   width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0;
   border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;

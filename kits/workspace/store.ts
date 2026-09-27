@@ -121,6 +121,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private state: WorkspaceKitState = INITIAL;
   private listeners = new Set<() => void>();
   private actions?: WorkbenchActions;
+  /** Kits that draw the review overlay. */
+  private reviewViews = 0;
   private changesRequest = 0;
   private workspaceRequest = 0;
   private sessionId?: string;
@@ -619,6 +621,19 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void {
     this.update({ changesSections: [...this.state.changesSections, section] });
     return () => this.update({ changesSections: this.state.changesSections.filter((entry) => entry !== section) });
+  }
+
+  registerReviewView(): () => void {
+    this.reviewViews += 1;
+    let registered = true;
+    return () => { if (registered) { registered = false; this.reviewViews -= 1; } };
+  }
+
+  /** The review in place of the Changes panel, while a kit draws it; false leaves the panel to open. */
+  openChangesView(): boolean {
+    if (this.reviewViews === 0) return false;
+    this.openReview();
+    return true;
   }
 
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {

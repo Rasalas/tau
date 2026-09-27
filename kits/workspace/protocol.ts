@@ -599,6 +599,13 @@ export interface WorkspaceStoreApi {
   registerFileEditor(editor: WorkspaceFileEditor): () => void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
+  /** An extension draws the review overlay: the Changes rail entry opens the review instead of its panel. */
+  registerReviewView(): () => void;
+  stageFile(path: string): Promise<void>;
+  unstageFile(path: string): Promise<void>;
+  stageAll(): Promise<void>;
+  /** Discards one file's changes; the caller asked the user first. */
+  revertFile(path: string): Promise<void>;
   /** A mark drawn on every thread row of the rail. */
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
   /** Sections, row menus and drops of the rail. */

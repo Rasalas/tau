@@ -31,7 +31,7 @@ import type { ClientStorage } from "../../workbench/client-storage";
 import { STORAGE_KEYS } from "../../workbench/storage-keys";
 import { DiffStream, diffLanguage, fileDiffRows, type DiffLineSlot, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
-import { ReviewFileTree } from "./ReviewFileTree";
+import { ReviewFileTree, type ReviewFileActions } from "./ReviewFileTree";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
 import { useHostCapabilities } from "../use-host-capabilities";
@@ -87,8 +87,10 @@ function sameDiff(left: UiFileDiff | undefined, right: UiFileDiff): boolean {
 }
 
 /** What the confirm button does, in words: which files, on which branch, and whether it pushes. */
-function commitSummary(files: number, branch: string | undefined, push: boolean): string {
-  const what = `Commits all ${files} changed ${files === 1 ? "file" : "files"}`;
+export function commitSummary(files: number, branch: string | undefined, push: boolean, staged = 0): string {
+  const what = staged > 0
+    ? `Commits the ${staged} staged ${staged === 1 ? "file" : "files"}`
+    : `Commits all ${files} changed ${files === 1 ? "file" : "files"}`;
   const where = branch ? ` on ${branch}` : "";
   return push ? `${what}${where}, then pushes ${branch ?? "the branch"}.` : `${what}${where}. Nothing is pushed.`;
 }
@@ -121,6 +123,9 @@ export function ReviewMode({
   lines,
   toolbar,
   aside,
+  fileActions,
+  listHeader,
+  onRefresh,
 }: {
   changes: UiWorkspaceChanges;
   selectedPath?: string;
@@ -156,6 +161,12 @@ export function ReviewMode({
   toolbar?: ReactNode;
   /** A panel beside the diffs. */
   aside?: ReactNode;
+  /** Staging and reverting in the worktree, from the file list. */
+  fileActions?: ReviewFileActions & { stageAll?(): Promise<void> | void };
+  /** Drawn at the top of the file list, handed the commit message the bar holds. */
+  listHeader?(commit: { message: string; committed(): void }): ReactNode;
+  /** Reads the worktree's changes again. */
+  onRefresh?(): void;
 }) {
   const [scope, setScope] = useState<WorkspaceDiffScope>("worktree");
   const [visibleChanges, setVisibleChanges] = useState(changes);
@@ -348,6 +359,8 @@ export function ReviewMode({
   };
 
   const readPaths = useMemo(() => new Set(reviewState.readPaths), [reviewState.readPaths]);
+  const worktreeActions = fileActions && !noCommit && scope === "worktree" ? fileActions : undefined;
+  const stagedCount = scope === "worktree" ? paged.files.filter((file) => file.staged).length : 0;
   const visibleReadCount = paged.files.filter((file) => readPaths.has(file.path)).length;
 
   const toggleRead = (path: string) => updateReviewState((current) => ({
@@ -476,7 +489,7 @@ export function ReviewMode({
             <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
           </button>
         </div>
-        <small>{commitSummary(paged.fileCount, visibleChanges.branch, primaryPush)}</small>
+        <small>{commitSummary(paged.fileCount, visibleChanges.branch, primaryPush, stagedCount)}</small>
         {messageError ? <small className="commit-message-error">{messageError}</small> : null}
       </div>
     </section> : null}
@@ -572,6 +585,7 @@ export function ReviewMode({
 
       {sidebarOpen ? <aside className="review-list" style={{ width: sidebarWidth }}>
         <div className="review-sidebar-resizer" role="separator" aria-orientation="vertical" onPointerDown={startSidebarResize} />
+        {listHeader && !readOnly ? <div className="review-list-header">{listHeader({ message, committed: () => setMessage("") })}</div> : null}
         <label className="review-filter">
           <Search size={13} />
           <input
@@ -588,7 +602,13 @@ export function ReviewMode({
           <span className="spacer" />
           <span className="stat-add">+{visibleChanges.added}</span>
           <span className="stat-del">−{visibleChanges.removed}</span>
+          {!readOnly && visibleChanges.refreshStatus?.state === "error" ? <small className="review-stale" title={visibleChanges.refreshStatus.message}>stale</small> : null}
+          {onRefresh && !readOnly ? <button className="icon-button compact" aria-label="Rescan changes" title="Read the worktree's changes again" onClick={onRefresh}><RefreshCw size={12} /></button> : null}
         </div>
+        {worktreeActions && paged.files.length > 0 ? <div className="review-staging">
+          <span>{stagedCount}/{paged.fileCount} staged</span>
+          {worktreeActions.stageAll && stagedCount < paged.fileCount ? <button className="text-button" disabled={busy} onClick={() => void worktreeActions.stageAll?.()}>Stage all</button> : null}
+        </div> : null}
         {!readOnly ? <div className="review-progress">
           <span>{visibleReadCount}/{paged.fileCount} viewed</span>
           <i><b style={{ width: `${paged.fileCount ? Math.min(100, visibleReadCount / paged.fileCount * 100) : 0}%` }} /></i>
@@ -604,6 +624,7 @@ export function ReviewMode({
             readOnly={readOnly}
             onOpen={scrollToFile}
             onToggleViewed={toggleRead}
+            {...(worktreeActions ? { fileActions: worktreeActions } : {})}
           /> : <p className="empty-copy">{filter ? "No matching changed files." : "No changes in this scope."}</p>}
           {loadFiles && paged.hasMore ? <div className="changed-files-more-row">
             <button className="text-button" disabled={paged.loading} onClick={() => void paged.loadNextPage()}>

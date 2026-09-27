@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
@@ -91,6 +91,47 @@ describe("ReviewMode", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("src/b.ts"));
     expect(await screen.findByText("from main")).toBeTruthy();
     expect(screen.getByRole("link", { name: "PR #42" }).getAttribute("href")).toBe("https://github.com/acme/tau/pull/42");
+  });
+
+  it("carries the Changes panel's staging, sections and rescan in the file list", async () => {
+    const stage = vi.fn();
+    const stageAll = vi.fn();
+    const onRefresh = vi.fn();
+    const committed: Array<() => void> = [];
+    const two: UiWorkspaceChanges = {
+      ...worktree,
+      files: [...worktree.files, { path: "src/c.ts", name: "c.ts", directory: "src", status: "added", added: 2, removed: 0, staged: true }],
+      fileCount: 2,
+      refreshStatus: { state: "error", message: "git status failed" },
+    };
+    render(withStorage(<ReviewMode
+      changes={two}
+      busy={false}
+      primaryPush={false}
+      onSelect={() => undefined}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      loadDiff={async (path) => ({ path, added: 1, removed: 0, hunks: [] })}
+      fileActions={{ stage, unstage: vi.fn(), revert: vi.fn(), stageAll }}
+      listHeader={({ message, committed: done }) => { committed.push(done); return <p>Section sees “{message}”</p>; }}
+      onRefresh={onRefresh}
+    />));
+
+    expect(screen.getByText("Section sees “Update a”")).toBeTruthy();
+    expect(screen.getByText("1/2 staged")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Commit" }).textContent).toContain("Commits the 1 staged file on feat/review. Nothing is pushed.");
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/a.ts" }));
+    expect(stage).toHaveBeenCalledWith("src/a.ts");
+    expect(screen.getByRole("button", { name: "Unstage src/c.ts" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage all" }));
+    expect(stageAll).toHaveBeenCalled();
+    expect(screen.getByText("stale").getAttribute("title")).toBe("git status failed");
+    fireEvent.click(screen.getByRole("button", { name: "Rescan changes" }));
+    expect(onRefresh).toHaveBeenCalled();
+
+    act(() => committed.at(-1)?.());
+    expect(screen.getByText("Section sees “”")).toBeTruthy();
   });
 
   it("lends its lines, layout, whitespace and folds to the caller", async () => {

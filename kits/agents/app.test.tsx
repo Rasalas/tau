@@ -172,7 +172,9 @@ describe("the Agents panel", () => {
     await screen.findByRole("tab", { name: /Alpha reply/u });
     // A preview tab is replaced, so the first has to be pinned to keep both.
     fireEvent.doubleClick(screen.getByRole("tab", { name: /Alpha reply/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Beta reply, completed" }));
+    // The panel went into the tabs behind the thread it opened.
+    fireEvent.click(screen.getByRole("tab", { name: /Agents/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Beta reply, completed" }));
 
     expect(await screen.findByRole("tab", { name: /Beta reply/u })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Alpha reply/u })).toBeTruthy();

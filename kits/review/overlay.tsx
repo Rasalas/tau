@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   HostUnavailableError,
   ReviewMode,
@@ -7,6 +7,7 @@ import {
   type OverlayProps,
   type UiFileDiff,
   type UiWorkspaceChanges,
+  type WorkbenchActions,
   type WorkspaceChangesQuery,
 } from "tau";
 import { automaticCommitMessages } from "./commit-messages.js";
@@ -18,7 +19,12 @@ import type { WorkspaceChangesReader } from "./workspace.js";
 
 export { COLLAPSED_OPTION, SPLIT_OPTION, WHITESPACE_OPTION } from "./diff-settings.js";
 
-/** Review Kit's full-workbench review of the live worktree, over Workspace Kit's state. */
+/**
+ * Review Kit's full-workbench review of the live worktree, over Workspace Kit's
+ * state. The Changes rail entry opens it, so it carries what that panel did:
+ * staging, and every Changes section (the branch's pull request, the linked
+ * ones, a server's drift) above the file list.
+ */
 export function createReviewOverlay(
   plugin: DesktopExtensionContext,
   workspace: WorkspaceChangesReader,
@@ -26,6 +32,13 @@ export function createReviewOverlay(
   comments: ReviewCommentStore,
   chips: () => ComposerContextChips | undefined,
 ) {
+  const { stageFile, unstageFile, stageAll, revertFile } = store;
+  const fileActions = stageFile && unstageFile && revertFile ? {
+    stage: (path: string) => stageFile.call(store, path),
+    unstage: (path: string) => unstageFile.call(store, path),
+    revert: (path: string) => revertFile.call(store, path),
+    ...(stageAll ? { stageAll: () => stageAll.call(store) } : {}),
+  } : undefined;
   const option = (id: string) => plugin.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, id, false);
   return function ReviewOverlay({ actions, onClose }: OverlayProps) {
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -59,6 +72,13 @@ export function createReviewOverlay(
       }
     }, []);
     // The review covers the composer; the comments follow once it is back.
+    const sections = state.changesSections;
+    // A request opened from the list is a stage tab: the review steps aside for it.
+    const listHeader = useMemo(() => {
+      if (!sections?.length) return undefined;
+      const tabActions: WorkbenchActions = { ...actions, openStageTab: (...open) => { closeReview(); return actions.openStageTab(...open); } };
+      return ({ message, committed }: { message: string; committed(): void }) => sections.map((Section, index) => <Section key={index} actions={tabActions} message={message} committed={committed} />);
+    }, [actions, closeReview, sections]);
     const send = useCallback(() => {
       const handed = comments.getSnapshot().comments;
       closeReview();
@@ -90,6 +110,9 @@ export function createReviewOverlay(
         lines={lines}
         toolbar={<CommentsToolbar store={comments} state={commentState} onSend={send} />}
         aside={<CommentsPanel store={comments} state={commentState} onSend={send} />}
+        {...(fileActions ? { fileActions } : {})}
+        {...(listHeader ? { listHeader } : {})}
+        onRefresh={() => void store.refresh()}
       />
     );
   };
