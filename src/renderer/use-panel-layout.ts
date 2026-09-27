@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { activateTab, activeTab, openPanelTab, panelTabId, stagedPanelIds, type StageState } from "../workbench/stage";
-import type { PanelContribution } from "./extension-system";
+import { activateTab, activeTab, addPanelTabBehind, openPanelTab, panelTabId, stagedPanelIds, type StageState } from "../workbench/stage";
+import { toolPlace } from "../workbench/center-layout";
+import type { PanelContribution, WorkbenchActions } from "./extension-system";
 import type { StageTabController } from "./stage-tab-controller";
 
 export interface PanelLayoutState {
@@ -27,6 +28,8 @@ export interface PanelLayoutPorts extends PanelLayoutState {
   focusedPanel?(): string | undefined;
   /** A compact layout's sheets: each answers true when it took the call, and the dock is left alone. */
   sheets?: { open(id: string): boolean; close(id: string): boolean };
+  /** What a panel's `redirect` is handed. */
+  actions?(): WorkbenchActions | undefined;
 }
 
 export interface PanelLayout {
@@ -40,6 +43,8 @@ export interface PanelLayout {
   /** The documents beside the chat take the whole centre. */
   maximizeStage(): void;
   toggleMaximized(): void;
+  /** A document opened on the stage: a wide tool beside the chat joins the tabs behind it. */
+  documentOpened(): void;
 }
 
 /** A panel that fills the space beside the chat; the rest float over it until they have something to show. */
@@ -74,34 +79,42 @@ export function usePanelLayout(ports: PanelLayoutPorts): PanelLayout {
   latest.current = ports;
   const staged = useMemo(() => new Set(stagedPanelIds(ports.stage)), [ports.stage]);
   const [layout] = useState(() => {
-    const placementOf = (id: string) => latest.current.panels.find((panel) => panel.id === id)?.placement ?? "dock";
+    const panelOf = (id: string) => latest.current.panels.find((panel) => panel.id === id);
     const isStaged = (id: string) => stagedPanelIds(latest.current.stage).includes(id);
+    const placeOf = (id: string, stageOpen: boolean, maximized = latest.current.maximized) => {
+      const panel = panelOf(id);
+      return toolPlace({ placement: panel?.placement, width: panel?.width, maximizable: panel?.maximizable, stageOpen, maximized });
+    };
     const show = (id: string) => {
       const current = latest.current;
-      if (placementOf(id) === "drawer") current.setDrawer(id);
+      if (placeOf(id, false) === "drawer") current.setDrawer(id);
       else { current.setActivePanel(id); current.setDockOpen(true); }
     };
-    const maximize = (id: string) => {
+    // The panel leaves the dock or the drawer for a tab in front.
+    const stagePanel = (id: string) => {
       const current = latest.current;
-      if (!current.panels.some((panel) => panel.id === id && panel.maximizable)) return;
       current.setStage((stage) => openPanelTab(stage, id));
       current.showStage();
-      current.setStageMaximized(true);
-      // The panel left; what held it has nothing to show.
       if (current.drawer === id) current.setDrawer(undefined);
       if (current.dockOpen && current.activePanel === id) current.setDockOpen(false);
+    };
+    const maximize = (id: string) => {
+      if (!panelOf(id)?.maximizable) return;
+      stagePanel(id);
+      latest.current.setStageMaximized(true);
     };
     const openPanel = (id: string) => {
       const current = latest.current;
       if (current.sheets?.open(id)) return;
+      const actions = current.actions?.();
+      if (actions && panelOf(id)?.redirect?.(actions)) return;
       if (isStaged(id)) {
         current.setStage((stage) => activateTab(stage, panelTabId(id)));
         current.showStage();
         return;
       }
-      // While maximized, a tool that would fill the space beside the chat joins the tabs instead.
-      if (current.maximized && isWidePanel(current.panels, id) && current.panels.some((panel) => panel.id === id && panel.maximizable)) { maximize(id); return; }
-      show(id);
+      if (placeOf(id, current.stage.tabs.length > 0) === "tab") stagePanel(id);
+      else show(id);
     };
     const closePanel = (id: string) => {
       const current = latest.current;
@@ -110,12 +123,14 @@ export function usePanelLayout(ports: PanelLayoutPorts): PanelLayout {
       else if (current.drawer === id) current.setDrawer(undefined);
       else if (current.dockOpen && current.activePanel === id) current.setDockOpen(false);
     };
-    // Every panel tab goes back where it was placed; only one of them can be beside the chat.
+    // Lists go back where they were placed; beside open documents a wide tool stays a tab.
     const restore = (id?: string) => {
       const current = latest.current;
-      for (const panelId of stagedPanelIds(current.stage)) current.stageTabs.close(panelTabId(panelId));
+      const documents = current.stage.tabs.some((tab) => tab.kind !== "panel");
+      const kept = stagedPanelIds(current.stage).filter((panelId) => placeOf(panelId, documents, false) === "tab");
+      for (const panelId of stagedPanelIds(current.stage)) if (!kept.includes(panelId)) current.stageTabs.close(panelTabId(panelId));
       current.setStageMaximized(false);
-      if (id) show(id);
+      if (id && !kept.includes(id)) show(id);
     };
     const maximizeStage = () => {
       const current = latest.current;
@@ -130,7 +145,14 @@ export function usePanelLayout(ports: PanelLayoutPorts): PanelLayout {
       else if ("maximize" in target) maximize(target.maximize);
       else if ("stage" in target) maximizeStage();
     };
-    return { openPanel, closePanel, maximize, restore, maximizeStage, toggleMaximized };
+    const documentOpened = () => {
+      const current = latest.current;
+      const id = current.activePanel;
+      if (current.maximized || !current.dockOpen || !isWidePanel(current.panels, id)) return;
+      if (placeOf(id, true) === "tab") current.setStage((stage) => addPanelTabBehind(stage, id));
+      current.setDockOpen(false);
+    };
+    return { openPanel, closePanel, maximize, restore, maximizeStage, toggleMaximized, documentOpened };
   });
   return useMemo(() => ({ staged, ...layout }), [layout, staged]);
 }

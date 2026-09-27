@@ -400,9 +400,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const activeDockPanel = dockPanels.find((panel) => panel.id === activePanel && !staged.has(panel.id));
   const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
-  // Beside the chat: one wide tool, or the documents with a list docked at their right.
-  const wideShown = !maximized && dockOpen && activeDockPanel?.width === "wide";
-  const stageShown = stage.tabs.length > 0 && !wideShown;
+  // Beside the chat: one wide tool, or the documents with a list docked at their right; an open stage takes wide tools as tabs.
+  const stageShown = stage.tabs.length > 0;
+  const wideShown = !maximized && !stageShown && dockOpen && activeDockPanel?.width === "wide";
   const listPanel = dockOpen && activeDockPanel && activeDockPanel.width !== "wide" ? activeDockPanel : undefined;
   // A list docked beside documents keeps its narrowest width beside the chat; the sidebar gives way first.
   const sidebarReserve = listPanel && stageShown && windowWidth > DOCK_PANEL_MIN_WINDOW ? DOCKED_CONTENT_MIN_WIDTH : undefined;
@@ -640,7 +640,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           open: drawer === panel.id,
           onToggle: () => (drawer === panel.id ? actions.closePanel?.(panel.id) : openPanel(panel.id)),
         }))}
-        onToggleDock={() => (dockYields ? keepDock() : setDockOpen(!dockOpen))}
+        onToggleDock={() => (dockYields ? keepDock() : wideShown || listShown ? setDockOpen(false) : activeDockPanel?.width === "wide" ? openPanel(activePanel) : setDockOpen(true))}
         {...(split ? { onOpenThreads: () => setTouchSidebarOpen((open) => !open) } : phone ? { onBack: phoneNav.showList } : {})}
         foldSheets={compact && !split}
         sheets={sheetPanels.map((panel) => ({

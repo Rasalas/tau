@@ -51,3 +51,27 @@ export function centerLayout({ windowWidth, sidebarWidth, dock, stageOpen, keepD
   const canSplit = fits || fitsOnRail;
   return { dockYields: fitsOnRail && !maximized, tabs: maximized || !canSplit, canSplit };
 }
+
+/** Where a tool shows when it opens: a stage tab, the whole space beside the chat, the dock's list, or the drawer. */
+export type ToolPlace = "tab" | "beside" | "list" | "drawer";
+
+export interface ToolPlaceInput {
+  placement?: "dock" | "drawer";
+  width?: "narrow" | "wide";
+  /** The panel may move onto the stage at all. */
+  maximizable?: boolean;
+  /** The stage holds tabs besides this tool's own, so the centre already shows a tab strip. */
+  stageOpen: boolean;
+  maximized: boolean;
+}
+
+/**
+ * The one placement rule for tools: a wide tool joins the stage's tabs, and
+ * comes to the front, whenever the centre shows tabs; with no stage it fills
+ * the space beside the chat. Lists dock or float; the drawer stays the drawer.
+ */
+export function toolPlace({ placement, width, maximizable, stageOpen, maximized }: ToolPlaceInput): ToolPlace {
+  if (placement === "drawer") return "drawer";
+  if (width !== "wide") return "list";
+  return maximizable && (stageOpen || maximized) ? "tab" : "beside";
+}

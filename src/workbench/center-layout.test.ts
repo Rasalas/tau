@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centerLayout, type CenterLayoutInput } from "./center-layout";
+import { centerLayout, toolPlace, type CenterLayoutInput } from "./center-layout";
 
 /** A MacBook window: default sidebar, the dock open at its default width, a file open. */
 const desk = (windowWidth: number, change: Partial<CenterLayoutInput> = {}) => centerLayout({
@@ -71,5 +71,31 @@ describe("centerLayout", () => {
     expect(desk(1512, { maximized: true })).toEqual(MAXIMIZED);
     expect(desk(1440, { maximized: true })).toEqual(MAXIMIZED);
     expect(desk(1141, { maximized: true })).toEqual(TABS);
+  });
+});
+
+describe("toolPlace", () => {
+  const wide = { width: "wide", maximizable: true } as const;
+
+  it("puts a wide tool beside the chat while nothing else is on the stage", () => {
+    expect(toolPlace({ ...wide, stageOpen: false, maximized: false })).toBe("beside");
+  });
+
+  it("makes a wide tool a tab whenever the centre shows tabs: an open stage, or a maximized one", () => {
+    expect(toolPlace({ ...wide, stageOpen: true, maximized: false })).toBe("tab");
+    expect(toolPlace({ ...wide, stageOpen: true, maximized: true })).toBe("tab");
+    expect(toolPlace({ ...wide, stageOpen: false, maximized: true })).toBe("tab");
+  });
+
+  it("keeps a wide tool that may not move onto the stage beside the chat", () => {
+    expect(toolPlace({ width: "wide", stageOpen: true, maximized: false })).toBe("beside");
+  });
+
+  it("leaves lists to the dock and drawer panels to the drawer, stage or not", () => {
+    for (const stageOpen of [false, true]) {
+      expect(toolPlace({ maximizable: true, stageOpen, maximized: false })).toBe("list");
+      expect(toolPlace({ width: "narrow", maximizable: true, stageOpen, maximized: true })).toBe("list");
+      expect(toolPlace({ ...wide, placement: "drawer", stageOpen, maximized: false })).toBe("drawer");
+    }
   });
 });

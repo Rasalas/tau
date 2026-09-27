@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeTab, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab,
+  activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
   openPanelTab, panelTabId, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
@@ -22,6 +22,16 @@ describe("stage tabs", () => {
     expect(state.tabs).toHaveLength(3);
     expect(state.activeId).toBe(panelTabId("changes"));
     expect(stagedPanelIds(closeTab(state, panelTabId("changes")))).toEqual([]);
+  });
+
+  it("adds a tool that was on screen at the strip's start, behind the tab in front, and only once", () => {
+    let state = openFileTab(EMPTY_STAGE, A);
+    state = addPanelTabBehind(state, "terminal");
+    expect(state.tabs.map((tab) => tab.id)).toEqual([panelTabId("terminal"), fileTabId(A)]);
+    expect(state.activeId).toBe(fileTabId(A));
+    expect(addPanelTabBehind(state, "terminal")).toBe(state);
+    // The next preview replaces the file, not the tool.
+    expect(openFileTab(state, B).tabs.map((tab) => tab.id)).toEqual([panelTabId("terminal"), fileTabId(B)]);
   });
 
   it("replaces a preview tab with the next preview instead of piling tabs up", () => {
