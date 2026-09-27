@@ -9,11 +9,14 @@ import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { machineClass } from "./machine-class.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+// The release renderer leaves the benchmark out; this build (mode "benchmark") keeps it.
+const BENCHMARK_DIST = join(ROOT, "dist-benchmark");
 const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
 const fixture = JSON.parse(await readFile(join(ROOT, "benchmarks", "renderer-fixtures.json"), "utf8"));
 const budgets = JSON.parse(await readFile(join(ROOT, "scripts", "performance-budgets.json"), "utf8"));
 const args = process.argv.slice(2);
 const check = args.includes("--check");
+// Reuses the renderer from an earlier run; without one it is built all the same.
 const skipBuild = args.includes("--no-build");
 const outputArg = args.find((arg) => !arg.startsWith("--"));
 const outputPath = outputArg ? (isAbsolute(outputArg) ? outputArg : join(ROOT, outputArg)) : join(ROOT, "reports/renderer-report.json");
@@ -72,7 +75,7 @@ function buildArtifactSha256() {
       else files.push(file);
     }
   };
-  visit(join(ROOT, "dist"));
+  visit(BENCHMARK_DIST);
   return createHash("sha256")
     .update(files.map((file) => `${file.slice(ROOT.length)}\0${readFileSync(file)}`).join("\0"))
     .digest("hex");
@@ -110,7 +113,9 @@ const onlyScenarios = process.env.TAU_RENDERER_SCENARIOS?.split(",").map((id) =>
 const selectedScenarios = onlyScenarios ? fixture.scenarios.filter((scenario) => onlyScenarios.includes(scenario.id)) : fixture.scenarios;
 if (onlyScenarios && selectedScenarios.length !== onlyScenarios.length) throw new Error(`unknown renderer scenario in TAU_RENDERER_SCENARIOS: ${onlyScenarios.join(", ")}`);
 
-if (!skipBuild) run("npm", ["run", "build"]);
+if (!skipBuild || !existsSync(join(BENCHMARK_DIST, "index.html"))) {
+  run(process.execPath, [join(ROOT, "node_modules", "vite", "bin", "vite.js"), "build", "--mode", "benchmark", "--outDir", BENCHMARK_DIST, "--emptyOutDir"]);
+}
 
 function sampleScenario(scenario) {
   const samples = [];

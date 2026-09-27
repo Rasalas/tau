@@ -53,7 +53,7 @@
     "test:watch": "vitest",
     "benchmark:renderer": "node scripts/renderer-benchmark.mjs",
     "benchmark:renderer:check": "npm run benchmark:renderer -- --check",
-    "performance:ci": "npm run lint && npm run typecheck && npm test && npm run build:budget && npm run benchmark:git:check && npm run benchmark:host:check && npm run benchmark:host:full:check && npm run benchmark:renderer -- --no-build --check && npm run start:report -- --check",
+    "performance:ci": "npm run lint && npm run typecheck && npm test && npm run build:budget && npm run benchmark:git:check && npm run benchmark:host:check && npm run benchmark:host:full:check && npm run benchmark:renderer -- --check && npm run start:report -- --check",
     "benchmark:host": "npm run build && node scripts/host-benchmark.mjs",
     "benchmark:host:check": "node scripts/host-benchmark.mjs --check",
     "benchmark:host:full:check": "node scripts/host-benchmark.mjs --full --check --output reports/host-full-report.json",

@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-electron/
 dist-web/
+dist-benchmark/
 dist-kits/
 dist-source/
 .DS_Store
