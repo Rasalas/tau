@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Keyboard, MoreHorizontal, Plus, Search, TriangleAlert, X } from "lucide-react";
 import type { ExtensionRegistry, KeybindingCollision, ResolvedKeybinding, UserKeymapContribution } from "../extension-system";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
@@ -8,10 +8,9 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { errorMessage } from "../../workbench/error-message";
 import { chordsAfterEdit, keybindingSource, pressesKeys, whenError, whenSuggestions } from "./keybinding-editor";
-import { Badge, Button, HelpTip, SettingsState } from "./controls";
+import { Badge, Button, HelpTip, SettingsState, TextField } from "./controls";
 import { SettingsSection } from "./settings-layout";
 
-const SUGGESTIONS_ID = "keybinding-when-suggestions";
 
 const chordLabel = (keys: string, mac: boolean) => {
   const chord = parseKeyChord(keys);
@@ -118,7 +117,6 @@ function DraftPanel({ context, commandId, label, editor, commandLabel }: {
   commandLabel(id: string): string;
 }) {
   const { draft } = editor;
-  const errorId = useId();
   if (!draft || draft.recording || !draft.key) return null;
   const error = whenError(draft.when);
   // An empty clause is written as "everywhere", so the check reads it that way too.
@@ -138,24 +136,17 @@ function DraftPanel({ context, commandId, label, editor, commandLabel }: {
     >
       <label className="keybinding-when">
         <span>When</span>
-        {/* TextField writes on blur; the clause is checked and its collisions shown at each key, with suggestions. */}
-        <span className="tau-field-shell" data-width="lg">
-          <span className="tau-field" data-invalid={error ? "" : undefined}>
-            <input
-              list={SUGGESTIONS_ID}
-              value={draft.when}
-              placeholder="Everywhere"
-              spellCheck={false}
-              data-mono=""
-              aria-label={`When clause for ${label}`}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? errorId : undefined}
-              autoFocus={draft.whenOnly}
-              onChange={(event) => editor.setWhen(event.target.value)}
-            />
-          </span>
-          {error ? <span className="tau-field-error" id={errorId} role="alert">{error}</span> : null}
-        </span>
+        {/* Checked, with its collisions, at each key. */}
+        <TextField
+          label={`When clause for ${label}`}
+          value={draft.when}
+          placeholder="Everywhere"
+          mono
+          autoFocus={draft.whenOnly}
+          suggestions={whenSuggestions(context.registry.getKeybindings())}
+          error={error}
+          onChange={editor.setWhen}
+        />
       </label>
       {[...here.map((hit) => [hit, context.mac, ""] as const), ...there.map((hit) => [hit, !context.mac, ` ${elsewhere}`] as const)].map(([hit, mac, where]) => (
         <p className="keybinding-collision" data-outcome={hit.outcome} key={`${hit.binding.commandId}${where}`}>
@@ -475,11 +466,6 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
         />
       ) : null}
 
-      {keymap ? (
-        <datalist id={SUGGESTIONS_ID}>
-          {whenSuggestions(keybindings).map((clause) => <option key={clause} value={clause} />)}
-        </datalist>
-      ) : null}
     </div>
   );
 }
