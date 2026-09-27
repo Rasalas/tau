@@ -45,10 +45,14 @@ cask "tau" do
   zap trash: [
     "~/.tau",
     "~/Library/Application Support/tau-pi-desktop-prototype",
+    "~/Library/Caches/de.tbuck.tau",
+    "~/Library/Caches/de.tbuck.tau.ShipIt",
     "~/Library/Caches/dev.tbuck.tau",
     "~/Library/Caches/dev.tbuck.tau.ShipIt",
     "~/Library/Caches/tau-pi-desktop-prototype-updater",
+    "~/Library/Preferences/de.tbuck.tau.plist",
     "~/Library/Preferences/dev.tbuck.tau.plist",
+    "~/Library/Saved Application State/de.tbuck.tau.savedState",
     "~/Library/Saved Application State/dev.tbuck.tau.savedState",
   ]
 
