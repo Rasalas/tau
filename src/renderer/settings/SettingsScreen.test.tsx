@@ -255,9 +255,11 @@ describe("Settings → Extensions", () => {
       }),
     });
     const { page } = renderScreen({ client: client as ReturnType<typeof hostWithFiles>["client"], page: "extensions/acme.waiting" });
-    expect(await within(page).findByText("Reach the network")).toBeTruthy();
+    // The permissions show before the host's answer too; the approval only once it says the package waits.
+    const allow = await within(page).findByRole("button", { name: "Allow and turn on" });
+    expect(within(page).getByText("Reach the network")).toBeTruthy();
     expect(within(page).getByText(/loads compiled code into the host process/u)).toBeTruthy();
-    fireEvent.click(within(page).getByRole("button", { name: "Allow and turn on" }));
+    fireEvent.click(allow);
     await waitFor(() => expect(grantExtension).toHaveBeenCalledWith("acme.waiting", true));
     cleanup();
 
