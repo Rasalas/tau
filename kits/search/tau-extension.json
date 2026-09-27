@@ -2,6 +2,7 @@
   "id": "tau.search",
   "name": "Search",
   "description": "Search the project's files by content, find a file by name, and find threads.",
+  "icon": "Search",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

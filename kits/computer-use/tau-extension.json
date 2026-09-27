@@ -2,6 +2,7 @@
   "id": "tau.computer-use",
   "name": "Computer Use",
   "description": "Lets an agent use this computer's apps and shows each step in the thread.",
+  "icon": "MousePointerClick",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

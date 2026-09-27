@@ -2,6 +2,7 @@
   "id": "tau.onboarding",
   "name": "Onboarding",
   "description": "The welcome on first start: runtimes, projects and conversations to bring in.",
+  "icon": "DoorOpen",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

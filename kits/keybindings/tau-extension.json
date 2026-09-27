@@ -2,6 +2,7 @@
   "id": "tau.keybindings",
   "name": "Keybindings",
   "description": "Applies the shortcuts you set in keybindings.json and on the Keybindings page.",
+  "icon": "Keyboard",
   "version": "1.0.0",
   "engines": {
     "api": "^1.12.0"

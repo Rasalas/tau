@@ -2,6 +2,7 @@
   "id": "tau.files",
   "name": "Files",
   "description": "Opens and edits the project's files beside the chat, with unsaved changes marked.",
+  "icon": "FileCode",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"
