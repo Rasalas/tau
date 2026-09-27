@@ -17,7 +17,7 @@ import {
 } from "./protocol.js";
 import { addProjectMenu } from "./add-project-menu.js";
 import { registerCheckpoints } from "./checkpoints.js";
-import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
+import { WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
@@ -90,7 +90,6 @@ export const workspaceExtension: DesktopExtension = {
     // and place its controls where core lends room.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop"], Component: bind(WorkspaceFollower) });
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
-    context.registerRegion({ id: "workspace.turn-changes", placement: "transcript-footer", order: 10, profiles: ["desktop"], Component: bind(TurnChangesDock) });
     context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, profiles: ["desktop"], Component: bind(WorkspaceBarControl) });
     const documents = documentStates(store);
     context.registerDocumentSource({

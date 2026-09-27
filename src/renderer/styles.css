@@ -969,8 +969,6 @@ body.resizing-col .app-shell { transition: none; }
 
 /* -------------------------------------------------------- changed files */
 
-.conversation-files-dock + .composer-zone { padding-top: 8px; }
-
 /* Core's ReviewMode draws these counts; Workspace Kit only resizes them. */
 .stat-add { font: 12px var(--mono); color: var(--diff-add-edge); }
 .stat-del { font: 12px var(--mono); color: var(--diff-del-edge); }
@@ -980,7 +978,7 @@ body.resizing-col .app-shell { transition: none; }
 }
 .mini-button:hover { background: var(--raised); color: var(--ink); }
 
-.transcript-card + .live-status, .static-activity-transcript + .live-status { margin-top: 22px; }
+.static-activity-transcript + .live-status { margin-top: 22px; }
 .live-status { display: flex; align-items: center; gap: 10px; }
 .live-status > span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .turn-error-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 2px; color: var(--fail-ink); overflow-wrap: anywhere; }

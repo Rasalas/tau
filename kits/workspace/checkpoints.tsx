@@ -22,7 +22,7 @@ import {
   type WorkspaceCheckpointList,
 } from "./protocol.js";
 import { RestoreCheckpointDialog } from "./RestoreCheckpointDialog.js";
-import { WorkspaceCheckpointCard } from "./checkpoint-card.js";
+import { hasTurnChanges, TurnChangesPill } from "./turn-changes.js";
 import type { WorkspaceStore } from "./store.js";
 
 const LazyReview = lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })));
@@ -91,15 +91,6 @@ export class CheckpointStore {
   }
 }
 
-/**
- * A turn that changed no files draws no card. Its checkpoint stays listed, so
- * later turns still count it and the host keeps it; only a partial capture,
- * which may have missed changes, is shown without known files.
- */
-export function checkpointHasCard(checkpoint: UiTurnCheckpoint): boolean {
-  return checkpoint.completeness === "partial" || (checkpoint.fileCount ?? checkpoint.files.length) > 0;
-}
-
 function mergeCheckpoints(persisted: readonly UiTurnCheckpoint[] | undefined, live: Map<string, UiTurnCheckpoint>): UiTurnCheckpoint[] {
   const byId = new Map<string, UiTurnCheckpoint>();
   for (const checkpoint of persisted ?? []) byId.set(checkpoint.id, checkpoint);
@@ -108,19 +99,20 @@ function mergeCheckpoints(persisted: readonly UiTurnCheckpoint[] | undefined, li
 }
 
 /**
- * Invisible region that turns the thread's checkpoints into transcript rows,
- * verifies which ones restore safely, and hosts the restore dialog.
+ * The region over the composer: the pill of the running or latest turn. It
+ * also turns the thread's other checkpoints into transcript rows, verifies
+ * which ones restore safely, and hosts the restore dialog.
  */
 function createController(store: CheckpointStore, workspaceStore: WorkspaceStore, rows: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>) {
   return function CheckpointController({ snapshot, actions }: RegionProps) {
-    const { snapshot: workbenchSnapshot } = useWorkbench();
+    const { snapshot: workbenchSnapshot, tools: workbenchTools } = useWorkbench();
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const sessionId = workbenchSnapshot?.sessionId;
     const streaming = Boolean(workbenchSnapshot?.isStreaming);
     const listed = state.sessionId === sessionId;
     const restoreSupported = listed && state.restoreSupported;
     const checkpoints = useMemo(() => mergeCheckpoints(listed ? state.persisted : undefined, state.live), [listed, state.persisted, state.live]);
-    const carded = useMemo(() => checkpoints.filter(checkpointHasCard), [checkpoints]);
+    const shown = useMemo(() => checkpoints.filter(hasTurnChanges), [checkpoints]);
 
     // The host lists the thread's checkpoints once per thread; live events add
     // to them. A thread reset (the active-thread event) empties the list, so it
@@ -155,11 +147,11 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     // Verify restorability per thread, checkpoint set and revalidation; the host
     // checks refs and workspace, and refuses while the thread or a capture of it
     // is still working. The checkpoint of a turn is announced from inside that
-    // capture, so the first answer for a fresh card is always no.
+    // capture, so the first answer for a fresh pill is always no.
     useEffect(() => {
       if (!sessionId || !restoreSupported || streaming || !hostAvailable()) { store.update({ restorable: new Set() }); return; }
       let cancelled = false;
-      void Promise.all(carded.map(async (checkpoint) => {
+      void Promise.all(shown.map(async (checkpoint) => {
         if (checkpoint.completeness === "partial") return undefined;
         try { return await workspaceStore.host.canRestoreCheckpoint(sessionId, checkpoint.id) ? checkpoint.id : undefined; }
         catch { return undefined; }
@@ -167,7 +159,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
         if (!cancelled) store.update({ restorable: new Set(ids.filter((id): id is string => Boolean(id))) });
       });
       return () => { cancelled = true; };
-    }, [sessionId, restoreSupported, carded, streaming, state.verifyGeneration]);
+    }, [sessionId, restoreSupported, shown, streaming, state.verifyGeneration]);
 
     const requestRestore = useCallback(async (checkpoint: UiTurnCheckpoint) => {
       if (checkpoint.completeness === "partial") { actions.notify("This checkpoint is incomplete and cannot be restored safely. Use Fork instead."); return; }
@@ -216,42 +208,55 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
       }
     }, [actions, sessionId, streaming]);
 
-    // Rows: one card per checkpoint whose anchor the transcript can place.
+    // The running turn's files so far, while it has any; its checkpoint replaces them when it ends.
+    const kit = useSyncExternalStore(workspaceStore.subscribe, workspaceStore.getSnapshot, workspaceStore.getSnapshot);
+    const liveChanges = useMemo(() => workspaceStore.turnChanges(workbenchTools), [kit.changes, kit.turnBaseline, workbenchTools]);
+    const live = !kit.draftPending && !kit.turnSettled && streaming && liveChanges.files.length > 0;
+    // Above the composer: the running turn, else the latest turn that changed something.
+    const latest = live ? undefined : shown.at(-1);
+
+    const pillProps = useCallback((checkpoint: UiTurnCheckpoint) => ({
+      changes: checkpoint,
+      onOpenDiff: (path?: string) => { store.update({ review: { checkpoint, path } }); actions.openOverlay(CHECKPOINT_REVIEW_OVERLAY); },
+      onRestore: restoreSupported && checkpoint.completeness !== "partial" && state.restorable.has(checkpoint.id) && !streaming && !hostIsReadOnly()
+        ? () => void requestRestore(checkpoint)
+        : undefined,
+      loadFiles: hostAvailable() ? (cursor?: string, limit?: number) => workspaceStore.host.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined,
+    }), [actions, requestRestore, restoreSupported, state.restorable, streaming]);
+
+    // Rows: every other turn keeps a pill where its answer is, so it can still be read and rewound.
     useEffect(() => {
       if (!sessionId) return;
-      const list: TranscriptRow[] = carded.map((checkpoint) => ({
+      const list: TranscriptRow[] = shown.filter((checkpoint) => checkpoint !== latest).map((checkpoint) => ({
         id: checkpoint.id,
         afterMessageId: checkpoint.anchorMessageId,
-        content: (
-          <WorkspaceCheckpointCard
-            checkpoint={checkpoint}
-            onOpenDiff={(path) => { store.update({ review: { checkpoint, path } }); actions.openOverlay(CHECKPOINT_REVIEW_OVERLAY); }}
-            onRestore={restoreSupported && checkpoint.completeness !== "partial" && state.restorable.has(checkpoint.id) && !streaming && !hostIsReadOnly()
-              ? () => void requestRestore(checkpoint)
-              : undefined}
-            loadFiles={hostAvailable() ? (cursor, limit) => workspaceStore.host.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}
-          />
-        ),
+        content: <div className="turn-checkpoint-row" data-checkpoint-id={checkpoint.id}><TurnChangesPill {...pillProps(checkpoint)} side="bottom" /></div>,
       }));
       rows.setRows(sessionId, list);
-    }, [actions, carded, requestRestore, restoreSupported, sessionId, state.restorable, streaming]);
+    }, [shown, latest, pillProps, sessionId]);
 
     void snapshot;
-    if (!state.restore) return null;
     return (
-      <RestoreCheckpointDialog
-        checkpoint={state.restore.checkpoint}
-        laterTurns={state.restore.laterTurns}
-        workspaceChanges={state.restore.workspaceChanges}
-        busy={state.restoreBusy}
-        onCancel={() => { if (!store.getSnapshot().restoreBusy) store.update({ restore: undefined }); }}
-        onConfirm={(files) => void confirmRestore(files)}
-      />
+      <>
+        {sessionId && (live || latest) ? <div className="turn-changes-bar">
+          {latest
+            ? <TurnChangesPill key={latest.id} {...pillProps(latest)} />
+            : <TurnChangesPill key="live" live changes={liveChanges} onOpenDiff={(path) => workspaceStore.openReview(path)} />}
+        </div> : null}
+        {state.restore ? <RestoreCheckpointDialog
+          checkpoint={state.restore.checkpoint}
+          laterTurns={state.restore.laterTurns}
+          workspaceChanges={state.restore.workspaceChanges}
+          busy={state.restoreBusy}
+          onCancel={() => { if (!store.getSnapshot().restoreBusy) store.update({ restore: undefined }); }}
+          onConfirm={(files) => void confirmRestore(files)}
+        /> : null}
+      </>
     );
   };
 }
 
-/** Read-only review of one immutable turn, opened from a checkpoint card. */
+/** Read-only review of one immutable turn, opened from its pill. */
 function createReviewOverlay(store: CheckpointStore, workspaceStore: WorkspaceStore) {
   return function CheckpointReviewOverlay({ onClose }: OverlayProps) {
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -291,13 +296,12 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
   plugin.events.on("active-thread-changed", () => store.resetThread());
   plugin.host.onEvent(CHECKPOINT_EVENT, (payload) => {
     const event = payload as CheckpointEvent;
-    // Only the card is drawn from the announcement: the capture that emits it
+    // Only the pill is drawn from the announcement: the capture that emits it
     // still holds the turn, so nothing about restoring it is answerable yet.
     if (event?.type === "turn-checkpoint") {
       workspaceStore.recordTurnStat(event.sessionId, turnStatOf(event.checkpoint));
-      // The card drawn from this announcement is the turn's summary. The live
-      // dock already hid itself when the turn settled and must stay hidden, so
-      // the same changes are never drawn twice.
+      // The pill drawn from this announcement takes over from the live one,
+      // which hid itself when the turn settled, so the same changes are never drawn twice.
       store.announce(event.checkpoint);
     }
     // The capture briefly waits for the workspace lease before Pi starts; say so in place of the spinner.
@@ -309,7 +313,7 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
       if (event.status === "skipped") store.update({ notice: "Turn changes were not recorded: another turn is active in this workspace." });
     } else if (event?.type === "turn-checkpoint-error") store.update({ notice: event.message });
   });
-  plugin.registerRegion({ id: "workspace.checkpoints", placement: "transcript-header", order: 100, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });
+  plugin.registerRegion({ id: "workspace.checkpoints", placement: "composer-above", order: 70, profiles: ["desktop"], Component: createController(store, workspaceStore, rows) });
   plugin.registerOverlay({ id: CHECKPOINT_REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(store, workspaceStore) });
 }
 

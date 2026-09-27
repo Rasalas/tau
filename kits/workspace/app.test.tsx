@@ -17,6 +17,12 @@ import {
 import { workspaceExtension } from "./desktop.js";
 import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
 
+/** The latest turn's pill over the composer; a click opens its detail. */
+async function openTurnPill(name: RegExp = /^Turn changes: 1 file\b/u): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name }));
+  await screen.findByRole("dialog", { name: /^(Turn changes|Changes so far)$/u });
+}
+
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
 /**
@@ -687,7 +693,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.queryByText("Used 1 tool")).toBeNull();
   });
 
-  it("renders durable turn checkpoints inline and loads their historical diff", async () => {
+  it("shows a durable turn checkpoint as the pill over the composer and loads its historical diff", async () => {
     const getTurnFileDiff = vi.fn(async () => ({
       path: "src/old.ts",
       added: 1,
@@ -738,9 +744,9 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
-    expect(document.querySelector(".conversation-files-dock")).toBeNull();
-    fireEvent.click(screen.getByText("Open diff"));
+    await openTurnPill();
+    expect(document.querySelector(".transcript [data-checkpoint-id]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open diff" }));
     await waitFor(() => expect(getTurnFileDiff).toHaveBeenCalledWith("session", "turn-1", "src/old.ts", { hunkLimit: 40, contextLines: 3 }));
     expect(screen.getByText("Historical turn")).toBeTruthy();
   });
@@ -790,7 +796,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    await openTurnPill();
     expect(screen.queryByText("Rewind")).toBeNull();
 
     act(() => {
@@ -857,12 +863,14 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
+    await openTurnPill();
     fireEvent.click(await screen.findByText("Rewind"));
     fireEvent.click(await screen.findByRole("button", { name: "Keep changes" }));
     await waitFor(() => expect(rewindCheckpoint).toHaveBeenCalledWith("session", "turn-1"));
     expect(restoreCheckpoint).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rewind to this checkpoint?" })).toBeNull());
 
+    await openTurnPill();
     fireEvent.click(await screen.findByText("Rewind"));
     expect(await screen.findByText("note.txt")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Revert files too" }));
@@ -909,7 +917,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    await openTurnPill();
     expect(screen.queryByText("Rewind")).toBeNull();
 
     act(() => client.emit({
@@ -969,7 +977,7 @@ describe("Workspace Kit in the workbench", () => {
       name: "checkpoint",
       payload: { type: "turn-checkpoint", sessionId: "session", checkpoint },
     }));
-    expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
+    await openTurnPill();
     expect(screen.queryByText("Rewind")).toBeNull();
 
     act(() => client.emit({
@@ -1462,8 +1470,8 @@ describe("Workspace Kit in the workbench", () => {
   });
 });
 
-describe("the turn changes dock", () => {
-  it("keeps changed files in the fixed dock outside the scrolling transcript", async () => {
+describe("the running turn's pill", () => {
+  it("shows the running turn's files over the composer, outside the scrolling transcript", async () => {
     const storage = createMemoryStorage();
     // The kit's own baseline key: an empty baseline means every change belongs to this turn.
     storage.set("tau.workspace.turn-baseline.v1", JSON.stringify({ session: { files: [], added: 0, removed: 0 } }));
@@ -1487,14 +1495,13 @@ describe("the turn changes dock", () => {
     setHostClient(client);
 
     const view = renderApp(client, { storage, extensions: [workspaceExtension] });
-    await screen.findByText("1 changed file");
-
-    const dock = view.container.querySelector(".conversation-files-dock");
-    expect(dock?.textContent).toContain("App.tsx");
-    expect(view.container.querySelector(".transcript")?.contains(dock)).toBe(false);
+    const pill = await screen.findByRole("button", { name: /^Changes so far: 1 file, 4 lines added, 1 removed$/u });
+    expect(view.container.querySelector(".transcript")?.contains(pill)).toBe(false);
+    await openTurnPill(/^Changes so far/u);
+    expect(screen.getByRole("dialog").textContent).toContain("src/App.tsx");
   });
 
-  it("hands the dock over to the checkpoint card instead of drawing both", async () => {
+  it("hands over to the checkpoint's pill instead of drawing both", async () => {
     const storage = createMemoryStorage();
     storage.set("tau.workspace.turn-baseline.v1", JSON.stringify({ session: { files: [], added: 0, removed: 0 } }));
     const client = createFakeHostClient({
@@ -1516,14 +1523,13 @@ describe("the turn changes dock", () => {
     });
     setHostClient(client);
 
-    const view = renderApp(client, { storage, extensions: [workspaceExtension] });
-    await screen.findByText("1 changed file");
-    expect(view.container.querySelector(".conversation-files-dock")).not.toBeNull();
+    renderApp(client, { storage, extensions: [workspaceExtension] });
+    await screen.findByRole("button", { name: /^Changes so far/u });
 
-    // The turn ends and its immutable checkpoint lands as a transcript card: the
-    // dock was the live preview for exactly that turn, so it must not reappear.
+    // The turn ends and its immutable checkpoint takes the pill's place: the
+    // live pill was the preview of exactly that turn, so it must not reappear.
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
-    expect(view.container.querySelector(".conversation-files-dock")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Changes so far/u })).toBeNull();
     act(() => client.emit({
       type: "extension-event",
       extensionId: "tau.workspace",
@@ -1536,7 +1542,7 @@ describe("the turn changes dock", () => {
       } },
     }));
 
-    expect(await screen.findByText(/Turn changes/u)).toBeTruthy();
-    expect(view.container.querySelector(".conversation-files-dock")).toBeNull();
+    expect(await screen.findByRole("button", { name: /^Turn changes: 1 file/u })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Changes so far/u })).toBeNull();
   });
 });

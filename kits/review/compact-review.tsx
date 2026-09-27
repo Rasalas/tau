@@ -133,11 +133,13 @@ export function createCompactReview(deps: CompactReviewDeps) {
     const source = state.source ?? (turnsLoad.status === "loading" ? undefined : defaultSource(turns));
     const key = source ? sourceKey(source) : undefined;
     const turn = source?.kind === "turn" ? turns.find((entry) => entry.turn.id === source.id)?.turn : undefined;
-    const changesLoad = useLoaded<UiWorkspaceChanges>(source
+    // A turn picked before the sheet opened (the pill over the composer) waits for the list that holds it.
+    const waiting = source?.kind === "turn" && turnsLoad.status === "loading";
+    const changesLoad = useLoaded<UiWorkspaceChanges>(source && !waiting
       ? () => source.kind === "turn"
         ? turn ? turnFiles(deps.workspace, turn) : Promise.reject(new Error("This turn's changes are no longer recorded."))
         : deps.reader.changes(source.kind === "branch" ? { scope: "branch" } : undefined)
-      : undefined, key && `${sessionId}:${key}`, generation);
+      : undefined, key && !waiting ? `${sessionId}:${key}` : undefined, generation);
     const infoLoad = useLoaded(() => deps.workspace.invoke("workspace-info") as Promise<WorkspaceInfo>, sessionId, generation);
     const info = infoLoad.status === "ready" ? infoLoad.value : undefined;
 
