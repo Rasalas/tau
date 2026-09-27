@@ -100,6 +100,14 @@ function Fixture({
 
 afterEach(cleanup);
 
+/** The scroll the browser performs after a key or a fling, with no gesture of its own. */
+function browserScrollsTo(transcript: HTMLElement, top: number): void {
+  act(() => {
+    transcript.scrollTop = top;
+    fireEvent.scroll(transcript);
+  });
+}
+
 describe("TranscriptViewport navigation", () => {
   it("follows the newest content without putting scroll state in App", async () => {
     const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
@@ -524,6 +532,8 @@ describe("TranscriptViewport navigation", () => {
     await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
 
     fireEvent.keyDown(transcript, { key });
+    // Jump to latest waits for a real distance from the tail; the key's own scroll carries no intent.
+    browserScrollsTo(transcript, 300);
 
     expect(await view.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
   });
@@ -562,6 +572,7 @@ describe("TranscriptViewport navigation", () => {
     composer.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);
+    browserScrollsTo(transcript, 300);
     expect(await view.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
   });
 
@@ -572,6 +583,9 @@ describe("TranscriptViewport navigation", () => {
 
     fireEvent.touchStart(transcript, { touches: [{ clientY: 100 }] });
     fireEvent.touchMove(transcript, { touches: [{ clientY: 140 }] });
+    fireEvent.touchEnd(transcript);
+    // The fling after the finger lifts carries no intent: only the pull itself stopped following.
+    browserScrollsTo(transcript, 300);
 
     expect(await view.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
   });
