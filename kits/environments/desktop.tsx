@@ -70,6 +70,7 @@ export const environmentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
+      group: "remote",
       Icon: Network,
       order: 45,
       profiles: ["desktop"],

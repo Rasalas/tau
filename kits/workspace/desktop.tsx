@@ -138,6 +138,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.storage",
       label: "Storage",
+      group: "projects",
       Icon: HardDrive,
       order: 50,
       keywords: ["worktrees", "cleanup", "disk space", "delete worktree"],
@@ -153,6 +154,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.source-control",
       label: "Source control",
+      group: "projects",
       Icon: GitBranch,
       order: 35,
       scope: "both",

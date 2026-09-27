@@ -1,6 +1,7 @@
 {
   "id": "tau.preview",
   "name": "Preview",
+  "description": "A browser beside the chat that the agent can open, read and drive.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.16.0"

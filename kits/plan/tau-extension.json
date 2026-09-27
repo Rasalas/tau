@@ -1,6 +1,7 @@
 {
   "id": "tau.plan",
   "name": "Plan Kit",
+  "description": "Plan mode: the agent proposes a plan first, and you choose when it builds.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

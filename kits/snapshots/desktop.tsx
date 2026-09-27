@@ -237,6 +237,7 @@ const snapshots: DesktopExtension = {
     context.registerSettingsPage({
       id: "snapshots.settings",
       label: "SnapShots",
+      group: "projects",
       Icon: Camera,
       order: 46,
       keywords: ["snapshot", "screenshot", "capture", "window", "accessibility", "shortcut", "screen recording"],

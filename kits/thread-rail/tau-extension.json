@@ -1,6 +1,7 @@
 {
   "id": "tau.thread-rail",
   "name": "Thread Rail",
+  "description": "The thread list: pinned, active, snoozed and settled threads, sorted by drag.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

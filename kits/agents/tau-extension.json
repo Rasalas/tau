@@ -1,6 +1,7 @@
 {
   "id": "tau.agents",
   "name": "Agents",
+  "description": "Lets a thread start sub-agents and shows them, with their costs, in a panel of their own.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.15.0"

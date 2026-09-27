@@ -1,6 +1,7 @@
 {
   "id": "tau.subscription-login",
   "name": "Subscription Login Warning",
+  "description": "Warns before a subscription login that a vendor forbids outside its own apps.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.9.0"

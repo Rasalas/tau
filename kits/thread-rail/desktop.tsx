@@ -420,6 +420,7 @@ export const threadRailExtension: DesktopExtension = {
       context.registerSettingsPage({
         id: "thread-rail.settings",
         label: "Thread rail",
+        group: "threads",
         Icon: ListTree,
         order: 40,
         profiles: ["desktop", "web"],
@@ -470,6 +471,7 @@ export const threadRailExtension: DesktopExtension = {
       context.registerSettingsPage({
         id: "thread-rail.archived",
         label: "Archived",
+        group: "threads",
         Icon: Archive,
         order: 41,
         keywords: ["archive", "deleted", "trash", "restore", "unarchive"],

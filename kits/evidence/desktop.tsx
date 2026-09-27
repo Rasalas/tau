@@ -151,6 +151,7 @@ const evidence: DesktopExtension = {
     disposers.push(context.registerSettingsPage({
       id: "evidence",
       label: "Evidence",
+      group: "projects",
       Icon: Images,
       scope: "both",
       profiles: ["desktop"],

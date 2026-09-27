@@ -81,6 +81,7 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: "review.settings",
       label: "Review",
+      group: "projects",
       Icon: GitCompare,
       order: 36,
       scope: "both",

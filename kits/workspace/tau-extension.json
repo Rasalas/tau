@@ -1,6 +1,7 @@
 {
   "id": "tau.workspace",
   "name": "Workspace Kit",
+  "description": "Git status, commits, branches, worktrees and the project's file tree.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.17.0"

@@ -1,6 +1,7 @@
 {
   "id": "tau.push",
   "name": "Push",
+  "description": "Push notifications to the phone app when a thread finishes, fails or asks.",
   "version": "1.0.0",
   "engines": {
     "api": "^1.13.0"

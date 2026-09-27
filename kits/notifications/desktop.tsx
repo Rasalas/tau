@@ -335,7 +335,7 @@ const notifications: DesktopExtension = {
   activate(context) {
     const coordinator = coordinate(context);
     context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createToastRegion(coordinator) });
-    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications", Icon: Bell, order: 45, profiles: ["desktop", "web", "compact"], Component: createSettingsPage(context) });
+    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"], Component: createSettingsPage(context) });
     return () => coordinator.dispose();
   },
 };

@@ -82,6 +82,7 @@ export const agentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: AGENTS_SETTINGS_PAGE,
       label: "Agents",
+      group: "threads",
       Icon: Bot,
       order: 45.2,
       profiles: ["desktop", "web"],
