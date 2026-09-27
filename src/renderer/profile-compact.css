@@ -23,6 +23,10 @@ body[data-profile="compact"] .app-shell {
 /* A tablet is laid out as the desktop (compactFormFor): thread list, centre, and the panel rail with its dock. */
 body[data-profile="compact"] .app-shell.touch-split { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) calc(var(--dock-width) + 46px); }
 body[data-profile="compact"] .app-shell.touch-split.no-dock { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
+/* As on a narrow desktop window, a list (Files) floats left of the rail instead of taking a column. */
+@media (max-width: 1040px) {
+  body[data-profile="compact"] .app-shell.touch-split:not(.no-dock) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 46px; }
+}
 body[data-keyboard] .app-shell { --safe-bottom: 0px; }
 
 /* The tablet's desktop chrome at touch size: rail buttons, stage tabs and their close, a divider a finger can take. */
