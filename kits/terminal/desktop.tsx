@@ -4,7 +4,7 @@ import { TerminalPanel } from "./panel.js";
 import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore } from "./store.js";
-import { TerminalSettingsPage } from "./settings.js";
+import { TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, keyboardShell, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
@@ -134,6 +134,7 @@ export const terminalExtension: DesktopExtension = {
       Icon: Terminal,
       order: 30,
       profiles: ["desktop", "web"],
+      rows: TERMINAL_SETTINGS_ROWS,
       Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
     });
     const disposers = [

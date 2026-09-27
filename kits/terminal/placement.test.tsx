@@ -38,9 +38,11 @@ describe("Settings → Terminal", () => {
     const page = registry.getSettingsPages().find((entry) => entry.id === "terminal.settings")!;
     render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
     expect(screen.getByRole("heading", { level: 3, name: "Show the terminal in" })).toBeTruthy();
-    fireEvent.click(within(screen.getByRole("group", { name: "Show the terminal in" })).getByRole("button", { name: "Drawer" }));
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Show the terminal in" })).getByRole("radio", { name: "Drawer" }));
     expect(preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING)).toBe("drawer");
     expect(registry.getPanels().find((panel) => panel.id === TERMINAL_PANEL)?.placement).toBe("drawer");
+    expect(page.rows?.length).toBe(2);
+    for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
     cleanup();
     registry.deactivate(terminal.id);
   });

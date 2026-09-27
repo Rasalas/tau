@@ -1,6 +1,12 @@
 import { useSyncExternalStore } from "react";
-import { SettingRow, SettingsSection, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
+import { SegmentedControl, SettingRow, SettingsSection, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
 import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, type TerminalPlacement } from "./protocol.js";
+
+/** What the Settings search finds on the page; each id is a row's anchor. */
+export const TERMINAL_SETTINGS_ROWS = [
+  { id: "setting-terminal-placement", label: "Show the terminal in", keywords: ["dock", "drawer", "panel", "bottom", "layout", "placement"] },
+  { id: "setting-terminal-font", label: "Font", keywords: ["terminal font", "font size", "ghostty", "monospace"] },
+];
 
 const PLACEMENTS: ReadonlyArray<{ value: TerminalPlacement; label: string }> = [
   { value: "dock", label: "Dock" },
@@ -25,9 +31,7 @@ export function TerminalSettingsPage({ preferences }: SettingsPageProps & { pref
         title="Show the terminal in"
         description="The dock is the panel on the right. The drawer sits below the conversation, full width, and keeps its height."
         setting={placement}
-        control={<div className="segmented" role="group" aria-label="Show the terminal in">
-          {PLACEMENTS.map((entry) => <button key={entry.value} type="button" className={entry.value === placement.value ? "active" : ""} aria-pressed={entry.value === placement.value} onClick={() => placement.set(entry.value)}>{entry.label}</button>)}
-        </div>}
+        control={<SegmentedControl label="Show the terminal in" value={placement.value} options={PLACEMENTS} onChange={placement.set} />}
       />
       <SettingRow
         id="setting-terminal-font"
