@@ -18,7 +18,7 @@ async function harness() {
   const events: PublishedKitEvent[] = [];
   const observers: HostTurnObserver[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
-  const decorators: Array<(prompt: ExtensionUiPrompt) => void> = [];
+  const decorators: Array<(prompt: ExtensionUiPrompt) => void | (() => void)> = [];
   const clientObservers: HostClientObserver[] = [];
   const threads: Record<string, Partial<HostThread>> = {
     t1: { sessionId: "t1", sessionFile: "/sessions/t1.jsonl", sessionName: () => "Fix the build" },
@@ -96,6 +96,29 @@ describe("the notifications host half", () => {
     const { clientObservers, named } = await harness();
     clientObservers[0]!.detached!("client-1");
     expect(named(PRESENCE_REQUEST_EVENT)).toHaveLength(1);
+  });
+
+  it("drops a thread's question once another client answered it, and keeps the news of a finished turn", async () => {
+    const { observers, decorators, presence, named, tick } = await harness();
+    await presence({ clientKey: "window", focused: false, threadId: "t2" });
+    const first = decorators[0]!({ id: "q1", sessionId: "t1", kind: "select", title: "Which file?", options: ["a.ts", "b.ts"] });
+    const second = decorators[0]!({ id: "q2", sessionId: "t1", kind: "input", title: "Why?" });
+    expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1", reason: "question" }] });
+
+    (first as () => void)();
+    expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
+    (second as () => void)();
+    expect(named(ATTENTION_EVENT).at(-1)).toEqual({ items: [] });
+
+    tick(10_000);
+    await observers[0]!.ended!("t1", "turn-1", "completed");
+    const third = decorators[0]!({ id: "q3", sessionId: "t2", kind: "confirm", title: "Run rm?" });
+    tick(10_000);
+    await observers[0]!.ended!("t2", "turn-2", "completed");
+    const before = named(ATTENTION_EVENT).length;
+    (third as () => void)();
+    expect(named(ATTENTION_EVENT)).toHaveLength(before);
+    expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t2", reason: "completed" }, { threadId: "t1", reason: "completed" }] });
   });
 
   it("drops a deleted thread from the list", async () => {

@@ -1678,6 +1678,14 @@ reaches whoever asked, so a backend or Pi extension that reads answers as text
 gets them without doing anything. A pick among fixed choices (an approval)
 takes no files; they stay in the composer.
 
+The host keeps the one list of open questions, and every client follows it:
+a question answered on a phone is gone from the desktop's card, rail and
+badge, whichever thread each shows. A host half sees each question before it
+goes out through `decorateUiPrompt(decorator)` (in-process, `runtime:extend`).
+New in API 1.19.0: the decorator may return a function, which the host calls
+once the question is answered on any client, cancelled or expired.
+Notifications Kit uses it to drop a thread's question from the badge.
+
 `complete(request, model?)` asks a model for one short answer — a thread
 title, a branch name, a commit message. It runs on the user's own model
 configuration in `~/.pi/agent` and takes the model the extension names, or
