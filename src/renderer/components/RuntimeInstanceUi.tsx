@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Copy, Plus, SquareTerminal, TriangleAlert, X } from "lucide-react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Copy, Plus, RefreshCw, SquareTerminal, TriangleAlert, X } from "lucide-react";
 import type { UiRuntimeBackend } from "../../shared/contracts";
 import {
   DEFAULT_INSTANCE_ID,
@@ -9,14 +9,23 @@ import {
   parseEnvironment,
   type RuntimeInstanceConfig,
 } from "../../shared/runtime-instances";
+import { Button, TextField } from "../settings/controls";
+import { SettingRow } from "../settings/settings-layout";
+import { ProviderCardBadgeReport, useProviderCardBadge, type ProviderCardBadge } from "../settings/provider-card-state";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Dialog } from "./ui/Dialog";
 import "./runtime-instances.css";
 
 /**
  * The pieces a runtime backend kit builds its Providers cards and banners
- * from: an instance's setup with its add/edit dialog, and the version banner. One chunk,
- * loaded with `loadRuntimeInstanceUi` from `tau` when a kit draws either.
+ * from: the program's rows (found, version, update, executable), an
+ * instance's setup with its add/edit dialog, and the version banner. One
+ * chunk, loaded with `loadRuntimeInstanceUi` from `tau` when a kit draws either.
  */
+
+/** Puts a badge into the head of the Providers card it is drawn in, for a kit whose rows are its own. */
+export { ProviderCardBadgeReport };
+export type { ProviderCardBadge };
 
 export interface RuntimeInstanceDialogProps {
   /** The program: "Codex". */
@@ -89,42 +98,46 @@ export function RuntimeInstanceDialog({ program, homeVariable, homePlaceholder, 
       <form onSubmit={(event) => void submit(event)} noValidate>
         <label className="runtime-instance-field">
           <span>Name</span>
-          <input aria-label="Name" value={name} placeholder={isDefault ? program : "e.g. Work"} onChange={(event) => setName(event.target.value)} autoFocus />
+          <span className="tau-field"><input aria-label="Name" value={name} placeholder={isDefault ? program : "e.g. Work"} onChange={(event) => setName(event.target.value)} autoFocus /></span>
           <small>Shown on the card and the picker tab{isDefault ? `; ${program} when empty` : ""}.</small>
         </label>
         {adding ? (
           <label className="runtime-instance-field">
             <span>Instance id</span>
-            <input aria-label="Instance id" value={id} placeholder="work" aria-invalid={attempted && idProblem !== undefined} onChange={(event) => setIdOverride(event.target.value)} spellCheck={false} />
+            <span className="tau-field" data-invalid={attempted && idProblem !== undefined ? "" : undefined}>
+              <input aria-label="Instance id" data-mono="" value={id} placeholder="work" aria-invalid={attempted && idProblem !== undefined} onChange={(event) => setIdOverride(event.target.value)} spellCheck={false} />
+            </span>
             {attempted && idProblem ? <small className="runtime-instance-problem">{idProblem}</small> : <small>What threads remember the instance by. It cannot change later.</small>}
           </label>
         ) : null}
         <label className="runtime-instance-field">
           <span>Executable</span>
-          <input aria-label="Executable" value={command} placeholder={`${commandPlaceholder}, from your login shell's PATH`} onChange={(event) => setCommand(event.target.value)} spellCheck={false} />
+          <span className="tau-field"><input aria-label="Executable" data-mono="" value={command} placeholder={`${commandPlaceholder}, from your login shell's PATH`} onChange={(event) => setCommand(event.target.value)} spellCheck={false} /></span>
           <small>A name on the PATH or an absolute path.</small>
         </label>
         {homeVariable ? (
           <label className="runtime-instance-field">
             <span>Home folder</span>
-            <input aria-label="Home folder" value={home} placeholder={homePlaceholder} onChange={(event) => setHome(event.target.value)} spellCheck={false} />
+            <span className="tau-field"><input aria-label="Home folder" data-mono="" value={home} placeholder={homePlaceholder} onChange={(event) => setHome(event.target.value)} spellCheck={false} /></span>
             <small>Becomes <code>{homeVariable}</code>: where this instance keeps its login, configuration and sessions. Empty keeps {program}'s own.</small>
           </label>
         ) : null}
         <label className="runtime-instance-field">
           <span>Environment</span>
-          <textarea aria-label="Environment" value={environment} rows={3} placeholder="NAME=value, one per line" aria-invalid={attempted && parsedEnvironment.problem !== undefined} onChange={(event) => setEnvironment(event.target.value)} spellCheck={false} />
+          <span className="tau-field" data-multiline="" data-invalid={attempted && parsedEnvironment.problem !== undefined ? "" : undefined}>
+            <textarea aria-label="Environment" data-mono="" value={environment} rows={3} placeholder="NAME=value, one per line" aria-invalid={attempted && parsedEnvironment.problem !== undefined} onChange={(event) => setEnvironment(event.target.value)} spellCheck={false} />
+          </span>
           {attempted && parsedEnvironment.problem ? <small className="runtime-instance-problem">{parsedEnvironment.problem}</small> : <small>Added to the environment {program} starts with.</small>}
         </label>
         <label className="runtime-instance-field">
           <span>Launch arguments</span>
-          <input aria-label="Launch arguments" value={args} placeholder="e.g. -c model_verbosity=low" onChange={(event) => setArgs(event.target.value)} spellCheck={false} />
+          <span className="tau-field"><input aria-label="Launch arguments" data-mono="" value={args} placeholder="e.g. -c model_verbosity=low" onChange={(event) => setArgs(event.target.value)} spellCheck={false} /></span>
           <small>Passed on every start, split like a shell would, without expansion.</small>
         </label>
         {failure ? <p className="runtime-instance-problem" role="alert">{failure}</p> : null}
         <footer>
-          <button type="button" className="text-button" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary" disabled={busy}>{busy ? "Saving…" : adding ? "Add instance" : "Save"}</button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" busy={busy}>{busy ? "Saving…" : adding ? "Add instance" : "Save"}</Button>
         </footer>
       </form>
     </Dialog>
@@ -146,6 +159,8 @@ export interface RuntimeInstanceSetupProps extends Pick<RuntimeInstanceDialogPro
   onSave(instance: RuntimeInstanceConfig): Promise<void>;
   /** Removes the card's instance; absent for the default one. */
   onRemove?(): Promise<void>;
+  /** The setup row's element id, for a search result to scroll to; the add and remove rows take it with `-add` and `-remove`. */
+  rowId?: string;
 }
 
 function setupSummary(instance: RuntimeInstanceConfig | undefined): string | undefined {
@@ -164,7 +179,7 @@ function setupSummary(instance: RuntimeInstanceConfig | undefined): string | und
  * up, editing or removing it, and — on the default instance's card — adding
  * another. The kit keeps the instances and saves them; this draws and asks.
  */
-export function RuntimeInstanceSetup({ program, homeVariable, homePlaceholder, commandPlaceholder, instance, instances, onSave, onRemove }: RuntimeInstanceSetupProps) {
+export function RuntimeInstanceSetup({ program, homeVariable, homePlaceholder, commandPlaceholder, instance, instances, onSave, onRemove, rowId }: RuntimeInstanceSetupProps) {
   const [dialog, setDialog] = useState<"add" | "edit">();
   const [confirming, setConfirming] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -179,31 +194,46 @@ export function RuntimeInstanceSetup({ program, homeVariable, homePlaceholder, c
     }
   };
   const threads = instance?.threads ?? 0;
+  const name = instance?.label ?? instance?.id ?? program;
+  const leaving = threads
+    ? `Its ${threads} thread${threads === 1 ? "" : "s"} leave the thread list; an instance with the id “${instance?.id}” brings them back.`
+    : `Tau forgets its setup; the login and sessions in its home stay.`;
   return (
-    <div className="runtime-instance-setup">
-      <div className="settings-label">SETUP</div>
-      <div className="runtime-instance-row">
-        <span>{setupSummary(instance) ?? `${isDefault ? `${program}'s own` : "The default"} home and environment, no extra arguments.`}</span>
-        <button type="button" className="runtime-instance-action" disabled={!instance} onClick={() => setDialog("edit")}>Edit…</button>
-        {onRemove ? <button type="button" className="runtime-instance-action" onClick={() => setConfirming(true)}>Remove</button> : null}
-      </div>
-      {confirming ? (
-        <div className="runtime-instance-row" role="alert">
-          <span>
-            Remove “{instance?.label ?? instance?.id}”?
-            {threads ? ` Its ${threads} thread${threads === 1 ? "" : "s"} leave the thread list; an instance with the id “${instance?.id}” brings them back.` : ""}
-          </span>
-          <button type="button" className="runtime-instance-action" onClick={() => setConfirming(false)}>Keep</button>
-          <button type="button" className="runtime-instance-action danger" onClick={() => void remove()}>Remove instance</button>
-        </div>
-      ) : null}
+    <>
+      <SettingRow
+        {...(rowId ? { id: rowId } : {})}
+        title="Setup"
+        description={setupSummary(instance) ?? `${isDefault ? `${program}'s own` : "The default"} home and environment, no extra arguments.`}
+        status={failure ? <p className="runtime-row-error" role="alert">{failure}</p> : undefined}
+        disabledReason={instance ? undefined : `Waiting for the host to name ${program}'s instances.`}
+        control={<Button onClick={() => setDialog("edit")}>Edit…</Button>}
+      />
       {isDefault ? (
-        <div className="runtime-instance-row">
-          <span>Another account or home beside this one gets a card and a picker tab of its own.</span>
-          <button type="button" className="runtime-instance-action" onClick={() => setDialog("add")}><Plus size={13} aria-hidden /> Add instance…</button>
-        </div>
+        <SettingRow
+          {...(rowId ? { id: `${rowId}-add` } : {})}
+          title="Another instance"
+          description="Another account or home beside this one gets a card and a picker tab of its own."
+          control={<Button icon={<Plus size={13} aria-hidden />} onClick={() => setDialog("add")}>Add instance…</Button>}
+        />
       ) : null}
-      {failure ? <p className="settings-note" data-level="error">{failure}</p> : null}
+      {onRemove ? (
+        <SettingRow
+          {...(rowId ? { id: `${rowId}-remove` } : {})}
+          title="Remove this instance"
+          description={leaving}
+          control={<Button variant="danger" onClick={() => setConfirming(true)}>Remove…</Button>}
+        />
+      ) : null}
+      {confirming ? (
+        <ConfirmDialog
+          title={`Remove “${name}”?`}
+          message={leaving}
+          confirmLabel="Remove instance"
+          destructive
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => void remove()}
+        />
+      ) : null}
       {dialog ? (
         <RuntimeInstanceDialog
           program={program}
@@ -216,7 +246,155 @@ export function RuntimeInstanceSetup({ program, homeVariable, homePlaceholder, c
           onClose={() => setDialog(undefined)}
         />
       ) : null}
-    </div>
+    </>
+  );
+}
+
+type RuntimeCompatibility = NonNullable<NonNullable<UiRuntimeBackend["version"]>["compatibility"]>;
+
+/** What a kit's host half found out about its program, in the words the rows need. */
+export interface RuntimeProgramState {
+  /** On disk, or the server answered. */
+  found: boolean;
+  version?: string;
+  /** Where: the executable's path, or the server's address. */
+  location?: string;
+  /** The host's word about a problem; shown instead of the location. */
+  message?: string;
+  /** The version found is older than Tau speaks to. */
+  unsupported?: boolean;
+  /** The oldest version Tau speaks to. */
+  minimum?: string;
+  /** A newer release than the one found. */
+  latest?: string;
+  updateCommand?: string;
+  /** The version policy's verdict, when it is not "supported". */
+  compatibility?: RuntimeCompatibility;
+}
+
+/** The word the card's head shows for the program. */
+export function programBadge(state: RuntimeProgramState | undefined, installed = "Installed"): ProviderCardBadge | undefined {
+  if (!state) return undefined;
+  if (!state.found) return { label: "Not found", tone: "danger" };
+  const verdict = state.compatibility?.status;
+  if (verdict === "broken") return { label: "Does not work", tone: "danger" };
+  if (state.unsupported) return { label: "Too old", tone: "danger" };
+  if (verdict === "unsafe") return { label: "Known problems", tone: "warn" };
+  if (state.message) return { label: "Needs attention", tone: "warn" };
+  if (state.latest) return { label: "Update available", tone: "neutral" };
+  return { label: installed, tone: "success" };
+}
+
+export interface RuntimeProgramRowsProps {
+  /** The program as the card names it: "Codex", "Codex · Work". */
+  program: string;
+  /** What the rows' element ids start with: `setting-codex`; the rows add `-program`, `-version` and `-update`. */
+  idPrefix: string;
+  /** The first row's title: "CLI", "Server", "Runtime". */
+  title?: string;
+  /** What the first row's info glyph says: how threads use the program. */
+  help?: string;
+  /** Absent while the host is asked. */
+  state?: RuntimeProgramState;
+  /** The next step while it is not found. */
+  missing: string;
+  /** Beside Check again while it is not found: an install button. */
+  missingAction?: ReactNode;
+  /** The head's word for a healthy program; "Installed" by default. */
+  installedLabel?: string;
+  busy?: boolean;
+  onCheck(): void;
+  /** Hands a command to a terminal for the user to run; without it no row offers one. */
+  onRunCommand?(command: string): void;
+}
+
+/**
+ * A Providers card's rows about the program itself: found where and which
+ * version, with Check again; a version Tau does not work well with, one too
+ * old, or a newer release, each with the step that fixes it. Tau runs none
+ * of those commands itself: they go into a terminal the user sees.
+ */
+export function RuntimeProgramRows({ program, idPrefix, title = "CLI", help, state, missing, missingAction, installedLabel, busy = false, onCheck, onRunCommand }: RuntimeProgramRowsProps) {
+  useProviderCardBadge("program", programBadge(state, installedLabel));
+  const compatibility = state?.compatibility && state.compatibility.status !== "supported" ? state.compatibility : undefined;
+  const install = compatibility?.installCommand ?? state?.updateCommand;
+  const terminal = (command: string | undefined, label: string) => command && onRunCommand
+    ? <Button icon={<SquareTerminal size={13} aria-hidden />} onClick={() => onRunCommand(command)}>{label}</Button>
+    : undefined;
+  const where = state?.message ?? state?.location;
+  return (
+    <>
+      <SettingRow
+        id={`${idPrefix}-program`}
+        title={title}
+        {...(help ? { help } : {})}
+        description={!state ? "Checking…"
+          : state.found ? <>{state.version ? `${state.version}${where ? " · " : ""}` : ""}{state.message ?? (state.location ? <code>{state.location}</code> : null)}</>
+            : state.message ?? missing}
+        control={<>
+          {state && !state.found ? missingAction : null}
+          <Button icon={<RefreshCw size={13} aria-hidden />} busy={busy} onClick={onCheck}>{busy ? "Checking…" : "Check again"}</Button>
+        </>}
+      />
+      {state && compatibility ? (
+        <SettingRow
+          id={`${idPrefix}-version`}
+          title={`${program}${state.version ? ` ${state.version}` : ""} ${compatibility.status === "broken" ? "does not work with Tau" : "has known problems with Tau"}`}
+          description={`${compatibility.message ?? (compatibility.status === "broken" ? "Threads on it do not start." : "Turns may fail or report less than they should.")}${compatibility.recommendedVersion ? ` Tau was tested with ${compatibility.recommendedVersion}.` : ""}`}
+          control={terminal(install, compatibility.installCommand && compatibility.recommendedVersion ? `Install ${compatibility.recommendedVersion} in a terminal` : "Update in a terminal")}
+        />
+      ) : state?.unsupported ? (
+        <SettingRow
+          id={`${idPrefix}-version`}
+          title="Version too old"
+          description={`Tau speaks to ${program}${state.minimum ? ` ${state.minimum}` : ""} and newer${state.version ? `; ${state.version} is installed` : ""}.`}
+          control={terminal(state.updateCommand, "Update in a terminal")}
+        />
+      ) : state?.latest ? (
+        <SettingRow
+          id={`${idPrefix}-update`}
+          title="Update available"
+          description={`${program} ${state.latest} is out${state.version ? `; ${state.version} is installed` : ""}.`}
+          control={terminal(state.updateCommand, "Update in a terminal")}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export interface RuntimeCommandRowProps {
+  /** The row's element id. */
+  id: string;
+  /** "Codex": the field is "Codex executable". */
+  program: string;
+  /** The name looked up on the PATH when the field is empty: `codex`. */
+  commandName?: string;
+  /** The variable in Tau's environment that overrides the setting: `TAU_CODEX_COMMAND`. */
+  variable: string;
+  /** Whether the host has answered; the field waits until then. */
+  known: boolean;
+  /** The command the host runs, and who named it: `setting`, `env`, or neither for the default. */
+  command?: string;
+  source?: string;
+  placeholder: string;
+  /** Says what an empty field means, where that is not the PATH. */
+  description?: string;
+  onSave(command: string): Promise<void> | void;
+}
+
+/** Where Tau finds the program: a path or a name, saved when the field is left or on Enter; empty goes back to the default. */
+export function RuntimeCommandRow({ id, program, commandName, variable, known, command, source, placeholder, description, onSave }: RuntimeCommandRowProps) {
+  const fromEnv = source === "env";
+  const saved = source === "setting" ? command ?? "" : "";
+  return (
+    <SettingRow
+      id={id}
+      title="Executable"
+      description={fromEnv ? `Set by ${variable} in Tau's environment.`
+        : description ?? `A name on the PATH or an absolute path. Empty looks for ${commandName ?? program} on the PATH.`}
+      disabledReason={fromEnv ? `${variable} in Tau's environment names it; change it there.` : !known ? `Waiting for the host to report ${program}.` : undefined}
+      control={<TextField label={`${program} executable`} mono width="lg" value={fromEnv ? command ?? "" : saved} placeholder={placeholder} onCommit={(text) => void onSave(text.trim())} />}
+    />
   );
 }
 
