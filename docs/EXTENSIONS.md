@@ -1218,8 +1218,8 @@ by time without touching the rail's own order), `running`, `opening`, `machine`
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
-The shelves after the main list (snoozed, settled) scroll on their own under it and
-take at most a third of the rail, or all the active threads leave free.
+The shelves after the main list (snoozed, settled) are pinned to the rail's lower third
+and scroll on their own; the main list keeps the two thirds above, even when short.
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Check, Mail, MailOpen, Pin, PinOff, RotateCcw, Square } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
@@ -21,7 +21,6 @@ import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
 import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
-import { useShelfRoom } from "./shelf-room";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
 
 /** What the project line's right edge says when the thread needs a look, in the desktop rail's colours. */
@@ -77,10 +76,6 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const current = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const { pinnedThreadIds, settledThreadIds, showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  const lists = useRef<HTMLDivElement>(null);
-  const activeArea = useRef<HTMLDivElement>(null);
-  const activeRows = useRef<HTMLUListElement>(null);
-  useShelfRoom(lists, activeArea, activeRows);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [shown, setShown] = useState(THREAD_LIST_PAGE);
   const [openRow, setOpenRow] = useState<string>();
@@ -153,12 +148,12 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     ? { ...value, settled: value.settled + 25 }
     : { ...value, active: value.active + THREAD_LIST_PAGE.active });
   const settled = groups.find((group) => group.id === "settled");
-  // The active threads keep two thirds of the list at least; the settled shelf below scrolls on its own.
+  // The active threads keep two thirds of the list; the settled shelf sits in the lower third, each scrolling on its own.
   return <>
     {connection}
-    <div ref={lists} className="touch-thread-lists" onScrollCapture={() => setOpenRow(undefined)}>
-      <div ref={activeArea} className="touch-thread-active">
-        <ul ref={activeRows} className="touch-thread-list" aria-label="Threads">
+    <div className="touch-thread-lists" onScrollCapture={() => setOpenRow(undefined)}>
+      <div className="touch-thread-active">
+        <ul className="touch-thread-list" aria-label="Threads">
           {groups.filter((group) => group !== settled).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
         </ul>
       </div>

@@ -47,12 +47,12 @@
 .touch-project-filter-button > svg { flex: none; color: var(--muted); }
 .touch-project-filter-button:active { background: var(--hover-strong); }
 /*
- * Active threads above, the settled shelf below, each scrolling on its own, as
- * on the desktop rail: the shelf takes a third at most, or all the active leave.
+ * Active threads above, the settled shelf pinned to the lower third, each scrolling
+ * on its own, as on the desktop rail: the active list keeps two thirds even when short.
  */
 .touch-thread-lists { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.touch-thread-active { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; }
-.touch-thread-lists > .touch-thread-shelf { flex: none; max-height: var(--shelf-room, 34%); overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 12px; }
+.touch-thread-active { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; }
+.touch-thread-lists > .touch-thread-shelf { flex: 0 0 34%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 12px; }
 /* Room under the last row for the floating button and the home indicator. */
 .touch-browser.screen .touch-thread-lists > :last-child { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
 

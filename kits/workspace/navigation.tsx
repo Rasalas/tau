@@ -22,7 +22,6 @@ import {
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
-import { useShelfRoom } from "./rail-shelf-room.js";
 import { threadDetails } from "./rail-details.js";
 import { groupThreads, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
@@ -759,10 +758,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   // A Read-only device could never send a new thread's first message.
   const { readOnly: readOnlyDevice } = useHostCapabilities();
   const searchRef = useRef<HTMLInputElement>(null);
-  const railRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  useShelfRoom(railRef, listRef, contentRef);
 
   const option = (id: string, fallback: boolean) =>
     settings.extensionOptions[`${WORKSPACE_EXTENSION_ID}.${id}`] ?? fallback;
@@ -1044,7 +1040,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       </div>
 
       <nav
-        ref={railRef}
         className={`session-list${drag ? " rail-dragging" : ""}`}
         aria-label="Threads"
         tabIndex={0}
@@ -1101,9 +1096,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
-        {/* The active threads keep two thirds of the rail at least; the shelves below scroll on their own. */}
+        {/* The active threads keep two thirds of the rail; the shelves sit in the lower third, each scrolling on its own. */}
         <div ref={listRef} className="rail-active">
-        <div ref={contentRef} className="rail-active-rows">
+        <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
         {main.label === undefined && drag && sections.length > 1 ? (
           <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>

@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
@@ -9,7 +11,6 @@ import { setClientStorage, setHostClient } from "../../src/renderer/test-support
 import { workspaceExtension } from "./desktop.js";
 import { WORKSPACE_STORE_SERVICE, type RailExternalThread, type WorkspaceStoreApi } from "./protocol.js";
 import { mergeByTime } from "./rail-external.js";
-import { shelfRoom } from "./rail-shelf-room.js";
 
 // The main list is virtual; jsdom measures nothing, so every box gets a size and the rows draw.
 beforeEach(() => {
@@ -126,10 +127,11 @@ describe("the rail's shelves", () => {
     expect(within(rail.querySelector(".rail-active") as HTMLElement).queryByText("Thread b")).toBeNull();
   });
 
-  it("take a third of the rail when both are long, and all the active threads leave when those are few", () => {
-    expect(shelfRoom(900, 2_000)).toBe(300);
-    expect(shelfRoom(900, 200)).toBe(700);
-    expect(shelfRoom(900, 900)).toBe(300);
+  it("are pinned to the rail's lower third, the active list keeping the rest even when short", () => {
+    // jsdom lays nothing out, so the rule that does is read from the stylesheet.
+    const css = readFileSync(join(import.meta.dirname, "styles.css"), "utf8");
+    expect(/^\.rail-shelves \{([^}]*)\}/mu.exec(css)?.[1]).toMatch(/flex: 0 0 34%;[^}]*overflow: auto/u);
+    expect(/^\.rail-active \{([^}]*)\}/mu.exec(css)?.[1]).toMatch(/flex: 1 1 0;[^}]*overflow: auto/u);
   });
 });
 
