@@ -1,4 +1,4 @@
-package io.github.rasalas.tau;
+package de.tbuck.tau;
 
 import com.getcapacitor.BridgeActivity;
 

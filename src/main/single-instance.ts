@@ -7,8 +7,8 @@ export interface AppIdentity {
   setAppUserModelId?(id: string): void;
 }
 
-/** `appId` in electron-builder.yml; the installer's Start Menu shortcut carries it. */
-export const APP_USER_MODEL_ID = "dev.tbuck.tau";
+/** `appId` in electron-builder.yml: the macOS bundle id and the AppUserModelID the installer's shortcuts carry. */
+export const APP_ID = "de.tbuck.tau";
 
 /**
  * Changes Tau's visible name without abandoning preferences stored under its
@@ -19,7 +19,7 @@ export const APP_USER_MODEL_ID = "dev.tbuck.tau";
 export function configureAppIdentity(app: AppIdentity, userData?: string, platform: NodeJS.Platform = process.platform): void {
   app.setPath("userData", userData || join(app.getPath("appData"), "tau-pi-desktop-prototype"));
   app.setName("Tau");
-  if (platform === "win32") app.setAppUserModelId?.(APP_USER_MODEL_ID);
+  if (platform === "win32") app.setAppUserModelId?.(APP_ID);
 }
 
 export interface SingleInstanceApp {

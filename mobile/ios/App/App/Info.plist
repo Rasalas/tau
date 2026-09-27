@@ -24,7 +24,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>io.github.rasalas.tau</string>
+			<string>de.tbuck.tau</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>tau</string>

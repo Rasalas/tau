@@ -25,10 +25,10 @@ describe("APNs", () => {
     const client = new ApnsClient({ credentials: { ...CREDENTIALS, key: pem }, origin: () => apple.origin, now: () => 1_700_000_000_000 });
     closers.push(() => client.close());
     const payload = { aps: { alert: { title: "Fix the build", body: "Done." } }, url: "tau://thread?host=h&thread=t" };
-    await expect(client.send({ token: TOKEN, topic: "io.github.rasalas.tau", payload, collapseId: "t" }, "production")).resolves.toEqual({ ok: true });
+    await expect(client.send({ token: TOKEN, topic: "de.tbuck.tau", payload, collapseId: "t" }, "production")).resolves.toEqual({ ok: true });
     const [request] = apple.requests;
     expect(request!.path).toBe(`/3/device/${TOKEN}`);
-    expect(request!.headers).toMatchObject({ ":method": "POST", "apns-topic": "io.github.rasalas.tau", "apns-push-type": "alert", "apns-priority": "10", "apns-collapse-id": "t" });
+    expect(request!.headers).toMatchObject({ ":method": "POST", "apns-topic": "de.tbuck.tau", "apns-push-type": "alert", "apns-priority": "10", "apns-collapse-id": "t" });
     expect(JSON.parse(request!.body)).toEqual(payload);
     const jwt = request!.headers.authorization!.replace(/^bearer /u, "");
     expect(readSignedJwt(jwt, publicKey, true)).toEqual({ header: { alg: "ES256", kid: "ABC123DEFG" }, claims: { iss: "TEAM123456", iat: 1_700_000_000 } });

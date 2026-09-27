@@ -48,7 +48,7 @@ node scripts/sim.mjs serve &                         # loopback only
 xcrun simctl create "Tau test" com.apple.CoreSimulator.SimDeviceType.iPhone-17 com.apple.CoreSimulator.SimRuntime.iOS-27-0
 xcrun simctl boot <udid>                             # headless; no Simulator window needed
 xcrun simctl install <udid> .build/ios/Build/Products/Debug-iphonesimulator/App.app
-xcrun simctl launch --console-pty <udid> io.github.rasalas.tau   # the console shows every bridge call
+xcrun simctl launch --console-pty <udid> de.tbuck.tau   # the console shows every bridge call
 node scripts/sim.mjs eval "text()"
 node scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add host\"]'))"
 node scripts/sim.mjs eval "type(document.querySelector('textarea'), '<pairing link>')"
@@ -58,7 +58,7 @@ xcrun simctl shutdown <udid>
 
 Helpers in scope: `all(sel)`, `byText(sel, re)`, `tap(el)`, `type(el, text)`,
 `sleep(ms)`, `text()`. On Android, `adb install`, `adb shell am start -n
-io.github.rasalas.tau/.MainActivity` and `adb exec-out screencap -p`.
+de.tbuck.tau/.MainActivity` and `adb exec-out screencap -p`.
 
 The simulator shares the Mac's loopback, so a test host listens on 127.0.0.1 and the app
 reaches it there; the emulator reaches it as 10.0.2.2. The app accepts a plaintext or

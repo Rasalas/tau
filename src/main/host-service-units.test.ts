@@ -80,6 +80,12 @@ describe("a LaunchAgent", () => {
     expect(plist).toMatch(/<key>KeepAlive<\/key>\s*<dict>\s*<key>SuccessfulExit<\/key>\s*<false\/>/u);
     expect(plist).toContain("<key>RunAtLoad</key>\n  <true/>");
   });
+
+  it("belongs to the app's bundle id under the label it had before that id changed", () => {
+    const plist = renderLaunchAgent(hostServiceNames("/u", "/u").label, spec);
+    expect(plist).toContain("<key>Label</key>\n  <string>dev.tbuck.tau.host</string>");
+    expect(plist).toContain("<key>AssociatedBundleIdentifiers</key>\n  <string>de.tbuck.tau</string>");
+  });
 });
 
 describe("a systemd user unit", () => {

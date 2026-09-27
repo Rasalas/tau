@@ -1,4 +1,4 @@
-appId: dev.tbuck.tau
+appId: de.tbuck.tau
 productName: Tau
 copyright: Copyright © Torben Buck
 directories:
@@ -178,6 +178,11 @@ win:
   icon: assets/tau-icon.png
 
 nsis:
+  # The GUID electron-builder derived from the former appId `dev.tbuck.tau`: it keys the
+  # install's registry entries, so a new one would leave the old install listed beside it.
+  guid: 7d8e2caa-afe3-56be-b6f2-d0ec52790759
+  # Stamps the new AppUserModelID on shortcuts an update keeps (toasts need them to match).
+  include: packaging/windows/installer.nsh
   oneClick: false
   allowToChangeInstallationDirectory: true
   # No spaces: GitHub renames "Tau Setup 1.2.3.exe" to "Tau.Setup.1.2.3.exe" on
