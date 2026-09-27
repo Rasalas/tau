@@ -147,8 +147,8 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
   return <section className="panel-body files-panel">
     {inSheet && reading ? <FileReader path={reading} load={readFile} onBack={() => setReading(undefined)} /> : null}
     <header className="panel-header" hidden={Boolean(inSheet && reading)}>
-      <h2>Files</h2>
-      <small>{extensionName.toLowerCase()}</small>
+      {/* The sheet's own header names it already. */}
+      {inSheet ? null : <><h2>Files</h2><small>{extensionName.toLowerCase()}</small></>}
       <span className="spacer" />
       {searcher ? <button
         type="button"
