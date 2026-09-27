@@ -24,10 +24,15 @@ export const Popover = deferred(() => import("./components/ui/Dialog").then((mod
 export const ConfirmDialog = deferred(() => import("./components/ui/ConfirmDialog").then((module) => module.ConfirmDialog));
 export const SettingRow = deferred(() => import("./settings/settings-layout").then((module) => module.SettingRow));
 export const SettingsSection = deferred(() => import("./settings/settings-layout").then((module) => module.SettingsSection));
+export const ReloadCurtain = deferred(() => import("./components/ReloadCurtain").then((module) => module.ReloadCurtain));
+// Mounted at start-up, but its first look at pairing requests is 1.5 s later.
+export const PairingRequestWatcher = deferred(() => import("./pairing/PairingRequestWatcher").then((module) => module.PairingRequestWatcher));
+export const NearbyMachineList = deferred(() => import("./settings/NearbyMachineList").then((module) => module.NearbyMachineList));
 
 // Code behind a user action rather than a surface.
 export const loadSubmissionController = deferredModule(() => import("./submission-controller"));
 export const loadRuntimeControlRuns = deferredModule(() => import("./settings/runtime-control-runs"));
+export const loadFileMentions = deferredModule(() => import("./file-mention-expander"));
 export const loadVimNormalKeys = deferredModule(() => import("./components/composer-vim-normal"));
 
 // No top-level await here: Rollup would split the start-up graph into many chunks. Tests preload in src/test-setup.ts.

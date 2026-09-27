@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useState } from "react";
-import { ReloadCurtain, type ReloadPhase } from "./components/ReloadCurtain";
+import type { ReloadPhase } from "./components/ReloadCurtain";
+import { ReloadCurtain } from "./deferred-surfaces";
 import { errorMessage } from "../workbench/error-message";
 import type { WorkbenchBuildResult } from "../shared/contracts";
 import type { HostClient } from "../workbench/host-client";
