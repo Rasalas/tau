@@ -140,11 +140,17 @@ describe("picking a thread in the rail while the centre shows tabs", () => {
   });
 });
 
+/** Beside Workspace Kit's Files, the test's panel is one of two sheets: they fold into the title bar's More menu. */
+async function openSheet(label: string): Promise<void> {
+  fireEvent.click(within(document.querySelector<HTMLElement>(".title-bar")!).getByRole("button", { name: "More" }));
+  fireEvent.click(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: label }));
+}
+
 describe("picking a thread on a phone", () => {
   it("opens the chat, not the panel sheet that was open, even for the thread on screen", async () => {
     setWindowWidth(390);
     const { switchSession } = await renderRail();
-    fireEvent.click(await screen.findByRole("button", { name: "Notes" }));
+    await openSheet("Notes");
     expect(await screen.findByRole("dialog", { name: "Notes" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
@@ -229,7 +235,7 @@ describe("starting a new thread on a phone", () => {
   it("opens the draft's chat over the list and drops the panel sheet", async () => {
     setWindowWidth(390);
     await renderRail();
-    fireEvent.click(await screen.findByRole("button", { name: "Notes" }));
+    await openSheet("Notes");
     expect(await screen.findByRole("dialog", { name: "Notes" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
 

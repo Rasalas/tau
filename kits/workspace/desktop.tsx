@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { Files, GitBranch, GitCompare, HardDrive } from "lucide-react";
 import {
   errorMessage,
+  hostHasLocalFiles,
   type DesktopExtension,
   type FileNode,
+  type PanelProps,
   type UiEditor,
   type UiWorkspaceChanges,
 } from "tau";
@@ -19,7 +21,7 @@ import { addProjectMenu } from "./add-project-menu.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
-import { ChangesPanel, FilesPanel } from "./panels.js";
+import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
@@ -38,7 +40,8 @@ function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChan
   let inputs: [unknown, unknown, string | undefined] | undefined;
   return () => {
     const state = store.getSnapshot();
-    const editor = store.activeEditor();
+    // An editor of the host's machine is no use to a client whose files are elsewhere (a phone, a tablet).
+    const editor = hostHasLocalFiles() ? store.activeEditor() : undefined;
     const next: [unknown, unknown, string | undefined] = [state.changes, state.editors, editor?.id];
     if (!last || !inputs || inputs.some((value, index) => value !== next[index])) {
       inputs = next;
@@ -82,7 +85,17 @@ export const workspaceExtension: DesktopExtension = {
       order: 20,
       Component: bind(CloneProjectSource),
     });
-    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, maximizable: true, profiles: ["desktop"], Component: bind(FilesPanel) });
+    // Search Kit's "Go to file", when it is there, gets a button in the Files panel.
+    const search = serviceSlot<SearchFilesService>();
+    context.useService<SearchFilesService>(SEARCH_FILES_SERVICE, (service) => {
+      search.set(service);
+      return () => { if (search.get() === service) search.set(undefined); };
+    });
+    const FilesPanelWithSearch = (props: PanelProps) => <FilesPanel {...props} search={search} />;
+    context.registerPanel({
+      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, maximizable: true, profiles: ["desktop", "compact"],
+      Component: bind(FilesPanelWithSearch),
+    });
     // The Changes panel reads the same Git state as the rest of the kit, so it
     // travels with it. Where a kit draws the review, the entry opens that instead.
     context.registerPanel({
@@ -91,12 +104,13 @@ export const workspaceExtension: DesktopExtension = {
     });
     // The kit owns its workspace state; these keep it following the workbench
     // and place its controls where core lends room.
-    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop"], Component: bind(WorkspaceFollower) });
+    // A phone or tablet follows too: its Files panel and documents read the thread's project.
+    context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "compact"], Component: bind(WorkspaceFollower) });
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
     context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, profiles: ["desktop"], Component: bind(WorkspaceBarControl) });
     const documents = documentStates(store);
     context.registerDocumentSource({
-      profiles: ["desktop"],
+      profiles: ["desktop", "compact"],
       id: "workspace.documents",
       loadFile: (relPath) => host.readFile(relPath),
       loadDiff: (relPath, options) => host.getFileDiff(relPath, options),

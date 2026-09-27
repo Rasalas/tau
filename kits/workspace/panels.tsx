@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileDiff } from "lucide-react";
-import { ChangesTree, FileKindIcon, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronRight, FileDiff, Search } from "lucide-react";
+import { ChangesTree, FileKindIcon, tooltipProps, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
+import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
 
-function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile, editFile }: {
+function FileTree({ nodes, changedPaths, activePath, rowHeight, loadFiles, openFile, editFile }: {
   nodes: FileNode[];
+  rowHeight: number;
   changedPaths: Set<string>;
   activePath?: string;
   loadFiles(path: string): Promise<FileNode[]>;
@@ -49,7 +51,7 @@ function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile, editFi
 
   return <VirtualList
     items={visible}
-    itemHeight={30}
+    itemHeight={rowHeight}
     className="file-tree"
     empty={<p className="empty-copy">No files indexed.</p>}
     renderItem={({ node, depth }) => {
@@ -78,23 +80,96 @@ function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile, editFi
   />;
 }
 
-export function FilesPanel({ active, extensionName }: PanelProps) {
+/** Search Kit's "Go to file" (`tau.search/files`), copied down: a kit never imports another kit. */
+export const SEARCH_FILES_SERVICE = "tau.search/files";
+export interface SearchFilesService {
+  pickFile(onPick?: (path: string) => void): void;
+}
+
+/** A service another kit may provide or withdraw at any time, for a component to follow. */
+export interface ServiceSlot<T> {
+  get(): T | undefined;
+  set(value: T | undefined): void;
+  subscribe(listener: () => void): () => void;
+}
+
+export function serviceSlot<T>(): ServiceSlot<T> {
+  let value: T | undefined;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => { value = next; for (const listener of [...listeners]) listener(); },
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  };
+}
+
+const noSlot = () => () => undefined;
+
+/** Whether the workbench lays out for touch (`body[data-profile="compact"]`: a phone, a tablet). */
+function useCompactLayout(): boolean {
+  const read = () => typeof document !== "undefined" && document.body.dataset.profile === "compact";
+  const [compact, setCompact] = useState(read);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setCompact(read()));
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-profile"] });
+    return () => observer.disconnect();
+  }, []);
+  return compact;
+}
+
+/**
+ * The project's files as a tree. A tap opens a file on the stage, beside the
+ * chat; in a phone's sheet (`placement: "sheet"`), which has no stage, the
+ * file opens in the sheet to read.
+ */
+export function FilesPanel({ active, placement, extensionName, search }: PanelProps & { search?: ServiceSlot<SearchFilesService> }) {
   const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
+  const touch = useCompactLayout();
+  const inSheet = placement === "sheet";
+  const [reading, setReading] = useState<string>();
   const refreshFiles = () => workspaceStore.refreshFiles();
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
+  const readFile = useCallback((path: string) => workspaceStore.host.readFile(path), [workspaceStore]);
   useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
+  // Another project's paths name other files.
+  useEffect(() => setReading(undefined), [cwd]);
   const changedPaths = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
+  const open = (path: string, options?: { pin?: boolean }) => {
+    if (inSheet) setReading(path);
+    else if (options) openFile(path, options);
+    else openFile(path);
+  };
+  const searcher = useSyncExternalStore(search?.subscribe ?? noSlot, () => search?.get());
 
-  return <section className="panel-body">
-    <header className="panel-header">
+  // The tree stays mounted under the file, so back finds its folders as they were.
+  return <section className="panel-body files-panel">
+    {inSheet && reading ? <FileReader path={reading} load={readFile} onBack={() => setReading(undefined)} /> : null}
+    <header className="panel-header" hidden={Boolean(inSheet && reading)}>
       <h2>Files</h2>
       <small>{extensionName.toLowerCase()}</small>
       <span className="spacer" />
+      {searcher ? <button
+        type="button"
+        className="icon-button files-panel-search"
+        aria-label="Go to file"
+        {...tooltipProps("Go to file", { shortcut: "⌘P", side: "bottom" })}
+        onClick={() => searcher.pickFile(inSheet ? setReading : undefined)}
+      ><Search size={touch ? 18 : 14} /></button> : null}
       <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>
     </header>
-    <FileTree nodes={fileTree} changedPaths={changedPaths} activePath={activePath} loadFiles={loadFiles} openFile={openFile} editFile={(path) => workspaceStore.editFile(path)} />
+    <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>
+      <FileTree
+        nodes={fileTree}
+        changedPaths={changedPaths}
+        activePath={activePath}
+        rowHeight={touch ? 44 : 30}
+        loadFiles={loadFiles}
+        openFile={open}
+        editFile={(path) => !inSheet && workspaceStore.editFile(path)}
+      />
+    </div>
   </section>;
 }
 
