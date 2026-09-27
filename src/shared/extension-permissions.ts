@@ -8,6 +8,7 @@ export const EXTENSION_PERMISSIONS = [
   "network",
   "packages",
   "machines",
+  "native",
 ] as const;
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number];
@@ -39,6 +40,18 @@ export const PERMISSION_PACKAGES = "packages" as const;
 
 /** Act on other machines this host holds a key for, as this machine's agents (`services.machines`, ADR 0027), and take files theirs sent here (`services.blobs`). */
 export const PERMISSION_MACHINES = "machines" as const;
+
+/**
+ * Loading compiled code: a `.node` addon, `process.dlopen`, a SQLite extension,
+ * the raw `process.binding` handles and V8 flags. Enforced inside a worker;
+ * an `in-process` package loads addons through `loadDependency` without it.
+ */
+export const PERMISSION_NATIVE = "native" as const;
+
+/** What the approval box says beside a permission whose name undersells it. */
+export const PERMISSION_NOTES: Readonly<Partial<Record<ExtensionPermission, string>>> = {
+  native: "loads compiled code into the host process: a crash there stops the host and every thread, and its memory is outside the worker's caps",
+};
 
 /**
  * The one line Settings shows a package that asked to run in the host process.

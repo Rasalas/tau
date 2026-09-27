@@ -6,8 +6,8 @@
  */
 export const USAGE_EXTENSION_ID = "tau.usage";
 
-/** Settings page the kit contributes; `app.openSettings(USAGE_SETTINGS_PAGE)` opens it. */
-export const USAGE_SETTINGS_PAGE = "usage";
+/** The app page the kit contributes; `actions.openPage(USAGE_PAGE)` opens it. */
+export const USAGE_PAGE = "usage";
 
 /** Host command: `{ since?: number; refresh?: boolean }` → `UsageSummary`. */
 export const USAGE_SUMMARY_COMMAND = "summary";
@@ -210,10 +210,32 @@ export interface UsageSummary {
   totals: UsageTotals;
   rows: UsageRow[];
   sources: UsageSourceReport[];
+  /** With `days` asked for: the period split by day and thread. */
+  entries?: UsageEntry[];
 }
 
 export interface UsageSummaryInput {
   since?: number;
   /** Reads the sources again instead of answering from the cache. */
   refresh?: boolean;
+  /**
+   * Where each day starts (epoch ms, ascending): the client's own midnights,
+   * so a remote host counts the user's days. The summary adds `entries`.
+   */
+  days?: number[];
+}
+
+/** What one thread used of one model on one day, priced like a row. */
+export interface UsageEntry extends UsageTokens {
+  /** Index into the `days` asked for. */
+  day: number;
+  backend: string;
+  threadId: string;
+  cwd: string;
+  model: string;
+  provider?: string;
+  modelId?: string;
+  billing?: UsageBilling;
+  requests: number;
+  apiValueUsd: number;
 }

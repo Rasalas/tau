@@ -1,8 +1,8 @@
 /*
  * Workspace Kit's own rules: the thread rail and its search, the project
  * switcher and scope, the settled shelf, the workspace bar with its worktree
- * and ref pickers, the file tree, the changed-files dock, the commit box, the
- * checkpoint cards and the restore dialog, the folder browser and the clone
+ * and ref pickers, the file tree, the commit box, the turn-changes pills and
+ * the restore dialog, the folder browser and the clone
  * form, and the title-bar actions it contributes.
  *
  * Core keeps every class core itself draws: the thread row (`ThreadRow` on
@@ -142,6 +142,8 @@
 }
 .thread-group-label > i { flex: 1; height: 1px; background: var(--line); }
 
+/* The shelves start in the rail's lower third, as in T3 Code, and move further down once the active threads need the room. */
+.rail-shelves { flex: none; margin-top: auto; min-height: 34%; display: flex; flex-direction: column; gap: var(--space-2); }
 .settled-shelf { display: flex; flex-direction: column; gap: 2px; }
 .settled-shelf-toggle {
   display: flex; align-items: center; gap: 8px; padding: 14px 4px 6px;
@@ -200,47 +202,49 @@
   background: transparent; color: var(--faint); cursor: pointer;
 }
 .sidebar-footer button:hover { background: var(--raised); color: var(--ink); }
-
-.turn-checkpoint-card { width: 100%; }
-.turn-checkpoint-card .transcript-card { width: 100%; }
-
-.transcript-card {
-  border: 1px solid var(--line-card); border-radius: 10px;
-  background: var(--chrome); overflow: hidden;
+.sidebar-footer button.active { background: var(--thread-active); color: var(--ink); box-shadow: inset 0 0 0 1px var(--edge-line); }
+/* On an app page Back leads the row, as it ends Settings' column. */
+.sidebar-footer button.sidebar-back {
+  width: auto; flex: 1; justify-content: start; display: flex; align-items: center; gap: 8px;
+  padding: 0 8px; margin-right: 4px; color: var(--ink-3); font: 500 13px var(--sans);
 }
 
-.conversation-files-dock {
-  flex: none; padding: 0 32px; position: relative; z-index: 2;
-  background: var(--stage);
+/* A turn's changes: one pill over the composer, or in the transcript for an earlier turn. */
+.turn-changes-bar {
+  /* As wide as the composer: its zone keeps 32 px each side (12 px in a narrow window). */
+  display: flex; box-sizing: border-box; width: min(780px, calc(100% - 64px)); margin: 0 auto -6px;
 }
-.conversation-files-dock > .transcript-card { max-width: 780px; margin: 0 auto; }
-.conversation-files-dock .changed-files-list { max-height: min(360px, 32vh); }
+@media (max-width: 700px) { .turn-changes-bar { width: calc(100% - 24px); } }
+.turn-checkpoint-row { display: flex; padding: 2px 0; }
+.turn-changes-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px 0 10px;
+  border: 1px solid var(--line-control); border-radius: var(--radius-pill);
+  background: var(--chrome); color: var(--ink-3); font: 500 12px var(--sans);
+  white-space: nowrap; cursor: pointer;
+}
+.turn-changes-bar > .turn-changes-pill { box-shadow: var(--elevation-1); }
+.turn-changes-pill:hover, .turn-changes-pill.open { border-color: var(--line-strong); color: var(--ink); }
+.turn-changes-pill > svg { flex: none; color: var(--faint); }
+.turn-changes-pill > .turn-changes-partial { color: var(--working); }
+.turn-changes-pill .stat-add, .turn-changes-pill .stat-del { font-size: 11.5px; }
+.turn-changes-live {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--working);
+  animation: turn-changes-live 1.2s ease-in-out infinite;
+}
+@keyframes turn-changes-live { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .turn-changes-live { animation: none; } }
 
-.changed-files-header {
-  display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 13px;
-  border: 0; background: transparent; width: 100%; cursor: pointer; text-align: left;
+.popover.turn-changes-popover { width: min(560px, calc(100vw - 32px)); padding: 0; overflow: hidden; }
+.turn-changes-head {
+  display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 8px 0 13px;
 }
-
-.changed-files-header > strong { font-size: 12.5px; font-weight: 700; }
-.changed-files-header .spacer { flex: 1; }
-
-.changed-files-preview {
-  width: 100%; min-width: 0; height: 34px; display: flex; align-items: center; gap: 8px;
-  padding: 0 13px 8px 34px; border: 0; background: transparent; cursor: pointer;
-  color: var(--faint); text-align: left;
-}
-.changed-files-preview-pills { min-width: 0; flex: 1; display: flex; gap: 5px; overflow: hidden; }
-.changed-file-pill {
-  min-width: 0; max-width: 180px; flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px;
-  border: 1px solid var(--line-control); border-radius: 999px; padding: 3px 8px 3px 6px;
-  background: var(--wash); color: var(--ink-3); font: 10.5px var(--mono);
-}
-.changed-file-pill svg { flex: none; color: var(--faint); }
-.changed-file-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.changed-files-preview:hover .changed-file-pill { border-color: var(--line-strong); color: var(--ink-2); }
-.changed-files-more {
-  flex: none; border-radius: 999px; padding: 3px 8px; background: var(--raised);
-  color: var(--muted); font: 600 10.5px var(--sans);
+.turn-changes-head > strong { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.turn-changes-head > .turn-changes-count { color: var(--muted); font-size: 12px; }
+.turn-changes-head > .spacer { flex: 1; }
+.turn-changes-card .changed-files-list { max-height: min(360px, 45vh); }
+.turn-changes-card .changed-file-row { padding-left: 13px; }
+.turn-changes-card .changed-files-more-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 13px; border-top: 1px solid var(--line-inset);
 }
 
 .changed-file-row {

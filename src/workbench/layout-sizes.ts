@@ -2,7 +2,7 @@
  * The sidebar's and the dock's widths and the drawer's height, as T3 Code sizes them. Pure, so
  * the clamps are tested without a window; the caller passes the viewport.
  */
-import { CHAT_MIN_WIDTH, DOCK_RAIL_WIDTH } from "./center-layout";
+import { CHAT_MIN_WIDTH, DOCK_RAIL_WIDTH, STAGE_MIN_WIDTH } from "./center-layout";
 
 export const SIDEBAR_DEFAULT_WIDTH = 256;
 export const SIDEBAR_MIN_WIDTH = 208;
@@ -60,4 +60,28 @@ export function storedDrawerHeight(stored: string | null | undefined): number {
 
 export function shownDrawerHeight(preferred: number, viewportHeight: number): number {
   return Math.min(Math.max(DRAWER_MIN_HEIGHT, preferred), drawerMaxHeight(viewportHeight));
+}
+
+/** The chat's share of the centre until the divider is dragged, leaving the tool a bit more than half. */
+const CHAT_DEFAULT_SHARE = 0.42;
+/** Dragging the divider this far below the chat's minimum maximizes the tool. */
+export const CHAT_MAXIMIZE_OVERDRAG = 64;
+
+export function storedChatWidth(stored: string | null | undefined): number | undefined {
+  const width = Number(stored);
+  return stored && Number.isFinite(width) ? Math.max(CHAT_MIN_WIDTH, Math.round(width)) : undefined;
+}
+
+export function chatMaxWidth(centerWidth: number): number {
+  return Math.max(CHAT_MIN_WIDTH, Math.floor(centerWidth) - STAGE_MIN_WIDTH);
+}
+
+export function defaultChatWidth(centerWidth: number): number {
+  return shownChatWidth(undefined, centerWidth);
+}
+
+/** The chat's width in a centre this wide: the preference, or the default share, within both minimums. */
+export function shownChatWidth(preferred: number | undefined, centerWidth: number): number {
+  const wanted = preferred ?? Math.round(centerWidth * CHAT_DEFAULT_SHARE);
+  return Math.min(chatMaxWidth(centerWidth), Math.max(CHAT_MIN_WIDTH, wanted));
 }

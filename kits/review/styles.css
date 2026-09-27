@@ -328,6 +328,14 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-list-count { color: var(--faint); font: 10.5px var(--mono); }
 .pr-list-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 8px 24px; display: flex; flex-direction: column; }
 .pr-list-group + .pr-list-group { margin-top: 12px; }
+/* The app's Pull Requests page: the list, or a request's view in its place. */
+.pr-page, .pr-page-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pr-page-pane[hidden] { display: none; }
+.pr-list-view.on-page { background: var(--shell); font-size: 12.5px; }
+.pr-list-view.on-page .pr-list-head { padding: 14px 24px 12px; border-bottom-color: var(--line-soft); }
+.pr-list-view.on-page .pr-list-body { padding: 10px 16px 32px; }
+.pr-list-scope { color: var(--ink-2); }
+.pr-list-caption { margin-left: 6px; color: var(--faint); font-size: 11.5px; }
 .pr-list-group > h2 { margin: 0; padding: 6px 8px 4px; color: var(--muted); font: 600 11px var(--sans); }
 .pr-list-group > h2 small { margin-left: 4px; color: var(--faint); font: 10.5px var(--mono); }
 .pr-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-block-size: 40px; }
@@ -642,3 +650,18 @@ textarea.review-compact-field { min-height: 110px; }
 .review-compact-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font: 15px var(--sans); }
 .review-compact-check > input { width: 20px; height: 20px; }
 .review-compact-error { margin: 0; color: var(--danger); font: 13.5px var(--sans); }
+
+/* The phone's pill over the composer: the latest turn's changes, a tap opens the Review sheet. */
+.review-turn-pill-bar { display: flex; box-sizing: border-box; width: calc(100% - 24px); margin: 0 auto -6px; }
+.review-turn-pill {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px 0 12px;
+  border: 1px solid var(--line-control); border-radius: var(--radius-pill);
+  background: var(--chrome); box-shadow: var(--elevation-1); color: var(--ink-2); font: 500 13px var(--sans);
+  white-space: nowrap; cursor: pointer; touch-action: manipulation;
+}
+/* 44 px to touch, 32 px to see. */
+.review-turn-pill::before { content: ""; position: absolute; inset: -6px -4px; }
+.review-turn-pill:active { background: var(--raised); }
+.review-turn-pill > svg { flex: none; color: var(--faint); }
+.review-turn-pill > .review-turn-pill-partial { color: var(--working); }
+.review-turn-pill .stat-add, .review-turn-pill .stat-del { font-size: 12px; }

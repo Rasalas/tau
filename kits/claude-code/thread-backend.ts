@@ -411,7 +411,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       input.onAdmitted?.(true);
       this.steering.push(prepared.visibleText);
       this.reportQueue();
-      void live.session.send(content, "now").catch(() => undefined).finally(() => {
+      // "next" folds it into the running turn after the current tool call; "now" would interrupt that call.
+      void live.session.send(content, "next").catch(() => undefined).finally(() => {
         this.steering = this.steering.filter((text) => text !== prepared.visibleText);
         this.reportQueue();
       });

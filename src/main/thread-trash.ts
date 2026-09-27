@@ -9,6 +9,8 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 export const DEFAULT_TRASH_RETENTION_MS = 30 * DAY_MS;
 /** The purge timer never sleeps longer than this, so a changed clock is noticed. */
 const MAX_PURGE_WAIT_MS = 60 * 60_000;
+/** A due purge another process refused waits this long before it tries again. */
+const REFUSED_PURGE_RETRY_MS = MAX_PURGE_WAIT_MS;
 
 /** A deleted thread the host can still put back. */
 export interface TrashedThread {
@@ -39,6 +41,11 @@ export interface ThreadTrashPort {
   } | undefined;
   threadDeleted(sessionId: string, cwd: string): Promise<void>;
   log(label: string, detail?: string): void;
+  /**
+   * Runs `work` while this host holds the Pi session at `path`, and refuses
+   * (throws) while another process does. Without it nothing is locked.
+   */
+  holdSession?<T>(path: string, action: "delete" | "restore", work: () => Promise<T>): Promise<T>;
 }
 
 export interface ThreadTrashOptions {
@@ -155,7 +162,7 @@ export class ThreadTrash {
       if (thread.backendKind === "pi") {
         entry.originalPath = thread.path;
         entry.file = basename(thread.path);
-        await moveFile(thread.path, join(folder, entry.file));
+        await this.hold(thread.path, "delete", () => moveFile(thread.path, join(folder, entry.file!)));
       } else {
         const backend = this.port.backend(thread.backendKind);
         if (!backend?.removeThread || !backend.restoreThread) throw new Error(`${backend?.label ?? thread.backendKind} threads cannot be deleted from Tau yet.`);
@@ -184,8 +191,11 @@ export class ThreadTrash {
       if (!entry) throw new Error("This thread is no longer in the trash.");
       const folder = this.folder(sessionId);
       if (entry.file && entry.originalPath) {
-        if (await exists(entry.originalPath)) throw new Error("A session file already sits where this thread was; it was not restored.");
-        await moveFile(join(folder, entry.file), entry.originalPath);
+        const target = entry.originalPath;
+        await this.hold(target, "restore", async () => {
+          if (await exists(target)) throw new Error("A session file already sits where this thread was; it was not restored.");
+          await moveFile(join(folder, entry.file!), target);
+        });
       } else if (entry.shell) {
         const backend = this.port.backend(entry.backendKind);
         if (!backend?.restoreThread) throw new Error(`Turn ${entry.backendKind} on to restore this thread.`);
@@ -200,18 +210,27 @@ export class ThreadTrash {
     });
   }
 
-  /** Removes a thread for good and tells the hooks; nothing outside the trash is touched. */
+  /**
+   * Removes a thread for good and tells the hooks; nothing outside the trash is
+   * touched. Refused while another process holds a session at the thread's old
+   * place: the hooks drop what kits keep for that session id.
+   */
   purge(sessionId: string): Promise<void> {
     return this.serial(async () => {
       await this.load();
       const entry = this.entries.get(sessionId);
       if (!entry) return;
-      this.entries.delete(sessionId);
-      await this.save();
-      await rm(this.folder(sessionId), { recursive: true, force: true });
-      this.port.log("thread.purged", sessionId.slice(0, 8));
-      try { await this.port.threadDeleted(sessionId, entry.cwd); }
-      catch (error) { this.port.log("thread.deleted.failed", error instanceof Error ? error.message : String(error)); }
+      const purge = async () => {
+        this.entries.delete(sessionId);
+        await this.save();
+        await rm(this.folder(sessionId), { recursive: true, force: true });
+        this.port.log("thread.purged", sessionId.slice(0, 8));
+        try { await this.port.threadDeleted(sessionId, entry.cwd); }
+        catch (error) { this.port.log("thread.deleted.failed", error instanceof Error ? error.message : String(error)); }
+      };
+      // Taking a lock creates its folder; a folder that is gone holds no session.
+      if (entry.originalPath && await exists(dirname(entry.originalPath))) await this.hold(entry.originalPath, "delete", purge);
+      else await purge();
       this.arm();
     });
   }
@@ -221,9 +240,16 @@ export class ThreadTrash {
     await this.load();
     const now = this.now();
     for (const entry of [...this.entries.values()]) {
-      // One at a time: each purge runs every hook.
-      // oxlint-disable-next-line no-await-in-loop
-      if (entry.purgeAt <= now) await this.purge(entry.sessionId);
+      if (entry.purgeAt > now) continue;
+      try {
+        // One at a time: each purge runs every hook.
+        // oxlint-disable-next-line no-await-in-loop
+        await this.purge(entry.sessionId);
+      } catch (error) {
+        this.port.log("thread.purge.refused", `${entry.sessionId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
+        // oxlint-disable-next-line no-await-in-loop
+        await this.postpone(entry.sessionId, now + REFUSED_PURGE_RETRY_MS);
+      }
     }
     this.arm();
   }
@@ -245,6 +271,19 @@ export class ThreadTrash {
     const next = Math.min(...[...this.entries.values()].map((entry) => entry.purgeAt));
     this.timer = setTimeout(() => this.start(), Math.min(MAX_PURGE_WAIT_MS, Math.max(0, next - this.now())));
     this.timer.unref?.();
+  }
+
+  private postpone(sessionId: string, purgeAt: number): Promise<void> {
+    return this.serial(async () => {
+      const entry = this.entries.get(sessionId);
+      if (!entry) return;
+      entry.purgeAt = purgeAt;
+      await this.save();
+    });
+  }
+
+  private hold<T>(path: string, action: "delete" | "restore", work: () => Promise<T>): Promise<T> {
+    return this.port.holdSession ? this.port.holdSession(path, action, work) : work();
   }
 
   private folder(sessionId: string): string {

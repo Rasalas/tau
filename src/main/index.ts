@@ -55,6 +55,7 @@ import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnectio
 import { machineDisplayName } from "./host-discovery.js";
 import { installEnvironmentSession } from "./environment-session.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
+import { exposePiSessionLockExtension } from "./pi-session-lock-extension.js";
 import type { ProcessLock } from "./process-lock.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -871,6 +872,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   }
   // Not before: the host in this process may still be writing on its way out.
   process.once("exit", () => inProcessFolderLock?.release());
+  if (inProcessHost) exposePiSessionLockExtension();
   installTransport();
   if (inProcessHost) startLocalHost();
   await createWindow();

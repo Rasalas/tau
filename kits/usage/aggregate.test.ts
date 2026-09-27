@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPrices, summarize, type UsageScan } from "./aggregate.js";
+import { applyPrices, dayIndex, priceEntries, summarize, type UsageScan } from "./aggregate.js";
 import type { PiSessionUsage, PiUsageRecord } from "./pi-sessions.js";
 import { BACKEND_USAGE_SOURCES } from "./protocol.js";
 
@@ -130,5 +130,33 @@ describe("summarize", () => {
     expect(priced.rows[0]).toMatchObject({ model: "openai/gpt-5.6-luna", billing: "subscription", apiValueUsd: 2, priceSource: "api" });
     expect(priced.totals.costUsd).toBe(priced.rows.length - 1);
     expect(priced.totals.subscription.apiValueUsd).toBe(2);
+  });
+});
+
+describe("entries by day", () => {
+  it("splits the period by the client's days and each thread, dropping what came before them", () => {
+    const days = [NOW - 4 * DAY, NOW - 3 * DAY, NOW - 2 * DAY, NOW - DAY];
+    const summary = summarize(scan(), { since: days[0], days });
+    const entries = summary.entries ?? [];
+    // a2 on day 1 (the fork's copy is not counted again), f1 and b1 on day 3, the backend total on day 3.
+    expect(entries.map((entry) => [entry.day, entry.backend, entry.threadId, entry.totalTokens]).sort()).toEqual([
+      [1, "pi", "old", 100],
+      [3, "claude-code", "c-recent", 44],
+      [3, "pi", "beta", 1_000],
+      [3, "pi", "fork", 50],
+    ].sort());
+    expect(entries.reduce((sum, entry) => sum + entry.totalTokens, 0)).toBe(summary.totals.totalTokens);
+    expect(summarize(scan(), { since: days[0] }).entries).toBeUndefined();
+  });
+
+  it("finds the day a moment falls on", () => {
+    expect(dayIndex([10, 20, 30], 5)).toBe(-1);
+    expect(dayIndex([10, 20, 30], 20)).toBe(1);
+    expect(dayIndex([10, 20, 30], 99)).toBe(2);
+  });
+
+  it("prices a subscription's entry as its value", () => {
+    const [entry] = priceEntries([{ day: 0, backend: "codex", threadId: "t", cwd: "/w", model: "m", billing: "subscription", requests: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0.5, apiValueUsd: 0 }], []);
+    expect(entry).toMatchObject({ costUsd: 0, apiValueUsd: 0.5, billing: "subscription" });
   });
 });

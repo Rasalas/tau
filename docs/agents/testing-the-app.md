@@ -246,7 +246,7 @@ docker rm -f tau-test-sftp tau-test-openssh
 
 The whole flow, once over SSH and once over FTPS, in one instance. Check `uptime` first, keep every file under `.tau-dev/`, and test prompts on GPT-5.6 Luna only.
 
-1. **Fakes and a site.** `env -u ELECTRON_RUN_AS_NODE npm run dev:instance -- --build --fresh` in the background, then the welcome wizard (see the test prompt recipe). Put a small site under `.tau-dev/servers/root/<site>/` with a test the agent can run locally (a `test.mjs` that checks the pages will do), and `git init` it there, so the server's Git is its own and not this worktree's. Start the SSH fake with `--trust-host-key --sandbox`: a real model sends commands through `server_exec`.
+1. **Fakes and a site.** `env -u ELECTRON_RUN_AS_NODE npm run dev:instance -- --build --fresh` in the background. Put a small site under `.tau-dev/servers/root/<site>/` with a test the agent can run locally (a `test.mjs` that checks the pages will do), and `git init` it there, so the server's Git is its own and not this worktree's. Start the SSH fake with `--trust-host-key --sandbox`: a real model sends commands through `server_exec`.
 2. **Project from the server.** Add project → From a server… → `fake` → Connect → the site → Use this folder → Create project. Parent folder starts at `.tau-dev/projects` (`TAU_SERVERS_PROJECTS_ROOT`), and the host refuses one outside it. The new repository has one commit, "Server state …", and a clean `git status`.
 3. **A colleague.** Change a file and add one on the server: `ssh -F .tau-dev/servers/ssh_config fake "cd <root>/<site> && …"`. Then open a new thread in the project: the draft checks the server again, and the first prompt stops at "The server has changes the repository lacks". Import as branch, then Merge into main; the prompt goes on after that.
 4. **The agent works locally.** Pick GPT-5.6 Luna, ask it to change a page and run the test. Its `bash` runs in the network sandbox; the session file names `gpt-5.6-luna`.
@@ -292,7 +292,7 @@ This is about not restarting between passes of the same task, not about leaving 
 
 `.agents/skills/test-tau-app/SKILL.md` has the commands, checked against the current picker. Three things make it more than "type and press Enter":
 
-- A `--fresh` instance opens the welcome wizard first (Continue, "Do not add projects", "Do not import").
+- An instance starts past the welcome wizard: `dev:instance` writes Onboarding's "completed" mark into the instance's kit state. `--onboarding` removes it, for tests of the wizard (Continue, "Do not add projects", "Do not import").
 - The instance copies the user's Pi `settings.json`, so a new draft starts on the user's default model, which may be expensive. Pick the cheap model in the picker by its option's aria-label (`GPT-5.6 Luna, Pi, …`), and check the chip's label before sending.
 - Proof that the turn ran on it is the session file under `.tau-dev/pi-sessions/`: a `model_change` to the cheap model before the user message, and the assistant message's `"model"`.
 
@@ -367,7 +367,7 @@ The phone uses Playwright's Chromium from `~/Library/Caches/ms-playwright` (`~/.
 
 ### The phone: pair, prompt, reconnect
 
-With an instance running (`env -u ELECTRON_RUN_AS_NODE npm run dev:instance -- --build --fresh`, in the background, welcome wizard done as in the test prompt recipe):
+With an instance running (`env -u ELECTRON_RUN_AS_NODE npm run dev:instance -- --build --fresh`, in the background):
 
 ```
 npm run cdp:mobile -- launch --fresh                     # iphone; --device ipad|iphone-landscape|ipad-landscape|android, --scheme light
@@ -411,7 +411,7 @@ npm run cdp:mobile -- wait-for "!document.querySelector('.host-connection-status
 
 The band "Reconnecting to the host…" must appear while the host is frozen (seen 1 to 11 s after the wake) and go within seconds once it thaws. `wake offline` / `wake online` emulate the network going away (Chromium keeps a loopback socket open while "offline", so combine it with `freeze-host` to see the Offline band), `wake foreground` fires `visibilitychange`. `freeze-host` signals only the pid in the instance's `host.json` (or the test host's), and only if its command line runs from this worktree.
 
-The phone's panels open as sheets from the title bar: `tap` the **Terminal** icon, **New terminal**, then `keyboard 320` to see the key bar (esc, ctrl, alt, tab, arrows, ^C) on the keyboard; the **Review** icon opens the review sheet.
+The phone's panels open as sheets from the title bar's **More** menu (a single panel keeps its own icon): `tap` **More**, then **Terminal** (`[role=menuitemcheckbox]`), **New terminal**, then `keyboard 320` to see the key bar (esc, ctrl, alt, tab, arrows, ^C) on the keyboard; **More** → **Review** opens the review sheet.
 
 ### The proxy listener behind a fake Tailscale Serve
 

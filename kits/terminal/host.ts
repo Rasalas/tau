@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { HostExecutionPolicy, HostExtension, HostExtensionContext } from "tau/host-extension";
 import {
   TERMINAL_DATA_EVENT,
@@ -18,6 +18,7 @@ import { defaultShell, shellArgs, shellAvailable } from "./shell.js";
 import { ghosttyFontDefaults } from "./ghostty-config.js";
 import { Scrollback } from "./retention.js";
 import { CwdTracker } from "./cwd.js";
+import { piShellEnvironment, writePiShellIntegration } from "./pi-session-lock.js";
 
 /**
  * The pty the host half drives, as a shape. `node-pty` arrives through the
@@ -104,6 +105,8 @@ export class TerminalSessions {
     private readonly emit: (name: string, payload?: unknown, options?: { topic?: string }) => void,
     /** This machine's name, which a shell's directory report must carry to count. */
     private readonly machine: string = hostname(),
+    /** Variables a shell of this kind starts with on top of the host's own. */
+    private readonly shellEnvironment: (shell: string) => Record<string, string> = () => ({}),
   ) {}
 
   list(): UiTerminalSession[] {
@@ -121,7 +124,7 @@ export class TerminalSessions {
       file,
       args: shellArgs(file),
       cwd: input.cwd,
-      env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+      env: { ...process.env, ...this.shellEnvironment(file), TERM: "xterm-256color" } as Record<string, string>,
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
     });
@@ -399,10 +402,20 @@ export function createTerminalHostExtension(
         return factory;
       };
       let resolved: PtyFactory | undefined;
+      // `pi` in these shells takes the host's session locks; the startup files it needs live in the kit's folder.
+      const stateDir = context.services.stateDir as string | undefined;
+      const integration = stateDir ? join(stateDir, "shell-integration") : undefined;
+      let integrationReady: boolean | undefined;
       const sessions = new TerminalSessions((options) => {
         if (!resolved) throw new Error(NO_PTY);
         return resolved(options);
-      }, context.emit);
+      }, context.emit, hostname(), (shell) => {
+        if (!integration) return {};
+        const additions = piShellEnvironment(shell, process.env, integration);
+        if (Object.keys(additions).length === 0) return additions;
+        integrationReady ??= writePiShellIntegration(integration);
+        return integrationReady ? additions : {};
+      });
 
       const open = async (input: Record<string, unknown>): Promise<UiTerminalSession> => {
         resolved = await ptyFactory();

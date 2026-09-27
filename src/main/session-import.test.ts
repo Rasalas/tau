@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { importSessionFile, rewriteImportedSession } from "./session-import.js";
+import { SessionLocks } from "./session-locks.js";
 import { ORIGIN_ENTRY, PARENT_LINK_ENTRY, parentLinkEntry, readSessionLineage } from "./session-lineage.js";
 
 const SOURCE_CWD = "/Users/a/work/project";
@@ -146,5 +147,31 @@ describe("writing an imported session", () => {
     await expect(importSessionFile({ cwd, jsonl: `${header({ version: 2 })}\n`, origin }, { sessionsDir }))
       .rejects.toThrow(/format 2/);
     await expect(readdir(sessionsDir)).rejects.toThrow();
+  });
+
+  it("writes while this host holds the new session, and nothing while another process does", async () => {
+    const jsonl = `${[header(), user("u1", null, "Hi")].join("\n")}\n`;
+    const held: string[] = [];
+    const imported = await importSessionFile({ cwd, jsonl, origin }, {
+      sessionsDir,
+      holdSession: async (path, work) => {
+        held.push(path);
+        await expect(readFile(path, "utf8")).rejects.toThrow();
+        return work();
+      },
+    });
+    expect(held).toEqual([imported.path]);
+
+    const other = new SessionLocks({ dataFolder: "/data/other" });
+    const refusal = importSessionFile({ cwd, jsonl, origin }, {
+      sessionsDir,
+      holdSession: async (path, work) => {
+        await other.acquire(path);
+        return new SessionLocks().hold(path, "import", work);
+      },
+    });
+    await expect(refusal).rejects.toThrow(/open in another Tau host \(pid \d+, data folder \/data\/other\); nothing was imported/u);
+    other.releaseAll();
+    expect(await readdir(sessionsDir)).toEqual([imported.path.slice(sessionsDir.length + 1)]);
   });
 });

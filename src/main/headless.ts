@@ -55,6 +55,7 @@ import { HostBlobStore } from "./host-blobs.js";
 import { HOST_SERVICE_ENV, leaveDesktopSession } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor, type HostProcessDescriptor } from "./host-process-supervisor.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
+import { exposePiSessionLockExtension } from "./pi-session-lock-extension.js";
 import type { ProcessLock } from "./process-lock.js";
 import { appPackageVersion } from "./packaged-app.js";
 
@@ -195,6 +196,7 @@ const unsupported = (what: string) => () => { throw new Error(`${what} needs a d
 async function main(): Promise<void> {
   const previous = serviceKind ? await retirePrevious() : undefined;
   const folderLock = await claimOrLeave();
+  exposePiSessionLockExtension();
   await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   await projectHistory.load();

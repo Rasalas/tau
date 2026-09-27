@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, Download, Ellipsis, GitCommitHorizontal, TerminalSquare, Upload } from "lucide-react";
+import { ChevronDown, Download, Ellipsis, GitCommitHorizontal, Upload } from "lucide-react";
 import { Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
@@ -8,9 +8,10 @@ import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 import { titleCollapse, useTitleCollapse, type TitleCollapse } from "./title-collapse.js";
 
 /**
- * The title-bar controls Workspace Kit owns: project actions, "Open in"
- * (editors, then external terminals), and the Git quick action. Core's title
- * bar only lends the place; the row collapses itself to the room it gets.
+ * The title-bar controls Workspace Kit owns: project actions, "Open in",
+ * and the Git quick action. Core's title bar only lends the place; the row
+ * collapses itself to the room it gets. The external terminal has no place
+ * here: the terminal opens in the app, the external one on mod+alt+j.
  */
 export function WorkspaceTitleActions(props: RegionProps) {
   const row = useRef<HTMLDivElement>(null);
@@ -19,7 +20,6 @@ export function WorkspaceTitleActions(props: RegionProps) {
 }
 
 const EDITOR_PREFIX = "editor:";
-const TERMINAL_PREFIX = "terminal:";
 
 export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
   const workspaceStore = useWorkspaceStore();
@@ -33,7 +33,6 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
   const [moreMenu, setMoreMenu] = useState(false);
   const projectActions = useProjectActions(state.workspaceId ?? state.cwd, (command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name));
   const activeEditor = workspaceStore.activeEditor();
-  const activeTerminal = workspaceStore.activeTerminal();
   const gitAction = useMemo(
     () => resolveGitQuickAction(state.changes, state.workspace, state.committing),
     [state.changes, state.committing, state.workspace],
@@ -48,7 +47,7 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
 
   // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
   const showActions = !readOnly;
-  const showOpen = localFiles && (state.editors.length > 0 || state.terminals.length > 0);
+  const showOpen = localFiles;
   const openSections: MenuSection[] = [
     ...(state.editors.length > 0 ? [{
       heading: "Open in",
@@ -59,25 +58,12 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
         icon: <EditorIcon editorId={editor.id} className="menu-editor-icon" />,
       })),
     }] : []),
-    ...(state.terminals.length > 0 ? [{
-      heading: "Terminal",
-      items: state.terminals.map((terminal) => ({
-        id: `${TERMINAL_PREFIX}${terminal.id}`,
-        label: terminal.name,
-        selected: terminal.id === activeTerminal?.id,
-        icon: <TerminalSquare size={13} />,
-      })),
-    }] : []),
   ];
   const pickOpen = (id: string) => {
     if (id.startsWith(EDITOR_PREFIX)) {
       const editor = id.slice(EDITOR_PREFIX.length);
       workspaceStore.chooseEditor(editor);
       void workspaceStore.openInEditor(undefined, editor);
-    } else if (id.startsWith(TERMINAL_PREFIX)) {
-      const terminal = id.slice(TERMINAL_PREFIX.length);
-      workspaceStore.chooseTerminal(terminal);
-      void workspaceStore.openTerminal(terminal);
     }
   };
   const moreSections: MenuSection[] = [
@@ -105,6 +91,7 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
           <button
             className="chrome-button split-trigger"
             aria-label="Choose editor"
+            disabled={state.editors.length === 0}
             onClick={() => setOpenMenu(true)}
           >
             <ChevronDown size={13} />

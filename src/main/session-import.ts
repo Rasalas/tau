@@ -175,7 +175,13 @@ export interface ImportedSession {
  */
 export async function importSessionFile(
   request: SessionImportRequest,
-  options: { sessionsDir: string | undefined; limits?: SessionImportLimits; now?: () => Date },
+  options: {
+    sessionsDir: string | undefined;
+    limits?: SessionImportLimits;
+    now?: () => Date;
+    /** Writes while this host holds the new session's lock; refuses while another process does. */
+    holdSession?: <T>(path: string, work: () => Promise<T>) => Promise<T>;
+  },
 ): Promise<ImportedSession> {
   if (typeof request.cwd !== "string" || !isAbsolute(request.cwd)) refuse("the project folder must be an absolute path.");
   const cwd = resolve(request.cwd);
@@ -196,12 +202,17 @@ export async function importSessionFile(
   const directory = SessionManager.create(cwd, options.sessionsDir, { id: sessionId }).getSessionDir();
   const path = join(directory, `${timestamp.replace(/[:.]/g, "-")}_${sessionId}.jsonl`);
   const partial = `${path}.importing`;
-  try {
-    await writeFile(partial, text, { flag: "wx" });
-    await rename(partial, path);
-  } catch (error) {
-    await rm(partial, { force: true });
-    throw error;
-  }
+  const write = async () => {
+    // Never over a session somebody has: the rename below would replace it.
+    if (existsSync(path)) refuse(`a session already sits at ${path}.`);
+    try {
+      await writeFile(partial, text, { flag: "wx" });
+      await rename(partial, path);
+    } catch (error) {
+      await rm(partial, { force: true });
+      throw error;
+    }
+  };
+  await (options.holdSession ? options.holdSession(path, write) : write());
   return { sessionId, path, cwd };
 }

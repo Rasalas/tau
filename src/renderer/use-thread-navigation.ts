@@ -36,6 +36,8 @@ export interface ThreadNavigationPorts {
   activeDraftKey(): DraftKey | undefined;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   closeNewThreadPicker(): void;
+  /** A thread was asked for, the one on screen too: its chat comes to the front. */
+  showThread(): void;
 }
 
 /**
@@ -50,7 +52,7 @@ export interface ThreadNavigationPorts {
 export function useThreadNavigation(ports: ThreadNavigationPorts) {
   const {
     activeDraftKey, client, closeNewThreadPicker, composerRef, detachPendingDelivery,
-    history, newThread, requireHost, scopes, storage, threads, view, workbench, stage, setStage,
+    history, newThread, requireHost, scopes, showThread, storage, threads, view, workbench, stage, setStage,
   } = ports;
   const { applyActionResult, applySnapshot, applyHostResult } = workbench;
   const notify = view.setNotice;
@@ -125,6 +127,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
+    showThread();
     const target = threads.getSnapshot().threads.find((session) => session.path === path);
     detachPendingDelivery();
     newThread.invalidate();
@@ -154,7 +157,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     } finally {
       releaseTarget?.();
     }
-  }, [applyActionResult, applySnapshot, client, detachPendingDelivery, history, newThread, notify, requireHost, storage, threads, view]);
+  }, [applyActionResult, applySnapshot, client, detachPendingDelivery, history, newThread, notify, requireHost, showThread, storage, threads, view]);
 
   /** The one way out of a read-only thread tab: make it the thread on screen. */
   const takeOverThread = useCallback((sessionId: string) => {

@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ClientTurnIdentity, NewThreadRequestId, UiPromptAttachment } from "../../src/shared/contracts.js";
 import { ClientTurnLedgerStore, type ClientTurnLedgerObservation } from "../../src/shared/client-turn-ledger.js";
 import { clientIdentityMatches, hasExplicitClientIdentity, resolveClientTurnIdentity } from "../../src/shared/transcript-turn.js";
@@ -25,6 +25,7 @@ import { PI_RUNTIME_ADAPTER, prepareSkillPrompt, skillInvocationCommand, skillMe
 import type { UiSkillDraft } from "../../src/shared/contracts.js";
 import { validatePreparedPrompt } from "../../src/shared/prepared-prompt.js";
 import { tauOwnsRuntime } from "../../src/main/tau-runtime-owner.js";
+import { readSessionFile } from "../../src/main/session-read.js";
 import { promptImages } from "../../src/main/prompt-attachments.js";
 import {
   loadPiKitExtensions,
@@ -1350,7 +1351,8 @@ export default function tauSessionBridge(pi: ExtensionAPI, options: TauSessionBr
     }),
     openSession: (file) => {
       try {
-        const manager = SessionManager.open(file);
+        // In memory: Pi's open could repair a file another process is writing.
+        const manager = readSessionFile(file);
         return { sessionId: manager.getSessionId(), cwd: manager.getCwd(), entries: manager.getBranch() };
       } catch {
         return undefined;

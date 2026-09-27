@@ -1,11 +1,15 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { bundleHostExtension, writeHostExtensionBundle } from "./extension-packages.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
+import { setProcessMemoryLimit } from "./worker-memory-cap.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions } from "./host-extensions.js";
 
 /**
@@ -15,6 +19,7 @@ import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, 
  */
 
 const FIXTURE = `
+const MB = 1024 * 1024;
 export default {
   id: "acme.worker",
   name: "Worker Package",
@@ -47,6 +52,30 @@ export default {
     };
     context.registerCommand("eat-buffers", eatBuffers);
     context.registerCommand("eat-buffers-later", () => { setTimeout(eatBuffers, 100); });
+    // Memory no V8 statistic counts everywhere; each stops by itself too.
+    context.registerCommand("eat-wasm", () => {
+      const memory = new WebAssembly.Memory({ initial: 0, maximum: 768 * 16 });
+      while (memory.buffer.byteLength < 768 * MB) {
+        memory.grow(64);
+        new Uint8Array(memory.buffer, memory.buffer.byteLength - 4 * MB).fill(1);
+      }
+      return memory.buffer.byteLength / MB;
+    });
+    context.registerCommand("eat-shared", () => {
+      const held = [];
+      while (held.length < 192) held.push(new Uint8Array(new SharedArrayBuffer(4 * MB)).fill(held.length % 255 + 1));
+      return held.length * 4;
+    });
+    context.registerCommand("eat-native", () => {
+      // SQLite's pages are a native library's malloc, as an addon's would be; ~1.3 bytes per blob byte.
+      const { DatabaseSync } = require("node:sqlite");
+      const db = new DatabaseSync(":memory:");
+      db.exec("create table blobs (data blob)");
+      const insert = db.prepare("insert into blobs values (?)");
+      const blob = new Uint8Array(4 * MB).fill(7);
+      for (let index = 0; index < 128; index++) insert.run(blob);
+      return 128 * 4;
+    });
     context.registerCommand("facade", async () => {
       const inside = await services.sessions.exclusive(async () => (await services.thread())?.sessionId ?? "none");
       await services.pinTranscriptEntries({ "session-1": ["entry-1"] });
@@ -114,6 +143,49 @@ export default {
   },
 };
 `;
+
+/**
+ * Every way to compiled code, and the doors around the other grants a worker
+ * used to leave open. __ADDON__ becomes an addon the bundle loads at its top,
+ * like a package that ships one beside its code, or null.
+ */
+const NATIVE_FIXTURE = `
+const Module = require("node:module");
+const ADDON = __ADDON__;
+const addon = ADDON ? require(String(ADDON)) : undefined;
+const keys = (exports) => Object.keys(exports).sort();
+export default {
+  id: "acme.native",
+  name: "Native Package",
+  activate(context) {
+    context.registerCommand("addon", () => keys(addon));
+    context.registerCommand("require", (input) => keys(require(String(input.path))));
+    context.registerCommand("dlopen", (input) => { const module = { exports: {} }; process.dlopen(module, input.path); return keys(module.exports); });
+    context.registerCommand("extension-handler", (input) => { const module = { exports: {} }; Module._extensions[".node"](module, input.path); return keys(module.exports); });
+    context.registerCommand("import", async (input) => keys(await import(input.url)));
+    context.registerCommand("sqlite-extension", (input) => {
+      const { DatabaseSync } = require("node:sqlite");
+      new DatabaseSync(":memory:", { allowExtension: true }).loadExtension(input.path);
+      return "loaded";
+    });
+    context.registerCommand("binding", () => typeof process.binding("spawn_sync").spawn);
+    context.registerCommand("linked-binding", () => typeof process._linkedBinding("electron_common_v8_util"));
+    context.registerCommand("import-v8-flags", async () => { (await import("node:v8")).setFlagsFromString("--allow-natives-syntax"); return "set"; });
+    context.registerCommand("v8-flags", () => { require("node:v8").setFlagsFromString("--allow-natives-syntax"); return "set"; });
+    context.registerCommand("builtin-spawn", () => typeof process.getBuiltinModule("node:child_process").spawn);
+    context.registerCommand("builtin-http", () => typeof process.getBuiltinModule("http").request);
+    context.registerCommand("cluster", () => typeof require("node:cluster").fork);
+    context.registerCommand("node-test", () => typeof require("node:test").run);
+    context.registerCommand("inspector", () => typeof require("node:inspector").open);
+  },
+};
+`;
+
+/** An N-API addon every checkout has: node-pty's, built or prebuilt for this machine. */
+function existingAddon(): string | undefined {
+  const root = dirname(createRequire(import.meta.url).resolve("node-pty/package.json"));
+  return [join(root, "build", "Release", "pty.node"), join(root, "prebuilds", `${process.platform}-${process.arch}`, "pty.node")].find((path) => existsSync(path));
+}
 
 interface Recorder {
   logs: string[];
@@ -223,6 +295,9 @@ let bundle: string;
 let electronBundle: string;
 let networkBundle: string;
 let processBundle: string;
+let nativeBundle: string;
+let nativeKitBundle: string | undefined;
+const addon = existingAddon();
 
 beforeAll(async () => {
   scratch = await mkdtemp(join(tmpdir(), "tau-worker-package-"));
@@ -247,6 +322,12 @@ beforeAll(async () => {
     { id: "acme.process", name: "Process Package" },
     scratch,
   );
+  const native = async (name: string, path: string | undefined): Promise<string> => {
+    await writeFile(join(scratch, name), NATIVE_FIXTURE.replace("__ADDON__", JSON.stringify(path ?? null)));
+    return writeHostExtensionBundle(await bundleHostExtension(join(scratch, name)), { id: "acme.native", name: "Native Package" }, scratch);
+  };
+  nativeBundle = await native("native-host.ts", undefined);
+  if (addon) nativeKitBundle = await native("native-kit-host.ts", addon);
 }, 60_000);
 
 afterAll(async () => { await rm(scratch, { recursive: true, force: true }); });
@@ -486,6 +567,96 @@ describe("isolated host extensions", () => {
     }
   }, 40_000);
 
+  describe("the host process's memory limit", () => {
+    const MB = 1024 * 1024;
+
+    /** The growth a limit message reports; every fixture stops by itself at 768 MB or less. */
+    function grownMegabytes(error: string | undefined): number {
+      const match = /stopped at the host's memory limit: it grew the host process by about (\d+) MB/u.exec(error ?? "");
+      if (!match) throw new Error(`not a memory limit error: ${error}`);
+      return Number(match[1]);
+    }
+
+    /**
+     * The process is past its limit from the start; what decides is whose growth
+     * it was. A limit above the process's size would move with memory earlier
+     * tests give back late.
+     */
+    function pastLimit(): void {
+      setProcessMemoryLimit({ limitBytes: 1, minGrowthBytes: 192 * MB });
+    }
+
+    /** Until the resident size stops moving; macOS takes back what earlier tests freed in large steps. */
+    async function quiet(): Promise<void> {
+      let last = process.memoryUsage.rss();
+      for (let round = 0; round < 20; round++) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const now = process.memoryUsage.rss();
+        if (Math.abs(now - last) < 16 * MB) return;
+        last = now;
+      }
+    }
+
+    async function eater() {
+      await quiet();
+      const eating = harness({ resourceLimits: { maxExternalMb: 4096 }, commandTimeoutMs: 20_000 });
+      await eating.registry.activate(eating.extension);
+      await quiet();
+      return eating;
+    }
+
+    afterAll(() => { setProcessMemoryLimit(); });
+
+    it("leaves packages alone when the host itself grows past it", async () => {
+      await quiet();
+      const { registry, extension } = harness();
+      await registry.activate(extension);
+      await quiet();
+      try {
+        pastLimit();
+        const held = Array.from({ length: 64 }, (_, index) => Buffer.alloc(4 * MB, index + 1));
+        // A second of ticks past the limit while only the host grew.
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(held).toHaveLength(64);
+        expect(registry.summaries()[0]?.error).toBeUndefined();
+        await expect(registry.invoke("acme.worker", "hello")).resolves.toMatchObject({ cwd: "/project" });
+      } finally {
+        setProcessMemoryLimit();
+        await registry.dispose();
+      }
+    }, 40_000);
+
+    it("stops the package that grew, not an idle one beside it", async () => {
+      const idle = harness({ id: "acme.idle", name: "Idle Package" });
+      await idle.registry.activate(idle.extension);
+      const eating = await eater();
+      try {
+        pastLimit();
+        await expect(eating.registry.invoke("acme.worker", "eat-wasm")).rejects.toThrow(/stopped at the host's memory limit/u);
+        expect(idle.registry.isActive("acme.idle")).toBe(true);
+      } finally {
+        setProcessMemoryLimit();
+        await idle.registry.dispose();
+        await eating.registry.dispose();
+      }
+    }, 40_000);
+
+    // The buffer cap stays out of the way: Node 22 counts WebAssembly memory as buffers, Electron's Node does not.
+    // Native last: SQLite keeps what it had in its allocator, which hides the next package's growth from the resident size.
+    it.each(["eat-wasm", "eat-shared", "eat-native"])("stops the package that grew the process past it (%s)", async (command) => {
+      const { registry } = await eater();
+      try {
+        pastLimit();
+        await expect(registry.invoke("acme.worker", command)).rejects.toThrow(/stopped at the host's memory limit/u);
+        await until(() => !registry.isActive("acme.worker"));
+        expect(grownMegabytes(registry.summaries()[0]?.error)).toBeLessThan(768);
+      } finally {
+        setProcessMemoryLimit();
+        await registry.dispose();
+      }
+    }, 40_000);
+  });
+
   const spawner = (permissions: string[]) => harness({ permissions, id: "acme.process", name: "Process Package", file: processBundle });
 
   describe("the network permission", () => {
@@ -572,23 +743,96 @@ describe("isolated host extensions", () => {
       }
     }, 30_000);
 
-    it("refuses a nested worker, which would run outside both guards", async () => {
-      const { registry, extension } = spawner(["process"]);
-      await registry.activate(extension);
-      try {
-        await expect(registry.invoke("acme.process", "nested-worker")).rejects.toThrow(/may not start a worker thread/u);
-      } finally {
-        await registry.dispose();
+    it("refuses a nested worker, which would run outside the guards", async () => {
+      for (const permissions of [["process"], ["process", "network"]]) {
+        const { registry, extension } = spawner(permissions);
+        await registry.activate(extension);
+        try {
+          await expect(registry.invoke("acme.process", "nested-worker")).rejects.toThrow(/may not start a worker thread/u);
+        } finally {
+          await registry.dispose();
+        }
       }
     }, 30_000);
 
     it("lets a granted package spawn, and start a worker once nothing is left to escape", async () => {
-      const { registry, extension, recorder } = spawner(["process", "network"]);
+      const { registry, extension, recorder } = spawner(["process", "network", "native"]);
       await registry.activate(extension);
       try {
         await expect(registry.invoke("acme.process", "run")).resolves.toBe("ran");
         await expect(registry.invoke("acme.process", "nested-worker")).resolves.toBe("function");
         expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toEqual([]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+  });
+
+  describe("the native permission", () => {
+    const native = (permissions: string[], file = nativeBundle) => harness({ permissions, id: "acme.native", name: "Native Package", file });
+    const denied = (recorder: Recorder) => recorder.logs.filter((line) => line.startsWith("host-extension.denied"));
+
+    it.skipIf(!addon)("keeps a package that loads an addon at its top from starting, and says why", async () => {
+      const { registry, extension } = native(["sessions"], nativeKitBundle);
+      await expect(registry.activate(extension)).resolves.toBe(false);
+      expect(registry.summaries()[0]?.error).toBe("Native Package: Extension acme.native lacks permission native");
+      expect(registry.isActive("acme.native")).toBe(false);
+    }, 30_000);
+
+    it.skipIf(!addon)("starts the same package once it has the grant", async () => {
+      const { registry, extension, recorder } = native(["native"], nativeKitBundle);
+      await expect(registry.activate(extension)).resolves.toBe(true);
+      try {
+        const exports = await registry.invoke("acme.native", "addon") as string[];
+        expect(exports.length).toBeGreaterThan(0);
+        await expect(registry.invoke("acme.native", "dlopen", { path: addon })).resolves.toEqual(exports);
+        await expect(registry.invoke("acme.native", "extension-handler", { path: addon })).resolves.toEqual(exports);
+        expect(denied(recorder)).toEqual([]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("refuses every way to compiled code without it, and logs each", async () => {
+      // Refused before anything opens it, so any file with the extension will do.
+      // The real path, as require reports what it resolved.
+      const path = join(await realpath(scratch), "addon.node");
+      await writeFile(path, "not a library");
+      const { registry, extension, recorder } = native(["process", "network"]);
+      await registry.activate(extension);
+      try {
+        const calls: Array<[string, unknown, string]> = [
+          ["require", { path }, `require("${path}")`],
+          ["dlopen", { path }, `process.dlopen("${path}")`],
+          ["extension-handler", { path }, `require("${path}")`],
+          ["import", { url: pathToFileURL(path).href }, `import ${pathToFileURL(path).href}`],
+          ["sqlite-extension", { path }, `DatabaseSync.loadExtension("${path}")`],
+          ["binding", undefined, 'process.binding("spawn_sync")'],
+          ["linked-binding", undefined, 'process._linkedBinding("electron_common_v8_util")'],
+          // Before the require, so the import is what loads the module.
+          ["import-v8-flags", undefined, "v8.setFlagsFromString"],
+          ["v8-flags", undefined, "v8.setFlagsFromString"],
+        ];
+        for (const [command, input] of calls) {
+          await expect(registry.invoke("acme.native", command, input)).rejects.toThrow("Extension acme.native lacks permission native");
+        }
+        expect(registry.isActive("acme.native")).toBe(true);
+        expect(denied(recorder)).toEqual(calls.map(([, , what]) => `host-extension.denied Extension acme.native lacks permission native (${what})`));
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("does not stand in for the other grants", async () => {
+      const { registry, extension } = native(["native"]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.native", "builtin-spawn")).rejects.toThrow("lacks permission process");
+        await expect(registry.invoke("acme.native", "builtin-http")).rejects.toThrow("lacks permission network");
+        await expect(registry.invoke("acme.native", "cluster")).rejects.toThrow("lacks permission process");
+        await expect(registry.invoke("acme.native", "node-test")).rejects.toThrow("lacks permission process");
+        await expect(registry.invoke("acme.native", "inspector")).rejects.toThrow("lacks permission network");
+        await expect(registry.invoke("acme.native", "binding")).resolves.toBe("function");
       } finally {
         await registry.dispose();
       }

@@ -61,24 +61,24 @@ export function newestTurnVisible(messageRow, turns, tag) {
 /**
  * Resolves in the page once an older page has landed: after the reader jumped
  * to the top of the loaded rows (`jump`), or after a wheel notch the caller
- * sends. Where nothing loads on its own it clicks "Load older turns". Samples,
+ * sends. Where nothing loads on its own it wheels up once more at the top. Samples,
  * every frame until a second after the label went away, how far the row that
  * led the viewport just before the page landed has moved in the window; a
  * frame without that row counts as the viewport's height.
  */
 export const olderPageDrift = ({ jump }) => `new Promise((resolvePromise, rejectPromise) => {
   const scroller = document.getElementById("thread-transcript");
-  if (!scroller || !document.querySelector('[aria-label="Load older turns"], [aria-label="Loading older turns"]')) { rejectPromise(new Error("no transcript or no older turns")); return; }
+  if (!scroller || !document.querySelector("[data-older-turns]")) { rejectPromise(new Error("no transcript or no older turns")); return; }
   const viewportTop = () => scroller.getBoundingClientRect().top;
   const rows = () => [...scroller.querySelectorAll("[data-message-id]")];
-  // In the window: the history line above the scroller coming or going moves rows as well.
+  // In the window, so anything that moves the scroller itself counts too.
   const offset = (row) => row.getBoundingClientRect().top;
   const find = (id) => rows().find((row) => row.dataset.messageId === id);
   const startedAt = performance.now();
   let triggeredAt = startedAt;
   let reference;
   let landed = false;
-  let clicked = false;
+  let nudged = false;
   let loading = false;
   let loadedAt;
   let driftPx = 0;
@@ -86,7 +86,7 @@ export const olderPageDrift = ({ jump }) => `new Promise((resolvePromise, reject
   let frames = 0;
   const tick = () => {
     frames += 1;
-    const pending = Boolean(document.querySelector('[aria-label="Loading older turns"]'));
+    const pending = Boolean(document.querySelector('[data-older-turns="loading"]'));
     loading ||= pending;
     if (!landed && reference) {
       // A page can land within one frame, label and all: the reference row's index tells.
@@ -97,9 +97,10 @@ export const olderPageDrift = ({ jump }) => `new Promise((resolvePromise, reject
     if (!landed) {
       const lead = rows().find((row) => row.getBoundingClientRect().bottom > viewportTop());
       if (lead) reference = { id: lead.dataset.messageId, index: Number(lead.dataset.index), offset: offset(lead) };
-      if (!loading && !clicked && frames > 10) {
-        const button = document.querySelector('[aria-label="Load older turns"]');
-        if (button) { button.click(); clicked = true; triggeredAt = performance.now(); }
+      if (!loading && !nudged && frames > 10 && scroller.scrollTop <= 0) {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }));
+        nudged = true;
+        triggeredAt = performance.now();
       }
     }
     if (landed && reference) {
@@ -108,7 +109,7 @@ export const olderPageDrift = ({ jump }) => `new Promise((resolvePromise, reject
       driftPx = Math.max(driftPx, row ? Math.abs(offset(row) - reference.offset) : scroller.clientHeight);
     }
     if (loadedAt !== undefined && performance.now() - loadedAt > 1000) {
-      resolvePromise({ driftPx, lostFrames, frames, loadingMs: loadedAt - triggeredAt, clicked });
+      resolvePromise({ driftPx, lostFrames, frames, loadingMs: loadedAt - triggeredAt, nudged });
       return;
     }
     if (performance.now() - startedAt > 30000) { rejectPromise(new Error("older page did not load within 30 s")); return; }
@@ -128,7 +129,7 @@ export const LEAD_ROW = `(() => {
     top: lead?.getBoundingClientRect().top,
     scrollTop: scroller.scrollTop,
     height: scroller.clientHeight,
-    hasOlder: Boolean(document.querySelector('[aria-label="Load older turns"], [aria-label="Loading older turns"]')),
+    hasOlder: Boolean(document.querySelector("[data-older-turns]")),
     x: box.left + box.width / 2,
     y: box.top + box.height / 2,
   };
@@ -159,7 +160,7 @@ export function notchSettled(id, top, expected) {
       const current = row.getBoundingClientRect().top;
       outsidePx = Math.max(outsidePx, low - current, current - high);
     }
-    const loading = Boolean(document.querySelector('[aria-label="Loading older turns"]'));
+    const loading = Boolean(document.querySelector('[data-older-turns="loading"]'));
     loadingSeen ||= loading;
     still = scroller.scrollTop === last ? still + 1 : 0;
     last = scroller.scrollTop;

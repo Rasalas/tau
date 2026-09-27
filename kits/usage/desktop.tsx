@@ -1,31 +1,31 @@
 import { ChartColumn } from "lucide-react";
-import type { DesktopExtension, SettingsPageProps } from "tau";
+import type { DesktopExtension } from "tau";
 import { UsagePage } from "./page.js";
-import { USAGE_EXTENSION_ID, USAGE_SETTINGS_PAGE } from "./protocol.js";
+import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
 
-/** Usage opens from the sidebar footer or the command palette. */
+/** Usage is a page of the app: the sidebar's foot and the palette open it. */
 export const usageExtension: DesktopExtension = {
   id: USAGE_EXTENSION_ID,
   name: "Usage",
   activate(plugin) {
-    plugin.registerSettingsPage({
-      id: USAGE_SETTINGS_PAGE,
+    plugin.registerPage({
+      id: USAGE_PAGE,
       label: "Usage",
-      standalone: true,
-      profiles: ["desktop"],
+      // A phone draws it as a screen of its own, in one column.
+      profiles: ["desktop", "web", "compact"],
       Icon: ChartColumn,
-      order: 35,
-      Component: (props: SettingsPageProps) => <UsagePage {...props} host={plugin.host} />,
+      order: 20,
+      layout: "wide",
+      keywords: ["cost", "tokens", "limits", "billing"],
+      Component: (props) => <UsagePage {...props} host={plugin.host} />,
     });
 
     plugin.registerCommand({
       id: "usage.open",
       label: "Usage",
       group: "Extensions",
-      surfaces: ["sidebar-footer"],
-      Icon: ChartColumn,
       access: "read",
-      run: (app) => app.openSettings(USAGE_SETTINGS_PAGE),
+      run: (app) => app.openPage?.(USAGE_PAGE),
     });
   },
 };

@@ -91,16 +91,12 @@ describe("Workspace Kit title actions", () => {
     expect(screen.getByRole("button", { name: "Commit" })).toBeTruthy();
   });
 
-  it("opens an external terminal from the Open menu instead of a button of its own", () => {
-    const { openTerminal } = setup();
-    // The built-in terminal has the dock's button; the bar keeps no second one.
+  it("draws no external terminal button; the terminal opens in the app", () => {
+    setup();
     expect(screen.queryByRole("button", { name: "Open in terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose terminal" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Choose editor" }));
-    const menu = screen.getByRole("menu", { name: "Open in" });
-    // The section's heading, and the macOS app of that name.
-    expect(within(menu).getAllByText("Terminal")).toHaveLength(2);
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Terminal" }));
-    expect(openTerminal).toHaveBeenCalledWith("terminal");
+    expect(within(screen.getByRole("menu", { name: "Open in" })).queryByRole("menuitem", { name: "Ghostty" })).toBeNull();
   });
 
   it("folds labels first, then the least used actions into More, and the Git action's label last", () => {
@@ -133,7 +129,7 @@ describe("Workspace Kit title actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     const menu = screen.getByRole("menu", { name: "More actions" });
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(expect.arrayContaining([
-      expect.stringContaining("Add action"), expect.stringContaining("VS Code"), expect.stringContaining("Zed"), expect.stringContaining("Ghostty"),
+      expect.stringContaining("Add action"), expect.stringContaining("VS Code"), expect.stringContaining("Zed"),
     ]));
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Zed" }));
     expect(openInEditor).toHaveBeenCalledWith(undefined, "zed");

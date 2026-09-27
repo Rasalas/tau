@@ -94,6 +94,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./runtime-adapters.js",   "./runtime-catalogs.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
   "./runtime-instance-settings.js",   "./runtime-types.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
   "./session-import.js",   "./session-lineage.js",   "./session-locks.js",   "./session-model-provider.js",   "./session-usage.js",
+  // Pi sessions read without Pi's repairs on open, and the Pi CLI taking the same session locks (K13).
+  "./session-read.js",   "./pi-session-lock-extension.js",
   "./shared-files.js",   "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",   "./small-completion-model.js",
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
@@ -119,7 +121,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./environment-thread-watch.js",
   // Test instances and benchmarks keep their windows from taking focus (TAU_NO_FOCUS).
   "./background-mode.js",
-  // A worker package's buffer memory, which its heap cap leaves out.
+  // What a worker package's heap cap leaves out: its buffers, and the host process's memory limit.
   "./worker-memory-cap.js",
 ]);
 

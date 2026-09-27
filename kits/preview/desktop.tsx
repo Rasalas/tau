@@ -50,9 +50,9 @@ export const previewExtension: DesktopExtension = {
   activate(plugin) {
     const disconnect = connectPreviewHost(plugin.host);
     const stopMachine = followHostMachine(plugin.environments);
-    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["desktop"], Component: DesktopPreviewPanel });
+    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, width: "wide", maximizable: true, profiles: ["desktop"], Component: DesktopPreviewPanel });
     // Elsewhere the page stays on the host: a browser and a phone show its frames and drive it from there.
-    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["web"], Component: createRemotePreviewPanel(false) });
+    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, width: "wide", maximizable: true, profiles: ["web"], Component: createRemotePreviewPanel(false) });
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, profiles: ["compact"], Component: createRemotePreviewPanel(true) });
     // A tab that looks in on another machine's thread shows that machine's page, small and view only.
     plugin.registerRegion({ id: "preview.look-in", placement: "look-in", order: 40, profiles: ["desktop"], Component: LookInPreview });

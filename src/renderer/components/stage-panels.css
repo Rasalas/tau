@@ -1,5 +1,3 @@
 /* Only once a panel is on the stage, which loads the stage's chunk first. */
 .panel-pane { position: relative; }
-.panel-on-stage { display: grid; gap: 10px; justify-items: start; padding: var(--space-6); color: var(--muted); }
-.panel-on-stage p { margin: 0; }
 .panel-rail button.on-stage { color: var(--ink-2); box-shadow: inset -2px 0 0 var(--acid); }

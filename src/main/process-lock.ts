@@ -13,6 +13,8 @@ export interface LockOwner {
   dataFolder?: string;
   /** Where the holder answers, once it listens. */
   url?: string;
+  /** A holder that is not a Tau host names itself, e.g. "Pi". */
+  app?: string;
 }
 
 /** An exclusive lock the OS holds for this process and drops when the process ends, however it ends. */
@@ -154,9 +156,7 @@ export async function lockHeld(path: string, strategy: LockStrategy = defaultLoc
   });
 }
 
-/** What the current holder wrote about itself, while the lock is held. */
-export async function lockOwner(path: string, strategy: LockStrategy = defaultLockStrategy()): Promise<LockOwner | undefined> {
-  if (!await lockHeld(path, strategy)) return undefined;
+function readOwner(path: string): LockOwner | undefined {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<LockOwner>;
     if (typeof parsed.pid !== "number") return undefined;
@@ -165,8 +165,45 @@ export async function lockOwner(path: string, strategy: LockStrategy = defaultLo
       startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : "",
       ...(typeof parsed.dataFolder === "string" ? { dataFolder: parsed.dataFolder } : {}),
       ...(typeof parsed.url === "string" ? { url: parsed.url } : {}),
+      ...(typeof parsed.app === "string" ? { app: parsed.app } : {}),
     };
   } catch {
     return undefined;
   }
+}
+
+/** What the current holder wrote about itself, while the lock is held. */
+export async function lockOwner(path: string, strategy: LockStrategy = defaultLockStrategy()): Promise<LockOwner | undefined> {
+  if (!await lockHeld(path, strategy)) return undefined;
+  return readOwner(path);
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) === "EPERM";
+  }
+}
+
+/**
+ * Whether another process holds the lock, for a caller that cannot wait.
+ * `flock` probes the lock itself; a socket cannot be probed synchronously, so
+ * there the owner file counts while the pid in it is alive and not this process.
+ */
+export function lockHeldElsewhereSync(path: string, strategy: LockStrategy = defaultLockStrategy()): { held: false } | { held: true; owner: LockOwner | undefined } {
+  if (strategy.kind === "flock") {
+    try {
+      closeSync(openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | O_SHLOCK));
+      return { held: false };
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === "ENOENT") return { held: false };
+      if (BUSY_CODES.has(code ?? "")) return { held: true, owner: readOwner(path) };
+      throw error;
+    }
+  }
+  const owner = readOwner(path);
+  return owner && owner.pid !== process.pid && processAlive(owner.pid) ? { held: true, owner } : { held: false };
 }

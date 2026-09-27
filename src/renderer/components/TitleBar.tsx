@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { ListTree, PanelBottom, PanelBottomClose, PanelRight, PanelRightClose } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { Ellipsis, ListTree, PanelBottom, PanelBottomClose, PanelRight, PanelRightClose } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "./PanelIcon";
@@ -8,6 +8,7 @@ import { WindowControlsInset } from "./WindowControlsInset";
 import { HostLinkIndicator } from "../host-connection-status";
 import { tooltipProps } from "./ui/Tooltip";
 import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
+import { Popover } from "../deferred-surfaces";
 
 function workspaceName(cwd?: string): string {
   return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
@@ -31,6 +32,34 @@ export interface SheetToggle {
   onToggle(): void;
 }
 
+/** A phone's panels behind one More button at the bar's end, as a menu anchored to it. */
+function SheetMenu({ sheets }: { sheets: readonly SheetToggle[] }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  return <>
+    <button
+      ref={trigger}
+      className="chrome-ghost glyph"
+      aria-label="More"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      {...tooltipProps("More", { side: "bottom" })}
+      onClick={() => setOpen((held) => !held)}
+    ><Ellipsis size={16} /></button>
+    {open ? <Popover anchor={trigger} side="bottom" align="end" label="More" className="touch-popover touch-menu" onClose={() => setOpen(false)}>
+      <div role="menu" aria-label="Panels">
+        {sheets.map((sheet) => <button
+          key={sheet.id}
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={sheet.open}
+          onClick={() => { setOpen(false); sheet.onToggle(); }}
+        ><PanelIcon Icon={sheet.Icon} size={17} />{sheet.label}</button>)}
+      </div>
+    </Popover> : null}
+  </>;
+}
+
 /**
  * The window's one top bar, as in T3 Code: the traffic-light corner over the
  * sidebar, then project / thread as a breadcrumb over the conversation, then
@@ -48,6 +77,7 @@ export function TitleBar({
   onOpenThreads,
   sheets = [],
   hasDock = true,
+  foldSheets = false,
 }: {
   cwd?: string;
   dockOpen: boolean;
@@ -64,6 +94,8 @@ export function TitleBar({
   sheets?: readonly SheetToggle[];
   /** False when no extension registered a panel: there is no dock to show or hide. */
   hasDock?: boolean;
+  /** A phone: two or more sheets fold into one More menu, so the bar keeps back, title and one button. */
+  foldSheets?: boolean;
 }) {
   const project = workspaceName(cwd);
   // A Read-only device could never send a new thread's first message.
@@ -95,7 +127,7 @@ export function TitleBar({
 
       <Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />
 
-      {sheets.map((sheet) => <button
+      {foldSheets && sheets.length > 1 ? <SheetMenu sheets={sheets} /> : sheets.map((sheet) => <button
         key={sheet.id}
         className="chrome-ghost glyph"
         aria-pressed={sheet.open}
