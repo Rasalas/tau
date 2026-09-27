@@ -17,6 +17,8 @@ import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
+import type { AppPageStore } from "../workbench/app-page-store";
+import { withAppPages } from "./app-page-actions";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -81,6 +83,8 @@ export interface UseWorkbenchActionsOptions {
   selectDraftRuntime?: (kind: string) => void;
   /** The draft's model for `runtime`, and the model the next draft starts on. */
   newThreadController?: Pick<NewThreadController, "carryToNextDraft" | "setModel">;
+  /** The app page on screen; without it, `openPage` is absent. */
+  pages?: AppPageStore;
 }
 
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
@@ -104,7 +108,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       if (project) options.createThreadInProject?.(project);
       else if (!workspace || pick) options.openNewThreadPicker();
     };
-    return {
+    const actions: WorkbenchActions = {
       openPanel,
       ...(options.closePanel ? { closePanel: options.closePanel } : {}),
       ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
@@ -314,9 +318,10 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         }
       },
     };
+    return options.pages ? withAppPages(actions, options.pages, () => options.setSettingsPage(undefined)) : actions;
   }, [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles, options.pages,
   ]);
 }

@@ -35,6 +35,21 @@ const panels: DesktopExtension = {
   },
 };
 
+const tools: DesktopExtension = {
+  id: "test.tools",
+  name: "Tools probe",
+  activate(plugin) {
+    plugin.registerPanel({
+      id: "browser", label: "Browser", order: 1, width: "wide", maximizable: true,
+      Component: ({ actions }) => <button type="button" onClick={() => actions.openFile("/repo/a.ts")}>Open a.ts</button>,
+    });
+    plugin.registerPanel({
+      id: "tree", label: "Tree", order: 2,
+      Component: ({ actions }) => <button type="button" onClick={() => actions.openFile("/repo/a.ts")}>Pick a.ts</button>,
+    });
+  },
+};
+
 function pressMod(key: string, options: KeyboardEventInit = {}): void {
   const mac = /mac|iphone|ipad/iu.test(navigator.platform);
   fireEvent.keyDown(window, { key, metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true, ...options });
@@ -114,17 +129,70 @@ describe("workbench layout", () => {
     expect(await screen.findByRole("button", { name: "Count 0" })).toBeTruthy();
   });
 
-  it("stands the dock's panel down while it is a tab, and moves it back from there", async () => {
+  it("brings a maximized panel's tab forward from the rail and pins the chat as the first tab", async () => {
     renderApp(undefined, { extensions: [panels] });
     fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
     fireEvent.click(await screen.findByRole("button", { name: "Maximize Counter" }));
-    await screen.findByRole("region", { name: "Stage" });
-    fireEvent.click(screen.getByRole("button", { name: "Show panel" }));
-    expect(await screen.findByText("Counter is open as a tab.")).toBeTruthy();
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    const tabs = within(stage).getAllByRole("tab");
+    expect(tabs[0]?.textContent).toContain("Chat");
+    fireEvent.click(tabs[0]!);
+    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Counter" }));
+    await waitFor(() => expect(screen.getByTestId("counter-place").textContent).toBe("stage:active"));
     expect(screen.getAllByRole("button", { name: /^Count / })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Move back here" }));
-    await waitFor(() => expect(screen.queryByText("Counter is open as a tab.")).toBeNull());
+
+    fireEvent.click(within(stage).getByRole("button", { name: "Show chat beside the stage" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
     expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
+  });
+
+  it("opens a wide tool beside the chat and gives its place to a document opened later", async () => {
+    const view = renderApp(undefined, { extensions: [tools] });
+    fireEvent.click(await screen.findByRole("button", { name: "Browser" }));
+    const side = await screen.findByRole("region", { name: "Browser" });
+    expect(side.className).toBe("side-panel");
+    expect(view.container.querySelector(".workbench-center")?.className).toContain("wide-open");
+    expect(shell(view.container).className).toContain("dock-closed");
+
+    fireEvent.click(within(side).getByRole("button", { name: "Open a.ts" }));
+    await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(view.container.querySelector(".workbench-center")?.className).not.toContain("wide-open"));
+    expect(view.container.querySelector<HTMLElement>(".side-panel")?.hidden).toBe(true);
+    expect(screen.getByRole("button", { name: "Browser" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("floats a list over the chat until a document opens, then docks it beside the document", async () => {
+    const view = renderApp(undefined, { extensions: [tools] });
+    fireEvent.click(await screen.findByRole("button", { name: "Tree" }));
+    await screen.findByRole("button", { name: "Pick a.ts" });
+    expect(shell(view.container).className).toContain("dock-overlay");
+    expect(shell(view.container).style.getPropertyValue("--dock-width")).toBe("0px");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pick a.ts" }));
+    await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(shell(view.container).className).not.toContain("dock-overlay"));
+    expect(shell(view.container).style.getPropertyValue("--dock-width")).toBe("320px");
+  });
+
+  it("closes a floating list when the chat is clicked", async () => {
+    const view = renderApp(undefined, { extensions: [tools] });
+    fireEvent.click(await screen.findByRole("button", { name: "Tree" }));
+    await screen.findByRole("button", { name: "Pick a.ts" });
+    fireEvent.pointerDown(view.container.querySelector(".conversation-column") as HTMLElement);
+    await waitFor(() => expect(shell(view.container).className).not.toContain("dock-overlay"));
+  });
+
+  it("maximizes the tool beside the chat when the divider is pushed past the chat's minimum", async () => {
+    const view = renderApp(undefined, { extensions: [tools] });
+    fireEvent.click(await screen.findByRole("button", { name: "Browser" }));
+    const divider = await screen.findByRole("separator", { name: "Resize chat" });
+    expect(divider.getAttribute("aria-valuenow")).toBe("480");
+    fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    expect(within(stage).getByRole("tab", { name: /Browser/ }).getAttribute("aria-selected")).toBe("true");
+    expect(view.container.querySelector(".workbench-center")?.className).toContain("compact");
+    expect(view.storage.get("tau:chat-width")).toBeNull();
   });
 
   it("draws a drawer panel below the conversation, resizes it and keeps the height for this client", async () => {
@@ -188,7 +256,8 @@ describe("workbench layout", () => {
       setWindowWidth(1440);
       const view = renderApp(undefined, { extensions: [rail, panels, files] });
       fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
-      expect(shell(view.container).style.getPropertyValue("--dock-width")).toBe("320px");
+      // Nothing open beside the chat yet: the list floats and takes no column.
+      expect(shell(view.container).className).toContain("dock-overlay");
       const stage = await openFile();
       expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
       expect(shell(view.container).className).toContain("dock-closed");
@@ -197,7 +266,7 @@ describe("workbench layout", () => {
 
       fireEvent.click(within(stage).getByRole("button", { name: "Close notes.txt" }));
       await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
-      expect(shell(view.container).className).not.toContain("dock-closed");
+      expect(shell(view.container).className).toContain("dock-overlay");
       expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
     });
 

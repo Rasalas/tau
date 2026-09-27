@@ -23,20 +23,27 @@ const EDITABLE_SELECTOR = [
 
 /**
  * What floats over the workbench and closes on Escape: a modal, a dialog or
- * popover, a menu, or anything marked `data-overlay`. `data-overlay="false"`
- * opts a non-modal tool window (the theme editor) out.
+ * popover, a menu, an app page (`registerPage`), or anything marked
+ * `data-overlay`. `data-overlay="false"` opts a non-modal tool window (the
+ * theme editor) out.
  */
 export const OVERLAY_SELECTOR = [
   '[aria-modal="true"]',
   '[role="dialog"]',
   '[role="alertdialog"]',
   '[role="menu"]',
+  "[data-app-page]",
   "[data-overlay]",
 ].map((selector) => `${selector}:not([data-overlay="false"])`).join(",");
 
-/** Whether an overlay is drawn; a closed one kept mounted but hidden does not count. */
+/** The overlays drawn now; a closed one kept mounted but hidden does not count. */
+export function openOverlays(root: ParentNode = document): Element[] {
+  return [...root.querySelectorAll(OVERLAY_SELECTOR)].filter(visible);
+}
+
+/** Whether an overlay is drawn. */
 export function overlayOpen(root: ParentNode = document): boolean {
-  return [...root.querySelectorAll(OVERLAY_SELECTOR)].some(visible);
+  return openOverlays(root).length > 0;
 }
 
 function visible(element: Element): boolean {

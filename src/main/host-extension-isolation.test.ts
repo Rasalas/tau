@@ -1,7 +1,10 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { bundleHostExtension, writeHostExtensionBundle } from "./extension-packages.js";
@@ -141,6 +144,49 @@ export default {
 };
 `;
 
+/**
+ * Every way to compiled code, and the doors around the other grants a worker
+ * used to leave open. __ADDON__ becomes an addon the bundle loads at its top,
+ * like a package that ships one beside its code, or null.
+ */
+const NATIVE_FIXTURE = `
+const Module = require("node:module");
+const ADDON = __ADDON__;
+const addon = ADDON ? require(String(ADDON)) : undefined;
+const keys = (exports) => Object.keys(exports).sort();
+export default {
+  id: "acme.native",
+  name: "Native Package",
+  activate(context) {
+    context.registerCommand("addon", () => keys(addon));
+    context.registerCommand("require", (input) => keys(require(String(input.path))));
+    context.registerCommand("dlopen", (input) => { const module = { exports: {} }; process.dlopen(module, input.path); return keys(module.exports); });
+    context.registerCommand("extension-handler", (input) => { const module = { exports: {} }; Module._extensions[".node"](module, input.path); return keys(module.exports); });
+    context.registerCommand("import", async (input) => keys(await import(input.url)));
+    context.registerCommand("sqlite-extension", (input) => {
+      const { DatabaseSync } = require("node:sqlite");
+      new DatabaseSync(":memory:", { allowExtension: true }).loadExtension(input.path);
+      return "loaded";
+    });
+    context.registerCommand("binding", () => typeof process.binding("spawn_sync").spawn);
+    context.registerCommand("linked-binding", () => typeof process._linkedBinding("electron_common_v8_util"));
+    context.registerCommand("import-v8-flags", async () => { (await import("node:v8")).setFlagsFromString("--allow-natives-syntax"); return "set"; });
+    context.registerCommand("v8-flags", () => { require("node:v8").setFlagsFromString("--allow-natives-syntax"); return "set"; });
+    context.registerCommand("builtin-spawn", () => typeof process.getBuiltinModule("node:child_process").spawn);
+    context.registerCommand("builtin-http", () => typeof process.getBuiltinModule("http").request);
+    context.registerCommand("cluster", () => typeof require("node:cluster").fork);
+    context.registerCommand("node-test", () => typeof require("node:test").run);
+    context.registerCommand("inspector", () => typeof require("node:inspector").open);
+  },
+};
+`;
+
+/** An N-API addon every checkout has: node-pty's, built or prebuilt for this machine. */
+function existingAddon(): string | undefined {
+  const root = dirname(createRequire(import.meta.url).resolve("node-pty/package.json"));
+  return [join(root, "build", "Release", "pty.node"), join(root, "prebuilds", `${process.platform}-${process.arch}`, "pty.node")].find((path) => existsSync(path));
+}
+
 interface Recorder {
   logs: string[];
   lifecycles: HostThreadLifecycle[];
@@ -249,6 +295,9 @@ let bundle: string;
 let electronBundle: string;
 let networkBundle: string;
 let processBundle: string;
+let nativeBundle: string;
+let nativeKitBundle: string | undefined;
+const addon = existingAddon();
 
 beforeAll(async () => {
   scratch = await mkdtemp(join(tmpdir(), "tau-worker-package-"));
@@ -273,6 +322,12 @@ beforeAll(async () => {
     { id: "acme.process", name: "Process Package" },
     scratch,
   );
+  const native = async (name: string, path: string | undefined): Promise<string> => {
+    await writeFile(join(scratch, name), NATIVE_FIXTURE.replace("__ADDON__", JSON.stringify(path ?? null)));
+    return writeHostExtensionBundle(await bundleHostExtension(join(scratch, name)), { id: "acme.native", name: "Native Package" }, scratch);
+  };
+  nativeBundle = await native("native-host.ts", undefined);
+  if (addon) nativeKitBundle = await native("native-kit-host.ts", addon);
 }, 60_000);
 
 afterAll(async () => { await rm(scratch, { recursive: true, force: true }); });
@@ -688,23 +743,96 @@ describe("isolated host extensions", () => {
       }
     }, 30_000);
 
-    it("refuses a nested worker, which would run outside both guards", async () => {
-      const { registry, extension } = spawner(["process"]);
-      await registry.activate(extension);
-      try {
-        await expect(registry.invoke("acme.process", "nested-worker")).rejects.toThrow(/may not start a worker thread/u);
-      } finally {
-        await registry.dispose();
+    it("refuses a nested worker, which would run outside the guards", async () => {
+      for (const permissions of [["process"], ["process", "network"]]) {
+        const { registry, extension } = spawner(permissions);
+        await registry.activate(extension);
+        try {
+          await expect(registry.invoke("acme.process", "nested-worker")).rejects.toThrow(/may not start a worker thread/u);
+        } finally {
+          await registry.dispose();
+        }
       }
     }, 30_000);
 
     it("lets a granted package spawn, and start a worker once nothing is left to escape", async () => {
-      const { registry, extension, recorder } = spawner(["process", "network"]);
+      const { registry, extension, recorder } = spawner(["process", "network", "native"]);
       await registry.activate(extension);
       try {
         await expect(registry.invoke("acme.process", "run")).resolves.toBe("ran");
         await expect(registry.invoke("acme.process", "nested-worker")).resolves.toBe("function");
         expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toEqual([]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+  });
+
+  describe("the native permission", () => {
+    const native = (permissions: string[], file = nativeBundle) => harness({ permissions, id: "acme.native", name: "Native Package", file });
+    const denied = (recorder: Recorder) => recorder.logs.filter((line) => line.startsWith("host-extension.denied"));
+
+    it.skipIf(!addon)("keeps a package that loads an addon at its top from starting, and says why", async () => {
+      const { registry, extension } = native(["sessions"], nativeKitBundle);
+      await expect(registry.activate(extension)).resolves.toBe(false);
+      expect(registry.summaries()[0]?.error).toBe("Native Package: Extension acme.native lacks permission native");
+      expect(registry.isActive("acme.native")).toBe(false);
+    }, 30_000);
+
+    it.skipIf(!addon)("starts the same package once it has the grant", async () => {
+      const { registry, extension, recorder } = native(["native"], nativeKitBundle);
+      await expect(registry.activate(extension)).resolves.toBe(true);
+      try {
+        const exports = await registry.invoke("acme.native", "addon") as string[];
+        expect(exports.length).toBeGreaterThan(0);
+        await expect(registry.invoke("acme.native", "dlopen", { path: addon })).resolves.toEqual(exports);
+        await expect(registry.invoke("acme.native", "extension-handler", { path: addon })).resolves.toEqual(exports);
+        expect(denied(recorder)).toEqual([]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("refuses every way to compiled code without it, and logs each", async () => {
+      // Refused before anything opens it, so any file with the extension will do.
+      // The real path, as require reports what it resolved.
+      const path = join(await realpath(scratch), "addon.node");
+      await writeFile(path, "not a library");
+      const { registry, extension, recorder } = native(["process", "network"]);
+      await registry.activate(extension);
+      try {
+        const calls: Array<[string, unknown, string]> = [
+          ["require", { path }, `require("${path}")`],
+          ["dlopen", { path }, `process.dlopen("${path}")`],
+          ["extension-handler", { path }, `require("${path}")`],
+          ["import", { url: pathToFileURL(path).href }, `import ${pathToFileURL(path).href}`],
+          ["sqlite-extension", { path }, `DatabaseSync.loadExtension("${path}")`],
+          ["binding", undefined, 'process.binding("spawn_sync")'],
+          ["linked-binding", undefined, 'process._linkedBinding("electron_common_v8_util")'],
+          // Before the require, so the import is what loads the module.
+          ["import-v8-flags", undefined, "v8.setFlagsFromString"],
+          ["v8-flags", undefined, "v8.setFlagsFromString"],
+        ];
+        for (const [command, input] of calls) {
+          await expect(registry.invoke("acme.native", command, input)).rejects.toThrow("Extension acme.native lacks permission native");
+        }
+        expect(registry.isActive("acme.native")).toBe(true);
+        expect(denied(recorder)).toEqual(calls.map(([, , what]) => `host-extension.denied Extension acme.native lacks permission native (${what})`));
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("does not stand in for the other grants", async () => {
+      const { registry, extension } = native(["native"]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.native", "builtin-spawn")).rejects.toThrow("lacks permission process");
+        await expect(registry.invoke("acme.native", "builtin-http")).rejects.toThrow("lacks permission network");
+        await expect(registry.invoke("acme.native", "cluster")).rejects.toThrow("lacks permission process");
+        await expect(registry.invoke("acme.native", "node-test")).rejects.toThrow("lacks permission process");
+        await expect(registry.invoke("acme.native", "inspector")).rejects.toThrow("lacks permission network");
+        await expect(registry.invoke("acme.native", "binding")).resolves.toBe("function");
       } finally {
         await registry.dispose();
       }

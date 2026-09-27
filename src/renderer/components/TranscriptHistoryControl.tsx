@@ -1,4 +1,3 @@
-import type { Ref } from "react";
 import type { TranscriptHistoryStatus } from "../../workbench/transcript-history";
 import type { TranscriptHistoryCompleteness } from "../../shared/transcript-completeness";
 import type { HostTranscriptCursor } from "../../shared/transcript-cursor";
@@ -10,51 +9,35 @@ export interface TranscriptHistoryControlProps {
   historyCompleteness?: TranscriptHistoryCompleteness;
   loading: boolean;
   status?: TranscriptHistoryStatus;
-  onLoad: () => void;
-  ref?: Ref<HTMLElement>;
+  onRetry: () => void;
 }
 
-function loadedLabel(count: number | undefined): string {
-  if (count === undefined) return "Older turns loaded.";
-  return `${count} older ${count === 1 ? "turn" : "turns"} loaded.`;
-}
+/** What the reader and probes see of the older turns, on the element above the first loaded row. */
+export type OlderTurnsState = "available" | "loading" | "error";
 
-/** The explicit boundary control for bounded transcript history. */
+/**
+ * The start of the loaded transcript. Older turns load as the reader scrolls
+ * toward it, so it stays empty while they wait; it shows a quiet line while
+ * they load or after a page failed, and nothing at the thread's real start.
+ */
 export function TranscriptHistoryControl({
   olderCursor,
   historyCompleteness,
   loading,
   status,
-  onLoad,
-  ref,
+  onRetry,
 }: TranscriptHistoryControlProps) {
-  const hasOlder = Boolean(olderCursor);
-  const limited = historyCompleteness === "unknown";
-  if ((!hasOlder || limited) && !loading && status?.state !== "error") return null;
-  const message = loading
-    ? "Loading older turns…"
-    : status?.state === "error"
-      ? status.message ?? "Could not load older turns."
-      : status?.state === "success"
-        ? loadedLabel(status.loadedTurns)
-        : "Older turns are available.";
+  const failed = !loading && status?.state === "error";
+  const more = Boolean(olderCursor) && historyCompleteness !== "unknown";
+  if (!more && !loading && !failed) return null;
+  const state: OlderTurnsState = loading ? "loading" : failed ? "error" : "available";
+  const message = failed ? status?.message ?? "Could not load older turns." : "Loading older turns…";
 
-  return <section
-    ref={ref}
-    className={`transcript-history-control${loading ? " loading" : ""}${status?.state === "error" ? " error" : ""}${limited ? " limited" : ""}`}
-    aria-label="Transcript history"
-    aria-busy={loading}
-  >
-    <span role="status" aria-live="polite" aria-atomic="true">{message}</span>
-    {hasOlder && !limited ? (
-      <button
-        type="button"
-        onClick={onLoad}
-        disabled={loading}
-        aria-label={loading ? "Loading older turns" : status?.state === "error" ? "Retry loading older turns" : "Load older turns"}
-      >
-        {loading ? "Loading…" : status?.state === "error" ? "Retry" : "Load older turns"}
-      </button>
-    ) : null}
-  </section>;
+  return <div className="transcript-history" data-older-turns={state}>
+    {state === "available" ? null : <div className={`transcript-history-row ${state}`} role="status" aria-live="polite">
+      {state === "loading" ? <span className="transcript-history-spinner" aria-hidden="true" /> : null}
+      <span className="transcript-history-message" title={failed ? message : undefined}>{message}</span>
+      {failed && olderCursor ? <button type="button" onClick={onRetry} aria-label="Retry loading older turns">Retry</button> : null}
+    </div>}
+  </div>;
 }

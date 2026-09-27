@@ -3,7 +3,7 @@
   "name": "Signals",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.5.0"
+    "api": "^1.16.0"
   },
   "permissions": [],
   "isolation": "worker",

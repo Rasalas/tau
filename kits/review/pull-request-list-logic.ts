@@ -279,3 +279,28 @@ export function arrangeList(entries: readonly PullRequestListEntry[], options: {
     : kept.length > 0 ? [{ key: "others" as const, label: "", entries: kept }] : [];
   return { groups: sortGroups(groups, options.sort, typed.text, options.involvement), shown: kept.length, search: typed.text };
 }
+
+/** A heading and its rows, whatever the list is grouped by. */
+export interface PullRequestSection {
+  key: string;
+  label: string;
+  entries: PullRequestListEntry[];
+}
+
+/**
+ * The arranged rows again, one section per repository, in the order its first
+ * row came; `nameOf` names a repository (`host/repo`) the way the user knows it.
+ */
+export function groupByRepository(groups: readonly PullRequestGroup[], nameOf: (repository: string) => string): PullRequestSection[] {
+  const sections = new Map<string, PullRequestSection>();
+  for (const entry of groups.flatMap((group) => group.entries)) {
+    const key = `${entry.ref.host}/${entry.ref.repo}`;
+    let section = sections.get(key);
+    if (!section) {
+      section = { key, label: nameOf(key), entries: [] };
+      sections.set(key, section);
+    }
+    section.entries.push(entry);
+  }
+  return [...sections.values()];
+}

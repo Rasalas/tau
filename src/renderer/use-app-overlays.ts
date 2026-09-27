@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { AppPageStore } from "../workbench/app-page-store";
 
 export function useAppOverlays() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -10,6 +11,7 @@ export function useAppOverlays() {
   const [projectSource, setProjectSource] = useState<string>();
   const [activeOverlayId, setActiveOverlayId] = useState<string>();
   const [settingsPage, setSettingsPage] = useState<string>();
+  const [pages] = useState(() => new AppPageStore());
 
   const openPalette = useCallback((options?: { menu?: string }) => {
     setPaletteMenu(options?.menu);
@@ -48,5 +50,6 @@ export function useAppOverlays() {
     closeOverlay,
     settingsPage,
     setSettingsPage,
+    pages,
   };
 }

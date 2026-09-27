@@ -3,7 +3,7 @@ import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
 import { Spinner, type DesktopExtensionContext } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
 import { linkPullRequestMenu } from "./link-menu.js";
-import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
+import { PULL_REQUEST_TAB, PULL_REQUESTS_PAGE, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
@@ -11,14 +11,16 @@ import { pullRequestTabParams, shortNoun, type PullRequestTabParams } from "./pu
 import { PullRequestView, type PullRequestViewShared } from "./pull-request-view.js";
 import type { RequestClient, RowRequests } from "./requests.js";
 
-// The page is opened on demand; its code stays out of the kit's first evaluation.
+// The list and the page are opened on demand; their code stays out of the kit's first evaluation.
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
+const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
 
 export { openPullRequest, openPullRequests } from "./pull-request-open.js";
 
 /**
- * The pull-request view and the Pull Requests page as stage-tab kinds, the
- * link dialog, and the commands that open them for the thread on screen.
+ * The pull-request view and a project's list as stage-tab kinds of a thread,
+ * the Pull Requests page across projects, the link dialog, and the commands
+ * that open them.
  */
 export function registerPullRequestTab(
   plugin: DesktopExtensionContext,
@@ -50,7 +52,7 @@ export function registerPullRequestTab(
       render: (params, handle, actions) => (
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
           <PullRequestListView
-            params={params.scope === "all" ? { scope: "all" } : typeof params.workspace === "string" ? { workspace: params.workspace } : {}}
+            params={typeof params.workspace === "string" ? { workspace: params.workspace } : {}}
             handle={handle}
             actions={actions}
             client={client}
@@ -58,7 +60,23 @@ export function registerPullRequestTab(
           />
         </Suspense>
       ),
-      restore: () => true,
+      // Every project's list is the page now; a tab kept from before names none.
+      restore: (params) => params.scope !== "all",
+    }),
+    plugin.registerPage({
+      id: PULL_REQUESTS_PAGE,
+      label: "Pull requests",
+      // As its tabs: tried on the desktop only.
+      profiles: ["desktop"],
+      Icon: GitPullRequest,
+      order: 10,
+      layout: "fill",
+      keywords: ["merge requests", "reviews"],
+      Component: (props) => (
+        <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
+          <PullRequestsPage {...props} parts={{ client, chips, rows, shared }} />
+        </Suspense>
+      ),
     }),
     plugin.registerCommand({
       id: "review.pull-request.open",
@@ -88,10 +106,11 @@ export function registerPullRequestTab(
       id: "review.pull-requests.all",
       label: "Pull requests in all projects",
       group: "Project",
-      surfaces: ["sidebar-footer"],
-      Icon: GitPullRequest,
       access: "read",
-      run: (actions) => { openPullRequests(actions, "all"); },
+      run: (actions) => {
+        if (actions.openPage) actions.openPage(PULL_REQUESTS_PAGE);
+        else openPullRequests(actions, "all");
+      },
     }),
     plugin.registerCommand({
       id: "review.pull-request.link",

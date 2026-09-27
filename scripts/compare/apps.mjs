@@ -148,16 +148,22 @@ export const tau = {
   ready: (threads) => `!!document.querySelector("textarea") && document.querySelectorAll("article.thread-row").length >= ${threads}`,
   async revealThreads() {},
   /**
-   * A thread opens with its newest 10 turns; older ones come 20 at a time
-   * through "Load older turns". Clicked until gone so the scroll covers the
-   * whole thread, as it does in T3, which sends all of it at once.
+   * A thread opens with its newest 10 turns; older ones come 20 at a time as
+   * the reader reaches the top. Loaded until none are left so the scroll covers
+   * the whole thread, as it does in T3, which sends all of it at once.
    */
   async loadHistory(session, { evaluate, waitFor }) {
     let pages = 0;
     for (; pages < 50; pages += 1) {
-      const clicked = await evaluate(session, `(() => { const b = document.querySelector('[aria-label="Load older turns"]'); if (!b) return false; b.click(); return true; })()`);
-      if (!clicked) break;
-      await waitFor(session, `!document.querySelector('[aria-label="Loading older turns"]')`, { timeoutMs: 30_000, pollMs: 20 });
+      const nudged = await evaluate(session, `(() => {
+        const scroller = document.getElementById("thread-transcript");
+        if (!scroller || !document.querySelector("[data-older-turns]")) return false;
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }));
+        return true;
+      })()`);
+      if (!nudged) break;
+      await waitFor(session, `!document.querySelector('[data-older-turns="loading"]')`, { timeoutMs: 30_000, pollMs: 20 });
     }
     return pages;
   },

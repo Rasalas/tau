@@ -128,3 +128,18 @@ is a separate decision in [ADR 0020](0020-host-command-authority.md). A request'
 extension ID or callerId is never proof of an independent desktop identity.
 Expected service-permission denials use HostCommandError and do not consume the
 handler-crash budget in either the in-process or worker path.
+
+## 2026-09-27: native code is a permission of its own
+
+A worker package could load an addon itself (`process.dlopen`, a `.node`
+require, a SQLite extension). That code runs outside every guard and cap of the
+worker, and a crash in it stops the host with all its threads. The vocabulary
+gains `native`: without it the worker refuses every way to compiled code it
+has (`process.dlopen`, the `.node` handler, an `import` of one,
+`DatabaseSync#loadExtension`, `process.binding`, `process._linkedBinding`,
+`v8.setFlagsFromString`). The raw bindings also walked around `network` and
+`process`, and so did `process.getBuiltinModule`, `cluster`, `node:test` and
+`inspector`; those are closed now too. A nested worker needs all three grants.
+Unlike the module hooks, the native doors cannot be put back: the worker keeps
+no copy of the originals. The approval box explains `native` beside its name.
+For `in-process` nothing changes: `loadDependency` needs no grant there.

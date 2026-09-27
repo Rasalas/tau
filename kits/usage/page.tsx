@@ -1,52 +1,114 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SettingsSection, errorMessage, formatCost, type HostExtensionClient, type SettingsPageProps } from "tau";
+import { ChartColumn, RefreshCw } from "lucide-react";
+import { Empty, errorMessage, formatCost, useThreadStore, type HostExtensionClient, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
+import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, rankUsage, USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageRange } from "./dashboard.js";
+import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
-import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
-import {
-  USAGE_GROUPINGS,
-  USAGE_PERIODS,
-  formatTokens,
-  groupRows,
-  periodStart,
-  type UsageGrouping,
-  type UsagePeriod,
-} from "./view-model.js";
+import { BACKEND_USAGE_SOURCES, PI_BACKEND, USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
+import { RankList, type RankRow } from "./top-lists.js";
+import { formatTokens } from "./view-model.js";
 
-const cost = (value: number) => formatCost(value) ?? "—";
-const approx = (value: number) => { const money = formatCost(value); return money ? `≈ ${money}` : "—"; };
+const METRICS: ReadonlyArray<{ id: UsageMetric; label: string }> = [{ id: "cost", label: "Cost" }, { id: "tokens", label: "Tokens" }];
+const RUNTIME_LABELS: Record<string, string> = Object.fromEntries([[PI_BACKEND, "Pi"], ...BACKEND_USAGE_SOURCES.map((source) => [source.backend, source.label])]);
 
-function Tile({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function folderName(cwd: string): string {
+  return cwd.split(/[\\/]/u).filter(Boolean).pop() ?? cwd;
+}
+
+/** The window's threads and projects; a page drawn outside a workbench (a test) has none. */
+function useThreadIndex(): { threads: readonly UiSession[]; projects: readonly UiProject[] } {
+  let store: ThreadStore | undefined;
+  try { store = useThreadStore(); } catch { store = undefined; }
+  const [index, setIndex] = useState(() => ({ threads: store?.getSnapshot().threads ?? [], projects: store?.getProjects() ?? [] }));
+  useEffect(() => {
+    if (!store) return undefined;
+    const read = () => setIndex({ threads: store!.getSnapshot().threads, projects: store!.getProjects() });
+    const stopThreads = store.subscribe(read);
+    const stopProjects = store.subscribeToProjects(read);
+    return () => { stopThreads(); stopProjects(); };
+  }, [store]);
+  return index;
+}
+
+function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: ReadonlyArray<{ id: T; label: string }>; onChange(value: T): void }) {
   return (
-    <div className="usage-tile">
-      <div className="usage-tile-label">{label}</div>
-      <div className="usage-tile-value">{value}</div>
-      {detail ? <div className="usage-tile-detail">{detail}</div> : null}
+    <div className="segmented usage-segmented" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button key={option.id} type="button" role="radio" aria-checked={value === option.id} className={value === option.id ? "active" : ""} onClick={() => onChange(option.id)}>{option.label}</button>
+      ))}
+    </div>
+  );
+}
+
+/** A period's money, billed and a plan's value side by side, over what it used. */
+function PeriodTile({ label, figures }: { label: string; figures: UsageFigures }) {
+  const billed = formatCost(figures.costUsd);
+  const plan = formatCost(figures.apiValueUsd);
+  return (
+    <section className="usage-kpi" aria-label={label}>
+      <h3>{label}</h3>
+      <div className="usage-kpi-figures">
+        <p data-empty={billed ? undefined : "true"}><b>{billed ?? "$0"}</b><small>billed</small></p>
+        <p className="plan" data-empty={plan ? undefined : "true"}><b>{plan ? `≈ ${plan}` : "—"}</b><small>plan value</small></p>
+      </div>
+      <p className="usage-kpi-detail">{formatTokens(figures.totalTokens)} tokens · {figures.requests} {figures.requests === 1 ? "turn" : "turns"} · {figures.threads} {figures.threads === 1 ? "thread" : "threads"}</p>
+    </section>
+  );
+}
+
+function Sources({ summary, limits }: { summary: UsageSummary | undefined; limits: UsageLimitsSummary | undefined }) {
+  const status = (value: "ok" | "empty" | "unavailable") => value === "ok" ? "read" : value === "empty" ? "no data" : "not available";
+  return (
+    <div className="usage-subpage">
+      <p className="lede">
+        Where the figures come from. Pi writes every response with its tokens into its session files; the Codex, Agent SDK, Antigravity,
+        OpenCode, Grok and Cursor kits keep every turn. Limits are what a runtime&apos;s login reports about its plan. Nothing here is a bill:
+        billed is what an API key was charged per token, plan value is what a subscription&apos;s tokens would have cost over the provider&apos;s API.
+      </p>
+      <ul className="usage-sources" aria-label="Sources">
+        {summary?.sources.map((source) => (
+          <li key={source.backend} data-status={source.status}>
+            <strong>{source.label}</strong><em className="usage-status">{status(source.status)}</em><span>{source.detail}</span>
+          </li>
+        ))}
+        {limits?.sources.map((source) => (
+          <li key={`limits-${source.extensionId}`} data-status={source.status}>
+            <strong>{source.label} limits</strong><em className="usage-status">{status(source.status)}</em><span>{source.detail}</span>
+          </li>
+        ))}
+      </ul>
+      {summary ? <p className="usage-note">Last read {new Date(summary.scannedAt).toLocaleTimeString()}.</p> : null}
     </div>
   );
 }
 
 /**
- * What the threads Tau ran have used, per project, runtime and model, and
- * what each plan has left. Money billed per token and what a subscription
- * covered stay apart: a plan's usage shows its limits and what the same
- * tokens would have cost over the API, never a cost.
+ * What Tau's threads cost and how close each plan is to its limits. The page
+ * answers, from the top: what today, this week and this month cost; which
+ * plan limit is nearest and when it resets; how the days went; and which
+ * projects, models and threads used the most. Money billed per token and
+ * what a subscription covered (its value at API prices) are never one figure.
  */
-export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensionClient; now?: () => Date }) {
-  const [period, setPeriod] = useState<UsagePeriod>("7d");
-  const [grouping, setGrouping] = useState<UsageGrouping>("project");
+export function UsagePage({ host, actions, params = {}, navigate, now }: Partial<Omit<PageProps, "params">> & { params?: PageProps["params"]; host: HostExtensionClient; now?: () => Date }) {
+  const [range, setRange] = useState<UsageRange>("30d");
+  const [metric, setMetric] = useState<UsageMetric>("cost");
   const [summary, setSummary] = useState<UsageSummary>();
   const [error, setError] = useState<string>();
   const [limits, setLimits] = useState<UsageLimitsSummary>();
   const [limitsError, setLimitsError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
+  const [days, setDays] = useState(() => dayStarts(HISTORY_DAYS, now?.()));
+  const index = useThreadIndex();
 
   const load = useCallback(async (refresh: boolean) => {
     const id = ++request.current;
     setBusy(true);
-    const since = periodStart(period, now?.());
-    const input: UsageSummaryInput = { ...(since === undefined ? {} : { since }), ...(refresh ? { refresh } : {}) };
+    // A new day since the page opened moves every bar along.
+    const starts = dayStarts(HISTORY_DAYS, now?.());
+    setDays((current) => (current[current.length - 1] === starts[starts.length - 1] ? current : starts));
+    const input: UsageSummaryInput = { since: starts[0]!, days: starts, ...(refresh ? { refresh } : {}) };
     try {
       const result = await host.invoke(USAGE_SUMMARY_COMMAND, input) as UsageSummary;
       if (id !== request.current) return;
@@ -57,7 +119,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
     } finally {
       if (id === request.current) setBusy(false);
     }
-  }, [host, now, period]);
+  }, [host, now]);
 
   const loadLimits = useCallback(async (refresh: boolean) => {
     try {
@@ -68,140 +130,100 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
     }
   }, [host]);
 
-  useEffect(() => { void load(false); }, [load]);
-  useEffect(() => { void loadLimits(false); }, [loadLimits]);
+  useEffect(() => { void load(false); void loadLimits(false); }, [load, loadLimits]);
+  const readAgain = () => { void load(true); void loadLimits(true); };
 
-  const groups = useMemo(() => summary ? groupRows(summary.rows, grouping) : [], [grouping, summary]);
-  const suggestions = useMemo(() => [...new Set((summary?.rows ?? []).map((row) => row.provider ? `${row.provider}/${row.modelId ?? row.model}` : row.modelId ?? row.model))].sort(), [summary]);
-  const totals = summary?.totals;
-  const plan = totals?.subscription;
-  const periodLabel = USAGE_PERIODS.find((entry) => entry.id === period)?.label ?? "";
+  const entries = useMemo(() => summary?.entries ?? [], [summary]);
+  const last = days.length;
+  const from = last - (USAGE_RANGES.find((entry) => entry.id === range)?.days ?? 30);
+  const series = useMemo(() => dailyFigures(entries, days, from), [days, entries, from]);
   const clock = (now?.() ?? new Date()).getTime();
+  const rangeLabel = USAGE_RANGES.find((entry) => entry.id === range)?.label ?? "";
 
+  const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
+  const threadOf = (threadId: string | undefined) => (threadId ? index.threads.find((thread) => thread.id === threadId) : undefined);
+  const projects: RankRow[] = rankUsage(entries, from, "project", metric, 6).map((item) => ({ item, name: projectName(item.cwd), title: item.cwd }));
+  const models: RankRow[] = rankUsage(entries, from, "model", metric, 6).map((item) => ({
+    item,
+    name: item.model,
+    detail: RUNTIME_LABELS[item.backend] ?? item.backend,
+    marks: { runtimeProvider: item.backend, ...(item.provider ? { modelProvider: item.provider } : {}) },
+  }));
+  const threads: RankRow[] = rankUsage(entries, from, "thread", metric, 8).map((item) => {
+    const thread = threadOf(item.threadId);
+    return {
+      item,
+      name: thread?.title || `Thread ${item.threadId?.slice(0, 8) ?? ""}`,
+      detail: projectName(item.cwd),
+      marks: { runtimeProvider: item.backend, ...(item.provider ? { modelProvider: item.provider } : {}) },
+      ...(thread && actions ? { onOpen: () => { void actions.switchSession(thread.path); } } : {}),
+    };
+  });
+
+  if (params.view === "prices") {
+    const suggestions = [...new Set((summary?.rows ?? []).map((row) => row.provider ? `${row.provider}/${row.modelId ?? row.model}` : row.modelId ?? row.model))].sort();
+    return <div className="usage-subpage"><ModelPrices suggestions={suggestions} /></div>;
+  }
+  if (params.view === "sources") return <Sources summary={summary} limits={limits} />;
+
+  const read = summary ? `Read ${new Date(summary.scannedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : "Reading usage…";
   return (
-    <div className="settings-page usage-page">
-      <h3>Usage</h3>
-      <p className="lede">
-        What the threads Tau ran have used, from what each runtime recorded, and what each subscription has left. Money billed per token
-        and what a plan covered are kept apart: a plan&apos;s usage shows its limits and what the same tokens would have cost over the API.
-        Nothing here is a bill.
-      </p>
-
-      <div className="usage-controls">
-        <div className="segmented" role="group" aria-label="Period">
-          {USAGE_PERIODS.map((entry) => (
-            <button key={entry.id} type="button" className={period === entry.id ? "active" : ""} aria-pressed={period === entry.id} onClick={() => setPeriod(entry.id)}>
-              {entry.label}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="usage-refresh" disabled={busy} onClick={() => { void load(true); void loadLimits(true); }}>
-          {busy ? "Reading…" : "Read again"}
-        </button>
+    <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
+      <div className="usage-toolbar">
+        <span role="status">{busy ? "Reading…" : read}</span>
+        <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy} onClick={readAgain}><RefreshCw size={14} /></button>
       </div>
 
-      <SettingsSection title="Subscription limits" plain>
-        <UsageLimits limits={limits} error={limitsError} rows={summary?.rows} periodLabel={periodLabel} now={clock} />
-      </SettingsSection>
-
-      {error ? <div className="settings-note" data-level="error">{error}</div> : null}
-
-      {totals && plan ? (
-        <div className="usage-tiles" aria-label="Totals">
-          <Tile label="Billed via API" value={cost(totals.costUsd)} detail={totals.costUsd > 0 ? "API keys, priced per token" : "nothing billed per token in this period"} />
-          <Tile
-            label="On a subscription"
-            value={plan.totalTokens > 0 ? approx(plan.apiValueUsd) : "—"}
-            detail={plan.totalTokens > 0 ? `would have cost via the API · ${formatTokens(plan.totalTokens)} tokens, included` : "no plan usage in this period"}
-          />
-          <Tile label="Tokens" value={formatTokens(totals.totalTokens)} detail={`${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cacheReadTokens)} cache read`} />
-          <Tile label="Threads" value={String(totals.threads)} detail={`${totals.requests} requests`} />
-        </div>
-      ) : !error ? (
-        <div className="settings-note">Reading usage…</div>
-      ) : null}
-
-      {summary ? (
+      {error && !summary ? (
+        <Empty icon={<ChartColumn size={18} />} title="Usage could not be read" description={error}>
+          <button type="button" className="mini-button" onClick={readAgain}>Try again</button>
+        </Empty>
+      ) : (
         <>
-          <SettingsSection title={`${periodLabel} · by`} plain headerAction={
-            <div className="segmented usage-grouping" role="group" aria-label="Group by">
-              {USAGE_GROUPINGS.map((entry) => (
-                <button key={entry.id} type="button" className={grouping === entry.id ? "active" : ""} aria-pressed={grouping === entry.id} onClick={() => setGrouping(entry.id)}>
-                  {entry.label}
-                </button>
-              ))}
-            </div>
-          }>
-          {groups.length > 0 ? (
-            <table className="inspector-table usage-table" aria-label="Usage">
-              <thead>
-                <tr>
-                  <th>{USAGE_GROUPINGS.find((entry) => entry.id === grouping)?.label}</th>
-                  {grouping === "all" ? <th className="usage-number">Threads</th> : null}
-                  <th className="usage-number">Requests</th>
-                  <th className="usage-number">Input</th>
-                  <th className="usage-number">Output</th>
-                  <th className="usage-number">Cache read</th>
-                  <th className="usage-number" title="Money billed per token">Billed</th>
-                  <th className="usage-number usage-plan-head" title="What a subscription covered would have cost over the API">Plan value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((group) => (
-                  <tr key={group.key}>
-                    <td>
-                      <strong>{group.label}</strong>
-                      {group.detail ? <small title={group.title ?? group.detail}>{group.detail}</small> : null}
-                    </td>
-                    {grouping === "all" ? <td className="usage-number">{group.threads ?? 0}</td> : null}
-                    <td className="usage-number">{group.requests}</td>
-                    <td className="usage-number">{formatTokens(group.inputTokens)}</td>
-                    <td className="usage-number">{formatTokens(group.outputTokens)}</td>
-                    <td className="usage-number">{formatTokens(group.cacheReadTokens)}</td>
-                    <td className="usage-number">{cost(group.costUsd)}</td>
-                    <td className="usage-number usage-plan-value">{group.planTokens > 0 ? approx(group.apiValueUsd) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="settings-note usage-empty">
-              Nothing was recorded {period === "all" ? "yet" : "in this period"}. Usage appears here once a thread has answered: Pi writes
-              every response with its tokens into its session files, and the Codex, Agent SDK and Antigravity kits keep every turn.
-              The sources below say what was read.
-            </div>
-          )}
-          </SettingsSection>
-
-          <SettingsSection title="Model prices" plain>
-            <ModelPrices suggestions={suggestions} />
-          </SettingsSection>
-
-          <SettingsSection title="Sources" plain>
-          <ul className="usage-sources" aria-label="Sources">
-            {summary.sources.map((source) => (
-              <li key={source.backend} data-status={source.status}>
-                <strong>{source.label}</strong>
-                <em className="usage-status">{source.status === "ok" ? "read" : source.status === "empty" ? "no data" : "not available"}</em>
-                <span>{source.detail}</span>
-              </li>
-            ))}
-            {limits?.sources.map((source) => (
-              <li key={`limits-${source.extensionId}`} data-status={source.status}>
-                <strong>{source.label} limits</strong>
-                <em className="usage-status">{source.status === "ok" ? "read" : source.status === "empty" ? "no data" : "not available"}</em>
-                <span>{source.detail}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="settings-note">
-            Billed is what an API key was charged per token, as the runtime or your own price put it. Plan value is what a subscription&apos;s
-            tokens would have cost over the provider&apos;s API; the plan itself was paid for already. A model without a price counts tokens
-            only. Last read {new Date(summary.scannedAt).toLocaleTimeString()}.
+          {error ? <p className="usage-note" data-level="error">{error} The figures are from the last read.</p> : null}
+          <div className="usage-kpis" aria-label="Totals">
+            <PeriodTile label="Today" figures={figuresFrom(entries, last - 1)} />
+            <PeriodTile label="Last 7 days" figures={figuresFrom(entries, last - 7)} />
+            <PeriodTile label="Last 30 days" figures={figuresFrom(entries, last - 30)} />
           </div>
-          </SettingsSection>
+
+          <section className="usage-section" aria-labelledby="usage-limits-title">
+            <h2 id="usage-limits-title">Plan limits</h2>
+            <UsageLimits limits={limits} error={limitsError} now={clock} />
+          </section>
+
+          <section className="usage-section" aria-labelledby="usage-breakdown-title">
+            <header className="usage-section-head">
+              <h2 id="usage-breakdown-title">Last {rangeLabel}</h2>
+              <span className="spacer" />
+              <Segmented<UsageRange> label="Range" value={range} options={USAGE_RANGES} onChange={setRange} />
+              <Segmented<UsageMetric> label="Measure" value={metric} options={METRICS} onChange={setMetric} />
+            </header>
+            {summary && entries.length === 0 ? (
+              <Empty icon={<ChartColumn size={18} />} title="Nothing used yet" description="Usage shows up here once a thread has answered. The sources say what was read.">
+                {navigate ? <button type="button" className="mini-button" onClick={() => navigate({ view: "sources" }, { label: "Sources" })}>Sources</button> : null}
+              </Empty>
+            ) : (
+              <>
+                <UsageHistory series={series} metric={metric} />
+                <div className="usage-ranks">
+                  <RankList title="Projects" rows={projects} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
+                  <RankList title="Models" rows={models} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
+                  <RankList title="Threads" rows={threads} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
+                </div>
+              </>
+            )}
+          </section>
+
+          {navigate ? (
+            <footer className="usage-footer">
+              <button type="button" className="usage-link" onClick={() => navigate({ view: "prices" }, { label: "Model prices" })}>Model prices</button>
+              <button type="button" className="usage-link" onClick={() => navigate({ view: "sources" }, { label: "Sources" })}>Sources</button>
+              <span>Billed is money an API key was charged per token; plan value is what a subscription&apos;s tokens would have cost over the API.</span>
+            </footer>
+          ) : null}
         </>
-      ) : null}
+      )}
     </div>
   );
 }

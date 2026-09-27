@@ -220,8 +220,8 @@ holds while a text field, a select or anything `contenteditable` has the
 keyboard, so a chord native editing shares yields to it — Thread Rail's
 `mod+z` is `"!terminalFocus && !editableFocus"`, as in T3 Code; `overlayOpen`
 holds while an overlay is drawn: anything with `aria-modal="true"`, a
-`role="dialog"`, `"alertdialog"` or `"menu"`, or an element marked
-`data-overlay`. A non-modal tool window that stays open beside the work (the
+`role="dialog"`, `"alertdialog"` or `"menu"`, an app page (`registerPage`),
+or an element marked `data-overlay`. A non-modal tool window that stays open beside the work (the
 theme editor) opts out with `data-overlay="false"`. A clause Tau cannot read
 throws at registration.
 
@@ -310,18 +310,30 @@ the arrow keys from its top edge, and its height (180 px up to three quarters
 of the window) is kept per client. Terminal Kit's "Show the terminal in"
 setting registers its panel again with the other placement.
 
-`maximizable: true` lets the user move the panel into a stage tab over the
-whole centre, the chat the stage's first tab: the button over the end of the
-panel's header, or
-`rightPanel.toggleMaximized` (`mod+alt+shift+b`), which acts on the panel tab
-in front, else the panel the keyboard is in, else the dock's, else the
-drawer's. Core moves the *mounted* panel — its DOM host goes from dock to
-stage and back — so React state, scroll and a terminal's buffer go with it,
-and the panel is never drawn twice: the dock shows a stand-in with "Show tab"
-and "Move back here" while it is away. Closing the tab, or the same command
-again, puts it back where it was placed; the stage's own maximize button, at
-the right end of its tab strip, puts the chat back beside it. The tab is a core kind
-(`StagePanelTab`, `kind: "panel"`, `panelId`) and is restored with the stage.
+One tool at a time shares the centre with the chat, which keeps at least
+480 px and starts at about 42 % of the centre; the divider between them is
+kept per client (new in API 1.16.0). `width: "wide"` (Preview, Terminal)
+takes the whole space beside the chat as soon as it opens.
+`narrow`, the default (Files, Changes, Agents), floats over the chat's edge
+while nothing is open beside the chat; once a document, a diff or a thread
+opens on the stage, the list docks at the right of it. Opening a document
+while a wide panel is shown puts the documents in its place. A click into
+the chat closes a floating list.
+
+`maximizable: true` lets the user move the panel into a stage tab: the
+button over the end of the panel's header, or `rightPanel.toggleMaximized`
+(`mod+alt+shift+b`), which leaves the maximized layout when it is on, else
+acts on the panel the keyboard is in, the wide panel beside the chat, the
+documents, the dock's list or the drawer's panel, in that order. A panel
+tab maximizes the stage: it fills the centre, the chat is its first tab,
+pinned and set apart, and a wide panel opened meanwhile joins the tabs.
+Dragging the divider well below the chat's minimum maximizes too; the
+button at the right end of the tab strip ("Show chat beside the stage") puts every
+panel back where it was placed. Core moves the *mounted* panel — its DOM
+host goes from dock to stage and back — so React state, scroll and a
+terminal's buffer go with it, and the panel is never drawn twice. The tab
+is a core kind (`StagePanelTab`, `kind: "panel"`, `panelId`) and is
+restored with the stage.
 
 `PanelProps.placement` says where the panel is drawn now (`dock`, `drawer` or
 `stage`); a panel that positions something outside the page, as Preview Kit's
@@ -850,6 +862,55 @@ field at the top of the Settings column finds core's own rows (and scrolls to
 the row), a contributed page by its label and `keywords`, an extension's page
 by its name and its options, and every live keybinding — which opens the
 Keybindings page filtered to its command.
+
+#### App pages: `registerPage`
+
+`registerPage` adds a page of the app like Settings — Usage and Pull Requests
+are two — typed `PageContribution`: `id`, `label`, an `Icon` and an `order`
+(the sidebar's foot lists every page after Settings in that order,
+`registry.getPages()`, which a phone's navigation can take as well), optional `keywords`, `profiles`, a `layout`
+and a `Component` receiving `PageProps`. `actions.openPage(id, params?)` opens
+it and `actions.closePage()` closes it; both are optional on `WorkbenchActions`,
+absent in a client without pages.
+
+On a desktop the page takes the place of the thread, the stage and the dock,
+title bar included, in Settings' frame: a bar with the page's label, the page
+below. The sidebar stays beside it, and its foot leads with Back and marks the
+page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
+`newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
+`focusComposer`, `openWorkspace`) closes the page first, and so does another
+thread coming on screen. Settings opens over a page and returns to it. The
+page counts as an overlay (`overlayOpen`, see "Keybindings"): the window's
+plain keybindings (Escape stopping a run among them) stay off while it shows,
+chords still run, and Escape leaves it once no dialog, menu or popover over it
+takes the key. On a phone (`compact` without the split list)
+the page is a screen of its own with a back button, addressed as
+`?page=<id>`: a link opens it, opening it adds a history entry, and the
+system's back gesture leaves it.
+
+`layout` is `"readable"` (Settings' reading column, the default), `"wide"`
+(1240 px) or `"fill"`: the page gets the whole area below the bar and scrolls
+itself, as a stage tab does. `PageProps` carries `actions`, the `params` of the
+view on screen, `navigate(params, { label?, replace? })` and `close()`. A page
+steps into a view of itself with `navigate` — a request's detail, a sub-page —
+and `label` follows the page's own in the bar; Escape and a click on the
+page's label step back out, and at the page's own view Escape closes it.
+
+```tsx
+plugin.registerPage({
+  id: "acme.reports", label: "Reports", Icon: ChartColumn, order: 30, layout: "wide",
+  profiles: ["desktop", "web", "compact"],
+  Component: ({ params, navigate }) => params.report
+    ? <Report id={String(params.report)} />
+    : <ReportList onOpen={(report) => navigate({ report: report.id }, { label: report.title })} />,
+});
+plugin.registerCommand({ id: "acme.reports.open", label: "Reports", group: "Extensions", access: "read", run: (actions) => actions.openPage?.("acme.reports") });
+```
+
+`useOpenPage()` from `tau` answers the page on screen (`{ id, views }`) or
+undefined, for a sidebar that marks it. A `standalone` Settings page (API
+1.15.0) still opens alone, without Settings' navigation; it is deprecated in
+favour of `registerPage`.
 
 #### Settings pages: the full page, the levels and the rows
 
@@ -2422,7 +2483,7 @@ window's machine — a window half, `local-files` — is not offered there.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.15.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.16.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
@@ -2457,6 +2518,7 @@ A package's `permissions` array draws from a fixed list
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
+| `native` | load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -2501,7 +2563,8 @@ into the identical guarded facade from the main side).
 listeners); dialling out asks the host for nothing, so for that the worker
 enforces the grant itself instead — see §6. `process` is enforced in
 both places: the facade members are guarded on the main side, and the worker
-refuses `child_process` for itself. For an `in-process` package neither is
+refuses `child_process` for itself. `native` gates no facade member; only the
+worker enforces it. For an `in-process` package neither is
 enforced, because a package running in the host process can reach everything
 the host process can; that is what granting `in-process` means, and the
 approval box says so in that many words.
@@ -2824,9 +2887,10 @@ its own. There is no revocation list: removing a key from
     `process.memoryUsage().arrayBuffers`, which the host cannot read while the
     worker runs a synchronous loop.
   - Native memory has no per-thread number at all. A worker cannot call
-    `services.loadDependency`, but it can load a context-aware addon itself
-    (`process.dlopen`, or a `.node` file its package ships). An addon, or
-    `node:sqlite`, allocates with `malloc`, which only RSS sees.
+    `services.loadDependency`, but with the `native` grant it can load a
+    context-aware addon itself (`process.dlopen`, or a `.node` file its
+    package ships). An addon, or `node:sqlite`, allocates with `malloc`,
+    which only RSS sees.
   What it does not do:
   - Attribution is by activity, not by owner. A package that runs while the
     host's own thread or a thread Tau does not watch (libuv's pool, Pi's image
@@ -2848,9 +2912,15 @@ its own. There is no revocation list: removing a key from
     stopping the host. A native addon loaded through `loadDependency` lives
     there. When the host passes its limit with no worker package to blame,
     it stops nothing.
+- **Compiled code in a worker:** a crash in native code is a crash of the host
+  process, with every thread in it; no worker boundary catches a segfault. That
+  is why a worker package loads no addon without the `native` grant (§6). A
+  package that loads one at its top without the grant does not start: its
+  settings page shows "Extension <id> lacks permission native".
 - **A denied permission is not a failure:** reaching past the grant — a guarded
-  service member, or the network without `network` — throws inside the command
-  and logs `host-extension.denied`, but the package stays active. Only the
+  service member, the network without `network`, an addon without `native` —
+  throws inside the command and logs `host-extension.denied`, but the package
+  stays active. Only the
   three-strikes rule above can turn repeated denials into a deactivation.
 - **A failed reload is not a failure:** when a watched edit leaves a package
   that no longer parses or compiles, the version that is running stays
@@ -2867,8 +2937,8 @@ its own. There is no revocation list: removing a key from
 ## 6. What an isolated (worker) package cannot use
 
 By default a package's host half runs in a worker thread: no Electron
-(`import "electron"` throws), no network and no `child_process` unless it asked
-for them, a 256 MB heap cap, a 512 MB buffer memory cap and the host's memory limit (§5), and a facade that only carries plain data across
+(`import "electron"` throws), no network, no `child_process` and no compiled
+code unless it asked for them, a 256 MB heap cap, a 512 MB buffer memory cap and the host's memory limit (§5), and a facade that only carries plain data across
 the port — nothing that hands out a live object. From
 `src/main/host-extension-worker-protocol.ts` and ADR 0009:
 
@@ -2897,25 +2967,48 @@ the permission list ("runs inside the host process, outside the worker
 isolation") and is recorded in the grant, so a package that later leaves the
 worker has to be approved again even if its permission list did not change.
 
-### The network and processes, in a worker
+### The network, processes and native code, in a worker
 
-A worker meets a guardrail for whichever of `network` and `process` its grant
-left out. Before the package's bundle is loaded, `host-extension-worker.ts`
+A worker meets a guardrail for whichever of `network`, `process` and `native`
+its grant left out. Before the package's bundle is loaded,
+`host-extension-worker.ts`
 
 - replaces whichever of `fetch`, `WebSocket`, `EventSource` and
   `XMLHttpRequest` this Node defines on the worker global (without `network`);
-- refuses `http`, `https`, `net`, `tls`, `dgram`, `http2` and `dns` (without
-  `network`) and `child_process` (without `process`) — under any `node:`
-  prefix and any submodule, so `node:dns/promises` is the same door as `dns`;
-- refuses `worker_threads` while either grant is still missing, because a
-  nested worker runs outside both guards and would hand the package back
-  whatever it asked for;
+- refuses `http`, `https`, `net`, `tls`, `dgram`, `http2`, `dns` and
+  `inspector` (without `network`; `inspector.open` listens on a port) and
+  `child_process`, `cluster` and `node:test` (without `process`; the last two
+  start processes of their own) — under any `node:` prefix and any submodule,
+  so `node:dns/promises` is the same door as `dns`;
+- refuses compiled code (without `native`): `process.dlopen`, the `.node`
+  handler behind `require` (so a `.node` file, or a helper such as `bindings`
+  or `node-gyp-build` that requires one, is refused with its path), an
+  `import` that resolves to a `.node` file, `DatabaseSync#loadExtension` of
+  `node:sqlite` (a SQLite extension is a shared library), `process.binding`
+  and `process._linkedBinding` (the raw handles behind the socket, spawn and
+  Electron modules, which walk around the other two grants) and
+  `v8.setFlagsFromString` (V8 flags are process-wide, and one of them enables
+  intrinsics that abort the process). `node:sqlite` itself stays available;
+- refuses `worker_threads` while any of the three grants is still missing,
+  because a nested worker runs outside every guard and would hand the package
+  back whatever it asked for;
 - refuses `electron` always: it only exists in the main process.
 
-Each of those throws `Extension <id> lacks permission <name>` (the nested
-worker says why it is refused instead) and logs `host-extension.denied`, so the
-Inspector and Signals show a denied socket or a denied spawn exactly like a
-denied service member. A bundled `ws` or `undici` needs `net`/`tls` and hits
+These hold for `require`, `import()` and `process.getBuiltinModule` alike. Each
+throws `Extension <id> lacks permission <name>` (the nested worker says why it
+is refused instead) and logs `host-extension.denied` with what was asked for —
+`process.dlopen("/path/addon.node")`, `require("/path/addon.node")` — so the
+Inspector and Signals show a denied socket, spawn or addon exactly like a
+denied service member.
+
+`native` is the widest of the three. Compiled code is not held by anything
+here: it can open sockets and start processes without asking, allocates
+memory no cap counts (§5), and takes the host down with every thread when it
+crashes. A package that needs it — a database driver, a pty, anything built
+with `node-gyp` — lists it, and the approval box says what it means beside
+the name. No kit Tau ships as a worker needs it; the ones with addons (Terminal
+Kit's `node-pty`) run `in-process` and load them through
+`services.loadDependency`. A bundled `ws` or `undici` needs `net`/`tls` and hits
 the same wall. The grant does not do the host's bookkeeping for you: a package
 that spawns still calls `noteSubprocess` itself.
 
@@ -2927,17 +3020,18 @@ first one; it does not any more.
 
 **This is still a guardrail, not an OS-level boundary.** A package holds
 `node:module` like any other Node code and can put both hooks back the way it
-found them; it reads and writes files either way, and an `in-process` package
+found them (the native doors are the exception: the worker keeps no copy of
+`process.dlopen` or `process.binding` to put back); it reads and writes files either way, and an `in-process` package
 meets nothing at all. What the worker gives you is crash containment, a heap
 cap and a wall a mistake runs into — not a sandbox against hostile code.
 [ADR 0018](adr/0018-sandboxed-host-extensions.md) collects what a real boundary
 would cost. Install only host packages whose code you trust.
 
 An `in-process` package is a different story. It runs with everything the host
-process can reach, so neither grant is enforced there — the approval box says
+process can reach, so none of the three is enforced there — the approval box says
 "runs inside the host process; permissions are not enforced there" rather than
-naming one of them. If you rely on a package not reaching the network or not
-spawning anything, do not grant it `in-process`.
+naming one of them. If you rely on a package not reaching the network, not
+spawning anything or not loading native code, do not grant it `in-process`.
 
 Electron works the same way round. An `in-process` host half may
 `import { BrowserWindow } from "electron"` — the host bundler keeps `electron`

@@ -11,6 +11,8 @@ import { ProjectPicker } from "./components/ProjectPicker";
 import { Dialog, Popover } from "./components/ui/Dialog";
 import { runningTurn as running } from "./test-support/kit-harness";
 import { TestProviders } from "./test-support/test-providers";
+import { AppPageScreen } from "./pages/AppPageScreen";
+import { AppPageStore } from "../workbench/app-page-store";
 
 afterEach(cleanup);
 
@@ -125,6 +127,29 @@ describe("Escape during a running turn", () => {
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     escape();
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("closes an open app page and stops nothing; an overlay over the page closes alone", () => {
+    const { abort, registry } = running();
+    registry.activate({ id: "test.pages", name: "Pages", activate: (context) => {
+      context.registerPage({ id: "usage", label: "Usage", Component: () => <p>Totals</p> });
+    } });
+    const store = new AppPageStore();
+    store.open("usage");
+    const actions = {} as WorkbenchActions;
+    open((close) => <section role="dialog" aria-label="Over the page">
+      <button type="button" autoFocus onKeyDown={(event) => { if (event.key === "Escape") close(); }}>Pick</button>
+    </section>);
+    render(<AppPageScreen registry={registry} store={store} actions={actions} />);
+    // The overlay closes itself in its own handler (committed at once, as in a window); the page stays.
+    escape(screen.getByRole("button", { name: "Pick" }));
+    expect(screen.queryByRole("dialog", { name: "Over the page" })).toBeNull();
+    expect(store.getSnapshot()?.id).toBe("usage");
+
+    // The chat is inert behind a page, so the key starts on the page, not in the composer.
+    escape(document.body);
+    expect(store.getSnapshot()).toBeUndefined();
     expect(abort).not.toHaveBeenCalled();
   });
 });

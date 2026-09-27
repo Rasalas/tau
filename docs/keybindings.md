@@ -49,7 +49,7 @@ Contexts: `chatFocus` (the transcript and the composer), `terminalFocus`,
 `modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
 `terminalOpen`, …). `editableFocus` holds while any text field, select or
 `contenteditable` element has the keyboard; `overlayOpen` while a menu,
-popover, picker, dialog or sheet is open. Any extension can add its own with
+popover, picker, dialog, sheet or app page (Usage, Pull requests) is open. Any extension can add its own with
 `data-keybinding-context`.
 
 Escape closes the topmost overlay and does nothing else: no chord without a
@@ -96,7 +96,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+alt+3` | | `workbench.focus-stage` | Focus the stage | core | – |
 | `ctrl+tab` / `ctrl+shift+tab` | | `workbench.next-stage-tab` / `prev-stage-tab` | Move between stage tabs | core | – |
 | `mod+j` | | `terminal.toggle` | Terminal panel | Terminal | same |
-| `mod+d` | `terminalFocus && !stageFocus` | `terminal.split` | Split right | Terminal | `terminal.split` |
+| `mod+d` | `terminalFocus && !stageFocus` | `terminal.split` | Split along the longer side: top and bottom in a pane taller than wide, else side by side | Terminal | `terminal.split` |
 | `mod+shift+d` | `terminalFocus && !stageFocus` | `terminal.splitDown` | Split down | Terminal | `terminal.splitVertical` |
 | `mod+n` | `terminalFocus` | `terminal.new` | New terminal | Terminal | same |
 | `mod+w` | `terminalFocus && !stageFocus` | `terminal.close` | Close the terminal | Terminal | same |
@@ -122,7 +122,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+e` | | `workspace.open-prompt-editor` | Prompt in the external editor | Workspace | – |
 | `mod+alt+a` | | `appearance.open` | Appearance settings | Appearance | `theme.select` |
 | `mod+alt+shift+t` | | `appearance.toggle-theme-editor` | Theme editor | Appearance | `themeEditor.toggle` |
-| `mod+alt+o` | | `observatory.open` | Signals panel | Signals | – |
+| `mod+alt+o` | | `observatory.open` | Signals (Settings) | Signals | – |
 
 Inside the model picker, `mod+1` … `mod+9` choose a numbered model and
 `mod+shift+arrowup` / `arrowdown` move between providers, as in T3 Code; the

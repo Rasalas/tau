@@ -151,8 +151,10 @@ export interface TranscriptViewportProps {
   /** Sends the prompt of a failed last answer again. */
   onRetryMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
-  /** The reader scrolls toward the start and is near it; the caller loads older turns. */
+  /** The reader heads for the start and is near it, or the rows do not fill the viewport; the caller loads older turns. */
   onReachStart?: () => void;
+  /** Sits above the first loaded row and must take no height: the older turns' loading or error line. */
+  history?: ReactNode;
 }
 
 export const TranscriptViewport = memo(function TranscriptViewport({
@@ -174,6 +176,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   onRetryMessage,
   onFocusComposer,
   onReachStart,
+  history,
 }: TranscriptViewportProps) {
   const messageScopeKey = scopeKey ?? turnStart?.scopeKey ?? sessionId;
   const firstId = messages[0]?.id;
@@ -282,9 +285,9 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   useLayoutEffect(() => { onReachStartRef.current = onReachStart; }, [onReachStart]);
 
   useEffect(() => {
-    let previous = scrollRef.current?.scrollTop;
-    return navigation.subscribeScroll(() => {
-      const node = scrollRef.current;
+    const node = scrollRef.current;
+    let previous = node?.scrollTop;
+    const unsubscribe = navigation.subscribeScroll(() => {
       if (!node) return;
       const top = node.scrollTop;
       const towardStart = previous !== undefined && top < previous;
@@ -292,7 +295,40 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       // Only the reader's own way up: a thread switch or the tail follow never loads a page.
       if (towardStart && !navigation.isFollowing() && top < node.clientHeight * HISTORY_REACH_VIEWPORTS) onReachStartRef.current?.();
     });
+    if (!node) return unsubscribe;
+    // At the very top, a wheel or a pull further up moves nothing, so no scroll event says so.
+    let touchY: number | undefined;
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0 && node.scrollTop <= 0) onReachStartRef.current?.();
+    };
+    const onTouchStart = (event: TouchEvent) => { touchY = event.touches[0]?.clientY; };
+    const onTouchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY;
+      if (y !== undefined && touchY !== undefined && y > touchY && node.scrollTop <= 0) onReachStartRef.current?.();
+      touchY = y;
+    };
+    node.addEventListener("wheel", onWheel, { passive: true });
+    node.addEventListener("touchstart", onTouchStart, { passive: true });
+    node.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      unsubscribe();
+      node.removeEventListener("wheel", onWheel);
+      node.removeEventListener("touchstart", onTouchStart);
+      node.removeEventListener("touchmove", onTouchMove);
+    };
   }, [navigation.isFollowing, navigation.subscribeScroll, scrollRef]);
+
+  // Rows that do not fill the viewport give the reader nothing to scroll up with.
+  const hasMessages = messages.length > 0;
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || !hasMessages) return;
+    const fill = () => {
+      if (node.clientHeight > 0 && node.scrollHeight <= node.clientHeight) onReachStartRef.current?.();
+    };
+    fill();
+    return navigation.subscribeResize(fill);
+  }, [hasMessages, messages.length, navigation.subscribeResize, scrollRef, sessionId]);
 
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -424,6 +460,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       onKeyDown={handleKeyDown}
     >
       <div className="transcript-inner">
+        {history}
         <VirtualTranscript
           messages={messages}
           scrollRef={scrollRef}

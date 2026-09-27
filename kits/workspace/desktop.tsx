@@ -370,28 +370,6 @@ export const workspaceExtension: DesktopExtension = {
         return undefined;
       },
     });
-    context.registerSlashCommand({
-      name: "terminal",
-      description: "Open current project in external terminal (Ghostty, iTerm, Warp, Terminal)",
-      run: (_args, app) => {
-        const activeTerminal = store.activeTerminal();
-        if (!activeTerminal) return "No supported terminal found.";
-        app.notify(`Opening in ${activeTerminal.name}…`);
-        void store.openTerminal();
-        return undefined;
-      },
-    });
-    context.registerSlashCommand({
-      name: "term",
-      description: "Open current project in external terminal (Ghostty, iTerm, Warp, Terminal)",
-      run: (_args, app) => {
-        const activeTerminal = store.activeTerminal();
-        if (!activeTerminal) return "No supported terminal found.";
-        app.notify(`Opening in ${activeTerminal.name}…`);
-        void store.openTerminal();
-        return undefined;
-      },
-    });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
     return () => {
       window.clearInterval(autoPullTimer);

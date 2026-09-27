@@ -1,33 +1,54 @@
-import { formatCost, tooltipProps } from "tau";
-import type { UsageLimitAccount, UsageLimitWindow, UsageLimitsSummary, UsageRow } from "./protocol.js";
-import { elapsedShare, formatTokens, planUsageOf, remainingPercent, resetsIn } from "./view-model.js";
+import { ProviderIconStack, tooltipProps } from "tau";
+import type { UsageLimitAccount, UsageLimitWindow, UsageLimitsSummary } from "./protocol.js";
+import { elapsedShare, resetsIn } from "./view-model.js";
+
+/** From here a window reads as nearly spent. */
+const WARN_PERCENT = 75;
+const CRITICAL_PERCENT = 90;
+
+function resetAt(window: UsageLimitWindow, now: number): string | undefined {
+  if (!window.resetsAt) return undefined;
+  const at = new Date(window.resetsAt);
+  const sameDay = new Date(now).toDateString() === at.toDateString();
+  return at.toLocaleString(undefined, sameDay ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
 
 /**
- * One window as a bar from the moment it opened to its reset. The fill is the
- * quota left; the hairline is how much of the window's time is left, which is
- * where even spending would have put the fill.
+ * One window: how much of it is used, and when it resets. The tick on the
+ * track is how far the window's time has run, where even use would be now.
  */
-function WindowRow({ window, now }: { window: UsageLimitWindow; now: number }) {
-  const left = remainingPercent(window);
+function WindowLine({ window, now }: { window: UsageLimitWindow; now: number }) {
+  const used = Math.round(Math.max(0, Math.min(100, window.usedPercent)));
   const elapsed = elapsedShare(window, now);
-  const timeLeft = elapsed === undefined ? undefined : Math.round((1 - elapsed) * 100);
+  const pace = elapsed === undefined ? undefined : Math.round(elapsed * 100);
   const countdown = resetsIn(window, now);
-  const at = window.resetsAt ? new Date(window.resetsAt).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : undefined;
-  const summary = `${window.label}: ${left}% left${timeLeft === undefined ? "" : `, ${timeLeft}% of the window left`}${countdown ? `, ${countdown}` : ""}`;
-  const title = [`${left}% left${timeLeft === undefined ? "" : ` · ${timeLeft}% of the window left`}`, timeLeft === undefined ? undefined : "The line is where even spending would be.", at ? `Resets ${at}` : undefined].filter(Boolean).join("\n");
+  const at = resetAt(window, now);
+  const level = used >= CRITICAL_PERCENT ? "critical" : used >= WARN_PERCENT ? "warn" : undefined;
+  const hint = [
+    `${window.label}: ${used}% used`,
+    pace === undefined ? undefined : `${pace}% of the window has passed; the tick is where even use would be.`,
+    at ? `Resets ${at}.` : undefined,
+  ].filter(Boolean).join("\n");
   return (
-    <>
-      <span className="usage-window-label">
-        <span>{window.label}</span>
-        <b>{left}% left</b>
-      </span>
-      <div className="usage-window-bar" role="img" aria-label={summary} tabIndex={0} {...tooltipProps(title)} data-low={left <= 10 ? "true" : undefined}>
-        <span className="usage-window-track" />
-        {left > 0 ? <span className="usage-window-fill" style={{ width: `${left}%` }} /> : null}
-        {timeLeft !== undefined ? <span className="usage-window-time" style={{ left: `${timeLeft}%` }} /> : null}
+    <div className="usage-window" data-level={level}>
+      <span className="usage-window-label">{window.label}</span>
+      <div
+        className="usage-meter"
+        role="meter"
+        aria-label={`${window.label} used`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={used}
+        aria-valuetext={`${used}% used${countdown ? `, ${countdown}` : ""}`}
+        tabIndex={0}
+        {...tooltipProps(hint)}
+      >
+        {used > 0 ? <span className="usage-meter-fill" style={{ width: `${used}%` }} /> : null}
+        {pace !== undefined ? <span className="usage-meter-pace" style={{ left: `${pace}%` }} /> : null}
       </div>
-      <span className="usage-window-reset">{countdown ?? ""}</span>
-    </>
+      <span className="usage-window-used">{used}% used</span>
+      <span className="usage-window-reset">{countdown ?? "no reset time"}{at && countdown !== "reset" ? <small>{at}</small> : null}</span>
+    </div>
   );
 }
 
@@ -38,54 +59,51 @@ function checked(at: number, now: number): string {
   return `checked ${new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-/** An account's windows and, beside them, what its plan covered in the period and what that would have cost over the API. */
-function AccountCard({ account, rows, periodLabel, now }: { account: UsageLimitAccount; rows: readonly UsageRow[] | undefined; periodLabel: string; now: number }) {
-  const plan = rows ? planUsageOf(rows, account) : undefined;
-  const value = plan ? formatCost(plan.apiValueUsd) : undefined;
+/** A Pi account is one provider's login: its mark is the provider's, through Pi. */
+function accountMarks(account: UsageLimitAccount): { modelProvider?: string; runtimeProvider: string } {
+  const provider = account.runtime === "pi" && account.id.startsWith("pi:") ? account.id.slice(3) : undefined;
+  return { ...(provider ? { modelProvider: provider } : {}), runtimeProvider: account.runtime };
+}
+
+function AccountLimits({ account, now }: { account: UsageLimitAccount; now: number }) {
   return (
     <section className="usage-account" aria-label={`${account.label} limits`}>
       <header>
+        <ProviderIconStack {...accountMarks(account)} hint={{ side: "top" }} />
         <strong>{account.label}</strong>
         {account.plan ? <span className="usage-plan">{account.plan}</span> : null}
         <small>{checked(account.checkedAt, now)}</small>
       </header>
-      <div className="usage-windows">
-        {account.windows.map((window) => <WindowRow key={window.id} window={window} now={now} />)}
-      </div>
-      {plan && plan.tokens > 0 ? (
-        <p className="usage-account-value">
-          {periodLabel} on the plan: {formatTokens(plan.tokens)} tokens in {plan.requests} {plan.requests === 1 ? "turn" : "turns"}
-          {" · "}{value ? <>would have cost <b>≈ {value}</b> via the API</> : "no API price known for these tokens"}
-        </p>
-      ) : null}
+      {account.windows.map((window) => <WindowLine key={window.id} window={window} now={now} />)}
     </section>
   );
 }
 
-/** Subscription limits, one card per account that reports windows; accounts without windows say why in one line. */
-export function UsageLimits({ limits, error, rows, periodLabel, now }: {
-  limits: UsageLimitsSummary | undefined;
-  error: string | undefined;
-  rows: readonly UsageRow[] | undefined;
-  periodLabel: string;
-  now: number;
-}) {
-  if (error) return <div className="settings-note" data-level="error">{error}</div>;
-  if (!limits) return <div className="settings-note">Reading limits…</div>;
-  const reporting = limits.accounts.filter((account) => account.windows.length > 0);
+/**
+ * How close each plan is to its limits and when they reset, the fullest
+ * window first; accounts without windows say why in one line.
+ */
+export function UsageLimits({ limits, error, now }: { limits: UsageLimitsSummary | undefined; error: string | undefined; now: number }) {
+  if (error) return <p className="usage-note" data-level="error">{error}</p>;
+  if (!limits) return <p className="usage-note">Reading limits…</p>;
+  const fullest = (account: UsageLimitAccount) => Math.max(0, ...account.windows.map((window) => window.usedPercent));
+  const reporting = limits.accounts.filter((account) => account.windows.length > 0).sort((left, right) => fullest(right) - fullest(left));
   const silent = limits.accounts.filter((account) => account.windows.length === 0);
   return (
     <div className="usage-limits" aria-label="Limits">
       {reporting.length === 0 ? (
-        <div className="settings-note usage-empty">
-          No subscription reports its limits yet. Codex and the Agent SDK runtime report them for a signed-in plan; Pi's providers send
+        <p className="usage-note">
+          No plan reports its limits yet. Codex and the Agent SDK runtime report them for a signed-in plan; Pi&apos;s providers send
           them with their answers, so they show up here after a thread on a plan has answered.
-        </div>
-      ) : reporting.map((account) => <AccountCard key={account.id} account={account} rows={rows} periodLabel={periodLabel} now={now} />)}
+        </p>
+      ) : reporting.map((account) => <AccountLimits key={account.id} account={account} now={now} />)}
       {silent.length > 0 ? (
         <ul className="usage-silent" aria-label="Accounts without limits">
           {silent.map((account) => (
-            <li key={account.id}><strong>{account.label}</strong> <span>{account.unavailable?.message ?? "No limits reported."}</span></li>
+            <li key={account.id}>
+              <ProviderIconStack {...accountMarks(account)} hint={{ side: "top" }} />
+              <span {...tooltipProps(account.unavailable?.message ?? "No limits reported.", { side: "top" })}><strong>{account.label}</strong> {account.unavailable?.message ?? "No limits reported."}</span>
+            </li>
           ))}
         </ul>
       ) : null}

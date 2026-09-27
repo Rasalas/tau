@@ -6,6 +6,7 @@ import { parseGitHubList } from "./pull-request-list-json.js";
 import {
   arrangeList,
   decodeListPreferences,
+  groupByRepository,
   listFacets,
   matchesListFilters,
   parseListQuery,
@@ -129,5 +130,14 @@ describe("the list's parts", () => {
   it("keeps each remembered control that is valid and drops the rest", () => {
     expect(decodeListPreferences('{"state":"merged","sort":"sideways","involvement":"authored","draft":"hide"}')).toEqual({ state: "merged", involvement: "authored", sort: "ready", draft: "hide" });
     expect(decodeListPreferences("not json")).toEqual({ state: "open", involvement: "all", sort: "ready" });
+  });
+});
+
+describe("grouping by project", () => {
+  it("keeps the arranged order and names each repository", () => {
+    const inRepo = (repo: string, number: number) => entry({ ref: { service: "github", host: "github.com", repo, number, url: `https://github.com/${repo}/pull/${number}` } });
+    const arranged = arrangeList([inRepo("acme/api", 1), inRepo("acme/web", 2), inRepo("acme/api", 3)], { involvement: "all", sort: "newest", query: "", menu: {} });
+    const sections = groupByRepository(arranged.groups, (repository) => repository === "github.com/acme/api" ? "API" : repository);
+    expect(sections.map((section) => [section.label, numbers(section.entries)])).toEqual([["API", [3, 1]], ["github.com/acme/web", [2]]]);
   });
 });

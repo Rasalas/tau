@@ -62,9 +62,24 @@ export function hasSavedProject(userData) {
   }
 }
 
+/**
+ * A test instance starts past the welcome wizard, so every run doesn't click
+ * through it; `--onboarding` leaves it for tests of the wizard itself.
+ */
+export function seedOnboarding(userData, wanted) {
+  const file = join(userData, "kit-state", "tau.onboarding", "welcome.json");
+  if (wanted) {
+    rmSync(file, { force: true });
+    return;
+  }
+  if (existsSync(file)) return;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify({ completedAt: new Date().toISOString() })}\n`);
+}
+
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
 export function parseArgs(argv) {
-  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, asInstalled: false, port: undefined, workspace: undefined, agentDir: undefined };
+  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, asInstalled: false, onboarding: false, port: undefined, workspace: undefined, agentDir: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--build") options.build = true;
@@ -73,6 +88,7 @@ export function parseArgs(argv) {
     else if (arg === "--shared-sessions") options.sharedSessions = true;
     else if (arg === "--real-agent-dir") options.realAgentDir = true;
     else if (arg === "--as-installed") options.asInstalled = true;
+    else if (arg === "--onboarding") options.onboarding = true;
     else if (arg === "--port") {
       const value = argv[++index];
       if (!value || Number.isNaN(Number(value))) throw new Error(`--port needs a number, got ${JSON.stringify(value)}`);
@@ -86,7 +102,7 @@ export function parseArgs(argv) {
       if (!value) throw new Error("--agent-dir needs a path");
       options.agentDir = value;
     } else {
-      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --as-installed, --port <n>, --workspace <path>, --agent-dir <path>)`);
+      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --as-installed, --onboarding, --port <n>, --workspace <path>, --agent-dir <path>)`);
     }
   }
   if (options.asInstalled && options.workspace) throw new Error("--as-installed names no workspace; drop --workspace");
@@ -221,6 +237,7 @@ async function main() {
 
   if (options.fresh) rmSync(configFile, { force: true });
   seedConfigFile(configFile);
+  seedOnboarding(userData, options.onboarding);
 
   // Servers kit: test keys, the ssh_config (`-F`) and stubs for the keychain,
   // all under .tau-dev/servers. Never ~/.ssh, the real agent or keychain.

@@ -137,6 +137,8 @@
 }
 .thread-group-label > i { flex: 1; height: 1px; background: var(--line); }
 
+/* The shelves start in the rail's lower third, as in T3 Code, and move further down once the active threads need the room. */
+.rail-shelves { flex: none; margin-top: auto; min-height: 34%; display: flex; flex-direction: column; gap: var(--space-2); }
 .settled-shelf { display: flex; flex-direction: column; gap: 2px; }
 .settled-shelf-toggle {
   display: flex; align-items: center; gap: 8px; padding: 14px 4px 6px;
@@ -195,6 +197,12 @@
   background: transparent; color: var(--faint); cursor: pointer;
 }
 .sidebar-footer button:hover { background: var(--raised); color: var(--ink); }
+.sidebar-footer button.active { background: var(--thread-active); color: var(--ink); box-shadow: inset 0 0 0 1px var(--edge-line); }
+/* On an app page Back leads the row, as it ends Settings' column. */
+.sidebar-footer button.sidebar-back {
+  width: auto; flex: 1; justify-content: start; display: flex; align-items: center; gap: 8px;
+  padding: 0 8px; margin-right: 4px; color: var(--ink-3); font: 500 13px var(--sans);
+}
 
 /* A turn's changes: one pill over the composer, or in the transcript for an earlier turn. */
 .turn-changes-bar {
