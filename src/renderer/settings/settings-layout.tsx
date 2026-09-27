@@ -3,9 +3,11 @@ import { Check, Layers, Undo2 } from "lucide-react";
 import type { ConfigLayerName } from "../../shared/config-layers";
 import type { SettingHandle } from "./setting-state";
 import { tooltipProps } from "../components/ui/Tooltip";
+import { HelpTip } from "./controls";
 
 // The hooks live apart so the `tau` module reaches `useSetting` without loading these rows.
 export { SettingsLevelsProvider, useSetting, useSettingsLevels, type SettingHandle, type SettingOptions } from "./setting-state";
+export { Switch } from "./controls";
 
 const LEVEL_LABELS: Record<ConfigLayerName, string> = { project: "Project", host: "This machine", default: "Default" };
 
@@ -81,15 +83,6 @@ export function SettingOrigin({ setting }: { setting: SettingHandle<unknown> }) 
   );
 }
 
-/** The on/off control of a row. */
-export function Switch({ label, checked, disabled, role = "switch", onChange }: { label: string; checked: boolean; disabled?: boolean; role?: "switch" | "checkbox"; onChange(next: boolean): void }) {
-  return (
-    <button className={`switch ${checked ? "on" : ""}`} role={role} aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)}>
-      <i />
-    </button>
-  );
-}
-
 /** A muted heading over one card of rows, the way a Settings page groups what belongs together. */
 export function SettingsSection({ title, id, headerAction, children, plain = false }: {
   title: string;
@@ -123,11 +116,13 @@ function notWritableReason(setting: SettingHandle<unknown>): string {
  * level being edited holds, and turns its control inert where that level
  * cannot hold the key.
  */
-export function SettingRow({ id, title, description, status, control, setting, disabledReason, children }: {
+export function SettingRow({ id, title, description, help, status, control, setting, disabledReason, children }: {
   /** The row's anchor: a search result scrolls here. */
   id?: string;
   title: ReactNode;
   description?: ReactNode;
+  /** What the description should not carry: an info glyph beside the title shows it. */
+  help?: string;
   status?: ReactNode;
   control?: ReactNode;
   setting?: SettingHandle<never> | SettingHandle<unknown>;
@@ -144,6 +139,7 @@ export function SettingRow({ id, title, description, status, control, setting, d
         <div className="settings-row-text">
           <div className="settings-row-title">
             <h3>{title}</h3>
+            {help ? <HelpTip text={help} {...(typeof title === "string" ? { label: `About ${title}` } : {})} /> : null}
             {handle ? <SettingOrigin setting={handle} /> : null}
             {resettable ? (
               <button
