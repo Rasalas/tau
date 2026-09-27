@@ -25,6 +25,8 @@ export function groupAccounts(accounts: readonly UsageLimitAccount[]): LimitGrou
     groups.set(key, [...(groups.get(key) ?? []), account]);
   }
   return [...groups].map(([key, members]): LimitGroup => {
+    // The runtime of its own first, Pi (one provider among many) after it.
+    members.sort((left, right) => Number(left.runtime === PI_BACKEND) - Number(right.runtime === PI_BACKEND));
     const only = members[0]!;
     if (members.length === 1) return { key, label: only.label, shown: only, members };
     const reporting = members.filter((member) => member.windows.length > 0);

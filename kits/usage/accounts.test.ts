@@ -22,7 +22,7 @@ function entry(overrides: Partial<UsageEntry>): UsageEntry {
 
 describe("Usage accounts", () => {
   it("draws runtimes signed in to one account as one, with the fresher read's limits and a plan either named", () => {
-    const [group, ...rest] = groupAccounts([codex, pi, account({ id: "grok:account", runtime: "grok", label: "Grok" })]);
+    const [group, ...rest] = groupAccounts([pi, codex, account({ id: "grok:account", runtime: "grok", label: "Grok" })]);
     expect(group).toMatchObject({ label: "ChatGPT · Codex, Pi", shown: { id: "pi:openai-codex", plan: "pro" } });
     expect(group!.members).toEqual([codex, pi]);
     expect(rest.map((other) => other.label)).toEqual(["Grok"]);
