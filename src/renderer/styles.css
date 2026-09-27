@@ -1375,7 +1375,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .panel-rail button.active { background: var(--raised); color: var(--ink); }
 .panel-rail .spacer { flex: 1; }
 
-.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* min-width: 0, or the widest unbreakable line (a long title) widens the panel past the window's edge. */
+.panel-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .panel-header {
   flex: none; display: flex; align-items: center; gap: 9px;
   height: 52px; padding: 0 var(--space-6); border-bottom: 1px solid var(--line);

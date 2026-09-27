@@ -3,7 +3,8 @@
   flex: none; display: flex; flex-direction: column; gap: 6px;
   padding: 8px 10px; border-bottom: 1px solid var(--line);
 }
-.request-line { display: flex; align-items: center; gap: 6px; min-height: 22px; color: var(--muted); }
+/* Wraps in a narrow list rather than pushing its buttons past the edge. */
+.request-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; min-height: 22px; color: var(--muted); }
 .request-line .spacer { flex: 1; }
 .request-none { color: var(--faint); font: 10.5px var(--mono); }
 .request-link {
