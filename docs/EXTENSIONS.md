@@ -312,13 +312,24 @@ setting registers its panel again with the other placement.
 
 One tool at a time shares the centre with the chat, which keeps at least
 480 px and starts at about 42 % of the centre; the divider between them is
-kept per client (new in API 1.16.0). `width: "wide"` (Preview, Terminal)
-takes the whole space beside the chat as soon as it opens.
-`narrow`, the default (Files, Changes, Agents), floats over the chat's edge
+kept per client (new in API 1.16.0). One rule places a `width: "wide"` panel
+(Preview, Terminal, Agents), `toolPlace` in `src/workbench/center-layout.ts`:
+while the centre shows tabs — something is open on the stage, or it is
+maximized — the panel opens as a stage tab and comes to the front (if it is
+`maximizable`); otherwise it takes the whole space beside the chat. Opening a
+document while a wide panel is beside the chat takes the panel into the tabs,
+behind the document; a wide panel is never drawn over the stage.
+`narrow`, the default (Files), floats over the chat's edge
 while nothing is open beside the chat; once a document, a diff or a thread
-opens on the stage, the list docks at the right of it. Opening a document
-while a wide panel is shown puts the documents in its place. A click into
+opens on the stage, the list docks at the right of it. A click into
 the chat closes a floating list.
+
+`redirect(actions)` (new, next API version) lets a panel's entry open a view
+of its own instead: its rail button, `actions.openPanel(id)` and every command
+ask it first, and it answers true when it showed something else. Workspace
+Kit's Changes entry opens Review Kit's review this way (commit bar, staging,
+the branch's pull request and the linked ones above the file list); without a
+kit that draws the review, it answers false and the Changes panel opens.
 
 `maximizable: true` lets the user move the panel into a stage tab: the
 button over the end of the panel's header, or `rightPanel.toggleMaximized`
@@ -328,8 +339,9 @@ documents, the dock's list or the drawer's panel, in that order. A panel
 tab maximizes the stage: it fills the centre, the chat is its first tab,
 pinned and set apart, and a wide panel opened meanwhile joins the tabs.
 Dragging the divider well below the chat's minimum maximizes too; the
-button at the right end of the tab strip ("Show chat beside the stage") puts every
-panel back where it was placed. Core moves the *mounted* panel — its DOM
+button at the right end of the tab strip ("Show chat beside the stage") puts
+lists back where they were placed and keeps wide panels as tabs while documents
+are open (with none, the one in front goes back beside the chat). Core moves the *mounted* panel — its DOM
 host goes from dock to stage and back — so React state, scroll and a
 terminal's buffer go with it, and the panel is never drawn twice. The tab
 is a core kind (`StagePanelTab`, `kind: "panel"`, `panelId`) and is
@@ -1119,6 +1131,9 @@ them. What a caller may add, all optional:
 | `filesStartCollapsed` | Every file opens folded to its header. Each header folds its file, the toolbar folds or unfolds all, and a file opened from the tree unfolds. |
 | `wordWrap`, `onWordWrapChange` (new in API 1.11.0) | Long lines wrap unless `wordWrap` is `false`; unwrapped, every row is as wide as the longest line and the stream scrolls sideways. The toolbar offers the toggle only with a handler. |
 | `toolbar`, `aside` | A node in the toolbar, before core's own controls, and a panel beside the diffs. |
+| `fileActions` (new, next API version) | `{ stage, unstage, revert, stageAll? }`: each file row of the list gets stage or unstage and revert (asked first), and a line above the files says how many are staged, with "Stage all". Only for the worktree scope and a device that may write. With files staged, the commit bar says it commits those. |
+| `listHeader` (new) | `({ message, committed }) => node`, drawn at the top of the file list and handed the commit bar's message; `committed()` clears it. Review Kit draws the branch's pull request and the linked ones there. |
+| `onRefresh` (new) | A rescan button beside the file count; a failed refresh marks the list "stale". |
 
 Review Kit fills all of them: line comments under the lines, their list in
 the aside and a "Send to composer" that hands them over as `text-excerpt` chips
