@@ -1,4 +1,4 @@
-import { Suspense, useSyncExternalStore } from "react";
+import { Suspense, useSyncExternalStore, type ReactNode } from "react";
 import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
@@ -11,11 +11,14 @@ interface RegionHostProps {
   lookIn?: LookInRegionContext;
 }
 
-/** Renders whatever extensions registered for one placement; nothing when empty. */
-export function Region({ registry, placement, snapshot, actions, lookIn }: RegionHostProps) {
+/**
+ * Renders whatever extensions registered for one placement; nothing when empty.
+ * `children` are core's own controls, drawn after the contributions.
+ */
+export function Region({ registry, placement, snapshot, actions, lookIn, children }: RegionHostProps & { children?: ReactNode }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const regions = registry.getRegions(placement);
-  if (regions.length === 0) return null;
+  if (regions.length === 0 && children === undefined) return null;
   return (
     <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">
       {regions.map((region) => (
@@ -32,6 +35,7 @@ export function Region({ registry, placement, snapshot, actions, lookIn }: Regio
           </Suspense>
         </LazyFeatureBoundary>
       ))}
+      {children}
     </div>
   );
 }

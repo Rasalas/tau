@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import {
@@ -37,6 +37,7 @@ vi.mock("./VirtualTranscript", () => ({
 }));
 
 import { TranscriptViewport } from "./TranscriptViewport";
+import { JumpToLatestButton, JumpToLatestStore } from "./JumpToLatest";
 
 afterEach(cleanup);
 
@@ -51,6 +52,7 @@ function userMessages(count: number): UiMessage[] {
 
 function Fixture({ messages }: { messages: UiMessage[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   useLayoutEffect(() => {
@@ -68,7 +70,8 @@ function Fixture({ messages }: { messages: UiMessage[] }) {
   }, [messages.length]);
 
   return <>
-    <TranscriptViewport messages={messages} scrollRef={scrollRef} isStreaming={false} />
+    <TranscriptViewport messages={messages} scrollRef={scrollRef} isStreaming={false} jumpToLatest={jumpToLatest} />
+    <JumpToLatestButton store={jumpToLatest} />
     <textarea aria-label="Composer" />
   </>;
 }

@@ -78,6 +78,11 @@ body[data-profile="compact"] .context-dial::before {
 }
 body[data-profile="compact"] .context-dial > i { position: relative; }
 body[data-profile="compact"] .thread-title-trigger { min-height: 44px; }
+/* The row over the composer: 36 px to see, 44 px to tap, and the tap areas never meet. */
+/* The docked composer draws a rule on its top edge: the row keeps 8 px clear of it. */
+body[data-profile="compact"] .region-composer-controls { gap: 10px; margin-bottom: 0; padding-bottom: 8px; }
+body[data-profile="compact"] .jump-to-latest { width: 36px; height: 36px; }
+body[data-profile="compact"] .jump-to-latest::before { content: ""; position: absolute; inset: -4px; }
 body[data-profile="compact"] .menu button[role="menuitem"] { min-height: 44px; }
 body[data-profile="compact"] .message-thinking > summary { min-height: 44px; }
 body[data-profile="compact"] .extension-option { min-height: 44px; }

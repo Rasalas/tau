@@ -680,8 +680,16 @@ under the list, shown while any listed model wears the badge.
 `registerRegion({ placement: "thread-title", … })` draws before the thread's
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. The other placements are `title-bar`,
-`composer-above`, `composer-below`, `transcript-header` and
-`transcript-footer`. New in API 1.15.0, `look-in` draws under the header of a
+`composer-above`, `composer-controls`, `composer-below`, `transcript-header` and
+`transcript-footer`. `composer-controls` is one centred row between the
+transcript and everything else over the composer, for a small control or two
+beside core's own Jump to latest, which it draws at the row's end while the
+reader is away from the latest message. The row takes its own height, so it
+never covers the transcript; it is left out on the start screen. Keep what goes
+there at pill size (32 px high on a desktop, 36 px in `compact` with a 44 px
+tap area) and render nothing when there is nothing to say: an empty row is
+hidden. Workspace Kit's turn pill and, in `compact`, Review Kit's live there;
+banners and bars stay in `composer-above`. An older core never draws it. New in API 1.15.0, `look-in` draws under the header of a
 tab that shows a thread of another machine (`openThread(id, { machine })`); its
 props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
 it shows comes from that machine through `context.environments.readExtension`.

@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, HostSnapshot, RegionProps, WorkbenchActions } from "tau";
-import { WorkbenchContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, WorkbenchContext } from "../../src/renderer/test-support/kit-harness.js";
+import { reviewExtension } from "./desktop.js";
 import { CompactReviewStore } from "./compact-store.js";
 import { REVIEW_COMPACT_PANEL, WORKSPACE_CHECKPOINT_EVENT, type ReviewTurn } from "./protocol.js";
 import { createCompactTurnPill, latestChangedTurn } from "./turn-pill.js";
@@ -69,5 +70,13 @@ describe("the phone's turn pill", () => {
     await act(async () => undefined);
     expect(invoke).toHaveBeenCalled();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("sits in the centred row over the composer, beside Jump to latest", () => {
+    const { registry } = createKitHarness(undefined, "compact");
+    registry.activate(reviewExtension);
+    expect(registry.getRegions("composer-controls").map((entry) => entry.id)).toContain("review.turn-pill");
+    expect(registry.getRegions("composer-above").map((entry) => entry.id)).not.toContain("review.turn-pill");
+    registry.deactivate(reviewExtension.id);
   });
 });

@@ -114,7 +114,7 @@ export const reviewExtension: DesktopExtension = {
       }),
     });
     // Over the composer, the latest turn's pill opens that sheet on the turn's files.
-    plugin.registerRegion({ id: "review.turn-pill", placement: "composer-above", order: 70, profiles: ["compact"], Component: createCompactTurnPill({ workspace: workspaceHost, store: compactStore }) });
+    plugin.registerRegion({ id: "review.turn-pill", placement: "composer-controls", order: 70, profiles: ["compact"], Component: createCompactTurnPill({ workspace: workspaceHost, store: compactStore }) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
     // Evidence Kit shrinks the pictures and says when a thread's changed; without it the view reads them whole.

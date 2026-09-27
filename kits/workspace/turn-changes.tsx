@@ -15,7 +15,7 @@ export interface TurnChangesProps {
   /** Starts the explicit confirmation flow for destructive restore. */
   onRestore?(): void;
   loadFiles?(cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
-  /** Where the detail opens: above the composer it goes up, in the transcript down. */
+  /** Where the detail opens: above the composer it goes up, centred on the pill; in the transcript down. */
   side?: "top" | "bottom";
 }
 
@@ -82,15 +82,15 @@ export function TurnChangesPill({ changes, live = false, onOpenDiff, onRestore, 
           setPinned(true);
         }}
       >
-        {live ? <span className="turn-changes-live" aria-hidden="true" /> : <FileDiff size={13} aria-hidden="true" />}
+        {live ? <span className="turn-changes-live" aria-hidden="true" /> : <FileDiff size={14} aria-hidden="true" />}
         <span className="turn-changes-count">{countFiles(fileCount, partial)}</span>
-        {partial ? <TriangleAlert size={12} className="turn-changes-partial" aria-hidden="true" /> : null}
+        {partial ? <TriangleAlert size={13} className="turn-changes-partial" aria-hidden="true" /> : null}
         <span className="stat-add">+{changes.added}</span>
         <span className="stat-del">−{changes.removed}</span>
-        <Chevron size={12} className="chev" aria-hidden="true" />
+        <Chevron size={14} className="chev" aria-hidden="true" />
       </button>
       {open ? (
-        <Popover anchor={anchor} side={side} align="start" label={title} className="turn-changes-popover" onClose={close}>
+        <Popover anchor={anchor} side={side} align={side === "top" ? "center" : "start"} label={title} className="turn-changes-popover" onClose={close}>
           <div className="turn-changes-detail" onPointerEnter={hover(true)} onPointerLeave={hover(false)}>
             <TurnChangesDetail
               changes={changes}

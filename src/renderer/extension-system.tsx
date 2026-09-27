@@ -279,7 +279,7 @@ export interface TranscriptRowsHandle {
  * bottom, Pi's footer. `look-in` sits under the header of a tab that shows a
  * thread of another machine (API 1.15.0); its props carry `lookIn`.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "composer-above" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
+export type RegionPlacement = "title-bar" | "thread-title" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
 export interface LookInRegionContext {
