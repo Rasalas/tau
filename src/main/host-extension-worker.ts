@@ -25,8 +25,8 @@ import {
  * The entry an isolated host extension runs in. It loads the package's
  * compiled bundle, hands it a facade that answers by message, and holds no
  * Electron and no live host object of its own. Without the `network` grant it
- * also holds no socket, and without `process` no way to start one: the guards
- * below run before the bundle is loaded.
+ * also holds no socket, without `process` no way to start one, and without
+ * `native` no compiled code: the guards below run before the bundle is loaded.
  */
 
 const port = parentPort;
@@ -41,10 +41,11 @@ const granted = new Set(boot.permissions);
  * Node builtins that open a socket, refused without `network`. The global
  * shims below close the browser-style doors to the same place.
  */
-const NETWORK_MODULES = new Set(["http", "https", "net", "tls", "dgram", "http2", "dns"]);
+const NETWORK_MODULES = new Set(["http", "https", "net", "tls", "dgram", "http2", "dns", "inspector"]);
 
-/** Node builtins that start a process, refused without `process`. */
-const PROCESS_MODULES = new Set(["child_process"]);
+/** Node builtins that start a process, refused without `process`. `node:test` runs its files in child processes. */
+const PROCESS_MODULES = new Set(["child_process", "cluster"]);
+const PREFIXED_PROCESS_MODULES = new Set(["test"]);
 
 /** Globals that reach the network without a `require`; only what this Node has. */
 const NETWORK_GLOBALS = ["fetch", "WebSocket", "EventSource", "XMLHttpRequest"] as const;
@@ -64,6 +65,23 @@ function moduleName(request: string): string {
   return (request.startsWith("node:") ? request.slice(5) : request).split("/")[0] ?? request;
 }
 
+// Taken before any guard replaces them; only this module holds the originals.
+const getBuiltin = process.getBuiltinModule.bind(process);
+let sqliteGuarded = false;
+
+/** A SQLite extension is a shared library the database opens with dlopen. */
+function guardSqlite(): void {
+  if (sqliteGuarded || granted.has("native")) return;
+  sqliteGuarded = true;
+  const database = (getBuiltin("node:sqlite") as { DatabaseSync?: { prototype: object } } | undefined)?.DatabaseSync;
+  if (!database) return;
+  Object.defineProperty(database.prototype, "loadExtension", {
+    value: function loadExtension(path: unknown): never { return denyPermission("native", `DatabaseSync.loadExtension("${String(path)}")`); },
+    writable: false,
+    configurable: false,
+  });
+}
+
 /**
  * A module the grant does not cover, or nothing. A nested `worker_threads`
  * worker runs outside every guard installed here, so it is refused for as long
@@ -74,9 +92,11 @@ function refuse(request: string, what: string): void {
     throw new Error(`Extension ${boot.id} runs isolated in a worker, where Electron is not available. Declare "isolation": "in-process" in its manifest if it must run in the host process.`);
   }
   const name = moduleName(request);
+  const prefixed = request.startsWith("node:");
   if (!granted.has("network") && NETWORK_MODULES.has(name)) denyPermission("network", what);
-  if (!granted.has("process") && PROCESS_MODULES.has(name)) denyPermission("process", what);
-  if (name === "worker_threads" && !(granted.has("network") && granted.has("process"))) {
+  if (!granted.has("process") && (PROCESS_MODULES.has(name) || (prefixed && PREFIXED_PROCESS_MODULES.has(name)))) denyPermission("process", what);
+  if (prefixed && name === "sqlite") guardSqlite();
+  if (name === "worker_threads" && !(granted.has("network") && granted.has("process") && granted.has("native"))) {
     deny(
       `Extension ${boot.id} may not start a worker thread: a nested worker runs outside the guards its grant is enforced by. Declare "isolation": "in-process" in its manifest if it needs one.`,
       what,
@@ -90,22 +110,51 @@ function refuse(request: string, what: string): void {
 // A package can still undo both — it holds `node:module` like any Node code —
 // so this is a guardrail, not a sandbox: see ADR 0009 and ADR 0018.
 /* eslint-disable no-underscore-dangle */
-const loader = Module as unknown as { _load(request: string, parent: unknown, isMain: boolean): unknown };
+const loader = Module as unknown as {
+  _load(request: string, parent: unknown, isMain: boolean): unknown;
+  _extensions: Record<string, (module: unknown, filename: string) => unknown>;
+};
 const load = loader._load.bind(loader);
 loader._load = (request: string, parent: unknown, isMain: boolean): unknown => {
   refuse(request, `require("${request}")`);
   return load(request, parent, isMain);
 };
-/* eslint-enable no-underscore-dangle */
 
-type ResolveHook = (specifier: string, context: unknown, next: (specifier: string, context: unknown) => unknown) => unknown;
+type ResolveHook = (specifier: string, context: unknown, next: (specifier: string, context: unknown) => { url?: string }) => unknown;
 const registerModuleHooks = (Module as unknown as { registerHooks?: (hooks: { resolve: ResolveHook }) => void }).registerHooks;
 registerModuleHooks?.({
   resolve: (specifier, context, next) => {
     refuse(specifier, `import ${specifier}`);
-    return next(specifier, context);
+    const resolved = next(specifier, context);
+    // A `require` of an addon ends at the `.node` handler below, which names it as a `require`.
+    const required = (context as { conditions?: readonly string[] }).conditions?.includes("require");
+    if (!granted.has("native") && !required && resolved.url?.endsWith(".node")) denyPermission("native", `import ${specifier}`);
+    return resolved;
   },
 });
+
+// A third door to the builtins that neither interception above sees.
+process.getBuiltinModule = ((id: string) => {
+  refuse(id, `process.getBuiltinModule("${id}")`);
+  return getBuiltin(id);
+}) as typeof process.getBuiltinModule;
+
+// Compiled code runs outside every guard here, and a crash in it takes the
+// host down with it. Every way in ends at one of these; the originals are not
+// kept, so a package cannot put them back.
+if (!granted.has("native")) {
+  const internals = process as unknown as Record<string, unknown>;
+  const refuseNative = (what: string): never => denyPermission("native", what);
+  internals.dlopen = (_module: unknown, filename: unknown): never => refuseNative(`process.dlopen("${String(filename)}")`);
+  loader._extensions[".node"] = (_module, filename) => refuseNative(`require("${filename}")`);
+  // The raw handles behind the socket, process and Electron modules.
+  internals.binding = (name: unknown): never => refuseNative(`process.binding("${String(name)}")`);
+  internals._linkedBinding = (name: unknown): never => refuseNative(`process._linkedBinding("${String(name)}")`);
+  // Process-wide, and `--allow-natives-syntax` alone is enough to abort the host.
+  const v8 = getBuiltin("node:v8") as Record<string, unknown>;
+  v8.setFlagsFromString = (): never => refuseNative("v8.setFlagsFromString");
+}
+/* eslint-enable no-underscore-dangle */
 
 // Before the bundle runs, so its top-level code cannot capture the real ones.
 if (!granted.has("network")) {
