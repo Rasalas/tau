@@ -7,7 +7,9 @@
 .usage-page.refreshing .usage-kpis, .usage-page.refreshing .usage-history, .usage-page.refreshing .usage-ranks { opacity: .55; }
 .usage-page .spacer { flex: 1; }
 /* A plan's value: the accent's lighter step, readable on either theme's surface. */
-.usage-page { --usage-plan: color-mix(in srgb, var(--acid) 42%, var(--shell)); }
+.usage-page {
+  --usage-plan: color-mix(in srgb, var(--acid) 42%, var(--shell));
+}
 .usage-page .provider-icon-stack { margin-left: 0; }
 /* One slot for a single mark or a pair, so the names line up. */
 .usage-rank-label > .provider-icon-stack { width: 43px; justify-content: flex-end; }
