@@ -2934,6 +2934,12 @@ its own. There is no revocation list: removing a key from
     system takes them, so after a large free a package's growth shows late
     there. RSS then overstates the process, so the limit is reached earlier,
     not later.
+  - Under memory pressure the system compresses or swaps pages out as they
+    are written, and they leave RSS. Memory that compresses well (a buffer
+    filled with one value) can then grow by hundreds of MB without showing,
+    and the package is not stopped; such pages cost the machine little.
+    Pages the system takes from the process while a package runs count
+    against that package, like its own frees.
   - In-process packages are not covered: they share the host's thread, so
     their growth is the host's own, and nothing can be stopped without
     stopping the host. A native addon loaded through `loadDependency` lives
