@@ -10,7 +10,7 @@ import {
   type SignInReport,
 } from "../../shared/sign-in";
 import type { HostExtensionClient } from "../extension-system";
-import { Button } from "../settings/controls";
+import { Button, TextField } from "../settings/controls";
 import { SettingRow } from "../settings/settings-layout";
 import { ProviderCardBadgeReport, useProviderCardBadge, type ProviderCardBadge } from "../settings/provider-card-state";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
@@ -118,22 +118,17 @@ function PromptForm({ flow, busy, onAnswer }: { flow: SignInFlowState; busy: boo
     <form className="sign-in-prompt" onSubmit={submit}>
       <label htmlFor={id}>{prompt.message}</label>
       <div className="sign-in-prompt-row">
-        {/* The controls' field look; a draft that writes on blur would send a half-typed key. */}
-        <span className="tau-field-shell" data-width="full">
-          <span className="tau-field">
-            <input
-              id={id}
-              type={prompt.kind === "secret" ? "password" : "text"}
-              autoComplete="off"
-              spellCheck={false}
-              data-mono={prompt.kind === "text" ? undefined : ""}
-              placeholder={prompt.placeholder}
-              value={value}
-              disabled={busy}
-              onChange={(event) => setValue(event.target.value)}
-            />
-          </span>
-        </span>
+        <TextField
+          id={id}
+          label={prompt.message}
+          value={value}
+          width="full"
+          secret={prompt.kind === "secret"}
+          mono={prompt.kind !== "text"}
+          placeholder={prompt.placeholder}
+          disabled={busy}
+          onChange={setValue}
+        />
         <Button type="submit" disabled={busy || !value.trim()}>Continue</Button>
       </div>
     </form>

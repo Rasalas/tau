@@ -99,40 +99,36 @@ export function RuntimeInstanceDialog({ program, homeVariable, homePlaceholder, 
       <form onSubmit={(event) => void submit(event)} noValidate>
         <label className="runtime-instance-field">
           <span>Name</span>
-          <span className="tau-field"><input aria-label="Name" value={name} placeholder={isDefault ? program : "e.g. Work"} onChange={(event) => setName(event.target.value)} autoFocus /></span>
+          <TextField label="Name" width="full" value={name} placeholder={isDefault ? program : "e.g. Work"} autoFocus onChange={setName} />
           <small>Shown on the card and the picker tab{isDefault ? `; ${program} when empty` : ""}.</small>
         </label>
         {adding ? (
           <label className="runtime-instance-field">
             <span>Instance id</span>
-            <span className="tau-field" data-invalid={attempted && idProblem !== undefined ? "" : undefined}>
-              <input aria-label="Instance id" data-mono="" value={id} placeholder="work" aria-invalid={attempted && idProblem !== undefined} onChange={(event) => setIdOverride(event.target.value)} spellCheck={false} />
-            </span>
-            {attempted && idProblem ? <small className="runtime-instance-problem">{idProblem}</small> : <small>What threads remember the instance by. It cannot change later.</small>}
+            <TextField label="Instance id" width="full" mono value={id} placeholder="work" error={attempted ? idProblem : undefined} onChange={setIdOverride} />
+            {attempted && idProblem ? null : <small>What threads remember the instance by. It cannot change later.</small>}
           </label>
         ) : null}
         <label className="runtime-instance-field">
           <span>Executable</span>
-          <span className="tau-field"><input aria-label="Executable" data-mono="" value={command} placeholder={`${commandPlaceholder}, from your login shell's PATH`} onChange={(event) => setCommand(event.target.value)} spellCheck={false} /></span>
+          <TextField label="Executable" width="full" mono value={command} placeholder={`${commandPlaceholder}, from your login shell's PATH`} onChange={setCommand} />
           <small>A name on the PATH or an absolute path.</small>
         </label>
         {homeVariable ? (
           <label className="runtime-instance-field">
             <span>Home folder</span>
-            <span className="tau-field"><input aria-label="Home folder" data-mono="" value={home} placeholder={homePlaceholder} onChange={(event) => setHome(event.target.value)} spellCheck={false} /></span>
+            <TextField label="Home folder" width="full" mono value={home} placeholder={homePlaceholder} onChange={setHome} />
             <small>Becomes <code>{homeVariable}</code>: where this instance keeps its login, configuration and sessions. Empty keeps {program}'s own.</small>
           </label>
         ) : null}
         <label className="runtime-instance-field">
           <span>Environment</span>
-          <span className="tau-field" data-multiline="" data-invalid={attempted && parsedEnvironment.problem !== undefined ? "" : undefined}>
-            <textarea aria-label="Environment" data-mono="" value={environment} rows={3} placeholder="NAME=value, one per line" aria-invalid={attempted && parsedEnvironment.problem !== undefined} onChange={(event) => setEnvironment(event.target.value)} spellCheck={false} />
-          </span>
-          {attempted && parsedEnvironment.problem ? <small className="runtime-instance-problem">{parsedEnvironment.problem}</small> : <small>Added to the environment {program} starts with.</small>}
+          <TextField label="Environment" width="full" mono rows={3} value={environment} placeholder="NAME=value, one per line" error={attempted ? parsedEnvironment.problem : undefined} onChange={setEnvironment} />
+          {attempted && parsedEnvironment.problem ? null : <small>Added to the environment {program} starts with.</small>}
         </label>
         <label className="runtime-instance-field">
           <span>Launch arguments</span>
-          <span className="tau-field"><input aria-label="Launch arguments" data-mono="" value={args} placeholder="e.g. -c model_verbosity=low" onChange={(event) => setArgs(event.target.value)} spellCheck={false} /></span>
+          <TextField label="Launch arguments" width="full" mono value={args} placeholder="e.g. -c model_verbosity=low" onChange={setArgs} />
           <small>Passed on every start, split like a shell would, without expansion.</small>
         </label>
         {failure ? <p className="runtime-instance-problem" role="alert">{failure}</p> : null}
