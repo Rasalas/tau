@@ -57,6 +57,15 @@ describe("a thread's requests on its rail row", () => {
     expect(several.getAttribute("data-tooltip")).toContain("PR #42 · closed");
   });
 
+  it("shows a stack as the layers glyph and its size", () => {
+    const newest = thread("newest", 30);
+    const { draw } = setup([newest], { newest: [link(50, { stack: { number: 3, size: 6 } }), link(51, { stack: { number: 3, size: 6 } })] });
+    draw(newest);
+    const badge = screen.getByRole("img", { name: /^Stack of 6 requests, open: /u });
+    expect(badge.textContent).toBe("6");
+    expect(badge.getAttribute("data-tooltip")).toContain("PR #50 · open · stack #3 of 6");
+  });
+
   it("reads several requests as the one most alive", () => {
     expect(aggregateState(["merged", "closed"])).toBe("merged");
     expect(aggregateState(["closed", "draft", "merged"])).toBe("draft");

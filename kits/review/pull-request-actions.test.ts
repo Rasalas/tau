@@ -115,6 +115,15 @@ describe("stacks through the kit's commands", () => {
     expect(list.entries.find((entry) => entry.ref.number === 14475)?.stack).toBeUndefined();
   });
 
+  it("keeps the stack a linked request is a layer of, for the rail row's badge", async () => {
+    const { invoke } = await harness({
+      answer: (call) => call.input?.includes("r7: pullRequest") ? JSON.stringify({ data: { repository: { r7: { stack: { number: 20, size: 3 }, stackEntry: { position: 1 } } } } }) : undefined,
+    });
+    await invoke("link-pr", { threadId: "thread-1", reference: URL_7 });
+    const links = await invoke<ThreadPullRequestLink[]>("thread-links", { threadId: "thread-1" });
+    expect(links[0]?.stack).toEqual({ number: 20, size: 3 });
+  });
+
   it("refuses a stack step without the stack the user saw", async () => {
     const { invoke } = await harness();
     await expect(invoke("pr-stack-action", { url: URL_7, action: "merge" })).rejects.toThrow("Refresh the stack before acting on it.");

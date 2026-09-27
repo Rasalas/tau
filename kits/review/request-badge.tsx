@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { GitMerge, GitPullRequestArrow, GitPullRequestClosed, GitPullRequestDraft } from "lucide-react";
+import { GitMerge, GitPullRequestArrow, GitPullRequestClosed, GitPullRequestDraft, Layers } from "lucide-react";
 import { tooltipProps, useThreadStore, type UiSession } from "tau";
 import { checksLabel, requestShort, requestStateLabel, type RowRequests } from "./requests.js";
 import { providerInfo } from "./protocol.js";
@@ -17,6 +17,7 @@ interface BadgeEntry {
   state: BadgeState;
   title?: string;
   checks?: string;
+  stack?: { number: number; size: number };
 }
 
 /** Several requests read as the one most alive: any open, else a draft, else merged, else closed. */
@@ -51,6 +52,7 @@ function newestInCheckout(threads: readonly UiSession[], projectPath: string): s
 /**
  * The requests of a thread on its rail row, T3 Code's way: the state's glyph
  * and the number, or the glyph and "+N" for several, the list in the tooltip.
+ * A thread on a stack shows T3 Code's layers glyph and the stack's size.
  * A row shows the requests linked to its thread, and its checkout's branch
  * request only on that checkout's newest thread.
  */
@@ -74,22 +76,26 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
     for (const link of linked) {
       if (request && link.url === request.url) continue;
       const state: BadgeState = link.state === "open" || !link.state ? (link.draft ? "draft" : "open") : link.state;
-      entries.push({ label: `${providerInfo(link.service).short} #${link.number}`, number: link.number, state, ...(link.title ? { title: link.title } : {}) });
+      entries.push({ label: `${providerInfo(link.service).short} #${link.number}`, number: link.number, state, ...(link.title ? { title: link.title } : {}), ...(link.stack ? { stack: link.stack } : {}) });
     }
     const first = entries[0];
     if (!first) return null;
 
-    const line = (entry: BadgeEntry) => [`${entry.label} · ${entry.state}${entry.checks ? ` · checks ${entry.checks}` : ""}`, entry.title].filter(Boolean).join(": ");
+    const line = (entry: BadgeEntry) => [`${entry.label} · ${entry.state}${entry.stack ? ` · stack #${entry.stack.number} of ${entry.stack.size}` : ""}${entry.checks ? ` · checks ${entry.checks}` : ""}`, entry.title].filter(Boolean).join(": ");
     const single = entries.length === 1;
     const state = single ? first.state : aggregateState(entries.map((entry) => entry.state));
-    const Icon = ICON[state];
-    const label = single
-      ? `${first.label} ${first.state}${first.checks ? `, checks ${first.checks}` : ""}${request ? "" : ", linked"}`
-      : `${entries.length} requests, ${state}: ${entries.map((entry) => `${entry.label} ${entry.state}`).join(", ")}`;
+    // A thread that works on a stack shows the stack, T3 Code's layers and its size.
+    const stack = entries.find((entry) => entry.stack)?.stack;
+    const Icon = stack ? Layers : ICON[state];
+    const label = stack
+      ? `Stack of ${stack.size} requests, ${state}: ${entries.map((entry) => `${entry.label} ${entry.state}`).join(", ")}`
+      : single
+        ? `${first.label} ${first.state}${first.checks ? `, checks ${first.checks}` : ""}${request ? "" : ", linked"}`
+        : `${entries.length} requests, ${state}: ${entries.map((entry) => `${entry.label} ${entry.state}`).join(", ")}`;
     return (
       <span className={`request-badge state-${state}`} role="img" aria-label={label} {...tooltipProps(entries.map(line).join("\n"), { variant: "lines" })}>
         <Icon size={12} aria-hidden="true" />
-        {single ? first.number : `+${entries.length}`}
+        {stack ? stack.size : single ? first.number : `+${entries.length}`}
       </span>
     );
   };

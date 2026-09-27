@@ -515,6 +515,8 @@ export interface ThreadPullRequestLink {
   draft?: boolean;
   headRef?: string;
   baseRef?: string;
+  /** The stack it is a layer of, where the host keeps stacks: its number and how many layers it has. */
+  stack?: { number: number; size: number };
   refreshedAt?: number;
 }
 

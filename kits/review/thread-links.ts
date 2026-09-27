@@ -10,6 +10,14 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
 const text = (value: unknown): string | undefined => typeof value === "string" && value ? value : undefined;
 const time = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
+const count = (value: unknown): number | undefined => typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+const stackOf = (value: unknown): ThreadPullRequestLink["stack"] => {
+  const raw = record(value);
+  const number = count(raw.number);
+  const size = count(raw.size);
+  return number !== undefined && size !== undefined ? { number, size } : undefined;
+};
+
 function decodeLink(value: unknown): ThreadPullRequestLink | undefined {
   const raw = record(value);
   const url = text(raw.url);
@@ -28,6 +36,7 @@ function decodeLink(value: unknown): ThreadPullRequestLink | undefined {
     ...(typeof raw.draft === "boolean" ? { draft: raw.draft } : {}),
     ...(text(raw.headRef) ? { headRef: text(raw.headRef) } : {}),
     ...(text(raw.baseRef) ? { baseRef: text(raw.baseRef) } : {}),
+    ...(stackOf(raw.stack) ? { stack: stackOf(raw.stack) } : {}),
     ...(time(raw.refreshedAt) !== undefined ? { refreshedAt: time(raw.refreshedAt) } : {}),
   };
 }
@@ -102,14 +111,17 @@ export class ThreadLinkStore {
   }
 
   /** Records what the host said about a linked request just now; false when nothing changed. */
-  async update(threadId: string, key: string, snapshot: Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "baseRef">): Promise<boolean> {
+  async update(threadId: string, key: string, snapshot: Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "baseRef" | "stack">): Promise<boolean> {
     const threads = await this.load();
     const links = threads.get(threadId);
     const index = links?.findIndex((link) => linkKey(link) === key) ?? -1;
     if (!links || index < 0) return false;
     const current = links[index]!;
-    const next: ThreadPullRequestLink = { ...current, ...snapshot, refreshedAt: this.now() };
-    const changed = (["title", "state", "draft", "headRef", "baseRef"] as const).some((field) => current[field] !== next[field]);
+    const { stack: _left, ...kept } = current;
+    // A snapshot without a stack means the request left it.
+    const next: ThreadPullRequestLink = { ...kept, ...snapshot, refreshedAt: this.now() };
+    const changed = (["title", "state", "draft", "headRef", "baseRef"] as const).some((field) => current[field] !== next[field])
+      || current.stack?.number !== next.stack?.number || current.stack?.size !== next.stack?.size;
     links[index] = next;
     await this.save();
     return changed;

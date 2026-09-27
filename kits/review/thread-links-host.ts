@@ -75,10 +75,15 @@ export function registerThreadLinks(
     return number ? { number: Number(number) } : undefined;
   };
 
-  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "baseRef"> | undefined> => {
+  const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, "title" | "state" | "draft" | "headRef" | "baseRef" | "stack"> | undefined> => {
     try {
       const detail = await reads.detail(ref, fresh);
-      return { title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), baseRef: detail.baseRef };
+      // The stack a rail row counts; a stack that cannot be read counts as none.
+      const stack = reads.stackOf ? await reads.stackOf(ref).catch(() => undefined) : undefined;
+      return {
+        title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), baseRef: detail.baseRef,
+        ...(stack ? { stack: { number: stack.number, size: stack.size } } : {}),
+      };
     } catch {
       return undefined;
     }
