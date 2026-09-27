@@ -326,7 +326,7 @@ while nothing is open beside the chat; once a document, a diff or a thread
 opens on the stage, the list docks at the right of it. A click into
 the chat closes a floating list.
 
-`redirect(actions)` (new, next API version) lets a panel's entry open a view
+`redirect(actions)` (new in API 1.18.0) lets a panel's entry open a view
 of its own instead: its rail button, `actions.openPanel(id)` and every command
 ask it first, and it answers true when it showed something else. Workspace
 Kit's Changes entry opens Review Kit's review this way (commit bar, staging,
@@ -1211,7 +1211,7 @@ them. What a caller may add, all optional:
 | `filesStartCollapsed` | Every file opens folded to its header. Each header folds its file, the toolbar folds or unfolds all, and a file opened from the tree unfolds. |
 | `wordWrap`, `onWordWrapChange` (new in API 1.11.0) | Long lines wrap unless `wordWrap` is `false`; unwrapped, every row is as wide as the longest line and the stream scrolls sideways. The toolbar offers the toggle only with a handler. |
 | `toolbar`, `aside` | A node in the toolbar, before core's own controls, and a panel beside the diffs. |
-| `fileActions` (new, next API version) | `{ stage, unstage, revert, stageAll? }`: each file row of the list gets stage or unstage and revert (asked first), and a line above the files says how many are staged, with "Stage all". Only for the worktree scope and a device that may write. With files staged, the commit bar says it commits those. |
+| `fileActions` (new in API 1.18.0) | `{ stage, unstage, revert, stageAll? }`: each file row of the list gets stage or unstage and revert (asked first), and a line above the files says how many are staged, with "Stage all". Only for the worktree scope and a device that may write. With files staged, the commit bar says it commits those. |
 | `listHeader` (new) | `({ message, committed }) => node`, drawn at the top of the file list and handed the commit bar's message; `committed()` clears it. Review Kit draws the branch's pull request and the linked ones there. |
 | `onRefresh` (new) | A rescan button beside the file count; a failed refresh marks the list "stale". |
 
