@@ -1429,6 +1429,19 @@ keeps what Pi's subscription providers send in their response headers. The
 backends read at most every five minutes unless asked to refresh. A kit that adds limits adds its row to
 `LIMIT_SOURCES` in `kits/usage/protocol.ts`.
 
+An account may also carry `identity: { provider, key }`, so that two runtimes signed in
+to one account show once on the Usage page: one entry ("ChatGPT · Codex, Pi"), the
+windows of the latest read, and the runtimes' costs of the last 30 days summed and listed
+per runtime. `key` is the SHA-256 hex of `tau.account\n<provider>\n<account id>`; Usage
+drops any other value, so an account id never reaches the page. Each kit reads the id
+locally and sends nothing for it: Codex from the ChatGPT token in `<CODEX_HOME>/auth.json`,
+Pi Limits from Pi's `auth.json` (`openai-codex`) and from the `anthropic-organization-id`
+header of Anthropic's answers, the Agent SDK runtime from `oauthAccount` in the CLI's
+global config file (in its config directory, else in the home folder). `openai` hashes the ChatGPT account id plus `:<user id>` where the token
+names one; `anthropic` hashes `org:<organization id>` for a personal plan and adds
+`:user:<account id>` for a team or enterprise plan, which Pi cannot tell, so those stay
+apart. Pi Limits keeps only the hash in its state file.
+
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
 conversations their CLIs ran outside Tau. A backend that can import them
 registers two commands granted to `tau.onboarding`:

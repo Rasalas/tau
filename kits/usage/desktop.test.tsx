@@ -153,6 +153,22 @@ describe("Usage page", () => {
     expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText(/An API key or a cloud provider has no plan limits/u)).toBeTruthy();
   });
 
+  it("shows runtimes signed in to one account once: its limits from the latest read, their costs summed and itemised", async () => {
+    const identity = { provider: "openai", key: "c".repeat(64) };
+    const shared: UsageLimitsSummary = { ...limits, accounts: limits.accounts.map((account) => account.runtime === "claude-code" ? account : { ...account, identity }) };
+    const withPi = [...entries, entry({ day: LAST - 1, threadId: "t-pi", model: "openai-codex/gpt-5.6-luna", provider: "openai-codex", modelId: "gpt-5.6-luna", billing: "subscription", costUsd: 0, apiValueUsd: 0.2 })];
+    renderPage(vi.fn(async (command: string) => command === "limits" ? shared : summary({ entries: withPi })));
+    const limitsList = await screen.findByLabelText("Limits");
+    expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["ChatGPT · Codex, Pi limits"]);
+    const account = within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Pi limits" });
+    expect(within(account).getAllByRole("meter")).toHaveLength(1);
+    expect(within(account).getByText("10% used")).toBeTruthy();
+    expect(within(account).getByText(/via Pi/u)).toBeTruthy();
+    expect(within(account).getByText("pro")).toBeTruthy();
+    await waitFor(() => expect(account.querySelector(".usage-account-cost")?.textContent).toBe("Last 30 days: ≈ $1.60 plan value (Codex ≈ $1.40, Pi ≈ $0.20)"));
+    expect(account.textContent).not.toContain(identity.key);
+  });
+
   it("says where the numbers would come from before anything was used", async () => {
     const empty = { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, threads: 0, subscription: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, requests: 0, apiValueUsd: 0 } };
     const { navigate } = renderPage(answers(() => summary({ rows: [], totals: empty, entries: [] })));

@@ -66,6 +66,9 @@
 .usage-window[data-level] .usage-window-used { color: var(--warn); font-weight: 600; }
 .usage-window-reset { display: flex; flex-direction: column; color: var(--muted); font-size: 12px; line-height: 1.3; }
 .usage-window-reset small { color: var(--faint); font-size: 11px; }
+.usage-account-cost { margin: 2px 0 0; padding-left: 28px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.usage-account-cost b { color: var(--ink-2); font-weight: 600; }
+.usage-account-cost span { color: var(--faint); }
 .usage-silent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
 .usage-silent > li { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .usage-silent > li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -158,6 +161,7 @@ button.usage-rank-label:hover { background: var(--hover); }
   .usage-kpi-figures b { font-size: 22px; }
   .usage-kpi-detail { margin-top: 6px; }
   .usage-window { grid-template-columns: minmax(0, 1fr) auto; padding-left: 0; }
+  .usage-account-cost { padding-left: 0; }
   .usage-window .usage-meter { grid-column: 1 / -1; grid-row: 2; }
   .usage-window-reset { grid-column: 1 / -1; flex-direction: row; gap: 6px; }
   .usage-toolbar { margin: 0; }

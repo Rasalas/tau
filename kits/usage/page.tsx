@@ -189,7 +189,7 @@ export function UsagePage({ host, actions, params = {}, navigate, now }: Partial
 
           <section className="usage-section" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
-            <UsageLimits limits={limits} error={limitsError} now={clock} />
+            <UsageLimits limits={limits} error={limitsError} now={clock} entries={entries} fromDay={last - 30} period="Last 30 days" />
           </section>
 
           <section className="usage-section" aria-labelledby="usage-breakdown-title">
