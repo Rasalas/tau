@@ -242,8 +242,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       <HostServiceSection onNotify={onNotify} />
 
       <DangerZone>
-        {/* The wrappers are what the search scrolls to. */}
-        <div id={settingAnchor("Sign out every other device")} tabIndex={-1}><DangerAction
+        <DangerAction
+          id={settingAnchor("Sign out every other device")}
           title="Sign out every other device"
           description="Every paired device loses its token at once; each needs a new pairing to come back. Windows with the host token stay."
           actionLabel="Revoke others…"
@@ -256,8 +256,9 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             const { revoked } = await client!.revokeOtherClients();
             onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
           })}
-        /></div>
-        <div id={settingAnchor("Rotate the host token")} tabIndex={-1}><DangerAction
+        />
+        <DangerAction
+          id={settingAnchor("Rotate the host token")}
           title="Rotate the host token"
           description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own tokens.</>}
           actionLabel="Rotate…"
@@ -265,7 +266,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           confirmTitle="Rotate the host token?"
           confirmMessage="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
           onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
-        /></div>
+        />
       </DangerZone>
 
       {creating ? (

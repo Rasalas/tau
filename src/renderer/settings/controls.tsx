@@ -527,7 +527,7 @@ export function DangerZone({ title = "Danger zone", children }: { title?: string
  * a confirmation that names the object and the consequence. `confirmText`
  * makes the user type it first, for a loss that is hard to repair.
  */
-export function DangerAction({ title, description, actionLabel, confirmTitle, confirmMessage, confirmText, disabled, disabledReason, busy, onConfirm }: {
+export function DangerAction({ id, title, description, actionLabel, confirmTitle, confirmMessage, confirmText, disabled, disabledReason, busy, onConfirm }: {
   title: string;
   description?: ReactNode;
   actionLabel: string;
@@ -538,10 +538,12 @@ export function DangerAction({ title, description, actionLabel, confirmTitle, co
   disabledReason?: string;
   busy?: boolean;
   onConfirm(): void;
+  /** The anchor a search result or a link scrolls to, as on a `SettingRow`. */
+  id?: string;
 }) {
   const [asking, setAsking] = useState(false);
   return (
-    <div className="tau-danger-action">
+    <div className="tau-danger-action" id={id} tabIndex={id ? -1 : undefined}>
       <div>
         <h3>{title}</h3>
         {description ? <p>{description}</p> : null}

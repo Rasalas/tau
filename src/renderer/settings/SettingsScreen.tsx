@@ -216,6 +216,7 @@ export function SettingsScreen({
   const commands = registry.getCommands();
   const found = search.trim() ? searchSettings(settingsSearchEntries({
     pages: pages.map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
+    sections: (["connections", "extensions"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
       commandId: binding.commandId,
@@ -238,17 +239,29 @@ export function SettingsScreen({
     onSetPage(page);
   }, [anchor, onSetPage, page]);
 
-  // A row a link named scrolls into view once its page is drawn.
+  // A row a link named scrolls into view once its page is drawn, or once it arrives: some rows wait for the host.
   useEffect(() => {
     if (!scrollTarget) return;
-    const row = document.getElementById(scrollTarget);
-    if (!row) return;
-    row.scrollIntoView?.({ block: "center" });
-    row.focus({ preventScroll: true });
-    row.classList.remove("settings-target-pulse");
-    void row.offsetWidth;
-    row.classList.add("settings-target-pulse");
-    setScrollTarget(undefined);
+    const reveal = (row: HTMLElement) => {
+      row.scrollIntoView?.({ block: "center" });
+      row.focus({ preventScroll: true });
+      row.classList.remove("settings-target-pulse");
+      void row.offsetWidth;
+      row.classList.add("settings-target-pulse");
+      setScrollTarget(undefined);
+    };
+    const now = document.getElementById(scrollTarget);
+    if (now) { reveal(now); return; }
+    const observer = new MutationObserver(() => {
+      const row = document.getElementById(scrollTarget);
+      if (!row) return;
+      observer.disconnect();
+      reveal(row);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    // A row that never comes (a section of a kit that is off) stops the watch.
+    const giveUp = window.setTimeout(() => { observer.disconnect(); setScrollTarget(undefined); }, 10_000);
+    return () => { observer.disconnect(); window.clearTimeout(giveUp); };
   }, [page, scrollTarget]);
 
   const scrollRef = useRef<HTMLDivElement>(null);

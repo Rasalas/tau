@@ -142,6 +142,8 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
 export interface SettingsSearchSources {
   /** Pages extensions contributed, with the rows they named for the search. */
   pages: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
+  /** Sections extensions added to a core page, with the rows they named. */
+  sections?: ReadonlyArray<{ page: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Every extension with a page of its own in the nav. */
   extensions: ReadonlyArray<{ id: string; name: string; core?: boolean; options?: ReadonlyArray<{ label: string }> }>;
   /** Live keybindings; leave out for a search that should find pages only. */
@@ -170,6 +172,13 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
     });
     for (const row of page.rows ?? []) {
       entries.push({ id: `${page.id}:${row.id}`, page: page.id, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
+    }
+  }
+  for (const section of sources.sections ?? []) {
+    const page = CORE_PAGES.find((core) => core.page === section.page);
+    if (!page) continue;
+    for (const row of section.rows ?? []) {
+      entries.push({ id: `${page.page}:${row.id}`, page: page.page, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
     }
   }
   for (const extension of sources.extensions) {

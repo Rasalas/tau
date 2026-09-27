@@ -1020,7 +1020,7 @@ page still draws itself take the same height and look inside Settings.
 | `Badge({ tone?, dot?, children })` | A state in a word or two: `neutral`, `accent`, `success`, `warn` or `danger`, never the colour alone. |
 | `HelpTip({ text, label? })` | An info glyph whose tooltip holds `text`; `SettingRow`'s `help` draws one. |
 | `Button({ variant?, icon?, busy?, ...button })` | `default`, `primary` (one per page, the accent), `danger` or `ghost`; `busy` keeps it inert while its work runs. |
-| `DangerZone({ title?, children })`, `DangerAction({ title, description?, actionLabel, confirmTitle, confirmMessage, confirmText?, disabled?, disabledReason?, busy?, onConfirm })` | The actions that cannot be taken back, apart and last on the page. Each names the object and the consequence and asks through `ConfirmDialog`; `confirmText` makes the user type it (a name) first, for a loss that is hard to repair. `ConfirmDialog` takes the same `confirmText`. |
+| `DangerZone({ title?, children })`, `DangerAction({ id?, title, description?, actionLabel, confirmTitle, confirmMessage, confirmText?, disabled?, disabledReason?, busy?, onConfirm })` | The actions that cannot be taken back, apart and last on the page. Each names the object and the consequence and asks through `ConfirmDialog`; `confirmText` makes the user type it (a name) first, for a loss that is hard to repair. `ConfirmDialog` takes the same `confirmText`. |
 | `SettingsState({ kind, title?, description?, action?, rows?, onRetry? })` | What a page or a section shows instead of its rows: `loading` (skeleton rows), `empty` (what is missing and the next step in `action`) or `error` (what happened, and Try again with `onRetry`). |
 
 The types `ChoiceOption`, `SelectOption`, `ValueListItem`, `FieldWidth` and
@@ -2406,7 +2406,7 @@ shipped caller: it keeps the proxy listener and publishes
 Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
 it beside the client in Connections — never as a login.
 
-On the desktop side, `registerSettingsSection({ id, page, order?, Component })`
+On the desktop side, `registerSettingsSection({ id, page, order?, rows?, Component })`
 (new in API 1.13.0) adds a section to one of core's Settings pages, below
 core's own sections: `"connections"`; `"extensions"`, above the list of
 extensions; or `"extension"`, on every extension's own page after its
@@ -2415,7 +2415,9 @@ nothing for an extension it has nothing to say about (both new in API 1.18.0;
 Packages Kit's Update and Remove for an installed package are one). The
 component gets `onNotify` and `onChanged`, which reads the page's own data
 again after the section changed something it shows (a new endpoint in the
-address list). It is profile-scoped like a panel.
+address list). It is profile-scoped like a panel. `rows` (new in API 1.18.0)
+are the section's rows the Settings search finds, as on a page: `{ id, label,
+keywords? }`, each the `id` of a `SettingRow` in the section.
 
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 

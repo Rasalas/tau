@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { useState } from "react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
 import { TestProviders } from "../test-support/test-providers";
@@ -11,6 +11,13 @@ afterEach(cleanup);
 function Harness({ registry }: { registry: ExtensionRegistry }) {
   const [page, setPage] = useState("defaults");
   return <SettingsScreen page={page} registry={registry} onSetPage={setPage} onSetModel={() => undefined} onSetThinking={() => undefined} onClose={() => undefined} onNotify={() => undefined} />;
+}
+
+/** A page whose row waits for an answer, the way rows read from the host do. */
+function LatePage() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => { void Promise.resolve().then(() => setReady(true)); }, []);
+  return ready ? <div id="setting-late-row" tabIndex={-1}>The late row</div> : <p>Loading</p>;
 }
 
 function setup() {
@@ -24,6 +31,7 @@ function setup() {
       context.registerCommand({ id: "search.content", label: "Search in project…", group: "Search", run: () => undefined });
       context.registerKeybinding({ keys: "mod+shift+f", commandId: "search.content" });
       context.registerSettingsPage({ id: "usage", label: "Usage", keywords: ["quota"], profiles: ["desktop"], Component: () => <p>Usage page</p> });
+      context.registerSettingsPage({ id: "late", label: "Late", profiles: ["desktop"], rows: [{ id: "setting-late-row", label: "Arrives later" }], Component: LatePage });
     },
   });
   render(<TestProviders><Harness registry={registry} /></TestProviders>);
@@ -42,6 +50,14 @@ describe("Settings search", () => {
     const rows = [...modal.querySelectorAll(".keybinding-row strong")].map((row) => row.textContent);
     expect(rows).toEqual(["Go to file…"]);
     expect((search as HTMLInputElement).value).toBe("");
+  });
+
+  it("scrolls to a row that is drawn after its page", async () => {
+    const { modal, search } = setup();
+    fireEvent.change(search, { target: { value: "arrives later" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() => expect(document.activeElement?.id).toBe("setting-late-row"));
+    expect(within(modal).getByText("The late row").classList.contains("settings-target-pulse")).toBe(true);
   });
 
   it("opens a contributed page by its keywords with Enter, and says so when nothing matches", () => {

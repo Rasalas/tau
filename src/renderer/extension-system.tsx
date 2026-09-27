@@ -731,6 +731,8 @@ export interface SettingsSectionContribution extends ProfileScoped {
   id: string;
   page: SettingsSectionPage;
   order?: number;
+  /** The rows the Settings search finds in the section, as on a page (API 1.18.0). */
+  rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] }>;
   Component: ComponentType<SettingsSectionProps>;
 }
 

@@ -66,6 +66,19 @@ describe("settings search", () => {
     expect(searchSettings(entries, "update track")[0]).toMatchObject({ page: "general", target: "setting-update-track" });
   });
 
+  it("finds the rows a section named on a core page, and leaves out a section's rows on no fixed page", () => {
+    const withSections = settingsSearchEntries({
+      pages: [],
+      extensions: [],
+      sections: [
+        { page: "connections", rows: [{ id: "setting-tailnet-https", label: "Tailnet HTTPS", keywords: ["funnel-serve"] }] },
+        { page: "extension", rows: [{ id: "setting-nowhere", label: "Nowhere" }] },
+      ],
+    });
+    expect(searchSettings(withSections, "tailnet https")[0]).toMatchObject({ page: "connections", section: "Connections", target: "setting-tailnet-https" });
+    expect(searchSettings(withSections, "nowhere")).toEqual([]);
+  });
+
   it("leaves keybindings out when it is asked for pages only", () => {
     const pagesOnly = settingsSearchEntries({ pages: [], extensions: [] });
     expect(searchSettings(pagesOnly, "keybindings").map((entry) => entry.id)).toEqual(["page:keybindings"]);
