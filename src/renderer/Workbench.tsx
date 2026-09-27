@@ -14,9 +14,8 @@ import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeatu
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { retryPrompt, TurnErrorLine } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
-import { QueuedMessages } from "./deferred-surfaces";
+import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
-import { PairingRequestWatcher } from "./pairing/PairingRequestWatcher";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
 import type { ToastStore } from "../workbench/toast-store";

@@ -12,7 +12,7 @@ import type {
   ComposerScopeStore,
   SubmissionHandle,
 } from "../../workbench/composer-scope-store";
-import { expandFileMentions } from "../file-mention-expander.js";
+import { loadFileMentions } from "../deferred-surfaces";
 import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
@@ -213,6 +213,7 @@ export function useComposerSubmission({
         let attachmentsToSend = [...handle.attachments];
 
         if (!skillDraft && promptToSend.includes("@") && documentSource) {
+          const { expandFileMentions } = await loadFileMentions();
           const expanded = await expandFileMentions(promptToSend, documentSource);
           promptToSend = expanded.text;
           if (expanded.attachments.length > 0) {

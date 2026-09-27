@@ -209,7 +209,7 @@ export type { DiscoveredHost, UiDiscoveredHosts } from "../shared/discovery";
 /** A machine's load and readiness, as `host-resources` and `readiness` answer them (API 1.15.0). */
 export type { HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, RuntimeReadinessState } from "../shared/host-resources";
 /** The hosts one Bonjour search found, with a slot per host for an action (API 1.13.0). */
-export { NearbyMachineList } from "./settings/NearbyMachineList";
+export { NearbyMachineList } from "./deferred-surfaces";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity, ThreadRowMachine } from "./components/ThreadRow";
 /** The line seam of `ReviewMode`'s diffs. */
