@@ -87,6 +87,7 @@ export const agentsExtension: DesktopExtension = {
       order: 45.2,
       profiles: ["desktop", "web"],
       keywords: ["sub-agents", "subagents", "spawn", "machine", "rex", "other computer", "automatic"],
+      rows: [{ id: "setting-agents-machine", label: "Run sub-agents on", keywords: ["sub-agents", "spawn", "machine", "other computer", "automatic", "this computer"] }],
       Component: createAgentsSettingsPage(context.host),
     });
     // The Machines rail leaves out the threads other machines run for this host's agents.

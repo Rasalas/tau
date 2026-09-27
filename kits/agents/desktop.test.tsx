@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { UiSession, UiToolRun } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import { agentsExtension } from "./desktop.js";
 import { createAgentsStore, createDefinitionsStore, definitionsStore, lineageOf, remoteAgentThreads } from "./store.js";
 import { activityLine, agentsPanelModel, definitionRows, formatCost, formatElapsed, machineTitle, spawnCardModel, spawnedThreadId, worktreeLine } from "./model.js";
@@ -199,6 +201,39 @@ describe("agents on another machine", () => {
     const { registry } = createKitHarness();
     registry.activate(agentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toContain("agents.settings");
+  });
+
+  it("offers the machines in a menu on Settings → Agents, and draws each row the search lists", async () => {
+    const invoke = vi.fn(async (_id: string, command: string) => command === "machines"
+      ? { available: true, machines: [{ id: "rex-id", name: "rex", status: "connected" }, { id: "ro-id", name: "watcher", status: "connected", readOnly: true }] }
+      : undefined);
+    const { registry, preferences } = createKitHarness(invoke);
+    registry.activate(agentsExtension);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "agents.settings")!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    const menu = screen.getByRole("combobox", { name: "Run sub-agents on" });
+    await waitFor(() => expect(within(menu).getAllByRole("option").map((option) => option.textContent)).toEqual(["This computer", "rex", "Automatic"]));
+    for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
+    cleanup();
+  });
+
+  it("says when the machines did not load, and asks again", async () => {
+    let fail = true;
+    const invoke = vi.fn(async (_id: string, command: string) => {
+      if (command !== "machines") return undefined;
+      if (fail) throw new Error("The host is gone.");
+      return { available: true, machines: [] };
+    });
+    const { registry, preferences } = createKitHarness(invoke);
+    registry.activate(agentsExtension);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "agents.settings")!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    expect((await screen.findByRole("alert")).textContent).toContain("The host is gone.");
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/pair a machine in Settings → Machines/u)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    cleanup();
   });
 });
 
