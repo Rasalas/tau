@@ -106,6 +106,8 @@ export const reviewExtension: DesktopExtension = {
       label: "Review",
       Icon: GitCompare,
       order: 20,
+      width: "wide",
+      maximizable: true,
       profiles: ["compact"],
       Component: createCompactReviewPanel({
         reader: workspace,

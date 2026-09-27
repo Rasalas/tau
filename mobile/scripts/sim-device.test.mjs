@@ -32,6 +32,14 @@ describe("pickDeviceType", () => {
     expect(pickDeviceType({ name: "iOS", supportedDeviceTypes: [phone("iPhone Air")] }).name).toBe("iPhone Air");
   });
 
+  it("takes an 11-inch iPad Air for --ipad, else another 11-inch iPad", () => {
+    const tablet = (name) => ({ name, productFamily: "iPad", identifier: name });
+    const runtime = { name: "iOS 27.0", supportedDeviceTypes: [phone("iPhone 17"), tablet("iPad Pro 13-inch (M5)"), tablet("iPad Pro 11-inch (M5)"), tablet("iPad Air 11-inch (M4)"), tablet("iPad Air 11-inch (M3)")] };
+    expect(pickDeviceType(runtime, "iPad").name).toBe("iPad Air 11-inch (M4)");
+    expect(pickDeviceType({ ...runtime, supportedDeviceTypes: runtime.supportedDeviceTypes.slice(0, 3) }, "iPad").name).toBe("iPad Pro 11-inch (M5)");
+    expect(() => pickDeviceType({ name: "iOS", supportedDeviceTypes: [phone("iPhone 17")] }, "iPad")).toThrow(/supports no iPad/);
+  });
+
   it("refuses a runtime without iPhones", () => {
     expect(() => pickDeviceType({ name: "iOS", supportedDeviceTypes: [] })).toThrow(/supports no iPhone/);
   });

@@ -11,6 +11,8 @@ export const CHAT_MIN_WIDTH = 480;
 /** The stage's column: a file's header and a few dozen columns of code. */
 export const STAGE_MIN_WIDTH = 360;
 export const CENTER_SPLIT_MIN_WIDTH = CHAT_MIN_WIDTH + STAGE_MIN_WIDTH;
+/** A tablet's chat: its touch composer folds to an upright phone's width, so a tool fits beside it on an iPad on its side. */
+export const TABLET_CHAT_MIN_WIDTH = 360;
 /** The stage's reading width, about 67 columns of 12 px code: the dock folds while the stage would be narrower. */
 export const STAGE_PREFERRED_WIDTH = 560;
 /** The dock's icon rail, which stays when its panel is closed. */
@@ -29,6 +31,8 @@ export interface CenterLayoutInput {
   keepDock: boolean;
   /** The user asked for the stage over the whole centre. */
   maximized: boolean;
+  /** The chat's minimum on this client; `CHAT_MIN_WIDTH` unless a tablet says otherwise. */
+  chatMin?: number;
 }
 
 export interface CenterLayout {
@@ -40,14 +44,15 @@ export interface CenterLayout {
   canSplit: boolean;
 }
 
-export function centerLayout({ windowWidth, sidebarWidth, dock, stageOpen, keepDock, maximized }: CenterLayoutInput): CenterLayout {
+export function centerLayout({ windowWidth, sidebarWidth, dock, stageOpen, keepDock, maximized, chatMin = CHAT_MIN_WIDTH }: CenterLayoutInput): CenterLayout {
   if (!stageOpen) return { dockYields: false, tabs: false, canSplit: true };
   const panel = dock?.open && windowWidth > DOCK_PANEL_MIN_WINDOW ? dock.width : 0;
   const room = windowWidth - sidebarWidth - (dock ? DOCK_RAIL_WIDTH : 0) - panel;
-  const fits = room >= CENTER_SPLIT_MIN_WIDTH;
+  const splitMin = chatMin + STAGE_MIN_WIDTH;
+  const fits = room >= splitMin;
   // The chat keeps its minimum first, so the stage reaches its reading width exactly here.
-  const roomy = room >= CHAT_MIN_WIDTH + STAGE_PREFERRED_WIDTH;
-  const fitsOnRail = !roomy && panel > 0 && !keepDock && room + panel >= CENTER_SPLIT_MIN_WIDTH;
+  const roomy = room >= chatMin + STAGE_PREFERRED_WIDTH;
+  const fitsOnRail = !roomy && panel > 0 && !keepDock && room + panel >= splitMin;
   const canSplit = fits || fitsOnRail;
   return { dockYields: fitsOnRail && !maximized, tabs: maximized || !canSplit, canSplit };
 }

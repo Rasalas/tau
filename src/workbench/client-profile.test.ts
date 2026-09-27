@@ -29,13 +29,36 @@ describe("client profile selection", () => {
     expect(browserClientProfile(1024, "web", true)).toBe("web");
   });
 
-  it("a compact client splits into list and thread only when it is tablet-sized", () => {
-    expect(compactFormFor("compact", 390, 844)).toBe("single");
+  it("a compact client splits into list and thread only on a tablet at least 720 px wide", () => {
+    // Phones, upright and on their side: the screen's short side decides, not the window.
+    expect(compactFormFor("compact", 390, 390)).toBe("single");
     expect(compactFormFor("compact", 844, 390)).toBe("single");
-    expect(compactFormFor("compact", 820, 1180)).toBe("split");
-    expect(compactFormFor("compact", 720, 600)).toBe("split");
+    expect(compactFormFor("compact", 956, 440)).toBe("single");
+    // iPad upright, on its side, and an iPad mini.
+    expect(compactFormFor("compact", 820, 820)).toBe("split");
+    expect(compactFormFor("compact", 1180, 820)).toBe("split");
+    expect(compactFormFor("compact", 744, 744)).toBe("split");
+    // Slide Over and a narrow Split View are phones.
+    expect(compactFormFor("compact", 375, 820)).toBe("single");
+    expect(compactFormFor("compact", 592, 820)).toBe("single");
     // A desktop window narrowed below 720 px is compact, and never splits.
     expect(compactFormFor("desktop", 1400, 900)).toBe("single");
+  });
+
+  it("keeps a split through small changes of width", () => {
+    // The threshold from single, and the lower one once split.
+    expect(compactFormFor("compact", 719, 820, "single")).toBe("single");
+    expect(compactFormFor("compact", 720, 820, "single")).toBe("split");
+    expect(compactFormFor("compact", 700, 820, "split")).toBe("split");
+    expect(compactFormFor("compact", 680, 820, "split")).toBe("split");
+    expect(compactFormFor("compact", 679, 820, "split")).toBe("single");
+  });
+
+  it("widens a compact desktop window again only past the band", () => {
+    expect(layoutProfileFor("desktop", 719, "desktop")).toBe("compact");
+    expect(layoutProfileFor("desktop", 720, "desktop")).toBe("desktop");
+    expect(layoutProfileFor("desktop", 740, "compact")).toBe("compact");
+    expect(layoutProfileFor("desktop", 760, "compact")).toBe("desktop");
   });
 
   it("gives the split's thread list a third of the width, within bounds", () => {

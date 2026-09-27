@@ -60,28 +60,49 @@ export function browserClientProfile(width: number, override?: string | null, to
 }
 
 /**
+ * How far the width must come back past a threshold before the layout changes
+ * back. Without it a window at the edge (or one the system resizes by a few
+ * pixels) flips between two layouts on every resize.
+ */
+export const LAYOUT_HYSTERESIS_PX = 40;
+
+/**
  * How wide the client is *now*. Only the layout follows this — every client
  * narrower than `COMPACT_WIDTH_PX` lays out compactly, the Electron window
- * included.
+ * included. `previous` is the layout it has: a compact layout widens again only
+ * `LAYOUT_HYSTERESIS_PX` past the threshold.
  */
-export function layoutProfileFor(profile: ClientProfile, width: number): ClientProfile {
-  return profile === "compact" || width < COMPACT_WIDTH_PX ? "compact" : profile;
+export function layoutProfileFor(profile: ClientProfile, width: number, previous?: ClientProfile): ClientProfile {
+  if (profile === "compact") return "compact";
+  return width < COMPACT_WIDTH_PX + (previous === "compact" ? LAYOUT_HYSTERESIS_PX : 0) ? "compact" : profile;
 }
 
-/** A compact client at least this wide and tall shows the thread list beside the thread, as on a tablet. */
+/** A compact client at least this wide, on a tablet-sized screen, shows the desktop's arrangement. */
 export const COMPACT_SPLIT_MIN_WIDTH_PX = 720;
-export const COMPACT_SPLIT_MIN_HEIGHT_PX = 600;
+/**
+ * The shorter side of a tablet's screen is at least this (an iPad mini's is
+ * 744 pt), a phone's at most about 440. The screen, not the window: a phone
+ * on its side stays a phone, and a keyboard or a resize never changes it.
+ */
+export const TABLET_SCREEN_MIN_SIDE_PX = 600;
 
 /**
  * How a compact layout arranges itself: `single` is one screen at a time (a
- * phone, or any window narrowed below 720 px), `split` puts the thread list in
- * a sidebar. Only a client that claims compact splits; the height rule keeps a
- * phone on its side single.
+ * phone, or any window narrowed below 720 px), `split` is the desktop's
+ * arrangement for touch: the thread list in a sidebar, the chat, and tools and
+ * documents beside it. Only a client that claims compact splits.
  */
 export type CompactForm = "single" | "split";
 
-export function compactFormFor(profile: ClientProfile, width: number, height: number): CompactForm {
-  return profile === "compact" && width >= COMPACT_SPLIT_MIN_WIDTH_PX && height >= COMPACT_SPLIT_MIN_HEIGHT_PX ? "split" : "single";
+/**
+ * Width and device decide, never height or content: an on-screen keyboard, a
+ * streaming transcript or the system's own resizes must not turn a tablet into
+ * a phone. `previous` adds the hysteresis: a split stays split until the width
+ * falls `LAYOUT_HYSTERESIS_PX` below the threshold.
+ */
+export function compactFormFor(profile: ClientProfile, width: number, screenMinSide: number, previous?: CompactForm): CompactForm {
+  if (profile !== "compact" || screenMinSide < TABLET_SCREEN_MIN_SIDE_PX) return "single";
+  return width >= COMPACT_SPLIT_MIN_WIDTH_PX - (previous === "split" ? LAYOUT_HYSTERESIS_PX : 0) ? "split" : "single";
 }
 
 /** The split's thread list: a third of the width, within bounds. */

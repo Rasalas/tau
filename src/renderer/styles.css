@@ -781,7 +781,8 @@ body.resizing-col .app-shell { transition: none; }
 .message-image-context-menu > button:hover,
 .message-image-context-menu > button:focus-visible { background: var(--chrome); color: var(--ink); outline: none; }
 
-.message.assistant { display: flex; flex-direction: column; gap: 14px; }
+/* No wider than the column: a wide table or code block scrolls in its own box, not the transcript. */
+.message.assistant { display: flex; flex-direction: column; gap: 14px; max-width: 100%; min-width: 0; }
 .message.assistant .message-text {
   font-size: 14px; line-height: 1.75; color: var(--ink-prose);
   letter-spacing: -.002em; word-break: break-word;

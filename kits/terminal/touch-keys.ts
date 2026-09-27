@@ -83,13 +83,22 @@ export function isTypedInput(data: string): boolean {
 /** The phone's own text size: a separate setting, so a tap here never resizes the desktop's shells. */
 export const COMPACT_FONT_SIZE_KEY = "tau.terminal.compact-font-size.v1";
 export const DEFAULT_COMPACT_FONT_SIZE = 11;
+/** A tablet's screen is read at arm's length, like a laptop's. */
+export const DEFAULT_TABLET_FONT_SIZE = 13;
 export const MIN_COMPACT_FONT_SIZE = 8;
 export const MAX_COMPACT_FONT_SIZE = 20;
 
-export function compactFontSize(raw: string | null | undefined): number {
+export function compactFontSize(raw: string | null | undefined, tablet = false): number {
   const size = raw ? Number(raw) : Number.NaN;
-  if (!Number.isFinite(size)) return DEFAULT_COMPACT_FONT_SIZE;
+  if (!Number.isFinite(size)) return tablet ? DEFAULT_TABLET_FONT_SIZE : DEFAULT_COMPACT_FONT_SIZE;
   return Math.min(MAX_COMPACT_FONT_SIZE, Math.max(MIN_COMPACT_FONT_SIZE, Math.round(size)));
+}
+
+/** The shorter side of a tablet's screen is at least this (core's TABLET_SCREEN_MIN_SIDE_PX); a phone's is at most about 440. */
+const TABLET_SCREEN_MIN_SIDE_PX = 600;
+
+export function isTabletScreen(screen: { width: number; height: number } | undefined): boolean {
+  return Boolean(screen) && Math.min(screen!.width, screen!.height) >= TABLET_SCREEN_MIN_SIDE_PX;
 }
 
 export function stepCompactFontSize(size: number, step: 1 | -1): number {
@@ -109,3 +118,25 @@ export function dragLines(carry: number, dy: number, cellHeight: number): { line
   const whole = Math.trunc(total / cellHeight);
   return { lines: whole === 0 ? 0 : -whole, carry: total - whole * cellHeight };
 }
+
+/** A finger held this long without moving starts a selection instead of a scroll. */
+export const LONG_PRESS_MS = 450;
+
+/** A character cell: column and row, rows counted in the buffer (scrollback included). */
+export interface Cell { col: number; row: number }
+
+/** The cell under a point of the screen element, clamped to it; `firstRow` is the buffer row at the top. */
+export function cellAt(point: { x: number; y: number }, box: { left: number; top: number; width: number; height: number }, size: { cols: number; rows: number }, firstRow: number): Cell {
+  const clamp = (value: number, max: number) => Math.min(max - 1, Math.max(0, Math.floor(value)));
+  const col = box.width > 0 ? clamp(((point.x - box.left) / box.width) * size.cols, size.cols) : 0;
+  const row = box.height > 0 ? clamp(((point.y - box.top) / box.height) * size.rows, size.rows) : 0;
+  return { col, row: firstRow + row };
+}
+
+/** xterm's `select(column, row, length)` for a drag between two cells, in either direction, both ends included. */
+export function selectionRange(anchor: Cell, focus: Cell, cols: number): { column: number; row: number; length: number } {
+  const index = (cell: Cell) => cell.row * cols + cell.col;
+  const [start, end] = index(anchor) <= index(focus) ? [anchor, focus] : [focus, anchor];
+  return { column: start.col, row: start.row, length: index(end) - index(start) + 1 };
+}
+

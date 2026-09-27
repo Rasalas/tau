@@ -12,6 +12,7 @@ import {
   instanceHost,
   isLoopbackHost,
   parseArgs,
+  parseWindow,
   pickPairingUrl,
   sameCode,
   touchSteps,
@@ -115,6 +116,14 @@ describe("emulationSteps", () => {
     expect(steps["Emulation.setEmulatedMedia"].features).toEqual([{ name: "prefers-color-scheme", value: "light" }]);
     expect(steps["Emulation.setSafeAreaInsetsOverride"].insets).toEqual(DEVICES.iphone.insets);
     expect(steps["Emulation.setUserAgentOverride"].userAgent).toMatch(/iPhone/);
+  });
+
+  it("keeps the device's screen when the app's window is smaller, as in Split View", () => {
+    const [, metrics] = emulationSteps("ipad-landscape", "dark", { width: 592, height: 820 })[0];
+    expect(metrics).toMatchObject({ width: 592, height: 820, screenWidth: 1180, screenHeight: 820 });
+    expect(parseWindow(["full"])).toBeUndefined();
+    expect(parseWindow(["375", "820"])).toEqual({ width: 375, height: 820 });
+    expect(() => parseWindow(["wide"])).toThrow(/window <width> <height>/);
   });
 
   it("turns a landscape device sideways", () => {

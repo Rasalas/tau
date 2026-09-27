@@ -400,6 +400,7 @@ Gestures and the rest of the phone:
 - `keyboard <px>` stands in for the on-screen keyboard: the visual viewport shrinks by that much and `body[data-keyboard]` must appear; `keyboard off` closes it. `insert <text>` types the way a software keyboard does (`Input.insertText`), which is what the terminal must accept.
 - `press` takes the same keys and chords as `npm run cdp -- press`.
 - `device <name> [--scheme]` switches the device; reopen the page afterwards, since the web client picks its profile at load.
+- `window <width> <height>` makes the app's window smaller inside the device's screen, as Split View, Slide Over or a web view that reports less height does; `window full` gives the whole screen back. No reload: this is how a tablet's layout decision is checked (`ipad-landscape`, then `window 700 820` stays the tablet's layout, `window 375 820` is a phone's, `window 1180 380` stays a tablet).
 - The emulation holds only while a CDP session stays attached, so `launch` starts a small holder process beside Chromium; `stop` ends both.
 
 Wakes and reconnects (F02):
@@ -448,6 +449,7 @@ Check `uptime` first: boot a simulator only while the one-minute load is below 4
 ```
 (cd mobile && npm ci && node scripts/native-build.mjs ios --dev)   # a development build with the automation bridge
 node mobile/scripts/sim-device.mjs up                              # new simulator, boot, install, launch, bridge; refuses above load 40
+#   up --ipad: an 11-inch iPad instead of an iPhone
 node mobile/scripts/sim.mjs wait-for "text().length > 0" 60000     # the app's web view is connected
 npm run cdp:mobile -- link --label "Simulator"                     # prints the loopback pairing link
 node mobile/scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add host\"]'))"

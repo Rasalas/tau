@@ -20,9 +20,31 @@ body[data-profile="compact"] .app-shell {
   height: var(--tau-viewport-height, 100dvh);
   grid-template: calc(52px + var(--safe-top)) minmax(0, 1fr) / 0 minmax(0, 1fr) 0;
 }
-/* A tablet keeps the thread list beside the thread (compactFormFor). */
-body[data-profile="compact"] .app-shell.touch-split { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
+/* A tablet is laid out as the desktop (compactFormFor): thread list, centre, and the panel rail with its dock. */
+body[data-profile="compact"] .app-shell.touch-split { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) calc(var(--dock-width) + 46px); }
+body[data-profile="compact"] .app-shell.touch-split.no-dock { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
 body[data-keyboard] .app-shell { --safe-bottom: 0px; }
+
+/* The tablet's desktop chrome at touch size: rail buttons, stage tabs and their close, a divider a finger can take. */
+body[data-profile="compact"] .panel-rail { gap: 4px; padding-top: 6px; }
+body[data-profile="compact"] .panel-rail button { width: 44px; height: 44px; border-radius: 12px; }
+body[data-profile="compact"] :is(.stage-tabs, .stage-strip-actions) { height: 48px; }
+/* Tabs keep their names and the strip scrolls under a finger, instead of squeezing every name to a letter. */
+body[data-profile="compact"] .stage-tab { flex: none; font-size: 14px; padding-left: 14px; }
+body[data-profile="compact"] .stage-tab-close { width: 44px; height: 44px; opacity: 1; }
+body[data-profile="compact"] .stage-strip-actions button { min-width: 44px; min-height: 44px; }
+body[data-profile="compact"] .resize-handle[aria-orientation="vertical"] { width: 24px; }
+body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px); }
+body[data-profile="compact"] .dock-resizer { left: -12px; }
+body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }
+body[data-profile="compact"] .panel-maximize { width: 44px; height: 44px; top: 4px; right: 4px; }
+/* A touch panel's own first row keeps clear of the maximize button over its corner. */
+body[data-profile="compact"] .side-panel .panel-body > :first-child { padding-right: 52px; }
+body[data-profile="compact"] .title-bar .title-project { min-height: 44px; }
+/* Beside a tool the chat is a phone's width: the composer keeps a phone's margins. */
+body[data-profile="compact"] .workbench-center:is(.wide-open, .stage-open):not(.compact) .composer-zone { padding-inline: 12px; }
+/* Behind a chat tab's strip, which is taller here. */
+body[data-profile="compact"] .workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { top: 48px; }
 
 /* Keys and chords a touch screen has none of: esc, ↑↓, ⌘5, ⇧click. */
 body[data-profile="compact"] .keyboard-hint { display: none; }
@@ -37,11 +59,10 @@ body[data-profile="compact"] .title-bar .chrome-ghost.glyph > svg { width: 20px;
 /* One screen has no room for the project beside the title; the list names it. */
 body[data-profile="compact"] .app-shell:not(.touch-split) :is(.title-project, .title-separator) { display: none; }
 
-/* The chat is the whole centre: no stage column, no split. */
-body[data-profile="compact"] .workbench-center,
-body[data-profile="compact"] .workbench-center.stage-open { display: flex; flex-direction: column; }
-body[data-profile="compact"] .workbench-center .stage { display: none; }
-body[data-profile="compact"] .workbench-center > .conversation-column { flex: 1; min-height: 0; }
+/* On a phone the chat is the whole centre: no stage column, no split. */
+body[data-profile="compact"] .app-shell:not(.touch-split) .workbench-center { display: flex; flex-direction: column; }
+body[data-profile="compact"] .app-shell:not(.touch-split) .workbench-center .stage { display: none; }
+body[data-profile="compact"] .app-shell:not(.touch-split) .workbench-center > .conversation-column { flex: 1; min-height: 0; }
 
 /* The composer is pinned to the bottom edge and the transcript scrolls under it. */
 body[data-profile="compact"] .conversation-composer-host {

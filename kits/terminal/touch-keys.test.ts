@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyModifiers, arrowSequence, dragLines, compactFontSize, DEFAULT_COMPACT_FONT_SIZE, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
+  applyModifiers, arrowSequence, dragLines, compactFontSize, DEFAULT_COMPACT_FONT_SIZE, DEFAULT_TABLET_FONT_SIZE, isTabletScreen, cellAt, selectionRange, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
   stepCompactFontSize, TOUCH_KEYS, type TouchModifier,
 } from "./touch-keys.js";
 
@@ -61,6 +61,8 @@ describe("the compact text size", () => {
     expect(compactFontSize(undefined)).toBe(DEFAULT_COMPACT_FONT_SIZE);
     expect(compactFontSize("junk")).toBe(DEFAULT_COMPACT_FONT_SIZE);
     expect(compactFontSize("13")).toBe(13);
+    expect(compactFontSize(undefined, true)).toBe(DEFAULT_TABLET_FONT_SIZE);
+    expect(compactFontSize("10", true)).toBe(10);
     expect(compactFontSize("2")).toBe(MIN_COMPACT_FONT_SIZE);
     expect(compactFontSize("99")).toBe(MAX_COMPACT_FONT_SIZE);
   });
@@ -88,3 +90,30 @@ describe("dragLines", () => {
     expect(dragLines(0, 40, 0)).toEqual({ lines: 0, carry: 0 });
   });
 });
+
+describe("isTabletScreen", () => {
+  it("tells a tablet's screen from a phone's in either orientation", () => {
+    expect(isTabletScreen({ width: 820, height: 1180 })).toBe(true);
+    expect(isTabletScreen({ width: 1133, height: 744 })).toBe(true);
+    expect(isTabletScreen({ width: 852, height: 393 })).toBe(false);
+    expect(isTabletScreen(undefined)).toBe(false);
+  });
+});
+
+describe("selecting with a finger", () => {
+  const box = { left: 10, top: 20, width: 800, height: 240 };
+  const size = { cols: 80, rows: 24 };
+
+  it("finds the cell under the finger, in buffer rows, and never outside the screen", () => {
+    expect(cellAt({ x: 10, y: 20 }, box, size, 100)).toEqual({ col: 0, row: 100 });
+    expect(cellAt({ x: 115, y: 55 }, box, size, 100)).toEqual({ col: 10, row: 103 });
+    expect(cellAt({ x: 5000, y: -40 }, box, size, 0)).toEqual({ col: 79, row: 0 });
+  });
+
+  it("selects from the held cell to the finger, forwards or backwards", () => {
+    expect(selectionRange({ col: 4, row: 2 }, { col: 6, row: 2 }, 80)).toEqual({ column: 4, row: 2, length: 3 });
+    expect(selectionRange({ col: 6, row: 3 }, { col: 78, row: 2 }, 80)).toEqual({ column: 78, row: 2, length: 9 });
+    expect(selectionRange({ col: 5, row: 5 }, { col: 5, row: 5 }, 80)).toEqual({ column: 5, row: 5, length: 1 });
+  });
+});
+

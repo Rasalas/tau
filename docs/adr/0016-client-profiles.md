@@ -212,3 +212,30 @@ so settled what `compact` claims.
   runs a command with `{ threadId }`; core adds Settle, Pin, Mark unread and
   Stop itself. The one new API is that surface and a command's `Icon` (1.13.0).
 
+## Amendment, 2026-09-27: a tablet is laid out as the desktop
+
+An iPad kept switching to the phone's layout while threads ran (ticket K37).
+`compactFormFor` asked for 720 × 600 px of *window*, re-read on every resize,
+so anything that moved the height or the width for a moment — an on-screen
+keyboard, the system resizing a backgrounded app for its snapshots, a zoomed
+field — turned the tablet into a phone, bottom navigation included.
+
+- **The device and the width decide, never the height.** `compactFormFor(profile,
+  width, screenMinSide, previous)` splits when the screen's shorter side is a
+  tablet's (at least 600 px; an iPad mini has 744, a phone at most about 440)
+  and the layout viewport is at least 720 px wide. A phone on its side stays a
+  phone because of its screen, not its window.
+- **Hysteresis.** A split stays split until the width falls 40 px below the
+  threshold (`LAYOUT_HYSTERESIS_PX`); `layoutProfileFor` widens a compact
+  desktop window again only 40 px past 720. The hooks (`use-layout-profile.ts`)
+  read `documentElement.clientWidth`, which a zoom does not change, and do not
+  decide while the page is hidden.
+- **The split is the desktop's arrangement.** The thread list stays the touch
+  list, but the panels that claim `compact` go on the dock's rail and open
+  beside the chat, or as a stage tab with the chat as the first tab where the
+  centre has no room for both (a tablet's chat minimum is 360 px, not 480).
+  Only the single form draws sheets and the bottom navigation. Kits that want
+  their compact panel beside the chat declare it `width: "wide"` and
+  `maximizable`, as on the desktop; the claim is unchanged, so nothing
+  registers or unregisters when an iPad enters Split View.
+

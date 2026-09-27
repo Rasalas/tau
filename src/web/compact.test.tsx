@@ -12,11 +12,18 @@ import { createMemoryStorage, setClientStorage } from "../workbench/client-stora
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 
-/** A phone-sized viewport, which is what makes the layout compact. */
-function setViewport(width: number, height = 844): void {
+/** A phone-sized viewport, which is what makes the layout compact. The screen is the window's unless a test says otherwise. */
+function setViewport(width: number, height = 844, screenSize = { width, height }): void {
   Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
   Object.defineProperty(window, "innerHeight", { value: height, configurable: true, writable: true });
+  Object.defineProperty(window.screen, "width", { value: screenSize.width, configurable: true });
+  Object.defineProperty(window.screen, "height", { value: screenSize.height, configurable: true });
   window.dispatchEvent(new Event("resize"));
+}
+
+function setVisibility(state: DocumentVisibilityState): void {
+  Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+  document.dispatchEvent(new Event("visibilitychange"));
 }
 
 const archived: string[] = [];
@@ -403,6 +410,55 @@ describe("the compact client on a tablet", () => {
     await screen.findByRole("button", { name: "Threads" });
     expect(screen.queryByRole("navigation", { name: "Thread list" })).toBeNull();
     expect(document.querySelector(".app-shell")?.classList.contains("touch-split")).toBe(false);
+  });
+
+  const split = () => document.querySelector(".app-shell")?.classList.contains("touch-split");
+
+  it("stays a tablet when a keyboard or the system takes height, and within the width band", async () => {
+    renderCompactClient();
+    await screen.findByRole("navigation", { name: "Thread list" });
+    // An on-screen keyboard over a landscape iPad, as a window that reports its height shrinking.
+    act(() => setViewport(1024, 380, { width: 1024, height: 768 }));
+    expect(split()).toBe(true);
+    // A few pixels under the threshold: still the tablet's layout.
+    act(() => setViewport(700, 768, { width: 1024, height: 768 }));
+    expect(split()).toBe(true);
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    // Slide Over is a phone, and wide again is a tablet.
+    act(() => setViewport(375, 768, { width: 1024, height: 768 }));
+    expect(split()).toBe(false);
+    act(() => setViewport(1024, 768));
+    expect(split()).toBe(true);
+  });
+
+  it("keeps its layout while the page is hidden, and decides again once it is shown", async () => {
+    renderCompactClient();
+    await screen.findByRole("navigation", { name: "Thread list" });
+    try {
+      act(() => setVisibility("hidden"));
+      // iOS resizes an app in the background for its snapshots.
+      act(() => setViewport(375, 768, { width: 1024, height: 768 }));
+      expect(split()).toBe(true);
+      act(() => setViewport(1024, 768));
+      act(() => setVisibility("visible"));
+      expect(split()).toBe(true);
+    } finally {
+      setVisibility("visible");
+    }
+  });
+
+  it("docks a compact panel on the rail beside the chat, where a phone opens a sheet", async () => {
+    renderCompactClient({}, [probe]);
+    await screen.findByRole("navigation", { name: "Thread list" });
+    const rail = document.querySelector(".panel-rail");
+    expect(rail).not.toBeNull();
+    // Only what claims the compact client: a desktop-only panel is not there.
+    expect(within(rail as HTMLElement).queryByRole("button", { name: "Files" })).toBeNull();
+    fireEvent.click(within(rail as HTMLElement).getByRole("button", { name: "Agents" }));
+    expect(await screen.findByText("agents panel body")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull();
+    expect(document.querySelector(".workbench-center .side-panel, .instrument-dock .panel-stage")?.textContent).toContain("agents panel body");
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
   });
 });
 
