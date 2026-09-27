@@ -3,7 +3,7 @@
   "name": "Agents",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.15.0"
+    "api": "^1.16.0"
   },
   "permissions": [
     "workspace:read",
