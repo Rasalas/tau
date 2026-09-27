@@ -629,6 +629,38 @@ The browser client's initial script went from 810,091 to 787,705 bytes (253,779 
 
 `npm run start:budget` passes. The fixture loads 14 files instead of 12: the pairing watcher's two chunks, requested when it mounts. First paint, base and change alternated eight times each against the same fixture under a load average of 7 to 9: base 84 to 152 ms (median 92), after 80 to 124 ms (median 86).
 
+### Total script headroom, 0.7.6
+
+On `fix/0.7.6` (`8d8ec683`, API 1.18.0) the desktop build's total JavaScript was 500,133 bytes of gzip, 133 over its 500,000 budget. Ticket K36 (2026-09-27) removed 10,884 bytes of gzip from the release build without raising a budget or moving code into the initial script. Desktop build, from `reports/build-report.json`:
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| initial JavaScript | 787,243 (246,407 gzip) | 786,779 (246,201 gzip) | 800,000 (275,000) |
+| lazy JavaScript | 737,292 (253,726 gzip), 82 files | 710,520 (243,048 gzip), 81 files | |
+| total JavaScript | 1,524,535 (500,133 gzip) | 1,497,299 (489,249 gzip) | 1,900,000 (500,000) |
+
+| change | chunks | gzip |
+| --- | --- | ---: |
+| renderer benchmark only in its own build | `RendererBenchmark` (21,406 bytes) removed | −7,295 |
+| lucide's licence comment kept once, in the entry | 31 lazy chunks, 97 to 116 bytes each (`plus` 238 → 129, `SettingsScreen` 34,457 → 34,351) | −3,292 |
+| entry | no longer references the benchmark chunk | −206 |
+| other chunks | changed file names in imports | −91 |
+
+The browser client's initial script kept its bytes (792,166; 248,882 → 248,885 gzip, the imported chunk names), its total gzip went from 495,410 to 492,158. It never ships the benchmark; only the notices apply.
+
+- **Benchmark build.** `main.tsx` loads `RendererBenchmark` only when `import.meta.env.MODE` is `benchmark` (or in the dev server), so the release build drops the chunk. `npm run benchmark:renderer` builds the renderer alone with `vite build --mode benchmark` into `dist-benchmark/` (about 2 s; it no longer runs `npm run build`), and the fixture loads that page. Vite still builds it for production, so it measures the release's code: before the licence change below, its files matched the old release build's name for name. `--no-build` reuses an earlier `dist-benchmark/` and builds it when none exists; `performance:ci` leaves the flag out so it never measures a stale build. `electron-builder.yml` excludes the directory.
+- **Licence notices.** `dedupeLegalComments` used to keep the first copy of each legal comment per chunk, so every lazy chunk with a lucide icon repeated lucide's ISC notice. It now blanks, in lazy chunks, every notice the entry chunk's rendered modules carry. The entry keeps its copy, notices the entry lacks stay once per chunk, and `third-party-licenses.json` ships every package's full licence text as before. `vite.legal-comments.test.ts` covers both rules.
+
+`npm run start:budget` passes: first paint 268 ms under a load average of 9, the same 14 files. `npm run benchmark:renderer -- --check` ran on the base (its own `dist/`) and on the change (`dist-benchmark/`) back to back under a load average of 9 to 10; both failed the same seven checks (`long-user-message`, the composer-typing and two 1,000-turn transcript mounts), with values within a few milliseconds of each other. In an isolated instance built with both changes the workbench and Settings drew their icons: 79 on the General page, 29 of them in the navigation, none empty.
+
+Checked and left alone:
+
+- `shared-icons` did not grow since F17: 258,734 bytes (74,859 gzip against 74,856). It packs all 1,790 lucide icons for extensions, whatever core imports, so new settings controls and icon fallbacks add nothing there.
+- Rollup's `experimentalMinChunkSize` (1,000 and 2,000 bytes) merged state modules such as `composer-fold` into the entry (+369 and +975 gzip there) and saved 192 and 911 bytes of total gzip. Icon chunks do not merge: `createLucideIcon` calls count as side effects.
+- Merging the lazy icon chunks through `manualChunks` needs to know which icons the entry's static graph uses. Every icon is reachable through lucide's barrel module, so a module-graph rule cannot tell, and the 14 single-icon chunks (129 to 238 bytes of gzip each) stay.
+- The 97 icons core imports are still in the packed set a second time (about 2.4 KB of gzip; see "Total script headroom").
+- Shared code between the settings controls, `Sheet`, the PR pages and the Usage page: the PR and Usage pages are kits, whose desktop halves have their own budget and do not count here, and the renderer's sheet chunks are small (`Sheet` 460 bytes of gzip, `PanelSheet` 375, `sheet-drag` 892).
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
