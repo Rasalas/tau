@@ -8,6 +8,7 @@ import {
   NearbyMachineList,
   SettingRow,
   SettingsSection,
+  TextField,
   errorMessage,
   tooltipProps,
   type DiscoveredHost,
@@ -129,7 +130,7 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
     machine.hostVersion ? `Tau ${machine.hostVersion}` : undefined,
     machine.threadCount ? `${machine.threadCount} thread${machine.threadCount === 1 ? "" : "s"}` : undefined,
   ].filter(Boolean);
-  const save = (event: FormEvent) => {
+  const save = (event: { preventDefault(): void }) => {
     event.preventDefault();
     const next = name.trim();
     setEditing(false);
@@ -141,7 +142,9 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
       <div className="connection-row-text">
         {editing ? (
           <form onSubmit={save}>
-            <input className="settings-input" value={name} maxLength={80} autoFocus aria-label={`Name for ${machine.name}`} onChange={(event) => setName(event.target.value)} onBlur={save} />
+            <span onBlur={save}>
+              <TextField label={`Name for ${machine.name}`} value={name} width="md" autoFocus onChange={(next) => setName(next.slice(0, 80))} />
+            </span>
           </form>
         ) : (
           <strong>
@@ -273,17 +276,16 @@ function AddMachine({ environments, secureStorage, offerAgents }: { environments
       {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(host) => run({ nearby: host.hostId })} /> : null}
       <label className="machine-add-field">
         <span>Pairing link or address</span>
-        <input
-          ref={field}
-          className="settings-input"
+        <TextField
+          inputRef={field}
+          label="Pairing link or address"
           value={text}
+          width="full"
+          mono
           disabled={busy}
           placeholder="https://studio.local:7788/#pair=… or studio.local:7788"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          onChange={(event) => {
-            setText(event.target.value);
+          onChange={(next) => {
+            setText(next);
             if (state.kind === "done" && state.tone === "problem") setState({ kind: "idle" });
           }}
         />
