@@ -8,6 +8,7 @@ import {
   dropPatches,
   fallbackThread,
   inversePatch,
+  nextActiveThread,
   pinPatch,
   railSections,
   sectionOf,
@@ -21,7 +22,8 @@ import type { RailOrganizer, RailQuestion, RailQuestionAction, RailSections, Thr
 import type { RailStore } from "./store.js";
 import type { ThreadUndo, UndoAction, UndoKind } from "./undo.js";
 
-export type SendPatches = (patches: Record<string, ThreadMetaPatch | null>) => void;
+/** Resolves true once the host took the change. */
+export type SendPatches = (patches: Record<string, ThreadMetaPatch | null>) => Promise<boolean>;
 
 /** What the organizer asks of the rest of the kit: the host half and the undo list. */
 export interface RailOrganizerPort {
@@ -48,12 +50,18 @@ const onScreen = (actions: WorkbenchActions | undefined, threadId: string): bool
   return Boolean(active && !active.draftPending && active.sessionId === threadId);
 };
 
+/** The thread the reader looks at: not a draft, and nothing (a page, a phone's list) over it. */
+const inView = (actions: WorkbenchActions | undefined): string | undefined => {
+  const active = actions?.activeThread();
+  return active && !active.draftPending && !active.covered ? active.sessionId : undefined;
+};
+
 /** The rail as Thread Rail sees it: four sections, the row menu, drops, the snooze dialog and the undo notice. */
 export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, now: () => number = Date.now): RailOrganizer & {
   /** Pin or unpin, settle or un-settle, by thread id; the commands' way in. */
   togglePin(threadId: string): void;
-  toggleSettledById(threadId: string): void;
-  snooze(threadId: string, until: number): void;
+  toggleSettledById(threadId: string, actions?: WorkbenchActions): void;
+  snooze(threadId: string, until: number, actions?: WorkbenchActions): void;
   archive(session: UiSession, actions: WorkbenchActions | undefined, confirmed?: boolean): Promise<void>;
   unarchive(threadId: string): void;
   remove(session: UiSession, actions: WorkbenchActions | undefined, leaving?: ReadonlySet<string>, confirmed?: boolean): Promise<void>;
@@ -67,19 +75,42 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   /** Sends the patches and, for an action the notice offers back, what takes them back. */
   const change = (patches: Record<string, ThreadMetaPatch>, record?: { threadId: string; kind: UndoKind; action: UndoAction }) => {
     const inverse = Object.fromEntries(Object.entries(patches).map(([id, patch]) => [id, inversePatch(meta(id), patch)]));
-    send(patches);
-    if (record) undo.record(record.kind, record.threadId, record.action, async () => send(inverse));
+    const sent = send(patches);
+    if (record) undo.record(record.kind, record.threadId, record.action, async () => { await send(inverse); });
+    return sent;
   };
 
   /** Several threads in one write to the host; each still gets its own undo, and the notice counts them. */
   const changeMany = (changes: readonly Change[]) => {
-    if (changes.length === 0) return;
+    if (changes.length === 0) return Promise.resolve(false);
     const inverses = changes.map(({ threadId, patch }) => [threadId, inversePatch(meta(threadId), patch)] as const);
-    send(Object.fromEntries(changes.map(({ threadId, patch }) => [threadId, patch])));
+    const sent = send(Object.fromEntries(changes.map(({ threadId, patch }) => [threadId, patch])));
     changes.forEach(({ threadId, kind, action }, index) => {
       if (!kind || !action) return;
       const inverse = inverses[index]![1];
-      undo.record(kind, threadId, action, async () => send({ [threadId]: inverse }));
+      undo.record(kind, threadId, action, async () => { await send({ [threadId]: inverse }); });
+    });
+    return sent;
+  };
+
+  /**
+   * T3 Code's move after parking the thread on screen: planned before the
+   * change, taken once the host has it and only if the reader is still there.
+   * The host's own settles never come through here, so they never move anyone.
+   */
+  const parkAndMove = (threadIds: readonly string[], actions: WorkbenchActions | undefined, park: () => Promise<boolean>) => {
+    const leaving = inView(actions);
+    if (!actions || !leaving || !threadIds.includes(leaving)) { void park(); return; }
+    const order = actions.threadListOrder?.() ?? store.displayed.map((thread) => thread.id);
+    const parking = new Set(threadIds);
+    const at = now();
+    const next = nextActiveThread(order, leaving, (id) => !parking.has(id) && ["pinned", "active"].includes(sectionOf(meta(id), at)));
+    const target = next ? store.session(next) : undefined;
+    const project = store.session(leaving);
+    void park().then((parked) => {
+      if (!parked || inView(store.actions ?? actions) !== leaving || ["pinned", "active"].includes(sectionOf(meta(leaving), now()))) return;
+      if (target) void actions.switchSession(target.path);
+      else actions.newSession(project ? { workspace: project.workspaceId ?? project.projectPath } : undefined);
     });
   };
 
@@ -91,35 +122,35 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     const pinned = Boolean(meta(threadId)?.pinned);
     if (!pinned) {
       undo.invalidate("pin", threadId);
-      change({ [threadId]: pinPatch(store.getState(), threadId, true, now()) });
+      void change({ [threadId]: pinPatch(store.getState(), threadId, true, now()) });
       return;
     }
     void ask("unpin", [sessionOf(threadId)]).then((confirmed) => {
-      if (confirmed && meta(threadId)?.pinned) change({ [threadId]: pinPatch(store.getState(), threadId, false, now()) }, { threadId, kind: "pin", action: "Unpinned" });
+      if (confirmed && meta(threadId)?.pinned) void change({ [threadId]: pinPatch(store.getState(), threadId, false, now()) }, { threadId, kind: "pin", action: "Unpinned" });
     });
   };
-  const toggleSettledById = (threadId: string) => {
+  const toggleSettledById = (threadId: string, actions = store.actions) => {
     if (meta(threadId)?.settledAt !== undefined) {
       undo.invalidate("settle", threadId);
-      change({ [threadId]: unsettlePatch(now()) });
+      void change({ [threadId]: unsettlePatch(now()) });
     } else {
-      change({ [threadId]: settlePatch(now(), "user") }, { threadId, kind: "settle", action: "Settled" });
+      parkAndMove([threadId], actions, () => change({ [threadId]: settlePatch(now(), "user") }, { threadId, kind: "settle", action: "Settled" }));
     }
   };
-  const snooze = (threadId: string, until: number) => change({ [threadId]: snoozePatch(until) }, { threadId, kind: "snooze", action: "Snoozed" });
-  const snoozeMany = (threadIds: readonly string[], until: number) =>
-    changeMany(threadIds.map((threadId) => ({ threadId, patch: snoozePatch(until), kind: "snooze" as const, action: "Snoozed" as const })));
+  const snooze = (threadId: string, until: number, actions = store.actions) =>
+    parkAndMove([threadId], actions, () => change({ [threadId]: snoozePatch(until) }, { threadId, kind: "snooze", action: "Snoozed" }));
+  const snoozeMany = (threadIds: readonly string[], until: number, actions = store.actions) =>
+    parkAndMove(threadIds, actions, () => changeMany(threadIds.map((threadId) => ({ threadId, patch: snoozePatch(until), kind: "snooze" as const, action: "Snoozed" as const }))));
   const wake = (threadId: string) => {
     undo.invalidate("snooze", threadId);
-    change({ [threadId]: WAKE_PATCH });
+    void change({ [threadId]: WAKE_PATCH });
   };
   const drop = (threadId: string, target: RailDrop) => {
     const label = dropLabel(sectionOf(meta(threadId), now()), target.sectionId);
     const patches = dropPatches(store.getState(), last, threadId, target, now());
     if (!patches) return;
-    const record = label === "Settle" ? { threadId, kind: "settle" as const, action: "Settled" as const }
-      : label === "Unpin" ? { threadId, kind: "pin" as const, action: "Unpinned" as const } : undefined;
-    change(patches, record);
+    if (label === "Settle") { parkAndMove([threadId], store.actions, () => change(patches, { threadId, kind: "settle", action: "Settled" })); return; }
+    void change(patches, label === "Unpin" ? { threadId, kind: "pin", action: "Unpinned" } : undefined);
   };
   /** One step up or down within the thread's own section. */
   const step = (threadId: string, direction: -1 | 1) => {
@@ -172,7 +203,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
   const unarchive = (threadId: string) => {
     undo.invalidate("archive", threadId);
-    change({ [threadId]: UNARCHIVE_PATCH });
+    void change({ [threadId]: UNARCHIVE_PATCH });
   };
 
   /** Into the host's trash; the notice, `mod+z` and Settings → Archived bring it back. */
@@ -253,7 +284,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
             sessions={sessions}
             now={now}
             onClose={() => store.openSnooze(undefined)}
-            onSnooze={(until) => { snoozeMany(sessions.map((session) => session.id), until); store.openSnooze(undefined); }}
+            onSnooze={(until) => { snoozeMany(sessions.map((session) => session.id), until, actions); store.openSnooze(undefined); }}
           />
         ) : null}
         {renaming ? (
@@ -349,7 +380,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         actions.copyText(value).then(() => actions.notify(`${what} copied.`), (error: unknown) => actions.notify(errorMessage(error)));
       };
       if (itemId === "pin" || itemId === "unpin") togglePin(session.id);
-      else if (itemId === "settle" || itemId === "unsettle") toggleSettledById(session.id);
+      else if (itemId === "settle" || itemId === "unsettle") toggleSettledById(session.id, actions);
       else if (itemId === "wake") wake(session.id);
       else if (itemId === "snooze:custom") store.openSnooze(session);
       else if (itemId === "move-up") step(session.id, -1);
@@ -367,7 +398,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "project-settings") workspace?.openProjectSettings?.(session);
       else {
         const preset = snoozePresets(new Date(now())).find((entry) => entry.id === itemId);
-        if (preset) snooze(session.id, preset.until);
+        if (preset) snooze(session.id, preset.until, actions);
       }
     },
     // T3 Code's selection menu: what fits every selected thread, with how many it touches.
@@ -401,10 +432,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         void ask("unpin", pinned).then((confirmed) => {
           if (!confirmed) return;
           const when = now();
-          changeMany(pinned.filter((session) => meta(session.id)?.pinned).map((session) => ({ threadId: session.id, patch: pinPatch(store.getState(), session.id, false, when), kind: "pin" as const, action: "Unpinned" as const })));
+          void changeMany(pinned.filter((session) => meta(session.id)?.pinned).map((session) => ({ threadId: session.id, patch: pinPatch(store.getState(), session.id, false, when), kind: "pin" as const, action: "Unpinned" as const })));
         });
       } else if (itemId === "settle") {
-        changeMany(sessions.filter((session) => meta(session.id)?.settledAt === undefined).map((session) => ({ threadId: session.id, patch: settlePatch(at, "user"), kind: "settle" as const, action: "Settled" as const })));
+        // The whole selection leaves the active list together; the move skips all of it.
+        parkAndMove(sessions.map((session) => session.id), actions, () => changeMany(sessions.filter((session) => meta(session.id)?.settledAt === undefined).map((session) => ({ threadId: session.id, patch: settlePatch(at, "user"), kind: "settle" as const, action: "Settled" as const }))));
       } else if (itemId === "snooze:custom") {
         store.openSnooze(sessions);
       } else if (itemId === "mark-unread") {
@@ -424,7 +456,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         })();
       } else {
         const preset = snoozePresets(new Date(at)).find((entry) => entry.id === itemId);
-        if (preset) snoozeMany(sessions.map((session) => session.id), preset.until);
+        if (preset) snoozeMany(sessions.map((session) => session.id), preset.until, actions);
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),

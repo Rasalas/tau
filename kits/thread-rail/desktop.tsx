@@ -322,13 +322,14 @@ export const threadRailExtension: DesktopExtension = {
     const selection = new FanOutSelection();
     let workspace: WorkspaceStoreSlice | undefined;
     let titles: ThreadTitlesSlice | undefined;
-    const send = (patches: Record<string, ThreadMetaPatch | null>) => {
+    const send = (patches: Record<string, ThreadMetaPatch | null>): Promise<boolean> => {
       // The host refuses a Read-only device's changes (ADR 0024); nothing moves, and it says why.
-      if (hostIsReadOnly()) { store.actions?.notify(READ_ONLY_REASON); return; }
+      if (hostIsReadOnly()) { store.actions?.notify(READ_ONLY_REASON); return Promise.resolve(false); }
       store.apply(patches);
-      context.host.invoke("patch", { patches }).then((state) => store.set(state)).catch(() => {
+      return context.host.invoke("patch", { patches }).then((state) => { store.set(state); return true; }, () => {
         // The host pushes its own state again; a failed write shows as the row moving back.
         void context.host.invoke("state").then((state) => store.set(state)).catch(() => undefined);
+        return false;
       });
     };
     const undo = new ThreadUndo({ onError: (action, error) => store.actions?.notify(`Failed to undo ${UNDO_VERB[action]}: ${errorMessage(error)}`) });
@@ -443,7 +444,7 @@ export const threadRailExtension: DesktopExtension = {
         Component: createSettingsPage(store, context.preferences, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
       }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.togglePin) }),
-      context.registerCommand({ id: "thread.settle", label: "Settle or un-settle thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.toggleSettledById) }),
+      context.registerCommand({ id: "thread.settle", label: "Settle or un-settle thread", group: "Thread", access: "write", run: (app) => withActive(app, (threadId) => organizer.toggleSettledById(threadId, app)) }),
       context.registerCommand({
         id: "thread.snooze",
         label: "Snooze thread…",

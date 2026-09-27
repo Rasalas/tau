@@ -189,6 +189,17 @@ export function fallbackThread(displayed: readonly UiSession[], leaving: UiSessi
   return sameProject[0] ?? others[0];
 }
 
+/**
+ * T3 Code's move after parking the thread on screen: the first thread after it
+ * in `order` that stays active, wrapping round to the top. None when the
+ * thread is not in `order`; the caller then opens a new draft.
+ */
+export function nextActiveThread(order: readonly string[], leaving: string, stays: (threadId: string) => boolean): string | undefined {
+  const index = order.indexOf(leaving);
+  if (index < 0) return undefined;
+  return [...order.slice(index + 1), ...order.slice(0, index)].find(stays);
+}
+
 export interface RailDrop {
   sectionId: string;
   beforeThreadId?: string;
