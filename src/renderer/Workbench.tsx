@@ -41,8 +41,8 @@ import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
 import { CHAT_MIN_WIDTH, DOCK_PANEL_MIN_WINDOW, DOCK_RAIL_WIDTH } from "../workbench/center-layout";
 import {
-  CHAT_MAXIMIZE_OVERDRAG, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
-  chatMaxWidth, defaultChatWidth, drawerMaxHeight, shownChatWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
+  CHAT_MAXIMIZE_OVERDRAG, DOCK_MAX_WIDTH, DOCK_MIN_WIDTH, DOCKED_CONTENT_MIN_WIDTH, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
+  chatMaxWidth, defaultChatWidth, dockMaxWidth, drawerMaxHeight, shownChatWidth, shownDockWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
   storedChatWidth, storedDrawerHeight, storedSidebarWidth,
 } from "../workbench/layout-sizes";
 import { useClientStorage } from "./client-storage-context";
@@ -74,13 +74,11 @@ import { displayPath } from "./path-display";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const DEFAULT_DOCK_WIDTH = 320;
-const MIN_DOCK_WIDTH = 220;
-const MAX_DOCK_WIDTH = 560;
 const DOCK_WIDTH_KEY = STORAGE_KEYS.dockWidth;
 
 function clampDockWidth(width: number): number {
   return Number.isFinite(width)
-    ? Math.min(MAX_DOCK_WIDTH, Math.max(MIN_DOCK_WIDTH, width))
+    ? Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, width))
     : DEFAULT_DOCK_WIDTH;
 }
 
@@ -397,20 +395,24 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const activeDockPanel = dockPanels.find((panel) => panel.id === activePanel && !staged.has(panel.id));
   const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
-  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
-  const touchSidebarShown = split && touchSidebarOpen;
-  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
   // Beside the chat: one wide tool, or the documents with a list docked at their right.
   const wideShown = !maximized && dockOpen && activeDockPanel?.width === "wide";
   const stageShown = stage.tabs.length > 0 && !wideShown;
   const listPanel = dockOpen && activeDockPanel && activeDockPanel.width !== "wide" ? activeDockPanel : undefined;
+  // A list docked beside documents keeps its narrowest width beside the chat; the sidebar gives way first.
+  const sidebarReserve = listPanel && stageShown && windowWidth > DOCK_PANEL_MIN_WINDOW ? DOCKED_CONTENT_MIN_WIDTH : undefined;
+  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth, sidebarReserve) : 0;
+  const touchSidebarShown = split && touchSidebarOpen;
+  const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
+  // The stored width, as far as the window leaves room beside the chat and the rail.
+  const drawnDockWidth = shownDockWidth(dockWidth, windowWidth, drawnSidebar);
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // The dock takes room only for a list beside open documents; a wide tool sits in the centre itself.
   // A compact client draws no stage (profile-compact.css), so its chat never becomes a tab.
   const { dockYields, tabs, canSplit, keepDock } = useCenterLayout({
     windowWidth, sidebarWidth: drawnSidebar, stageOpen: (stageShown || wideShown) && !compact, maximized,
     tabCount: stage.tabs.length, dockAsks, clearMaximized: clearStageMaximized,
-    ...(dockPanels.length > 0 ? { dock: { open: Boolean(listPanel) && stageShown, width: dockWidth } } : {}),
+    ...(dockPanels.length > 0 ? { dock: { open: Boolean(listPanel) && stageShown, width: drawnDockWidth } } : {}),
   });
   const stacked = stageShown && tabs;
   compactRef.current.stacked = stacked;
@@ -419,7 +421,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const listDocked = Boolean(listPanel) && stageShown && !dockYields;
   const listShown = listOverlay || listDocked;
   const sideOpen = (stageShown || wideShown) && !tabs;
-  const centerWidth = windowWidth - drawnSidebar - (dockPanels.length > 0 ? DOCK_RAIL_WIDTH : 0) - (listDocked && windowWidth > DOCK_PANEL_MIN_WINDOW ? dockWidth : 0);
+  const centerWidth = windowWidth - drawnSidebar - (dockPanels.length > 0 ? DOCK_RAIL_WIDTH : 0) - (listDocked && windowWidth > DOCK_PANEL_MIN_WINDOW ? drawnDockWidth : 0);
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
   useEffect(() => { if (!compact || split) setThreadSheetOpen(false); }, [compact, split]);
   // Opening another thread (from a panel, say) puts the thread in front again.
@@ -596,7 +598,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": listDocked ? `${dockWidth}px` : "0px", "--list-width": `${dockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
+    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": listDocked ? `${drawnDockWidth}px` : "0px", "--list-width": `${drawnDockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
         dockOpen={wideShown || listShown}
@@ -662,7 +664,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         grows="right"
         value={shownSidebar}
         min={SIDEBAR_MIN_WIDTH}
-        max={sidebarMaxWidth(windowWidth)}
+        max={sidebarMaxWidth(windowWidth, sidebarReserve)}
         defaultValue={SIDEBAR_DEFAULT_WIDTH}
         onChange={setSidebarWidth}
       /> : null}
@@ -789,9 +791,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             label="Resize right sidebar"
             orientation="vertical"
             grows="left"
-            value={dockWidth}
-            min={MIN_DOCK_WIDTH}
-            max={MAX_DOCK_WIDTH}
+            value={drawnDockWidth}
+            min={DOCK_MIN_WIDTH}
+            max={dockMaxWidth(windowWidth, drawnSidebar)}
             defaultValue={DEFAULT_DOCK_WIDTH}
             onChange={setDockWidth}
           />

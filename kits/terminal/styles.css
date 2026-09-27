@@ -1,18 +1,38 @@
 .terminal-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
-.terminal-panel .panel-header { display: flex; justify-content: space-between; flex: none; }
+/* The panel's one row of chrome: tabs, other threads' shells, actions. Core's header box keeps the maximize button's corner free. */
+.terminal-panel .terminal-toolbar { display: flex; align-items: stretch; gap: 0; min-width: 0; padding-left: 0; }
+.terminal-toolbar > .terminal-panel-actions { align-self: center; margin-left: 6px; }
+.terminal-toolbar-title { display: flex; align-items: center; padding: 0 var(--space-6); font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .terminal-note { margin: 0 8px 4px; font: 11px var(--mono); color: var(--faint); }
-.terminal-tabs { display: flex; gap: 4px; overflow-x: auto; flex: none; padding: 4px; }
-.terminal-tab { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 4px; white-space: nowrap; }
-.terminal-tab.active { background: var(--sunken); border-color: var(--ink); }
-.terminal-tab.place-elsewhere { border-style: dashed; }
-.terminal-tab-name { display: inline-flex; align-items: center; gap: 6px; }
-.terminal-tab-place { font: 10px var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.terminal-menu-note { margin: 4px 0 0; padding: 6px 8px 2px; border-top: 1px solid var(--line-soft); max-width: 260px; font: 11.5px/1.4 var(--sans); color: var(--muted); }
+/* Tabs as the stage draws them: the active one joins the surface below it. */
+.terminal-tabs { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+.terminal-tabs::-webkit-scrollbar { display: none; }
+/* Tabs give way down to 88 px, as a browser's do, before the strip scrolls. */
+.terminal-tab { position: relative; display: flex; align-items: center; flex: 0 1 auto; max-width: 200px; min-width: 88px; padding-right: 4px; border-right: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.terminal-tab:hover { background: var(--raised); color: var(--ink-2); }
+.terminal-tab.active { background: var(--sunken); color: var(--ink); }
+.terminal-tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--line-focus); }
+.terminal-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--sunken); }
+.terminal-tab-name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 4px 0 10px; border: 0; background: transparent; color: inherit; font: 12px var(--sans); cursor: pointer; }
+.terminal-tab-name > svg { flex: none; color: var(--faint); }
+.terminal-tab.active .terminal-tab-name > svg { color: var(--ink-3); }
+.terminal-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.terminal-tab-close { width: 20px; height: 20px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--faint); cursor: pointer; opacity: 0; }
+.terminal-tab:hover .terminal-tab-close, .terminal-tab.active .terminal-tab-close, .terminal-tab-close:focus-visible { opacity: 1; }
+.terminal-tab-close:hover { background: var(--line-strong); color: var(--ink); }
+.terminal-tab-close > svg, .terminal-pane-button > svg, .terminal-compact-close > svg { display: block; }
+.terminal-tab-place { flex: none; font: 10px var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+/* Other threads' shells, summed up at the strip's end instead of as tabs. */
+.terminal-elsewhere { display: flex; align-items: center; gap: 5px; flex: none; padding: 0 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: 11.5px var(--sans); white-space: nowrap; cursor: pointer; }
+.terminal-elsewhere:hover, .terminal-elsewhere[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
 .terminal-status { display: flex; align-items: center; gap: 8px; margin: 4px 8px; font: 11px var(--mono); color: var(--faint); overflow-wrap: anywhere; }
 .terminal-error { color: var(--ink); padding: 8px; }
 .terminal-surface { flex: 1; min-height: 160px; padding: 8px; background: var(--sunken); color: var(--ink); overflow: hidden; display: flex; flex-direction: column; }
 .terminal-surface > * { flex: 1; min-width: 0; min-height: 0; }
-.terminal-surface > .empty-copy { flex: none; }
-.terminal-panel-actions { display: flex; gap: 2px; }
+.terminal-surface > .empty-copy, .terminal-surface > .empty-state { flex: none; }
+.terminal-surface > .empty-state { margin: auto; }
+.terminal-panel-actions { display: flex; flex: none; gap: 2px; }
 .terminal-split { display: flex; min-width: 0; min-height: 0; }
 .terminal-split-right { flex-direction: row; }
 .terminal-split-down { flex-direction: column; }
@@ -27,17 +47,27 @@
 .terminal-split-down > .terminal-split-handle::after { left: 0; right: 0; top: 3px; height: 1px; }
 .terminal-split-handle:hover::after, .terminal-split-handle:focus-visible::after, .terminal-split.resizing > .terminal-split-handle::after { background: var(--line-focus); }
 .terminal-split.resizing { user-select: none; }
-.terminal-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.terminal-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; container: terminal-pane / inline-size; }
 .terminal-pane-header { display: flex; align-items: center; gap: 6px; min-width: 0; padding-bottom: 4px; font: 11px var(--mono); color: var(--faint); }
 .terminal-pane-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.terminal-pane-exit { white-space: nowrap; }
-.terminal-pane-actions { display: flex; flex: none; }
+.terminal-pane-exit { flex: none; white-space: nowrap; }
+.terminal-pane-actions { display: flex; flex: none; gap: 2px; }
+.terminal-pane-button { width: 22px; height: 22px; display: grid; place-items: center; flex: none; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--faint); cursor: pointer; }
+.terminal-pane-button:hover { background: var(--raised); color: var(--ink); }
+/* A narrow pane keeps its name and its buttons; the notes go to the tooltip and the tab. */
+@container terminal-pane (max-width: 260px) {
+  .terminal-pane-exit, .terminal-pane-place { display: none; }
+}
 .terminal-pane-body { position: relative; flex: 1; min-height: 0; border: 1px solid transparent; border-radius: 4px; }
 .terminal-pane-body.focused { border-color: var(--line-focus); }
 .terminal-excerpt { position: absolute; top: 6px; right: 18px; z-index: 20; background: var(--raised); border: 1px solid var(--line-float); border-radius: 6px; box-shadow: var(--shadow-soft); }
 .terminal-stage { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .terminal-stage-header { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none; padding: 4px 8px; }
 .terminal-stage-back { margin-left: 6px; white-space: nowrap; }
+/* The stage lends no panel frame, so its bar's buttons take the panel's quiet look here. */
+.terminal-stage-header .icon-button { width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer; }
+.terminal-stage-header .icon-button:hover:not(:disabled) { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.terminal-stage-header .icon-button > svg { display: block; }
 .terminal-view { width: 100%; height: 100%; }
 
 /* What xterm.js's own stylesheet provides, scoped under the kit's surface; a kit ships no second CSS file. */
@@ -85,12 +115,22 @@
 
 /* The compact terminal: one shell over the sheet, a strip of shells above, the key bar below (44 px targets). */
 .terminal-compact { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; background: var(--sunken); }
-.terminal-compact-header { display: flex; align-items: center; gap: 2px; flex: none; padding: 4px 4px 4px 8px; border-bottom: 1px solid var(--line); background: var(--stage); }
-.terminal-compact-shells { display: flex; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+.terminal-compact-header { display: flex; align-items: stretch; gap: 2px; flex: none; padding: 0 4px 0 0; border-bottom: 1px solid var(--line); background: var(--stage); }
+.terminal-compact-header > .terminal-touch-icon { align-self: center; }
+/* Tabs, not chips: one swipes the strip, the active tab joins the shell below and carries its ×. */
+.terminal-compact-shells { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
 .terminal-compact-shells::-webkit-scrollbar { display: none; }
-.terminal-compact-shell { display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 36px; max-width: 60vw; padding: 0 12px; border: 1px solid var(--line); border-radius: 18px; background: transparent; color: var(--ink-2); font: 500 14px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.terminal-compact-shell.active { border-color: var(--ink); background: var(--sunken); color: var(--ink); }
-.terminal-compact-shell.place-elsewhere { border-style: dashed; }
+.terminal-compact-tab { position: relative; display: flex; align-items: stretch; flex: none; max-width: 70vw; border-right: 1px solid var(--line); }
+.terminal-compact-tab.active { background: var(--sunken); }
+.terminal-compact-tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--acid-text); }
+.terminal-compact-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--sunken); }
+.terminal-compact-shell { display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 48px; padding: 0 14px; border: 0; background: transparent; color: var(--muted); font: 500 15px var(--sans); white-space: nowrap; cursor: pointer; }
+.terminal-compact-tab.active .terminal-compact-shell { color: var(--ink); padding-right: 2px; }
+.terminal-compact-shell-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.terminal-compact-close { width: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.terminal-compact-close:active:not(:disabled) { color: var(--ink); background: var(--hover-strong); }
+.terminal-compact-elsewhere { display: flex; flex-direction: column; }
+.terminal-compact-elsewhere > p { margin: 6px 10px 4px; font: 13px var(--sans); color: var(--muted); }
 .terminal-touch-icon { width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer; }
 .terminal-touch-icon:active:not(:disabled) { background: var(--hover-strong); }
 .terminal-touch-icon:disabled { color: var(--faint); cursor: default; }

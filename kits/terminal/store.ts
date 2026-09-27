@@ -86,6 +86,16 @@ export class TerminalStore {
     this.publish({ ...this.state, sessions: [] }, false);
   }
 
+  /** Whether `sessions` is the host's answer yet. */
+  isKnown(): boolean {
+    return this.known;
+  }
+
+  /** A shell is being opened; its tab is not placed yet. */
+  isOpening(): boolean {
+    return this.holds > 0;
+  }
+
   /** Holds reconcile back from giving new shells tabs until the returned release runs. */
   hold(): () => void {
     this.holds += 1;

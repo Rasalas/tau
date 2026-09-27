@@ -135,7 +135,8 @@ electron-builder writes it into `app-update.yml` inside the app. From there:
 4. "Check for Updates…" in the application menu (and on Settings → About) asks
    on demand and reports what it found.
 5. The first start of the new version shows its release notes once: a toast,
-   *Tau 0.3.0 is installed*, whose What's new opens the list
+   *Tau 0.3.0 is installed*, whose What's new opens the list; it goes after
+   eight seconds unread or at the next click elsewhere
    (`src/main/release-notes.ts`, state in `<userData>/release-notes.json`). The
    notes are the ones the download brought, else the GitHub release of that
    version read through the public API (the moving `nightly` tag for a

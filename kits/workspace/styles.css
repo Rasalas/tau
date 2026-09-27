@@ -9,6 +9,11 @@
  * `tau`), the menu, the panel frame, the chips and buttons, the transcript.
  */
 
+/* The title-bar row takes the room core's region gives it; `title-collapse.ts` folds it until it fits. */
+.workspace-title-actions { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.workspace-title-actions > :first-child { margin-left: auto; }
+.workspace-title-actions .chrome-button { white-space: nowrap; }
+.workspace-title-actions .title-more { width: 31px; justify-content: center; padding: 0; }
 .chrome-group { display: flex; align-items: stretch; }
 .chrome-group .split-main { border-radius: 9px 0 0 9px; }
 .chrome-group .split-trigger { width: 31px; justify-content: center; padding: 0; border-left-color: var(--edge-highlight); border-radius: 0 9px 9px 0; }

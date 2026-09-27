@@ -7,7 +7,7 @@ import { ToastStore } from "../workbench/toast-store";
 import { PreferencesStore } from "./preferences";
 import { takePasteAsText } from "./paste-as-text";
 import { createFakeHostClient } from "./test-support/fake-host-client";
-import { useWindowShell, type WindowShellOptions } from "./use-window-shell";
+import { RELEASE_NOTES_TOAST_MS, useWindowShell, type WindowShellOptions } from "./use-window-shell";
 
 afterEach(() => {
   cleanup();
@@ -128,5 +128,26 @@ describe("the app around the workbench", () => {
     expect(options.openExternal).toHaveBeenCalledWith("https://github.com/o/r/releases/tag/v0.5.0");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("lets the installed notice go after a while, or at the next click elsewhere", async () => {
+    const { toasts, actions } = setup({ releaseNotes: { version: "0.7.4", items: ["Terminal tabs"], totalItems: 1 } });
+    await flush();
+    const toast = () => toasts.getToasts().find((entry) => entry.id === "tau.release-notes");
+    expect(toast()?.timeoutMs).toBe(RELEASE_NOTES_TOAST_MS);
+    expect(RELEASE_NOTES_TOAST_MS).toBeGreaterThan(0);
+
+    // A click on the stack itself (its action, its ×) is the toast's own business.
+    const stack = document.createElement("div");
+    stack.className = "toast-stack";
+    document.body.append(stack);
+    fireEvent.pointerDown(stack);
+    expect(toast()).toBeTruthy();
+
+    fireEvent.pointerDown(document.body);
+    expect(toast()).toBeUndefined();
+    await flush();
+    expect(actions).toContainEqual({ kind: "release-notes-seen", version: "0.7.4" });
+    stack.remove();
   });
 });

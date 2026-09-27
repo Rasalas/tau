@@ -4,8 +4,11 @@ import type { Terminal } from "@xterm/xterm";
 import { Empty, errorMessage, getClientStorage, Popover, tooltipProps, useHostCapabilities, type PanelProps } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { focusedPane, focusPane, isStaged, paneIds, type TerminalLayout } from "./layout.js";
-import { closeTerminals, openTerminal, restartTerminal, TERMINAL_READ_ONLY } from "./controller.js";
-import { PLACE_LABEL, placeOf, shellDirectory } from "./panes.js";
+import { closeTerminals, wantsFirstShell, openTerminal, restartTerminal, TERMINAL_READ_ONLY } from "./controller.js";
+import { placeOf, shellDirectory } from "./panes.js";
+import { chipLabels, tabTitle } from "./scope.js";
+
+export { chipLabels } from "./scope.js";
 import { TerminalView, type TerminalTouchBinding } from "./view.js";
 import {
   applyModifiers, arrowSequence, COMPACT_FONT_SIZE_KEY, DRAG_SLOP_PX, dragLines, compactFontSize, INTERRUPT, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
@@ -26,18 +29,6 @@ export function shellOrder(layout: TerminalLayout, sessions: readonly UiTerminal
   const placed = [...layout.groups, ...layout.stage].flatMap((group) => paneIds(group.root));
   const ordered = [...placed, ...sessions.map((session) => session.id)];
   return [...new Set(ordered)].filter((id) => live.has(id));
-}
-
-/** Names for the strip: a label two shells share gets a number, so the chips tell them apart. */
-export function chipLabels(shells: readonly UiTerminalSession[]): Map<string, string> {
-  const seen = new Map<string, number>();
-  const total = new Map<string, number>();
-  for (const shell of shells) total.set(shell.label, (total.get(shell.label) ?? 0) + 1);
-  return new Map(shells.map((shell) => {
-    const count = (seen.get(shell.label) ?? 0) + 1;
-    seen.set(shell.label, count);
-    return [shell.id, (total.get(shell.label) ?? 0) > 1 ? `${shell.label} ${count}` : shell.label];
-  }));
 }
 
 const fontListeners = new Set<() => void>();
@@ -155,6 +146,8 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const terminal = useRef<Terminal | undefined>(undefined);
   const modifiers = useRef<ReadonlySet<TouchModifier>>(new Set());
 
+  const wasActive = useRef(false);
+
   useEffect(() => { terminalServices.actions = actions; }, [actions]);
   useEffect(() => {
     terminalStore.setPanelVisible(active);
@@ -162,9 +155,18 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   }, [active]);
   // A shell someone asked to type into (a new one, a restart, another kit's run) comes to the front.
   useEffect(() => { if (focusRequest) setPicked(focusRequest.id); }, [focusRequest]);
+  // Another thread's shell shown here goes back to its thread when the thread changes.
+  useEffect(() => { setPicked(undefined); }, [activeSessionId]);
 
-  const ids = shellOrder(layout, sessions);
-  const names = chipLabels(ids.map((id) => sessions.find((session) => session.id === id)!));
+  const all = shellOrder(layout, sessions);
+  const sessionOf = (id: string) => sessions.find((session) => session.id === id)!;
+  // The strip holds this thread's and the project's shells; other threads' wait in the options menu.
+  const elsewhere = all.filter((id) => id !== picked && placeOf(sessionOf(id), activeSessionId) === "elsewhere");
+  const ids = all.filter((id) => !elsewhere.includes(id));
+  // Numbered among their own list: the strip's, and the options menu's of other threads' shells.
+  const titled = (id: string) => ({ id, label: tabTitle(sessionOf(id).label) });
+  const names = chipLabels(ids.map(titled));
+  const elsewhereNames = chipLabels(elsewhere.map(titled));
   const shownId = [picked, focusedPane(layout), ...ids].find((id): id is string => Boolean(id && ids.includes(id)));
   const shown = sessions.find((session) => session.id === shownId);
   const exited = shown?.exitCode !== undefined;
@@ -201,6 +203,11 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
     setError("");
     void Promise.resolve().then(work).catch((problem: unknown) => setError(errorMessage(problem))).finally(() => setBusy(false));
   };
+  // The terminal button asks for a terminal: a thread without one gets it as the sheet opens.
+  useEffect(() => {
+    if (active && !wasActive.current && wantsFirstShell(actions)) run(() => openTerminal(actions));
+    wasActive.current = active;
+  }, [active]);
   const pick = (id: string) => {
     setPicked(id);
     terminalStore.updateLayout((next) => focusPane(next, id));
@@ -293,21 +300,31 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
     <header className="terminal-compact-header">
       <div ref={strip} className="terminal-compact-shells" role="tablist" aria-label="Terminals">
         {ids.map((id) => {
-          const session = sessions.find((entry) => entry.id === id)!;
+          const session = sessionOf(id);
           const place = placeOf(session, activeSessionId);
           const selected = id === shownId;
-          return <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            className={`terminal-compact-shell${selected ? " active" : ""} place-${place}`}
-            {...tooltipProps(`${shellDirectory(session) ?? session.label} · ${PLACE_LABEL[place]}`)}
-            onClick={() => pick(id)}
-          >
-            {names.get(id)}
-            {session.exitCode !== undefined ? <span className="terminal-tab-place">exited</span> : null}
-          </button>;
+          return <div key={id} className={`terminal-compact-tab${selected ? " active" : ""}`}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={`terminal-compact-shell place-${place}`}
+              {...tooltipProps(shellDirectory(session) ?? session.label)}
+              onClick={() => pick(id)}
+            >
+              <span className="terminal-compact-shell-name">{names.get(id)}</span>
+              {place === "elsewhere" ? <span className="terminal-tab-place">other thread</span> : null}
+              {session.exitCode !== undefined ? <span className="terminal-tab-place">exited</span> : null}
+            </button>
+            {selected && !readOnly ? <button
+              type="button"
+              className="terminal-compact-close"
+              aria-label={`Close ${names.get(id)}`}
+              {...tooltipProps(`Close ${names.get(id)}`)}
+              disabled={busy}
+              onClick={() => run(() => closeTerminals([id]))}
+            ><X size={16} /></button> : null}
+          </div>;
         })}
       </div>
       {readOnly ? null : <IconButton label="New terminal" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={20} /></IconButton>}
@@ -329,6 +346,15 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
         <output aria-live="polite">{fontSize} px</output>
         <IconButton label="Larger text" disabled={fontSize >= MAX_COMPACT_FONT_SIZE} onClick={() => setFontSize(stepCompactFontSize(fontSize, 1))}><AArrowUp size={20} /></IconButton>
       </div>
+      {elsewhere.length > 0 ? <div className="terminal-compact-elsewhere" role="group" aria-label="In other threads">
+        <p>In other threads · they keep running there</p>
+        {elsewhere.map((id) => <button
+          key={id}
+          type="button"
+          className="terminal-compact-menu-item"
+          onClick={() => { setMenu(false); setPicked(id); terminalStore.updateLayout((next) => focusPane(next, id)); }}
+        ><TerminalIcon size={18} aria-hidden="true" />Show {elsewhereNames.get(id)}</button>)}
+      </div> : null}
       {shown && !readOnly ? <button
         type="button"
         className="terminal-compact-menu-item destructive"
@@ -350,7 +376,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
     >
       {shown
         ? <TerminalView key={shown.id} session={shown} place={isStaged(layout, shown.id) ? "stage" : "panel"} fontSize={fontSize} touch={binding} />
-        : <Empty icon={<TerminalIcon size={20} />} title="No terminal open" description={readOnly ? "No shell is open on the host." : "Open a shell to run commands in this workspace."}>
+        : <Empty icon={<TerminalIcon size={20} />} title="No terminal open" description={readOnly ? "No shell is open on the host." : elsewhere.length > 0 ? "Open a shell to run commands in this workspace. Other threads' shells are under ⋯." : "Open a shell to run commands in this workspace."}>
           {readOnly ? null : <button type="button" className="terminal-compact-button" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={16} aria-hidden="true" />New terminal</button>}
         </Empty>}
     </div>
