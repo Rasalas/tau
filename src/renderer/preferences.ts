@@ -79,6 +79,14 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+/** `now`, the first time; after that only what moved between the host's two answers moves in `local`. */
+function followHostList(local: readonly string[], before: readonly string[] | undefined, now: readonly string[]): readonly string[] {
+  if (!before) return now.length === local.length && now.every((id) => local.includes(id)) ? local : now;
+  const kept = local.filter((id) => now.includes(id) || !before.includes(id));
+  const added = now.filter((id) => !before.includes(id) && !local.includes(id));
+  return kept.length === local.length && added.length === 0 ? local : [...kept, ...added];
+}
+
 function load(): PreferencesState {
   try {
     const storage = getClientStorage();
@@ -201,7 +209,9 @@ export class PreferencesStore {
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
     if (config.modelPreferences || previous?.modelPreferences) patch.modelPreferences = record(this.state.modelPreferences, previous?.modelPreferences, config.modelPreferences);
     if (config.modelPrices || previous?.modelPrices) patch.modelPrices = record(this.state.modelPrices, previous?.modelPrices, config.modelPrices);
-    if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
+    // The host's list is every device's: a client follows it, keeping only its own change the host has not answered yet.
+    const disabled = followHostList(this.state.disabledExtensions, previous && (previous.disabledExtensions ?? []), config.disabledExtensions ?? []);
+    if (disabled !== this.state.disabledExtensions) patch.disabledExtensions = disabled;
     if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
     if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
     if (config.keybindings || previous?.keybindings) patch.keybindings = record(this.state.keybindings ?? {}, previous?.keybindings, config.keybindings);
