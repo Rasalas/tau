@@ -1,3 +1,5 @@
 /* Only once a panel is on the stage, which loads the stage's chunk first. */
 .panel-pane { position: relative; }
-.panel-rail button.on-stage { color: var(--ink-2); box-shadow: inset -2px 0 0 var(--acid); }
+/* A straight mark on the rail's right edge: the panel is open as a tab in the centre. */
+.panel-rail button.on-stage { position: relative; color: var(--ink-2); }
+.panel-rail button.on-stage::after { content: ""; position: absolute; top: 6px; bottom: 6px; right: -6px; width: 2px; background: var(--acid); }
