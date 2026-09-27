@@ -166,8 +166,8 @@
 .tau-danger-zone-rows { border: 1px solid var(--danger-line); border-radius: var(--radius-lg); }
 .tau-danger-zone-rows > * + * { border-top: 1px solid var(--line-inset); }
 .tau-danger-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-8); padding: var(--space-5) var(--space-6); }
-.tau-danger-action h3 { margin: 0; font: 500 13px var(--sans); color: var(--ink); }
-.tau-danger-action p { margin: var(--space-2) 0 0; max-width: 576px; color: var(--muted); font: 12.5px/1.45 var(--sans); }
+.tau-danger-action > div > h3 { margin: 0; font: 500 13px var(--sans); letter-spacing: -.005em; color: var(--ink); }
+.tau-danger-action > div > p { margin: var(--space-2) 0 0; max-width: 576px; color: var(--muted); font: 12.5px/1.45 var(--sans); }
 @container (max-width: 560px) { .tau-danger-action { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
 
 /* ---------------------------------------------------------- empty, error */
@@ -183,8 +183,8 @@
   min-height: var(--control-h); height: var(--control-h); padding: 0 12px; gap: 6px;
   border-radius: var(--radius-sm); font: var(--control-font);
 }
-.settings-content .chrome-button.accent { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
-.settings-content .chrome-button.accent:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
+/* The accent stays with a page's one primary action. */
+.settings-content .chrome-button.accent { font-weight: 600; }
 .settings-content :is(.settings-input, .settings-select) { height: var(--control-h); border-radius: var(--radius-sm); font: var(--control-font); }
 .settings-content .settings-input:focus-visible, .settings-content .settings-select:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .settings-content .segmented {
