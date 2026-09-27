@@ -207,3 +207,23 @@ describe("Workspace Kit changes after a turn", () => {
     expect(workspaceStore.getSnapshot().turnSettled).toBe(false);
   });
 });
+
+describe("Workspace Kit's Changes entry", () => {
+  it("opens the review while a kit draws it, and leaves the panel to open otherwise", () => {
+    const workspaceStore = storeOver({});
+    const actions = { openOverlay: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
+    workspaceStore.bind(actions);
+
+    expect(workspaceStore.openChangesView()).toBe(false);
+    expect(actions.openOverlay).not.toHaveBeenCalled();
+
+    const release = workspaceStore.registerReviewView();
+    expect(workspaceStore.openChangesView()).toBe(true);
+    expect(actions.openOverlay).toHaveBeenCalledTimes(1);
+    expect(workspaceStore.getSnapshot().review).toBeDefined();
+
+    release();
+    release();
+    expect(workspaceStore.openChangesView()).toBe(false);
+  });
+});

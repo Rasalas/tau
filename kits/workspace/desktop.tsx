@@ -84,8 +84,11 @@ export const workspaceExtension: DesktopExtension = {
     });
     context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, maximizable: true, profiles: ["desktop"], Component: bind(FilesPanel) });
     // The Changes panel reads the same Git state as the rest of the kit, so it
-    // travels with it; Review Kit still opens it by id from its own command.
-    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop"], Component: bind(ChangesPanel) });
+    // travels with it. Where a kit draws the review, the entry opens that instead.
+    context.registerPanel({
+      id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop"],
+      redirect: () => store.openChangesView(), Component: bind(ChangesPanel),
+    });
     // The kit owns its workspace state; these keep it following the workbench
     // and place its controls where core lends room.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop"], Component: bind(WorkspaceFollower) });

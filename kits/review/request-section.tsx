@@ -30,7 +30,7 @@ const METHODS: Array<{ value: MergeMethod; label: string }> = [
 ];
 
 /**
- * Review Kit's part of the Changes panel: where the branch's pull or merge
+ * Above the review's file list (and in the Changes panel without it): where the branch's pull or merge
  * request stands, and the steps after a commit — create (with a generated
  * title and body), edit, merge. Each step shows its form or question first;
  * nothing reaches the hosting service before the user confirms it there.

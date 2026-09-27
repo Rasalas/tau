@@ -143,6 +143,8 @@ export const reviewExtension: DesktopExtension = {
       workspaceStore = store;
       const disposers = [
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
+        // The Changes rail entry opens this review, which carries the panel's commit, staging and sections.
+        store.registerReviewView?.() ?? (() => undefined),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", access: "read", run: () => store.openReview() }),
         plugin.registerSlashCommand({ name: "review", description: "Open the full Git review overlay", run: () => { store.openReview(); return undefined; } }),
         plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" }),
