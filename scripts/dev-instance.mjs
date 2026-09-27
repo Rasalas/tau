@@ -220,6 +220,9 @@ async function main() {
   const openCodeHome = process.env.TAU_OPENCODE_HOME ?? join(DEV_DIR, "opencode-home");
   mkdirSync(openCodeHome, { recursive: true });
   // The Cursor CLI keeps config, chats and (with a home) its login in ~/.cursor; its kit points it here.
+  // The Agent SDK runtime and Usage's plan limits read Claude's config and login from here; a caller's own value is kept.
+  const claudeHome = process.env.CLAUDE_CONFIG_DIR ?? join(DEV_DIR, "claude-home");
+  mkdirSync(claudeHome, { recursive: true });
   const cursorHome = process.env.TAU_CURSOR_HOME ?? join(DEV_DIR, "cursor-home");
   mkdirSync(cursorHome, { recursive: true });
   // The Grok CLI keeps config, login and sessions in ~/.grok; its kit points GROK_HOME here.
@@ -290,6 +293,7 @@ async function main() {
     TAU_EXTENSION_GRANTS_FILE: join(DEV_DIR, "extension-grants.json"),
     TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     CODEX_HOME: codexHome,
+    CLAUDE_CONFIG_DIR: claudeHome,
     TAU_OPENCODE_HOME: openCodeHome,
     TAU_CURSOR_HOME: cursorHome,
     TAU_GROK_HOME: grokHome,

@@ -65,6 +65,8 @@ Checklist for the user, on the Linux machine itself (rex), after `sudo apt insta
 
 ### Codex gets a shadow home
 
+Claude's config and login live under `CLAUDE_CONFIG_DIR` (`~/.claude` and the keychain entry that belongs to it by default). `dev-instance.mjs` sets `CLAUDE_CONFIG_DIR=<worktree>/.tau-dev/claude-home`, empty and with no link to the real one, so the Agent SDK runtime and Usage's plan limits in an instance see no login and never the user's numbers. A value already set in the calling shell is kept.
+
 The Codex CLI keeps its sessions, config, logs and caches under `CODEX_HOME` (`~/.codex` by default), and a Codex thread writes there from its first turn. `dev-instance.mjs` therefore sets `CODEX_HOME=<worktree>/.tau-dev/codex-home` and prepares that directory the way the keybindings shadow above is prepared, with one difference: only `auth.json` is linked from `~/.codex`, nothing else, so the instance signs in as the user while every rollout, `config.toml` and SQLite file Codex writes lands under `.tau-dev`. A `CODEX_HOME` already set in the calling shell is kept as it is. By hand, for a test that drives `codex app-server` without an instance:
 
 ```
