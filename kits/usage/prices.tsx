@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { Button, NumberField, SettingsState, tooltipProps, useSetting } from "tau";
+import { Button, NumberField, SettingsState, TextField, tooltipProps, useSetting } from "tau";
 
 /** US dollars per million tokens, as `modelPrices` in Tau's config keeps them. */
 export interface ModelPrice {
@@ -157,24 +157,16 @@ export function ModelPrices({ suggestions }: { suggestions: readonly string[] })
         <SettingsState kind="empty" title="No prices of your own" description="Tau uses the runtime's or the provider's list price. Add a model below to price it yourself." />
       )}
       <form className="usage-price-add" aria-label="Add a model price" onSubmit={(event) => { event.preventDefault(); add(); }}>
-        {/* A native field for the model id: the ids this machine used are offered as suggestions. */}
-        <span className="tau-field-shell" data-width="full">
-          <span className="tau-field">
-            <input
-              data-mono=""
-              aria-label="Model id"
-              placeholder="openai/gpt-5.6-luna"
-              list="usage-price-models"
-              spellCheck={false}
-              value={adding.model}
-              disabled={disabled}
-              onChange={(event) => setAdding((held) => ({ ...held, model: event.target.value }))}
-            />
-          </span>
-        </span>
-        <datalist id="usage-price-models">
-          {suggestions.filter((model) => !prices[model]).map((model) => <option key={model} value={model} />)}
-        </datalist>
+        <TextField
+          label="Model id"
+          value={adding.model}
+          width="full"
+          mono
+          placeholder="openai/gpt-5.6-luna"
+          disabled={disabled}
+          suggestions={suggestions.filter((model) => !prices[model])}
+          onChange={(model) => setAdding((held) => ({ ...held, model }))}
+        />
         {FIELDS.map((field) => (
           <NumberField
             key={field}
