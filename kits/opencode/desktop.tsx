@@ -114,12 +114,7 @@ export function ServerFields({ view, onSave, ids = { server: "setting-opencode-s
           description={view?.hasPassword ? "Saved, and never shown again; type a new one to replace it." : "If the server asks for one."}
           control={
             <form className="opencode-password" onSubmit={savePassword}>
-              {/* The controls' field look: a password is typed and saved on purpose, not on blur. */}
-              <span className="tau-field-shell" data-width="md">
-                <span className="tau-field">
-                  <input aria-label="OpenCode server password" type="password" autoComplete="off" value={password} placeholder={view?.hasPassword ? "Saved; type to replace it" : "Password"} onChange={(event) => setPassword(event.target.value)} />
-                </span>
-              </span>
+              <TextField label="OpenCode server password" secret width="md" value={password} placeholder={view?.hasPassword ? "Saved; type to replace it" : "Password"} onChange={setPassword} />
               <Button type="submit" disabled={!password}>Save</Button>
               {view?.hasPassword ? <Button variant="ghost" onClick={() => void onSave(saved, "")}>Forget password</Button> : null}
             </form>
