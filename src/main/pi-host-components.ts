@@ -498,7 +498,17 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   };
   const seam = createHostExtensionSeam(port);
   const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit);
-  const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event));
+  // `disabledExtensions` is the one list every client follows; the host's halves follow it too.
+  const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event), {
+    disabled: () => {
+      const list: unknown = defaultHostConfigManager.readSync(deps.getCwd()).disabledExtensions;
+      return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
+    },
+  });
+  seam.services.observeConfigChanges((change) => {
+    if (change.kind !== "config") return;
+    void hostExtensions.followChoices().catch((error: unknown) => deps.log("host-extension.follow.failed", error instanceof Error ? error.message : String(error)));
+  });
   const loadPackages = safeMode ? undefined : options.hostExtensionPackages;
   const packages = loadPackages && new ExtensionPackageActivator({
     registry: hostExtensions,

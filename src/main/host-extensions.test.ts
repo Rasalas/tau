@@ -583,4 +583,35 @@ describe("HostExtensionRegistry", () => {
     expect(r.isActive("mixed.kit")).toBe(false);
     expect(events.filter((e) => e.type === "extension-deactivated")).toHaveLength(1);
   });
+
+  it("keeps a half the user turned off from starting, and follows the list when it changes", async () => {
+    let disabled: string[] = ["demo.kit"];
+    const r = new HostExtensionRegistry(services(), () => undefined, { disabled: () => disabled });
+    const starts = vi.fn();
+    const stops = vi.fn();
+    const kit: HostExtension = { id: "demo.kit", name: "Demo Kit", activate: () => { starts(); return stops; } };
+    await expect(r.activate(kit)).resolves.toBe(false);
+    expect(starts).not.toHaveBeenCalled();
+    expect(r.summaries()).toEqual([expect.objectContaining({ id: "demo.kit", active: false })]);
+
+    disabled = [];
+    await r.followChoices();
+    expect(r.isActive("demo.kit")).toBe(true);
+    // Turned on again by a client that also asks the host directly: it runs once.
+    await expect(r.activateKnown("demo.kit")).resolves.toBe(true);
+    expect(starts).toHaveBeenCalledTimes(1);
+
+    disabled = ["demo.kit"];
+    await r.followChoices();
+    expect(r.isActive("demo.kit")).toBe(false);
+    expect(stops).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start a half the list never held off, such as one never activated", async () => {
+    const r = new HostExtensionRegistry(services(), () => undefined, { disabled: () => [] });
+    const waiting: HostExtension = { id: "acme.waiting", name: "Waiting", activate: vi.fn() };
+    r.addKnown(waiting);
+    await r.followChoices();
+    expect(waiting.activate).not.toHaveBeenCalled();
+  });
 });

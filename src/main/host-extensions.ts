@@ -1320,6 +1320,8 @@ interface ActiveHostExtension {
 
 export interface HostExtensionRegistryOptions {
   commandTimeoutMs?: number;
+  /** The ids the user turned off (`disabledExtensions`); `activate` leaves them known but stopped. */
+  disabled?: () => readonly string[];
 }
 
 export class HostExtensionRegistry {
@@ -1329,6 +1331,8 @@ export class HostExtensionRegistry {
   private readonly invocationContexts = new Map<string, { extensionId: string; record?: ActiveHostExtension }>();
   private readonly failures = new Map<string, string>();
   private readonly consecutiveFailures = new Map<string, number>();
+  /** Halves the list of turned-off extensions kept from running; `followChoices` starts them when it lets go. */
+  private readonly heldOff = new Set<string>();
 
   constructor(
     private readonly services: HostExtensionServices,
@@ -1340,8 +1344,21 @@ export class HostExtensionRegistry {
     this.known.set(extension.id, extension);
   }
 
-  /** Activates one extension; a failure is recorded and reported, never thrown. */
+  /**
+   * Activates one extension unless the user turned it off; a failure is
+   * recorded and reported, never thrown.
+   */
   async activate(extension: HostExtension): Promise<boolean> {
+    if (this.options.disabled?.().includes(extension.id)) {
+      await this.deactivate(extension.id);
+      this.known.set(extension.id, extension);
+      this.heldOff.add(extension.id);
+      return false;
+    }
+    return this.start(extension);
+  }
+
+  private async start(extension: HostExtension): Promise<boolean> {
     if (!EXTENSION_ID.test(extension.id)) {
       this.failures.set(extension.id, `invalid host extension id "${extension.id}"`);
       return false;
@@ -1447,15 +1464,37 @@ export class HostExtensionRegistry {
     this.publish({ type: "extension-deactivated", extensionId: extension.id, name: extension.name, reason });
   }
 
-  /** Re-activates an extension the registry knows, after `deactivate`. */
+  /** Re-activates an extension the registry knows, after `deactivate`; one that runs keeps running. */
   async activateKnown(id: string): Promise<boolean> {
     const extension = this.known.get(id);
     if (!extension) throw new Error(`Host extension ${id} is not installed.`);
-    return this.activate(extension);
+    this.heldOff.delete(id);
+    return this.active.has(id) ? true : this.start(extension);
+  }
+
+  /**
+   * Applies the list of turned-off extensions as it reads now: a half on it
+   * stops, one it held off starts. A half that was never started for another
+   * reason (a package awaiting approval) is not one it held off, so it stays.
+   */
+  async followChoices(): Promise<void> {
+    const disabled = new Set(this.options.disabled?.() ?? []);
+    for (const id of [...this.active.keys()]) {
+      if (!disabled.has(id)) continue;
+      await this.deactivate(id);
+      this.heldOff.add(id);
+    }
+    for (const id of [...this.heldOff]) {
+      const extension = this.known.get(id);
+      if (disabled.has(id) || !extension) continue;
+      this.heldOff.delete(id);
+      await this.start(extension);
+    }
   }
 
   /** Forgets an extension entirely, e.g. when its package left the disk. */
   async remove(id: string): Promise<void> {
+    this.heldOff.delete(id);
     await this.deactivate(id);
     this.known.delete(id);
     this.failures.delete(id);
