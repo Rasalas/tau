@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext } from "tau";
 import { createKitHarness, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
+import { missingSettingsRows, renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import snapshots, { prepareSend, SnapShotDetail, type HostApi } from "./desktop.js";
 import { SETTING_ENABLED, SNAPSHOTS_EXTENSION_ID as ID, SNAPSHOT_EVENT, type SnapShotContent, type SnapShotMeta } from "./protocol.js";
 import { ShotStore } from "./shots.js";
@@ -173,5 +174,39 @@ describe("SnapShots desktop", () => {
     act(() => kit.preferences.setOption(ID, SETTING_ENABLED, true));
     await Promise.resolve();
     expect(kit.armed).toEqual([]);
+  });
+});
+
+describe("Settings → SnapShots", () => {
+  function settingsPage(access: unknown) {
+    const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => {
+      if (command === "access") return access;
+      if (command === "shortcut-state") return {};
+      return undefined;
+    });
+    const { registry } = createKitHarness(invoke);
+    registry.activate(snapshots);
+    return { page: registry.getSettingsPages().find((entry) => entry.id === "snapshots.settings")!, invoke };
+  }
+
+  it("turns the shortcut on, states each permission and asks macOS for a missing one", async () => {
+    const { page, invoke } = settingsPage({ supported: true, screen: "granted", accessibility: "not-determined" });
+    const { updates } = renderKitSettingsPage(page.Component);
+    fireEvent.click(await screen.findByRole("switch", { name: "Capture with a global shortcut" }));
+    await waitFor(() => expect(updates).toContainEqual({ options: { [`${ID}.${SETTING_ENABLED}`]: true } }));
+    expect(await screen.findByText("Allowed")).toBeTruthy();
+    expect(screen.getByText("Not asked yet")).toBeTruthy();
+    // Only the permission still missing offers its buttons.
+    expect(screen.getAllByRole("button", { name: "Open System Settings" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Ask macOS" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "request-access", { kind: "accessibility" }));
+    expect(missingSettingsRows(page)).toEqual([]);
+  });
+
+  it("says what it needs where macOS is not there", async () => {
+    const { page } = settingsPage({ supported: false, screen: "unavailable", accessibility: "unavailable" });
+    renderKitSettingsPage(page.Component);
+    expect(await screen.findByText("SnapShots need macOS")).toBeTruthy();
+    expect(screen.queryByRole("switch")).toBeNull();
   });
 });
