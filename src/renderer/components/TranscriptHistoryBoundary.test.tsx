@@ -79,10 +79,12 @@ function Fixture({
   controller,
   initialMessages,
   loadPage,
+  onReach,
 }: {
   controller: TranscriptHistoryController;
   initialMessages: UiMessage[];
   loadPage: (sessionId: string, cursor: HostTranscriptCursor) => Promise<TranscriptPage>;
+  onReach: (reach: () => void) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState(initialMessages);
@@ -98,12 +100,14 @@ function Fixture({
   return <div data-testid="transcript-scroll" ref={scrollRef} style={{ height: 600, overflow: "auto" }}>
     <TranscriptHistoryBoundary
       controller={controller}
-      scrollRef={scrollRef}
       showControl
       loadPage={loadPage}
       applyPage={applyPage}
     >
-      {() => <VirtualTranscript messages={messages} scrollRef={scrollRef} isStreaming={false} />}
+      {(reach, history) => {
+        onReach(reach);
+        return <>{history}<VirtualTranscript messages={messages} scrollRef={scrollRef} isStreaming={false} /></>;
+      }}
     </TranscriptHistoryBoundary>
   </div>;
 }
@@ -170,15 +174,18 @@ describe("TranscriptHistoryBoundary integration", () => {
     controller.syncSnapshot(snapshot("thread", initialMessages), detail("thread", initialMessages));
     let resolvePage: ((page: TranscriptPage) => void) | undefined;
     const loadPage = vi.fn(() => new Promise<TranscriptPage>((resolve) => { resolvePage = resolve; }));
-    const view = render(<Fixture controller={controller} initialMessages={initialMessages} loadPage={loadPage} />);
+    let reachStart: (() => void) | undefined;
+    const view = render(<Fixture controller={controller} initialMessages={initialMessages} loadPage={loadPage} onReach={(reach) => { reachStart = reach; }} />);
     scrollNode = view.getByTestId("transcript-scroll");
     scrollNode.scrollTop = 100;
     const anchorBefore = view.container.querySelector<HTMLElement>('[data-message-id="anchor"]');
     expect(anchorBefore).not.toBeNull();
     const beforeOffset = anchorBefore!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
 
-    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    act(() => reachStart!());
     expect(loadPage).toHaveBeenCalledWith("thread", asHostTranscriptCursor("opaque:0"));
+    // The line sits in the scroller, before the rows.
+    expect(scrollNode.firstElementChild?.getAttribute("data-older-turns")).toBe("loading");
     expect(screen.getByRole("status").textContent).toContain("Loading older turns");
 
     ids.unshift("older-a", "older-b");
@@ -196,7 +203,7 @@ describe("TranscriptHistoryBoundary integration", () => {
     DeferredResizeObserver.trigger();
 
     await waitFor(() => expect(controller.getSnapshot().status).toMatchObject({ state: "success", loadedTurns: 2 }));
-    expect(screen.queryByLabelText("Transcript history")).toBeNull();
+    expect(view.container.querySelector("[data-older-turns]")).toBeNull();
     // The initial success used estimates for the newly prepended rows. A later
     // delivery reports their actual, different heights and must still restore
     // the same visible virtualizer anchor.
@@ -231,59 +238,64 @@ describe("TranscriptHistoryBoundary integration", () => {
     });
   });
 
-  it("loads older turns on the reader's way up, once at a time, and never retries a failed page on its own", async () => {
+  it("loads older turns on the reader's way up, once at a time, and retries a failed page only on Retry", async () => {
     const initialMessages = [message("newer")];
     const controller = new TranscriptHistoryController(snapshot("thread", initialMessages));
     controller.syncSnapshot(snapshot("thread", initialMessages), detail("thread", initialMessages));
-    let rejectPage: ((error: Error) => void) | undefined;
-    const loadPage = vi.fn(() => new Promise<TranscriptPage>((_resolve, reject) => { rejectPage = reject; }));
+    const pages: Array<{ resolve: (page: TranscriptPage) => void; reject: (error: Error) => void }> = [];
+    const loadPage = vi.fn(() => new Promise<TranscriptPage>((resolve, reject) => { pages.push({ resolve, reject }); }));
     let reachStart: (() => void) | undefined;
-    render(<div ref={(node) => { if (node) scroll.current = node; }}>
-      <TranscriptHistoryBoundary controller={controller} scrollRef={scroll} showControl loadPage={loadPage} applyPage={() => true}>
-        {(loadOlderOnReach) => { reachStart = loadOlderOnReach; return null; }}
-      </TranscriptHistoryBoundary>
-    </div>);
+    const applyPage = (page: TranscriptPage, request: Parameters<TranscriptHistoryController["applyPage"]>[2]) =>
+      controller.applyPage(page, initialMessages, request) !== undefined;
+    render(<TranscriptHistoryBoundary controller={controller} showControl loadPage={loadPage} applyPage={applyPage}>
+      {(loadOlderOnReach, history) => { reachStart = loadOlderOnReach; return history; }}
+    </TranscriptHistoryBoundary>);
 
     act(() => reachStart!());
     act(() => reachStart!());
     expect(loadPage).toHaveBeenCalledOnce();
-    await act(async () => { rejectPage!(new Error("offline")); });
+    await act(async () => { pages[0]!.reject(new Error("offline")); });
     expect(screen.getByRole("status").textContent).toContain("offline");
     act(() => reachStart!());
     expect(loadPage).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading older turns" }));
+    expect(loadPage).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("status").textContent).toBe("Loading older turns…");
+    await act(async () => { pages[1]!.resolve({ sessionId: "thread", messages: [message("older")], hasMore: false }); });
+    expect(document.querySelector("[data-older-turns]")).toBeNull();
+    act(() => reachStart!());
+    expect(loadPage).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps the rows where they were when the last older page takes the history line away", async () => {
-    const originalRect = HTMLElement.prototype.getBoundingClientRect;
-    restoreLayout = () => { HTMLElement.prototype.getBoundingClientRect = originalRect; };
-    // The line is 50 px tall, margin included, and sits right above the scroller.
-    HTMLElement.prototype.getBoundingClientRect = function () {
-      if (this.classList.contains("transcript-history-control")) return rect(0, 34);
-      if (this === scroll.current) return rect(this.previousElementSibling ? 50 : 0, 600);
-      return originalRect.call(this);
-    };
+  it("leaves scrollTop alone when the line comes and goes", async () => {
     const initialMessages = [message("newer")];
     const controller = new TranscriptHistoryController(snapshot("thread", initialMessages));
     controller.syncSnapshot(snapshot("thread", initialMessages), detail("thread", initialMessages));
     let resolvePage: ((page: TranscriptPage) => void) | undefined;
     const loadPage = vi.fn(() => new Promise<TranscriptPage>((resolve) => { resolvePage = resolve; }));
+    let reachStart: (() => void) | undefined;
     render(<TranscriptHistoryBoundary
       controller={controller}
-      scrollRef={scroll}
       showControl
       loadPage={loadPage}
       applyPage={(page, request) => controller.applyPage(page, initialMessages, request) !== undefined}
     >
-      {() => <div ref={(node) => { if (node) scroll.current = node; }} />}
+      {(reach, history) => {
+        reachStart = reach;
+        return <div ref={(node) => { if (node) scroll.current = node; }}>{history}</div>;
+      }}
     </TranscriptHistoryBoundary>);
     const node = scroll.current!;
     node.scrollTop = 500;
 
-    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    act(() => reachStart!());
+    expect(node.querySelector("[data-older-turns=loading]")).not.toBeNull();
+    expect(node.scrollTop).toBe(500);
     await act(async () => {
       resolvePage!({ sessionId: "thread", messages: [message("older")], hasMore: false });
     });
-    expect(screen.queryByLabelText("Transcript history")).toBeNull();
-    expect(node.scrollTop).toBe(450);
+    expect(node.querySelector("[data-older-turns]")).toBeNull();
+    expect(node.scrollTop).toBe(500);
   });
 });

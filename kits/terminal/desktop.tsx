@@ -6,7 +6,7 @@ import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore } from "./store.js";
 import { TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
-import { closeTerminals, focusNextPane, keyboardShell, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
+import { closeTerminals, focusNextPane, keyboardShell, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -67,10 +67,10 @@ function focusPane(app: WorkbenchActions, step: 1 | -1): void {
 }
 
 /** A split beside the shell with the keyboard; the panel comes forward unless that shell is on the stage. */
-function split(app: WorkbenchActions, direction: "right" | "down") {
+function split(app: WorkbenchActions, direction: "right" | "down" | "natural") {
   const target = targetShell();
   if (!target || !onStage(target)) app.openPanel(TERMINAL_PANEL);
-  return openTerminal(app, { direction, ...(target ? { target } : {}) });
+  return openTerminal(app, { direction: direction === "natural" ? naturalSplit(target) : direction, ...(target ? { target } : {}) });
 }
 
 export const terminalExtension: DesktopExtension = {
@@ -106,7 +106,7 @@ export const terminalExtension: DesktopExtension = {
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));
     let placement = placementNow();
-    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, maximizable: true, Component: TerminalPanel });
+    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, width: "wide", maximizable: true, Component: TerminalPanel });
     let panel = registerPanel();
     // A phone or a tablet draws the same shells as a sheet with a key bar; dock and drawer mean nothing there.
     const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], Component: CompactTerminalPanel });
@@ -137,6 +137,12 @@ export const terminalExtension: DesktopExtension = {
     });
     const disposers = [
       plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),
+      // The terminal opens in the app; the external one is Workspace Kit's command (mod+alt+j).
+      ...["terminal", "term"].map((name) => plugin.registerSlashCommand({
+        name,
+        description: "Open the terminal panel",
+        run: (_args, app) => { app.openPanel(TERMINAL_PANEL); return undefined; },
+      })),
       plugin.registerCommand({ id: TERMINAL_COMMANDS.toggle, label: "Toggle terminal", group: "Terminal", access: "read", run: withActions(toggleTerminal) }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.new,
@@ -147,10 +153,10 @@ export const terminalExtension: DesktopExtension = {
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.split,
-        label: "Split terminal right",
+        label: "Split terminal",
         group: "Terminal",
         access: "write",
-        run: withActions((app) => split(app, "right")),
+        run: withActions((app) => split(app, "natural")),
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.splitDown,

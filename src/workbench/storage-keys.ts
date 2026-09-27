@@ -18,6 +18,7 @@ export const STORAGE_KEYS = {
   sidebarOpen: "tau:sidebar-open",
   sidebarWidth: "tau:sidebar-width",
   drawerHeight: "tau:drawer-height",
+  chatWidth: "tau:chat-width",
   reviewSidebarWidth: "tau:review-sidebar-width",
   reviewSidebarOpen: "tau:review-sidebar-open",
   composerFold: "tau:composer-fold",

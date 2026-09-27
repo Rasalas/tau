@@ -164,8 +164,11 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     workerData: bootstrap,
     resourceLimits: { ...DEFAULT_RESOURCE_LIMITS, ...heapLimits },
   });
-  const unwatchMemory = watchWorkerMemory(worker, maxExternalMb * 1024 * 1024, (bytes) => {
-    fail(`${options.name} exceeded its memory cap: ${Math.round(bytes / 1024 / 1024)} MB of buffers, cap ${maxExternalMb} MB`);
+  const mb = (bytes: number): number => Math.round(bytes / 1024 / 1024);
+  const unwatchMemory = watchWorkerMemory(worker, maxExternalMb * 1024 * 1024, (overrun) => {
+    fail(overrun.kind === "buffers"
+      ? `${options.name} exceeded its memory cap: ${mb(overrun.bytes)} MB of buffers, cap ${maxExternalMb} MB`
+      : `${options.name} was stopped at the host's memory limit: it grew the host process by about ${mb(overrun.grownBytes)} MB (${mb(overrun.rssBytes)} MB of ${mb(overrun.limitBytes)} MB)`);
   });
 
   let stopped = false;

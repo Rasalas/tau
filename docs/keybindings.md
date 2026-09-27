@@ -81,7 +81,7 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | `mod+alt+3` | | `workbench.focus-stage` | Focus the stage | core | – |
 | `ctrl+tab` / `ctrl+shift+tab` | | `workbench.next-stage-tab` / `prev-stage-tab` | Move between stage tabs | core | – |
 | `mod+j` | | `terminal.toggle` | Terminal panel | Terminal | same |
-| `mod+d` | `terminalFocus && !stageFocus` | `terminal.split` | Split right | Terminal | `terminal.split` |
+| `mod+d` | `terminalFocus && !stageFocus` | `terminal.split` | Split along the longer side: top and bottom in a pane taller than wide, else side by side | Terminal | `terminal.split` |
 | `mod+shift+d` | `terminalFocus && !stageFocus` | `terminal.splitDown` | Split down | Terminal | `terminal.splitVertical` |
 | `mod+n` | `terminalFocus` | `terminal.new` | New terminal | Terminal | same |
 | `mod+w` | `terminalFocus && !stageFocus` | `terminal.close` | Close the terminal | Terminal | same |
@@ -107,7 +107,7 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | `mod+e` | | `workspace.open-prompt-editor` | Prompt in the external editor | Workspace | – |
 | `mod+alt+a` | | `appearance.open` | Appearance settings | Appearance | `theme.select` |
 | `mod+alt+shift+t` | | `appearance.toggle-theme-editor` | Theme editor | Appearance | `themeEditor.toggle` |
-| `mod+alt+o` | | `observatory.open` | Signals panel | Signals | – |
+| `mod+alt+o` | | `observatory.open` | Signals (Settings) | Signals | – |
 
 Inside the model picker, `mod+1` … `mod+9` choose a numbered model and
 `mod+shift+arrowup` / `arrowdown` move between providers, as in T3 Code; the

@@ -385,7 +385,7 @@ export const codexExtension: DesktopExtension = {
     });
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "codex.runtime", align: "left", order: 42, profiles: ["desktop", "web", "compact"], Component: CodexStatus }),
+      plugin.registerStatusItem({ id: "codex.runtime", align: "left", order: 42, profiles: ["desktop", "web"], Component: CodexStatus }),
       plugin.registerRegion({ id: "codex.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "codex.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

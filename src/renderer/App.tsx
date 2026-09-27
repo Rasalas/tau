@@ -36,7 +36,7 @@ import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, 
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
-import { usePanelLayout } from "./use-panel-layout";
+import { isWidePanel, usePanelLayout } from "./use-panel-layout";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { followTurnActivity } from "../workbench/turn-activity";
 import { followShownThread } from "../workbench/shown-thread";
@@ -182,10 +182,18 @@ export default function App() {
   useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
-  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage });
+  // A document opened beside the chat takes the place of a tool that filled it.
+  const revealDocuments = useRef(() => {});
+  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
   // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
   const [chatFocused, setChatFocused] = useState(false);
+  // Documents maximized on their own; a panel tab on the stage maximizes it too.
   const [stageMaximized, setStageMaximized] = useState(false);
+  const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel");
+  revealDocuments.current = () => {
+    setChatFocused(false);
+    if (!maximized && dockOpen && isWidePanel(panels, activePanel)) setDockOpen(false);
+  };
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
@@ -431,16 +439,17 @@ export default function App() {
   // Dock, drawer or stage tab: where each panel shows, and the moves between them.
   const panelLayout = usePanelLayout({
     panels, stage, setStage, stageTabs, dockOpen, setDockOpen, activePanel, setActivePanel, drawer, setDrawer,
-    showStage: () => setChatFocused(false), setStageMaximized,
+    maximized, setStageMaximized,
+    showStage: () => setChatFocused(false),
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
     sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
   });
   const openPanel = panelLayout.openPanel;
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); revealDocuments.current(); }, []);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
     setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
-    setChatFocused(false);
+    revealDocuments.current();
   }, [platform]);
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -600,13 +609,13 @@ export default function App() {
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth, onDockWidthChange: setDockWidth,
-    chatFocused, setChatFocused, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
+    chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
   }), [
-    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, closeNewThreadPicker, layoutProfile,
+    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, dockAsks, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,

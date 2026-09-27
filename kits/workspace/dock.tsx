@@ -1,9 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useSyncExternalStore } from "react";
-import { useWorkbench, type ComposerControlProps, type RegionProps } from "tau";
-import { ChangedFiles } from "./ChangedFiles.js";
+import type { ComposerControlProps, RegionProps } from "tau";
 import { WorkspaceBar } from "./WorkspaceBar.js";
-import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
+import { useWorkspaceStore } from "./store-context.js";
 
 /**
  * Keeps the kit's store following the workbench: which project, which thread,
@@ -24,25 +23,6 @@ export function WorkspaceFollower({ actions }: RegionProps) {
   }, [cwd, workspaceId, sessionId, draftPending, workspaceStore]);
   useEffect(() => { void workspaceStore.loadEditors(); void workspaceStore.loadTerminals(); }, [workspaceStore]);
   return null;
-}
-
-/**
- * The files the running turn touched, shown under the transcript as its live
- * preview. A finished turn belongs to its checkpoint card in the transcript,
- * so the dock is bound to the turn actually running and nothing else: an idle
- * thread must not draw a stale baseline diff next to the card that replaces it.
- */
-export function TurnChangesDock() {
-  const workspaceStore = useWorkspaceStore();
-  const state = useWorkspaceKit();
-  const { tools, snapshot } = useWorkbench();
-  const turnChanges = useMemo(() => workspaceStore.turnChanges(tools), [state.changes, state.turnBaseline, tools, workspaceStore]);
-  if (state.draftPending || state.turnSettled || !snapshot?.isStreaming || turnChanges.files.length === 0) return null;
-  return (
-    <div className="conversation-files-dock">
-      <ChangedFiles changes={turnChanges} onOpenDiff={(path) => workspaceStore.openReview(path)} />
-    </div>
-  );
 }
 
 /** Worktree and branch switching, below the composer. */

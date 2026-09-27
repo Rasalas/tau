@@ -24,6 +24,7 @@ import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
+import { usePromptArrival } from "./use-prompt-arrival";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
 import { useHostCapabilities } from "../use-host-capabilities";
@@ -610,20 +611,14 @@ export function Composer({
     clearPreviewForScope,
   });
 
-  // An editor prompt arrives with text to edit; seed the field once.
-  const seededPromptRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!prompt || seededPromptRef.current === prompt.id) return;
-    seededPromptRef.current = prompt.id;
-    if (prompt.prefill) updateDraft(prompt.prefill);
-  }, [prompt, updateDraft]);
-
-  const answerable = prompt && prompt.answerElsewhere !== true;
+  // A question takes the field only once the typing stops; the draft waits aside until it is answered.
+  const arrival = usePromptArrival({ prompt, scope: attachmentScope, scopeStore, setDraft: updateDraft });
+  const answerable = prompt && arrival.armed;
   // A question that takes typed text takes the files waiting in the composer with it.
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
-    if (held) return;
+    if (held || arrival.waiting) return;
     // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
       text: plainChipText(text, Boolean(answerable)),
@@ -677,6 +672,7 @@ export function Composer({
     answerHasFiles,
     answerWithDraft,
     answerable,
+    arrival.waiting,
     held,
     onAnswerPrompt,
     onNotify,
@@ -783,12 +779,16 @@ export function Composer({
             onNotify={onNotify}
           >
             <PromptSubmitContext.Provider value={registerPromptSubmit}>
-              <Renderer
-                prompt={prompt}
-                pending={promptsPending}
-                onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
-                onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
-              />
+              <div className={`prompt-arrival ${arrival.waiting ? "waiting" : ""}`} inert={arrival.waiting}>
+                <Renderer
+                  prompt={prompt}
+                  pending={promptsPending}
+                  onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
+                  onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
+                />
+              </div>
+              {arrival.waiting ? <p className="prompt-arrival-note" role="status">The agent asks something. It opens once you stop typing, so your keys stay in your draft.</p>
+                : arrival.stashed ? <p className="prompt-arrival-note" role="status">Your draft is set aside and comes back after the answer.</p> : null}
             </PromptSubmitContext.Provider>
           </LazyFeatureBoundary>
         );
@@ -864,6 +864,7 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            arrival.noteTyping();
             if (historySearch.handleSearchKeyDown(event)) {
               return;
             }
@@ -1133,7 +1134,7 @@ export function Composer({
                 {...tooltipProps(label)}
                 aria-label={label}
                 aria-busy={activeScopeSnapshot.submissionPending}
-                disabled={held || activeScopeSnapshot.submissionPending}
+                disabled={held || arrival.waiting || activeScopeSnapshot.submissionPending}
                 onClick={() => submitCurrent(streamingBase)}
               >
                 <ArrowUp size={16} />
@@ -1148,7 +1149,7 @@ export function Composer({
               {...tooltipProps("Send")}
               aria-label="Send"
               aria-busy={activeScopeSnapshot.submissionPending}
-              disabled={held || activeScopeSnapshot.submissionPending || !hasDraft}
+              disabled={held || arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft}
               onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />

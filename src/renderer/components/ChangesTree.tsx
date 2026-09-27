@@ -90,7 +90,7 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
     return <div key={file.path} className={`changes-tree-file ${file.path === activePath ? "active" : ""}`} style={{ paddingLeft: 27 + depth * 15 }}>
       <button className="changes-tree-open" title={file.path} onClick={() => onOpen(file.path)}>
         <FileKindIcon name={file.name} />
-        <span className="changes-tree-name"><strong>{file.name}</strong><small>{file.directory || "."}</small></span>
+        <span className="changes-tree-name"><strong>{file.name}</strong></span>
         <i>{file.status.charAt(0).toUpperCase()}</i>
         <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
       </button>

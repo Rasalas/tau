@@ -101,10 +101,10 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 
 ## Recipe: from a fresh instance to a test reply
 
-A `--fresh` instance opens the welcome wizard, and it inherits the user's Pi default model from the copied `settings.json`, which may be an expensive one. Never send before the chip names a cheap model: GPT-5.6 Luna (or Codex's smallest with the shadow `CODEX_HOME`); never Sol, Fable or Opus.
+An instance starts past the welcome wizard (`dev:instance` marks it done; pass `--onboarding` to test the wizard itself). It inherits the user's Pi default model from the copied `settings.json`, which may be an expensive one. Never send before the chip names a cheap model: GPT-5.6 Luna (or Codex's smallest with the shadow `CODEX_HOME`); never Sol, Fable or Opus.
 
 ```
-# welcome wizard: agents → projects → conversations
+# only with --onboarding: the welcome wizard, agents → projects → conversations
 npm run cdp -- click "byText('button', /^Continue/)"
 npm run cdp -- click "byText('button', /^Do not add projects/)"
 npm run cdp -- click "byText('button', /^Do not import/)"

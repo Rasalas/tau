@@ -1,19 +1,14 @@
 import { Activity } from "lucide-react";
-import { useObservatory, type DesktopExtension, type PanelProps } from "tau";
-import { SIGNALS_EXTENSION_ID, SIGNALS_PANEL } from "./protocol.js";
+import { useObservatory, type DesktopExtension } from "tau";
+import { SIGNALS_EXTENSION_ID, SIGNALS_SETTINGS_PAGE } from "./protocol.js";
 
-/** What the workbench is doing right now: host events, live counts, tool runs. */
-export function ObservatoryPanel({ extensionName }: PanelProps) {
+/** What the workbench is doing right now: host events, live counts, tool runs. A tool for Tau's own development, so it lives in Settings. */
+export function SignalsPage() {
   const { events, snapshot, tools, registry } = useObservatory();
 
   return (
-    <section className="panel-body">
-      <header className="panel-header">
-        <h2>Signals</h2>
-        <small>{extensionName.toLowerCase()}</small>
-        <span className="spacer" />
-        <span className="live-marker"><i /> live</span>
-      </header>
+    <section className="signals-page">
+      <p className="signals-note"><span className="live-marker"><i /> live</span> What this window and its host are doing, for debugging Tau itself.</p>
       <dl className="state-grid">
         <div><dt>Session</dt><dd>{snapshot?.sessionId.slice(0, 8) ?? "—"}</dd></div>
         <div><dt>Pi extensions</dt><dd>{snapshot?.extensionCount ?? 0}</dd></div>
@@ -38,8 +33,11 @@ export const observatoryExtension: DesktopExtension = {
   id: SIGNALS_EXTENSION_ID,
   name: "Signals",
   activate(plugin) {
-    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, maximizable: true, profiles: ["desktop", "web"], Component: ObservatoryPanel });
-    plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", access: "read", run: (app) => app.openPanel(SIGNALS_PANEL) });
+    plugin.registerSettingsPage({
+      id: SIGNALS_SETTINGS_PAGE, label: "Signals", Icon: Activity, order: 90, profiles: ["desktop", "web"],
+      keywords: ["developer", "debug", "events", "diagnostics"], Component: SignalsPage,
+    });
+    plugin.registerCommand({ id: "observatory.open", label: "Open Signals", group: "Extensions", access: "read", run: (app) => app.openSettings(SIGNALS_SETTINGS_PAGE) });
     // `mod+shift+o` is a new thread, as in T3 Code.
     plugin.registerKeybinding({ keys: "mod+alt+o", commandId: "observatory.open" });
     // A shell command is the one tool run whose own text says what happened.

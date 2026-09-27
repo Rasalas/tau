@@ -75,7 +75,8 @@ function fakeSession(input: ClaudeSessionInput, script: Script) {
     get closed() { return closed; },
     send: vi.fn((content: UserContent, priority: SendPriority): Promise<ResultMessage> => {
       if (closed) return Promise.reject(abortError());
-      if (priority === "now" && running) return running;
+      // A send while a turn runs joins it, as the CLI folds it in after the current tool call.
+      if (priority === "next" && running) return running;
       pending += 1;
       const run = tail.then(() => execute(content, priority)).finally(() => { pending -= 1; if (running === run) running = undefined; });
       tail = run.catch(() => undefined);
@@ -198,8 +199,8 @@ describe("thread runtime backends", () => {
     const { filePath, store } = await scratchStore();
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const { adapter, sessions } = scriptedAdapter(filePath, async (content, priority) => {
-      if (priority === "now") return [result("joined", { user_message_uuids: [] })];
+    const { adapter, sessions } = scriptedAdapter(filePath, async (content, _priority) => {
+      if (String(content) === "also") return [result("joined", { user_message_uuids: [] })];
       if (String(content) === "first") { await firstGate; return turn("one"); }
       return turn("two");
     });
@@ -216,7 +217,8 @@ describe("thread runtime backends", () => {
     expect(events.filter((event) => event.type === "queue").at(-1)).toEqual({ type: "queue", steering: ["also"], followUp: ["second"] });
     expect(sessions[0]?.send).toHaveBeenNthCalledWith(1, "first", "next");
     expect(sessions[0]?.send).toHaveBeenNthCalledWith(2, "second", "later");
-    expect(sessions[0]?.send).toHaveBeenNthCalledWith(3, "also", "now");
+    // Not "now": that priority aborts the running turn and whatever tool it is in.
+    expect(sessions[0]?.send).toHaveBeenNthCalledWith(3, "also", "next");
     releaseFirst();
     await Promise.all([first, followUp]);
     await new Promise((resolve) => setTimeout(resolve, 5));

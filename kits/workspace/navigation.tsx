@@ -1073,7 +1073,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
         ) : null}
 
-        {sections.slice(mainIndex + 1).map(renderSection)}
+        {sections.length > mainIndex + 1 ? <div className="rail-shelves">{sections.slice(mainIndex + 1).map(renderSection)}</div> : null}
       </nav>
 
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}

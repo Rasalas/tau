@@ -388,7 +388,7 @@ export const claudeCodeExtension: DesktopExtension = {
     };
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web", "compact"], Component: ClaudeCodeStatus }),
+      plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web"], Component: ClaudeCodeStatus }),
       plugin.registerRegion({ id: "claude-code.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "claude-code.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

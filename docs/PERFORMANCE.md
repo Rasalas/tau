@@ -981,6 +981,8 @@ In the isolated instance, seven pages loaded one after another at the top of a 2
 
 Older turns now load on the reader's way up (`onReachStart`): while they scroll toward the start and are within two viewports of it, once they left the tail. "Load older turns" stays. When the last page lands, the history line above the scroller goes away; the boundary moves `scrollTop` by its 50 px so the rows stay put. The boundary no longer restores an anchor of its own: it measured from the scroller's top and undid that correction a frame later.
 
+Since 2026-09-27 there is no button and no line above the scroller. Older turns load only on the reader's way up, and also on a wheel or touch pull at the very top (which moves nothing and so sends no scroll event) and while the loaded rows do not fill the viewport. The line that says "Loading older turns…" or offers Retry after a failed page sits in the scroller's top padding, above the first loaded row, with no height of its own (`.transcript-history`), so nothing moves when it comes or goes and the boundary no longer writes `scrollTop`. Probes find the state on `[data-older-turns]` (`available`, `loading`, `error`; gone at the thread's start); the harness asks for a page with a wheel event at the top.
+
 `@tanstack/react-virtual` stays at 3.13. 3.17 fixes D23's remount measurement upstream and compensates first measurements above the viewport, but it anchors a prepend only with `anchorTo: "end"` (which also pins the view to the end on growth, against the transcript's own tail and turn anchoring), skips synchronous measurement while the user scrolls, and adds about 10 KB (3 KB gzip) to the initial bundle, half of what is left under its budget.
 
 The large-thread run measures it: from the tail it wheels up 60 notches of 240 px. Every frame of a notch, the row that led the viewport has to sit between where it was and where the notch takes it, and end exactly one notch lower. Drift is read in the window, so the history line counts too, and the older-page probes read it the same way now. `VirtualTranscript.test.tsx` scrolls 40 steps up through 300 rows of varying height without a browser. Five runs each; before at load ≈ 52, after at load ≈ 9, median / p95:
@@ -1068,7 +1070,7 @@ With no chip, mention or selected skill in the text there is no mirror, and typi
   1. Cold start to first paint and to "ready". Ready means the rail lists the imported threads and the composer is mounted. T3 files imported threads under a collapsed "Settled (5)" shelf, and that counts.
   2. Memory of the whole process tree after 5 s idle.
   3. Opening the large thread.
-  4. In Tau only, loading the rest of the thread's history. Tau opens a thread with its newest 10 turns and loads older ones 20 at a time through "Load older turns". T3 sends all 100 turns at once. The harness clicks until the button is gone, so both apps scroll the same thread.
+  4. In Tau only, loading the rest of the thread's history. Tau opens a thread with its newest 10 turns and loads older ones 20 at a time as the reader reaches the top. T3 sends all 100 turns at once. The harness wheels up at the top until no older turns are left, so both apps scroll the same thread.
   5. 60 wheel notches of 240 px up, then 60 down.
   6. The replayed turn, sent in the first small thread.
   7. Memory again, 5 s after the turn.

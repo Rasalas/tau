@@ -6,16 +6,16 @@ import { observatoryExtension } from "./desktop.js";
 
 afterEach(cleanup);
 
-/** The kit in the real workbench: core lends the rail slot, the kit fills the panel. */
+/** The kit in the real workbench: a Settings page, not a tool beside the chat. */
 describe("Signals in the workbench", () => {
-  it("opens from the panel rail and streams what the workbench recorded", async () => {
+  it("takes no place in the panel rail and streams what the workbench recorded from its Settings page", async () => {
     renderApp(undefined, { extensions: [observatoryExtension] });
+    await screen.findByRole("textbox");
+    expect(screen.queryByRole("button", { name: "Signals" })).toBeNull();
 
-    // The dock opens on the first panel by itself; with Signals alone, a click on
-    // its pressed rail button would collapse the dock again.
-    const rail = await screen.findByRole("button", { name: "Signals" });
-    if (rail.getAttribute("aria-pressed") !== "true") fireEvent.click(rail);
-
+    // mod+alt+o, the kit's own chord, opens the page.
+    const mac = /mac|iphone|ipad/iu.test(navigator.platform);
+    fireEvent.keyDown(window, { key: "o", code: "KeyO", altKey: true, metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
     expect(await screen.findByText("preview.mode")).toBeTruthy();
     expect(screen.getByText("Electron host unavailable; showing fixture state")).toBeTruthy();
   });

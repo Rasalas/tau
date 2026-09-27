@@ -3,7 +3,7 @@
  * `HostExtensionServices`, `DesktopExtension` and the workbench hooks in
  * `tau`. Bump the major when one of them breaks, the minor when it grows.
  */
-export const EXTENSION_API_VERSION = "1.15.0";
+export const EXTENSION_API_VERSION = "1.16.0";
 
 /** What a manifest's `engines` may constrain. */
 export interface ExtensionEngines {
