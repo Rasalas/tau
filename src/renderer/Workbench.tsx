@@ -720,9 +720,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                   <b>Change</b><ChevronDown size={15} />
                 </button>
               </> : null}
-              {!showStartScreen ? <Region registry={registry} placement="composer-controls" snapshot={snapshot} actions={actions}>
-                <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
-              </Region> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
@@ -737,6 +734,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
               <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+              {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
+              <Region registry={registry} placement="composer-controls" snapshot={snapshot} actions={actions}>
+                <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
+              </Region>
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
           </div>

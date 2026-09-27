@@ -16,11 +16,12 @@ const kit: DesktopExtension = {
   activate: (context) => {
     context.registerRegion({ id: "pill", placement: "composer-controls", Component: () => <button type="button">3 files</button> });
     context.registerRegion({ id: "banner", placement: "composer-above", Component: () => <p>banner</p> });
+    context.registerRegion({ id: "footer", placement: "transcript-footer", Component: () => <p>setup</p> });
   },
 };
 
 describe("the controls row over the composer", () => {
-  it("sits between the transcript and the rest of the composer's regions, outside the transcript", async () => {
+  it("sits on the transcript's bottom edge, outside the transcript and before its footer", async () => {
     const client = createFakeHostClient({
       platform: "darwin",
       bootstrap: async () => ({
@@ -47,7 +48,10 @@ describe("the controls row over the composer", () => {
     const row = pill.closest(".region-composer-controls")!;
     expect(row).toBeTruthy();
     expect(row.closest(".transcript-viewport")).toBeNull();
-    expect(row.nextElementSibling?.classList.contains("region-composer-above")).toBe(true);
+    // A floating arrow anchored here covers the transcript's edge, never the footer's controls.
+    expect(row.parentElement?.classList.contains("conversation-thread")).toBe(true);
+    expect(row.previousElementSibling?.classList.contains("transcript-viewport")).toBe(true);
+    expect(row.nextElementSibling?.classList.contains("region-transcript-footer")).toBe(true);
     // At the tail there is nothing to jump to.
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
     expect(view.container.querySelector(".transcript-viewport .jump-to-latest")).toBeNull();

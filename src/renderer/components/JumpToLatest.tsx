@@ -29,7 +29,10 @@ export class JumpToLatestStore {
   }
 }
 
-/** A round arrow beside the turn's pill; nothing while the transcript is at its latest message. */
+/**
+ * A round arrow beside the turn's pill, or alone over the transcript's bottom edge; nothing at the latest message.
+ * It floats in a slot that takes no room, so showing it never moves the transcript or the row.
+ */
 export function JumpToLatestButton({ store, onKeyboardJump }: {
   store: JumpToLatestStore;
   /** The button leaves once the tail is reached, so a keyboard user needs a place for the focus. */
@@ -38,19 +41,21 @@ export function JumpToLatestButton({ store, onKeyboardJump }: {
   const available = useSyncExternalStore(store.subscribe, store.available, store.available);
   if (!available) return null;
   return (
-    <button
-      type="button"
-      className="jump-to-latest"
-      aria-label="Jump to latest"
-      {...tooltipProps("Jump to latest", { side: "top" })}
-      // A click leaves the focus where it was, usually in the composer.
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={(event) => {
-        store.run();
-        if (event.detail === 0) onKeyboardJump?.();
-      }}
-    >
-      <ArrowDown size={16} aria-hidden="true" />
-    </button>
+    <span className="jump-to-latest-float">
+      <button
+        type="button"
+        className="jump-to-latest"
+        aria-label="Jump to latest"
+        {...tooltipProps("Jump to latest", { side: "top" })}
+        // A click leaves the focus where it was, usually in the composer.
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          store.run();
+          if (event.detail === 0) onKeyboardJump?.();
+        }}
+      >
+        <ArrowDown size={16} aria-hidden="true" />
+      </button>
+    </span>
   );
 }
