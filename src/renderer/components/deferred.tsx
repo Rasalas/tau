@@ -36,7 +36,26 @@ export function deferred<C extends AnyComponent>(
   return Object.assign(Deferred, { preload }) as unknown as DeferredComponent<C>;
 }
 
-/** Loads every deferred component's chunk. */
+export interface DeferredModule<M> {
+  /** Loads the chunk once; later calls answer with the same module. */
+  (): Promise<M>;
+  /** The module once its chunk has loaded, for callers that must answer synchronously. */
+  readonly current: M | undefined;
+}
+
+/** Code a user action needs, not the first paint: its own chunk, preloaded with the deferred components. */
+export function deferredModule<M>(load: () => Promise<M>): DeferredModule<M> {
+  let loaded: M | undefined;
+  let loading: Promise<M> | undefined;
+  const get = () => loading ??= load().then(
+    (module) => (loaded = module),
+    (error: unknown) => { loading = undefined; throw error; },
+  );
+  loaders.push(() => get().then(() => undefined));
+  return Object.defineProperty(get, "current", { get: () => loaded }) as DeferredModule<M>;
+}
+
+/** Loads every deferred component's and module's chunk. */
 export function preloadDeferred(): Promise<void> {
   return Promise.all(loaders.map((load) => load())).then(() => undefined);
 }

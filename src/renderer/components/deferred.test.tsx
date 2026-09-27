@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { deferred } from "./deferred";
+import { deferred, deferredModule, preloadDeferred } from "./deferred";
 
 function Label({ text }: { text: string }) {
   return <span>{text}</span>;
@@ -54,5 +54,31 @@ describe("deferred", () => {
     await Deferred.preload();
     expect(load).toHaveBeenCalledTimes(2);
     expect(renderToStaticMarkup(<Deferred text="back" />)).toBe("<span>back</span>");
+  });
+});
+
+describe("deferredModule", () => {
+  it("loads once, then answers synchronously through `current`", async () => {
+    const load = vi.fn(async () => ({ answer: 42 }));
+    const module = deferredModule(load);
+    expect(module.current).toBeUndefined();
+    const [first, second] = await Promise.all([module(), module()]);
+    expect(first).toBe(second);
+    expect(module.current).toBe(first);
+    expect(load).toHaveBeenCalledOnce();
+  });
+
+  it("is loaded with the deferred components", async () => {
+    const module = deferredModule(async () => ({ ready: true }));
+    await preloadDeferred();
+    expect(module.current).toEqual({ ready: true });
+  });
+
+  it("tries again after a failed load", async () => {
+    const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ back: true });
+    const module = deferredModule(load);
+    await expect(module()).rejects.toThrow("offline");
+    expect(module.current).toBeUndefined();
+    await expect(module()).resolves.toEqual({ back: true });
   });
 });
