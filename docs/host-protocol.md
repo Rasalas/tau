@@ -869,6 +869,15 @@ kits watch there. Its methods are the owner's alone:
 | `machines-list` | – | `{ machines }`: id, name, status, detail, round trip, address, version, `readOnly`; never a token |
 | `machines-add` | `{ id, name, endpoints, publicKey?, fingerprint?, token, lastUrl?, readOnly? }` | `{ added }`; replaces a machine with the same id |
 | `machines-remove` | `id` | `{ removed }`; the other machine lists the device until its owner revokes it |
+| `machines-overview` | – | `{ window, machines }`: one entry per machine with `window` and `agents` states (status, detail, round trip, address, `readOnly`, version); `window: false` when no Tau window on this machine keeps machines |
+| `machines-pair` | `{ link, agents?, name?, id? }` | Pairs with a pairing link: through the window on this machine when one runs (for itself and, with `agents`, its agents, as Settings → Machines does), else this host pairs its agents alone as `<name> · Agents`. `{ state: "added", machine, window, agents? }`, `{ state: "known", machine }` when nothing is missing, or `denied`/`expired`/`cancelled`/`failed` |
+| `machines-forget` | name or id | `{ id, name, window, agents }`: forgets the machine in the window and the agents' key |
+
+`tau machines` (`bin/tau-machines.mjs`) uses the last three. The window half
+of core (`window`) answers `environments` (the saved machines without keys or
+threads; `null` for a window attached to a host by address),
+`pair-environment` and `remove-environment` for them; the host asks it only
+when `ClientCalls.hasLocalWindow` finds one and never starts one to ask.
 
 A host in the window's process keeps no machines and answers `unsupported`.
 Kits reach the machines through `services.machines`: a kit command there goes
