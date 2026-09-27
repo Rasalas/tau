@@ -9,6 +9,9 @@ import { ConfirmDialog, Dialog } from "./deferred-surfaces";
 import { isMacPlatform } from "./keybindings";
 import { armPasteAsText, disarmPasteAsText, isPasteAsTextChord } from "./paste-as-text";
 
+/** "Tau X is installed" goes after this long unread, or at the next click elsewhere; About and the app menu keep the update's place. */
+export const RELEASE_NOTES_TOAST_MS = 8_000;
+
 /** A released hold's hint stays this long, so it is read rather than flashed. */
 const HOLD_HINT_LINGER_MS = 1_200;
 
@@ -87,19 +90,28 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
   const client = options.client;
   useEffect(() => {
     if (!client) return;
+    let stopWatching = () => {};
     const announce = (release: ReleaseNotes) => {
       const readable = release.items.length > 0;
-      latest.current.toasts.show({
+      const toast = latest.current.toasts.show({
         id: "tau.release-notes",
         type: "success",
         title: `Tau ${release.version} is installed`,
         ...(readable ? { description: "See what changed in this release." } : {}),
-        timeoutMs: 0,
+        timeoutMs: RELEASE_NOTES_TOAST_MS,
         actions: readable
           ? [{ label: "What’s new", run: () => setNotes(release) }]
           : release.url ? [{ label: "Release notes", run: () => latest.current.openExternal(release.url!) }] : [],
-        onClose: () => { void client.windowAction({ kind: "release-notes-seen", version: release.version }).catch(() => undefined); },
+        onClose: () => {
+          stopWatching();
+          void client.windowAction({ kind: "release-notes-seen", version: release.version }).catch(() => undefined);
+        },
       });
+      const onPointer = (event: PointerEvent) => {
+        if (!(event.target instanceof Element && event.target.closest(".toast-stack"))) toast.dismiss();
+      };
+      window.addEventListener("pointerdown", onPointer, true);
+      stopWatching = () => window.removeEventListener("pointerdown", onPointer, true);
     };
     let live = true;
     void client.windowAction({ kind: "status" }).then((answer) => {
@@ -108,7 +120,7 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
       if (status.updateReady) latest.current.setUpdateReady(status.updateReady);
       if (status.releaseNotes) announce(status.releaseNotes);
     }, () => undefined);
-    return () => { live = false; };
+    return () => { live = false; stopWatching(); };
   }, [client]);
 
   const answerQuit = (quit: boolean, dontAskAgain = false) => {
