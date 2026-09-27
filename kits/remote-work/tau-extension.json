@@ -4,7 +4,7 @@
   "description": "Moves a project's work to another machine and brings the result back.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.18.0"
+    "api": "^1.19.0"
   },
   "permissions": [
     "machines",

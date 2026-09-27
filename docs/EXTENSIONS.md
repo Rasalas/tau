@@ -160,7 +160,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `id` | Lowercase, dot-separated; both halves must export it. |
 | `name` | Shown in Settings. |
 | `description` | One sentence, at most 200 characters, that Settings → Extensions shows under the name (optional; new in API 1.18.0). Say what the package does for the user, not how. |
-| `icon` | The [Lucide](https://lucide.dev/icons) icon Settings → Extensions shows beside the name, by its component name: `"Search"`, `"KeyRound"` (optional; new in API 1.18.0). A runtime's mark or the icon of a page or panel the package adds comes first; without all three the list shows the name's first letter. |
+| `icon` | The [Lucide](https://lucide.dev/icons) icon Settings → Extensions shows beside the name, by its component name: `"Search"`, `"KeyRound"` (optional; new in API 1.19.0). A runtime's mark or the icon of a page or panel the package adds comes first; without all three the list shows the name's first letter. |
 | `version` | The package's own semver (optional). |
 | `engines` | Ranges of `tau`, `pi` and `api` this package runs on (all optional; see below). |
 | `permissions` | The permission vocabulary this package asks for (§ below); missing means none. |
@@ -880,7 +880,7 @@ of Settings with its own nav entry, typed `SettingsPageContribution` (`id`,
 `label`, an optional `Icon` the way panels pass theirs, an optional `order`,
 optional `keywords` — the words the Settings search field and the palette find
 the page by besides its label — an optional `scope` (below) and a `Component`
-receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.18.0). A page that also names a
+receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.19.0). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
@@ -1938,7 +1938,7 @@ command to a terminal (`onRunCommand`) rather than showing it; its rows' ids
 start with `idPrefix`. `RuntimeCommandRow` is the executable as a text field,
 inert with the reason while Tau's environment names it (`TAU_<KIND>_COMMAND`
 from `kind` unless `variable` says otherwise). `RuntimeInstanceSetup` (new in
-API 1.18.0: `rowId`) is the instance's setup, Edit, "Add instance…" on the
+API 1.19.0: `rowId`) is the instance's setup, Edit, "Add instance…" on the
 default instance's card and Remove, which asks through `ConfirmDialog`; the
 dialog behind it is `RuntimeInstanceDialog` (name, id taken from the name,
 executable, home, environment as `NAME=value` lines, launch arguments). The
@@ -2459,7 +2459,7 @@ nothing for an extension it has nothing to say about (both new in API 1.18.0;
 Packages Kit's Update and Remove for an installed package are one). The
 component gets `onNotify` and `onChanged`, which reads the page's own data
 again after the section changed something it shows (a new endpoint in the
-address list). It is profile-scoped like a panel. `rows` (new in API 1.18.0)
+address list). It is profile-scoped like a panel. `rows` (new in API 1.19.0)
 are the section's rows the Settings search finds, as on a page: `{ id, label,
 keywords? }`, each the `id` of a `SettingRow` in the section.
 
