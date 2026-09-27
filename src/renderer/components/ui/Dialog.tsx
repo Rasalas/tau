@@ -1,22 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useEscapeLayer } from "./escape-layers";
 import { focusableElements, useFocusReturn, useFocusTrap } from "./focus";
 import { placeFloating, pointRect, viewportSize, type FloatingAlign, type FloatingSide } from "./floating";
-
-/** Escape closes, before anything under the float (an abort, a panel) hears it. */
-function useEscape(onClose: () => void): void {
-  const close = useRef(onClose);
-  close.current = onClose;
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      close.current();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
-}
 
 /**
  * A modal over a scrim, centred in the window: Tab stays inside it, Escape and a click on the scrim
@@ -32,7 +18,7 @@ export function Dialog({ label, className, onClose, children }: {
   const surface = useRef<HTMLElement>(null);
   useFocusReturn(true, surface);
   useFocusTrap(surface);
-  useEscape(onClose);
+  useEscapeLayer(onClose);
   useLayoutEffect(() => {
     const element = surface.current;
     if (!element || element.contains(document.activeElement)) return;
@@ -71,7 +57,7 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
   const close = useRef(onClose);
   close.current = onClose;
   useFocusReturn(true, surface);
-  useEscape(onClose);
+  useEscapeLayer(onClose);
 
   useLayoutEffect(() => {
     const element = surface.current;

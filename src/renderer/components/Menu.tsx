@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { useKeepClear } from "../reserved-region";
+import { useEscapeLayer } from "./ui/escape-layers";
 import { openedByKeyboard, useFocusReturn } from "./ui/focus";
 import { placeFloating, pointRect, viewportSize } from "./ui/floating";
 import { firstEnabled, isTypeaheadKey, lastEnabled, stepEnabled, typeahead, type TypeaheadState } from "./ui/menu-navigation";
@@ -207,16 +208,7 @@ export function Menu({
   const [byKeyboard] = useState(openedByKeyboard);
   useFocusReturn(true, menu);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
+  useEscapeLayer(onClose);
 
   // Stays inside the window: a menu near an edge opens the other way or slides along it.
   useLayoutEffect(() => {
