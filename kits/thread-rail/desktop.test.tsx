@@ -563,3 +563,151 @@ describe("Thread Rail on the desktop", () => {
     });
   });
 });
+
+describe("parking the thread on screen, as in T3 Code", () => {
+  const settled = (sections: ReturnType<RailOrganizer["sections"]>) => sections.find((section) => section.id === "settled")!.threads.map((entry) => entry.id);
+  const opened = (actions: WorkbenchActions) => vi.mocked(actions.switchSession).mock.calls.map((call) => call[0]);
+  const onScreen = (actions: WorkbenchActions, sessionId: string, extra: object = {}) =>
+    vi.mocked(actions.activeThread).mockImplementation(() => ({ sessionId, draftPending: false, ...extra }));
+  function renderLayer(registry: ReturnType<typeof setup>["registry"], organizer: () => RailOrganizer, actions: WorkbenchActions) {
+    const Layer = organizer().Layer!;
+    render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+  }
+
+  it("opens the next active thread once the host has the settle, from the row menu and the shortcut", async () => {
+    const { organizer, actions, registry } = setup();
+    await flush();
+    const threads = [thread("a", 4), thread("b", 3), thread("c", 2), thread("d", 1)];
+    organizer().sections(threads);
+    organizer().runMenu(thread("b"), "settle", actions);
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/c.jsonl"]);
+
+    onScreen(actions, "c");
+    organizer().sections(threads);
+    await registry.executeCommand("thread.settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/c.jsonl", "/sessions/d.jsonl"]);
+    expect(settled(organizer().sections(threads)).sort()).toEqual(["b", "c"]);
+  });
+
+  it("wraps round to the top of the rail, pinned threads first, past threads already parked", async () => {
+    const { organizer, actions, push } = setup();
+    await flush();
+    push({ threads: { p: { pinned: true, pinOrder: 0 }, z: { snoozedUntil: Date.now() + 60_000 } }, settings: { onMerged: true, onClosed: false } });
+    onScreen(actions, "c");
+    organizer().sections([thread("p", 9), thread("a", 3), thread("z", 2), thread("c", 1)]);
+    organizer().runMenu(thread("c"), "snooze:1h", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/p.jsonl"]);
+  });
+
+  it("opens a new draft in the thread's project when no active thread is left", async () => {
+    const { organizer, actions, registry } = setup();
+    await flush();
+    renderLayer(registry, organizer, actions);
+    organizer().sections([thread("b")]);
+    // The row's settle button, which hands over no actions of its own.
+    organizer().toggleSettled(thread("b"));
+    await act(flush);
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    expect(actions.newSession).toHaveBeenCalledWith({ workspace: "/project" });
+  });
+
+  it("skips every thread settled with it, and moves nobody for a thread elsewhere", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    const threads = [thread("a", 4), thread("b", 3), thread("c", 2), thread("d", 1)];
+    organizer().sections(threads);
+    organizer().runMenu(thread("a"), "settle", actions);
+    await flush();
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    organizer().sections(threads);
+    organizer().runBulkMenu!([thread("b", 3), thread("c", 2)], "settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/d.jsonl"]);
+  });
+
+  it("moves on after a drop on the settled shelf and after the snooze dialog", async () => {
+    const { organizer, actions, registry } = setup();
+    await flush();
+    renderLayer(registry, organizer, actions);
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    await act(async () => { organizer().drop(thread("b").id, { sectionId: "settled" }); await flush(); });
+    expect(opened(actions)).toEqual(["/sessions/c.jsonl"]);
+
+    onScreen(actions, "c");
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    await act(async () => { await registry.executeCommand("thread.snooze", actions); });
+    const form = document.querySelector<HTMLFormElement>(".thread-rail-snooze form")!;
+    await act(async () => { fireEvent.submit(form); await flush(); });
+    expect(opened(actions)).toEqual(["/sessions/c.jsonl", "/sessions/a.jsonl"]);
+  });
+
+  it("moves on for core's own Settle, which reaches the rail through the preferences", async () => {
+    const { organizer, actions, registry, preferences } = setup();
+    await flush();
+    renderLayer(registry, organizer, actions);
+    organizer().sections([thread("a", 2), thread("b", 1)]);
+    act(() => preferences.toggleSettled("b"));
+    await act(flush);
+    expect(opened(actions)).toEqual(["/sessions/a.jsonl"]);
+  });
+
+  it("follows the list core draws on a compact client", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    actions.threadListOrder = () => ["c", "b", "a"];
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/a.jsonl"]);
+  });
+
+  it("stays when something covers the thread, when the reader moved first, or when the host refused", async () => {
+    const { organizer, actions, invoke, push } = setup();
+    await flush();
+    const threads = [thread("a", 3), thread("b", 2), thread("c", 1)];
+    onScreen(actions, "b", { covered: true });
+    organizer().sections(threads);
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+
+    onScreen(actions, "c");
+    organizer().sections(threads);
+    organizer().runMenu(thread("c"), "snooze:1h", actions);
+    onScreen(actions, "a");
+    await flush();
+
+    onScreen(actions, "a");
+    organizer().sections(threads);
+    invoke.mockRejectedValueOnce(new Error("offline"));
+    organizer().runMenu(thread("a"), "settle", actions);
+    await flush();
+    await flush();
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    expect(actions.newSession).not.toHaveBeenCalled();
+
+    // The host's own settles (a quiet spell, a merged pull request) never move anyone.
+    onScreen(actions, "b");
+    push({ threads: { b: { settledAt: 9, settledBy: "inactive" } }, settings: { onMerged: true, onClosed: false } });
+    await flush();
+    expect(actions.switchSession).not.toHaveBeenCalled();
+  });
+
+  it("stays on the thread when it is un-settled or woken", async () => {
+    const { organizer, actions, push } = setup();
+    await flush();
+    push({ threads: { b: { settledAt: 1, settledBy: "user" }, z: { snoozedUntil: Date.now() + 60_000 } }, settings: { onMerged: true, onClosed: false } });
+    organizer().sections([thread("a"), thread("b"), thread("z")]);
+    organizer().runMenu(thread("b"), "unsettle", actions);
+    onScreen(actions, "z");
+    organizer().runMenu(thread("z"), "wake", actions);
+    await flush();
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    expect(actions.newSession).not.toHaveBeenCalled();
+  });
+});

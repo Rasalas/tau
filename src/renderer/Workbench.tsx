@@ -52,6 +52,7 @@ import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { lastUsedProject } from "../workbench/new-thread-project";
+import { threadListOrder } from "../workbench/thread-supervision";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -139,6 +140,8 @@ export interface WorkbenchControlHandle {
   closeSheet(id: string): boolean;
   /** A thread was picked: the chat takes the front of a tabbed centre, and a compact client drops its panel sheet. */
   showThread(options?: ShowThreadOptions): void;
+  /** Whether something covers the thread, and on a compact client the order of its thread list. */
+  threadView(): { covered: boolean; listOrder?: readonly string[] };
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -362,6 +365,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
   const pageScreen = compact && !split;
   useCloseOnThreadChange(pages, snapshot?.sessionId, pendingNewThread);
+  const threadViewRef = useRef({ covered: false, project: touchProject });
+  threadViewRef.current = { covered: phoneHome || Boolean(settingsPage || openPage || activeOverlayId), project: touchProject };
   const stageRef = useRef<HTMLElement>(null);
   useImperativeHandle(layout.controlRef, () => ({
     openInstructions: () => setSystemPromptOpen(true),
@@ -391,7 +396,14 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       if (compactRef.current.stacked) setChatFocused(true);
       if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
-  }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, setChatFocused]);
+    threadView: () => {
+      const { covered, project } = threadViewRef.current;
+      if (!compactRef.current.compact) return { covered };
+      // Settled threads keep their unsettled rank: one settling right now still has its place.
+      const { threads } = threadStore.getSnapshot();
+      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, ...(project ? { project } : {}) }) };
+    },
+  }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
   // After the commit that shows the chat: a hidden tab's composer cannot take focus.
   useEffect(() => {
     if (composerFocusRequest > 0) composer.textareaRef.current?.focus();

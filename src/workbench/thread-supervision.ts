@@ -151,6 +151,11 @@ export function threadListGroups(
   return groups;
 }
 
+/** The compact list's threads top to bottom, every page of it. */
+export function threadListOrder(threads: readonly UiSession[], activity: ThreadActivitySnapshot, options: Omit<ThreadListOptions, "shown"> = {}): string[] {
+  return threadListGroups(threads, activity, { ...options, shown: { active: Infinity, settled: Infinity } }).flatMap((group) => group.rows.map((row) => row.id));
+}
+
 export const THREAD_SUPERVISION_LABELS: Record<ThreadSupervisionStatus, string> = {
   waiting: "Waiting for an answer",
   running: "Running",

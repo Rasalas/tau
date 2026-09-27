@@ -7,6 +7,7 @@ import {
   archivePatch,
   decodeState,
   fallbackThread,
+  nextActiveThread,
   inversePatch,
   dropLabel,
   dropPatches,
@@ -264,5 +265,19 @@ describe("archive and undo", () => {
     expect(fallbackThread([other("far", "/two", 9), leaving, other("old", "/one", 1), other("new", "/one", 3)], leaving)?.id).toBe("new");
     expect(fallbackThread([other("far", "/two", 9), leaving], leaving)?.id).toBe("far");
     expect(fallbackThread([leaving], leaving)).toBeUndefined();
+  });
+
+  it("moves past a parked thread to the next one that stays, wrapping round to the top, as T3 Code does", () => {
+    const order = ["p", "a", "b", "c", "d"];
+    const all = () => true;
+    expect(nextActiveThread(order, "b", all)).toBe("c");
+    expect(nextActiveThread(order, "d", all)).toBe("p");
+    // Threads parked in the same batch are skipped.
+    expect(nextActiveThread(order, "b", (id) => !["c", "d"].includes(id))).toBe("p");
+    expect(nextActiveThread(order, "b", (id) => id === "a")).toBe("a");
+    expect(nextActiveThread(["b"], "b", all)).toBeUndefined();
+    expect(nextActiveThread(order, "b", () => false)).toBeUndefined();
+    // A thread the list does not show has no next one.
+    expect(nextActiveThread(order, "x", all)).toBeUndefined();
   });
 });

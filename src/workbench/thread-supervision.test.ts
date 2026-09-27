@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts";
 import { ThreadStore, type ThreadActivitySnapshot } from "./thread-store";
-import { threadAge, threadElapsed, threadListGroups, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
+import { threadAge, threadElapsed, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
 
 function thread(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/p/${id}`, title, modifiedAt, projectPath: "/p", projectName: "p", messageCount: 1 };
@@ -79,6 +79,14 @@ describe("the compact thread list", () => {
     expect(shelf.hidden).toBe(5);
     expect(threadListGroups(threads, idle, { settled, shown: { settled: 20 } })[0].hidden).toBe(0);
     expect(threadListGroups(threads, idle, { query: "flaky" }).flatMap((group) => group.rows.map((row) => row.id))).toEqual(["t3"]);
+  });
+
+  it("gives the whole list's order, past every page", () => {
+    const threads = Array.from({ length: 45 }, (_, index) => thread(`t${index}`, index));
+    const order = threadListOrder(threads, idle, { pinned: ["t0"], settled: ["t44"] });
+    expect(order).toHaveLength(45);
+    expect(order.slice(0, 3)).toEqual(["t0", "t43", "t42"]);
+    expect(order.at(-1)).toBe("t44");
   });
 
   it("lists no session nobody wrote in yet, unless it already runs", () => {

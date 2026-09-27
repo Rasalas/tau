@@ -95,7 +95,15 @@ export interface WorkbenchActions {
     sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; backendKind?: string; draftPending: boolean;
     /** The interaction mode and the modes on offer (API 1.11.0). */
     mode?: string; modes?: readonly string[];
+    /** True while a page, Settings, an overlay or a phone's thread list covers the thread (API 1.20.0). */
+    covered?: boolean;
   } | undefined;
+  /**
+   * Every thread of the list core draws itself (a compact client's), top to
+   * bottom, settled ones where they would stand unsettled; undefined where a
+   * kit's rail is the list (API 1.20.0).
+   */
+  threadListOrder?(): readonly string[] | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
   /**
