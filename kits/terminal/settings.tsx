@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { SegmentedControl, SettingRow, SettingsSection, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
+import { Button, SegmentedControl, SettingRow, SettingsSection, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
 import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, type TerminalPlacement } from "./protocol.js";
 
 /** What the Settings search finds on the page; each id is a row's anchor. */
@@ -14,7 +14,7 @@ const PLACEMENTS: ReadonlyArray<{ value: TerminalPlacement; label: string }> = [
 ];
 
 /** Where the terminal sits. Its font is a row of Settings → Appearance, through `tau.terminal/font`. */
-export function TerminalSettingsPage({ preferences }: SettingsPageProps & { preferences: PreferencesStore }) {
+export function TerminalSettingsPage({ preferences, onOpenSettings }: SettingsPageProps & { preferences: PreferencesStore }) {
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const placement = useSetting<TerminalPlacement>(`values.${TERMINAL_HOST_EXTENSION_ID}.${TERMINAL_PLACEMENT_SETTING}`, {
     defaultValue: "dock",
@@ -37,6 +37,7 @@ export function TerminalSettingsPage({ preferences }: SettingsPageProps & { pref
         id="setting-terminal-font"
         title="Font"
         description="The terminal's font and size are under Appearance → Typography. Left empty, they follow your Ghostty config."
+        control={onOpenSettings ? <Button onClick={() => onOpenSettings("appearance#setting-appearance-terminal-font")}>Open in Appearance</Button> : undefined}
       />
     </SettingsSection>
   </div>;

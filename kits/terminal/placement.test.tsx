@@ -36,13 +36,17 @@ describe("Settings → Terminal", () => {
     const { registry, preferences } = createKitHarness();
     registry.activate(terminal);
     const page = registry.getSettingsPages().find((entry) => entry.id === "terminal.settings")!;
-    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    const onOpenSettings = vi.fn();
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} onOpenSettings={onOpenSettings} /></TestProviders>);
     expect(screen.getByRole("heading", { level: 3, name: "Show the terminal in" })).toBeTruthy();
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Show the terminal in" })).getByRole("radio", { name: "Drawer" }));
     expect(preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING)).toBe("drawer");
     expect(registry.getPanels().find((panel) => panel.id === TERMINAL_PANEL)?.placement).toBe("drawer");
     expect(page.rows?.length).toBe(2);
     for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
+    // The font is Appearance's row; the button opens it there.
+    fireEvent.click(screen.getByRole("button", { name: "Open in Appearance" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("appearance#setting-appearance-terminal-font");
     cleanup();
     registry.deactivate(terminal.id);
   });
