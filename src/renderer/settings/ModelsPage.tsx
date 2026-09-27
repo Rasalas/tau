@@ -21,8 +21,10 @@ const THINKING_LABELS: Record<string, string> = { off: "Off", minimal: "Minimal"
  * thinks, the program that runs it and the sampling Pi sends. Core's, so safe
  * mode still has a model picker.
  */
-export function ModelsPage({ snapshot, onSetModel, onSetThinking, onOpen }: {
+export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking, onOpen }: {
   snapshot?: HostSnapshot;
+  /** Whether this client has the Providers page to send the user to. */
+  providersHere: boolean;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   /** Opens another place in Settings. */
@@ -86,7 +88,7 @@ export function ModelsPage({ snapshot, onSetModel, onSetThinking, onOpen }: {
             status={updates.length > 0 ? (
               <div className="settings-runtime-updates" role="status">
                 {updates.map((update) => <p key={update.kind}><Badge tone="warn" dot>{update.tag}</Badge><span>{update.text}</span></p>)}
-                <Button variant="ghost" onClick={() => onOpen("providers")}>Update on Providers</Button>
+                {providersHere ? <Button variant="ghost" onClick={() => onOpen("providers")}>Update on Providers</Button> : null}
               </div>
             ) : undefined}
             control={<SegmentedControl
@@ -118,13 +120,15 @@ export function ModelsPage({ snapshot, onSetModel, onSetThinking, onOpen }: {
         />
       </SettingsSection>
 
-      <SettingsSection title="Where models come from">
-        <SettingRow
-          title="Providers and sign-ins"
-          description="Each runtime's program, its version and sign-in, and the models it offers."
-          control={<Button onClick={() => onOpen("providers")}>Open Providers</Button>}
-        />
-      </SettingsSection>
+      {providersHere ? (
+        <SettingsSection title="Where models come from">
+          <SettingRow
+            title="Providers and sign-ins"
+            description="Each runtime's program, its version and sign-in, and the models it offers."
+            control={<Button onClick={() => onOpen("providers")}>Open Providers</Button>}
+          />
+        </SettingsSection>
+      ) : null}
 
       {pickerOpen ? (
         <ModelPicker

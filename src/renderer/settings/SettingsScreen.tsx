@@ -435,7 +435,7 @@ export function SettingsScreen({
               {page === "general" ? (
                 <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} />
               ) : page === "models" ? (
-                <ModelsPage snapshot={snapshot} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
+                <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
               ) : page === "keybindings" ? (
                 <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
               ) : page === "pi" ? (

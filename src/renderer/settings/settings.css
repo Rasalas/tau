@@ -129,7 +129,11 @@
 .settings-group > .settings-row:first-child { border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); }
 .settings-group > .settings-row:last-child { border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); }
 .settings-row-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-8); }
-@container (max-width: 560px) { .settings-row-main { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
+@container (max-width: 560px) {
+  .settings-row-main { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  /* A switch stays beside what it turns on; it needs no row of its own. */
+  .settings-row-main:has(> .settings-row-control > .switch:only-child, > .settings-row-control > .settings-row-control-inert > .switch:only-child) { grid-template-columns: minmax(0, 1fr) auto; }
+}
 .settings-row-text { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-row-title { position: relative; display: flex; align-items: center; gap: 6px; min-height: 20px; }
 .settings-row-title > h3 { margin: 0; font: 500 13px var(--sans); letter-spacing: -.005em; color: var(--ink); }
@@ -584,3 +588,5 @@
 .extension-glyph > .provider-icon-stack { margin: 0; }
 .extension-glyph[data-size="lg"] > .provider-icon-stack { transform: scale(1.4); }
 .connection-field-hint { color: var(--muted); font: 12px/1.4 var(--sans); }
+.settings-screen.stacked .extensions-filters > label { height: 36px; padding: 0 13px; font-size: 14px; }
+.settings-screen.stacked .extensions-filters > label::after { content: ""; position: absolute; inset: -4px 0; }
