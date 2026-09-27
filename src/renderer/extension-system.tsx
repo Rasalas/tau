@@ -100,7 +100,8 @@ export interface WorkbenchActions {
   } | undefined;
   /**
    * Every thread of the list core draws itself (a compact client's), top to
-   * bottom; undefined where a kit's rail is the list (API 1.20.0).
+   * bottom, settled ones where they would stand unsettled; undefined where a
+   * kit's rail is the list (API 1.20.0).
    */
   threadListOrder?(): readonly string[] | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */

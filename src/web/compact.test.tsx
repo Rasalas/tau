@@ -232,6 +232,9 @@ describe("the web client at 400 px", () => {
     await waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]).toEqual({ covered: true, order: ["t-a", "t-b", "t-c"] });
 
+    // A settled thread keeps its place, so a kit that plans after the settle still finds it.
+    swipe(rowNamed("Ship the web client").querySelector(".swipe-row")!, 380, 60);
+    await screen.findByRole("button", { name: "Settled · 1" });
     await openChat();
     fireEvent.click(document.querySelector(".thread-title-trigger")!);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Look" }));

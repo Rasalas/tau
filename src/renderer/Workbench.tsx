@@ -399,9 +399,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     threadView: () => {
       const { covered, project } = threadViewRef.current;
       if (!compactRef.current.compact) return { covered };
-      const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
+      // Settled threads keep their unsettled rank: one settling right now still has its place.
       const { threads } = threadStore.getSnapshot();
-      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: pinnedThreadIds, settled: settledThreadIds, ...(project ? { project } : {}) }) };
+      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, ...(project ? { project } : {}) }) };
     },
   }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
   // After the commit that shows the chat: a hidden tab's composer cannot take focus.

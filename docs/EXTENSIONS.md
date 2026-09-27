@@ -1186,8 +1186,9 @@ covers the thread on screen: a page, Settings, an overlay, or a phone's thread
 list, which is its home and leaves the last thread open behind it. A kit that
 moves the reader because of the thread on screen checks it first.
 `actions.threadListOrder()` (new in API 1.20.0) answers the thread ids of the
-list core draws itself, a compact client's, top to bottom and past its paging;
-it is undefined where a kit's rail is the list. Thread Rail reads both when the
+list core draws itself, a compact client's, top to bottom and past its paging,
+with settled threads ranked where they would stand unsettled (so a thread that
+is settling has its place still); it is undefined where a kit's rail is the list. Thread Rail reads both when the
 user parks the thread on screen (below).
 
 One consequence for `pinTranscriptEntries`: your provider is now also called
