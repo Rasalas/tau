@@ -18,7 +18,7 @@ function below(button: HTMLElement | null): { x: number; y: number } {
 
 /** Below this the split buttons fold into the tab bar's menu. */
 const NARROW_PANEL = 300;
-const ROOMY_PANEL = 520;
+const ROOMY_PANEL = 640;
 
 export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const { sessions, activeSessionId: switched, layout } = useTerminalKit();
