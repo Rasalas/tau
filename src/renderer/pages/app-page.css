@@ -18,3 +18,11 @@
 .app-page.stacked .app-page-bar ol { font-size: 15px; }
 .app-page.stacked .app-page-back { width: 44px; height: 44px; justify-content: center; padding: 0; color: var(--ink-2); }
 .app-page.stacked .settings-content { padding: 16px 12px calc(32px + env(safe-area-inset-bottom, 0px)); }
+/* A main page of a phone: the bottom navigation under it keeps the home indicator's room. */
+.app-page.stacked.with-nav { flex-direction: column; }
+.app-page.stacked.with-nav .settings-content { padding-bottom: 32px; }
+.app-page.stacked .app-page-bar:not(:has(> .app-page-back)) { padding-left: 16px; }
+/* A phone's bar names the view on screen only; Back names the page. */
+.app-page.stacked .app-page-bar li:not(.current) { display: none; }
+.app-page.stacked .app-page-bar li.current { min-width: 0; }
+.app-page.stacked .app-page-bar li.current > h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

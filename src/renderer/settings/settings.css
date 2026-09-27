@@ -489,3 +489,5 @@
 .nearby-machines { margin: 0; padding: 0; list-style: none; max-height: 280px; overflow-y: auto; }
 .nearby-machines > .connection-row + .connection-row { border-top: 1px solid var(--line-card); }
 .nearby-machines > .connection-row > svg { flex: none; color: var(--muted); }
+/* A phone's bottom navigation under the sections keeps the home indicator's room itself. */
+.settings-screen.stacked .settings-nav:has(> .phone-nav) .settings-nav-footer { padding-bottom: var(--space-3); }

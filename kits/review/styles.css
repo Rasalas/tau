@@ -377,6 +377,23 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-list-more { display: flex; justify-content: center; padding: 14px 0 4px; color: var(--muted); font-size: 11.5px; }
 .pr-list-more > span { display: inline-flex; align-items: center; gap: 6px; }
 
+/* A phone: the Pull Requests page as a main page. Controls a finger can hit, the title on lines of its own, no label chips. */
+body[data-profile="compact"] .pr-list-view.on-page { font-size: 13px; }
+body[data-profile="compact"] .pr-list-view.on-page .pr-list-head { gap: 6px; padding: 4px 12px 8px; }
+body[data-profile="compact"] .pr-list-view.on-page .pr-list-body { padding: 4px 4px 24px; }
+body[data-profile="compact"] .pr-list-view .icon-button { width: 44px; height: 44px; }
+body[data-profile="compact"] .pr-list-view .pr-list-title .mini-button,
+body[data-profile="compact"] .pr-list-controls .mini-button { min-height: 44px; font-size: 13px; }
+body[data-profile="compact"] .pr-list-controls { gap: 6px; }
+body[data-profile="compact"] .pr-list-search { flex: 1 0 100%; height: 44px; min-width: 0; }
+body[data-profile="compact"] .pr-list-controls .toggle-group > button { min-height: 40px; padding-inline: 12px; font-size: 13px; }
+body[data-profile="compact"] .pr-row { min-height: 56px; padding: 10px 12px; }
+body[data-profile="compact"] .pr-row-line:first-child { flex-wrap: wrap; row-gap: 2px; }
+body[data-profile="compact"] .pr-row-title { order: -1; flex: 1 0 100%; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 15px; line-height: 1.3; }
+body[data-profile="compact"] .pr-row-line.meta { font-size: 12px; }
+body[data-profile="compact"] .pr-row-line.meta :is(.pr-label, .pr-row-more) { display: none; }
+body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto; }
+
 /* Review: the one composer, held line comments, resolve, the chip pickers and the whitespace switch. */
 .pr-composer { display: flex; flex-direction: column; gap: 8px; }
 .pr-composer .toggle-group { align-self: flex-start; }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Archive, Bot } from "lucide-react";
+import { Archive, Bot, ChartColumn, GitPullRequest } from "lucide-react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiSession } from "../shared/contracts";
 import type { DesktopExtension } from "../renderer/extension-system";
@@ -79,6 +79,12 @@ function renderHome(extensions: DesktopExtension[] = [], projects = PROJECTS): F
   return renderCompactClient({ bootstrap: bootstrapWith(THREADS, { home: true, projects }) }, extensions);
 }
 
+/** A phone opens on its list; a tap on a row shows that thread's chat. */
+async function openChat(title = "Rename the store"): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: `Open thread ${title}` }));
+  await screen.findByRole("button", { name: "Back to threads" });
+}
+
 const rowNamed = (title: string) => screen.getByRole("button", { name: `Open thread ${title}` }).closest("li") as HTMLElement;
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
@@ -144,7 +150,7 @@ describe("the web client at 400 px", () => {
 
   it("answers a Pi confirm on the thread that is open", async () => {
     const client = renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
+    await openChat();
     client.emit({ type: "extension-ui-prompt", sessionId: "t-a", prompt: { id: "q7", sessionId: "t-a", kind: "confirm", title: "Run the migration?" } });
     await screen.findByText("Run the migration?");
     fireEvent.click(screen.getByRole("button", { name: /Yes/u }));
@@ -155,7 +161,7 @@ describe("the web client at 400 px", () => {
 
   it("sends a prompt from the composer at the bottom", async () => {
     const client = renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
+    await openChat();
     const textarea = await screen.findByRole("textbox");
     fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -165,11 +171,9 @@ describe("the web client at 400 px", () => {
 
   it("draws no workspace dock and no thread column: this client cannot", async () => {
     renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
+    await openChat();
     expect(document.querySelector(".instrument-dock")).toBeNull();
     expect(document.querySelector(".session-rail")).toBeNull();
-    // The list is reachable from the chrome once a thread is open, too.
-    expect(screen.getByRole("button", { name: "Threads" })).toBeTruthy();
   });
 
   it("settles a thread with a full swipe and brings it back from the settled shelf", async () => {
@@ -208,7 +212,7 @@ describe("the web client at 400 px", () => {
 
   it("opens a panel that claims compact over the thread, and leaves the rest out", async () => {
     renderCompactClient({}, [probe]);
-    await screen.findByRole("button", { name: "Threads" });
+    await openChat();
     expect(screen.queryByRole("button", { name: "Files" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     const sheet = await screen.findByRole("dialog", { name: "Agents" });
@@ -229,7 +233,7 @@ describe("the web client at 400 px", () => {
       },
     };
     renderCompactClient({}, [probe, asking]);
-    await screen.findByRole("button", { name: "Threads" });
+    await openChat();
     // Two panels or more fold into the bar's More menu on a phone.
     const openFromMenu = async (label: string) => {
       fireEvent.click(screen.getByRole("button", { name: "More" }));
@@ -249,10 +253,8 @@ describe("the web client at 400 px", () => {
 
   it("finds a thread from the search popover and starts a new one from the floating button", async () => {
     const client = renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
-    const threads = await screen.findByRole("dialog", { name: "Threads" });
-    fireEvent.click(within(threads).getByRole("button", { name: "Search threads" }));
+    const home = await screen.findByRole("region", { name: "Threads" });
+    fireEvent.click(within(home).getByRole("button", { name: "Search threads" }));
     const field = await screen.findByRole("searchbox", { name: "Search threads" });
     await waitFor(() => expect(document.activeElement).toBe(field));
     fireEvent.change(field, { target: { value: "nothing like it" } });
@@ -260,29 +262,31 @@ describe("the web client at 400 px", () => {
     fireEvent.change(field, { target: { value: "flaky" } });
     fireEvent.click(within(screen.getByRole("list", { name: "Search results" })).getByRole("button", { name: /Fix the flaky test/u }));
     await waitFor(() => expect(client.calls.find((call) => call.method === "switchSession")?.args[0]).toBe("/sessions/t-c.json"));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Threads" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Threads" })).toBeNull());
 
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
-    const again = await screen.findByRole("dialog", { name: "Threads" });
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+    const again = await screen.findByRole("region", { name: "Threads" });
     expect(within(again).getAllByRole("button", { name: "New thread" })).toHaveLength(1);
     expect(within(again).getByRole("button", { name: "New thread" }).className).toBe("touch-fab");
   });
 
-  it("opens Settings as a list of sections, a page after a tap, and back", async () => {
+  it("opens Settings from the bottom navigation as a list of sections, a page after a tap, and back", async () => {
     renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
-    const threads = await screen.findByRole("dialog", { name: "Threads" });
-    fireEvent.click(within(threads).getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("region", { name: "Threads" });
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("button", { name: "Settings" }));
     const settings = await screen.findByRole("dialog", { name: "Settings" });
     expect(settings.dataset.view).toBe("sections");
+    // A main page: the bar is under it and there is no Close.
+    expect(within(settings).getByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(within(settings).queryByRole("button", { name: "Close settings" })).toBeNull();
     fireEvent.click(within(settings).getByRole("button", { name: "About" }));
     expect(settings.dataset.view).toBe("page");
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     fireEvent.click(within(settings).getByRole("button", { name: "All settings" }));
     expect(settings.dataset.view).toBe("sections");
-    fireEvent.click(within(settings).getByRole("button", { name: "Close settings" }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("button", { name: "Threads" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
   });
 
   it("names the host a native shell put on screen and runs the shell's own action from More", async () => {
@@ -297,9 +301,7 @@ describe("the web client at 400 px", () => {
       services={createRendererServices()}
       environment={{ ...webClientEnvironment("compact"), shell: { hostLabel: "Studio Mac", actions: [{ id: "hosts", label: "Hosts", run: () => switched.push("hosts") }] } }}
     />);
-    await screen.findByRole("button", { name: "Threads" });
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
-    const threads = await screen.findByRole("dialog", { name: "Threads" });
+    const threads = await screen.findByRole("region", { name: "Threads" });
     // The list's title stays "Threads"; the host is named in More.
     expect(within(threads).queryByText("Studio Mac")).toBeNull();
     fireEvent.click(within(threads).getByRole("button", { name: "More" }));
@@ -309,18 +311,14 @@ describe("the web client at 400 px", () => {
     await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Hosts" })).toBeNull());
   });
 
-  it("opens the thread list as a sheet from the title bar", async () => {
+  it("goes back from a chat to the list with the button in its bar", async () => {
     renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
-    const sheet = await screen.findByRole("dialog", { name: "Threads" });
-    expect(within(sheet).getByRole("button", { name: "Open thread Rename the store" })).toBeTruthy();
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Threads" })).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
-    const reopened = await screen.findByRole("dialog", { name: "Threads" });
-    fireEvent.click(within(reopened).getByRole("button", { name: "Close threads" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Threads" })).toBeNull());
+    await openChat();
+    expect(screen.queryByRole("region", { name: "Threads" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+    const home = await screen.findByRole("region", { name: "Threads" });
+    expect(within(home).getByRole("button", { name: "Open thread Rename the store" })).toBeTruthy();
+    expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(true);
   });
 });
 
@@ -408,7 +406,7 @@ describe("a touch keyboard", () => {
     vi.stubGlobal("matchMedia", matchMedia);
     try {
       const client = renderCompactClient();
-      await screen.findByRole("button", { name: "Threads" });
+      await openChat();
       const textarea = await screen.findByRole("textbox");
       expect(textarea.getAttribute("placeholder")).toBe("Direct the agent");
       fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });
@@ -431,9 +429,122 @@ describe("the address of the open thread", () => {
     expect(client.calls.filter((call) => call.method === "switchSession")).toHaveLength(1);
   });
 
-  it("writes the open thread into the address", async () => {
+  it("writes the open thread into the address, and none on the list", async () => {
     renderCompactClient();
-    await screen.findByRole("button", { name: "Threads" });
+    await screen.findByRole("region", { name: "Threads" });
+    expect(new URL(window.location.href).searchParams.get("thread")).toBeNull();
+    await openChat();
     await waitFor(() => expect(new URL(window.location.href).searchParams.get("thread")).toBe("t-a"));
+  });
+});
+
+/** Pages as the Usage and Review kits register them: one a phone may show, with a view; one it may not. */
+const pageProbe: DesktopExtension = {
+  id: "test.pages",
+  name: "Pages probe",
+  activate(plugin) {
+    plugin.registerPage({
+      id: "probe.usage", label: "Usage", Icon: ChartColumn, order: 20, profiles: ["desktop", "web", "compact"],
+      Component: ({ params, navigate }) => params.detail
+        ? <p>usage detail</p>
+        : <button type="button" onClick={() => navigate({ detail: true }, { label: "Prices" })}>Show prices</button>,
+    });
+    plugin.registerPage({ id: "probe.requests", label: "Pull requests", Icon: GitPullRequest, order: 10, profiles: ["desktop", "compact"], Component: () => <p>requests body</p> });
+    plugin.registerPage({ id: "probe.desk", label: "Desk only", profiles: ["desktop"], Component: () => <p>desk body</p> });
+  },
+};
+
+const bar = () => screen.queryByRole("navigation", { name: "Main" });
+const tab = (label: string) => within(bar()!).getByRole("button", { name: label });
+const param = (name: string) => new URL(window.location.href).searchParams.get(name);
+
+describe("a phone's home and bottom navigation", () => {
+  it("has the bar on its list: Threads, the pages a phone may show in their order, Settings", async () => {
+    renderCompactClient({}, [pageProbe]);
+    await screen.findByRole("region", { name: "Threads" });
+    await waitFor(() => expect(within(bar()!).getAllByRole("button").map((button) => button.textContent)).toEqual(["Threads", "Pull requests", "Usage", "Settings"]));
+    expect(tab("Threads").getAttribute("aria-current")).toBe("page");
+  });
+
+  it("shows a chat as a sub-page without the bar; the system's back returns to the list", async () => {
+    renderCompactClient({}, [pageProbe]);
+    await openChat();
+    expect(bar()).toBeNull();
+    await waitFor(() => expect(param("thread")).toBe("t-a"));
+    act(() => window.history.back());
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
+    await waitFor(() => expect(param("thread")).toBeNull());
+    expect(bar()).toBeTruthy();
+    // The same thread again: a new entry, and the button leaves it as back would.
+    await openChat();
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
+    await waitFor(() => expect(param("thread")).toBeNull());
+  });
+
+  it("puts the list under a chat a link opened, so back lands on the list", async () => {
+    window.history.replaceState(null, "", "/?thread=t-c");
+    const client = renderCompactClient({}, [pageProbe]);
+    await waitFor(() => expect(client.calls.find((call) => call.method === "switchSession")?.args[0]).toBe("/sessions/t-c.json"));
+    await screen.findByRole("button", { name: "Back to threads" });
+    act(() => window.history.back());
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
+    expect(param("thread")).toBeNull();
+  });
+
+  it("opens a page from the bar as a main page; a view it steps into hides the bar, and back steps out", async () => {
+    renderCompactClient({}, [pageProbe]);
+    await screen.findByRole("region", { name: "Threads" });
+    await waitFor(() => expect(bar()).toBeTruthy());
+    fireEvent.click(tab("Usage"));
+    const page = await screen.findByRole("region", { name: "Usage" });
+    expect(param("page")).toBe("probe.usage");
+    await waitFor(() => expect(within(page).getByRole("navigation", { name: "Main" })).toBeTruthy());
+    expect(tab("Usage").getAttribute("aria-current")).toBe("page");
+    // A main page has no back of its own.
+    expect(within(page).queryByRole("button", { name: "Back" })).toBeNull();
+
+    fireEvent.click(within(page).getByRole("button", { name: "Show prices" }));
+    expect(await within(page).findByText("usage detail")).toBeTruthy();
+    expect(bar()).toBeNull();
+    act(() => window.history.back());
+    expect(await within(page).findByRole("button", { name: "Show prices" })).toBeTruthy();
+    await waitFor(() => expect(bar()).toBeTruthy());
+
+    // Another destination takes the page's place; back still leads home.
+    fireEvent.click(tab("Pull requests"));
+    expect(await screen.findByText("requests body")).toBeTruthy();
+    await waitFor(() => expect(param("page")).toBe("probe.requests"));
+    act(() => window.history.back());
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("requests body")).toBeNull());
+    expect(param("page")).toBeNull();
+  });
+
+  it("leaves a Settings section by the system's back, then Settings", async () => {
+    renderCompactClient({}, [pageProbe]);
+    await screen.findByRole("region", { name: "Threads" });
+    await waitFor(() => expect(bar()).toBeTruthy());
+    fireEvent.click(tab("Settings"));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    await waitFor(() => expect(param("settings")).toBe(""));
+    fireEvent.click(within(settings).getByRole("button", { name: "About" }));
+    await waitFor(() => expect(param("settings")).toBe("about"));
+    expect(bar()).toBeNull();
+    act(() => window.history.back());
+    await waitFor(() => expect(settings.dataset.view).toBe("sections"));
+    expect(bar()).toBeTruthy();
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
+  });
+
+  it("opens a page a link names over the list", async () => {
+    window.history.replaceState(null, "", "/?page=probe.usage");
+    renderCompactClient({}, [pageProbe]);
+    expect(await screen.findByRole("region", { name: "Usage" })).toBeTruthy();
+    act(() => window.history.back());
+    expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Usage" })).toBeNull());
   });
 });

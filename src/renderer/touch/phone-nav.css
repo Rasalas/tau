@@ -1,0 +1,28 @@
+/* A phone's bottom navigation: the last row of each main page, over the home indicator. */
+.phone-nav {
+  flex: none; display: flex; align-items: stretch;
+  padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: var(--rail);
+  /* The one line it needs: content scrolls up to it. */
+  box-shadow: 0 -1px 0 var(--line-soft);
+}
+/* The on-screen keyboard has the bottom edge while it is up. */
+body[data-keyboard] .phone-nav { display: none; }
+.phone-nav-item {
+  flex: 1 1 0; min-width: 0; min-height: 60px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 6px 2px 8px; border: 0; background: transparent; cursor: pointer;
+  color: var(--muted); font: 500 12px/1.2 var(--sans);
+}
+.phone-nav-icon {
+  width: 56px; height: 30px; display: grid; place-items: center; border-radius: 15px;
+  transition: background-color var(--motion-fast, 160ms) var(--ease);
+}
+.phone-nav-icon > svg { display: block; }
+.phone-nav-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-nav-item[aria-current="page"] { color: var(--ink); font-weight: 650; }
+.phone-nav-item[aria-current="page"] .phone-nav-icon { background: var(--acid-chip); color: var(--acid-text); }
+.phone-nav-item:active .phone-nav-icon { background: var(--hover-strong); }
+.phone-nav-item:focus-visible { outline: none; }
+.phone-nav-item:focus-visible .phone-nav-icon { box-shadow: 0 0 0 2px var(--focus); }
+@media (prefers-reduced-motion: reduce) { .phone-nav-icon { transition: none; } }
