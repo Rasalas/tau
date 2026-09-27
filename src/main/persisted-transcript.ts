@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { readSessionFile } from "./session-read.js";
 import type { UiComposerCommand, UiMessage, UiToolOutputReadResult } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
@@ -62,7 +62,8 @@ export interface PersistedTranscriptOptions {
 function openBranch(path: string): readonly unknown[] {
   if (!path || !existsSync(path)) throw new Error(MISSING_SESSION_FILE);
   try {
-    return SessionManager.open(path).getBranch();
+    // Read in memory: Pi's open could repair a file another host is writing.
+    return readSessionFile(path).getBranch();
   } catch (error) {
     throw new Error(UNREADABLE_SESSION_FILE, { cause: error });
   }

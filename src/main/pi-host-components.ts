@@ -342,10 +342,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     requireBackend: (kind) => deps.requireBackend(kind),
     permissionLevel: () => seam.permissionLevel(),
   });
+  /** The Pi sessions this host writes; every write to a session file goes through them. */
+  const sessionLocks = new SessionLocks(options.dataFolder ? { dataFolder: options.dataFolder } : {});
   const trash = new ThreadTrash({
     backend: (kind) => seam.backends.get(kind),
     threadDeleted: (sessionId, cwd) => lifecycle.run("purge-thread", () => threadLifecycle.threadDeleted(sessionId, cwd)),
     log: (label, detail) => deps.log(label, detail),
+    holdSession: (path, action, work) => sessionLocks.hold(path, action, work),
   }, {
     // Without a userData folder (tests), a trash of this run only.
     dir: options.threadTrashDir ?? join(tmpdir(), `tau-thread-trash-${randomBytes(6).toString("hex")}`),
@@ -436,7 +439,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
     importThread: async (request) => {
-      const imported = await importSessionFile(request, { sessionsDir: sessionsDirOverride });
+      const imported = await importSessionFile(request, {
+        sessionsDir: sessionsDirOverride,
+        holdSession: (path, work) => sessionLocks.hold(path, "import", work),
+      });
       deps.log("thread.imported", `${imported.sessionId.slice(0, 8)} · from ${request.origin.hostId}`);
       await index.refresh("changes");
       return imported;
@@ -450,6 +456,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       if (thread && sessionId) await deps.abortThread(thread);
     },
     trashedThreads: async () => { await trash.load(); return trash.list(); },
+    sessionLocks,
     clients,
     ...(options.network ? { network: options.network } : {}),
     ...(options.machines ? { machines: options.machines } : {}),
@@ -576,7 +583,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
     runtimeUnavailable: (threadId, reason) => index.setRuntimeError(threadId, reason),
-    sessionLocks: new SessionLocks(options.dataFolder ? { dataFolder: options.dataFolder } : {}),
+    sessionLocks,
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
   /**

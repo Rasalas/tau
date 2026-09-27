@@ -431,4 +431,40 @@ describe("a Pi session two hosts on one machine both reach", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  /** A session in Pi's format 2 without its last newline: two repairs Pi's open would write. */
+  async function olderSession(dir: string, name: string): Promise<string> {
+    const path = join(dir, `${name}.jsonl`);
+    const timestamp = new Date(Date.UTC(2026, 0, 1)).toISOString();
+    await writeFile(path, [
+      JSON.stringify({ type: "session", version: 2, id: name, timestamp, cwd: dir }),
+      JSON.stringify({ type: "message", id: "entry-1", parentId: null, timestamp, message: { role: "user", content: [{ type: "text", text: "Count" }], timestamp: 1 } }),
+    ].join("\n"));
+    return path;
+  }
+
+  it("is not repaired by the host that only reads it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-shared-session-"));
+    try {
+      const path = await olderSession(dir, SESSION_ID);
+      const writer = new SessionLocks({ dataFolder: "/data/window" });
+      await writer.acquire(path);
+      const before = await readFile(path, "utf8");
+      const reader = makeLifecycle({ agentDir: dir, cwd: () => dir, sessionLocks: new SessionLocks({ dataFolder: "/data/service" }) });
+
+      const held = await reader.lifecycle.openForPath(path, "resume");
+      expect(isUnavailableBackend(held.backend)).toBe(true);
+      expect(held.entries.filter((entry) => (entry as { type: string }).type === "message")).toHaveLength(1);
+      await expect(reader.lifecycle.openRecent(dir, dir)).rejects.toThrow(SessionHeldElsewhereError);
+      expect(await readFile(path, "utf8")).toBe(before);
+
+      // Free again: the host that opens it now repairs it, holding it while Pi does.
+      writer.releaseAll();
+      const manager = await reader.lifecycle.openRecent(dir, dir);
+      expect(manager.getSessionFile()).toBe(path);
+      expect(JSON.parse((await readFile(path, "utf8")).split("\n")[0]!)).toMatchObject({ version: 3 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

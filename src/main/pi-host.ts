@@ -728,7 +728,7 @@ export class PiHost {
   }
 
   private async initialSessionManager(cwd: string): Promise<SessionManager> {
-    return SessionManager.continueRecent(cwd, this.sessionsDirOverride);
+    return this.runtimes.openRecent(cwd, this.sessionsDirOverride);
   }
 
   private async openInitialThread(cwd: string): Promise<ThreadRuntime> {
