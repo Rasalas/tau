@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { Bell, CircleAlert, CircleCheck, MessageCircleQuestionMark, ShieldQuestionMark, X, type LucideIcon } from "lucide-react";
-import { SettingRow, SettingsSection, useSetting } from "tau";
+import { Bell, CircleAlert, CircleCheck, MessageCircleQuestionMark, Play, ShieldQuestionMark, X, type LucideIcon } from "lucide-react";
+import { Button, SegmentedControl, SettingRow, SettingsSection, Switch, useSetting } from "tau";
 import type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -281,30 +281,22 @@ function createSettingsPage(context: DesktopExtensionContext) {
           When a thread finishes, fails or asks you something and you are not looking at it. One window hears of it — the
           one you used last — and the app icon counts the threads you have not opened since.
         </p>
-        <SettingsSection title="When a thread needs you" headerAction={<button type="button" className="text-button" onClick={test}>Send a test notification</button>}>
+        <SettingsSection title="When a thread needs you" headerAction={<Button variant="ghost" onClick={test}>Send a test notification</Button>}>
           <SettingRow
             id="setting-notifications-mode"
             title="Tell me with"
             description={attention ? "A system notification, a sound, both, or nothing." : "This client cannot show system notifications; sounds, toasts and nothing else."}
             setting={mode}
-            control={<div className="segmented" role="group" aria-label="When a thread needs you">
-              {MODES.map((entry) => (
-                <button key={entry.value} type="button" className={mode.value === entry.value ? "active" : ""} aria-pressed={mode.value === entry.value} onClick={() => choose(entry.value)}>{entry.label}</button>
-              ))}
-            </div>}
+            control={<SegmentedControl label="Tell me with" value={mode.value} options={MODES} onChange={choose} />}
           />
           <SettingRow
             id="setting-notifications-sound"
             title="Sound"
-            description="What plays when the mode includes a sound."
+            description="What plays when the mode includes a sound. Choosing one plays it."
             setting={sound}
             control={<>
-              <div className="segmented" role="group" aria-label="Sound">
-                {SOUNDS.map((entry) => (
-                  <button key={entry.value} type="button" className={sound.value === entry.value ? "active" : ""} aria-pressed={sound.value === entry.value} onClick={() => { sound.set(entry.value); playSound(entry.value); }}>{entry.label}</button>
-                ))}
-              </div>
-              <button type="button" className="text-button" onClick={() => playSound(sound.value)}>Play</button>
+              <SegmentedControl label="Sound" value={sound.value} options={SOUNDS} onChange={(next) => { sound.set(next); playSound(next); }} />
+              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]}`} onClick={() => playSound(sound.value)}>Play</Button>
             </>}
           />
         </SettingsSection>
@@ -314,14 +306,14 @@ function createSettingsPage(context: DesktopExtensionContext) {
             title="Show a toast instead"
             description="When another thread is on screen, a toast in the window replaces the notification."
             setting={toasts}
-            control={<button type="button" role="switch" aria-checked={toasts.value} aria-label="Show a toast instead" className={`switch ${toasts.value ? "on" : ""}`} onClick={() => toasts.set(!toasts.value)}><i /></button>}
+            control={<Switch label="Show a toast instead" checked={toasts.value} onChange={toasts.set} />}
           />
           <SettingRow
             id="setting-notifications-when-focused"
             title="Also for the thread on screen"
             description="Notify and play the sound while you are looking at it."
             setting={whenFocused}
-            control={<button type="button" role="switch" aria-checked={whenFocused.value} aria-label="Also for the thread on screen" className={`switch ${whenFocused.value ? "on" : ""}`} onClick={() => whenFocused.set(!whenFocused.value)}><i /></button>}
+            control={<Switch label="Also for the thread on screen" checked={whenFocused.value} onChange={whenFocused.set} />}
           />
         </SettingsSection>
       </div>
@@ -329,13 +321,24 @@ function createSettingsPage(context: DesktopExtensionContext) {
   };
 }
 
+/** What the Settings search finds on the page; each id is a row's anchor. */
+export const NOTIFICATION_ROWS = [
+  { id: "setting-notifications-mode", label: "Tell me with", keywords: ["notification", "sound", "alert", "off", "system notification"] },
+  { id: "setting-notifications-sound", label: "Sound", keywords: ["chime", "ping", "play", "audio"] },
+  { id: "setting-notifications-toasts", label: "Show a toast instead", keywords: ["toast", "in-window", "banner"] },
+  { id: "setting-notifications-when-focused", label: "Also for the thread on screen", keywords: ["focused", "on screen", "current thread"] },
+];
+
 const notifications: DesktopExtension = {
   id: ID,
   name: "Notifications",
   activate(context) {
     const coordinator = coordinate(context);
     context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createToastRegion(coordinator) });
-    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"], Component: createSettingsPage(context) });
+    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"],
+      rows: NOTIFICATION_ROWS,
+      Component: createSettingsPage(context),
+    });
     return () => coordinator.dispose();
   },
 };
