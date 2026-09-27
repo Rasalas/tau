@@ -5,7 +5,9 @@
 .pi-provider-group { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-6) var(--space-6) var(--space-2); }
 .pi-provider-group > h4 { margin: 0; font: 500 12.5px var(--sans); color: var(--ink-3); }
 .pi-provider-group > small { font: 12px var(--sans); color: var(--faint); }
-.pi-provider-mark { display: inline-flex; margin-right: 8px; vertical-align: -2px; }
+.pi-provider-mark { display: inline-flex; justify-content: center; width: 18px; margin-right: 8px; vertical-align: -2px; }
+/* The line under a provider's name starts where the name does. */
+.settings-row-title:has(.pi-provider-mark:not(:empty)) + p { padding-left: 26px; }
 .pi-provider-mark:empty { display: none; }
 .pi-provider-detail { margin-top: var(--space-4); border: 1px solid var(--line-inset); border-radius: var(--radius-md); overflow: hidden; }
 .pi-provider-detail > * + * { border-top: 1px solid var(--line-inset); }
