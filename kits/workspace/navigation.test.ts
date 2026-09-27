@@ -98,7 +98,7 @@ describe("rail sections", () => {
     const threads = [{ ...session("new"), modifiedAt: 3 }, { ...session("pinned"), modifiedAt: 1 }, { ...session("done"), modifiedAt: 2 }];
     const [active, settled] = defaultRailSections(threads, ["pinned"], ["done"], true);
     expect(active.threads.map((entry) => entry.id)).toEqual(["pinned", "new"]);
-    expect(settled).toMatchObject({ label: "Settled", shelf: true, settled: true });
+    expect(settled).toMatchObject({ label: "Settled", shelf: true, collapsed: true, settled: true });
     expect(settled.threads.map((entry) => entry.id)).toEqual(["done"]);
     expect(defaultRailSections(threads, [], ["done"], false)[0].threads.map((entry) => entry.id)).toEqual(["new", "done", "pinned"]);
   });

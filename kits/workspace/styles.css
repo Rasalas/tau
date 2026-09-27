@@ -133,16 +133,16 @@
 .thread-search button:hover { color: var(--ink); }
 
 /*
- * Active threads above, shelves (snoozed, settled) pinned to the rail's lower third, as in
- * T3 Code: the active list keeps two thirds even when short, each part scrolls on its own.
+ * One scroll, as in T3 Code: the shelves (snoozed, settled) follow the active threads. While those
+ * are few the shelves sit at the rail's bottom; a long list pushes them down to its end.
  */
 .session-list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.rail-active { flex: 1 1 0; min-height: 0; overflow: auto; padding: calc(10px * var(--density)) calc(10px * var(--density)) var(--space-3); }
-.rail-active-rows, .rail-shelves { display: flex; flex-direction: column; gap: var(--space-2); }
-.rail-shelves {
-  flex: 0 0 34%; min-height: 0; overflow: auto;
-  padding: 0 calc(10px * var(--density)) var(--space-6);
+.rail-active {
+  flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
+  padding: calc(10px * var(--density)) calc(10px * var(--density)) var(--space-3);
 }
+.rail-active-rows { flex: 1 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.rail-shelves { margin-top: auto; display: flex; flex-direction: column; }
 .thread-group-label {
   display: flex; align-items: center; gap: 8px; padding: var(--space-5) var(--space-2) var(--space-2);
   color: var(--faint); font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
@@ -150,14 +150,18 @@
 .thread-group-label > i { flex: 1; height: 1px; background: var(--line); }
 
 .settled-shelf { display: flex; flex-direction: column; gap: 2px; }
+/* T3 Code's shelf header: 32 px, the count only while folded, a chevron that turns when open. */
 .settled-shelf-toggle {
-  display: flex; align-items: center; gap: 8px; padding: 14px 4px 6px;
+  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 4px;
   border: 0; background: transparent; color: var(--faint);
   font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); cursor: pointer;
 }
-.settled-shelf-toggle > i { flex: 1; height: 1px; background: var(--line); }
-.settled-shelf-toggle > b { display: grid; place-items: center; }
+.settled-shelf-toggle > i { flex: 1; min-width: 8px; height: 1px; background: var(--line); }
+.settled-shelf-toggle > b { display: grid; place-items: center; transition: transform var(--motion-fast) ease; }
+.settled-shelf-toggle[aria-expanded="true"] > b { transform: rotate(180deg); }
 .settled-shelf-toggle:hover { color: var(--muted); }
+.rail-section-snoozed > .settled-shelf-toggle { color: var(--info-ink); }
+.rail-section-snoozed > .settled-shelf-toggle > i { background: color-mix(in srgb, var(--info) 20%, transparent); }
 .sidebar-empty { margin: 18px 10px; color: var(--faint); font-size: 12px; }
 
 /* Sections another kit organises the rail into, and dragging a thread between them. */

@@ -1,12 +1,13 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, ChevronRight, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   errorMessage,
   Popover,
   READ_ONLY_REASON,
   ThreadRow,
   tooltipProps,
+  useClientStorage,
   useContextMenu,
   useEscapeLayer,
   useHostCapabilities,
@@ -30,6 +31,7 @@ import { projectIconKey, readProjectIcon, writeProjectIcon } from "./project-ico
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
+import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows as rowsOfShelf, writeShelvesOpen, type ShelvesOpen } from "./rail-shelves.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
@@ -715,7 +717,7 @@ export function defaultRailSections(
   const sorted = threads.slice().sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)) || right.modifiedAt - left.modifiedAt);
   return [
     { id: "active", threads: sorted.filter((session) => !shelved.has(session.id)) },
-    { id: "settled", label: "Settled", shelf: true, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
+    { id: "settled", label: "Settled", shelf: true, collapsed: true, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
   ];
 }
 
@@ -750,7 +752,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [threadLimit, setThreadLimit] = useState(THREAD_PAGE_SIZE);
-  const [shelfOpen, setShelfOpen] = useState<Readonly<Record<string, boolean>>>({});
+  const clientStorage = useClientStorage();
+  const [shelfOpen, setShelfOpen] = useState<ShelvesOpen>(() => readShelvesOpen(clientStorage));
   const [shelfLimits, setShelfLimits] = useState<Readonly<Record<string, number>>>({});
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [navigationIndex, setNavigationIndex] = useState(0);
@@ -768,8 +771,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const compactRows = option("compact-rows", false);
   const order = useMemo(() => readRailOrder(preferences), [preferences, settings]);
 
-  // As in T3 Code, a new scope starts without a selection.
-  useEffect(() => { setSelection(NO_SELECTION); }, [projectFilter]);
+  // As in T3 Code, a new scope starts without a selection and with the settled tail at its first page.
+  useEffect(() => { setSelection(NO_SELECTION); setShelfLimits({}); }, [projectFilter]);
 
   useEffect(() => {
     workspace.projectsOf = threadStore.getProjects;
@@ -905,11 +908,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     />
   );
 
-  const shelfRows = (section: ThreadRailSection) => {
-    const open = !section.shelf || (shelfOpen[section.id] ?? !section.collapsed);
-    const limit = shelfLimits[section.id] ?? THREAD_PAGE_SIZE;
-    return open ? section.threads.slice(0, limit) : [];
-  };
+  const shelfRows = (section: ThreadRailSection) => section.shelf
+    ? rowsOfShelf(section, shelfIsOpen(section, shelfOpen), shelfLimits[section.id] ?? shelfFirstPage(section), activityState.activeThreadId)
+    : section.threads.slice(0, shelfLimits[section.id] ?? THREAD_PAGE_SIZE);
+  const toggleShelf = (id: string, open: boolean) => setShelfOpen((current) => {
+    const next = { ...current, [id]: open };
+    writeShelvesOpen(clientStorage, next);
+    return next;
+  });
 
   /** Every row on screen, top to bottom: what the arrow keys walk and a shift-click spans. */
   const orderIds = [
@@ -945,9 +951,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const renderSection = (section: ThreadRailSection): ReactNode => {
     // An empty section shows its heading only while a thread could be dropped on it.
     if (section.threads.length === 0 && !drag) return null;
-    const open = !section.shelf || (shelfOpen[section.id] ?? !section.collapsed);
+    const open = shelfIsOpen(section, shelfOpen);
     const rows = shelfRows(section);
-    const heading = `${section.label} · ${section.threads.length}`;
+    const heading = section.shelf ? shelfHeading(section, open) : `${section.label} · ${section.threads.length}`;
+    const limit = shelfLimits[section.id] ?? (section.shelf ? shelfFirstPage(section) : THREAD_PAGE_SIZE);
+    const hidden = Math.max(0, section.threads.length - Math.max(limit, rows.length));
     const target = drag?.drop?.sectionId === section.id ? " drop-target" : "";
     return (
       <section key={section.id} className={`${section.shelf ? "settled-shelf" : "rail-section"} rail-section-${section.id}`}>
@@ -956,10 +964,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             className={`settled-shelf-toggle${target}`}
             data-rail-heading={section.id}
             aria-expanded={open}
-            onClick={() => setShelfOpen((current) => ({ ...current, [section.id]: !open }))}
+            onClick={() => toggleShelf(section.id, !open)}
           >
             {heading}<i />
-            <b>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</b>
+            <b><ChevronDown size={12} /></b>
           </button>
         ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
         {rows.map((session, index) => {
@@ -970,10 +978,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             </div>
           );
         })}
-        {open && rows.length < section.threads.length ? (
+        {open && hidden > 0 ? (
           <ShowMoreThreadRow
-            remaining={section.threads.length - rows.length}
-            onClick={() => setShelfLimits((current) => ({ ...current, [section.id]: Math.min(section.threads.length, rows.length + THREAD_PAGE_SIZE) }))}
+            remaining={hidden}
+            onClick={() => setShelfLimits((current) => ({ ...current, [section.id]: Math.min(section.threads.length, limit + SHELF_PAGE) }))}
           />
         ) : null}
       </section>
@@ -1098,7 +1106,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
-        {/* The active threads keep two thirds of the rail; the shelves sit in the lower third, each scrolling on its own. */}
+        {/* One scroll, as in T3 Code: the shelves follow the active threads, and sit at the bottom while those are few. */}
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
@@ -1144,13 +1152,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         {matching.length === 0 && outside.size === 0 ? (
           <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
         ) : null}
-        </div>
-        </div>
 
         {(() => {
           const shelves = sections.slice(mainIndex + 1).map(renderSection).filter(Boolean);
           return shelves.length ? <div className="rail-shelves">{shelves}</div> : null;
         })()}
+        </div>
+        </div>
       </nav>
 
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}

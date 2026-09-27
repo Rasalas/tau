@@ -169,7 +169,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(limited?.getAttribute("data-tooltip")).toContain("continues by itself at");
   });
 
-  it("opens settled history by default and reveals it in batches of twenty-five", async () => {
+  it("folds settled history by default, keeps the open thread, and pages it ten then twenty-five at a time", async () => {
     const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `settled-${index}`,
       path: `/sessions/settled-${index}.jsonl`,
@@ -195,11 +195,20 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     const toggle = await screen.findByRole("button", { name: /Settled · 71/u });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Folded, the shelf still draws the thread on screen, as T3 Code does.
+    expect(screen.getByText("Settled thread 0")).toBeTruthy();
+    expect(screen.queryByText("Settled thread 1")).toBeNull();
+    fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Settled thread 24")).toBeTruthy();
-    expect(screen.queryByText("Settled thread 25")).toBeNull();
+    expect(toggle.textContent).toBe("Settled");
+    expect(screen.getByText("Settled thread 9")).toBeTruthy();
+    expect(screen.queryByText("Settled thread 10")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "+ show 25 more" }));
-    expect(screen.getByText("Settled thread 25")).toBeTruthy();
+    expect(screen.getByText("Settled thread 34")).toBeTruthy();
+    expect(screen.queryByText("Settled thread 35")).toBeNull();
+    // The choice is this client's, and outlives the rail.
+    expect(getClientStorage()?.get("tau.workspace.rail-shelves-open.v1")).toBe(JSON.stringify({ settled: true }));
   });
 
   it("draws the sections, the row menu and the settle button another kit's organizer decides", async () => {
