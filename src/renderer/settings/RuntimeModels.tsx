@@ -1,10 +1,12 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { ArrowDown, ArrowUp, Star } from "lucide-react";
+import { ArrowDown, ArrowUp, Search, Star, X } from "lucide-react";
 import type { TauModelPreferences, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { readModelPreferences } from "../../shared/model-preferences";
 import { billingBadge, formatPrice, formatTokens, modelKey, offeringKey, orderedPositions } from "../components/model-offerings";
 import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalogs } from "../use-runtime-catalog";
+import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
+import { Button, SettingsState } from "./controls";
 import { SettingRow, Switch, useSetting } from "./settings-layout";
 
 /** Above this many models the list gets a filter field. */
@@ -32,8 +34,19 @@ export function arrangeModels(models: readonly UiModel[], preferences: TauModelP
 
 const GROUP_LABELS: Record<Group, string> = { favourite: "Favourites", shown: "All", hidden: "Hidden from the picker" };
 
+/** What the list says while it has no model: on the way, or why none and what to do. */
+function NoModels({ backend, entry }: { backend: UiRuntimeBackend; entry: RuntimeCatalogEntry | undefined }) {
+  if (!entry || entry.status === "loading") return <SettingsState kind="loading" rows={2} title={`Loading ${backend.label}'s models`} />;
+  const reason = entry.status === "unavailable" ? entry.reason : undefined;
+  const description = reason === "not-installed" ? `Install ${backend.label} or set its executable on its card above; its models follow.`
+    : reason === "sign-in-required" ? `Sign in to ${backend.label} on its card above; its models follow.`
+      : entry.status === "unavailable" && entry.message ? entry.message
+        : `${backend.label} lists them once it answers. Check it on its card above.`;
+  return <SettingsState kind="empty" title={`No ${backend.label} models yet`} description={description} />;
+}
+
 /** One runtime's models: favourite, reorder, hide. Written to the level Settings edits. */
-function RuntimeModelList({ backend, models }: { backend: UiRuntimeBackend; models: readonly UiModel[] }) {
+function RuntimeModelList({ backend, models, entry }: { backend: UiRuntimeBackend; models: readonly UiModel[]; entry: RuntimeCatalogEntry | undefined }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const setting = useSetting<TauModelPreferences>(`modelPreferences.${backend.kind}`, {
@@ -82,16 +95,21 @@ function RuntimeModelList({ backend, models }: { backend: UiRuntimeBackend; mode
       description={`${models.length} ${models.length === 1 ? "model" : "models"}${favourites ? ` · ${favourites} ${favourites === 1 ? "favourite" : "favourites"}` : ""}${hidden.size ? ` · ${hidden.size} hidden` : ""}. What the model picker lists for ${backend.label}, and in which order.`}
       setting={setting}
       control={models.length ? (
-        <button type="button" className="text-button" disabled={!setting.writable} onClick={() => write({ ...value, hidden: allHidden ? [] : models.map(modelKey) })}>
+        <Button variant="ghost" disabled={!setting.writable} onClick={() => write({ ...value, hidden: allHidden ? [] : models.map(modelKey) })}>
           {allHidden ? "Show all" : "Hide all"}
-        </button>
+        </Button>
       ) : undefined}
     >
       {models.length > FILTER_THRESHOLD ? (
-        <input className="runtime-models-filter" value={filter} placeholder="Filter models" aria-label={`Filter ${backend.label} models`} spellCheck={false} onChange={(event) => setFilter(event.target.value)} />
+        <label className="settings-filter runtime-models-filter">
+          <Search size={14} aria-hidden />
+          <input type="search" value={filter} placeholder="Filter models" aria-label={`Filter ${backend.label} models`} spellCheck={false} onChange={(event) => setFilter(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }} />
+          {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
+        </label>
       ) : null}
       <div className="runtime-models" role="list" aria-label={`${backend.label} models`}>
-        {models.length === 0 ? <p className="settings-note">{backend.label} has not named its models yet.</p> : null}
+        {models.length === 0 ? <NoModels backend={backend} entry={entry} /> : null}
         {visible.map(({ model, group }, index) => {
           const at = arranged.findIndex((entry) => entry.model === model);
           const startsGroup = !needle && (index === 0 || visible[index - 1]!.group !== group) && (group !== "shown" || favourites > 0);
@@ -128,7 +146,9 @@ function RuntimeModelList({ backend, models }: { backend: UiRuntimeBackend; mode
             </div>
           );
         })}
-        {needle && visible.length === 0 ? <p className="settings-note">No model matches.</p> : null}
+        {needle && visible.length === 0 ? (
+          <SettingsState kind="empty" title={`No ${backend.label} model matches “${filter.trim()}”`} action={<Button onClick={() => setFilter("")}>Show all models</Button>} />
+        ) : null}
       </div>
     </SettingRow>
   );
@@ -142,7 +162,7 @@ export function RuntimeModels({ backends }: { backends: readonly UiRuntimeBacken
       {backends.map((backend) => {
         const entry = catalogs.get(backend.kind);
         const models = entry?.status === "ready" ? entry.catalog.models : entry?.status === "unavailable" ? entry.catalog?.models ?? [] : [];
-        return <RuntimeModelList key={backend.kind} backend={backend} models={models} />;
+        return <RuntimeModelList key={backend.kind} backend={backend} models={models} entry={entry} />;
       })}
     </>
   );

@@ -48,4 +48,26 @@ describe("Settings → Providers → Models", () => {
     fireEvent.click(screen.getByRole("button", { name: "Favourite GPT-5.6 Luna" }));
     expect(preferences.getSnapshot().favouriteModels).toEqual(["codex:openai/gpt-5.6-luna"]);
   });
+
+  it("says why a runtime lists no model and what to do, and offers to clear a filter that matches none", async () => {
+    const many: UiModel[] = Array.from({ length: 9 }, (_, index) => ({ provider: "openai", id: `m-${index}`, name: `Model ${index}` }));
+    const client = createFakeHostClient({
+      runtimeCatalogs: async () => [
+        { kind: "codex", models: many, thinkingLevels: {}, checkedAt: 1 },
+        { kind: "cursor", models: [], thinkingLevels: {}, status: "sign-in-required", checkedAt: 1 },
+      ],
+      getConfigLayers: async () => ({}),
+    });
+    render(<TestProviders><HostClientProvider client={client}>
+      <RuntimeModels backends={[{ kind: "codex", label: "Codex" }, { kind: "cursor", label: "Cursor" }]} />
+    </HostClientProvider></TestProviders>);
+    expect(await screen.findByText("No Cursor models yet")).toBeTruthy();
+    expect(screen.getByText("Sign in to Cursor on its card above; its models follow.")).toBeTruthy();
+    const filter = await screen.findByRole("searchbox", { name: "Filter Codex models" });
+    fireEvent.change(filter, { target: { value: "nothing like it" } });
+    expect(screen.getByText("No Codex model matches “nothing like it”")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show all models" }));
+    expect((filter as HTMLInputElement).value).toBe("");
+    expect(screen.getAllByRole("switch", { name: /^Show Model \d in the model picker$/u })).toHaveLength(9);
+  });
 });

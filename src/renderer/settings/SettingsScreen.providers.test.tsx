@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
+import { ProviderCardBadgeReport } from "./provider-card-state";
 import { SettingsScreen } from "./SettingsScreen";
 
 afterEach(cleanup);
@@ -15,7 +16,10 @@ function registryWithCards(): ExtensionRegistry {
     name: "Runtimes",
     activate(plugin) {
       plugin.registerSettingsPage({ id: "late.card", label: "Late", runtime: "antigravity", order: 27, Component: () => <p>late body</p> });
-      plugin.registerSettingsPage({ id: "early.card", label: "Early", runtime: "claude-code", order: 25, Component: () => <p>early body</p> });
+      plugin.registerSettingsPage({
+        id: "early.card", label: "Early", runtime: "claude-code", order: 25,
+        Component: () => <><ProviderCardBadgeReport source="account" badge={{ label: "Needs sign-in", tone: "warn" }} /><ProviderCardBadgeReport source="program" badge={{ label: "Installed", tone: "success" }} /><p>early body</p></>,
+      });
       plugin.registerSettingsPage({ id: "plain.page", label: "Plain", order: 30, Component: () => <p>plain body</p> });
     },
   });
@@ -44,6 +48,14 @@ describe("Settings → Providers", () => {
     const cards = screen.getAllByRole("region");
     expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual(["Early", "Late"]);
     expect(within(cards[0]!).getByText("early body")).toBeTruthy();
+  });
+
+  it("heads each card with the runtime's name and the state its rows report, the program's first", () => {
+    renderScreen("providers");
+    const [early, late] = screen.getAllByRole("region");
+    expect(within(early!).getByRole("heading", { name: "Early" })).toBeTruthy();
+    expect([...early!.querySelectorAll(".provider-card-badges .tau-badge")].map((badge) => badge.textContent)).toEqual(["Installed", "Needs sign-in"]);
+    expect(late!.querySelectorAll(".provider-card-badges .tau-badge")).toHaveLength(0);
   });
 
   it("opens Providers for a card's own id, so an old link to the page still lands, scrolled to that card", () => {
