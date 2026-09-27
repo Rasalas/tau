@@ -1,5 +1,5 @@
 import { ChevronRight, CircleAlert, CircleStop, Clock, Hammer } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import type { UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import {
   deriveWorkRows,
@@ -10,6 +10,7 @@ import {
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { ToolRun } from "./ToolRun";
+import { useDisclosure, type WorkDisclosures } from "./work-disclosures";
 
 /**
  * The clock over a running turn. It writes its own text node every second, so
@@ -32,6 +33,8 @@ export interface WorkRowActions {
   registry: ExtensionRegistry;
   actions?: WorkbenchActions;
   detail: TranscriptDetail;
+  /** The thread's open and closed rows, so a row the list remounts keeps the reader's choice. */
+  disclosures?: WorkDisclosures;
   waiting?: boolean;
   stalled?: boolean;
   onRecover?(): void;
@@ -60,10 +63,9 @@ function ToolRunList({ tools, context }: { tools: readonly UiToolRun[]; context:
 
 /** A settled run of tools as one sentence, opened by the reader when they want it. */
 function GroupRow({ row, context }: { row: Extract<WorkRow, { kind: "group" }>; context: WorkRowActions }) {
-  const [toggled, setToggled] = useState<boolean>();
-  const open = toggled ?? row.open;
+  const [open, setOpen] = useDisclosure(context.disclosures, row.id, row.open);
   return <section className={`tool-activity${open ? " expanded" : ""}${row.failed ? " failed" : ""}`}>
-    <button type="button" className="tool-activity-summary" aria-expanded={open} onClick={() => setToggled(!open)}>
+    <button type="button" className="tool-activity-summary" aria-expanded={open} onClick={() => setOpen(!open)}>
       <Hammer size={16} strokeWidth={1.7} />
       <span>{row.summary}</span>
       {row.note === "error" ? (
@@ -83,11 +85,16 @@ function GroupRow({ row, context }: { row: Extract<WorkRow, { kind: "group" }>; 
 
 /** "Worked for 2m 14s": the whole turn, one muted line, expanding in place. */
 function FoldRow({ row, context }: { row: Extract<WorkRow, { kind: "fold" }>; context: WorkRowActions }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useDisclosure(context.disclosures, row.id, row.open);
   return <section className={`work-fold${open ? " expanded" : ""}`}>
     <button type="button" className="work-fold-summary" aria-expanded={open} onClick={() => setOpen(!open)}>
       <Clock size={13} strokeWidth={1.7} aria-hidden="true" />
       <span>{row.label}</span>
+      {row.failed ? (
+        <span className="tool-activity-status-icon error" role="img" aria-label="Turn failed" title="Turn failed">
+          <CircleAlert size={13} strokeWidth={1.8} aria-hidden="true" />
+        </span>
+      ) : null}
       <ChevronRight className="activity-chevron" size={13} />
     </button>
     {open ? <div className="work-fold-body">
@@ -101,7 +108,7 @@ function FoldRow({ row, context }: { row: Extract<WorkRow, { kind: "fold" }>; co
  * runs, so the row morphs in place instead of remounting per tool call.
  */
 function LiveRow({ row, context }: { row: Extract<WorkRow, { kind: "live" }>; context: WorkRowActions }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useDisclosure(context.disclosures, row.id, false);
   const running = row.tools.some((tool) => tool.status === "running");
   return <section className={`work-live${open ? " expanded" : ""}${running && !context.stalled ? " running" : ""}`}>
     <button type="button" className="work-live-line" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -155,6 +162,7 @@ export const WorkGroup = memo(function WorkGroup({
   registry,
   actions,
   detail,
+  disclosures,
   waiting,
   onRecover,
   onStop,
@@ -167,6 +175,8 @@ export const WorkGroup = memo(function WorkGroup({
   const stalled = streaming === false && !waiting && tools.some((tool) => tool.status === "running");
   const registryVersion = registry.getVersion();
   const rows = useMemo(() => deriveWorkRows({
+    // Read when the turn settles: what the reader opened while it ran stays in view.
+    keepOpen: disclosures?.openedUnder(`${id}:`) ?? false,
     id,
     tools,
     status: stalled ? "interrupted" : status,
@@ -182,13 +192,14 @@ export const WorkGroup = memo(function WorkGroup({
   // The registry's version is what makes a newly registered renderer or card
   // reach a group that is already on screen.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [answerAt, detail, id, registry, registryVersion, stalled, status, streaming, tools]);
+  }), [answerAt, detail, disclosures, id, registry, registryVersion, stalled, status, streaming, tools]);
   if (rows.length === 0) return null;
 
   const context: WorkRowActions = {
     registry,
     detail,
     stalled,
+    ...(disclosures ? { disclosures } : {}),
     ...(actions ? { actions } : {}),
     ...(waiting === undefined ? {} : { waiting }),
     ...(onRecover ? { onRecover } : {}),

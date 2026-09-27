@@ -3,6 +3,7 @@ import type { ExtensionUiPrompt, HostSnapshot, UiToolOutputPreview, UiToolRun } 
 import { answerTimestampAfter, type TranscriptDetail } from "../workbench/transcript-folding";
 import { TaskProgress } from "./components/TaskProgress";
 import { WorkGroup } from "./components/WorkRows";
+import { WorkDisclosures } from "./components/work-disclosures";
 import type { TranscriptActivity } from "./components/transcript-activity";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
@@ -64,6 +65,9 @@ export function useConversationActivities(input: ConversationActivityInput) {
     ))?.id
     : undefined;
   const messages = conversationSnapshot?.messages;
+  const sessionId = conversationSnapshot?.sessionId;
+  // A thread opened again starts with every settled turn folded.
+  const disclosures = useMemo(() => new WorkDisclosures(), [sessionId]);
   const historicalActivityRows = useMemo(() => conversationActivityHistory
     .filter((entry) => entry.id !== currentActivityHistoryId)
     .filter((entry) => entry.tools.some((tool) => tool.name !== "todo"))
@@ -79,6 +83,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
           tools={entry.tools.filter((tool) => tool.name !== "todo")}
           registry={registry}
           detail={detail}
+          disclosures={disclosures}
           streaming={entry.status === "running"}
           status={entry.status}
           {...(answerAt === undefined ? {} : { answerAt })}
@@ -88,7 +93,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
           onLoadOutput={loadToolOutput}
         />,
       };
-    }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, loadToolOutput, messages, recoverThread, registry]);
+    }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, disclosures, loadToolOutput, messages, recoverThread, registry]);
   // One element per progress value, so a tool flush leaves the row list's inputs alone.
   const taskProgress = conversationSnapshot?.isStreaming ? conversationSnapshot.taskProgress : undefined;
   const liveTaskProgress = useMemo(
@@ -118,10 +123,12 @@ export function useConversationActivities(input: ConversationActivityInput) {
       afterMessageId: visibleToolAnchorId,
       fallbackToTail: true,
       content: <WorkGroup
-        id="turn-activity"
+        // Keyed by the turn's first call, so what the reader opened in one turn never opens the next.
+        id={`turn-activity:${conversationActivityTools[0].id}`}
         tools={conversationActivityTools}
         registry={registry}
         detail={detail}
+        disclosures={disclosures}
         status={conversationSnapshot?.isStreaming ? "running" : "completed"}
         streaming={conversationSnapshot?.isStreaming}
         waiting={prompts.length > 0}
@@ -132,7 +139,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onLoadOutput={loadToolOutput}
       />,
     }] : []),
-  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId]);
+  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId]);
 
   return { conversationActivityTools, liveStatusLabel, transcriptActivities };
 }

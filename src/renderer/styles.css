@@ -949,6 +949,7 @@ body.resizing-col .app-shell { transition: none; }
   flex: none; display: inline-flex; color: var(--faint);
 }
 .tool-activity-summary > .tool-activity-status-icon.error { color: var(--removed); }
+.work-fold-summary > .tool-activity-status-icon { flex: none; display: inline-flex; color: var(--removed); }
 .tool-activity-summary > .tool-activity-status-icon.interrupted { color: var(--working); }
 .tool-activity-detail {
   margin: 5px 0 0 26px; overflow: hidden;

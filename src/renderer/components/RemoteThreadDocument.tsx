@@ -8,6 +8,7 @@ import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { Region } from "./Regions";
 import type { TranscriptActivity } from "./transcript-activity";
 import { WorkGroup } from "./WorkRows";
+import { WorkDisclosures } from "./work-disclosures";
 import { usePlatform } from "../platform-context";
 import { usePreferences } from "../renderer-services-context";
 import { useEnvironmentThread, useEnvironmentTranscript } from "../use-environment-thread";
@@ -64,6 +65,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const detail = preferences.transcriptDetailFor(sessionId);
+  const disclosures = useMemo(() => new WorkDisclosures(), [machine, sessionId]);
 
   const activities = useMemo<readonly TranscriptActivity[]>(() => !registry ? [] : transcript.activity
     .filter((entry) => entry.tools.length > 0)
@@ -78,6 +80,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
           tools={entry.tools}
           registry={registry}
           detail={detail}
+          disclosures={disclosures}
           status={entry.status}
           // The run there, not this page's: a tool that waits on a dialog is not stalled.
           streaming={entry.status === "running" ? true : undefined}
@@ -85,7 +88,7 @@ export function RemoteThreadDocument({ machine, sessionId, registry, actions }: 
           {...(answerAt === undefined ? {} : { answerAt })}
         />,
       };
-    }), [detail, registry, transcript.activity, transcript.messages, view?.asking]);
+    }), [detail, disclosures, registry, transcript.activity, transcript.messages, view?.asking]);
 
   const canWatch = Boolean(environments?.watchThread && environments.transcriptPage);
   const name = view?.machineName ?? machine;
