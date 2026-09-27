@@ -60,6 +60,8 @@
 .files-table tbody tr:nth-child(even) { background: var(--wash); }
 
 /* A tablet's editor: its header's buttons at a finger's size, the text at a size iOS does not zoom into. */
+body[data-profile="compact"] .files-crumbs { min-width: 48px; }
+body[data-profile="compact"] .files-open-in .chrome-button { height: 44px; }
 body[data-profile="compact"] .files-action { width: 44px; height: 44px; border-radius: 12px; }
 body[data-profile="compact"] .files-save, body[data-profile="compact"] .files-conflict .text-button { min-height: 44px; padding: 0 12px; }
 body[data-profile="compact"] .files-code > .cm-editor { font-size: 16px; }
