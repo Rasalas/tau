@@ -1,6 +1,6 @@
-import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { CircleCheck, Download, ExternalLink, Orbit, TriangleAlert } from "lucide-react";
-import { loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type RegionProps, type SettingsPageProps, type WorkbenchActions } from "tau";
+import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
+import { Download, ExternalLink, Orbit } from "lucide-react";
+import { Button, SettingRow, SettingsState, TextField, loadRuntimeInstanceUi, loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type RegionProps, type SettingsPageProps, type WorkbenchActions } from "tau";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, type AntigravityInstallEvent, type AntigravitySignInEvent } from "./protocol.js";
 
 /** The sign-in link the host half last reported; the status item opens it and offers it again. */
@@ -24,6 +24,9 @@ export class SignInLinks {
 export const signInLinks = new SignInLinks();
 
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
+const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
+const CardBadge = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
+type ProviderCardBadge = NonNullable<ComponentProps<typeof CardBadge>["badge"]>;
 
 function useShellActions(): WorkbenchActions | undefined {
   try {
@@ -97,44 +100,31 @@ function installLabel(event: AntigravityInstallEvent | undefined): string | unde
   return event.message;
 }
 
-/** The server's path, saved when the field is left or Enter is pressed; empty goes back to Tau's own install. */
-function CommandPathField({ status, onSave }: { status: AntigravityStatusReport | undefined; onSave(command: string): Promise<void> }) {
-  const saved = status?.commandSource === "setting" ? status.command ?? "" : "";
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
-  const fromEnv = status?.commandSource === "env";
-  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
-  return (
-    <>
-      <input
-        className="settings-search-input antigravity-path"
-        aria-label="Antigravity server executable"
-        value={fromEnv ? status!.command ?? "" : draft}
-        placeholder="The server Tau installs"
-        disabled={fromEnv || !status}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
-      />
-      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_ANTIGRAVITY_ACP_COMMAND</code> in Tau's environment.</> : <>Google's <code>agy_acp_server</code> of your own; leave it empty to use the one Tau installs.</>}</p>
-    </>
-  );
-}
+/** The element ids of the card's rows. */
+export const ROWS = {
+  runtime: "setting-antigravity-runtime",
+  account: "setting-antigravity-account",
+  project: "setting-antigravity-gcp-project",
+  location: "setting-antigravity-gcp-location",
+  configuration: "setting-antigravity-configuration",
+  executable: "setting-antigravity-executable",
+} as const;
 
-/** The Google Cloud project and location Enterprise and Agent Platform run in; saved when a field is left. */
-function ProjectFields({ status, onSave }: { status: AntigravityStatusReport | undefined; onSave(project: string, location: string): Promise<void> }) {
-  const [project, setProject] = useState(status?.gcpProject ?? "");
-  const [location, setLocation] = useState(status?.gcpLocation ?? "");
-  useEffect(() => { setProject(status?.gcpProject ?? ""); setLocation(status?.gcpLocation ?? ""); }, [status?.gcpProject, status?.gcpLocation]);
-  const commit = () => {
-    if (project.trim() !== (status?.gcpProject ?? "") || location.trim() !== (status?.gcpLocation ?? "")) void onSave(project.trim(), location.trim());
-  };
-  return (
-    <div className="antigravity-project">
-      <input className="settings-search-input" aria-label="Google Cloud project" placeholder="Google Cloud project, e.g. acme-dev" value={project} disabled={!status} onChange={(event) => setProject(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} />
-      <input className="settings-search-input" aria-label="Google Cloud location" placeholder="Location, e.g. us-central1" value={location} disabled={!status} onChange={(event) => setLocation(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} />
-    </div>
-  );
+/** What the Settings search finds on the card. */
+export const SEARCH_ROWS = [
+  { id: ROWS.runtime, label: "Antigravity runtime", keywords: ["antigravity", "install", "update", "version", "agy_acp_server", "download"] },
+  { id: ROWS.account, label: "Antigravity sign-in", keywords: ["google", "sign in", "sign out", "login", "gemini", "api key"] },
+  { id: ROWS.project, label: "Google Cloud project", keywords: ["gcp", "gemini enterprise", "agent platform", "vertex"] },
+  { id: ROWS.location, label: "Google Cloud location", keywords: ["gcp", "region", "us-central1"] },
+  { id: ROWS.configuration, label: "Antigravity configuration", keywords: ["gemini", "skills", "mcp", "servers", "~/.gemini"] },
+  { id: ROWS.executable, label: "Antigravity server executable", keywords: ["agy_acp_server", "path", "command"] },
+];
+
+/** The word the card's head shows for the runtime. */
+function runtimeBadge(status: AntigravityStatusReport | undefined, outdated: boolean): ProviderCardBadge | undefined {
+  if (!status) return undefined;
+  if (status.installed) return outdated ? { label: "Update available", tone: "neutral" } : { label: "Installed", tone: "success" };
+  return status.available === undefined ? { label: "Not available", tone: "neutral" } : { label: "Not installed", tone: "warn" };
 }
 
 /** Antigravity's card on the Providers page: where the runtime comes from, whether it is signed in, and what of the user's own configuration reaches it. */
@@ -192,64 +182,79 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
     }
   };
 
-  // Until the host half has answered, the page knows nothing and says so.
-  const known = status !== undefined;
   const installed = status?.installed === true;
   const outdated = installed && status?.source === "managed" && status.available !== undefined && status.version !== status.available;
   const label = installLabel(progress);
+  const project = status?.gcpProject ?? "";
+  const location = status?.gcpLocation ?? "";
+  const waiting = status ? undefined : "Waiting for Antigravity's host half to answer.";
 
   return (
-    <>
-      <p className="settings-note">
-        Gemini through Google's own agent. Tau downloads Google's Antigravity server, checks it against the release it
-        expects, and runs it with the sign-in you choose below. A Google sign-in happens in that server, in your
-        browser; Tau never sees a token.
-      </p>
-
-      <div className="settings-label">Runtime</div>
-      <div className="settings-field antigravity-field">
-        {installed ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : installed ? `Installed${status.version ? ` · ${status.version}` : ""}` : "Not installed"}</strong>
-          <small>{!known ? "" : installed ? `${SOURCE_LABELS[status.source ?? ""] ?? status.source}${status.path ? ` · ${status.path}` : ""}` : status.message ?? "Install it to open Antigravity threads."}</small>
-        </span>
-        {status?.available && (!installed || outdated) ? (
-          <button className="antigravity-action" disabled={busy !== undefined} onClick={() => void run("install", "Antigravity is installed.")}>
-            <Download size={13} /> {busy === "install" ? "Installing…" : installed ? `Update to ${status.available}` : `Install ${status.available}`}
-          </button>
-        ) : null}
-      </div>
-      {busy === "install" && label ? <p className="settings-note" role="status">{label}</p> : null}
-      {known && status.available === undefined ? <p className="settings-note">Google publishes no Antigravity runtime for this platform.</p> : null}
-
-      <Suspense fallback={null}>
-        <SignIn
-          host={host}
-          program="Antigravity"
-          heading="Sign-in"
-          openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
-          copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
-          onNotify={onNotify}
-          onReport={(next) => {
-            if (next.flow?.phase === "succeeded" || !next.account?.signedIn) signInLinks.clear();
-            void refresh();
-          }}
-        />
-      </Suspense>
-      <p className="settings-note">Gemini Enterprise and Agent Platform run in a Google Cloud project; Agent Platform takes a key or your application default credentials instead.</p>
-      <ProjectFields status={status} onSave={saveProject} />
-
-      <div className="settings-label">Your configuration</div>
-      <p className="settings-note">
-        The agent runs with a Gemini home of Tau's own, so nothing it writes lands in yours. What Tau does pass through
-        from <code>~/.gemini</code> is your skills, linked into that home, and your MCP servers:{" "}
-        {status?.mcpServers?.length ? status.mcpServers.join(", ") : "none configured"}.
-      </p>
-
-      <div className="settings-label">Path</div>
-      <CommandPathField status={status} onSave={saveCommand} />
-      {error ? <p className="settings-note" data-level="error">{error}</p> : null}
-    </>
+    <Suspense fallback={<SettingsState kind="loading" rows={3} title="Loading Antigravity" />}>
+      <CardBadge source="program" badge={runtimeBadge(status, outdated)} />
+      <SettingRow
+        id={ROWS.runtime}
+        title="Runtime"
+        help="Gemini through Google's own agent. Tau downloads Google's Antigravity server, checks it against the release it expects, and runs it with the sign-in you choose below. A Google sign-in happens in that server, in your browser; Tau never sees a token."
+        description={!status ? error ? "Tau could not ask Antigravity's host half." : "Checking…"
+          : installed ? <>{status.version ? `${status.version} · ` : ""}{SOURCE_LABELS[status.source ?? ""] ?? status.source}{status.path ? <> · <code>{status.path}</code></> : null}</>
+            : status.available === undefined ? "Google publishes no Antigravity runtime for this platform."
+              : status.message ?? "Install it to open Antigravity threads."}
+        status={(busy === "install" && label) || error ? <>
+          {busy === "install" && label ? <p className="antigravity-progress" role="status">{label}</p> : null}
+          {error ? <p className="antigravity-error" role="alert">{error}</p> : null}
+        </> : undefined}
+        control={status?.available && (!installed || outdated) ? (
+          <Button icon={<Download size={13} aria-hidden />} busy={busy === "install"} onClick={() => void run("install", "Antigravity is installed.")}>
+            {busy === "install" ? "Installing…" : installed ? `Update to ${status.available}` : `Install ${status.available}`}
+          </Button>
+        ) : undefined}
+      />
+      <SignIn
+        host={host}
+        program="Antigravity"
+        heading="Sign-in"
+        rowId={ROWS.account}
+        openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
+        copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
+        onNotify={onNotify}
+        onReport={(next) => {
+          if (next.flow?.phase === "succeeded" || !next.account?.signedIn) signInLinks.clear();
+          void refresh();
+        }}
+      />
+      <SettingRow
+        id={ROWS.project}
+        title="Google Cloud project"
+        description="Where Gemini Enterprise and Agent Platform run; Agent Platform takes a key or your application default credentials instead."
+        disabledReason={waiting}
+        control={<TextField label="Google Cloud project" mono width="md" value={project} placeholder="e.g. acme-dev" onCommit={(next) => void saveProject(next.trim(), location)} />}
+      />
+      <SettingRow
+        id={ROWS.location}
+        title="Google Cloud location"
+        description="The region of that project."
+        disabledReason={waiting}
+        control={<TextField label="Google Cloud location" mono width="md" value={location} placeholder="e.g. us-central1" onCommit={(next) => void saveProject(project, next.trim())} />}
+      />
+      <SettingRow
+        id={ROWS.configuration}
+        title="Your configuration"
+        help="The agent runs with a Gemini home of Tau's own, so nothing it writes lands in yours. What passes through from ~/.gemini is your skills, linked into that home, and your MCP servers."
+        description={`Your skills and MCP servers reach the agent. MCP servers: ${status?.mcpServers?.length ? status.mcpServers.join(", ") : "none configured"}.`}
+      />
+      <CommandRow
+        id={ROWS.executable}
+        program="Antigravity server"
+        variable="TAU_ANTIGRAVITY_ACP_COMMAND"
+        known={status !== undefined}
+        {...(status?.command ? { command: status.command } : {})}
+        {...(status?.commandSource ? { source: status.commandSource } : {})}
+        placeholder="The server Tau installs"
+        description="Google's agy_acp_server of your own. Empty uses the one Tau installs."
+        onSave={saveCommand}
+      />
+    </Suspense>
   );
 }
 
@@ -270,6 +275,7 @@ export const antigravityExtension: DesktopExtension = {
         profiles: ["desktop", "web"],
         runtime: ANTIGRAVITY_BACKEND_KIND,
         order: 27,
+        rows: SEARCH_ROWS,
         Component: (props: SettingsPageProps) => <AntigravityProviderCard {...props} host={plugin.host} />,
       }),
       plugin.host.onEvent(ANTIGRAVITY_SIGN_IN_EVENT, (payload) => {

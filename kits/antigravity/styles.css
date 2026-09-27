@@ -1,19 +1,9 @@
-/* The two controls the Antigravity page adds; everything else is core's settings style. */
-.antigravity-field { align-items: center; }
-.antigravity-action {
-  flex: none; display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--line-strong); border-radius: 7px; background: transparent;
-  color: var(--ink-3); font: 500 12px var(--sans); padding: 6px 11px; cursor: pointer;
-}
-.antigravity-action:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-.antigravity-action:disabled { color: var(--faint); cursor: default; }
-
+/* The status line's sign-in link; the Providers card is the shared settings rows. */
 .antigravity-sign-in {
   display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
   border: 1px solid var(--acid-line); border-radius: 5px; background: var(--acid-bg);
   color: var(--acid-text); font: 500 10.5px var(--sans); padding: 1px 6px; cursor: pointer;
 }
 .antigravity-sign-in:hover { background: var(--acid-chip); }
-.antigravity-path { max-width: 420px; width: 100%; }
-.antigravity-project { display: flex; gap: 8px; max-width: 460px; margin-top: 8px; }
-.antigravity-project > input { flex: 1; min-width: 0; }
+.antigravity-progress { margin: 2px 0 0; color: var(--ink-2); font: 12.5px/1.45 var(--sans); }
+.antigravity-error { margin: 2px 0 0; color: var(--danger); font: 12.5px/1.45 var(--sans); overflow-wrap: anywhere; }

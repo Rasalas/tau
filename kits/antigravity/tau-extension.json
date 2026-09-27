@@ -4,7 +4,7 @@
   "description": "Runs threads on the Antigravity CLI, with its sign-in and version on Providers.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.14.0"
+    "api": "^1.18.0"
   },
   "permissions": [
     "process",
