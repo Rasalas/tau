@@ -22,3 +22,7 @@
 .app-page.stacked.with-nav { flex-direction: column; }
 .app-page.stacked.with-nav .settings-content { padding-bottom: 32px; }
 .app-page.stacked .app-page-bar:not(:has(> .app-page-back)) { padding-left: 16px; }
+/* A phone's bar names the view on screen only; Back names the page. */
+.app-page.stacked .app-page-bar li:not(.current) { display: none; }
+.app-page.stacked .app-page-bar li.current { min-width: 0; }
+.app-page.stacked .app-page-bar li.current > h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
