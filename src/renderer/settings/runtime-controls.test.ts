@@ -125,7 +125,7 @@ describe("runtime controls slash commands", () => {
     expect(notify).toHaveBeenCalledWith("Thinking level set to high.");
 
     await registry.findSlashCommand("/thinking")!.command.run("", actions);
-    expect(openSettings).toHaveBeenCalledWith("defaults");
+    expect(openSettings).toHaveBeenCalledWith("models#setting-thinking-level");
 
     await registry.findSlashCommand("/new")!.command.run("", actions);
     expect(newSession).toHaveBeenCalled();
@@ -150,7 +150,7 @@ describe("runtime controls slash commands", () => {
     expect(openSettings).toHaveBeenCalledWith("keybindings");
 
     await registry.findSlashCommand("/scoped-models")!.command.run("", actions);
-    expect(openSettings).toHaveBeenCalledWith("defaults");
+    expect(openModelPicker).toHaveBeenCalledTimes(2);
   });
 });
 

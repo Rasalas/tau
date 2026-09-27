@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import type { ExtensionRegistry, PaletteItem, PaletteMenu, PaletteSearchContext, WorkbenchActions } from "../extension-system";
 import { menuRows, paletteRows, readOnlyCommands, readOnlySources, rowEntry, stepRow, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
+import { settingsTarget } from "../settings/settings-nav";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
@@ -44,7 +45,7 @@ function highlight(label: string, query: string): ReactNode {
 
 function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem[] {
   const entries = settingsSearchEntries({
-    pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, keywords: page.keywords, extensionName: page.extensionName })),
+    pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, keywords: page.keywords, extensionName: page.extensionName, rows: page.rows })),
     extensions: registry.getExtensionSummaries(),
   });
   return searchSettings(entries, needle, SETTINGS_LIMIT).map((entry) => ({
@@ -52,7 +53,7 @@ function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem
     label: entry.label,
     detail: entry.section,
     access: "read",
-    run: (actions) => actions.openSettings(entry.page),
+    run: (actions) => actions.openSettings(settingsTarget(entry.page, entry.target)),
   }));
 }
 

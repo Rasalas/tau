@@ -113,7 +113,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.closePanel ? { closePanel: options.closePanel } : {}),
       ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
       openCommandPalette: options.openPalette,
-      openSettings: (page) => options.setSettingsPage(page ?? "defaults"),
+      openSettings: (page) => options.setSettingsPage(page ?? "general"),
       newSession: (request) => newSession(request),
       switchSession,
       settleActiveThread,

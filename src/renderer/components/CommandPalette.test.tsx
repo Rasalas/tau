@@ -269,7 +269,7 @@ describe("command palette on a Read-only device", () => {
     ], registry);
     fireEvent.change(input, { target: { value: "composer" } });
     // Core's Settings rows only look; the matching command ranks first.
-    expect(labels()).toEqual(["Focus composer", "Composer thread", "Composer editing modeDefaults"]);
+    expect(labels()).toEqual(["Focus composer", "Composer thread", "Composer editing modeGeneral", "Fold the composer while scrollingGeneral"]);
   });
 
   it("disables a level's rows that write and does not open on a level whose command writes", () => {

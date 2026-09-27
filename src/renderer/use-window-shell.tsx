@@ -41,7 +41,7 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
     const { threadStore, preferences, openSettings } = latest.current;
     switch (event.kind) {
       case "menu":
-        if (event.action === "open-settings") openSettings("defaults");
+        if (event.action === "open-settings") openSettings("general");
         else if (event.action === "open-about") openSettings("about");
         else {
           armPasteAsText();

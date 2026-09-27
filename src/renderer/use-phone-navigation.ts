@@ -61,7 +61,7 @@ export function usePhoneNavigation({ phone, pages, settingsPage, setSettingsPage
   const openSettings = useCallback((section?: string) => {
     pages.close();
     setSettingsView(section ? "page" : "sections");
-    setSettingsPage(section ?? settingsRef.current ?? "defaults");
+    setSettingsPage(section ?? settingsRef.current ?? "general");
   }, [pages, setSettingsPage]);
 
   const applyRoute = useCallback((next: PhoneRoute) => {

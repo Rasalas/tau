@@ -81,7 +81,7 @@ describe("the app around the workbench", () => {
     const { send, options, actions } = setup();
     send({ kind: "menu", action: "open-settings" });
     send({ kind: "menu", action: "open-about" });
-    expect(vi.mocked(options.openSettings).mock.calls).toEqual([["defaults"], ["about"]]);
+    expect(vi.mocked(options.openSettings).mock.calls).toEqual([["general"], ["about"]]);
     send({ kind: "menu", action: "paste-as-text" });
     await flush();
     expect(actions).toContainEqual({ kind: "paste-as-text" });

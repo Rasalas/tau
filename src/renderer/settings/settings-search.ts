@@ -1,8 +1,10 @@
+import { extensionPage } from "./settings-nav";
+
 /**
  * What the Settings search finds: core's own rows with the words people use
- * for them, the pages extensions contributed with their keywords, each
- * extension's own page and every keybinding. Pure, so the ranking is tested
- * without the modal; the palette reads the same entries.
+ * for them, the pages extensions contributed with their keywords and the rows
+ * they named, each extension's own page and every keybinding. Pure, so the
+ * ranking is tested without the modal; the palette reads the same entries.
  */
 export interface SettingsSearchEntry {
   id: string;
@@ -29,25 +31,34 @@ type CoreRow = readonly [label: string, keywords: readonly string[]];
 
 const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonly string[]; rows: readonly CoreRow[] }> = [
   {
-    page: "defaults",
-    label: "Defaults",
-    keywords: ["general", "preferences", "new threads"],
+    page: "general",
+    label: "General",
+    keywords: ["defaults", "preferences", "behaviour", "behavior"],
     rows: [
-      ["Default model", ["model", "provider", "add provider", "custom model"]],
-      ["Thinking level", ["thinking", "reasoning", "effort"]],
-      ["Runtime for new threads", ["runtime", "backend"]],
       ["Transcript detail", ["focused", "detailed", "everything", "tool output", "show thinking"]],
-      ["Theme", ["appearance", "dark", "light", "system", "color", "colour"]],
       ["Show costs", ["cost", "money", "spend", "price"]],
+      ["Composer editing mode", ["vim", "readline", "emacs", "modal"]],
+      ["Fold the composer while scrolling", ["fold", "composer", "scroll"]],
+      ["Send with", ["send", "enter", "submit", "shortcut"]],
+      ["Theme", ["appearance", "dark", "light", "system", "color", "colour"]],
       ["Keep the host running in the background", ["host", "background", "quit"]],
       ["Continue threads after restarts", ["restart", "resume", "interrupted"]],
       ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config"]],
-      ["Composer editing mode", ["vim", "readline", "emacs", "modal"]],
-      ["Send with", ["send", "enter", "submit", "shortcut"]],
-      ["Model parameters", ["temperature", "max tokens", "sampling"]],
-      ["Update track", ["update", "updates", "nightly", "stable", "channel", "prerelease", "beta"]],
       ["Quit shortcut", ["quit", "cmd q", "hold", "press twice", "confirm", "confirmation"]],
       ["Ask before quitting while threads work", ["quit", "confirm", "confirmation", "running", "ask"]],
+      ["Update track", ["update", "updates", "nightly", "stable", "channel", "prerelease", "beta"]],
+    ],
+  },
+  {
+    page: "models",
+    label: "Models",
+    keywords: ["defaults", "new threads", "model", "runtime"],
+    rows: [
+      ["Default model", ["model", "provider", "add provider", "custom model"]],
+      ["Thinking level", ["thinking", "reasoning", "effort"]],
+      ["Runtime for new threads", ["runtime", "backend", "program"]],
+      ["Temperature", ["temperature", "sampling", "model parameters"]],
+      ["Max tokens", ["max tokens", "answer length", "model parameters"]],
     ],
   },
   {
@@ -85,6 +96,12 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     ],
   },
   {
+    page: "extensions",
+    label: "Extensions",
+    keywords: ["kits", "packages", "plugins", "add-ons", "installed", "bundled", "disable", "enable", "permissions", "approve"],
+    rows: [],
+  },
+  {
     page: "about",
     label: "About",
     keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates"],
@@ -100,9 +117,12 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
   },
 ];
 
+/** Core pages whose rows carry `settingAnchor(label)` as their element id. */
+const ANCHORED_PAGES = new Set(["general", "models"]);
+
 export interface SettingsSearchSources {
-  /** Pages extensions contributed. */
-  pages: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[]; extensionName?: string }>;
+  /** Pages extensions contributed, with the rows they named for the search. */
+  pages: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Every extension with a page of its own in the nav. */
   extensions: ReadonlyArray<{ id: string; name: string; core?: boolean; options?: ReadonlyArray<{ label: string }> }>;
   /** Live keybindings; leave out for a search that should find pages only. */
@@ -116,7 +136,7 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
     for (const [label, keywords] of core.rows) {
       entries.push({
         id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords,
-        ...(core.page === "defaults" ? { target: settingAnchor(label) } : {}),
+        ...(ANCHORED_PAGES.has(core.page) ? { target: settingAnchor(label) } : {}),
       });
     }
   }
@@ -128,12 +148,15 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
       section: "Settings",
       keywords: [...(page.keywords ?? []), ...(page.extensionName ? [page.extensionName] : [])],
     });
+    for (const row of page.rows ?? []) {
+      entries.push({ id: `${page.id}:${row.id}`, page: page.id, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
+    }
   }
   for (const extension of sources.extensions) {
     if (extension.core) continue;
     entries.push({
       id: `extension:${extension.id}`,
-      page: extension.id,
+      page: extensionPage(extension.id),
       label: extension.name,
       section: "Extensions",
       keywords: [extension.id, ...(extension.options ?? []).map((option) => option.label)],

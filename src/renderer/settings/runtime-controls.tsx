@@ -95,8 +95,8 @@ export const runtimeControls: DesktopExtension = {
       });
     }
     // In the palette it lists the models; from a chord it opens the picker.
-    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", access: "write", submenu: lazyLevel("Set model", (loaded, app) => loaded.modelItems(plugin.preferences, app)), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
-    plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", access: "write", run: (app) => app.openSettings("defaults") });
+    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", access: "write", submenu: lazyLevel("Set model", (loaded, app) => loaded.modelItems(plugin.preferences, app)), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("models#setting-default-model")) });
+    plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", access: "write", run: (app) => app.openSettings("models#setting-thinking-level") });
     plugin.registerCommand({ id: "runtime.compact", label: "Compact context", group: "Thread", access: "write", run: later("runtime.compact") });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", access: "write", run: (app) => app.newSession() });
     plugin.registerCommand({ id: "runtime.new-thread-on", label: "New thread on…", group: "Thread", access: "write", submenu: lazyLevel("New thread on", (loaded, app) => loaded.runtimeItems(app)), run: (app) => app.openCommandPalette({ menu: "runtime.new-thread-on" }) });
