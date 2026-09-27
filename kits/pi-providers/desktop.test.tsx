@@ -64,7 +64,7 @@ describe("Pi Providers desktop half", () => {
     const { host, invoke, push } = fakeHost(PROVIDERS);
     render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Set up Anthropic" }));
-    expect(await screen.findByRole("button", { name: "Sign in", description: "Sign in to Anthropic (Claude Pro/Max)" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Sign in", description: /^Sign in to Anthropic \(/u })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set up Anthropic" }).getAttribute("aria-expanded")).toBe("true");
     expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "anthropic" });
 

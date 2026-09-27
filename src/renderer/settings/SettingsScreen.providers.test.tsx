@@ -15,11 +15,11 @@ function registryWithCards(): ExtensionRegistry {
     id: "acme.runtimes",
     name: "Runtimes",
     activate(plugin) {
-      plugin.registerSettingsPage({ id: "late.card", label: "Late", runtime: "antigravity", order: 27, Component: () => <p>late body</p> });
       plugin.registerSettingsPage({
-        id: "early.card", label: "Early", runtime: "claude-code", order: 25,
-        Component: () => <><ProviderCardBadgeReport source="account" badge={{ label: "Needs sign-in", tone: "warn" }} /><ProviderCardBadgeReport source="program" badge={{ label: "Installed", tone: "success" }} /><p>early body</p></>,
+        id: "late.card", label: "Late", runtime: "antigravity", order: 27,
+        Component: () => <><ProviderCardBadgeReport source="account" badge={{ label: "Needs sign-in", tone: "warn" }} /><ProviderCardBadgeReport source="program" badge={{ label: "Installed", tone: "success" }} /><p>late body</p></>,
       });
+      plugin.registerSettingsPage({ id: "early.card", label: "Early", runtime: "claude-code", order: 25, Component: () => <p>early body</p> });
       plugin.registerSettingsPage({ id: "plain.page", label: "Plain", order: 30, Component: () => <p>plain body</p> });
     },
   });
@@ -53,9 +53,9 @@ describe("Settings → Providers", () => {
   it("heads each card with the runtime's name and the state its rows report, the program's first", () => {
     renderScreen("providers");
     const [early, late] = screen.getAllByRole("region");
-    expect(within(early!).getByRole("heading", { name: "Early" })).toBeTruthy();
-    expect([...early!.querySelectorAll(".provider-card-badges .tau-badge")].map((badge) => badge.textContent)).toEqual(["Installed", "Needs sign-in"]);
-    expect(late!.querySelectorAll(".provider-card-badges .tau-badge")).toHaveLength(0);
+    expect(within(late!).getByRole("heading", { name: "Late" })).toBeTruthy();
+    expect([...late!.querySelectorAll(".provider-card-badges .tau-badge")].map((badge) => badge.textContent)).toEqual(["Installed", "Needs sign-in"]);
+    expect(early!.querySelectorAll(".provider-card-badges .tau-badge")).toHaveLength(0);
   });
 
   it("opens Providers for a card's own id, so an old link to the page still lands, scrolled to that card", () => {
