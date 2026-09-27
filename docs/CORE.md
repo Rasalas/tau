@@ -175,13 +175,17 @@ path from the list to it (`phone-history.ts`), so the system's back (Android bac
 of the native shell) steps out one level and stops at the list; the address
 names the route (`?thread=`, `?page=`, `?settings=`) for a reload or a link —
 through `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
-component tree. A browser on a touch screen claims `compact` at any width, and a
-compact client at least 720 × 600 px (a tablet) keeps the thread list in a
-sidebar beside the thread instead (`compactFormFor`). The touch pieces live in
+component tree. A browser on a touch screen claims `compact` at any width. A
+compact client on a tablet's screen (shorter side at least 600 px) and at least
+720 px wide gets the desktop's arrangement instead (`compactFormFor`, with a
+40 px hysteresis, never from height or content, and not while the page is
+hidden): the thread list as a sidebar, the chat, the panels that claim
+`compact` on the rail and beside the chat (a tab, the chat the first one, where
+there is no room for both), no bottom navigation. The touch pieces live in
 `src/renderer/touch/`, a chunk only a compact layout loads: the thread list with
 T3 Code's swipe to settle and a long press for every action (`TouchThreadList`,
 `SwipeRow`, `ActionSheet`), the list's header with search and More as popovers
-and a floating New thread button (`TouchThreadBrowser`), panels that claim
+and a floating New thread button (`TouchThreadBrowser`), on a phone panels that claim
 `compact` as sheets over the thread (`PanelSheet`, opened from the title bar —
 on a phone from its More menu once there are two or more —
 and by `actions.openPanel`/`closePanel`, which reach the sheet there),

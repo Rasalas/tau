@@ -822,12 +822,17 @@ context.registerToolRenderer("git.rows", match, render, { profiles: ["desktop", 
 `"desktop"` is the Electron window, `"web"` a browser at the same host,
 `"compact"` a phone or tablet: a browser that starts narrower than 720 px or on
 a touch screen, and the native app around the web client. There the thread list
-is a screen of its own (a sidebar on a tablet) and diffs do not split. A panel
-that claims `compact` is not docked there: its glyph sits in the title bar and
-opens the panel as a sheet over the thread, with `placement` reading `stage`.
-On a phone two or more such panels fold into the bar's More menu, by label and icon.
+is a screen of its own and diffs do not split. On a phone a panel that claims
+`compact` is not docked: its glyph sits in the title bar and opens the panel as
+a sheet over the thread, with `placement` reading `stage`. Two or more such
+panels fold into the bar's More menu, by label and icon.
 `actions.openPanel(id)` and `actions.closePanel(id)` open and close that sheet
 there (API 1.13.0), so a panel can close itself after it handed something to the composer.
+A tablet (a compact client on a tablet's screen, at least 720 px wide) is laid out
+as the desktop: the same panels sit on the rail and open in the dock, so give a
+tool that should sit beside the chat `width: "wide"` and `maximizable: true`; it
+becomes a stage tab, the chat the first tab, where the tablet has no room for both.
+Terminal, Review and Preview do this for their compact panels.
 That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar; Review Kit registers a panel for `compact` alone, since the desktop reviews in an overlay. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
