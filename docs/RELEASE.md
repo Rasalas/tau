@@ -209,6 +209,55 @@ and a Dismiss button. A supervised host of another version is replaced when the
 window starts (ADR 0021), so in practice this shows for a window attached to a
 host on another machine (`TAU_HOST_URL`) that runs a different build.
 
+### The move to `de.tbuck.tau`
+
+The desktop app was `dev.tbuck.tau`, its bundle id on macOS and its
+AppUserModelID on Windows. The phone app was `io.github.rasalas.tau`. Both are
+`de.tbuck.tau` now, and the first release with the new id breaks the update
+chain in these places:
+
+- **macOS: install once by hand.** Squirrel.Mac installs an update only if its
+  signature satisfies the running app's designated requirement, and that names
+  the bundle id. A Tau with the old id downloads the release and cannot install
+  it. Use `npm run install:mac`, the `.dmg`, or `brew reinstall --cask tau`;
+  `brew upgrade` skips a cask that updates itself. After that:
+  - macOS asks again for Screen Recording and Accessibility, which computer
+    use and snapshots need, and for Notifications and Local Network. The
+    entries for `dev.tbuck.tau` stay in System Settings until you remove them.
+  - The saved machines' tokens live in the keychain item "Tau Safe Storage";
+    a signed build asks once whether the new Tau may read it. Answer Always Allow.
+  - The background service keeps its label `dev.tbuck.tau.host`, so no second
+    agent runs beside it. Its LaunchAgent names the old bundle id, so
+    Settings → Connections → Background says *Needs repair*. Repair, or
+    `tau service install`, rewrites it in place.
+  - userData `tau-pi-desktop-prototype`, `~/.tau` and `~/.pi` do not move.
+    Caches and preferences under the old id stay behind; the cask's `zap`
+    removes both.
+- **Windows: updates itself.** `nsis.guid` stays the GUID electron-builder
+  derived from `dev.tbuck.tau`, so the installer sees the same install and
+  replaces it. Windows shows a toast only when the shortcut's AppUserModelID
+  matches the app's, so `packaging/windows/installer.nsh` stamps the new one on
+  the shortcuts an update keeps. If toasts stay silent after the update, running
+  the new setup once by hand recreates the shortcuts.
+- **Linux: nothing changes.** The `.deb` is still `tau`, and the desktop
+  entry's name and `StartupWMClass` come from the product and executable names,
+  not from the app id.
+- **Phones: a new app.** iOS and Android install `de.tbuck.tau` beside the old
+  app; pair it again, allow notifications again, then delete the old one. It
+  needs a new App ID with Push Notifications, a profile, an App Store Connect
+  record, and a Firebase Android app for the new package name with its
+  `google-services.json`, see [mobile-testflight.md](mobile-testflight.md). The
+  APNs key belongs to the team and stays.
+
+For the release notes:
+
+> Tau's app id is now `de.tbuck.tau`. On macOS this version does not arrive as
+> an update. Install it once by hand with `brew reinstall --cask tau` or the
+> `.dmg`, allow Screen Recording, Accessibility and Notifications again, and
+> repair the background service under Settings → Connections if it asks.
+> Windows and Linux update as usual. The phone app is a new app under the same
+> name: install it, pair it again, and delete the old one.
+
 ## Nightly builds
 
 `.github/workflows/release.yml` has a schedule (03:17 UTC). Its `gate` job
