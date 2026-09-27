@@ -240,6 +240,16 @@ describe("when the turn ends", () => {
     expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("keeps it open when the settled turn moves into the history under another id", () => {
+    const disclosures = new WorkDisclosures();
+    const view = render(turn({ id: "turn-activity:1", tools: running, status: "running", streaming: true, disclosures }));
+    fireEvent.click(screen.getByRole("button", { name: /Running npm/u }));
+    view.unmount();
+
+    render(turn({ id: "activity-7", disclosures }));
+    expect(screen.getByRole("button", { name: /Worked for/u }).getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("keeps a fold the reader opened open when the list remounts it", () => {
     const disclosures = new WorkDisclosures();
     const view = render(turn({ disclosures }));
