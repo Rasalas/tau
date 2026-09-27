@@ -120,7 +120,7 @@ export function sshArgs(target, command = remoteCommand()) {
 
 /** What ssh's own words on stderr mean for the person who ran the command. */
 export function explainSshFailure(target, code, stderr) {
-  const said = stderr.trim().split("\n").filter(Boolean).at(-1) ?? "";
+  const said = (stderr.trim().split("\n").filter(Boolean).at(-1) ?? "").replace(/\.$/u, "");
   if (/Host key verification failed|No .* host key is known/iu.test(stderr)) {
     return `ssh does not know ${target}'s host key yet. Log in once with \`ssh ${target}\` and accept it, then run this again.`;
   }
