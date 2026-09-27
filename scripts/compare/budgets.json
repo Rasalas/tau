@@ -14,5 +14,22 @@
     "open.scrollUpDriftPx": 2,
     "open.scrollUpTopHits": 0,
     "startup.newestTurnMs": 8000
+  },
+  "tauThreadSwitch": {
+    "threadSwitch.codex.short.cold.visibleMs": 150,
+    "threadSwitch.codex.short.warm.visibleMs": 100,
+    "threadSwitch.codex.medium.cold.visibleMs": 150,
+    "threadSwitch.codex.medium.warm.visibleMs": 100,
+    "threadSwitch.codex.long.cold.visibleMs": 150,
+    "threadSwitch.codex.long.warm.visibleMs": 100,
+    "threadSwitch.pi.short.cold.visibleMs": 150,
+    "threadSwitch.pi.short.warm.visibleMs": 100,
+    "threadSwitch.pi.medium.cold.visibleMs": 150,
+    "threadSwitch.pi.medium.warm.visibleMs": 100,
+    "threadSwitch.pi.long.cold.visibleMs": 150,
+    "threadSwitch.pi.long.warm.visibleMs": 100,
+    "threadSwitch.pi.short.cold.settledMs": 250,
+    "threadSwitch.pi.medium.cold.settledMs": 250,
+    "threadSwitch.pi.long.cold.settledMs": 250
   }
 }

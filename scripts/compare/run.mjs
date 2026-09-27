@@ -656,7 +656,7 @@ async function main() {
     const budgets = JSON.parse(readFileSync(fileURLToPath(new URL("./budgets.json", import.meta.url)), "utf8"));
     const failures = [
       ...(options.threadSwitch ? [] : evaluateBudgets(report.aggregate.tau, budgets.tau)),
-      ...evaluateBudgets(report.aggregate.tau, budgets.tauThreadSwitch),
+      ...evaluateBudgets(report.aggregate.tau, budgets.tauThreadSwitch ?? {}),
     ];
     if (failures.length) {
       console.error(`Budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
