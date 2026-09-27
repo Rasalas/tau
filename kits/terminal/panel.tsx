@@ -5,7 +5,7 @@ import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { paneIds, type TerminalGroup } from "./layout.js";
 import { closeTerminals, groupPanes, moveTerminalToStage, openTerminal, syncStageTabs, TERMINAL_READ_ONLY, wantsFirstShell } from "./controller.js";
 import { groupLabel, PaneTree, shellDirectory, useOpenFolder, type Run } from "./panes.js";
-import { threadScope } from "./scope.js";
+import { chipLabels, threadScope } from "./scope.js";
 import type { UiTerminalSession } from "./protocol.js";
 
 export { placeOf, type TerminalPlace } from "./panes.js";
@@ -72,6 +72,10 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
     if (current && layout.active !== current.id) terminalStore.updateLayout((next) => ({ ...next, active: current.id }));
   }, [current?.id, layout.active]);
   const onStage = layout.stage.flatMap((group) => paneIds(group.root)).filter((id) => byId(id)).length;
+  const tabNames = chipLabels(scope.shown.map((group) => ({ id: group.id, label: groupLabel(group, sessions) ?? "Terminal" })));
+  const tabs = useRef<HTMLDivElement>(null);
+  // The tab on screen stays in view when the strip scrolls.
+  useEffect(() => { tabs.current?.querySelector<HTMLElement>("[aria-selected=true]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }, [current?.id, scope.shown.length]);
   const focused = target ? byId(target) : undefined;
   const folder = useOpenFolder(focused);
   // Unmeasured (a test, a first frame) counts as wide.
@@ -100,10 +104,11 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
   // One row of chrome: the tabs, the other threads' shells, and the actions; the dock's maximize button keeps its corner.
   return <section ref={section} className={`panel-body terminal-panel${narrow ? " narrow" : ""}`}>
     <header className="panel-header terminal-toolbar">
-      <div className="terminal-tabs" role="tablist" aria-label="Terminals">
+      <div ref={tabs} className="terminal-tabs" role="tablist" aria-label="Terminals">
         {scope.shown.map((group) => <TerminalTab
           key={group.id}
           group={group}
+          label={tabNames.get(group.id) ?? "Terminal"}
           sessions={sessions}
           selected={group.id === current?.id}
           fromElsewhere={group.id === pickedGroup}
@@ -173,8 +178,9 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
 }
 
 /** A panel tab: its name selects it, its × ends every shell in it. */
-function TerminalTab({ group, sessions, selected, fromElsewhere, readOnly, onSelect, onClose }: {
+function TerminalTab({ group, label, sessions, selected, fromElsewhere, readOnly, onSelect, onClose }: {
   group: TerminalGroup;
+  label: string;
   sessions: readonly UiTerminalSession[];
   selected: boolean;
   fromElsewhere: boolean;
@@ -184,7 +190,6 @@ function TerminalTab({ group, sessions, selected, fromElsewhere, readOnly, onSel
 }) {
   const ids = paneIds(group.root);
   const first = sessions.find((session) => session.id === ids[0]);
-  const label = groupLabel(group, sessions) ?? first?.label ?? "Terminal";
   const exited = ids.every((id) => sessions.find((session) => session.id === id)?.exitCode !== undefined);
   const where = first ? shellDirectory(first) ?? first.label : label;
   return <div className={`terminal-tab${selected ? " active" : ""}${fromElsewhere ? " elsewhere" : ""}`}>

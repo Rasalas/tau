@@ -3,13 +3,13 @@
 .terminal-panel .terminal-toolbar { display: flex; align-items: stretch; gap: 0; min-width: 0; padding-left: 0; }
 .terminal-toolbar > .terminal-panel-actions { align-self: center; margin-left: 6px; }
 .terminal-toolbar-title { display: flex; align-items: center; padding: 0 var(--space-6); font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
-.terminal-panel.narrow .terminal-tab { max-width: 140px; }
 .terminal-note { margin: 0 8px 4px; font: 11px var(--mono); color: var(--faint); }
 .terminal-menu-note { margin: 4px 0 0; padding: 6px 8px 2px; border-top: 1px solid var(--line-soft); max-width: 260px; font: 11.5px/1.4 var(--sans); color: var(--muted); }
 /* Tabs as the stage draws them: the active one joins the surface below it. */
 .terminal-tabs { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
 .terminal-tabs::-webkit-scrollbar { display: none; }
-.terminal-tab { position: relative; display: flex; align-items: center; flex: none; max-width: 200px; min-width: 0; padding-right: 4px; border-right: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+/* Tabs give way down to 88 px, as a browser's do, before the strip scrolls. */
+.terminal-tab { position: relative; display: flex; align-items: center; flex: 0 1 auto; max-width: 200px; min-width: 88px; padding-right: 4px; border-right: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .terminal-tab:hover { background: var(--raised); color: var(--ink-2); }
 .terminal-tab.active { background: var(--sunken); color: var(--ink); }
 .terminal-tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--line-focus); }

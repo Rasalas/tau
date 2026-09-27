@@ -6,6 +6,9 @@ import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { focusedPane, focusPane, isStaged, paneIds, type TerminalLayout } from "./layout.js";
 import { closeTerminals, wantsFirstShell, openTerminal, restartTerminal, TERMINAL_READ_ONLY } from "./controller.js";
 import { placeOf, shellDirectory } from "./panes.js";
+import { chipLabels } from "./scope.js";
+
+export { chipLabels } from "./scope.js";
 import { TerminalView, type TerminalTouchBinding } from "./view.js";
 import {
   applyModifiers, arrowSequence, COMPACT_FONT_SIZE_KEY, DRAG_SLOP_PX, dragLines, compactFontSize, INTERRUPT, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
@@ -26,18 +29,6 @@ export function shellOrder(layout: TerminalLayout, sessions: readonly UiTerminal
   const placed = [...layout.groups, ...layout.stage].flatMap((group) => paneIds(group.root));
   const ordered = [...placed, ...sessions.map((session) => session.id)];
   return [...new Set(ordered)].filter((id) => live.has(id));
-}
-
-/** Names for the strip: a label two shells share gets a number, so the chips tell them apart. */
-export function chipLabels(shells: readonly UiTerminalSession[]): Map<string, string> {
-  const seen = new Map<string, number>();
-  const total = new Map<string, number>();
-  for (const shell of shells) total.set(shell.label, (total.get(shell.label) ?? 0) + 1);
-  return new Map(shells.map((shell) => {
-    const count = (seen.get(shell.label) ?? 0) + 1;
-    seen.set(shell.label, count);
-    return [shell.id, (total.get(shell.label) ?? 0) > 1 ? `${shell.label} ${count}` : shell.label];
-  }));
 }
 
 const fontListeners = new Set<() => void>();

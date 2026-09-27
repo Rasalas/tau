@@ -53,3 +53,15 @@ export function threadScope(
 export function needsFirstShell(scope: ThreadScope): boolean {
   return scope.shown.length === 0 && scope.staged === 0;
 }
+
+/** Names for a strip of tabs: a label two share gets a number, so the tabs tell them apart. */
+export function chipLabels(items: ReadonlyArray<{ id: string; label: string }>): Map<string, string> {
+  const seen = new Map<string, number>();
+  const total = new Map<string, number>();
+  for (const item of items) total.set(item.label, (total.get(item.label) ?? 0) + 1);
+  return new Map(items.map((item) => {
+    const count = (seen.get(item.label) ?? 0) + 1;
+    seen.set(item.label, count);
+    return [item.id, (total.get(item.label) ?? 0) > 1 ? `${item.label} ${count}` : item.label];
+  }));
+}
