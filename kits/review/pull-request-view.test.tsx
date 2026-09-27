@@ -145,6 +145,41 @@ describe("the pull-request view", () => {
     expect(screen.queryByRole("button", { name: /^Comment on line/u })).toBeNull();
   });
 
+  it("on a phone keeps the header to the number, state, merge control and More, and moves the rest into More", async () => {
+    document.body.dataset.profile = "compact";
+    try {
+      const { workbench } = renderView();
+      expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
+      for (const name of ["Copy link", "Link to this thread", /^Refresh PR/u, /to the composer$/u]) expect(screen.queryByRole("button", { name })).toBeNull();
+      // The checkout command and the branch name are copied from More, not from the text.
+      expect(screen.queryByRole("button", { name: /checkout/u })).toBeNull();
+      expect(screen.getByText("feat/output").tagName).toBe("SPAN");
+      fireEvent.click(screen.getByRole("button", { name: "More pull request actions" }));
+      const labels = screen.getAllByRole("menuitem").map((item) => item.textContent);
+      expect(labels.slice(0, 6)).toEqual(["Refresh", "Copy link", "Copy branch name", "Copy checkout command", "Add to the composer", "Link to this thread"]);
+      fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+      expect(workbench.copyText).toHaveBeenCalledWith(REF.url);
+      await waitFor(() => expect(workbench.notify).toHaveBeenCalledWith("Copied the link."));
+      // Comment or review sits in a bar under the body, not over it.
+      expect(screen.queryByRole("button", { name: /Comment on or review/u })).toBeNull();
+      expect(screen.getByRole("button", { name: "Comment or review" }).closest("footer")?.className).toBe("pr-comment-bar");
+    } finally {
+      delete document.body.dataset.profile;
+    }
+  });
+
+  it("on a phone paired Read only, disables the comment bar and says why", async () => {
+    document.body.dataset.profile = "compact";
+    try {
+      renderView(fakeClient(), undefined, true);
+      expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Comment or review" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText(/Read only/u).closest("footer")?.className).toBe("pr-comment-bar");
+    } finally {
+      delete document.body.dataset.profile;
+    }
+  });
+
   it("says what went wrong when the request cannot be read, and retries", async () => {
     let fail = true;
     const client = fakeClient({ view: vi.fn(async () => { if (fail) throw new Error("GitHub CLI (gh) is not signed in."); return parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")); }) });

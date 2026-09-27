@@ -6,7 +6,8 @@ import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
 import { PullRequestCode } from "./pull-request-code.js";
-import { PullRequestHeaderActions } from "./pull-request-header-actions.js";
+import { PullRequestHeaderActions, type HeaderMenuStep } from "./pull-request-header-actions.js";
+import { useCompactProfile } from "./compact-profile.js";
 import { PullRequestStackControl } from "./pull-request-stack.js";
 import { asReviewRequest, checksRollup, checksSummary, hostName, relativeTime, shortNoun, timelineCounts, type PullRequestTabParams } from "./pull-request-logic.js";
 import { handOver, RollupIcon } from "./pull-request-parts.js";
@@ -170,6 +171,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const [copied, setCopied] = useCopied();
   const [picking, setPicking] = useState(false);
   const linkedThreads = useLinkedThreads(client, params.url);
+  const phone = useCompactProfile();
   const noun = shortNoun(params.service);
   const host = hostName(params.service);
   const { capabilities } = providerInfo(params.service);
@@ -229,8 +231,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     }
   };
 
-  const copy = (key: string, value: string) => {
-    void actions.copyText(value).then(() => setCopied(key), (error: unknown) => actions.notify(errorMessage(error)));
+  const copy = (key: string, value: string, done?: string) => {
+    void actions.copyText(value).then(() => { setCopied(key); if (done) actions.notify(done); }, (error: unknown) => actions.notify(errorMessage(error)));
   };
 
   if (!detail) {
@@ -258,6 +260,16 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const rollup = checksRollup(checks);
   const counts = timelineCounts(detail, threads);
   const checkout = providerInfo(params.service).checkout?.(detail.ref.number);
+  const addToComposer = () => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions);
+  // A phone's header keeps the number, the state, the merge control and More; the rest moves into More.
+  const phoneSteps: HeaderMenuStep[] = phone ? [
+    { id: "view:refresh", label: "Refresh", icon: <RefreshCw size={13} />, run: () => refresh(true) },
+    { id: "view:copy-link", label: "Copy link", icon: <Copy size={13} />, run: () => copy("link", detail.ref.url, "Copied the link.") },
+    ...(detail.headRef ? [{ id: "view:copy-branch", label: "Copy branch name", icon: <GitBranch size={13} />, run: () => copy("branch", detail.headRef!, "Copied the branch name.") }] : []),
+    ...(checkout ? [{ id: "view:copy-checkout", label: "Copy checkout command", icon: <Copy size={13} />, run: () => copy("checkout", checkout, "Copied the checkout command.") }] : []),
+    { id: "view:composer", label: "Add to the composer", icon: <SquarePlus size={13} />, run: addToComposer },
+    ...(threadId ? [{ id: "view:link", label: linked ? "Unlink from this thread" : "Link to this thread", icon: linked ? <Link2Off size={13} /> : <Link2 size={13} />, ...(!writes.link ? { disabled: true, description: READ_ONLY_REASON } : {}), run: () => void toggleLink() }] : []),
+  ] : [];
 
   return (
     <div className="pr-view" aria-label={`${noun} #${detail.ref.number}`}>
@@ -270,21 +282,23 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           {condensed ? <strong className="pr-head-title" title={detail.title}>{detail.title}</strong> : <span className="spacer" />}
           <PullRequestStackControl detail={detail} client={client} actions={actions} writes={writes} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
           <LinkedThreadsControl threadIds={linkedThreads} actions={actions} />
-          <button className="icon-button compact" aria-label={`Add ${noun} #${detail.ref.number} to the composer`} title="Add to the composer" onClick={() => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions)}>
-            <SquarePlus size={13} />
-          </button>
-          {threadId ? (
-            <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} disabled={!writes.link} {...tooltipProps(!writes.link ? READ_ONLY_REASON : linked ? "Linked to this thread · click to unlink" : "Link to this thread")} onClick={() => void toggleLink()}>
-              {linked ? <Link2Off size={13} /> : <Link2 size={13} />}
+          {phone ? null : <>
+            <button className="icon-button compact" aria-label={`Add ${noun} #${detail.ref.number} to the composer`} title="Add to the composer" onClick={addToComposer}>
+              <SquarePlus size={13} />
             </button>
-          ) : null}
-          <button className="icon-button compact" aria-label="Copy link" title="Copy link" onClick={() => copy("link", detail.ref.url)}>
-            {copied === "link" ? <Check size={13} /> : <Copy size={13} />}
-          </button>
-          <button className="icon-button compact" aria-label={`Refresh ${noun} #${detail.ref.number}`} title="Refresh" onClick={() => refresh(true)}>
-            <RefreshCw size={13} />
-          </button>
-          <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes}
+            {threadId ? (
+              <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} disabled={!writes.link} {...tooltipProps(!writes.link ? READ_ONLY_REASON : linked ? "Linked to this thread · click to unlink" : "Link to this thread")} onClick={() => void toggleLink()}>
+                {linked ? <Link2Off size={13} /> : <Link2 size={13} />}
+              </button>
+            ) : null}
+            <button className="icon-button compact" aria-label="Copy link" title="Copy link" onClick={() => copy("link", detail.ref.url)}>
+              {copied === "link" ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+            <button className="icon-button compact" aria-label={`Refresh ${noun} #${detail.ref.number}`} title="Refresh" onClick={() => refresh(true)}>
+              <RefreshCw size={13} />
+            </button>
+          </>}
+          <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes} extra={phoneSteps}
             onDetail={(next) => { setData({ detail: next }); void loadChecks(); }} onPickThread={() => setPicking(true)} />
         </div>
         {condensed ? null : (
@@ -300,7 +314,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             <div className="pr-meta">
               {detail.author ? <span><strong>{detail.author.name ?? detail.author.login}</strong> opened {relativeTime(detail.createdAt)}</span> : null}
               {detail.updatedAt ? <span>· updated {relativeTime(detail.updatedAt)}</span> : null}
-              {checkout ? (
+              {checkout && !phone ? (
                 <button className="pr-copyable" title="Copy the checkout command" onClick={() => copy("checkout", checkout)}>
                   {copied === "checkout" ? "Copied" : checkout}
                 </button>
@@ -310,7 +324,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               <GitBranch size={12} aria-hidden="true" />
               <span className="pr-ref">{detail.baseRef}</span>
               <span aria-hidden="true">←</span>
-              {detail.headRef ? <button className="pr-ref" title="Copy the branch name" onClick={() => copy("branch", detail.headRef!)}>{copied === "branch" ? "Copied" : detail.headRef}</button> : null}
+              {detail.headRef && phone ? <span className="pr-ref">{detail.headRef}</span> : null}
+              {detail.headRef && !phone ? <button className="pr-ref" title="Copy the branch name" onClick={() => copy("branch", detail.headRef!)}>{copied === "branch" ? "Copied" : detail.headRef}</button> : null}
               <span className="spacer" />
               {capabilities.files ? <span>{detail.changedFiles} {detail.changedFiles === 1 ? "file" : "files"}</span> : null}
               {detail.additions || detail.deletions ? <><span className="stat-add">+{detail.additions}</span><span className="stat-del">−{detail.deletions}</span></> : null}
@@ -424,6 +439,15 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} #${detail.ref.number}.`); }}
           onCancel={() => setComposing(false)}
         />
+      ) : phone ? (
+        // A bar under the body instead of the button over it: on a phone that would cover the text it floats on.
+        <footer className="pr-comment-bar">
+          <button className="pr-comment-bar-button" disabled={!writes.comment && !writes.review} onClick={() => setComposing(true)}>
+            <MessageSquarePlus size={18} aria-hidden="true" />
+            <span>{pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review"}</span>
+          </button>
+          {!writes.comment && !writes.review ? <small className="pr-comment-bar-reason">{READ_ONLY_REASON}</small> : null}
+        </footer>
       ) : (
         <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} #${detail.ref.number}`} disabled={!writes.comment && !writes.review} {...tooltipProps(!writes.comment && !writes.review ? READ_ONLY_REASON : pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review")} onClick={() => setComposing(true)}>
           <MessageSquarePlus size={15} />

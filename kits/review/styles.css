@@ -704,3 +704,48 @@ textarea.review-compact-field { min-height: 110px; }
 .review-turn-pill > svg { flex: none; color: var(--faint); }
 .review-turn-pill > .review-turn-pill-partial { color: var(--working); }
 .review-turn-pill .stat-add, .review-turn-pill .stat-del { font-size: 12px; }
+
+/* A request on a phone: every control of the header and the tabs at 44 px, the tab context on its own line, and
+   comment or review in a bar under the body. */
+body[data-profile="compact"] .pr-view { font-size: 13px; }
+body[data-profile="compact"] .pr-head-row { flex-wrap: wrap; height: auto; min-height: 52px; padding: 4px 4px 4px 16px; }
+body[data-profile="compact"] .pr-view .pr-head .icon-button,
+body[data-profile="compact"] .pr-view .pr-fold .icon-button { width: 44px; height: 44px; }
+body[data-profile="compact"] .pr-title-row .pr-edit { opacity: 1; }
+body[data-profile="compact"] .pr-number { min-height: 44px; font-size: 14px; }
+body[data-profile="compact"] .pr-state { font-size: 12px; }
+body[data-profile="compact"] .pr-primary { height: 44px; padding: 0 14px; border-radius: 12px; font-size: 14px; }
+body[data-profile="compact"] .pr-armed { min-height: 32px; font-size: 12px; }
+body[data-profile="compact"] .pr-stack-button { min-height: 44px; font-size: 12px; }
+body[data-profile="compact"] .pr-title { white-space: normal; font-size: 17px; }
+body[data-profile="compact"] .pr-meta { flex-wrap: wrap; font-size: 12.5px; }
+body[data-profile="compact"] .pr-branches { flex-wrap: wrap; font-size: 12px; }
+body[data-profile="compact"] .pr-tabs { flex-wrap: wrap; gap: 4px 10px; padding: 6px 12px; }
+body[data-profile="compact"] .pr-tabs > .toggle-group { flex: 1 0 100%; display: flex; }
+body[data-profile="compact"] .pr-tabs > .toggle-group > button { flex: 1; min-height: 44px; font-size: 14px; }
+body[data-profile="compact"] .pr-tabs > .spacer { display: none; }
+body[data-profile="compact"] .pr-tab-context { flex-wrap: wrap; min-height: 32px; font-size: 12px; }
+body[data-profile="compact"] .pr-tab-context .text-button { min-height: 44px; font-size: 13px; }
+.pr-comment-bar { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); border-top: 1px solid var(--line); background: var(--chrome); }
+.pr-comment-bar-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
+.pr-comment-bar-button > svg { flex: none; color: var(--acid-text); }
+.pr-comment-bar-button:active:not(:disabled) { background: var(--hover-strong); }
+.pr-comment-bar-button:disabled { color: var(--muted); cursor: not-allowed; }
+.pr-comment-bar-button:disabled > svg { color: var(--faint); }
+.pr-comment-bar-reason { color: var(--muted); font: 12.5px var(--sans); text-align: center; }
+/* Controls in the summary a finger reaches for: add a reviewer or a label, fold a section, edit the description. */
+body[data-profile="compact"] .pr-view .pr-edit-body,
+body[data-profile="compact"] .pr-view .pr-chip-add { width: 44px !important; height: 44px !important; }
+body[data-profile="compact"] .pr-view :is(.pr-section-toggle, .pr-group-toggle) { min-height: 44px; font-size: 13px; }
+body[data-profile="compact"] .pr-section > header > .text-button { min-height: 44px; font-size: 12.5px; }
+/* The page's bar names the request already; a condensed header keeps only the room the title held. */
+body[data-profile="compact"] .pr-head-title { visibility: hidden; }
+body[data-profile="compact"] .pr-meta-grid { gap: 0 12px; }
+body[data-profile="compact"] .pr-meta-grid dt { font-size: 12.5px; }
+body[data-profile="compact"] .pr-meta-grid dd { align-items: center; }
+/* The comment and review composer on a phone: across the bottom, text a phone does not zoom into, 44 px controls. */
+body[data-profile="compact"] .pr-composer { left: 8px; right: 8px; bottom: calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))); width: auto; border-radius: 16px; }
+body[data-profile="compact"] .pr-composer textarea { font-size: 16px; }
+body[data-profile="compact"] .pr-composer .toggle-group > button,
+body[data-profile="compact"] .pr-composer footer > button { min-height: 44px; padding-inline: 14px; font-size: 14px; }
+body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; font-size: 14px; }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { GitMerge, Link2, MoreHorizontal, RotateCcw } from "lucide-react";
-import { Menu, READ_ONLY_REASON, errorMessage, tooltipProps, type MenuSection, type PreferencesStore, type WorkbenchActions } from "tau";
+import { Menu, READ_ONLY_REASON, errorMessage, tooltipProps, type MenuItem, type MenuSection, type PreferencesStore, type WorkbenchActions } from "tau";
 import { providerInfo, type MergeMethod, type PullRequestActionResult, type PullRequestCheck, type PullRequestDetail } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseRequestUrl } from "./pull-request-json.js";
@@ -8,6 +8,9 @@ import { checksRollup } from "./pull-request-logic.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_LABELS, MergeConfirm, outcomeText, useMergeConfirmation } from "./merge-controls.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
+
+/** A step the view moves into the menu where its header has no room for it, a phone's. */
+export type HeaderMenuStep = Pick<MenuItem, "id" | "label" | "icon" | "disabled" | "description"> & { run(): void };
 
 /** Which merge control the header shows in its one slot, after T3 Code's primary control. */
 export type PrimaryControl = "merge" | "auto-merge" | "armed" | undefined;
@@ -29,7 +32,7 @@ export function primaryControl(detail: Pick<PullRequestDetail, "state" | "draft"
  * Each step the provider cannot take is left out rather than refused; one
  * this device may not take is disabled with the reason.
  */
-export function PullRequestHeaderActions({ detail, checks, client, actions, preferences, threadId, onDetail, onPickThread, writes = ALL_WRITES }: {
+export function PullRequestHeaderActions({ detail, checks, client, actions, preferences, threadId, onDetail, onPickThread, writes = ALL_WRITES, extra = [] }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   client: PullRequestClient;
@@ -39,6 +42,8 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   onDetail(detail: PullRequestDetail): void;
   onPickThread(): void;
   writes?: PullRequestWrites;
+  /** The view's own steps, first in the menu. */
+  extra?: readonly HeaderMenuStep[];
 }) {
   const info = providerInfo(detail.ref.service);
   const { capabilities } = info;
@@ -85,7 +90,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
 
   const open = detail.state === "open";
   const mergeable = open && !detail.draft && methods.length > 0;
-  const sections: MenuSection[] = [];
+  const sections: MenuSection[] = extra.length > 0 ? [{ items: extra.map(({ run: _run, ...item }) => item) }] : [];
   const refused = (allowed: boolean) => allowed ? {} : { disabled: true, description: READ_ONLY_REASON };
   const steps = [
     ...(mergeable && (primary === "auto-merge" || primary === "armed") ? [{ id: "merge-now", label: "Merge now", icon: <GitMerge size={13} /> }] : []),
@@ -101,7 +106,9 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
 
   const pick = (id: string) => {
     setMenu(false);
-    if (id === "merge-now") confirmation.open("merge");
+    const step = extra.find((candidate) => candidate.id === id);
+    if (step) step.run();
+    else if (id === "merge-now") confirmation.open("merge");
     else if (id === "auto-merge-on") confirmation.open("auto-merge");
     else if (id === "auto-merge-off") void disarm();
     else if (id.startsWith("method:")) confirmation.pick(id.slice(7) as MergeMethod);
@@ -125,7 +132,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
         </button>
       ) : null}
       <span className="menu-anchor">
-        <button className="icon-button compact" aria-label={`More ${info.noun} actions`} title={`More ${info.noun} actions`} aria-expanded={menu} onClick={() => setMenu(!menu)}>
+        <button className="icon-button compact pr-more" aria-label={`More ${info.noun} actions`} title={`More ${info.noun} actions`} aria-expanded={menu} onClick={() => setMenu(!menu)}>
           <MoreHorizontal size={14} />
         </button>
         {menu ? <Menu align="right" label={`More ${info.noun} actions`} sections={sections} onSelect={pick} onClose={() => setMenu(false)} /> : null}

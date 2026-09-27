@@ -93,7 +93,7 @@ export function ReviewComposer({ service, events: offered, pending, onRemovePend
       ) : null}
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
       <footer>
-        <span>⌘↵ to send</span>
+        <span className="keyboard-hint">⌘↵ to send</span>
         <button className="text-button" disabled={busy} onClick={onCancel}>Cancel</button>
         <button className="mini-button" disabled={busy || !ready} onClick={() => void submit()}>
           {busy ? "Sending…" : mode === "comment" ? "Comment" : `Submit review${pending.length > 0 ? ` (${pending.length})` : ""}`}
