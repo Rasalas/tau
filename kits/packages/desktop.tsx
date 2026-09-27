@@ -10,6 +10,7 @@ import {
   SettingRow,
   SettingsSection,
   SettingsState,
+  TextField,
   errorMessage,
   tooltipProps,
   type DesktopExtension,
@@ -119,24 +120,18 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
           title="Install from a source"
           description={<><code>npm:&lt;package&gt;</code>, <code>git:&lt;url&gt;</code> or a folder on this machine.</>}
           help={SOURCE_HELP}
-          status={failed("install")}
           control={(
             <form className="packages-form" aria-label="Install a package" onSubmit={(event) => { event.preventDefault(); install(); }}>
-              {/* A plain field: Return installs, which a draft field that writes on Return would not. */}
-              <span className="tau-field-shell" data-width="full">
-                <span className="tau-field" data-invalid={failure?.verb === "install" ? "" : undefined}>
-                  <input
-                    type="text"
-                    data-mono=""
-                    value={source}
-                    placeholder="npm:@acme/hello or /path/to/folder"
-                    aria-label="Package source"
-                    spellCheck={false}
-                    disabled={busy !== undefined}
-                    onChange={(event) => { setSource(event.target.value); if (failure?.verb === "install") setFailure(undefined); }}
-                  />
-                </span>
-              </span>
+              <TextField
+                label="Package source"
+                value={source}
+                width="full"
+                mono
+                placeholder="npm:@acme/hello or /path/to/folder"
+                disabled={busy !== undefined}
+                error={failure?.verb === "install" ? failure.message : undefined}
+                onChange={(text) => { setSource(text); if (failure?.verb === "install") setFailure(undefined); }}
+              />
               <span {...tooltipProps(!source.trim() && !busy ? "Enter a source to install from." : undefined)}>
                 <Button type="submit" variant="primary" disabled={!source.trim()} busy={busy === "install"}>
                   {busy === "install" ? "Installing…" : "Install"}
