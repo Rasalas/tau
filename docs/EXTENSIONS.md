@@ -2772,13 +2772,55 @@ its own. There is no revocation list: removing a key from
     allocates faster than that overshoots by what it allocates in one tick:
     filling 4 MB `Uint8Array`s against a 64 MB cap, the tests measured
     150–200 MB on an M-series Mac and 64–144 MB in a two-CPU Linux container.
-  - Not counted: `SharedArrayBuffer` memory, WebAssembly memory (the Node in
-    Tau's Electron leaves it out of `external_memory`), and memory a native
-    addon allocates. Tau does not limit those; only the operating system
-    does.
+  - Not counted: `SharedArrayBuffer` memory (neither Node counts it),
+    WebAssembly memory (Node 22 counts it; the Node 24 in Tau's Electron
+    leaves it out of `external_memory`), and memory a native library or addon
+    allocates. The host's memory limit below covers those.
   - An idle worker costs one local read of its event-loop utilization per
     tick and one sample a second; ten idle workers measured about 0.1 % of a
     core.
+- **Host memory limit:** for memory no statistic of a worker counts, the host
+  watches its own resident size (RSS). The limit is half the machine's memory,
+  or half the container's limit where that is lower (`process.constrainedMemory()`).
+  Each 50 ms tick the change in RSS is attributed to the threads that ran code
+  in that tick — every worker package and the host's own thread — by their
+  share of it. When RSS is at or past the limit, the host stops the worker
+  package that grew it most, if that is at least 128 MB, with "… was stopped
+  at the host's memory limit: it grew the host process by about N MB (R MB of
+  L MB)", the same way as the caps above; it waits a second before it stops
+  another. Why this and nothing finer:
+  - WebAssembly memory is outside every per-isolate statistic of Electron's
+    Node, and a `WebAssembly.Memory` maximum Tau set in the worker would miss
+    a module's own memory and `memory.grow` from inside WebAssembly.
+    `--wasm-max-mem-pages` is process-wide and per memory, not per package.
+  - `SharedArrayBuffer` is counted only by the worker's own
+    `process.memoryUsage().arrayBuffers`, which the host cannot read while the
+    worker runs a synchronous loop.
+  - Native memory has no per-thread number at all. A worker cannot call
+    `services.loadDependency`, but it can load a context-aware addon itself
+    (`process.dlopen`, or a `.node` file its package ships). An addon, or
+    `node:sqlite`, allocates with `malloc`, which only RSS sees.
+  What it does not do:
+  - Attribution is by activity, not by owner. A package that runs while the
+    host's own thread or a thread Tau does not watch (libuv's pool, Pi's image
+    worker) grows can be charged part of that growth. A package counts as
+    grown only by what it grew while it ran, and what it gave back counts
+    against it, so a package that sat idle while the host grew is not charged
+    for it.
+  - It is sampled, like the buffer cap. Native code that fills memory at
+    memory speed can allocate several hundred MB inside one tick. Stopping
+    the worker frees what its isolate held (buffers, WebAssembly and
+    `SharedArrayBuffer` memory); what a native addon allocated and never
+    freed stays in the process.
+  - macOS counts pages the allocator already gave back in RSS until the
+    system takes them, so after a large free a package's growth shows late
+    there. RSS then overstates the process, so the limit is reached earlier,
+    not later.
+  - In-process packages are not covered: they share the host's thread, so
+    their growth is the host's own, and nothing can be stopped without
+    stopping the host. A native addon loaded through `loadDependency` lives
+    there. When the host passes its limit with no worker package to blame,
+    it stops nothing.
 - **A denied permission is not a failure:** reaching past the grant — a guarded
   service member, or the network without `network` — throws inside the command
   and logs `host-extension.denied`, but the package stays active. Only the
@@ -2799,7 +2841,7 @@ its own. There is no revocation list: removing a key from
 
 By default a package's host half runs in a worker thread: no Electron
 (`import "electron"` throws), no network and no `child_process` unless it asked
-for them, a 256 MB heap cap and a 512 MB buffer memory cap, and a facade that only carries plain data across
+for them, a 256 MB heap cap, a 512 MB buffer memory cap and the host's memory limit (§5), and a facade that only carries plain data across
 the port — nothing that hands out a live object. From
 `src/main/host-extension-worker-protocol.ts` and ADR 0009:
 
