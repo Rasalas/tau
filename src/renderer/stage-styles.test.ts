@@ -29,4 +29,12 @@ describe("stage styles", () => {
       expect(body, `${selector} sets container-type`).not.toMatch(/container(-type)?\s*:/u);
     }
   });
+
+  // A button keeps the browser's own padding unless told otherwise; in an 18 px box it pushed the glyph 3 px right.
+  it("centres the tab close glyph in a box without padding", async () => {
+    const css = (await readFile(SHEETS[0]!, "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
+    const body = [...css.matchAll(/(^|\})\s*\.stage-tab-close\s*\{([^{}]*)\}/gu)].map((match) => match[2]).join(";");
+    expect(body).toMatch(/padding:\s*0\b/u);
+    expect(body).toMatch(/place-items:\s*center/u);
+  });
 });
