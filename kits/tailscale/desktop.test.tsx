@@ -38,18 +38,20 @@ function renderSection(answers: Record<string, (input: unknown) => TailscaleView
   const changed = vi.fn();
   const Component = section!.Component;
   render(<TestProviders><Component onNotify={notify} onChanged={changed} /></TestProviders>);
-  return { invoke, notify, changed };
+  return { invoke, notify, changed, registry };
 }
 
 describe("Tailscale on Settings → Connections", () => {
   it("says when Tailscale did not answer, and asks again", async () => {
     let calls = 0;
-    renderSection({ status: () => { calls += 1; if (calls === 1) throw new Error("tailscale: command not found"); return view(); } });
+    const { registry } = renderSection({ status: () => { calls += 1; if (calls === 1) throw new Error("tailscale: command not found"); return view(); } });
     expect(await screen.findByText("tailscale: command not found")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("switch", { name: "Tailscale HTTPS" })).toBeTruthy();
-    expect(document.getElementById("setting-tailscale-https")).toBeTruthy();
-    expect(document.getElementById("setting-tailscale-machine-name")).toBeTruthy();
+    // Every row the section names for the search is on it.
+    const rows = registry.getSettingsSections("connections")[0]!.rows ?? [];
+    expect(rows.length).toBe(2);
+    for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 
 
