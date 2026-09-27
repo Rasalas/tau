@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SignInEvent, SignInFlowState, SignInReport } from "../../shared/sign-in";
 import type { HostExtensionClient } from "../extension-system";
+import { ProviderCardContext } from "../settings/provider-card-state";
 import { SignInSetup, flowLine } from "./SignInUi";
 
 afterEach(cleanup);
@@ -41,7 +42,8 @@ describe("SignInSetup", () => {
     expect(await screen.findByText("Not signed in")).toBeTruthy();
     const group = screen.getByRole("group", { name: "Sign in to Codex" });
     expect(group.textContent).toContain("For a browser on another device.");
-    expect((screen.getByRole("button", { name: "Use an API key" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(group).getByRole("button", { name: "Sign in", description: "Sign in with ChatGPT" })).toBeTruthy();
+    expect((within(group).getByRole("button", { name: "Add key", description: "Use an API key" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Set a key first.")).toBeTruthy();
   });
 
@@ -52,7 +54,7 @@ describe("SignInSetup", () => {
     const flow: SignInFlowState = { flowId: "f1", method: "chatgpt", phase: "starting" };
     answer({ "sign-in": () => flow });
     render(<SignInSetup host={host} program="Codex" openExternal={openExternal} copyText={copyText} target="work" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in with ChatGPT" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in", description: "Sign in with ChatGPT" }));
     await waitFor(() => expect(calls.at(-1)).toEqual({ command: "sign-in", input: { target: "work", method: "chatgpt" } }));
     push({ target: "default", flow: { ...flow, phase: "waiting", browser: { url: "http://elsewhere" } } });
     expect(screen.queryByRole("button", { name: /Open sign-in page/u })).toBeNull();
@@ -103,7 +105,7 @@ describe("SignInSetup", () => {
     const flow: SignInFlowState = { flowId: "f4", method: "terminal", phase: "starting" };
     answer({ "sign-in": () => flow });
     render(<SignInSetup host={host} {...common} runInTerminal={runInTerminal} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in in a terminal" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in", description: "Sign in in a terminal" }));
     const waiting = { ...flow, phase: "waiting" as const, terminal: { command: "codex login" }, prompt: { id: "p1", kind: "text" as const, message: "Waiting for the terminal" } };
     push({ target: "default", flow: waiting });
     push({ target: "default", flow: { ...waiting } });
@@ -129,10 +131,35 @@ describe("SignInSetup", () => {
     answer({ "sign-out": () => ({ methods: METHODS, account: { signedIn: false }, note: "Signed out of Codex." }) });
     render(<SignInSetup host={host} {...common} onNotify={onNotify} />);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(screen.getByRole("alert").textContent).toMatch(/Sign out of Codex \(a@example\.com\)\?/u);
-    fireEvent.click(screen.getAllByRole("button", { name: "Sign out" }).at(-1)!);
+    const dialog = screen.getByRole("dialog", { name: "Sign out of Codex (a@example.com)?" });
+    expect(dialog.textContent).toMatch(/stop working until you sign in again; their history stays/u);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Signed out of Codex."));
     expect(calls.map((call) => call.command)).toContain("sign-out");
+    expect(await screen.findByText("Not signed in")).toBeTruthy();
+  });
+
+  it("names the account's state in the head of the card it is drawn in, and says nothing there for a nested sign-in", async () => {
+    const slot = vi.fn();
+    const { host, push } = fakeHost({ methods: METHODS, account: { signedIn: false } });
+    const { rerender } = render(<ProviderCardContext.Provider value={slot}><SignInSetup host={host} {...common} rowId="setting-codex-account" /></ProviderCardContext.Provider>);
+    await waitFor(() => expect(slot).toHaveBeenLastCalledWith("account", { label: "Needs sign-in", tone: "warn" }));
+    expect(document.getElementById("setting-codex-account")).toBeTruthy();
+    push({ target: "default", report: { methods: METHODS, account: { signedIn: true, label: "a@example.com" } } });
+    await waitFor(() => expect(slot).toHaveBeenLastCalledWith("account", { label: "Signed in", tone: "success" }));
+
+    slot.mockClear();
+    rerender(<ProviderCardContext.Provider value={slot}><SignInSetup host={host} {...common} cardBadge={false} /></ProviderCardContext.Provider>);
+    await waitFor(() => expect(slot).toHaveBeenLastCalledWith("account", undefined));
+  });
+
+  it("says what went wrong when the program could not be asked, and asks again", async () => {
+    const { host, answer } = fakeHost({ methods: METHODS, account: { signedIn: false } });
+    answer({ "sign-in-state": () => { throw new Error("The Codex host half is not running."); } });
+    render(<SignInSetup host={host} {...common} />);
+    expect(await screen.findByText("Could not ask Codex who is signed in: The Codex host half is not running.")).toBeTruthy();
+    answer({});
+    fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
     expect(await screen.findByText("Not signed in")).toBeTruthy();
   });
 
