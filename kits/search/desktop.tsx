@@ -1,7 +1,7 @@
 import type { DesktopExtension, RegionProps } from "tau";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
 import { projectItems, settle, threadContentItems, threadTitleItems } from "./palette-sources.js";
-import { SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type WorkspaceStoreView } from "./protocol.js";
+import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 /** Content search waits this long after a keystroke before it asks the host to read the threads. */
 export const THREAD_CONTENT_DELAY_MS = 150;
@@ -28,7 +28,8 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       context.registerKeybinding({ keys: "mod+p", commandId: "search.files" });
 
       const Layer = ({ actions }: RegionProps) => <SearchDialogsLayer dialogs={dialogs} host={host} channel={channel} actions={actions} />;
-      context.registerRegion({ id: "search.dialogs", placement: "title-bar", profiles: ["desktop", "web"], Component: Layer });
+      context.registerRegion({ id: "search.dialogs", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: Layer });
+      context.provideService<SearchFilesService>(SEARCH_FILES_SERVICE, { pickFile: (onPick) => dialogs.pickFile(onPick) });
 
       context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, search: threadTitleItems });
       context.registerPaletteSource({

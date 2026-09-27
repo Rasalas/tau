@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import { errorMessage, FileKindIcon, VirtualList, type WorkbenchActions } from "tau";
 import type { ContentMatch, ContentSearchResult, FileSearchResult, SearchHostCommands } from "./protocol.js";
 
@@ -11,12 +12,22 @@ export type SearchDialog = "content" | "files";
 export class SearchDialogs {
   private open: SearchDialog | undefined;
   private readonly listeners = new Set<() => void>();
+  /** Where the file picker hands its pick when another kit opened it; the stage otherwise. */
+  onPick: ((path: string) => void) | undefined;
 
   toggle(dialog: SearchDialog): void {
+    this.onPick = undefined;
     this.set(this.open === dialog ? undefined : dialog);
   }
 
+  /** "Go to file" for another kit: a phone's Files sheet reads the pick itself, having no stage. */
+  pickFile(onPick?: (path: string) => void): void {
+    this.onPick = onPick;
+    this.set("files");
+  }
+
   close(): void {
+    this.onPick = undefined;
     this.set(undefined);
   }
 
@@ -37,6 +48,20 @@ export class SearchDialogs {
 const CONTENT_DELAY_MS = 150;
 const FILES_DELAY_MS = 40;
 const ROW_HEIGHT = 28;
+/** A finger's row on a compact client. */
+const TOUCH_ROW_HEIGHT = 44;
+
+/** Whether the workbench lays out for touch (`body[data-profile="compact"]`: a phone, a tablet). */
+function useCompactLayout(): boolean {
+  const read = () => typeof document !== "undefined" && document.body.dataset.profile === "compact";
+  const [compact, setCompact] = useState(read);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setCompact(read()));
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-profile"] });
+    return () => observer.disconnect();
+  }, []);
+  return compact;
+}
 
 /** Marks the given `[start, end)` ranges of `text`. */
 export function marked(text: string, ranges: ReadonlyArray<readonly [number, number]>): ReactNode {
@@ -78,6 +103,11 @@ function Frame({ label, children, onClose }: { label: string; children: ReactNod
   </div>;
 }
 
+/** A touch screen may have no Escape: the dialog closes from its own row. */
+function CloseButton({ label, onClose }: { label: string; onClose(): void }) {
+  return <button type="button" className="search-close" aria-label={`Close ${label}`} onClick={onClose}><X size={18} /></button>;
+}
+
 function useFocus() {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { input.current?.focus(); }, []);
@@ -117,6 +147,7 @@ function Toggle({ label, pressed, onToggle, children }: { label: string; pressed
 export function ContentSearchDialog({ host, channel, actions, onClose }: { host: SearchHost; channel: string; actions: WorkbenchActions; onClose(): void }) {
   const cwd = actions.activeThread()?.cwd;
   const input = useFocus();
+  const touch = useCompactLayout();
   const [query, setQuery] = useState("");
   const [regex, setRegex] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -178,11 +209,12 @@ export function ContentSearchDialog({ host, channel, actions, onClose }: { host:
       <Toggle label="Match case" pressed={caseSensitive} onToggle={() => setCaseSensitive((value) => !value)}>Aa</Toggle>
       <Toggle label="Match whole word" pressed={wholeWord} onToggle={() => setWholeWord((value) => !value)}><u>ab</u></Toggle>
       <Toggle label="Use regular expression" pressed={regex} onToggle={() => setRegex((value) => !value)}>.*</Toggle>
+      {touch ? <CloseButton label="Search in project" onClose={onClose} /> : null}
     </div>
     <div className="search-status" role="status" data-error={current?.error || current?.result?.error ? "true" : undefined}>{status}</div>
     <VirtualList
       items={rows}
-      itemHeight={ROW_HEIGHT}
+      itemHeight={touch ? TOUCH_ROW_HEIGHT : ROW_HEIGHT}
       className="search-results"
       scrollToIndex={selectedRow >= 0 ? selectedRow : undefined}
       renderItem={(row) => {
@@ -210,8 +242,9 @@ export function ContentSearchDialog({ host, channel, actions, onClose }: { host:
   </Frame>;
 }
 
-export function FilePickerDialog({ host, actions, onClose }: { host: SearchHost; actions: WorkbenchActions; onClose(): void }) {
+export function FilePickerDialog({ host, actions, onPick, onClose }: { host: SearchHost; actions: WorkbenchActions; onPick?(path: string): void; onClose(): void }) {
   const cwd = actions.activeThread()?.cwd;
+  const touch = useCompactLayout();
   const input = useFocus();
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<{ query: string; result?: FileSearchResult; error?: string }>();
@@ -232,7 +265,8 @@ export function FilePickerDialog({ host, actions, onClose }: { host: SearchHost;
 
   const files = answer?.result?.files ?? [];
   const open = (path: string) => {
-    actions.openFile(path);
+    if (onPick) onPick(path);
+    else actions.openFile(path);
     onClose();
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -254,11 +288,12 @@ export function FilePickerDialog({ host, actions, onClose }: { host: SearchHost;
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={onKeyDown}
       />
+      {touch ? <CloseButton label="Go to file" onClose={onClose} /> : null}
     </div>
     <div className="search-status" role="status" data-error={answer?.error ? "true" : undefined}>{status}</div>
     <VirtualList
       items={files}
-      itemHeight={ROW_HEIGHT + 4}
+      itemHeight={touch ? TOUCH_ROW_HEIGHT : ROW_HEIGHT + 4}
       className="search-results"
       scrollToIndex={cursor}
       empty={answer?.result && query ? <p className="search-empty">No file matches “{query}”.</p> : null}
@@ -289,5 +324,5 @@ export function SearchDialogsLayer({ dialogs, host, channel, actions }: { dialog
   const close = () => dialogs.close();
   return createPortal(open === "content"
     ? <ContentSearchDialog host={host} channel={channel} actions={actions} onClose={close} />
-    : <FilePickerDialog host={host} actions={actions} onClose={close} />, document.body);
+    : <FilePickerDialog host={host} actions={actions} {...(dialogs.onPick ? { onPick: dialogs.onPick } : {})} onClose={close} />, document.body);
 }
