@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createStoragePage, formatBytes, type StorageHost } from "./storage-page.js";
+import { missingSettingsRows } from "../../src/renderer/test-support/kit-settings-page.js";
+import { createStoragePage, formatBytes, STORAGE_SETTINGS_ROWS, type StorageHost } from "./storage-page.js";
 import type { CleanupPolicy, UiStorageReport, UiStorageWorktree } from "./storage-protocol.js";
 import { EMPTY_POLICY, NO_CLEANUP, patchPolicy } from "./worktree-cleanup.js";
 
@@ -73,6 +74,7 @@ describe("Settings → Storage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clean up 1 now" }));
     await waitFor(() => expect(host.cleanUp).toHaveBeenCalledWith(["/w/due"]));
+    expect(missingSettingsRows({ rows: STORAGE_SETTINGS_ROWS })).toEqual([]);
   });
 
   it("asks before removing a worktree with uncommitted work", async () => {
@@ -99,14 +101,48 @@ describe("Settings → Storage", () => {
     fireEvent.click(await screen.findByRole("switch", { name: "Delete unchanged worktrees" }));
     await waitFor(() => expect(host.setPolicy).toHaveBeenCalledWith({ rules: { unchanged: true } }));
 
-    fireEvent.click(screen.getByRole("button", { name: "repo" }));
+    const scope = screen.getByRole("radiogroup", { name: "Rules for" });
+    expect(within(scope).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["This machine", "repo"]);
+    fireEvent.click(within(scope).getByRole("radio", { name: "repo" }));
     expect(screen.queryByRole("switch", { name: "Delete unchanged worktrees" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
     await waitFor(() => expect(host.setPolicy).toHaveBeenCalledWith({ project: "/work/repo", mode: "custom" }));
     const merged = await screen.findByRole("switch", { name: "Delete merged worktrees" });
     fireEvent.click(merged);
     await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ project: "/work/repo", mode: "custom", rules: { onMerge: true } }));
-    expect(screen.getByText("No worktree Tau made is on disk.")).toBeTruthy();
+    expect(screen.getByText("No worktree Tau made is on disk")).toBeTruthy();
+  });
+
+  it("sets the days of the inactive rule, refuses what is not a whole number, and turns the rule off", async () => {
+    const host = fakeHost(report([]));
+    const Page = createStoragePage(host);
+    render(<Page onNotify={() => undefined} />);
+
+    fireEvent.click(await screen.findByRole("switch", { name: "Delete inactive worktrees" }));
+    await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ rules: { afterDays: 8 } }));
+    const days = await screen.findByRole("spinbutton", { name: "Delete inactive worktrees after" });
+    fireEvent.change(days, { target: { value: "2.5" } });
+    fireEvent.blur(days);
+    expect(screen.getByRole("alert").textContent).toBe("Enter a whole number.");
+    fireEvent.change(days, { target: { value: "30" } });
+    fireEvent.blur(days);
+    await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ rules: { afterDays: 30 } }));
+    fireEvent.click(screen.getByRole("switch", { name: "Delete inactive worktrees" }));
+    await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ rules: { afterDays: null } }));
+    await waitFor(() => expect(screen.queryByRole("spinbutton", { name: "Delete inactive worktrees after" })).toBeNull());
+  });
+
+  it("says when the worktrees could not be read, and reads them again", async () => {
+    const host = fakeHost(report([]));
+    vi.mocked(host.report).mockRejectedValueOnce(new Error("git worktree list failed"));
+    const Page = createStoragePage(host);
+    render(<Page onNotify={() => undefined} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("git worktree list failed");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("No worktree Tau made is on disk")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Measure again" }));
+    await waitFor(() => expect(host.report).toHaveBeenCalledTimes(3));
   });
 
   it("formats sizes the way a disk tool does", () => {
