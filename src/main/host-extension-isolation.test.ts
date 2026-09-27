@@ -54,16 +54,22 @@ export default {
     context.registerCommand("eat-buffers-later", () => { setTimeout(eatBuffers, 100); });
     // Memory no V8 statistic counts everywhere; each stops by itself too.
     context.registerCommand("eat-wasm", () => {
+      const chunk = noise();
       const memory = new WebAssembly.Memory({ initial: 0, maximum: 768 * 16 });
       while (memory.buffer.byteLength < 768 * MB) {
         memory.grow(64);
-        new Uint8Array(memory.buffer, memory.buffer.byteLength - 4 * MB).fill(1);
+        new Uint8Array(memory.buffer, memory.buffer.byteLength - 4 * MB).set(chunk);
       }
       return memory.buffer.byteLength / MB;
     });
     context.registerCommand("eat-shared", () => {
+      const chunk = noise();
       const held = [];
-      while (held.length < 192) held.push(new Uint8Array(new SharedArrayBuffer(4 * MB)).fill(held.length % 255 + 1));
+      while (held.length < 192) {
+        const shared = new Uint8Array(new SharedArrayBuffer(4 * MB));
+        shared.set(chunk);
+        held.push(shared);
+      }
       return held.length * 4;
     });
     context.registerCommand("eat-native", () => {
@@ -72,7 +78,7 @@ export default {
       const db = new DatabaseSync(":memory:");
       db.exec("create table blobs (data blob)");
       const insert = db.prepare("insert into blobs values (?)");
-      const blob = new Uint8Array(4 * MB).fill(7);
+      const blob = noise();
       for (let index = 0; index < 128; index++) insert.run(blob);
       return 128 * 4;
     });
@@ -96,6 +102,22 @@ export default {
     context.registerCommand("network-release", () => { for (const release of releases.splice(0)) release(); });
   },
 };
+
+/**
+ * 4 MB no page of which compresses: under memory pressure macOS compresses
+ * uniform pages as they are written, and the growth never shows in the resident size.
+ */
+function noise() {
+  const words = new Uint32Array(MB);
+  let state = 2463534242;
+  for (let index = 0; index < words.length; index++) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    words[index] = state;
+  }
+  return new Uint8Array(words.buffer);
+}
 
 function describeUnavailable(services) {
   try {
@@ -342,7 +364,8 @@ function harness(options: { permissions?: string[]; commandTimeoutMs?: number } 
     name: "Worker Package",
     permissions,
     file: bundle,
-    hookTimeoutMs: 5_000,
+    // The worker's own call timeout, so a longer command budget holds on both sides.
+    hookTimeoutMs: Math.max(5_000, commandTimeoutMs),
     ...worker,
   });
   return { registry, extension, events, recorder };
@@ -580,10 +603,12 @@ describe("isolated host extensions", () => {
     /**
      * The process is past its limit from the start; what decides is whose growth
      * it was. A limit above the process's size would move with memory earlier
-     * tests give back late.
+     * tests give back late. A low minimum: under memory pressure the system
+     * pages a growing process out within a few ticks, so only its first
+     * hundred MB or so show in the resident size.
      */
     function pastLimit(): void {
-      setProcessMemoryLimit({ limitBytes: 1, minGrowthBytes: 192 * MB });
+      setProcessMemoryLimit({ limitBytes: 1, minGrowthBytes: 64 * MB });
     }
 
     /** Until the resident size stops moving; macOS takes back what earlier tests freed in large steps. */
@@ -599,7 +624,8 @@ describe("isolated host extensions", () => {
 
     async function eater() {
       await quiet();
-      const eating = harness({ resourceLimits: { maxExternalMb: 4096 }, commandTimeoutMs: 20_000 });
+      // Page faults crawl on a loaded, swapping machine; the guard, not this budget, must end the command.
+      const eating = harness({ resourceLimits: { maxExternalMb: 4096 }, commandTimeoutMs: 60_000 });
       await eating.registry.activate(eating.extension);
       await quiet();
       return eating;
@@ -639,7 +665,7 @@ describe("isolated host extensions", () => {
         await idle.registry.dispose();
         await eating.registry.dispose();
       }
-    }, 40_000);
+    }, 120_000);
 
     // The buffer cap stays out of the way: Node 22 counts WebAssembly memory as buffers, Electron's Node does not.
     // Native last: SQLite keeps what it had in its allocator, which hides the next package's growth from the resident size.
@@ -654,7 +680,7 @@ describe("isolated host extensions", () => {
         setProcessMemoryLimit();
         await registry.dispose();
       }
-    }, 40_000);
+    }, 120_000);
   });
 
   const spawner = (permissions: string[]) => harness({ permissions, id: "acme.process", name: "Process Package", file: processBundle });

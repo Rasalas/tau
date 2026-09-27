@@ -19,6 +19,8 @@ import { SyncService } from "./service";
 
 const ready = hasCommand("ssh") && Boolean(findSftpServer()) && process.platform !== "win32";
 const GITIGNORE = "uploads/\n*.log\n";
+/** A budget, not a timing: 2,000 files over SSH took 30 s alone and three times that on a loaded two-CPU runner. */
+const BUDGET_MS = 300_000;
 
 function put(root: string, path: string, content: string | Buffer) {
   const file = join(root, ...path.split("/"));
@@ -69,6 +71,20 @@ function fakeContext(stateDir: string) {
 }
 
 const sha = (data: Buffer) => createHash("sha256").update(data).digest("hex");
+
+/** Blob contents by id, from one `git cat-file --batch`: a process per blob took most of a loaded run. */
+function readBlobs(gitDir: string, oids: string[]): Map<string, Buffer> {
+  const output = execFileSync("git", ["cat-file", "--batch"], { cwd: gitDir, input: `${oids.join("\n")}\n`, maxBuffer: 64 * 1024 * 1024 });
+  const blobs = new Map<string, Buffer>();
+  for (let at = 0; at < output.length;) {
+    const end = output.indexOf(10, at);
+    const [oid = "", type, size] = output.subarray(at, end).toString("utf8").split(" ");
+    if (type !== "blob") throw new Error(`${oid}: ${type ?? "unreadable"}`);
+    blobs.set(oid, output.subarray(end + 1, end + 1 + Number(size)));
+    at = end + 1 + Number(size) + 1;
+  }
+  return blobs;
+}
 
 describe.skipIf(!ready)("sync against the fake SSH server", () => {
   let dir: string;
@@ -142,9 +158,10 @@ describe.skipIf(!ready)("sync against the fake SSH server", () => {
     const mirror = new Mirror(store.mirrorDir({ workspaceId: "ws1", targetId: "site" }));
     const files = await mirror.files();
     expect([...files.keys()].sort()).toEqual(synced);
+    const blobs = readBlobs(mirror.dir, [...files.values()]);
     for (const path of synced) {
       const onServer = readFileSync(join(site, ...path.split("/")));
-      expect(sha(await mirror.readBlob(files.get(path)!)), path).toBe(sha(onServer));
+      expect(sha(blobs.get(files.get(path)!)!), path).toBe(sha(onServer));
       expect(sha(readFileSync(join(local, ...path.split("/")))), path).toBe(sha(onServer));
     }
     expect(execFileSync("git", ["rev-parse", MIRROR_REF], { cwd: mirror.dir, encoding: "utf8" }).trim()).toBe(result.commit);
@@ -158,7 +175,7 @@ describe.skipIf(!ready)("sync against the fake SSH server", () => {
     const calls = readCalls(dir);
     expect(calls.filter((entry) => entry.event === "sftp-op" && /\/\.git\b/u.test(String(entry.line)))).toEqual([]);
     expect(calls.filter((entry) => entry.outside)).toEqual([]);
-  }, 120_000);
+  }, BUDGET_MS);
 
   it("finds a colleague's change and deletion on the server as drift and a local deletion as pending", async () => {
     const clean = await harness.call<CompareResult>("compare", { cwd: local, targetId: "site" });
@@ -182,7 +199,7 @@ describe.skipIf(!ready)("sync against the fake SSH server", () => {
     const thorough = await harness.call<CompareResult>("compare", { cwd: local, targetId: "site", thorough: true, pending: false });
     expect(thorough.drift?.rows.map((row) => row.path)).toEqual(["index.php", "wp-content/plugins/p3/f7.php"]);
     expect(thorough.pending).toBeUndefined();
-  }, 120_000);
+  }, BUDGET_MS);
 
   it("downloads the same over SFTP alone into a fresh folder", async () => {
     const fresh = join(dir, "fresh");
@@ -196,7 +213,7 @@ describe.skipIf(!ready)("sync against the fake SSH server", () => {
     expect([...files.keys()].sort()).toEqual(now);
     expect(readFileSync(join(fresh, "index.php"), "utf8")).toContain("// hotfix");
     expect(existsSync(join(fresh, "uploads"))).toBe(false);
-  }, 120_000);
+  }, BUDGET_MS);
 
   it("answers a bad request as the user's mistake, not a broken command", async () => {
     await expect(harness.call("scan", { targetId: "site" })).rejects.toMatchObject({ name: "HostCommandError" });
