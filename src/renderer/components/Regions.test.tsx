@@ -25,4 +25,17 @@ describe("Region and StatusLine", () => {
     expect(status.textContent).toContain("~/project");
     expect(status.textContent).toContain("1.2k tokens");
   });
+
+  it("draws core's own controls after the contributions, and alone when there are none", async () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    const view = render(<Region registry={registry} placement="composer-controls" actions={actions}><button type="button">core</button></Region>);
+    const row = view.container.querySelector(".region-composer-controls")!;
+    expect([...row.children].map((child) => child.textContent)).toEqual(["core"]);
+
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerRegion({ id: "pill", placement: "composer-controls", Component: () => <span>pill</span> });
+    } });
+    await screen.findByText("pill");
+    expect(row.textContent).toBe("pillcore");
+  });
 });

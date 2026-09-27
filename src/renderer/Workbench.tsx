@@ -30,6 +30,7 @@ import { TitleBar } from "./components/TitleBar";
 import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
+import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
@@ -352,6 +353,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const [panelSheet, setPanelSheet] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
   // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
   const pageScreen = compact && !split;
@@ -702,6 +704,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                   <b>Change</b><ChevronDown size={15} />
                 </button>
               </> : null}
+              {!showStartScreen ? <Region registry={registry} placement="composer-controls" snapshot={snapshot} actions={actions}>
+                <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
+              </Region> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
@@ -715,7 +720,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onRetry={(path) => void actions.switchSession(path)}
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
-              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} />
+              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
           </div>
@@ -896,8 +901,9 @@ function useCloseOnThreadChange(pages: AppPageStore, sessionId: string | undefin
  * The transcript follows the store on its own. A streamed delta or a flush of
  * tool output re-renders this subtree and leaves the rest of the workbench untouched.
  */
-function ConversationTranscript({ view, thread, registry, actions, prompts, abort, composer }: {
+function ConversationTranscript({ view, thread, registry, actions, prompts, abort, composer, jumpToLatest }: {
   view: ThreadViewStore;
+  jumpToLatest: JumpToLatestStore;
   thread: WorkbenchThread;
   registry: ExtensionRegistry;
   composer: WorkbenchComposer;
@@ -985,6 +991,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       onRetryMessage={readOnly || limit ? undefined : retry}
       history={history}
       onReachStart={loadOlderOnReach}
+      jumpToLatest={jumpToLatest}
     />}
   </TranscriptHistoryBoundary>;
 }

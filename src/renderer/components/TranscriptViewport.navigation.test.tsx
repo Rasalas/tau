@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptTurnStart } from "./TranscriptViewport";
@@ -28,6 +28,7 @@ vi.mock("./VirtualTranscript", () => ({
 }));
 
 import { TranscriptViewport } from "./TranscriptViewport";
+import { JumpToLatestButton, JumpToLatestStore } from "./JumpToLatest";
 
 const oldMessage: UiMessage = {
   id: "old",
@@ -62,6 +63,7 @@ function Fixture({
   history?: ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const scrollHeightRef = useRef(scrollHeight);
   const clientHeightRef = useRef(clientHeight);
   scrollHeightRef.current = scrollHeight;
@@ -80,16 +82,20 @@ function Fixture({
     });
   }, []);
 
-  return <TranscriptViewport
-    messages={messages}
-    scrollRef={scrollRef}
-    sessionId={sessionId}
-    scopeKey={scopeKey}
-    turnStart={turnStart}
-    isStreaming={false}
-    onReachStart={onReachStart}
-    history={history}
-  />;
+  return <>
+    <TranscriptViewport
+      messages={messages}
+      scrollRef={scrollRef}
+      sessionId={sessionId}
+      scopeKey={scopeKey}
+      turnStart={turnStart}
+      isStreaming={false}
+      onReachStart={onReachStart}
+      history={history}
+      jumpToLatest={jumpToLatest}
+    />
+    <div className="controls-row"><JumpToLatestButton store={jumpToLatest} /></div>
+  </>;
 }
 
 afterEach(cleanup);
@@ -480,7 +486,7 @@ describe("TranscriptViewport navigation", () => {
     expect(inner.children[1]!.classList.contains("virtual-transcript")).toBe(true);
   });
 
-  it("stops following on upward mouse-wheel navigation and keeps the action in an overlay", async () => {
+  it("stops following on upward mouse-wheel navigation and offers the jump outside the transcript", async () => {
     const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
     const transcript = view.getByRole("log");
     await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
@@ -492,8 +498,9 @@ describe("TranscriptViewport navigation", () => {
     });
 
     const jump = await view.findByRole("button", { name: "Jump to latest" });
-    expect(jump.closest(".transcript-overlay")).toBeTruthy();
-    expect(jump.closest(".transcript")).toBeNull();
+    // It lives in the row over the composer, never over the transcript's rows.
+    expect(jump.closest(".controls-row")).toBeTruthy();
+    expect(jump.closest(".transcript-viewport")).toBeNull();
   });
 
   it("does not treat a layout scroll event as a history gesture", async () => {

@@ -473,7 +473,7 @@ body.resizing-col .app-shell { transition: none; }
 .conversation-column:not(.conversation-start) .conversation-start-screen,
 .conversation-column:not(.conversation-start) .conversation-start-content { display: contents; }
 .conversation-column.conversation-start .conversation-thread { display: none; }
-.conversation-column:not(.conversation-start) .region-composer-above { order: 2; }
+.conversation-column:not(.conversation-start) :is(.region-composer-controls, .region-composer-above) { order: 2; }
 .conversation-column:not(.conversation-start) .conversation-composer-host { order: 3; }
 .conversation-column:not(.conversation-start) .region-composer-below { order: 4; }
 .conversation-column:not(.conversation-start) .conversation-thread { order: 1; }
@@ -529,10 +529,6 @@ body.resizing-col .app-shell { transition: none; }
   position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none;
   padding: calc(26px * var(--density)) var(--space-8) var(--space-5); outline: none;
 }
-.transcript-overlay {
-  position: absolute; z-index: 4; inset: 0; pointer-events: none;
-}
-.transcript-overlay .transcript-jump { pointer-events: auto; }
 .transcript-search-bar {
   position: absolute; top: 12px; right: 24px; z-index: 10;
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;
@@ -662,26 +658,30 @@ body.resizing-col .app-shell { transition: none; }
 .virtual-transcript:focus-visible .virtual-transcript-row.focused :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
 .transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
-.transcript-jump {
-  position: absolute; z-index: 4; left: 50%; bottom: 12px;
-  display: inline-flex; align-items: center; gap: 6px;
-  transform: translateX(-50%);
-  border: 1px solid var(--line-control); border-radius: 999px;
-  background: var(--raised);
-  color: var(--ink-2); padding: 6px 11px;
-  box-shadow: var(--elevation-1);
-  font: 600 11px var(--sans); cursor: pointer;
-  animation: transcript-jump-in 160ms ease-out;
+/* A centred row between the transcript and the composer. It takes its own height, so it never covers the last message. */
+.workbench-region.region-composer-controls {
+  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px var(--composer-inset, 0) 0; margin-bottom: -4px;
 }
-.transcript-jump:hover { border-color: var(--line-strong); background: var(--raised); color: var(--ink); }
-.transcript-jump:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.transcript-jump > svg { color: var(--acid-text); }
-@keyframes transcript-jump-in {
-  from { opacity: 0; transform: translate(-50%, 6px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+/* 10 px to what sits under the row: the composer zone's own 14 px, or this when a kit draws something above it (an empty anchor draws nothing). */
+.region-composer-controls + .region-composer-above:has(> :not(:empty)) { margin-top: 14px; }
+.jump-to-latest {
+  position: relative; flex: none; width: 32px; height: 32px; padding: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--line-control); border-radius: 50%;
+  background: var(--chrome); color: var(--ink-2); box-shadow: var(--elevation-1);
+  cursor: pointer; animation: jump-to-latest-in 160ms ease-out;
+}
+.jump-to-latest:hover { border-color: var(--line-strong); background: var(--raised); color: var(--ink); }
+.jump-to-latest:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.jump-to-latest > svg { display: block; }
+@media (pointer: coarse) { .jump-to-latest::before { content: ""; position: absolute; inset: -6px; } }
+@keyframes jump-to-latest-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .transcript-jump,
+  .jump-to-latest,
   .conversation-start-content { animation: none; }
   .conversation-composer-host { transition: none !important; }
 }

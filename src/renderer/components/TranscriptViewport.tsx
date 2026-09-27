@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ChevronDown } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
@@ -19,6 +18,7 @@ import {
   type TranscriptTurnNavigationEntry,
 } from "./transcript-turn-navigation";
 import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscript";
+import type { JumpToLatestStore } from "./JumpToLatest";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -155,6 +155,8 @@ export interface TranscriptViewportProps {
   onReachStart?: () => void;
   /** Sits above the first loaded row and must take no height: the older turns' loading or error line. */
   history?: ReactNode;
+  /** Where the viewport offers Jump to latest while the reader is away from the tail; the button lives outside it. */
+  jumpToLatest?: JumpToLatestStore;
 }
 
 export const TranscriptViewport = memo(function TranscriptViewport({
@@ -177,6 +179,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   onFocusComposer,
   onReachStart,
   history,
+  jumpToLatest,
 }: TranscriptViewportProps) {
   const messageScopeKey = scopeKey ?? turnStart?.scopeKey ?? sessionId;
   const firstId = messages[0]?.id;
@@ -330,6 +333,11 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     return navigation.subscribeResize(fill);
   }, [hasMessages, messages.length, navigation.subscribeResize, scrollRef, sessionId]);
 
+  useEffect(() => {
+    jumpToLatest?.set(navigation.canJumpToLatest ? navigation.jumpToLatest : undefined);
+  }, [jumpToLatest, navigation.canJumpToLatest, navigation.jumpToLatest]);
+  useEffect(() => () => jumpToLatest?.set(undefined), [jumpToLatest]);
+
   const [searchOpen, setSearchOpen] = useState(false);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -480,19 +488,5 @@ export const TranscriptViewport = memo(function TranscriptViewport({
         {liveStatus}
       </div>
     </div>
-    {navigation.canJumpToLatest ? (
-      <div className="transcript-overlay">
-        <button
-          type="button"
-          className="transcript-jump"
-          aria-label="Jump to latest"
-          title="Jump to latest"
-          onClick={navigation.jumpToLatest}
-        >
-          <ChevronDown size={14} aria-hidden="true" />
-          <span>Jump to latest</span>
-        </button>
-      </div>
-    ) : null}
   </div>;
 });
