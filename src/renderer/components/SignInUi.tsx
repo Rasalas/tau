@@ -12,7 +12,7 @@ import {
 import type { HostExtensionClient } from "../extension-system";
 import { Button } from "../settings/controls";
 import { SettingRow } from "../settings/settings-layout";
-import { useProviderCardBadge, type ProviderCardBadge } from "../settings/provider-card-state";
+import { ProviderCardBadgeReport, useProviderCardBadge, type ProviderCardBadge } from "../settings/provider-card-state";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import "./sign-in.css";
 
@@ -23,6 +23,9 @@ import "./sign-in.css";
  * The kit's host half runs the flow (`registerSignIn`); this draws and answers.
  * One chunk, loaded with `loadSignInUi` from `tau`.
  */
+/** Puts a badge into the head of the Providers card it is drawn in, for a kit whose rows are its own. */
+export { ProviderCardBadgeReport };
+
 export interface SignInSetupProps {
   /** The kit's host half. */
   host: HostExtensionClient;
