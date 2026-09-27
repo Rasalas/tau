@@ -875,7 +875,7 @@ of Settings with its own nav entry, typed `SettingsPageContribution` (`id`,
 `label`, an optional `Icon` the way panels pass theirs, an optional `order`,
 optional `keywords` — the words the Settings search field and the palette find
 the page by besides its label — an optional `scope` (below) and a `Component`
-receiving `SettingsPageProps`: `cwd` and `onNotify`). A page that also names a
+receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.18.0). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its

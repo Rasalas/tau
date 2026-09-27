@@ -626,6 +626,8 @@ export interface SettingsPageProps {
   /** The open project, for a page that reports what this workspace sees. */
   cwd?: string;
   onNotify(message: string): void;
+  /** Opens another place in Settings (`"appearance#setting-…"`, `"extensions/<id>"`) without leaving it (API 1.18.0). */
+  onOpenSettings?(target: string): void;
 }
 
 /** What a page `registerPage` added is drawn with. */

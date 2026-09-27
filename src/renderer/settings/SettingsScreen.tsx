@@ -331,7 +331,7 @@ export function SettingsScreen({
           </header>
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
-              <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
+              <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
             </div>
           </div>
         </main>
@@ -443,7 +443,7 @@ export function SettingsScreen({
               ) : onProviders ? (
                 <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : contributed ? (
-                <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
+                <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
               ) : page === "extensions" ? (
                 <ExtensionsPage
                   entries={sources.loading && !sources.inspection && snapshot?.cwd ? [] : catalog}
