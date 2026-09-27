@@ -1,3 +1,4 @@
+import type { SettingsNavGroup } from "./settings/settings-nav";
 import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
 import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
@@ -671,6 +672,18 @@ export interface SettingsPageContribution extends ProfileScoped {
   /** Words the Settings search and the palette find this page by, besides its label. */
   keywords?: readonly string[];
   /**
+   * Where the page sits in Settings' navigation: `general`, `threads`,
+   * `projects`, `remote`, `extensions` (the default) or `diagnostics`; within
+   * the group, in `order` (API 1.18.0).
+   */
+  group?: SettingsNavGroup;
+  /**
+   * Rows on the page the Settings search finds by name: `id` is the row's
+   * element id (a `SettingRow`'s `id`), which a result scrolls to and
+   * `openSettings("<page>#<id>")` opens (API 1.18.0).
+   */
+  rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] }>;
+  /**
    * The runtime backend this page is about. Such a page gets no nav entry of
    * its own: it is that runtime's card on the Providers page, in `order`.
    */
@@ -684,13 +697,21 @@ export interface SettingsPageContribution extends ProfileScoped {
   Component: ComponentType<SettingsPageProps>;
 }
 
-/** Core's own Settings pages a package may add a section to (API 1.13.0). */
-export type SettingsSectionPage = "connections";
+/**
+ * Core's own Settings pages a package may add a section to (API 1.13.0):
+ * Connections; the list of extensions, above it; and each extension's own
+ * page, after its settings (both API 1.18.0).
+ */
+export type SettingsSectionPage = "connections" | "extensions" | "extension";
 
 export interface SettingsSectionProps {
   onNotify(message: string): void;
   /** Reads the page's own data again, after the section changed something it shows. */
   onChanged(): void;
+  /** On an extension's page: whose page it is (API 1.18.0). */
+  extensionId?: string;
+  /** On an extension's page: the open project, whose package folder the extension may live in. */
+  cwd?: string;
 }
 
 /**

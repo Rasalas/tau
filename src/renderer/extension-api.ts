@@ -33,6 +33,10 @@ export { ChangesTree } from "./deferred-surfaces";
 export { usePreferences } from "./renderer-services-context";
 // The rows a Settings page is built from, and one config key read across the levels.
 export { SettingRow, SettingsSection } from "./deferred-surfaces";
+// The controls of a Settings page (API 1.18.0): the same set core's pages use.
+export { Badge, Button, DangerAction, DangerZone, HelpTip, ListField, NumberField, SegmentedControl, Select, SettingsState, Switch, TextField, ValueList } from "./deferred-surfaces";
+export type { ChoiceOption, FieldWidth, SelectOption, ValueListItem } from "./settings/controls";
+export type { SettingsNavGroup } from "./settings/settings-nav";
 export { useSetting } from "./settings/setting-state";
 export type { SettingHandle, SettingOptions } from "./settings/setting-state";
 export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
