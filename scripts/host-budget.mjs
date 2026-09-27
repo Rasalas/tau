@@ -92,6 +92,7 @@ function evaluateLargeThreadBudgets(report, budgets) {
     open: budgets.largeThreadOpenP95Ms ?? 2_500,
     bootstrap: budgets.largeThreadBootstrapP95Ms ?? 5_000,
     "full-ready": budgets.largeThreadFullReadyP95Ms ?? 7_500,
+    "open-checkpointed": budgets.checkpointedThreadOpenP95Ms ?? 1_000,
   };
   for (const [scenario, limit] of Object.entries(limits)) {
     const summary = large.summaries[scenario];

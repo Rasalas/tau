@@ -161,13 +161,18 @@ describe("performance report checks", () => {
     }, phases: [], background: [{ name: "project-label", durationMs: 10 }], metadata: { entries: { short: 8, long: 20_000 }, summaries: {
       "set-model-short": lean, "set-thinking-short": lean, "set-model-long": lean, "set-thinking-long": lean,
     } } };
-    const large = (open, pageMessages = 20) => ({ entries: 20_000, pageMessages, summaries: { open, bootstrap: fast, "full-ready": fast } });
+    const checkpointed = { median: 60, p95: 80, maximum: 90 };
+    const large = (open, pageMessages = 20, openCheckpointed = checkpointed) => ({ entries: 20_000, pageMessages, summaries: { open, bootstrap: fast, "full-ready": fast, "open-checkpointed": openCheckpointed } });
     expect(evaluateHostBudgets({ ...base, largeThread: large(fast) })).toEqual([]);
     expect(evaluateHostBudgets({ ...base, largeThread: large({ median: 43_000, p95: 54_000, maximum: 54_000 }) })).toEqual([
       "large-thread open p95 54000.0ms > 2500ms (median 43000.0ms)",
     ]);
     expect(evaluateHostBudgets({ ...base, largeThread: large(fast, 40_000) })).toEqual([
       "large thread first page holds 40000 messages > 60",
+    ]);
+    // Workspace Kit's check before a thread opens once asked Git four times per checkpoint.
+    expect(evaluateHostBudgets({ ...base, largeThread: large(fast, 20, { median: 1_100, p95: 1_300, maximum: 1_300 }) }, { checkpointedThreadOpenP95Ms: 1_000 })).toEqual([
+      "large-thread open-checkpointed p95 1300.0ms > 1000ms (median 1100.0ms)",
     ]);
     expect(evaluateHostBudgets(base)).toEqual(["the large thread was not measured by the Full Mode host fixture"]);
     expect(evaluateHostBudgets({ ...base, mode: "safe" })).toEqual([]);
