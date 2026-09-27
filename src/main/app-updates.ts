@@ -258,7 +258,9 @@ function installFailure(version: string | undefined, error: unknown): string {
 export type LinuxInstall = "appimage" | "deb" | "unpacked";
 
 /** Where the .deb puts Tau (electron-builder's `/opt/<productName>`). */
-const DEB_EXECUTABLE = "/opt/Tau/tau";
+export const DEB_EXECUTABLE = "/opt/Tau/tau";
+/** `deb.packageName` in electron-builder.yml. */
+export const DEB_PACKAGE = "tau";
 
 /**
  * electron-builder writes `resources/package-type` into the folder the .deb
