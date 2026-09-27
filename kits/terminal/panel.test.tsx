@@ -139,6 +139,14 @@ function stageTabHandle(): StageTabHandle & { close(): void } {
 
 const layout = () => terminalStore.getSnapshot().layout;
 
+/** Picks an entry of the tab bar's More menu, once an open in flight has settled. */
+async function moreAction(name: RegExp) {
+  const more = screen.getByRole("button", { name: "More terminal actions" }) as HTMLButtonElement;
+  await waitFor(() => expect(more.disabled).toBe(false));
+  fireEvent.click(more);
+  fireEvent.click(screen.getByRole("menuitem", { name }));
+}
+
 beforeEach(() => {
   // jsdom has no canvas; the monospace check then keeps the resolved stack.
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
@@ -193,6 +201,29 @@ describe("TerminalPanel", () => {
       activeSessionId = "s1";
       act(() => terminalStore.setActiveSession("s1"));
       expect(screen.getByRole("tab", { name: /shell 1/u }).textContent).not.toContain("other thread");
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("draws one row of chrome above a lone shell: tabs, other threads, actions", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    activeSessionId = "s1";
+    try {
+      const { container } = render(<TerminalPanel {...panelProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+      expect(container.querySelectorAll("header")).toHaveLength(1);
+      expect(within(container.querySelector("header")!).getByRole("tablist")).toBeTruthy();
+      expect(screen.queryByRole("heading")).toBeNull();
+
+      // A split names its panes: each gets a slim header of its own.
+      const split = screen.getByRole("button", { name: "Split right" }) as HTMLButtonElement;
+      await waitFor(() => expect(split.disabled).toBe(false));
+      fireEvent.click(split);
+      await screen.findByRole("tab", { name: /shell 1 \+1/u });
+      expect(container.querySelectorAll(".terminal-pane-header")).toHaveLength(2);
     } finally {
       disconnect();
     }
@@ -280,7 +311,7 @@ describe("TerminalPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
 
-      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      await moreAction(/Open as a stage tab/u);
       await waitFor(() => expect(actions.openStageTab).toHaveBeenCalledWith(TERMINAL_STAGE_TAB, { id: "t1", label: "shell 1" }));
       await waitFor(() => expect(screen.getByText("Every shell is on the stage.")).toBeTruthy());
       expect(layout().stage).toEqual([{ id: "t1", root: { kind: "pane", id: "t1" }, focused: "t1" }]);
@@ -305,7 +336,7 @@ describe("TerminalPanel", () => {
       const panel = render(<TerminalPanel {...panelProps(actions)} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
-      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      await moreAction(/Open as a stage tab/u);
       await waitFor(() => expect(layout().stage.map((group) => group.id)).toEqual(["t1"]));
       panel.unmount();
 
@@ -342,7 +373,7 @@ describe("TerminalPanel", () => {
       render(<TerminalPanel {...panelProps(actions)} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
-      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      await moreAction(/Open as a stage tab/u);
       await waitFor(() => expect(layout().stage).toHaveLength(1));
       const handle = stageTabHandle();
       const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
@@ -424,16 +455,19 @@ describe("TerminalPanel", () => {
       render(<TerminalPanel {...panelProps()} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
-      expect(screen.getByRole("button", { name: "Open the project in Zed" })).toBeTruthy();
+      // A pane alone in its tab has no header: the path is the tab's tooltip, the folder is under More.
+      await moreAction(/Open the project in Zed/u);
+      expect(openInEditor).toHaveBeenLastCalledWith(undefined);
 
       act(() => fake.cd("t1", "/project/src/app"));
-      expect(screen.getByText("/project/src/app")).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Open app in Zed" }));
+      expect(screen.getByRole("tab", { name: /shell 1/u }).getAttribute("data-tooltip")).toBe("/project/src/app");
+      await moreAction(/Open app in Zed/u);
       expect(openInEditor).toHaveBeenCalledWith("src/app");
 
       // Outside the project the store follows there is nothing to open.
       act(() => fake.cd("t1", "/tmp"));
-      expect(screen.queryByRole("button", { name: /in Zed/u })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "More terminal actions" }));
+      expect(screen.queryByRole("menuitem", { name: /in Zed/u })).toBeNull();
     } finally {
       disconnect();
     }
@@ -447,7 +481,7 @@ describe("TerminalPanel", () => {
       const view = render(<TerminalPanel {...panelProps(actions)} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
-      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      await moreAction(/Open as a stage tab/u);
       await waitFor(() => expect(layout().stage.map((group) => group.id)).toEqual(["t1"]));
       stageTabs = [];
       view.rerender(<TerminalPanel {...panelProps(actions)} />);
@@ -467,7 +501,7 @@ describe("TerminalPanel", () => {
       await screen.findByRole("tab", { name: /shell 1/u });
       fake.foreground.set("t1", "top");
 
-      fireEvent.click(screen.getByRole("button", { name: "Close shell 1" }));
+      fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
       await waitFor(() => expect(confirm).toHaveBeenCalledWith("top is still running. Close the terminal anyway?"));
       expect(fake.invoke).not.toHaveBeenCalledWith("kill", { id: "t1" });
 
@@ -489,7 +523,7 @@ describe("TerminalPanel", () => {
       render(<TerminalPanel {...panelProps()} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
-      fireEvent.click(screen.getByRole("button", { name: "Close shell 1" }));
+      fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
       await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
       expect(confirm).not.toHaveBeenCalled();
 

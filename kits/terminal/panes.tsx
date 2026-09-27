@@ -5,7 +5,7 @@ import { TerminalView } from "./view.js";
 import { terminalServices, terminalStore } from "./store.js";
 import { moveDivider, paneIds, resizeGroupSplit, splitShares, type PaneNode, type TerminalGroup } from "./layout.js";
 import { closeTerminals, moveTerminalToStage, restartTerminal } from "./controller.js";
-import type { UiTerminalSession, WorkspaceStoreMirror } from "./protocol.js";
+import type { UiTerminalSession } from "./protocol.js";
 import { placeOf, type TerminalPlace } from "./scope.js";
 
 export { placeOf, type TerminalPlace } from "./scope.js";
@@ -48,22 +48,27 @@ const noSnapshot = () => undefined;
  * project, through Workspace Kit's store; only for a directory inside the
  * project that store follows.
  */
-function OpenFolderButton({ session, workspace }: { session: UiTerminalSession; workspace: WorkspaceStoreMirror }) {
+export function useOpenFolder(session: UiTerminalSession | undefined): { label: string; tip: string; open(): void } | undefined {
+  const workspace = terminalServices.workspace;
   // The snapshot only says when the editors or the followed project changed.
-  const state = useSyncExternalStore(workspace.subscribe ?? noSubscription, workspace.getSnapshot ?? noSnapshot);
-  const directory = shellDirectory(session);
-  const editor = workspace.activeEditor?.();
+  const state = useSyncExternalStore(workspace?.subscribe ?? noSubscription, workspace?.getSnapshot ?? noSnapshot);
+  const directory = session ? shellDirectory(session) : undefined;
+  const editor = workspace?.activeEditor?.();
   const root = state?.cwd;
   const relative = directory && root ? pathInside(root, directory) : undefined;
-  if (!editor || relative === undefined || !workspace.openInEditor) return null;
+  if (!workspace?.openInEditor || !editor || relative === undefined) return undefined;
   const name = relative ? relative.split("/").at(-1) : "the project";
-  return <button
-    type="button"
-    className="terminal-pane-button"
-    aria-label={`Open ${name} in ${editor.name}`}
-    {...tooltipProps(`Open ${directory} in ${editor.name}`)}
-    onClick={() => void workspace.openInEditor?.(relative || undefined)}
-  ><FolderOpen size={13} /></button>;
+  return {
+    label: `Open ${name} in ${editor.name}`,
+    tip: `Open ${directory} in ${editor.name}`,
+    open: () => void workspace.openInEditor?.(relative || undefined),
+  };
+}
+
+function OpenFolderButton({ session }: { session: UiTerminalSession }) {
+  const folder = useOpenFolder(session);
+  if (!folder) return null;
+  return <button type="button" className="terminal-pane-button" aria-label={folder.label} {...tooltipProps(folder.tip)} onClick={folder.open}><FolderOpen size={13} /></button>;
 }
 
 export type Run = (work: () => Promise<unknown> | unknown) => void;
@@ -82,16 +87,16 @@ function Pane({ session, split, group, place, actions, run, activeSessionId }: O
   const where = placeOf(session, activeSessionId);
   const exited = session.exitCode !== undefined;
   const directory = shellDirectory(session);
-  const workspace = terminalServices.workspace;
   const { readOnly } = useHostCapabilities();
+  // A pane alone in its tab is named by the tab, whose tooltip has the path, and its buttons are the tab bar's.
   return <section className="terminal-pane" aria-label={session.label}>
-    <header className="terminal-pane-header">
+    {split || exited ? <header className="terminal-pane-header">
       <span className="terminal-pane-title" title={directory ?? session.label}>{split ? session.label : directory ?? session.label}</span>
       {where === "elsewhere" && <span className="terminal-tab-place terminal-pane-place">{PLACE_LABEL[where]}</span>}
       {exited && <span className="terminal-pane-exit">shell exited with {session.exitCode}</span>}
       <span className="terminal-pane-actions">
         {exited && !readOnly ? <button type="button" className="terminal-pane-button" aria-label="Restart shell" {...tooltipProps("Restart shell")} onClick={() => run(() => restartTerminal(session.id))}><RotateCcw size={13} /></button> : null}
-        {workspace ? <OpenFolderButton session={session} workspace={workspace} /> : null}
+        <OpenFolderButton session={session} />
         {place === "panel" && actions ? <button
           type="button"
           className="terminal-pane-button"
@@ -101,7 +106,7 @@ function Pane({ session, split, group, place, actions, run, activeSessionId }: O
         ><SquareArrowOutUpRight size={13} /></button> : null}
         {readOnly ? null : <button type="button" className="terminal-pane-button" aria-label={`Close ${session.label}`} {...tooltipProps("Close this shell", place === "panel" ? { shortcut: "⌘W" } : {})} onClick={() => run(() => closeTerminals([session.id]))}><X size={13} /></button>}
       </span>
-    </header>
+    </header> : null}
     <TerminalView session={session} place={place} focused={split && group.focused === session.id} />
   </section>;
 }

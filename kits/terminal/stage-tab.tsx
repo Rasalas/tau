@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Columns2, Rows2 } from "lucide-react";
-import { errorMessage, useHostCapabilities, type StageTabHandle, type WorkbenchActions } from "tau";
+import { Columns2, Rows2, X } from "lucide-react";
+import { errorMessage, tooltipProps, useHostCapabilities, type StageTabHandle, type WorkbenchActions } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { paneIds, restoreStageGroup, stageGroup } from "./layout.js";
-import { openTerminal, returnTerminalToPanel } from "./controller.js";
+import { closeTerminals, openTerminal, returnTerminalToPanel } from "./controller.js";
 import { groupLabel, PaneTree, type Run } from "./panes.js";
 import { TERMINAL_PANEL } from "./protocol.js";
 
@@ -76,6 +76,7 @@ export function TerminalStageTab({ params, handle, actions }: { params: Terminal
       <button type="button" className="icon-button" aria-label="Split right" title="Split right (⌘D in a terminal)" disabled={busy} onClick={() => run(() => openTerminal(actions, { direction: "right", target: group.focused }))}><Columns2 size={14} /></button>
       <button type="button" className="icon-button" aria-label="Split down" title="Split down (⌘⇧D in a terminal)" disabled={busy} onClick={() => run(() => openTerminal(actions, { direction: "down", target: group.focused }))}><Rows2 size={14} /></button>
       </>}
+      {!readOnly && group.root.kind === "pane" ? <CloseShellButton id={group.focused} label={label} run={run} /> : null}
       {actions ? <button type="button" className="text-button terminal-stage-back" title="The shells keep running in the panel" onClick={toPanel}>Move to panel</button> : null}
     </header>
     {error && <p role="alert" className="terminal-error">{error}</p>}
@@ -83,4 +84,9 @@ export function TerminalStageTab({ params, handle, actions }: { params: Terminal
       <PaneTree group={group} sessions={sessions} place="stage" actions={actions} run={run} activeSessionId={actions?.activeThread()?.sessionId ?? activeSessionId} />
     </div>
   </div>;
+}
+
+/** A pane alone in its tab has no header of its own; the tab's bar closes it. */
+function CloseShellButton({ id, label, run }: { id: string; label: string; run: Run }) {
+  return <button type="button" className="icon-button" aria-label={`Close ${label}`} {...tooltipProps("Close this shell")} onClick={() => run(() => closeTerminals([id]))}><X size={14} /></button>;
 }

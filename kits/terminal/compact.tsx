@@ -172,7 +172,9 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   // The strip holds this thread's and the project's shells; other threads' wait in the options menu.
   const elsewhere = all.filter((id) => id !== picked && placeOf(sessionOf(id), activeSessionId) === "elsewhere");
   const ids = all.filter((id) => !elsewhere.includes(id));
-  const names = chipLabels(all.map(sessionOf));
+  // Numbered among their own list: the strip's, and the options menu's of other threads' shells.
+  const names = chipLabels(ids.map(sessionOf));
+  const elsewhereNames = chipLabels(elsewhere.map(sessionOf));
   const shownId = [picked, focusedPane(layout), ...ids].find((id): id is string => Boolean(id && ids.includes(id)));
   const shown = sessions.find((session) => session.id === shownId);
   const exited = shown?.exitCode !== undefined;
@@ -359,7 +361,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
           type="button"
           className="terminal-compact-menu-item"
           onClick={() => { setMenu(false); setPicked(id); terminalStore.updateLayout((next) => focusPane(next, id)); }}
-        ><TerminalIcon size={18} aria-hidden="true" />Show {names.get(id)}</button>)}
+        ><TerminalIcon size={18} aria-hidden="true" />Show {elsewhereNames.get(id)}</button>)}
       </div> : null}
       {shown && !readOnly ? <button
         type="button"

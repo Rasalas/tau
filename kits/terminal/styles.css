@@ -1,17 +1,12 @@
-/* The panel is a container: at a dock's narrowest the split buttons fold into a menu. */
-.terminal-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; container: terminal-panel / inline-size; }
-.terminal-panel .panel-header { display: flex; justify-content: space-between; flex: none; min-width: 0; }
-.terminal-panel .panel-header > h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.terminal-narrow-only { display: none !important; }
-@container terminal-panel (max-width: 300px) {
-  .terminal-wide-only { display: none !important; }
-  .terminal-narrow-only { display: grid !important; }
-  .terminal-elsewhere-text { display: none; }
-}
+.terminal-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+/* The panel's one row of chrome: tabs, other threads' shells, actions. Core's header box keeps the maximize button's corner free. */
+.terminal-panel .terminal-toolbar { display: flex; align-items: stretch; gap: 0; min-width: 0; padding-left: 0; }
+.terminal-toolbar > .terminal-panel-actions { align-self: center; margin-left: 6px; }
+.terminal-toolbar-title { display: flex; align-items: center; padding: 0 var(--space-6); font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.terminal-panel.narrow .terminal-tab { max-width: 140px; }
 .terminal-note { margin: 0 8px 4px; font: 11px var(--mono); color: var(--faint); }
 .terminal-menu-note { margin: 4px 0 0; padding: 6px 8px 2px; border-top: 1px solid var(--line-soft); max-width: 260px; font: 11.5px/1.4 var(--sans); color: var(--muted); }
 /* Tabs as the stage draws them: the active one joins the surface below it. */
-.terminal-tabbar { display: flex; align-items: stretch; flex: none; min-width: 0; height: 32px; border-bottom: 1px solid var(--line); }
 .terminal-tabs { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
 .terminal-tabs::-webkit-scrollbar { display: none; }
 .terminal-tab { position: relative; display: flex; align-items: center; flex: none; max-width: 200px; min-width: 0; padding-right: 4px; border-right: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
@@ -37,7 +32,7 @@
 .terminal-surface > * { flex: 1; min-width: 0; min-height: 0; }
 .terminal-surface > .empty-copy, .terminal-surface > .empty-state { flex: none; }
 .terminal-surface > .empty-state { margin: auto; }
-.terminal-panel-actions { display: flex; gap: 2px; }
+.terminal-panel-actions { display: flex; flex: none; gap: 2px; }
 .terminal-split { display: flex; min-width: 0; min-height: 0; }
 .terminal-split-right { flex-direction: row; }
 .terminal-split-down { flex-direction: column; }

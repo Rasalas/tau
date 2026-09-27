@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Columns2, Ellipsis, Plus, Rows2, SquareStack, Terminal as TerminalIcon, X } from "lucide-react";
-import { Empty, errorMessage, Menu, tooltipProps, useHostCapabilities, type PanelProps } from "tau";
+import { Columns2, Ellipsis, FolderOpen, Plus, Rows2, SquareArrowOutUpRight, SquareStack, Terminal as TerminalIcon, X } from "lucide-react";
+import { Empty, errorMessage, Menu, tooltipProps, useHostCapabilities, type MenuItem, type PanelProps } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { paneIds, type TerminalGroup } from "./layout.js";
-import { closeTerminals, groupPanes, wantsFirstShell, openTerminal, syncStageTabs, TERMINAL_READ_ONLY } from "./controller.js";
-import { groupLabel, PaneTree, shellDirectory, type Run } from "./panes.js";
+import { closeTerminals, groupPanes, moveTerminalToStage, openTerminal, syncStageTabs, TERMINAL_READ_ONLY, wantsFirstShell } from "./controller.js";
+import { groupLabel, PaneTree, shellDirectory, useOpenFolder, type Run } from "./panes.js";
 import { threadScope } from "./scope.js";
 import type { UiTerminalSession } from "./protocol.js";
 
@@ -16,7 +16,10 @@ function below(button: HTMLElement | null): { x: number; y: number } {
   return rect ? { x: rect.left, y: rect.bottom + 4 } : { x: 0, y: 0 };
 }
 
-export function TerminalPanel({ actions, active }: PanelProps) {
+/** Below this the split buttons fold into the tab bar's menu. */
+const NARROW_PANEL = 300;
+
+export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const { sessions, activeSessionId: switched, layout } = useTerminalKit();
   // The thread on screen, asked on every render: the store's copy only says
   // that it changed, and is empty until the first switch after activation.
@@ -26,6 +29,8 @@ export function TerminalPanel({ actions, active }: PanelProps) {
   // A tab of another thread the user asked to see here, until the thread changes.
   const [picked, setPicked] = useState<{ thread: string | undefined; group: string }>();
   const [menu, setMenu] = useState<"more" | "elsewhere">();
+  const [width, setWidth] = useState(0);
+  const section = useRef<HTMLElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const elsewhereButton = useRef<HTMLButtonElement>(null);
   const wasActive = useRef(false);
@@ -49,6 +54,13 @@ export function TerminalPanel({ actions, active }: PanelProps) {
   }, [active]);
   // A stage tab closed while nothing drew it had no one to tell the panel.
   useEffect(() => { syncStageTabs(actions); });
+  useEffect(() => {
+    const element = section.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const byId = (id: string) => sessions.find((session) => session.id === id);
   const pickedGroup = picked && picked.thread === activeSessionId ? picked.group : undefined;
@@ -60,6 +72,10 @@ export function TerminalPanel({ actions, active }: PanelProps) {
     if (current && layout.active !== current.id) terminalStore.updateLayout((next) => ({ ...next, active: current.id }));
   }, [current?.id, layout.active]);
   const onStage = layout.stage.flatMap((group) => paneIds(group.root)).filter((id) => byId(id)).length;
+  const focused = target ? byId(target) : undefined;
+  const folder = useOpenFolder(focused);
+  // Unmeasured (a test, a first frame) counts as wide.
+  const narrow = width > 0 && width < NARROW_PANEL;
 
   const select = (group: TerminalGroup) => {
     terminalStore.updateLayout((next) => ({ ...next, active: group.id }));
@@ -67,29 +83,23 @@ export function TerminalPanel({ actions, active }: PanelProps) {
   };
   const newTerminal = () => run(() => openTerminal(actions));
   const split = (direction: "right" | "down") => run(() => openTerminal(actions, { direction, ...(target ? { target } : {}) }));
+  const moreItems: MenuItem[] = [
+    ...(narrow && !readOnly ? [
+      { id: "right", label: "Split right", icon: <Columns2 size={13} />, disabled: !target },
+      { id: "down", label: "Split down", icon: <Rows2 size={13} />, disabled: !target },
+    ] : []),
+    ...(focused ? [{ id: "stage", label: "Open as a stage tab", description: "The shell keeps running", icon: <SquareArrowOutUpRight size={13} /> }] : []),
+    ...(folder ? [{ id: "folder", label: folder.label, icon: <FolderOpen size={13} /> }] : []),
+  ];
+  const pickMore = (id: string) => {
+    if (id === "right" || id === "down") split(id);
+    else if (id === "stage" && focused) run(() => moveTerminalToStage(actions, focused.id));
+    else if (id === "folder") folder?.open();
+  };
 
-  return <section className="panel-body terminal-panel">
-    <header className="panel-header">
-      <h2>Terminal</h2>
-      {readOnly ? null : <span className="terminal-panel-actions">
-        <button className="icon-button" aria-label="New terminal" {...tooltipProps("New terminal", { shortcut: "⌘N in a terminal" })} disabled={busy} onClick={newTerminal}><Plus size={14} /></button>
-        <button className="icon-button terminal-wide-only" aria-label="Split right" {...tooltipProps("Split right", { shortcut: "⌘D in a terminal" })} disabled={busy || !target} onClick={() => split("right")}><Columns2 size={14} /></button>
-        <button className="icon-button terminal-wide-only" aria-label="Split down" {...tooltipProps("Split down", { shortcut: "⌘⇧D in a terminal" })} disabled={busy || !target} onClick={() => split("down")}><Rows2 size={14} /></button>
-        <button ref={moreButton} className="icon-button terminal-narrow-only" aria-label="More terminal actions" aria-haspopup="menu" {...tooltipProps("More terminal actions")} disabled={busy} onClick={() => setMenu("more")}><Ellipsis size={14} /></button>
-      </span>}
-    </header>
-    {menu === "more" ? <Menu
-      at={below(moreButton.current)}
-      label="Terminal actions"
-      items={[
-        { id: "right", label: "Split right", icon: <Columns2 size={13} />, disabled: !target },
-        { id: "down", label: "Split down", icon: <Rows2 size={13} />, disabled: !target },
-      ]}
-      onSelect={(id) => split(id === "down" ? "down" : "right")}
-      onClose={() => setMenu(undefined)}
-    /> : null}
-    {readOnly && <p className="terminal-note" role="note">{TERMINAL_READ_ONLY}</p>}
-    {scope.shown.length > 0 || scope.elsewhere.length > 0 ? <div className="terminal-tabbar">
+  // One row of chrome: the tabs, the other threads' shells, and the actions; the dock's maximize button keeps its corner.
+  return <section ref={section} className={`panel-body terminal-panel${narrow ? " narrow" : ""}`}>
+    <header className="panel-header terminal-toolbar">
       <div className="terminal-tabs" role="tablist" aria-label="Terminals">
         {scope.shown.map((group) => <TerminalTab
           key={group.id}
@@ -101,17 +111,29 @@ export function TerminalPanel({ actions, active }: PanelProps) {
           onSelect={() => select(group)}
           onClose={() => run(() => closeTerminals(groupPanes(group.id)))}
         />)}
+        {scope.shown.length === 0 ? <span className="terminal-toolbar-title">Terminal</span> : null}
       </div>
       {scope.elsewhere.length > 0 ? <button
         ref={elsewhereButton}
         type="button"
         className="terminal-elsewhere"
         aria-haspopup="menu"
+        aria-expanded={menu === "elsewhere"}
         aria-label={`${scope.elsewhere.length} ${scope.elsewhere.length === 1 ? "shell" : "shells"} in other threads`}
         {...tooltipProps("Shells opened in other threads keep running there. Pick one to show it here.")}
         onClick={() => setMenu("elsewhere")}
-      ><SquareStack size={13} aria-hidden="true" /><span>{scope.elsewhere.length}</span><span className="terminal-elsewhere-text">in other threads</span></button> : null}
-    </div> : null}
+      ><SquareStack size={13} aria-hidden="true" /><span>{scope.elsewhere.length}</span>{narrow ? null : <span>in other threads</span>}</button> : null}
+      <span className="terminal-panel-actions">
+        {readOnly ? null : <button className="icon-button" aria-label="New terminal" {...tooltipProps("New terminal", { shortcut: "⌘N in a terminal" })} disabled={busy} onClick={newTerminal}><Plus size={14} /></button>}
+        {readOnly || narrow ? null : <>
+          <button className="icon-button" aria-label="Split right" {...tooltipProps("Split right", { shortcut: "⌘D in a terminal" })} disabled={busy || !target} onClick={() => split("right")}><Columns2 size={14} /></button>
+          <button className="icon-button" aria-label="Split down" {...tooltipProps("Split down", { shortcut: "⌘⇧D in a terminal" })} disabled={busy || !target} onClick={() => split("down")}><Rows2 size={14} /></button>
+        </>}
+        {moreItems.length > 0 ? <button ref={moreButton} className="icon-button" aria-label="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} {...tooltipProps("More terminal actions")} disabled={busy} onClick={() => setMenu("more")}><Ellipsis size={14} /></button> : null}
+      </span>
+    </header>
+    {menu === "more" ? <Menu at={below(moreButton.current)} label="Terminal actions" items={moreItems} onSelect={pickMore} onClose={() => setMenu(undefined)} /> : null}
+    {readOnly && <p className="terminal-note" role="note">{TERMINAL_READ_ONLY}</p>}
     {menu === "elsewhere" ? <Menu
       at={below(elsewhereButton.current)}
       label="Shells in other threads"
