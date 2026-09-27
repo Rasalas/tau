@@ -34,6 +34,7 @@ export const DEVICES = {
 const USAGE = `usage: tau-mobile-cdp.mjs <command> [...args]
   launch [--device iphone] [--scheme dark|light] [--resolve <name>]... [--fresh]
   device <name> [--scheme dark|light]      ${Object.keys(DEVICES).join(", ")}
+  window <width> <height> | full           the app's window in the device's screen (Split View, Slide Over)
   open <url> [--wait ms]                   loopback, or a name given to launch --resolve
   eval <expr> | wait-for <expr> [ms] | snapshot | screenshot <file.png>
   tap <expr> | longpress <expr> [ms] | swipe <expr> <dx> [dy]
@@ -150,15 +151,20 @@ export function findChromium({ env = process.env, platform = process.platform, h
   throw new Error("no Chromium found: set TAU_MOBILE_CHROME, or install Playwright's (npx playwright install chromium)");
 }
 
-/** The CDP calls that make the page a device; they last only while the session that sent them stays attached. */
-export function emulationSteps(device, scheme = "dark") {
+/**
+ * The CDP calls that make the page a device; they last only while the session that sent them stays attached.
+ * `window` is the app's window inside the device's screen (Split View, Slide Over); the screen stays the device's.
+ */
+export function emulationSteps(device, scheme = "dark", window = undefined) {
   const spec = DEVICES[device];
   if (!spec) throw new Error(`unknown device ${JSON.stringify(device)} (known: ${Object.keys(DEVICES).join(", ")})`);
   const landscape = spec.width > spec.height;
   return [
     ["Emulation.setDeviceMetricsOverride", {
-      width: spec.width,
-      height: spec.height,
+      width: window?.width ?? spec.width,
+      height: window?.height ?? spec.height,
+      screenWidth: spec.width,
+      screenHeight: spec.height,
       deviceScaleFactor: spec.deviceScaleFactor,
       mobile: true,
       screenOrientation: landscape ? { type: "landscapePrimary", angle: 90 } : { type: "portraitPrimary", angle: 0 },
@@ -170,6 +176,14 @@ export function emulationSteps(device, scheme = "dark") {
     ["Emulation.setFocusEmulationEnabled", { enabled: true }],
     ["Emulation.setSafeAreaInsetsOverride", { insets: spec.insets }],
   ];
+}
+
+/** `window <width> <height>` or `window full`. */
+export function parseWindow(args) {
+  if (args[0] === "full") return undefined;
+  const [width, height] = args.map(Number);
+  if (!(width > 0 && height > 0)) throw new Error("window <width> <height> | full");
+  return { width: Math.round(width), height: Math.round(height) };
 }
 
 /** `Input.dispatchTouchEvent` calls for a gesture at an element's box, with the pause before each. */
@@ -332,7 +346,7 @@ async function hold() {
   const session = await openSession(state.port);
   const apply = async () => {
     const current = readState();
-    for (const [method, params] of emulationSteps(current.device, current.scheme)) {
+    for (const [method, params] of emulationSteps(current.device, current.scheme, current.window)) {
       // Older Chromium has no safe-area override; the rest still makes a phone.
       await session.send(method, params).catch((error) => {
         if (method !== "Emulation.setSafeAreaInsetsOverride") throw error;
@@ -636,9 +650,19 @@ async function main() {
     case "device": {
       const state = ownPhone();
       emulationSteps(args[0], flags.scheme ?? state.scheme);
-      writeState({ ...state, device: args[0], scheme: flags.scheme ?? state.scheme });
+      const { window: _window, ...rest } = state;
+      writeState({ ...rest, device: args[0], scheme: flags.scheme ?? state.scheme });
       process.kill(state.holderPid, "SIGHUP");
       return { device: args[0], scheme: flags.scheme ?? state.scheme, note: "reload (open) the page: the web client picks its profile at load" };
+    }
+    case "window": {
+      // The app's window in the device's screen, without a reload: what Split View, Slide Over or a resize does.
+      const state = ownPhone();
+      const window = parseWindow(args);
+      const { window: _window, ...rest } = state;
+      writeState(window ? { ...rest, window } : rest);
+      process.kill(state.holderPid, "SIGHUP");
+      return { device: state.device, window: window ?? "full screen" };
     }
     case "link": {
       const { url, created } = await createLink(flags);

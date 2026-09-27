@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A simulator of this worktree's own for the app, and nothing else:
 //
-//   node scripts/sim-device.mjs up [--force]      create, boot, install, launch; starts the sim.mjs bridge
+//   node scripts/sim-device.mjs up [--ipad] [--force]   create, boot, install, launch; starts the sim.mjs bridge
 //   node scripts/sim-device.mjs screenshot <file.png>
 //   node scripts/sim-device.mjs down              shut down and delete that simulator, stop the bridge
 //
@@ -37,8 +37,17 @@ export function pickRuntime(list) {
   return runtimes[0];
 }
 
-/** A plain iPhone the runtime supports, the highest-numbered one: "iPhone 17" over "iPhone 17 Pro" or "iPhone Air". */
-export function pickDeviceType(runtime) {
+/**
+ * A plain iPhone the runtime supports, the highest-numbered one: "iPhone 17" over "iPhone 17 Pro" or "iPhone Air".
+ * `ipad`: an 11-inch iPad Air, else any 11-inch iPad, else any iPad, in the runtime's order (newest first).
+ */
+export function pickDeviceType(runtime, family = "iPhone") {
+  if (family === "iPad") {
+    const tablets = (runtime.supportedDeviceTypes ?? []).filter((type) => type.productFamily === "iPad");
+    const type = tablets.find((entry) => /^iPad Air 11-inch/u.test(entry.name)) ?? tablets.find((entry) => /11-inch/u.test(entry.name)) ?? tablets[0];
+    if (!type) throw new Error(`${runtime.name} supports no iPad`);
+    return type;
+  }
   const phones = (runtime.supportedDeviceTypes ?? []).filter((type) => type.productFamily === "iPhone");
   const plain = phones.filter((type) => /^iPhone \d+$/u.test(type.name)).sort((a, b) => Number(b.name.slice(7)) - Number(a.name.slice(7)));
   const type = plain[0] ?? phones[0];
@@ -79,14 +88,14 @@ function bridgeRuns(pid) {
   }
 }
 
-async function up(force) {
+async function up(force, family) {
   const previous = readState();
   if (previous && deviceExists(previous.udid)) throw new Error(`this worktree's simulator ${previous.udid} still exists; run down first`);
   const load = loadavg()[0];
   if (!force && !loadAllows(load)) throw new Error(`the machine's load is ${load.toFixed(0)} (limit ${MAX_LOAD}); wait, or pass --force`);
   if (!existsSync(APP)) throw new Error(`no simulator build at ${APP}; run: node scripts/native-build.mjs ios --dev`);
   const runtime = pickRuntime(JSON.parse(simctl("list", "runtimes", "-j")));
-  const type = pickDeviceType(runtime);
+  const type = pickDeviceType(runtime, family);
   const name = `Tau test ${new Date().toISOString().slice(11, 19)}`;
   const udid = simctl("create", name, type.identifier, runtime.identifier);
   mkdirSync(DEV_DIR, { recursive: true });
@@ -121,7 +130,7 @@ function down() {
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
-  if (command === "up") return up(args.includes("--force"));
+  if (command === "up") return up(args.includes("--force"), args.includes("--ipad") ? "iPad" : "iPhone");
   if (command === "down") return down();
   if (command === "status") return readState() ?? { device: null };
   if (command === "screenshot") {
@@ -135,7 +144,7 @@ async function main() {
     rmSync(temporary, { force: true });
     return { savedTo: file };
   }
-  throw new Error("usage: sim-device.mjs up [--force] | status | screenshot <file.png> | down");
+  throw new Error("usage: sim-device.mjs up [--ipad] [--force] | status | screenshot <file.png> | down");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
