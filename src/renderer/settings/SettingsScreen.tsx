@@ -240,32 +240,45 @@ export function SettingsScreen({
     onSetPage(page);
   }, [anchor, onSetPage, page]);
 
-  // A row a link named scrolls into view once its page is drawn, or once it arrives: some rows wait for the host.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // A row a link named scrolls into view once it is drawn. Some rows wait for the host, and what
+  // loads above one moves it, so it is kept in view for a moment, until the user scrolls.
   useEffect(() => {
     if (!scrollTarget) return;
-    const reveal = (row: HTMLElement) => {
+    let shown: HTMLElement | undefined;
+    let settle: number | undefined;
+    const finish = () => { observer.disconnect(); setScrollTarget(undefined); };
+    const show = () => {
+      const row = document.getElementById(scrollTarget);
+      if (!row) return;
       row.scrollIntoView?.({ block: "center" });
+      if (row === shown) return;
+      shown = row;
       row.focus({ preventScroll: true });
       row.classList.remove("settings-target-pulse");
       void row.offsetWidth;
       row.classList.add("settings-target-pulse");
-      setScrollTarget(undefined);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(finish, 3_000);
     };
-    const now = document.getElementById(scrollTarget);
-    if (now) { reveal(now); return; }
-    const observer = new MutationObserver(() => {
-      const row = document.getElementById(scrollTarget);
-      if (!row) return;
-      observer.disconnect();
-      reveal(row);
-    });
+    const observer = new MutationObserver(show);
     observer.observe(document.body, { childList: true, subtree: true });
-    // A row that never comes (a section of a kit that is off) stops the watch.
-    const giveUp = window.setTimeout(() => { observer.disconnect(); setScrollTarget(undefined); }, 10_000);
-    return () => { observer.disconnect(); window.clearTimeout(giveUp); };
+    show();
+    const scroller = scrollRef.current;
+    const userMoved = () => { if (shown) finish(); };
+    scroller?.addEventListener("wheel", userMoved, { passive: true });
+    scroller?.addEventListener("touchmove", userMoved, { passive: true });
+    // A row that never comes (a section of a kit that is off) ends the watch.
+    const giveUp = window.setTimeout(finish, 10_000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(giveUp);
+      window.clearTimeout(settle);
+      scroller?.removeEventListener("wheel", userMoved);
+      scroller?.removeEventListener("touchmove", userMoved);
+    };
   }, [page, scrollTarget]);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   // A card's own id opens Providers at that card; every other page starts at the top.
   useEffect(() => {
     const card = onProviders && page !== "providers" ? document.getElementById(providerCardId(page)) : null;
