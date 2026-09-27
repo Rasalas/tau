@@ -914,12 +914,11 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, readOnly, reorderQueue, retry, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
-    scrollRef={transcriptRef}
     showControl={!pendingNewThread && messages.length > 0}
     loadPage={loadTranscriptPage}
     applyPage={applyTranscriptPage}
   >
-    {(loadOlderOnReach) => <TranscriptViewport
+    {(loadOlderOnReach, history) => <TranscriptViewport
       messages={messages}
       scrollRef={transcriptRef}
       sessionId={conversationSnapshot?.sessionId}
@@ -937,6 +936,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       onForkMessage={readOnly ? undefined : onForkMessage}
       onEditMessage={readOnly ? undefined : onEditMessage}
       onRetryMessage={readOnly || limit ? undefined : retry}
+      history={history}
       onReachStart={loadOlderOnReach}
     />}
   </TranscriptHistoryBoundary>;

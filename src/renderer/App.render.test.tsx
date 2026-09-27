@@ -746,7 +746,8 @@ describe("App render isolation", () => {
 
     renderApp(client);
     await screen.findByText("current reply");
-    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    // At the top already: a wheel further up asks for the older page.
+    fireEvent.wheel(screen.getByRole("log"), { deltaY: -100 });
     await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
 
     fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
@@ -760,7 +761,7 @@ describe("App render isolation", () => {
       hasMore: false,
     });
     expect(await screen.findByText("older request")).toBeTruthy();
-    await waitFor(() => expect(screen.queryByLabelText("Transcript history")).toBeNull());
+    await waitFor(() => expect(document.querySelector("[data-older-turns]")).toBeNull());
   });
 
   it("promotes a bridge new thread from a later detail when the acknowledgement has no updates", async () => {

@@ -539,21 +539,28 @@ body.resizing-col .app-shell { transition: none; }
 }
 .transcript:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
-.transcript-history-control {
-  min-height: 34px; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
-  color: var(--faint); font: 11px var(--mono);
+/* The older turns' line lives in the scroller's top padding and takes no height, so nothing moves when it comes or goes. */
+.transcript-history { position: relative; height: 0; }
+.transcript-history-row {
+  position: absolute; inset: auto 0 0; height: calc(26px * var(--density));
+  display: flex; align-items: center; justify-content: center; gap: var(--space-3);
+  color: var(--faint); font: 11px var(--mono); white-space: nowrap;
 }
-.transcript-history-control > span { flex: 1; min-width: 0; }
-.transcript-history-control > button {
-  flex: none; border: 1px solid var(--line-control); border-radius: 7px;
-  background: transparent; color: var(--ink-3); padding: 6px 10px;
-  font: 500 11px var(--sans); cursor: pointer;
+/* A page that lands at once never shows it. */
+.transcript-history-row.loading { animation: fade-up 160ms ease-out 200ms both; }
+.transcript-history-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.transcript-history-spinner {
+  flex: none; width: 9px; height: 9px; border: 1.5px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: spin .9s linear infinite;
 }
-.transcript-history-control > button:hover { background: var(--raised); color: var(--ink); }
-.transcript-history-control > button:disabled { opacity: .6; cursor: wait; }
-.transcript-history-control.loading > span { color: var(--working); }
-.transcript-history-control.error > span { color: var(--removed); }
-.transcript-history-control.limited > span { color: var(--working); }
+.transcript-history-row > button {
+  position: relative; flex: none; border: 0; border-radius: 5px; background: transparent; padding: 2px 6px;
+  color: var(--ink-3); font: 500 11px var(--sans); cursor: pointer;
+}
+.transcript-history-row > button:hover { background: var(--raised); color: var(--ink); }
+.transcript-history-row > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+@media (pointer: coarse) { .transcript-history-row > button::after { content: ""; position: absolute; inset: -14px -10px; } }
+@media (prefers-reduced-motion: reduce) { .transcript-history-row.loading, .transcript-history-spinner { animation: none; } }
 .transcript-turn-navigation {
   position: absolute; z-index: 5; inset: 0 auto 0 0; width: 72px;
   pointer-events: none; opacity: .42; transition: opacity 150ms ease-out;

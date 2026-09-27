@@ -275,19 +275,20 @@ async function withApp(app, root, work) {
   }
 }
 
-/** Resolves in the page when one "Load older turns" click has finished loading. */
+/** Resolves in the page when one older page, asked for with a wheel at the top, has finished loading. */
 const LOAD_ONE_OLDER_PAGE = `new Promise((resolvePromise, rejectPromise) => {
-  const button = document.querySelector('[aria-label="Load older turns"]');
-  if (!button) { rejectPromise(new Error("no Load older turns button")); return; }
+  const scroller = document.getElementById("thread-transcript");
+  if (!scroller || !document.querySelector("[data-older-turns]")) { rejectPromise(new Error("no older turns")); return; }
   const startedAt = performance.now();
   let loading = false;
   const check = () => {
-    if (document.querySelector('[aria-label="Loading older turns"]')) loading = true;
+    if (document.querySelector('[data-older-turns="loading"]')) loading = true;
     else if (loading) { observer.disconnect(); resolvePromise(performance.now() - startedAt); }
   };
   const observer = new MutationObserver(check);
-  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-label"] });
-  button.click();
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-older-turns"] });
+  scroller.scrollTop = 0;
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }));
   check();
   setTimeout(() => { observer.disconnect(); rejectPromise(new Error("older page did not load within 30 s")); }, 30_000);
 })`;
