@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useThreadStore } from "../workbench-context";
+import { useAppPageStore } from "../app-page-context";
+import { pageFromUrl, urlWithPage } from "./page-url";
 import { threadFromUrl, threadUrlStep, urlWithThread } from "./thread-url";
 import { viewportFit } from "./visual-viewport";
 import "./touch.css";
@@ -12,6 +14,7 @@ import "./touch.css";
  */
 export function TouchLayer({ syncUrl, openThread }: { syncUrl: boolean; openThread(path: string): Promise<boolean> }) {
   useThreadUrl(syncUrl, openThread);
+  usePageUrl(syncUrl);
   useEffect(() => {
     const root = document.documentElement;
     const visual = window.visualViewport ?? undefined;
@@ -90,4 +93,38 @@ function useThreadUrl(enabled: boolean, openThread: (path: string) => Promise<bo
     window.addEventListener("popstate", onPop);
     return () => { stop(); window.removeEventListener("popstate", onPop); };
   }, [enabled, store]);
+}
+
+/** `?page=<id>` opens that page; opening one adds an entry, so back leaves it. */
+function usePageUrl(enabled: boolean): void {
+  const pages = useAppPageStore();
+  useEffect(() => {
+    if (!enabled || !pages) return undefined;
+    let pushed = false;
+    const wanted = pageFromUrl(window.location.href);
+    if (wanted) pages.open(wanted);
+    const apply = () => {
+      const open = pages.getSnapshot()?.id;
+      const inUrl = pageFromUrl(window.location.href);
+      if (open === inUrl) return;
+      if (open) {
+        const next = urlWithPage(window.location.href, open);
+        if (inUrl) window.history.replaceState(window.history.state, "", next);
+        else { window.history.pushState(window.history.state, "", next); pushed = true; }
+        return;
+      }
+      // Closed in the page: the entry it added goes, so back does not open it again.
+      if (pushed) { pushed = false; window.history.back(); }
+      else window.history.replaceState(window.history.state, "", urlWithPage(window.location.href, undefined));
+    };
+    const onPop = () => {
+      pushed = false;
+      const inUrl = pageFromUrl(window.location.href);
+      if (!inUrl) pages.close();
+      else if (pages.getSnapshot()?.id !== inUrl) pages.open(inUrl);
+    };
+    const stop = pages.subscribe(apply);
+    window.addEventListener("popstate", onPop);
+    return () => { stop(); window.removeEventListener("popstate", onPop); };
+  }, [enabled, pages]);
 }

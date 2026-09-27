@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { derivePort, findFreePort, freshPaths, hasSavedProject, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
+import { derivePort, findFreePort, freshPaths, hasSavedProject, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile, seedOnboarding } from "./dev-instance.mjs";
 
 describe("derivePort", () => {
   it("is deterministic for the same seed", () => {
@@ -62,6 +62,7 @@ describe("parseArgs", () => {
       sharedSessions: false,
       realAgentDir: false,
       asInstalled: false,
+      onboarding: false,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -76,6 +77,7 @@ describe("parseArgs", () => {
       sharedSessions: true,
       realAgentDir: true,
       asInstalled: false,
+      onboarding: false,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -118,6 +120,20 @@ describe("parseArgs", () => {
 
   it("rejects an unknown flag", () => {
     expect(() => parseArgs(["--bogus"])).toThrow(/unknown flag "--bogus"/);
+  });
+});
+
+describe("seedOnboarding", () => {
+  const welcome = (userData) => join(userData, "kit-state", "tau.onboarding", "welcome.json");
+
+  it("marks the wizard done unless --onboarding asks for it", () => {
+    const userData = mkdtempSync(join(tmpdir(), "tau-dev-onboarding-"));
+    seedOnboarding(userData, false);
+    expect(JSON.parse(readFileSync(welcome(userData), "utf8")).completedAt).toEqual(expect.any(String));
+    seedOnboarding(userData, true);
+    expect(() => readFileSync(welcome(userData))).toThrow();
+    expect(parseArgs(["--onboarding"]).onboarding).toBe(true);
+    expect(parseArgs([]).onboarding).toBe(false);
   });
 });
 

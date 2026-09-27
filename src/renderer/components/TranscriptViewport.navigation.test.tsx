@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptTurnStart } from "./TranscriptViewport";
@@ -50,6 +50,7 @@ function Fixture({
   scrollHeight = 1_000,
   clientHeight = 200,
   onReachStart,
+  history,
 }: {
   messages: UiMessage[];
   turnStart?: TranscriptTurnStart;
@@ -58,6 +59,7 @@ function Fixture({
   scrollHeight?: number;
   clientHeight?: number;
   onReachStart?: () => void;
+  history?: ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollHeightRef = useRef(scrollHeight);
@@ -86,6 +88,7 @@ function Fixture({
     turnStart={turnStart}
     isStreaming={false}
     onReachStart={onReachStart}
+    history={history}
   />;
 }
 
@@ -438,6 +441,43 @@ describe("TranscriptViewport navigation", () => {
     expect(onReachStart).toHaveBeenCalledOnce();
     scrollTo(0);
     expect(onReachStart).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks for older turns when the reader wheels or pulls further up at the very top", async () => {
+    const onReachStart = vi.fn();
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} onReachStart={onReachStart} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    expect(onReachStart).not.toHaveBeenCalled();
+    act(() => { transcript.scrollTop = 0; });
+    fireEvent.wheel(transcript, { deltaY: 100 });
+    expect(onReachStart).not.toHaveBeenCalled();
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    expect(onReachStart).toHaveBeenCalledOnce();
+
+    fireEvent.touchStart(transcript, { touches: [{ clientY: 100 }] });
+    fireEvent.touchMove(transcript, { touches: [{ clientY: 90 }] });
+    expect(onReachStart).toHaveBeenCalledOnce();
+    fireEvent.touchMove(transcript, { touches: [{ clientY: 130 }] });
+    expect(onReachStart).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks for older turns while the rows do not fill the viewport", () => {
+    const onReachStart = vi.fn();
+    const view = render(<Fixture messages={[oldMessage]} scrollHeight={150} clientHeight={200} onReachStart={onReachStart} />);
+    expect(onReachStart).toHaveBeenCalledOnce();
+
+    view.rerender(<Fixture messages={[oldMessage, originalPrompt]} scrollHeight={400} clientHeight={200} onReachStart={onReachStart} />);
+    expect(onReachStart).toHaveBeenCalledOnce();
+  });
+
+  it("puts the history line inside the transcript, above the first row", () => {
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} history={<div data-testid="history" />} />);
+    const inner = view.getByRole("log").firstElementChild!;
+    expect(inner.firstElementChild).toBe(view.getByTestId("history"));
+    expect(inner.children[1]!.classList.contains("virtual-transcript")).toBe(true);
   });
 
   it("stops following on upward mouse-wheel navigation and keeps the action in an overlay", async () => {

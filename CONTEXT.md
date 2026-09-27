@@ -48,11 +48,15 @@ The persisted runtime record that backs a thread. Pi provides the sessions of Pi
 
 ## Stage
 
-The document area of the workbench beside the conversation. It shows workspace files as tabs, each as source or as its working-tree diff, so a person can read what the agent touches without leaving the thread. The conversation is never a stage tab.
+The document area of the workbench beside the conversation. It shows workspace files as tabs, each as source or as its working-tree diff, so a person can read what the agent touches without leaving the thread. Beside the conversation it shares the centre with at most one other tool; maximized, or in a centre too narrow for both, it fills the centre and the conversation becomes its first, pinned tab.
 
 ## Stage tab
 
 One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed.
+
+## App page
+
+A page of the app beside the sidebar, like Settings: Usage and Pull Requests. It takes the place of the thread and the stage while it is open, and the sidebar's foot leads with Back; on a phone it is a screen of its own. Opening a thread leaves it.
 
 ## Extension
 

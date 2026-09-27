@@ -36,7 +36,7 @@ import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, 
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
-import { usePanelLayout } from "./use-panel-layout";
+import { isWidePanel, usePanelLayout } from "./use-panel-layout";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { followTurnActivity } from "../workbench/turn-activity";
 import { followShownThread } from "../workbench/shown-thread";
@@ -150,7 +150,7 @@ export default function App() {
     newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
     projectSourcesOpen, projectSource, openProjectSources, closeProjectSources,
     activeOverlayId, openOverlay, closeOverlay,
-    settingsPage, setSettingsPage,
+    settingsPage, setSettingsPage, pages,
   } = useAppOverlays();
   const pendingNewThread = useSyncExternalStore(newThreadController.subscribe, newThreadController.current);
   const {
@@ -182,10 +182,18 @@ export default function App() {
   useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
-  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage });
+  // A document opened beside the chat takes the place of a tool that filled it.
+  const revealDocuments = useRef(() => {});
+  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
   // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
   const [chatFocused, setChatFocused] = useState(false);
+  // Documents maximized on their own; a panel tab on the stage maximizes it too.
   const [stageMaximized, setStageMaximized] = useState(false);
+  const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel");
+  revealDocuments.current = () => {
+    setChatFocused(false);
+    if (!maximized && dockOpen && isWidePanel(panels, activePanel)) setDockOpen(false);
+  };
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
@@ -198,6 +206,7 @@ export default function App() {
   const openModelPicker = useCallback(() => composerControlRef.current?.openModelPicker(), []);
   const openInstructions = useCallback(() => workbenchControlRef.current?.openInstructions(), []);
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
+  const showThread = useCallback(() => workbenchControlRef.current?.showThread(), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);
@@ -326,6 +335,7 @@ export default function App() {
     activeDraftKey: currentDraftKey,
     composerRef,
     closeNewThreadPicker,
+    showThread,
   });
   const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree, editFromMessage } = useThreadTree({
     ...(client ? { client } : {}),
@@ -431,16 +441,17 @@ export default function App() {
   // Dock, drawer or stage tab: where each panel shows, and the moves between them.
   const panelLayout = usePanelLayout({
     panels, stage, setStage, stageTabs, dockOpen, setDockOpen, activePanel, setActivePanel, drawer, setDrawer,
-    showStage: () => setChatFocused(false), setStageMaximized,
+    maximized, setStageMaximized,
+    showStage: () => setChatFocused(false),
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
     sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
   });
   const openPanel = panelLayout.openPanel;
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); revealDocuments.current(); }, []);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
     setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
-    setChatFocused(false);
+    revealDocuments.current();
   }, [platform]);
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
@@ -497,7 +508,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController,
+    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController, pages,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -600,18 +611,18 @@ export default function App() {
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth, onDockWidthChange: setDockWidth,
-    chatFocused, setChatFocused, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
+    chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    setNotice, activeOverlayId, closeOverlay,
+    setNotice, activeOverlayId, closeOverlay, pages,
   }), [
-    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, closeNewThreadPicker, layoutProfile,
+    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, dockAsks, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
-    setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,
+    setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);
 

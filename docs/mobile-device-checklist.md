@@ -80,7 +80,7 @@ Bonjour type, a fake `tailscale` and the iOS Simulator (`docs/agents/testing-the
 
 ## 6. Terminal key bar
 
-1. [ ] Open the terminal (title bar icon), **New terminal**. The shell prompt appears.
+1. [ ] Open the terminal (title bar ⋯ More → Terminal), **New terminal**. The shell prompt appears.
 2. [ ] Tap into the shell: the keyboard opens, the key bar sits directly on top of it, no
        autocorrect or capitalisation in what you type.
 3. [ ] Type `sleep 30`, return, then **^C**: the command stops.
@@ -92,7 +92,7 @@ Bonjour type, a fake `tailscale` and the iOS Simulator (`docs/agents/testing-the
 
 ## 7. Review
 
-1. [ ] Let a turn change a file, then open Review (title bar icon). "Latest turn" lists the
+1. [ ] Let a turn change a file, then open Review (title bar ⋯ More → Review). "Latest turn" lists the
        file; tap it for the diff.
 2. [ ] Tap one line, then another in the same file: "Comment on lines …". Write a comment,
        **Add to the composer**: the comment is in the composer's draft.

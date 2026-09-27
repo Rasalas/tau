@@ -29,6 +29,7 @@ import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSe
 import { projectIconKey, readProjectIcon, writeProjectIcon } from "./project-icons.js";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { useWorkspaceStore } from "./store-context.js";
+import { SidebarFooter } from "./sidebar-footer.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
@@ -1176,23 +1177,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           <button type="button" onClick={clearSelection}>Clear</button>
         </div>
       ) : null}
-      <div className="sidebar-footer">
-        <button {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
-          <Settings size={15} />
-        </button>
-        {registry.getCommandsFor("sidebar-footer").slice().sort((a, b) => a.label.localeCompare(b.label)).map((command) => (
-          <button
-            key={command.id}
-            type="button"
-            {...tooltipProps(readOnlyDevice && command.access !== "read" ? READ_ONLY_REASON : command.label, { side: "top" })}
-            aria-label={command.label}
-            disabled={readOnlyDevice && command.access !== "read"}
-            onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(String(error))); }}
-          >
-            {command.Icon ? <command.Icon size={15} /> : command.label}
-          </button>
-        ))}
-      </div>
+      <SidebarFooter actions={actions} readOnly={readOnlyDevice} />
     </aside>
   );
 });

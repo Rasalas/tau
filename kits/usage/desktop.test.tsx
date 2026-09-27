@@ -8,8 +8,9 @@ import { TestProviders } from "../../src/renderer/test-support/test-providers.js
 import usageExtension from "./desktop.js";
 import { UsagePage } from "./page.js";
 import { priceFromDraft } from "./prices.js";
-import { USAGE_SETTINGS_PAGE, type UsageLimitsSummary, type UsageRow, type UsageSummary } from "./protocol.js";
-import { groupRows, periodStart, planUsageOf, resetsIn } from "./view-model.js";
+import { dayStarts, HISTORY_DAYS } from "./dashboard.js";
+import { USAGE_PAGE, type UsageEntry, type UsageLimitsSummary, type UsageRow, type UsageSummary } from "./protocol.js";
+import { resetsIn } from "./view-model.js";
 
 afterEach(cleanup);
 
@@ -30,8 +31,26 @@ const rows = [
   row({ cwd: "/work/beta", projectName: "beta", costUsd: 0.2 }),
 ];
 
+const LAST = HISTORY_DAYS - 1;
+
+function entry(overrides: Partial<UsageEntry>): UsageEntry {
+  return {
+    day: LAST, backend: "pi", threadId: "t-alpha", cwd: "/work/alpha", model: "anthropic/claude-haiku-4-5", provider: "anthropic", modelId: "claude-haiku-4-5",
+    requests: 1, inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100, costUsd: 0.01, apiValueUsd: 0,
+    ...overrides,
+  };
+}
+
+const entries = [
+  entry({}),
+  entry({ day: LAST - 3, backend: "codex", threadId: "t-codex", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", billing: "subscription", costUsd: 0, apiValueUsd: 1.4, requests: 2, totalTokens: 500 }),
+  entry({ day: LAST - 20, backend: "claude-code", threadId: "t-sdk", model: "haiku", provider: undefined, modelId: "haiku", costUsd: 0.5, requests: 3 }),
+  entry({ day: LAST - 40, threadId: "t-beta", cwd: "/work/beta", costUsd: 0.2 }),
+];
+
 function summary(overrides: Partial<UsageSummary> = {}): UsageSummary {
   return {
+    entries,
     scannedAt: NOW.getTime(),
     totals: {
       requests: 7, inputTokens: 4_000, outputTokens: 400, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 3_800, costUsd: 0.71, threads: 3,
@@ -70,94 +89,90 @@ function renderPage(invoke: (command: string, input?: unknown) => Promise<unknow
     updateConfig: async (patch: Partial<TauConfig>) => { config.updates.push(patch); config.host = { ...config.host, modelPrices: { ...config.host.modelPrices, ...patch.modelPrices } }; return config.host; },
     clearConfig: async (keys: string[]) => { config.cleared.push(keys); return { host: config.host }; },
   });
-  return render(<TestProviders><HostClientProvider client={client}><UsagePage cwd="/work/alpha" onNotify={vi.fn()} host={host(invoke)} now={() => NOW} /></HostClientProvider></TestProviders>);
+  const navigate = vi.fn();
+  const view = render(<TestProviders><HostClientProvider client={client}><UsagePage host={host(invoke)} now={() => NOW} navigate={navigate} /></HostClientProvider></TestProviders>);
+  const show = (params: Record<string, unknown>) => view.rerender(<TestProviders><HostClientProvider client={client}><UsagePage host={host(invoke)} now={() => NOW} navigate={navigate} params={params} /></HostClientProvider></TestProviders>);
+  return { ...view, navigate, show };
 }
 
-describe("periods and groups", () => {
-  it("starts a period at local midnight", () => {
-    expect(periodStart("all", NOW)).toBeUndefined();
-    expect(periodStart("today", NOW)).toBe(new Date(2026, 8, 22).getTime());
-    expect(periodStart("7d", NOW)).toBe(new Date(2026, 8, 16).getTime());
-    expect(periodStart("30d", NOW)).toBe(new Date(2026, 7, 24).getTime());
-  });
-
-  it("groups rows by project, runtime or model, the largest figure first, a plan's value apart from the money", () => {
-    expect(groupRows(rows, "project").map((group) => [group.label, group.requests, group.threads])).toEqual([["alpha", 6, undefined], ["beta", 1, undefined]]);
-    expect(groupRows(rows, "backend").map((group) => [group.label, Math.round(group.costUsd * 100), Math.round(group.apiValueUsd * 100)])).toEqual([["Pi", 21, 140], ["Claude Code", 50, 0]]);
-    expect(groupRows(rows, "model").map((group) => group.label)).toEqual(["openai-codex/gpt-5.6-luna", "haiku", "anthropic/claude-haiku-4-5"]);
-    expect(groupRows(rows, "all")).toHaveLength(4);
-  });
-
-  it("finds what an account's plan covered, and counts down to a reset", () => {
-    expect(planUsageOf(rows, { runtime: "pi", id: "pi:openai-codex" })).toEqual({ tokens: 500, requests: 2, apiValueUsd: 1.4 });
-    expect(planUsageOf(rows, { runtime: "pi", id: "pi:anthropic" })).toEqual({ tokens: 0, requests: 0, apiValueUsd: 0 });
-    expect(resetsIn({ resetsAt: 10 + 2 * 3_600_000 + 13 * 60_000 }, 10)).toBe("resets in 2h 13m");
-    expect(resetsIn({ resetsAt: 5 }, 10)).toBe("reset");
-  });
-
-  it("reads a price from the editor's fields, a blank cache rate being the input rate", () => {
-    expect(priceFromDraft({ input: "1", output: "4.4", cacheRead: "" })).toEqual({ input: 1, output: 4.4 });
-    expect(priceFromDraft({ input: "1", output: "x" })).toBe("Output must be a number of dollars, 0 or more.");
-    expect(priceFromDraft({ output: "2" }, { input: 1, output: 4 })).toEqual({ input: 1, output: 2 });
-    expect(priceFromDraft({ input: "1" })).toBe("Enter an input and an output price.");
-  });
-});
-
 describe("Usage page", () => {
-  it("shows the totals, the table and the sources, and asks for the period the user picks", async () => {
+  it("asks for the last 90 of the user's days and answers today, the week and the month, money and plan value apart", async () => {
     const invoke = answers();
     renderPage(invoke);
-
     const totals = await screen.findByLabelText("Totals");
-    // Money billed and a plan's API value are two tiles, never one sum.
-    expect(within(totals).getByText("$0.71")).toBeTruthy();
-    expect(within(totals).getByText("≈ $1.40")).toBeTruthy();
-    expect(within(totals).getByText(/would have cost via the API/u)).toBeTruthy();
-    expect(within(totals).getByText("3.8k")).toBeTruthy();
-    expect(invoke).toHaveBeenCalledWith("summary", { since: new Date(2026, 8, 16).getTime() });
+    const days = dayStarts(HISTORY_DAYS, NOW);
+    expect(invoke).toHaveBeenCalledWith("summary", { since: days[0], days });
+    const today = within(totals).getByRole("region", { name: "Today" });
+    expect(within(today).getByText("$0.01")).toBeTruthy();
+    expect(within(today).getByText("—")).toBeTruthy();
+    const week = within(totals).getByRole("region", { name: "Last 7 days" });
+    expect(within(week).getByText("≈ $1.40")).toBeTruthy();
+    expect(within(week).getByText(/1\.6k tokens · 3 turns · 2 threads/u)).toBeTruthy();
+    expect(within(within(totals).getByRole("region", { name: "Last 30 days" })).getByText("$0.51")).toBeTruthy();
+  });
 
-    const table = screen.getByRole("table", { name: "Usage" });
-    expect(within(table).getAllByRole("row").map((line) => line.querySelector("strong")?.textContent).filter(Boolean)).toEqual(["alpha", "beta"]);
-    fireEvent.click(within(screen.getByRole("group", { name: "Group by" })).getByText("Runtime"));
-    expect(within(screen.getByRole("table", { name: "Usage" })).getByText("Claude Code")).toBeTruthy();
+  it("draws the days of the range and ranks projects, models and threads by the measure chosen", async () => {
+    renderPage(answers());
+    const days = await screen.findByRole("list", { name: "Cost per day" });
+    expect(within(days).getAllByRole("listitem")).toHaveLength(30);
+    expect(within(screen.getByRole("region", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(1);
+    const models = within(screen.getByRole("region", { name: "Models" })).getAllByRole("listitem");
+    expect(models.map((item) => item.querySelector("strong")?.textContent)).toEqual(["gpt-5.6-luna", "haiku", "claude-haiku-4-5"]);
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Range" })).getByText("90 days"));
+    expect(within(screen.getByRole("list", { name: "Cost per day" })).getAllByRole("listitem")).toHaveLength(90);
+    expect(within(screen.getByRole("region", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(2);
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Measure" })).getByText("Tokens"));
+    expect(screen.getByRole("list", { name: "Tokens per day" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem")[0]!.textContent).toContain("1.1k tok");
+  });
 
-    const sources = screen.getByLabelText("Sources");
+  it("reads again on request and keeps the figures while it does", async () => {
+    const invoke = answers();
+    renderPage(invoke);
+    await screen.findByLabelText("Totals");
+    fireEvent.click(screen.getByRole("button", { name: "Read usage and limits again" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("summary", expect.objectContaining({ refresh: true })));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("limits", { refresh: true }));
+    expect(screen.getByLabelText("Totals")).toBeTruthy();
+  });
+
+  it("shows how much of each plan window is used and when it resets, the fullest plan first", async () => {
+    renderPage(answers());
+    const limitsList = await screen.findByLabelText("Limits");
+    expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["Codex limits", "Pi · openai-codex limits"]);
+    const codex = within(limitsList).getByRole("region", { name: "Codex limits" });
+    expect(within(codex).getByText("pro")).toBeTruthy();
+    expect(within(codex).getByText("34% used")).toBeTruthy();
+    expect(within(codex).getByText("resets in 1h 30m")).toBeTruthy();
+    const weekly = within(codex).getByRole("meter", { name: "Weekly used" });
+    expect(weekly.getAttribute("aria-valuenow")).toBe("95");
+    expect(weekly.closest(".usage-window")?.getAttribute("data-level")).toBe("critical");
+    expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText(/An API key or a cloud provider has no plan limits/u)).toBeTruthy();
+  });
+
+  it("says where the numbers would come from before anything was used", async () => {
+    const empty = { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, threads: 0, subscription: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, requests: 0, apiValueUsd: 0 } };
+    const { navigate } = renderPage(answers(() => summary({ rows: [], totals: empty, entries: [] })));
+    expect(await screen.findByText("Nothing used yet")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Sources" })[0]!);
+    expect(navigate).toHaveBeenCalledWith({ view: "sources" }, { label: "Sources" });
+  });
+
+  it("lists the sources on a view of its own", async () => {
+    const view = renderPage(answers());
+    await screen.findByLabelText("Totals");
+    view.show({ view: "sources" });
+    const sources = await screen.findByLabelText("Sources");
     expect(within(sources).getByText("not available")).toBeTruthy();
     expect(within(sources).getByText(/tau\.antigravity is not installed/u)).toBeTruthy();
-
-    fireEvent.click(within(screen.getByRole("group", { name: "Period" })).getByText("All time"));
-    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith("summary", {}));
-    fireEvent.click(screen.getByText("Read again"));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("summary", { refresh: true }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("limits", { refresh: true }));
-  });
-
-  it("shows each plan's windows with what is left and when it resets, and beside them what its usage would have cost via the API", async () => {
-    renderPage(answers());
-    const codex = await screen.findByRole("region", { name: "Codex limits" });
-    expect(within(codex).getByText("pro")).toBeTruthy();
-    expect(within(codex).getByText("66% left")).toBeTruthy();
-    expect(within(codex).getByText("resets in 1h 30m")).toBeTruthy();
-    expect(within(codex).getByRole("img", { name: /Weekly: 5% left, \d+% of the window left, resets in 3d/u })).toBeTruthy();
-    const pi = screen.getByRole("region", { name: "Pi · openai-codex limits" });
-    await waitFor(() => expect(within(pi).getByText(/7 days on the plan: 500 tokens in 2 turns/u)).toBeTruthy());
-    expect(within(pi).getByText("≈ $1.40")).toBeTruthy();
-    expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText("An API key or a cloud provider has no plan limits.")).toBeTruthy();
-    expect(within(screen.getByLabelText("Sources")).getByText("Codex limits")).toBeTruthy();
-  });
-
-  it("explains where the numbers would come from when a period has none", async () => {
-    const empty = { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, threads: 0, subscription: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, requests: 0, apiValueUsd: 0 } };
-    renderPage(answers(() => summary({ rows: [], totals: empty })));
-    expect(await screen.findByText(/Nothing was recorded in this period/u)).toBeTruthy();
-    expect(screen.getByText("nothing billed per token in this period")).toBeTruthy();
-    expect(screen.getByText("no plan usage in this period")).toBeTruthy();
-    expect(screen.queryByRole("table", { name: "Usage" })).toBeNull();
+    await waitFor(() => expect(within(screen.getByLabelText("Sources")).getByText("Codex limits")).toBeTruthy());
   });
 
   it("adds, edits and resets the user's own model prices in Tau's config", async () => {
     const config = { host: { modelPrices: { "openai/o4-mini": { input: 1.1, output: 4.4 } } } as TauConfig, updates: [] as Array<Partial<TauConfig>>, cleared: [] as string[][] };
-    renderPage(answers(), config);
+    const view = renderPage(answers(), config);
+    await screen.findByLabelText("Totals");
+    view.show({ view: "prices" });
     const table = await screen.findByRole("table", { name: "Your model prices" });
     await waitFor(() => expect(within(table).getByText("openai/o4-mini")).toBeTruthy());
     fireEvent.change(within(table).getByLabelText("Output price of openai/o4-mini"), { target: { value: "4" } });
@@ -176,23 +191,34 @@ describe("Usage page", () => {
   });
 
   it("says so when the host half cannot answer", async () => {
-    render(<UsagePage onNotify={vi.fn()} host={host(async () => { throw new Error("Host extension Usage is not active."); })} />);
+    render(<UsagePage host={host(async () => { throw new Error("Host extension Usage is not active."); })} />);
     expect((await screen.findAllByText("Host extension Usage is not active.")).length).toBeGreaterThan(0);
+  });
+
+  it("counts down to a reset", () => {
+    expect(resetsIn({ resetsAt: 10 + 2 * 3_600_000 + 13 * 60_000 }, 10)).toBe("resets in 2h 13m");
+    expect(resetsIn({ resetsAt: 5 }, 10)).toBe("reset");
+  });
+
+  it("reads a price from the editor's fields, a blank cache rate being the input rate", () => {
+    expect(priceFromDraft({ input: "1", output: "4.4", cacheRead: "" })).toEqual({ input: 1, output: 4.4 });
+    expect(priceFromDraft({ input: "1", output: "x" })).toBe("Output must be a number of dollars, 0 or more.");
+    expect(priceFromDraft({ output: "2" }, { input: 1, output: 4 })).toEqual({ input: 1, output: 2 });
+    expect(priceFromDraft({ input: "1" })).toBe("Enter an input and an output price.");
   });
 });
 
 describe("Usage kit", () => {
-  it("contributes a standalone page and a sidebar command, and takes both back", () => {
+  it("contributes an app page and the command that opens it, and takes both back", () => {
     const { registry } = createKitHarness(answers());
     registry.activate(usageExtension);
-    expect(registry.getSettingsPages().map((page) => page.id)).toEqual([USAGE_SETTINGS_PAGE]);
-    expect(registry.getSettingsPages()[0]?.standalone).toBe(true);
-    expect(registry.getCommandsFor("sidebar-footer").map((command) => command.id)).toEqual(["usage.open"]);
-    const openSettings = vi.fn();
-    void registry.getCommands().find((command) => command.id === "usage.open")?.run({ openSettings } as unknown as WorkbenchActions);
-    expect(openSettings).toHaveBeenCalledWith(USAGE_SETTINGS_PAGE);
-    registry.deactivate(usageExtension.id);
+    expect(registry.getPages().map((page) => [page.id, page.label, page.layout])).toEqual([[USAGE_PAGE, "Usage", "wide"]]);
     expect(registry.getSettingsPages()).toEqual([]);
+    const openPage = vi.fn();
+    void registry.getCommands().find((command) => command.id === "usage.open")?.run({ openPage } as unknown as WorkbenchActions);
+    expect(openPage).toHaveBeenCalledWith(USAGE_PAGE);
+    registry.deactivate(usageExtension.id);
+    expect(registry.getPages()).toEqual([]);
     expect(registry.getCommands().filter((command) => command.id === "usage.open")).toEqual([]);
   });
 });

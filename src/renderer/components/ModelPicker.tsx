@@ -54,6 +54,8 @@ type Row =
   | { kind: "legacy"; key: string; count: number; expanded: boolean };
 
 const rowHeight = (row: Row): number => row.kind === "group" ? 26 : row.kind === "legacy" ? 44 : row.grouped ? 42 : 52;
+/** On a phone every row that can be tapped is at least a finger (44 px) high. */
+const touchRowHeight = (row: Row): number => row.kind === "offering" && row.grouped ? 48 : rowHeight(row);
 const selectable = (row: Row | undefined): boolean => row !== undefined && row.kind !== "group";
 
 const SORT_LABELS: Record<OfferingSort, string> = { relevance: "Relevance", price: "Price", context: "Context", newest: "Newest" };
@@ -210,7 +212,6 @@ export function ModelPicker({
   );
 
   const views = useMemo(() => pickerViews({ catalogRuntime: onHand, backends: runtimeBackends, catalogs, recent: settings.recentModels.length > 0 }), [catalogs, onHand, runtimeBackends, settings.recentModels.length]);
-  const labels = useMemo(() => new Map(views.flatMap((entry) => entry.kind === "runtime" ? [[entry.backend.kind, entry.backend.label] as const] : [])), [views]);
   const activeOffering = activeKey && threadRuntime === onHand ? (onHand === DEFAULT_RUNTIME ? activeKey : `${onHand}:${activeKey}`) : undefined;
 
   // Every offering of every runtime whose models are on hand: the thread's own catalog, the host's for the rest.
@@ -473,6 +474,7 @@ export function ModelPicker({
     onFavourite: (offering) => preferences.toggleFavouriteModel(offering.key),
     onHide: (offering) => preferences.toggleHiddenModel(offering.runtime, modelKey(offering.model)),
     showLegacy: Boolean(needle),
+    showProvider: !provider && providerCounts.length > 1,
   };
   const listId = "model-picker-list";
   const activeRow = rows[at];
@@ -521,7 +523,8 @@ export function ModelPicker({
                 {entry.kind === "runtime" && entry.backend.kind.includes("@")
                   ? <i className="rail-instance" aria-hidden>{monogram(runtimeInstanceId(entry.backend.kind))}</i>
                   : null}
-                {entry.kind === "runtime" ? <i className={`runtime-dot runtime-dot-${entry.status}`} aria-hidden /> : null}
+                {/* Ready is the usual state; only another one earns a dot. */}
+                {entry.kind === "runtime" && entry.status !== "ready" ? <i className={`runtime-dot runtime-dot-${entry.status}`} aria-hidden /> : null}
               </button>
             </div>
           ))}
@@ -664,7 +667,7 @@ export function ModelPicker({
             <VirtualList
               id={listId}
               items={rows}
-              itemHeight={rowHeight}
+              itemHeight={asSheet ? touchRowHeight : rowHeight}
               className="model-list"
               role="listbox"
               ariaLabel={needle ? "Models in every runtime" : current ? `${viewLabel(current)} models` : "Models"}
@@ -717,7 +720,7 @@ export function ModelPicker({
       {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
       {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
 
-      <footer>
+      {narrow && !multiSelect && hiddenCount === 0 ? null : <footer>
         {narrow ? null : <>
           <span>↑↓ move</span>
           <span>←→ columns</span>
@@ -731,8 +734,7 @@ export function ModelPicker({
             <Eye size={11} /> {showHidden ? `Hide ${hiddenCount} hidden` : `${hiddenCount} hidden · show`}
           </button>
         ) : null}
-        <span>{offerings.length} {offerings.length === 1 ? "model" : "models"} · {labels.size} {labels.size === 1 ? "runtime" : "runtimes"}</span>
-      </footer>
+      </footer>}
     </div>
   );
   // Escape or a press outside closes an open menu first.

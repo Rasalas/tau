@@ -213,6 +213,29 @@ describe("ModelPicker", () => {
     expect(marks(favourite)).toEqual(["Codex", "OpenAI"]);
   });
 
+  it("says each thing once: no billing badge beside the price, no counts, a dot only for a runtime that is not ready", () => {
+    renderPicker({
+      runtime: "pi",
+      runtimeBackends: codexBackends,
+      onSelectRuntime: vi.fn(),
+      catalogs: cached([codexReady(), ["claude-code", { status: "unavailable", reason: "not-installed" }]]),
+    });
+    const rail = screen.getByRole("navigation", { name: "Runtimes" });
+    expect(runtimeButton("Pi").querySelector(".runtime-dot")).toBeNull();
+    expect(runtimeButton("Claude Code").querySelector(".runtime-dot-not-installed")).toBeTruthy();
+    expect(document.querySelector(".model-picker-content")?.textContent).not.toMatch(/\d+ models? · \d+ runtimes?/u);
+    // The price column says a plan pays; the row says it no second time.
+    const fable = screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" });
+    expect(fable.textContent).not.toContain("Plan");
+    expect(fable.textContent).toContain("incl.");
+    // Across providers a row wears its provider's mark; within one provider it needs none.
+    expect(fable.querySelector("[data-tooltip='Anthropic']")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Pi providers" })).getByRole("button", { name: "Anthropic (4)" }));
+    expect(screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" }).querySelector("[data-tooltip='Anthropic']")).toBeNull();
+    fireEvent.click(within(rail).getByRole("button", { name: /^Codex,/u }));
+    expect(screen.getByRole("option", { name: "GPT-5.6 Luna, Codex, Plan" }).querySelector(".model-sub [data-tooltip]")).toBeNull();
+  });
+
   it("says why a runtime lists no models instead of an empty list", () => {
     renderPicker({
       runtime: "pi",

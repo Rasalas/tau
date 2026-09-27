@@ -4,7 +4,9 @@ import {
   Layers,
   CircleCheck,
   CircleDashed,
+  ChevronDown,
   CircleX,
+  Folder,
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
@@ -15,21 +17,24 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
-import { providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
+import { PULL_REQUESTS_PAGE, providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
   decodeListPreferences,
+  groupByRepository,
   listFacets,
   scoreMatch,
   type PullRequestInvolvement,
   type PullRequestListFilters,
   type PullRequestListPreferences,
   type PullRequestListSort,
+  type PullRequestSection,
 } from "./pull-request-list-logic.js";
 import { hostName, relativeTime, shortNoun } from "./pull-request-logic.js";
 
 const PREFERENCES_KEY = "tau.review.pull-requests";
+const GROUPING_KEY = "tau.review.pull-requests.group";
 const PAGE = 100;
 const MAX_LIMIT = 500;
 /** A search goes to the host once typing pauses this long. */
@@ -201,19 +206,26 @@ function moveFocus(event: KeyboardEvent<HTMLElement>): void {
   rows[next]!.focus();
 }
 
+type Grouping = "involvement" | "project";
+const GROUPINGS: Array<{ value: Grouping; label: string }> = [{ value: "involvement", label: "Involvement" }, { value: "project", label: "Project" }];
+
 /**
- * T3 Code's Pull Requests page for one project: every request of its
- * repository in a state, the viewer's own work first, ordered by merge
- * readiness or by what blocks whom, and narrowed by typed qualifiers or the
- * filter menu. A row opens the request's own tab.
+ * T3 Code's Pull Requests list: every request of a repository in a state, the
+ * viewer's own work first, ordered by merge readiness or by what blocks whom,
+ * and narrowed by typed qualifiers or the filter menu. As the app's Pull
+ * Requests page it lists every project, grouped by involvement or project; as
+ * a thread's tab, its project's alone. A row opens the request.
  */
-export function PullRequestListView({ params, handle, actions, client, open }: {
+export function PullRequestListView({ params, handle, actions, client, open, surface = "tab" }: {
   params: PullRequestsTabParams;
-  handle: StageTabHandle;
+  /** The tab it draws in; the page has none. */
+  handle?: Pick<StageTabHandle, "setTitle">;
   actions: WorkbenchActions;
   client: PullRequestClient;
   open(entry: PullRequestListEntry, workspace?: string): void;
+  surface?: "tab" | "page";
 }) {
+  const onPage = surface === "page";
   const [scope, setScope] = useState<Scope>(() => params.scope === "all" ? { kind: "all" } : { kind: "project", ...(params.workspace ? { workspace: params.workspace } : {}) });
   const [host, setHost] = useState<string>();
   const projects = useProjects();
@@ -228,7 +240,9 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   const [list, setList] = useState<Listing>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
-  const [menu, setMenu] = useState<"sort" | "filters">();
+  const [menu, setMenu] = useState<"sort" | "filters" | "projects">();
+  const [grouping, setGroupingState] = useState<Grouping>(() => getClientStorage()?.get(GROUPING_KEY) === "project" ? "project" : "involvement");
+  const setGrouping = (next: Grouping) => { setGroupingState(next); getClientStorage()?.set(GROUPING_KEY, next); };
   const asked = useRef(0);
 
   const update = (patch: Partial<PullRequestListPreferences>) => setPreferences((current) => {
@@ -272,7 +286,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    if (!list) return;
+    if (!list || !handle) return;
     handle.setTitle(list.repositories.length > 1 ? "Pull requests · all projects" : `${shortNoun(list.service)}s · ${list.repo.split("/").at(-1)}`);
   }, [handle, list]);
 
@@ -296,6 +310,14 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   const noun = list && !manyRepositories ? providerInfo(list.service).noun : "pull request";
   const openRow = useCallback((entry: PullRequestListEntry) => open(entry, list?.workspaces.get(`${entry.ref.host}/${entry.ref.repo}`) ?? workspace), [list, open, workspace]);
   const projectName = (id: string | undefined) => projects.find((project) => projectId(project) === id)?.name;
+  const sections: PullRequestSection[] = onPage && grouping === "project" && manyRepositories
+    ? groupByRepository(arranged.groups, (repository) => projectName(list?.workspaces.get(repository)) ?? repository)
+    : arranged.groups;
+  const projectItems: MenuSection[] = [{ items: [
+    { id: "project:\u0001all", label: "All projects", selected: scope.kind === "all" },
+    ...projects.map((project) => ({ id: `project:${projectId(project)}`, label: project.name, hint: project.displayPath ?? project.path, selected: scope.kind === "project" && workspace === projectId(project) })),
+  ] }];
+  const scopeLabel = scope.kind === "all" ? "All projects" : projectName(workspace) ?? "This project";
 
   const filterSections: MenuSection[] = [
     { heading: "Drafts", items: [
@@ -318,14 +340,6 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
       ...(filterCount > 0 ? [{ id: "clear", label: "Clear filters" }] : []),
     ] },
     { items: [
-      {
-        id: "projects",
-        label: scope.kind === "all" ? "Project: all" : `Project: ${projectName(workspace) ?? "this one"}`,
-        submenu: [{ items: [
-          { id: "project:\u0001all", label: "All projects", selected: scope.kind === "all" },
-          ...projects.map((project) => ({ id: `project:${projectId(project)}`, label: project.name, hint: project.displayPath ?? project.path, selected: scope.kind === "project" && workspace === projectId(project) })),
-        ] }],
-      },
       ...(hosts.length > 1 || host ? [{
         id: "hosts",
         label: host ? `Host: ${host}` : "Host",
@@ -348,20 +362,36 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   };
 
   const firstLoad = loading && !list && !error;
+  const refresh = <>
+    {loading && list ? <Spinner size="xs" label="Refreshing" /> : null}
+    <button className="icon-button compact" aria-label="Refresh pull requests" title="Refresh" disabled={loading} onClick={() => void load()}><RefreshCw size={13} /></button>
+  </>;
   const narrowed = filterCount > 0 || query.trim() !== "" || preferences.state !== "open" || preferences.involvement !== "all";
 
   return (
-    <div className="pr-list-view" aria-label="Pull requests">
+    <div className={`pr-list-view${onPage ? " on-page" : ""}`} aria-label="Pull requests">
       <header className="pr-list-head">
-        <div className="pr-list-title">
-          <h1>{list ? `${noun[0]!.toUpperCase()}${noun.slice(1)}s` : "Pull requests"}</h1>
-          {list && manyRepositories ? (
-            <span className="pr-list-repo static" title={list.repositories.join("\n")}>All projects · {list.repositories.length} repositories</span>
-          ) : list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
-          <span className="spacer" />
-          {loading && list ? <Spinner size="xs" label="Refreshing" /> : null}
-          <button className="icon-button compact" aria-label="Refresh pull requests" title="Refresh" disabled={loading} onClick={() => void load()}><RefreshCw size={13} /></button>
-        </div>
+        {onPage ? (
+          <div className="pr-list-title">
+            <span className="menu-anchor">
+              <button className="mini-button pr-list-menu pr-list-scope" aria-label={`Projects: ${scopeLabel}`} aria-expanded={menu === "projects"} title={list?.repositories.join("\n")} onClick={() => setMenu(menu === "projects" ? undefined : "projects")}>
+                <Folder size={12} aria-hidden="true" /> {scopeLabel}{list && manyRepositories ? ` · ${list.repositories.length} repositories` : ""} <ChevronDown size={11} aria-hidden="true" />
+              </button>
+              {menu === "projects" ? <Menu align="left" label="Projects" sections={projectItems} onSelect={(id) => { pickFilter(id); setMenu(undefined); }} onClose={() => setMenu(undefined)} /> : null}
+            </span>
+            {list && !manyRepositories ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
+            <span className="spacer" />
+            {refresh}
+          </div>
+        ) : (
+          <div className="pr-list-title">
+            <h1>{list ? `${noun[0]!.toUpperCase()}${noun.slice(1)}s` : "Pull requests"}</h1>
+            {list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
+            <span className="spacer" />
+            {actions.openPage ? <button className="mini-button" title="Every project's pull requests, on a page of their own" onClick={() => actions.openPage?.(PULL_REQUESTS_PAGE)}>All projects</button> : null}
+            {refresh}
+          </div>
+        )}
         <div className="pr-list-controls">
           <label className="pr-list-search">
             {loading && search ? <Spinner size="xs" label="Searching" /> : <Search size={13} aria-hidden="true" />}
@@ -391,6 +421,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
         <div className="pr-list-controls">
           <Segmented label="State" value={preferences.state} options={STATES} onChange={(state) => update({ state })} />
           <Segmented label="Involvement" value={preferences.involvement} options={INVOLVEMENTS} onChange={(involvement) => update({ involvement })} />
+          {onPage && manyRepositories ? <><span className="pr-list-caption" aria-hidden="true">Group by</span><Segmented label="Group by" value={grouping} options={GROUPINGS} onChange={setGrouping} /></> : null}
           <span className="spacer" />
           {list ? <span className="pr-list-count">{arranged.shown} of {entries.length}{list.truncated ? "+" : ""}</span> : null}
         </div>
@@ -417,7 +448,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
           )
         ) : (
           <>
-            {arranged.groups.map((group) => (
+            {sections.map((group) => (
               <section key={group.key} className="pr-list-group" aria-label={group.label || `${noun}s`}>
                 {group.label ? <h2>{group.label} <small>{group.entries.length}</small></h2> : null}
                 {group.entries.map((entry) => (

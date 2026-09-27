@@ -21,6 +21,8 @@ export interface StageTabPorts {
   setStage: Dispatch<SetStateAction<StageState>>;
   /** Asks the user about a tab that says it has unsaved work; true closes it. */
   confirmDiscard(title: string): boolean;
+  /** A tab was opened, so the stage comes forward. */
+  onOpen?(): void;
 }
 
 interface HeldHandle {
@@ -84,6 +86,7 @@ export class StageTabController {
     const title = contribution.title(params);
     const preview = options.preview === true;
     this.ports.setStage((current) => openExtensionTab(current, { tabKind: kind, key, params, title }, { preview }));
+    this.ports.onOpen?.();
     return id;
   };
 
@@ -165,16 +168,20 @@ export function useStageTabs(ports: {
   stage: StageState;
   setStage: Dispatch<SetStateAction<StageState>>;
   confirmDiscard?: (title: string) => boolean;
+  onOpen?: () => void;
 }): StageTabController {
   const stage = useRef(ports.stage);
   stage.current = ports.stage;
   const confirm = useRef(ports.confirmDiscard);
   confirm.current = ports.confirmDiscard;
+  const opened = useRef(ports.onOpen);
+  opened.current = ports.onOpen;
   const [controller] = useState(() => new StageTabController({
     registry: ports.registry,
     stage: () => stage.current,
     setStage: ports.setStage,
     confirmDiscard: (title) => (confirm.current ?? confirmDiscard)(title),
+    onOpen: () => opened.current?.(),
   }));
   useEffect(() => { controller.syncKinds(); }, [controller, ports.registryVersion, ports.stage]);
   return controller;

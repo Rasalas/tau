@@ -249,15 +249,17 @@ describe("App render isolation", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Probe" }));
     const resizer = await screen.findByRole("separator", { name: "Resize right sidebar" });
 
-    expect(shell.style.getPropertyValue("--dock-width")).toBe("320px");
+    // Nothing open beside it: the list floats and takes no column.
+    expect(shell.style.getPropertyValue("--dock-width")).toBe("0px");
+    expect(shell.style.getPropertyValue("--list-width")).toBe("320px");
     fireEvent(resizer, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 800 }));
     fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 700 }));
     fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
 
-    expect(shell.style.getPropertyValue("--dock-width")).toBe("420px");
+    expect(shell.style.getPropertyValue("--list-width")).toBe("420px");
     expect(view.storage.get("tau:dock-width")).toBe("420");
     fireEvent.doubleClick(resizer);
-    expect(shell.style.getPropertyValue("--dock-width")).toBe("320px");
+    expect(shell.style.getPropertyValue("--list-width")).toBe("320px");
   });
 
   it("uses a focused start screen until the first message is sent", async () => {
@@ -744,7 +746,8 @@ describe("App render isolation", () => {
 
     renderApp(client);
     await screen.findByText("current reply");
-    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    // At the top already: a wheel further up asks for the older page.
+    fireEvent.wheel(screen.getByRole("log"), { deltaY: -100 });
     await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
 
     fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
@@ -758,7 +761,7 @@ describe("App render isolation", () => {
       hasMore: false,
     });
     expect(await screen.findByText("older request")).toBeTruthy();
-    await waitFor(() => expect(screen.queryByLabelText("Transcript history")).toBeNull());
+    await waitFor(() => expect(document.querySelector("[data-older-turns]")).toBeNull());
   });
 
   it("promotes a bridge new thread from a later detail when the acknowledgement has no updates", async () => {

@@ -17,13 +17,15 @@ export interface RowCell {
   onHide(offering: Offering): void;
   /** Search lists legacy models flat, tagged. */
   showLegacy: boolean;
+  /** The list mixes model providers, so a row carries its provider's mark. */
+  showProvider: boolean;
 }
 
 export function wears(badge: ModelBadgeContribution, model: UiModel, runtime: ThreadBackendKind): boolean {
   try { return badge.applies(model, runtime); } catch (error) { console.error(`Model badge ${badge.id} failed`, error); return false; }
 }
 
-/** A plan shows it is included and what the same model costs over its API; an API key what it costs. */
+/** How a row says how it is paid: a plan shows it is included and what the same model costs over its API; an API key what it costs. */
 function PriceCell({ model, custom }: { model: UiModel; custom?: boolean }) {
   const subscription = (model.billing ?? (model.login === "subscription" ? "subscription" : undefined)) === "subscription";
   const price = model.price;
@@ -33,6 +35,8 @@ function PriceCell({ model, custom }: { model: UiModel; custom?: boolean }) {
   }
   if (price) return <span className="model-price" title={title}><b>{formatPrice(price)}</b></span>;
   if (model.billing === "free" || model.billing === "local") return <span className="model-price"><b>{model.billing}</b></span>;
+  const access = billingBadge(model);
+  if (access) return <span className="model-price" title={access.title}><b>{access.label}</b></span>;
   return <span className="model-price muted">—</span>;
 }
 
@@ -89,7 +93,6 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
           {grouped ? <OfferingMarks offering={offering} provider={piRuntime} /> : <strong>{model.name}</strong>}
           {offering.isNew ? <span className="model-badge model-badge-new">NEW</span> : null}
           {cells.showLegacy && offering.legacy ? <span className="model-badge">legacy</span> : null}
-          {access ? <span className={`model-badge model-access model-access-${access.label.toLowerCase()}`} title={access.title}>{access.label}</span> : null}
           {offering.hidden ? <span className="model-badge">hidden</span> : null}
           {current ? <em className="model-in-use">in use</em> : null}
           {chosen ? <em className="model-chosen">{chosen}</em> : null}
@@ -102,7 +105,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
           <small className="model-sub">
             {cross
               ? <OfferingMarks offering={offering} provider />
-              : <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" hint={HINT} />}
+              : cells.showProvider ? <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" hint={HINT} /> : null}
             <span className="model-id">{model.id}</span>
             {levels.length ? <span className="model-levels" title={`Reasoning: ${levels.join(", ")}`}><Brain size={10} />{levels.length}</span> : null}
           </small>

@@ -33,6 +33,7 @@ import { PROJECT_SCRIPTS_EXTENSION_ID } from "./local-request-checks.js";
 import { registerLocalRequestTab } from "./local-request-tab.js";
 import { LocalDrafts } from "./local-request.js";
 import { CompactReviewStore } from "./compact-store.js";
+import { createCompactTurnPill } from "./turn-pill.js";
 import type { CompactReviewDeps } from "./compact-review.js";
 
 // Evaluated on the first thread drawn, not when the kit activates.
@@ -96,6 +97,8 @@ export const reviewExtension: DesktopExtension = {
     });
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // A phone or a tablet reads diffs in a sheet from the title bar; the desktop's overlay and Changes panel are not drawn there.
+    const compactStore = new CompactReviewStore();
+    const workspaceHost = plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID);
     plugin.registerPanel({
       id: REVIEW_COMPACT_PANEL,
       label: "Review",
@@ -104,12 +107,14 @@ export const reviewExtension: DesktopExtension = {
       profiles: ["compact"],
       Component: createCompactReviewPanel({
         reader: workspace,
-        workspace: plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID),
+        workspace: workspaceHost,
         requests,
         comments: new ReviewCommentStore(getClientStorage),
-        store: new CompactReviewStore(),
+        store: compactStore,
       }),
     });
+    // Over the composer, the latest turn's pill opens that sheet on the turn's files.
+    plugin.registerRegion({ id: "review.turn-pill", placement: "composer-above", order: 70, profiles: ["compact"], Component: createCompactTurnPill({ workspace: workspaceHost, store: compactStore }) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
     // Evidence Kit shrinks the pictures and says when a thread's changed; without it the view reads them whole.

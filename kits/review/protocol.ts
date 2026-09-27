@@ -444,8 +444,10 @@ export interface PullRequestFiles {
 /** Ids of Review Kit's pull-request view: the stage-tab kind and its commands. */
 export const PULL_REQUEST_TAB = "review.pull-request";
 
-/** The Pull Requests page: every request of one project's repository. */
+/** A thread's tab of its project's requests. */
 export const PULL_REQUESTS_TAB = "review.pull-requests";
+/** The app page of every project's requests (`actions.openPage`). */
+export const PULL_REQUESTS_PAGE = "review.pull-requests";
 
 export type PullRequestListState = "open" | "closed" | "merged" | "all";
 /** GitHub's summary of the reviews; absent where the host keeps none. */

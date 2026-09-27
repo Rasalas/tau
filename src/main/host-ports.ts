@@ -33,6 +33,8 @@ import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy } from "./host-execution-policy.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
+import { isSessionHeldElsewhere, SessionHeldElsewhereError, type SessionLocks } from "./session-locks.js";
+import { openSessionLocked, piRewritesOnOpen, readSessionFile } from "./session-read.js";
 import { defaultGlobalThemesDir } from "./user-themes.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
@@ -153,6 +155,8 @@ export interface ExtensionServicesPort {
   /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
   abortThread(sessionId: string): Promise<void>;
   trashedThreads(): Promise<HostTrashedThread[]>;
+  /** The Pi sessions this host writes; a session file an extension writes through must not be another process's. */
+  readonly sessionLocks: SessionLocks;
   /** The clients attached to this host, for the seam's ungated `clients` member. */
   readonly clients: HostClientServices;
   readonly network?: HostNetworkServices;
@@ -261,18 +265,26 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const turnAttachments = new TurnAttachmentRegistry((label, detail) => port.log(label, detail));
   const executionPolicy = new ExecutionPolicyRegistry((label, detail) => port.log(label, detail));
 
-  const sessionFile = (manager: SessionManager): HostSessionFile => {
-    const path = manager.getSessionFile();
+  /** Files read while another process held them: read in memory, every write refused with this. */
+  const readOnlyFiles = new WeakMap<HostSessionFile, SessionHeldElsewhereError>();
+  const sessionFile = (manager: SessionManager, readOnly?: { path: string; refusal: SessionHeldElsewhereError }): HostSessionFile => {
+    const path = readOnly?.path ?? manager.getSessionFile();
     if (!path) throw new Error("This session has no file yet.");
+    // Checked at each write: another host may have opened the session since.
+    const writable = () => {
+      if (readOnly) throw readOnly.refusal;
+      port.sessionLocks.assertWritableSync(manager.getSessionFile() ?? path);
+    };
     const file: HostSessionFile = {
       path,
       sessionId: manager.getSessionId(),
       cwd: manager.getCwd(),
       entries: () => manager.getBranch(),
       leafId: () => manager.getLeafId() ?? undefined,
-      appendEntry: (customType, data) => { manager.appendCustomEntry(customType, data); },
-      appendInfo: (text) => { manager.appendSessionInfo(text); },
+      appendEntry: (customType, data) => { writable(); manager.appendCustomEntry(customType, data); },
+      appendInfo: (text) => { writable(); manager.appendSessionInfo(text); },
       branch: (entryId) => {
+        if (readOnly) throw readOnly.refusal;
         // createBranchedSession turns this manager into the new session.
         let branched: string | undefined;
         try { branched = manager.createBranchedSession(entryId); } catch { return undefined; }
@@ -280,7 +292,20 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       },
     };
     sessionFileManagers.set(file, manager);
+    if (readOnly) readOnlyFiles.set(file, readOnly.refusal);
     return file;
+  };
+
+  /** Pi repairs some files as it opens them; one another process holds is read without that write. */
+  const openSessionFile = (path: string): HostSessionFile => {
+    if (!piRewritesOnOpen(path)) return sessionFile(SessionManager.open(path));
+    try {
+      port.sessionLocks.assertWritableSync(path);
+    } catch (error) {
+      if (!isSessionHeldElsewhere(error)) throw error;
+      return sessionFile(readSessionFile(path), { path, refusal: error });
+    }
+    return sessionFile(SessionManager.open(path));
   };
 
   // The installer spawns npm and git and writes ~/.tau; the host owns it, and a
@@ -332,13 +357,17 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       open: (path) => {
         // Pi falls back to process.cwd() for a missing file; never hand that out.
         if (!existsSync(path)) throw new Error(`No session file at ${path}.`);
-        return sessionFile(SessionManager.open(path));
+        return openSessionFile(path);
       },
-      prepare: (session, options = {}) => port.prepareThread(
-        session,
-        sessionFileManagers.get(session) ?? SessionManager.open(session.path),
-        options,
-      ),
+      prepare: async (session, options = {}) => {
+        const refused = readOnlyFiles.get(session);
+        if (refused) throw new SessionHeldElsewhereError(refused.sessionFile, refused.owner, "open");
+        return port.prepareThread(
+          session,
+          sessionFileManagers.get(session) ?? await openSessionLocked(port.sessionLocks, session.path),
+          options,
+        );
+      },
       start: (options) => port.startThread(options),
       import: (options) => port.importThread(options),
       remove: (sessionId) => port.removeThread(sessionId),

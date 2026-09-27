@@ -372,7 +372,7 @@ export const cursorExtension: DesktopExtension = {
     let runner: TerminalRunService | undefined;
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "cursor.runtime", align: "left", order: 44, profiles: ["desktop", "web", "compact"], Component: CursorStatus }),
+      plugin.registerStatusItem({ id: "cursor.runtime", align: "left", order: 44, profiles: ["desktop", "web"], Component: CursorStatus }),
       plugin.registerRegion({ id: "cursor.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "cursor.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

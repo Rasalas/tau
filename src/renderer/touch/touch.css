@@ -74,12 +74,15 @@
 }
 .popover.touch-menu { width: min(240px, calc(100vw - 16px)); }
 .touch-menu [role="menu"] { display: flex; flex-direction: column; }
-.touch-menu [role="menuitem"] {
+.touch-menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
   display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px;
   border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: 500 15px var(--sans); text-align: left; cursor: pointer;
 }
-.touch-menu [role="menuitem"] > svg { color: var(--muted); }
-.touch-menu [role="menuitem"]:active, .touch-menu [role="menuitem"]:focus-visible { background: var(--hover-strong); }
+.touch-menu :is([role="menuitem"], [role="menuitemcheckbox"]) > svg { color: var(--muted); }
+.touch-menu :is([role="menuitem"], [role="menuitemcheckbox"]):is(:active, :focus-visible) { background: var(--hover-strong); }
+/* The panel already open over the thread. */
+.touch-menu [role="menuitemcheckbox"][aria-checked="true"] { background: var(--raised); font-weight: 600; }
+.touch-menu [role="menuitemcheckbox"][aria-checked="true"] > svg { color: var(--acid-text); }
 .touch-search-field {
   display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 2px 0 12px;
   border-radius: 10px; background: var(--field); color: var(--muted);

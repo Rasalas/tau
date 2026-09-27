@@ -54,7 +54,7 @@ describe("Workspace Kit desktop extension", () => {
     expect(openInEditorSpy).toHaveBeenCalled();
   });
 
-  it("registers workspace.open-terminal command with mod+alt+j keybinding and /terminal and /term slash commands", async () => {
+  it("opens the external terminal from the workspace.open-terminal command and mod+alt+j only; /terminal is the app's own", async () => {
     const invoke = vi.fn(async (_extensionId: string, command: string, _input?: unknown) => {
       if (command === "list-terminals") return [{ id: "ghostty", name: "Ghostty" }, { id: "terminal", name: "Terminal" }];
       if (command === "open-terminal") return undefined;
@@ -73,12 +73,7 @@ describe("Workspace Kit desktop extension", () => {
     // mod+j is Terminal Kit's embedded terminal, as in T3 Code.
     expect(keybinding?.keys).toBe("mod+alt+j");
 
-    const slashTerminal = registry.getSlashCommands().find((sc) => sc.name === "terminal");
-    expect(slashTerminal).toBeDefined();
-    expect(slashTerminal?.description).toContain("Ghostty");
-
-    const slashTerm = registry.getSlashCommands().find((sc) => sc.name === "term");
-    expect(slashTerm).toBeDefined();
+    expect(registry.getSlashCommands().some((sc) => sc.name === "terminal" || sc.name === "term")).toBe(false);
 
     let store!: WorkspaceStore;
     registry.activate({
@@ -95,18 +90,6 @@ describe("Workspace Kit desktop extension", () => {
 
     const openTerminalSpy = vi.spyOn(store, "openTerminal").mockResolvedValue(undefined);
     await command?.run(actions);
-    expect(notify).toHaveBeenCalledWith("Opening in Ghostty…");
-    expect(openTerminalSpy).toHaveBeenCalled();
-
-    notify.mockClear();
-    openTerminalSpy.mockClear();
-    slashTerminal?.run("", actions);
-    expect(notify).toHaveBeenCalledWith("Opening in Ghostty…");
-    expect(openTerminalSpy).toHaveBeenCalled();
-
-    notify.mockClear();
-    openTerminalSpy.mockClear();
-    slashTerm?.run("", actions);
     expect(notify).toHaveBeenCalledWith("Opening in Ghostty…");
     expect(openTerminalSpy).toHaveBeenCalled();
   });

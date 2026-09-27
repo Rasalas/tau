@@ -230,10 +230,19 @@ describe("the web client at 400 px", () => {
     };
     renderCompactClient({}, [probe, asking]);
     await screen.findByRole("button", { name: "Threads" });
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    // Two panels or more fold into the bar's More menu on a phone.
+    const openFromMenu = async (label: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "More" }));
+      fireEvent.click(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: label }));
+    };
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+    await openFromMenu("Review");
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Show agents" }));
     expect(await within(await screen.findByRole("dialog", { name: "Agents" })).findByText("agents panel body")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: "Agents" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Review" }));
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Panels" })).toBeNull());
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review" })).toBeNull());
   });

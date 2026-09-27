@@ -9,6 +9,7 @@ import { createCompactReview } from "./compact-review.js";
 import { CompactReviewStore } from "./compact-store.js";
 import type { RequestClient } from "./requests.js";
 import type { ReviewTurn } from "./protocol.js";
+import type { ReviewSource } from "./compact-model.js";
 
 afterEach(cleanup);
 
@@ -28,7 +29,7 @@ const DIFF: UiFileDiff = {
   ] }],
 };
 
-function setup(options: { readOnly?: boolean; turns?: ReviewTurn[]; ahead?: number } = {}) {
+function setup(options: { readOnly?: boolean; turns?: ReviewTurn[]; ahead?: number; source?: ReviewSource } = {}) {
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     switch (command) {
       case "checkpoints": return { checkpoints: options.turns ?? [TURN], restoreSupported: false };
@@ -51,6 +52,7 @@ function setup(options: { readOnly?: boolean; turns?: ReviewTurn[]; ahead?: numb
   } as unknown as RequestClient;
   const comments = new ReviewCommentStore(() => undefined, () => "c1");
   const store = new CompactReviewStore();
+  if (options.source) store.update({ sessionId: "s1", source: options.source });
   const Panel = createCompactReview({ reader, workspace, requests, comments, store });
   const actions = {
     activeThread: () => ({ sessionId: "s1", cwd: "/p" }),
@@ -82,6 +84,14 @@ describe("the review on a compact client", () => {
     const text = vi.mocked(actions.focusComposer).mock.calls[0]?.[0] ?? "";
     expect(text).toMatch(/^Earlier words\n\nFrom Review comment on src\/a\.ts:2-3:\n> Keep b at 2\./u);
     expect(text).toContain("> + const b = 3;");
+  });
+
+  it("opens on a turn picked before the sheet, once the turn list has loaded", async () => {
+    const older: ReviewTurn = { ...TURN, id: "cp0", endedAt: 1, files: [{ ...FILE, path: "old.ts", name: "old.ts", directory: "" }] };
+    setup({ turns: [older, TURN], source: { kind: "turn", id: "cp0" } });
+    expect(await button(/Diff: Turn 1/)).toBeTruthy();
+    expect(await button(/old\.ts/)).toBeTruthy();
+    expect(screen.queryByText("This turn's changes are no longer recorded.")).toBeNull();
   });
 
   it("keeps an unsent comment when the diff is left, and asks before dropping one with words", async () => {

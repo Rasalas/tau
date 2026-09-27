@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
-import { applyPrices, summarize, type BackendScan, type RowPrice, type UsageScan } from "./aggregate.js";
+import { applyPrices, priceEntries, summarize, type BackendScan, type RowPrice, type UsageScan } from "./aggregate.js";
 import { PiUsageCache } from "./pi-sessions.js";
 import {
   BACKEND_LIMITS_COMMAND,
@@ -134,6 +134,14 @@ export function readBackendAnswer(value: unknown): BackendUsageAnswer | undefine
   };
 }
 
+/** Day starts from a client: finite, ascending, at most a year of them. */
+export function readDays(value: unknown): number[] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 366) return undefined;
+  const days = value.map(finite);
+  if (days.some((day, index) => day === undefined || (index > 0 && day <= days[index - 1]!))) return undefined;
+  return days as number[];
+}
+
 function reason(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   return text.replace(/\.$/u, "");
@@ -182,11 +190,12 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
 
       const stopObserving = await services.registerTurnObserver({ ended: () => { stale = true; } });
 
-      /** Core's prices for the rows; the runtimes' own when this core has none to give. */
+      /** Core's prices for the rows and entries; the runtimes' own when this core has none to give. */
       const price = async (summary: UsageSummary): Promise<UsageSummary> => {
         if (summary.rows.length === 0 || !services.priceUsage) return summary;
+        const entries = summary.entries ?? [];
         try {
-          const priced = await services.priceUsage(summary.rows.map((row) => ({
+          const priced = await services.priceUsage([...summary.rows, ...entries].map((row) => ({
             ...(row.provider ? { provider: row.provider } : {}),
             model: row.modelId ?? row.model,
             ...(row.billing ? { billing: row.billing } : {}),
@@ -199,7 +208,9 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
             costUsd: row.costUsd + row.apiValueUsd,
             turns: row.requests,
           })));
-          return applyPrices(summary, priced.map((entry): RowPrice => ({ ...(entry.billing ? { billing: entry.billing } : {}), costUsd: entry.costUsd, apiValueUsd: entry.apiValueUsd, source: entry.source })));
+          const prices = priced.map((entry): RowPrice => ({ ...(entry.billing ? { billing: entry.billing } : {}), costUsd: entry.costUsd, apiValueUsd: entry.apiValueUsd, source: entry.source }));
+          const rows = applyPrices(summary, prices.slice(0, summary.rows.length));
+          return summary.entries ? { ...rows, entries: priceEntries(entries.map((entry) => ({ ...entry, costUsd: entry.costUsd + entry.apiValueUsd })), prices.slice(summary.rows.length)) } : rows;
         } catch (error) {
           services.log("usage.price-failed", reason(error));
           return summary;
@@ -208,10 +219,11 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
 
       // A cold cache over a long history may take longer than a command's timeout.
       context.registerCommand(USAGE_SUMMARY_COMMAND, async (input): Promise<UsageSummary> => {
-        const request = input && typeof input === "object" ? input as { since?: unknown; refresh?: unknown } : {};
+        const request = input && typeof input === "object" ? input as { since?: unknown; refresh?: unknown; days?: unknown } : {};
         const since = finite(request.since);
+        const days = readDays(request.days);
         const result = await current(request.refresh === true);
-        return price(summarize(result, since === undefined ? {} : { since }));
+        return price(summarize(result, { ...(since === undefined ? {} : { since }), ...(days ? { days } : {}) }));
       }, { access: "read", long: true });
 
       const limitSources = options.limitSources ?? LIMIT_SOURCES;

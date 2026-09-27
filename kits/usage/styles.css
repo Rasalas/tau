@@ -1,33 +1,134 @@
 /*
- * Usage Kit's own rules: the controls row, the total tiles, the numeric
- * columns and the source list. The page frame, the segmented control and the
- * table are core's.
+ * Usage Kit's page: the period figures, the plan limits, the days and the
+ * rankings. Spacing separates the parts; there are no cards. Billed money is
+ * the accent, a plan's value a lighter step of the same hue, tokens neutral.
  */
-
-.usage-controls { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
-.usage-controls .segmented { flex: 1; }
-.usage-refresh {
-  border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2);
-  border-radius: var(--radius-sm); padding: 7px 12px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
+.usage-page { display: flex; flex-direction: column; gap: 36px; transition: opacity var(--panel-motion, 0ms) var(--ease); }
+.usage-page.refreshing .usage-kpis, .usage-page.refreshing .usage-history, .usage-page.refreshing .usage-ranks { opacity: .55; }
+.usage-page .spacer { flex: 1; }
+/* A plan's value: the accent's lighter step, readable on either theme's surface. */
+.usage-page {
+  --usage-plan: color-mix(in srgb, var(--acid) 42%, var(--shell));
 }
-.usage-refresh:disabled { opacity: .5; cursor: default; }
+.usage-page .provider-icon-stack { margin-left: 0; }
+/* One slot for a single mark or a pair, so the names line up. */
+.usage-rank-label > .provider-icon-stack { width: 43px; justify-content: flex-end; }
+.usage-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.usage-note[data-level="error"] { color: var(--warn); }
 
-.usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
-.usage-tile { padding: 10px 12px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--inset); min-width: 0; }
-.usage-tile-label { font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint); }
-.usage-tile-value { margin-top: 4px; font: 600 18px var(--mono); color: var(--ink); }
-.usage-tile-detail { margin-top: 2px; font: 10px var(--mono); color: var(--muted-2); line-height: 1.5; }
+.usage-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: -12px 0 -24px; color: var(--muted-2); font-size: 11.5px; }
+.usage-icon-button {
+  width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer;
+}
+.usage-icon-button:hover:not(:disabled) { background: var(--hover-strong); color: var(--ink); }
+.usage-icon-button:disabled { opacity: .5; cursor: default; }
 
-.usage-grouping { width: 340px; letter-spacing: 0; }
-.usage-grouping > button { padding: 5px 0; font-size: 11px; }
-/* Fixed layout: the name column takes what the numbers leave, and a long path ellipsizes inside it. */
-.usage-table { table-layout: fixed; }
-.usage-table th.usage-number { width: 66px; }
-.usage-table td small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usage-table .usage-number { text-align: right; font-family: var(--mono); white-space: nowrap; padding-left: 8px; }
+/* Three periods side by side, each a label, two figures and what they used. */
+.usage-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+.usage-kpi { min-width: 0; }
+.usage-kpi > h3 { margin: 0 0 10px; color: var(--muted); font: 500 12px var(--sans); }
+.usage-kpi-figures { display: flex; gap: 28px; flex-wrap: wrap; }
+.usage-kpi-figures > p { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.usage-kpi-figures b { color: var(--ink); font: 600 26px/1.1 var(--sans); letter-spacing: -.01em; }
+.usage-kpi-figures .plan b { color: var(--ink-2); font-weight: 500; }
+.usage-kpi-figures p[data-empty] b { color: var(--faint); font-weight: 500; }
+.usage-kpi-figures small { color: var(--muted-2); font-size: 11.5px; }
+.usage-kpi-detail { margin: 10px 0 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
+.usage-section { display: flex; flex-direction: column; gap: 14px; }
+.usage-section h2 { margin: 0; color: var(--ink); font: 600 14px var(--sans); }
+.usage-section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.usage-segmented { flex: none; max-width: none; border-color: var(--line-soft); }
+.usage-segmented > button { flex: none; padding: 5px 12px; font-size: 12px; }
+.usage-segmented > button.active { background: var(--raised); color: var(--ink); font-weight: 600; }
+
+/* Plan limits: one block per account, a line per window. */
+.usage-limits { display: flex; flex-direction: column; gap: 18px; }
+.usage-account { display: flex; flex-direction: column; gap: 6px; }
+.usage-account > header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.usage-account > header > strong { color: var(--ink); font-size: 13px; font-weight: 600; }
+.usage-account > header > small { margin-left: auto; color: var(--faint); font-size: 11px; }
+.usage-plan {
+  padding: 1px 6px; border-radius: var(--radius-xs); background: var(--chip); color: var(--muted);
+  font: 600 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+}
+.usage-window { display: grid; grid-template-columns: 7rem minmax(0, 1fr) 5.5rem 11rem; gap: 14px; align-items: center; padding-left: 28px; }
+.usage-window-label { color: var(--ink-3); font-size: 12.5px; }
+.usage-meter { position: relative; height: 16px; outline: none; cursor: default; }
+.usage-meter::before { content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 6px; border-radius: 999px; background: var(--acid-bg); }
+.usage-meter:focus-visible { box-shadow: 0 0 0 2px var(--acid-line); border-radius: var(--radius-sm); }
+.usage-meter-fill { position: absolute; left: 0; top: 5px; height: 6px; border-radius: 999px; background: var(--acid); }
+.usage-window[data-level="warn"] .usage-meter-fill { background: var(--warn); }
+.usage-window[data-level="critical"] .usage-meter-fill { background: var(--fail); }
+.usage-meter-pace { position: absolute; top: 1px; bottom: 1px; width: 2px; transform: translateX(-50%); border-radius: 1px; background: var(--ink-3); }
+.usage-window-used { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.usage-window[data-level] .usage-window-used { color: var(--warn); font-weight: 600; }
+.usage-window-reset { display: flex; flex-direction: column; color: var(--muted); font-size: 12px; line-height: 1.3; }
+.usage-window-reset small { color: var(--faint); font-size: 11px; }
+.usage-silent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
+.usage-silent > li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.usage-silent > li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-silent strong { color: var(--ink-3); font-weight: 500; }
+
+/* The days: columns on a baseline, three hairlines, dates under some. */
+.usage-history { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.usage-chart { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; height: 200px; padding-bottom: 22px; }
+.usage-chart-ticks { display: flex; flex-direction: column; justify-content: space-between; margin: -6px 0; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.usage-chart-plot { position: relative; min-width: 0; }
+.usage-chart-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.usage-chart-grid > i { height: 1px; background: var(--line-soft); }
+.usage-chart-bars { position: absolute; inset: 0; margin: 0; padding: 0; list-style: none; display: flex; align-items: stretch; gap: 2px; }
+.usage-chart-day { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; outline: none; cursor: default; border-radius: 3px; }
+.usage-chart-day:hover, .usage-chart-day:focus-visible { background: var(--hover); }
+.usage-chart-day:focus-visible { box-shadow: 0 0 0 1px var(--line-focus); }
+.usage-bar { flex: none; width: min(100%, 24px); min-height: 2px; background: var(--acid); }
+.usage-bar:last-of-type { border-radius: 4px 4px 0 0; }
+.usage-bar.plan { background: var(--usage-plan); }
+.usage-bar.tokens { background: var(--ink-3); }
+.usage-chart-date { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.usage-chart-day:last-child .usage-chart-date { left: auto; right: 0; transform: none; }
+.usage-legend { display: flex; gap: 18px; color: var(--muted); font-size: 11.5px; }
+.usage-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.usage-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--acid); }
+.usage-legend i.plan { background: var(--usage-plan); }
+.usage-table-view > summary { width: max-content; color: var(--muted); font-size: 11.5px; cursor: pointer; }
+.usage-table-view > summary:hover { color: var(--ink-2); }
+.usage-day-table { margin-top: 8px; }
+.usage-number { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Rankings: name, a bar against the first, the figures. */
+.usage-ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px 36px; margin-top: 12px; }
+.usage-rank { min-width: 0; }
+.usage-rank > h3 { margin: 0 0 8px; color: var(--muted); font: 500 12px var(--sans); }
+.usage-rank > ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.usage-rank li { display: grid; grid-template-columns: minmax(0, 1fr) 72px auto; align-items: center; gap: 12px; min-height: 40px; }
+.usage-rank-label { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px; margin-left: -6px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; text-align: left; }
+button.usage-rank-label { cursor: pointer; }
+button.usage-rank-label:hover { background: var(--hover); }
+.usage-rank-name { display: flex; flex-direction: column; min-width: 0; }
+.usage-rank-name > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 12.5px; font-weight: 500; }
+.usage-rank-name > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11px; }
+.usage-rank-bar { display: flex; gap: 2px; height: 6px; }
+.usage-rank-bar > i { height: 100%; min-width: 2px; background: var(--acid); }
+.usage-rank-bar > i:first-child { border-radius: 3px 0 0 3px; }
+.usage-rank-bar > i:last-child { border-radius: 0 3px 3px 0; }
+.usage-rank-bar > i:only-child { border-radius: 3px; }
+.usage-rank-bar > i.plan { background: var(--usage-plan); }
+.usage-rank-bar > i.tokens { background: var(--ink-3); }
+.usage-rank-value { display: flex; flex-direction: column; align-items: flex-end; min-width: 64px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-rank-value b { color: var(--ink); font-weight: 600; }
+.usage-rank-value em { color: var(--muted); font-style: normal; }
+
+.usage-footer { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding-top: 4px; color: var(--muted-2); font-size: 11.5px; }
+.usage-link { border: 0; background: transparent; padding: 0; color: var(--ink-3); font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.usage-link:hover { color: var(--ink); }
+.usage-link:disabled { opacity: .5; cursor: default; }
+
+.usage-subpage { display: flex; flex-direction: column; gap: 16px; }
 .usage-sources { list-style: none; margin: 0; padding: 0; font-size: 12px; }
-.usage-sources > li { display: grid; grid-template-columns: 110px 90px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-soft); color: var(--ink-2); }
+.usage-sources > li { display: grid; grid-template-columns: 130px 90px 1fr; gap: 8px; padding: 8px 0; color: var(--ink-2); }
+.usage-sources > li + li { border-top: 1px solid var(--line-soft); }
 .usage-sources > li > strong { font-weight: 500; }
 .usage-sources > li > span { color: var(--muted); word-break: break-word; }
 .usage-status {
@@ -38,37 +139,6 @@
 .usage-sources > li[data-status="ok"] .usage-status { background: var(--acid-chip); color: var(--acid-text); }
 .usage-sources > li[data-status="unavailable"] .usage-status { background: var(--warn-chip); color: var(--warn); }
 
-/* Subscription limits: one card per account, a row per window (label, bar, countdown). */
-.usage-limits { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
-.usage-account { padding: 10px 12px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--inset); }
-.usage-account > header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-.usage-account > header > strong { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.usage-account > header > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
-.usage-plan {
-  padding: 1px 6px; border-radius: var(--radius-xs); background: var(--chip); color: var(--muted);
-  font: 600 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
-}
-.usage-windows { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 7rem; gap: 4px 14px; align-items: center; }
-.usage-window-label { display: flex; gap: 8px; min-width: 0; font-size: 11.5px; color: var(--muted); }
-.usage-window-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usage-window-label > b { margin-left: auto; flex: none; font: 500 11px var(--mono); color: var(--ink-2); }
-.usage-window-bar { position: relative; height: 18px; outline: none; cursor: default; }
-.usage-window-bar:focus-visible { box-shadow: 0 0 0 2px var(--acid-line); border-radius: var(--radius-sm); }
-.usage-window-track, .usage-window-fill { position: absolute; top: 6px; bottom: 6px; border-radius: 999px; }
-.usage-window-track { left: 0; right: 0; background: var(--chip); }
-.usage-window-fill { left: 0; background: var(--acid); }
-.usage-window-bar[data-low="true"] .usage-window-fill { background: var(--warn); }
-.usage-window-time { position: absolute; top: 2px; bottom: 2px; width: 1px; transform: translateX(-50%); background: var(--ink-3); opacity: .7; }
-.usage-window-reset { font: 10.5px var(--mono); color: var(--muted-2); text-align: right; white-space: nowrap; }
-.usage-account-value { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); }
-.usage-account-value b { font: 500 11.5px var(--mono); color: var(--ink-2); }
-.usage-silent { list-style: none; margin: 0; padding: 0; font-size: 11.5px; color: var(--muted); }
-.usage-silent > li { padding: 3px 0; }
-.usage-silent > li > strong { font-weight: 500; color: var(--ink-3); }
-
-/* What a plan covered is its API value, not money spent: it reads quieter than the billed column. */
-.usage-table td.usage-plan-value { font-style: italic; color: var(--muted); }
-
 /* Model prices: a table of the user's own, and a row that adds one. */
 .usage-price-table .usage-number { width: 100px; white-space: nowrap; }
 .usage-price-table th.usage-number:last-child { width: 130px; }
@@ -78,8 +148,16 @@
 .usage-price-add .usage-rate { text-align: left; }
 .usage-price-model { min-width: 0; font: 11.5px var(--mono); padding: 4px 6px; }
 .usage-price-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
-.usage-link { border: 0; background: transparent; padding: 0; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.usage-link:hover { color: var(--ink-2); }
-.usage-link:disabled { opacity: .5; cursor: default; }
 .usage-price-add .settings-input, .usage-price-table .settings-input { width: 100%; min-width: 0; box-sizing: border-box; }
-.usage-table th.usage-plan-head { width: 84px; }
+
+/* A phone: one column, the figures and a window's line stacked. */
+@container (max-width: 640px) {
+  .usage-kpis { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .usage-kpi > h3 { margin-bottom: 6px; }
+  .usage-kpi-figures b { font-size: 22px; }
+  .usage-kpi-detail { margin-top: 6px; }
+  .usage-window { grid-template-columns: minmax(0, 1fr) auto; padding-left: 0; }
+  .usage-window .usage-meter { grid-column: 1 / -1; grid-row: 2; }
+  .usage-window-reset { grid-column: 1 / -1; flex-direction: row; gap: 6px; }
+  .usage-toolbar { margin: 0; }
+}

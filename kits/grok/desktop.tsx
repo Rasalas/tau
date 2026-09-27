@@ -310,7 +310,7 @@ export const grokExtension: DesktopExtension = {
       dispose: registerCard({ id: DEFAULT_INSTANCE_ID, kind: GROK_BACKEND_KIND, label: "Grok", threads: 0 }, DEFAULT_ORDER),
     });
     const stops = [
-      plugin.registerStatusItem({ id: "grok.runtime", align: "left", order: 45, profiles: ["desktop", "web", "compact"], Component: GrokStatus }),
+      plugin.registerStatusItem({ id: "grok.runtime", align: "left", order: 45, profiles: ["desktop", "web"], Component: GrokStatus }),
       plugin.host.onEvent(INSTANCES_EVENT, (payload) => { if (isReport(payload)) sync(payload); }),
     ];
     let active = true;
