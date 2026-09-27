@@ -71,6 +71,11 @@ function textOf(content: unknown): string {
 
 type ResultMessage = SDKMessage & { type: "result" };
 
+/** The CLI wraps a refused call's reason in a tag the model reads; the reader wants the reason. */
+function unwrapToolError(text: string): string {
+  return /^\s*<tool_use_error>([\s\S]*)<\/tool_use_error>\s*$/u.exec(text)?.[1]?.trim() ?? text;
+}
+
 function resultUsage(message: ResultMessage): UiThreadUsage {
   const models = Object.values((message as { modelUsage?: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }> }).modelUsage ?? {});
   if (models.length === 0) {
@@ -249,7 +254,8 @@ export class SdkTurnTranslator {
       if (!block || typeof block !== "object" || (block as { type?: string }).type !== "tool_result") continue;
       const result = block as { tool_use_id: string; content?: unknown; is_error?: boolean };
       const previous = this.running.get(result.tool_use_id);
-      const output = boundedToolOutput(textOf(result.content));
+      const text = textOf(result.content);
+      const output = boundedToolOutput(result.is_error ? unwrapToolError(text) : text);
       const tool: UiToolRun = {
         id: result.tool_use_id,
         name: previous?.name ?? "tool",

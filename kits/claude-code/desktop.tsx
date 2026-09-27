@@ -27,6 +27,7 @@ import {
   type ClaudeInstancesReport,
   type ClaudeStatusReport,
 } from "./protocol.js";
+import { isAgentSdkTool, presentAgentSdkTool } from "./tool-presentation.js";
 
 const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
 /** Terminal Kit's desktop service (`kits/terminal/protocol.ts`), named here: a kit never imports another. */
@@ -388,6 +389,8 @@ export const claudeCodeExtension: DesktopExtension = {
     };
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
+      // Its tools carry their own names and arguments; without this the transcript names the arguments.
+      plugin.registerToolRenderer("claude-code.tools", isAgentSdkTool, presentAgentSdkTool, { profiles: ["desktop", "web", "compact"] }),
       plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web"], Component: ClaudeCodeStatus }),
       plugin.registerRegion({ id: "claude-code.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "claude-code.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
