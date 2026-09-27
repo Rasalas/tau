@@ -23,6 +23,9 @@ const RAW_COLOUR = /#[0-9a-fA-F]{3,8}\b|(?<!\/\* )\brgba?\(|\bhsla?\((?!var\()/g
 /** Custom properties the client sets on an element at runtime, not tokens a theme owns. */
 const RUNTIME_PROPERTIES = [
   "--project-hue",
+  // What the on-screen keyboard leaves of a compact client's screen (touch/TouchLayer.tsx).
+  "--tau-viewport-top",
+  "--tau-viewport-height",
   "--used",
   "--keep-clear-x",
   "--menu-shift-x",

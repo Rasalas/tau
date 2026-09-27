@@ -21,6 +21,7 @@ export const AttachmentLightbox = deferred(() => import("./components/Attachment
 export const ChangesTree = deferred(() => import("./components/ChangesTree").then((module) => module.ChangesTree));
 export const Dialog = deferred(() => import("./components/ui/Dialog").then((module) => module.Dialog));
 export const Popover = deferred(() => import("./components/ui/Dialog").then((module) => module.Popover));
+export const Sheet = deferred(() => import("./touch/Sheet").then((module) => module.Sheet));
 export const ConfirmDialog = deferred(() => import("./components/ui/ConfirmDialog").then((module) => module.ConfirmDialog));
 export const SettingRow = deferred(() => import("./settings/settings-layout").then((module) => module.SettingRow));
 export const SettingsSection = deferred(() => import("./settings/settings-layout").then((module) => module.SettingsSection));

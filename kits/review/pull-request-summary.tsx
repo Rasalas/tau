@@ -138,7 +138,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
 
       <Section
         title="Description"
-        aside={editingBody || !onSaveBody ? null : <button className="icon-button compact" aria-label="Edit description" title="Edit description" onClick={() => setEditingBody(true)}><Pencil size={12} /></button>}
+        aside={editingBody || !onSaveBody ? null : <button className="icon-button compact pr-edit-body" aria-label="Edit description" title="Edit description" onClick={() => setEditingBody(true)}><Pencil size={12} /></button>}
       >
         {editingBody && onSaveBody
           ? <MarkdownEditor label="Description" initial={detail.body} allowEmpty onSave={async (body) => { await onSaveBody(body); setEditingBody(false); }} onCancel={() => setEditingBody(false)} />

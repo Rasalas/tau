@@ -190,16 +190,8 @@
 
 /* ------------------------------------------------------ the action sheet */
 
-.dialog-backdrop:has(> .action-sheet) { align-items: flex-end; padding: 0; }
-.action-sheet {
-  width: 100%; max-width: 520px; margin: 0 auto;
-  padding: 4px 10px calc(12px + env(safe-area-inset-bottom, 0px));
-  border: 1px solid var(--line-strong); border-bottom: 0; border-radius: 16px 16px 0 0;
-  background: var(--chrome); color: var(--ink); box-shadow: var(--shadow-strong);
-  animation: touch-sheet-up var(--motion-fast, 160ms) var(--ease);
-}
+/* A Sheet (sheet.css) whose content is one list of rows. */
 @keyframes touch-sheet-up { from { transform: translateY(24px); opacity: 0; } }
-.action-sheet-body { display: flex; flex-direction: column; gap: 6px; }
 /* Grip, title, and the close button at the top right of every sheet. */
 .touch-sheet-header {
   position: relative; flex: none; display: flex; align-items: center; gap: 8px;
@@ -213,10 +205,7 @@
   position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
   border-radius: 2px; background: var(--line-strong);
 }
-.action-sheet-list {
-  display: flex; flex-direction: column; border-radius: 12px; overflow: hidden auto; overscroll-behavior: contain;
-  max-height: calc(var(--tau-viewport-height, 100dvh) - 120px); background: var(--raised);
-}
+.action-sheet-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--raised); }
 .action-sheet-list > button { flex: none; }
 .action-sheet-list > button > span { min-width: 0; }
 .action-sheet-list > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

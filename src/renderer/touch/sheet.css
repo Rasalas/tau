@@ -1,0 +1,15 @@
+/* A bottom sheet (Sheet): the dialog pinned to the bottom edge, its content scrolling under the header. */
+.dialog-backdrop:has(> .touch-sheet) { align-items: flex-end; padding: 0; }
+.touch-sheet {
+  width: 100%; max-width: 520px; margin: 0 auto;
+  max-height: calc(var(--tau-viewport-height, 100dvh) - 24px);
+  display: flex; flex-direction: column;
+  padding: 4px 10px calc(12px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--line-strong); border-bottom: 0; border-radius: 16px 16px 0 0;
+  background: var(--chrome); color: var(--ink); box-shadow: var(--shadow-strong);
+  animation: touch-sheet-rise var(--motion-fast, 160ms) var(--ease);
+}
+@keyframes touch-sheet-rise { from { transform: translateY(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .touch-sheet { animation: none; } }
+.touch-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.touch-sheet-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }

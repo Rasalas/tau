@@ -377,16 +377,37 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-list-more { display: flex; justify-content: center; padding: 14px 0 4px; color: var(--muted); font-size: 11.5px; }
 .pr-list-more > span { display: inline-flex; align-items: center; gap: 6px; }
 
-/* A phone: the Pull Requests page as a main page. Controls a finger can hit, the title on lines of its own, no label chips. */
+/* A phone: the Pull Requests page as a main page. One header line, controls a finger can hit, the title on lines of its own, no label chips. */
 body[data-profile="compact"] .pr-list-view.on-page { font-size: 13px; }
-body[data-profile="compact"] .pr-list-view.on-page .pr-list-head { gap: 6px; padding: 4px 12px 8px; }
-body[data-profile="compact"] .pr-list-view.on-page .pr-list-body { padding: 4px 4px 24px; }
+body[data-profile="compact"] .pr-list-view.on-page .pr-list-body { padding: 0 4px 24px; }
 body[data-profile="compact"] .pr-list-view .icon-button { width: 44px; height: 44px; }
-body[data-profile="compact"] .pr-list-view .pr-list-title .mini-button,
-body[data-profile="compact"] .pr-list-controls .mini-button { min-height: 44px; font-size: 13px; }
-body[data-profile="compact"] .pr-list-controls { gap: 6px; }
-body[data-profile="compact"] .pr-list-search { flex: 1 0 100%; height: 44px; min-width: 0; }
-body[data-profile="compact"] .pr-list-controls .toggle-group > button { min-height: 40px; padding-inline: 12px; font-size: 13px; }
+body[data-profile="compact"] .pr-list-view .pr-list-body .mini-button { min-height: 44px; padding-inline: 14px; font-size: 14px; }
+.pr-list-head.phone { gap: 2px; padding: 4px 6px 6px 12px; }
+.pr-list-bar { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.pr-list-bar .pr-list-search { flex: 1 1 auto; min-width: 0; height: 44px; margin-right: 4px; border-radius: 12px; }
+/* 16 px keeps iOS from zooming into the field. */
+.pr-list-bar .pr-list-search input { font-size: 16px; }
+.pr-list-filter { position: relative; }
+.pr-list-view .pr-list-filter.active { color: var(--ink); }
+.pr-list-filter-count { position: absolute; top: 5px; right: 3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font: 600 11px/18px var(--mono); text-align: center; }
+.pr-list-chips { display: flex; gap: 6px; margin-right: -6px; padding-right: 6px; overflow-x: auto; scrollbar-width: none; }
+.pr-list-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 14px; border: 1px solid var(--acid-line); border-radius: 22px; background: var(--acid-bg); color: var(--acid-text); font: 500 14px var(--sans); cursor: pointer; }
+.pr-list-chip.clear { border-color: transparent; background: transparent; color: var(--muted); }
+.pr-list-summary { margin: 0; padding: 8px 12px 2px; color: var(--muted); font-size: 12.5px; }
+/* The phone's filter sheet: pills pick one (radio) or several (checkbox), the platform's list picks from many. */
+.pr-filter-sheet .touch-sheet-content { display: flex; flex-direction: column; gap: 18px; padding: 2px 4px 8px; }
+.pr-sheet-summary { margin: 0; color: var(--muted); font: 13px var(--sans); }
+.pr-sheet-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.pr-sheet-legend { padding: 0; color: var(--muted); font: 600 13px var(--sans); }
+.pr-sheet-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pr-sheet-pill { position: relative; display: inline-flex; }
+.pr-sheet-pill > input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.pr-sheet-pill > span { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 22px; color: var(--ink-2); font: 500 15px var(--sans); cursor: pointer; }
+.pr-sheet-pill > span small { color: var(--faint); font: 12px var(--mono); }
+.pr-sheet-pill > input:checked + span { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
+.pr-sheet-pill > input:focus-visible + span { outline: 2px solid var(--line-focus); outline-offset: 2px; }
+.pr-sheet-list > select { min-height: 48px; padding: 0 12px; border: 1px solid var(--line-field); border-radius: 12px; background: var(--field); color: var(--ink); font: 16px var(--sans); }
+.pr-sheet-clear { align-self: flex-start; min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--acid-text); font: 500 15px var(--sans); cursor: pointer; }
 body[data-profile="compact"] .pr-row { min-height: 56px; padding: 10px 12px; }
 body[data-profile="compact"] .pr-row-line:first-child { flex-wrap: wrap; row-gap: 2px; }
 body[data-profile="compact"] .pr-row-title { order: -1; flex: 1 0 100%; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 15px; line-height: 1.3; }
@@ -683,3 +704,50 @@ textarea.review-compact-field { min-height: 110px; }
 .review-turn-pill > svg { flex: none; color: var(--faint); }
 .review-turn-pill > .review-turn-pill-partial { color: var(--working); }
 .review-turn-pill .stat-add, .review-turn-pill .stat-del { font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* A request on a phone: every control of the header and the tabs at 44 px, the tab context on its own line, and
+   comment or review in a bar under the body. */
+body[data-profile="compact"] .pr-view { font-size: 13px; }
+body[data-profile="compact"] .pr-head-row { flex-wrap: wrap; height: auto; min-height: 52px; padding: 4px 4px 4px 16px; }
+body[data-profile="compact"] .pr-view .pr-head .icon-button,
+body[data-profile="compact"] .pr-view .pr-fold .icon-button { width: 44px; height: 44px; }
+body[data-profile="compact"] .pr-title-row .pr-edit { opacity: 1; }
+body[data-profile="compact"] .pr-number { min-height: 44px; font-size: 14px; }
+body[data-profile="compact"] .pr-state { font-size: 12px; }
+body[data-profile="compact"] .pr-primary { height: 44px; padding: 0 14px; border-radius: 12px; font-size: 14px; }
+body[data-profile="compact"] .pr-armed { min-height: 32px; font-size: 12px; }
+body[data-profile="compact"] .pr-stack-button { min-height: 44px; font-size: 12px; }
+body[data-profile="compact"] .pr-title { white-space: normal; font-size: 17px; }
+body[data-profile="compact"] .pr-meta { flex-wrap: wrap; font-size: 12.5px; }
+body[data-profile="compact"] .pr-branches { flex-wrap: wrap; font-size: 12px; }
+body[data-profile="compact"] .pr-tabs { flex-wrap: wrap; gap: 4px 10px; padding: 6px 12px; }
+body[data-profile="compact"] .pr-tabs > .toggle-group { flex: 1 0 100%; display: flex; }
+body[data-profile="compact"] .pr-tabs > .toggle-group > button { flex: 1; min-height: 44px; font-size: 14px; }
+body[data-profile="compact"] .pr-tabs > .spacer { display: none; }
+body[data-profile="compact"] .pr-tab-context { flex-wrap: wrap; min-height: 32px; font-size: 12px; }
+body[data-profile="compact"] .pr-tab-context .text-button { min-height: 44px; font-size: 13px; }
+.pr-comment-bar { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--chrome); }
+.pr-comment-bar-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
+.pr-comment-bar-button > svg { flex: none; color: var(--acid-text); }
+.pr-comment-bar-button:active:not(:disabled) { background: var(--hover-strong); }
+.pr-comment-bar-button:disabled { color: var(--muted); cursor: not-allowed; }
+.pr-comment-bar-button:disabled > svg { color: var(--faint); }
+.pr-comment-bar-reason { color: var(--muted); font: 12.5px var(--sans); text-align: center; }
+/* Controls in the summary a finger reaches for: add a reviewer or a label, fold a section, edit the description. */
+body[data-profile="compact"] .pr-view .pr-edit-body,
+body[data-profile="compact"] .pr-view .pr-chip-add { width: 44px !important; height: 44px !important; }
+body[data-profile="compact"] .pr-view :is(.pr-section-toggle, .pr-group-toggle) { min-height: 44px; font-size: 13px; }
+body[data-profile="compact"] .pr-section > header > .text-button { min-height: 44px; font-size: 12.5px; }
+/* The page's bar names the request already; a condensed header keeps only the room the title held. */
+body[data-profile="compact"] .pr-head-title { visibility: hidden; }
+body[data-profile="compact"] .pr-meta-grid { gap: 0 12px; }
+body[data-profile="compact"] .pr-meta-grid dt { font-size: 12.5px; }
+body[data-profile="compact"] .pr-meta-grid dd { align-items: center; }
+/* The comment and review composer on a phone: across the bottom, text a phone does not zoom into, 44 px controls. */
+body[data-profile="compact"] .pr-composer { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; border-radius: 16px; }
+/* The keyboard covers the home indicator. */
+body[data-keyboard] .pr-composer { bottom: 8px; }
+body[data-profile="compact"] .pr-composer textarea { font-size: 16px; }
+body[data-profile="compact"] .pr-composer .toggle-group > button,
+body[data-profile="compact"] .pr-composer footer > button { min-height: 44px; padding-inline: 14px; font-size: 14px; }
+body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; font-size: 14px; }

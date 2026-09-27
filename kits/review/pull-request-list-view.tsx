@@ -29,9 +29,12 @@ import {
   type PullRequestListFilters,
   type PullRequestListPreferences,
   type PullRequestListSort,
+  SORTS,
   type PullRequestSection,
 } from "./pull-request-list-logic.js";
 import { hostName, relativeTime, shortNoun } from "./pull-request-logic.js";
+import { INVOLVEMENTS, listNarrowings, NarrowingChips, PullRequestFilterSheet, REVIEW_LABELS, SORT_LABELS, STATES, type FilterGroup } from "./pull-request-list-filters.js";
+import { useCompactProfile } from "./compact-profile.js";
 
 const PREFERENCES_KEY = "tau.review.pull-requests";
 const GROUPING_KEY = "tau.review.pull-requests.group";
@@ -97,33 +100,6 @@ function useProjects(): readonly UiProject[] {
 }
 
 const projectId = (project: UiProject) => project.workspaceId ?? project.path;
-
-const STATES: Array<{ value: PullRequestListState; label: string }> = [
-  { value: "open", label: "Open" },
-  { value: "closed", label: "Closed" },
-  { value: "merged", label: "Merged" },
-  { value: "all", label: "All" },
-];
-const INVOLVEMENTS: Array<{ value: PullRequestInvolvement; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "reviewing", label: "Reviewing" },
-  { value: "authored", label: "Authored" },
-];
-export const SORT_LABELS: Record<PullRequestListSort, string> = {
-  ready: "Merge readiness",
-  blocked: "Blocked on me",
-  updated: "Recently updated",
-  newest: "Newest shown",
-  oldest: "Oldest shown",
-  largest: "Largest shown",
-  smallest: "Smallest shown",
-};
-const REVIEW_LABELS: Record<NonNullable<PullRequestListFilters["review"]>, string> = {
-  approved: "Approved",
-  "changes-requested": "Changes requested",
-  "review-required": "Review required",
-  none: "No reviews",
-};
 
 function StateGlyph({ entry }: { entry: PullRequestListEntry }) {
   const props = { size: 14, "aria-hidden": true } as const;
@@ -226,6 +202,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   surface?: "tab" | "page";
 }) {
   const onPage = surface === "page";
+  const phone = useCompactProfile();
   const [scope, setScope] = useState<Scope>(() => params.scope === "all" ? { kind: "all" } : { kind: "project", ...(params.workspace ? { workspace: params.workspace } : {}) });
   const [host, setHost] = useState<string>();
   const projects = useProjects();
@@ -240,7 +217,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   const [list, setList] = useState<Listing>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
-  const [menu, setMenu] = useState<"sort" | "filters" | "projects">();
+  const [menu, setMenu] = useState<"sort" | "filters" | "projects" | "sheet">();
   const [grouping, setGroupingState] = useState<Grouping>(() => getClientStorage()?.get(GROUPING_KEY) === "project" ? "project" : "involvement");
   const setGrouping = (next: Grouping) => { setGroupingState(next); getClientStorage()?.set(GROUPING_KEY, next); };
   const asked = useRef(0);
@@ -358,74 +335,143 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     else if (key === "author") setAuthor(value || undefined);
     else if (key === "project") { setScope(value === "\u0001all" ? { kind: "all" } : { kind: "project", workspace: value }); setHost(undefined); }
     else if (key === "host") setHost(value || undefined);
+    else if (key === "state") update({ state: value as PullRequestListState });
+    else if (key === "involvement") update({ involvement: value as PullRequestInvolvement });
+    else if (key === "sort") update({ sort: value as PullRequestListSort });
+    else if (key === "group") setGrouping(value as Grouping);
     else if (key === "clear") { update({ draft: undefined, review: undefined, checks: undefined }); setLabels([]); setAuthor(undefined); setHost(undefined); }
   };
+
+  // A phone keeps the header to one line: every control below goes into a sheet, what narrows the list into chips.
+  const narrowings = listNarrowings({ ...preferences, project: onPage && scope.kind === "project" ? scopeLabel : undefined, labels, author, host });
+  const removeNarrowing = (id: string) => {
+    if (id === "project") pickFilter("project:\u0001all");
+    else if (id === "state") update({ state: "open" });
+    else if (id === "involvement") update({ involvement: "all" });
+    else pickFilter(id.startsWith("label:") ? id : `${id}:`);
+  };
+  const clearNarrowings = () => {
+    update({ state: "open", involvement: "all" });
+    pickFilter("clear");
+    if (onPage && scope.kind === "project") pickFilter("project:\u0001all");
+  };
+  const one = (id: string, legend: string, options: Array<{ value: string; label: string }>, current: string | undefined): FilterGroup => (
+    { id, legend, kind: "one", options: options.map((option) => ({ id: `${id}:${option.value}`, label: option.label, selected: (current ?? "") === option.value })) }
+  );
+  const sheetGroups: FilterGroup[] = phone ? [
+    ...(onPage ? [{ id: "project", legend: "Project", kind: "list" as const, options: projectItems[0]!.items.map((item) => ({ id: item.id, label: item.label, selected: Boolean(item.selected) })) }] : []),
+    one("state", "State", STATES, preferences.state),
+    one("involvement", "Involvement", INVOLVEMENTS, preferences.involvement),
+    ...(onPage && manyRepositories ? [one("group", "Group by", GROUPINGS, grouping)] : []),
+    { id: "sort", legend: "Sort", kind: "list", options: SORTS.map((sort) => ({ id: `sort:${sort}`, label: SORT_LABELS[sort], selected: preferences.sort === sort })) },
+    one("draft", "Drafts", [{ value: "", label: "All" }, { value: "only", label: "Drafts only" }, { value: "hide", label: "Hide drafts" }], preferences.draft),
+    one("review", "Review", [{ value: "", label: "All" }, ...(Object.keys(REVIEW_LABELS) as Array<keyof typeof REVIEW_LABELS>).map((value) => ({ value, label: REVIEW_LABELS[value] }))], preferences.review),
+    one("checks", "Checks", [{ value: "", label: "All" }, { value: "passing", label: "Passing" }, { value: "failing", label: "Failing" }], preferences.checks),
+    ...(facets.labels.length > 0 ? [{ id: "labels", legend: "Labels", kind: "many" as const, options: facets.labels.map((label) => ({ id: `label:${label.name}`, label: label.name, hint: String(label.count), selected: labels.includes(label.name) })) }] : []),
+    ...(facets.authors.length > 0 ? [{ id: "author", legend: "Author", kind: "list" as const, options: [{ id: "author:", label: "Anyone", selected: !author }, ...facets.authors.map((person) => ({ id: `author:${person.login}`, label: person.login, hint: String(person.count), selected: author === person.login }))] }] : []),
+    ...(hosts.length > 1 || host ? [{ id: "host", legend: "Host", kind: "list" as const, options: [{ id: "host:", label: "All hosts", selected: !host }, ...hosts.map((name) => ({ id: `host:${name}`, label: name, selected: host === name }))] }] : []),
+  ] : [];
+  const shownText = list ? `${arranged.shown} of ${entries.length}${list.truncated ? "+" : ""}` : undefined;
 
   const firstLoad = loading && !list && !error;
   const refresh = <>
     {loading && list ? <Spinner size="xs" label="Refreshing" /> : null}
     <button className="icon-button compact" aria-label="Refresh pull requests" title="Refresh" disabled={loading} onClick={() => void load()}><RefreshCw size={13} /></button>
   </>;
+  const searchField = (
+    <label className="pr-list-search">
+      {loading && search ? <Spinner size="xs" label="Searching" /> : <Search size={phone ? 16 : 13} aria-hidden="true" />}
+      <input type="search" aria-label="Search pull requests" placeholder={phone ? "Search, or label:bug" : "Search pull requests, or label:bug"} value={query} onChange={(event) => setQuery(event.target.value)} />
+    </label>
+  );
   const narrowed = filterCount > 0 || query.trim() !== "" || preferences.state !== "open" || preferences.involvement !== "all";
 
   return (
     <div className={`pr-list-view${onPage ? " on-page" : ""}`} aria-label="Pull requests">
-      <header className="pr-list-head">
-        {onPage ? (
-          <div className="pr-list-title">
+      {phone ? (
+        <header className="pr-list-head phone">
+          <div className="pr-list-bar">
+            {searchField}
+            <button
+              className={`icon-button pr-list-filter${narrowings.length > 0 ? " active" : ""}`}
+              aria-label={narrowings.length > 0 ? `Filter pull requests, ${narrowings.length} active` : "Filter pull requests"}
+              aria-haspopup="dialog"
+              aria-expanded={menu === "sheet"}
+              onClick={() => setMenu("sheet")}
+            >
+              <ListFilter size={20} aria-hidden="true" />
+              {narrowings.length > 0 ? <span className="pr-list-filter-count" aria-hidden="true">{narrowings.length}</span> : null}
+            </button>
+            <button className="icon-button" aria-label="Refresh pull requests" disabled={loading} onClick={() => void load()}>
+              {loading && list ? <Spinner size="sm" label="Refreshing" /> : <RefreshCw size={18} aria-hidden="true" />}
+            </button>
+          </div>
+          <NarrowingChips items={narrowings} onRemove={removeNarrowing} onClear={clearNarrowings} />
+        </header>
+      ) : (
+        <header className="pr-list-head">
+          {onPage ? (
+            <div className="pr-list-title">
+              <span className="menu-anchor">
+                <button className="mini-button pr-list-menu pr-list-scope" aria-label={`Projects: ${scopeLabel}`} aria-expanded={menu === "projects"} title={list?.repositories.join("\n")} onClick={() => setMenu(menu === "projects" ? undefined : "projects")}>
+                  <Folder size={12} aria-hidden="true" /> {scopeLabel}{list && manyRepositories ? ` · ${list.repositories.length} repositories` : ""} <ChevronDown size={11} aria-hidden="true" />
+                </button>
+                {menu === "projects" ? <Menu align="left" label="Projects" sections={projectItems} onSelect={(id) => { pickFilter(id); setMenu(undefined); }} onClose={() => setMenu(undefined)} /> : null}
+              </span>
+              {list && !manyRepositories ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
+              <span className="spacer" />
+              {refresh}
+            </div>
+          ) : (
+            <div className="pr-list-title">
+              <h1>{list ? `${noun[0]!.toUpperCase()}${noun.slice(1)}s` : "Pull requests"}</h1>
+              {list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
+              <span className="spacer" />
+              {actions.openPage ? <button className="mini-button" title="Every project's pull requests, on a page of their own" onClick={() => actions.openPage?.(PULL_REQUESTS_PAGE)}>All projects</button> : null}
+              {refresh}
+            </div>
+          )}
+          <div className="pr-list-controls">
+            {searchField}
             <span className="menu-anchor">
-              <button className="mini-button pr-list-menu pr-list-scope" aria-label={`Projects: ${scopeLabel}`} aria-expanded={menu === "projects"} title={list?.repositories.join("\n")} onClick={() => setMenu(menu === "projects" ? undefined : "projects")}>
-                <Folder size={12} aria-hidden="true" /> {scopeLabel}{list && manyRepositories ? ` · ${list.repositories.length} repositories` : ""} <ChevronDown size={11} aria-hidden="true" />
+              <button className={`mini-button pr-list-menu ${filterCount > 0 ? "active" : ""}`} aria-label="Filter pull requests" aria-expanded={menu === "filters"} onClick={() => setMenu(menu === "filters" ? undefined : "filters")}>
+                <ListFilter size={12} aria-hidden="true" /> Filters{filterCount > 0 ? ` · ${filterCount}` : ""}
               </button>
-              {menu === "projects" ? <Menu align="left" label="Projects" sections={projectItems} onSelect={(id) => { pickFilter(id); setMenu(undefined); }} onClose={() => setMenu(undefined)} /> : null}
+              {menu === "filters" ? <Menu align="right" label="Filter pull requests" sections={filterSections} onSelect={(id) => { pickFilter(id); if (!id.startsWith("label:")) setMenu(undefined); }} onClose={() => setMenu(undefined)} /> : null}
             </span>
-            {list && !manyRepositories ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
-            <span className="spacer" />
-            {refresh}
+            <span className="menu-anchor">
+              <button className="mini-button pr-list-menu" aria-label="Sort pull requests" aria-expanded={menu === "sort"} title={SORT_LABELS[preferences.sort]} onClick={() => setMenu(menu === "sort" ? undefined : "sort")}>
+                <ArrowDownUp size={12} aria-hidden="true" /> {SORT_LABELS[preferences.sort]}
+              </button>
+              {menu === "sort" ? (
+                <Menu
+                  align="right"
+                  heading="Sort"
+                  items={(Object.keys(SORT_LABELS) as PullRequestListSort[]).map((sort) => ({ id: sort, label: SORT_LABELS[sort], selected: preferences.sort === sort }))}
+                  onSelect={(id) => { update({ sort: id as PullRequestListSort }); setMenu(undefined); }}
+                  onClose={() => setMenu(undefined)}
+                />
+              ) : null}
+            </span>
           </div>
-        ) : (
-          <div className="pr-list-title">
-            <h1>{list ? `${noun[0]!.toUpperCase()}${noun.slice(1)}s` : "Pull requests"}</h1>
-            {list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
+          <div className="pr-list-controls">
+            <Segmented label="State" value={preferences.state} options={STATES} onChange={(state) => update({ state })} />
+            <Segmented label="Involvement" value={preferences.involvement} options={INVOLVEMENTS} onChange={(involvement) => update({ involvement })} />
+            {onPage && manyRepositories ? <><span className="pr-list-caption" aria-hidden="true">Group by</span><Segmented label="Group by" value={grouping} options={GROUPINGS} onChange={setGrouping} /></> : null}
             <span className="spacer" />
-            {actions.openPage ? <button className="mini-button" title="Every project's pull requests, on a page of their own" onClick={() => actions.openPage?.(PULL_REQUESTS_PAGE)}>All projects</button> : null}
-            {refresh}
+            {shownText ? <span className="pr-list-count">{shownText}</span> : null}
           </div>
-        )}
-        <div className="pr-list-controls">
-          <label className="pr-list-search">
-            {loading && search ? <Spinner size="xs" label="Searching" /> : <Search size={13} aria-hidden="true" />}
-            <input type="search" aria-label="Search pull requests" placeholder="Search pull requests, or label:bug" value={query} onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <span className="menu-anchor">
-            <button className={`mini-button pr-list-menu ${filterCount > 0 ? "active" : ""}`} aria-label="Filter pull requests" aria-expanded={menu === "filters"} onClick={() => setMenu(menu === "filters" ? undefined : "filters")}>
-              <ListFilter size={12} aria-hidden="true" /> Filters{filterCount > 0 ? ` · ${filterCount}` : ""}
-            </button>
-            {menu === "filters" ? <Menu align="right" label="Filter pull requests" sections={filterSections} onSelect={(id) => { pickFilter(id); if (!id.startsWith("label:")) setMenu(undefined); }} onClose={() => setMenu(undefined)} /> : null}
-          </span>
-          <span className="menu-anchor">
-            <button className="mini-button pr-list-menu" aria-label="Sort pull requests" aria-expanded={menu === "sort"} title={SORT_LABELS[preferences.sort]} onClick={() => setMenu(menu === "sort" ? undefined : "sort")}>
-              <ArrowDownUp size={12} aria-hidden="true" /> {SORT_LABELS[preferences.sort]}
-            </button>
-            {menu === "sort" ? (
-              <Menu
-                align="right"
-                heading="Sort"
-                items={(Object.keys(SORT_LABELS) as PullRequestListSort[]).map((sort) => ({ id: sort, label: SORT_LABELS[sort], selected: preferences.sort === sort }))}
-                onSelect={(id) => { update({ sort: id as PullRequestListSort }); setMenu(undefined); }}
-                onClose={() => setMenu(undefined)}
-              />
-            ) : null}
-          </span>
-        </div>
-        <div className="pr-list-controls">
-          <Segmented label="State" value={preferences.state} options={STATES} onChange={(state) => update({ state })} />
-          <Segmented label="Involvement" value={preferences.involvement} options={INVOLVEMENTS} onChange={(involvement) => update({ involvement })} />
-          {onPage && manyRepositories ? <><span className="pr-list-caption" aria-hidden="true">Group by</span><Segmented label="Group by" value={grouping} options={GROUPINGS} onChange={setGrouping} /></> : null}
-          <span className="spacer" />
-          {list ? <span className="pr-list-count">{arranged.shown} of {entries.length}{list.truncated ? "+" : ""}</span> : null}
-        </div>
-      </header>
+        </header>
+      )}
+      {menu === "sheet" && phone ? (
+        <PullRequestFilterSheet
+          groups={sheetGroups}
+          summary={shownText ? `${shownText} ${noun}s shown` : undefined}
+          onPick={pickFilter}
+          onClear={narrowings.length > 0 ? clearNarrowings : undefined}
+          onClose={() => setMenu(undefined)}
+        />
+      ) : null}
 
       <div className="pr-list-body" onKeyDown={moveFocus}>
         {firstLoad ? (
@@ -443,11 +489,13 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
             </Empty>
           ) : (
             <Empty icon={<GitPullRequest size={18} />} title={narrowed ? `No ${noun}s match these filters` : `No open ${noun}s`} description={narrowed ? "Change the state or the filters to see more." : manyRepositories ? "None of your projects has anything waiting." : `${list?.repo ?? "This repository"} has nothing waiting.`}>
+              {phone && narrowings.length > 0 ? <button className="mini-button" onClick={clearNarrowings}>Clear filters</button> : null}
               {list?.truncated ? <button className="mini-button" onClick={() => setLimit(Math.min(MAX_LIMIT, limit + PAGE))}>Load more {noun}s</button> : null}
             </Empty>
           )
         ) : (
           <>
+            {phone && shownText ? <p className="pr-list-summary">{shownText} · {SORT_LABELS[preferences.sort]}</p> : null}
             {sections.map((group) => (
               <section key={group.key} className="pr-list-group" aria-label={group.label || `${noun}s`}>
                 {group.label ? <h2>{group.label} <small>{group.entries.length}</small></h2> : null}
