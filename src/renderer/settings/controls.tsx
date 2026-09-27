@@ -260,13 +260,17 @@ export function numberProblem(text: string, { min, max, integer = false, clearab
  * of `onCommit` it is a field of a form: it shows `value`, reports each
  * keystroke, and Return submits the form it is in.
  */
-export function TextField({ label, value, placeholder, width = "lg", mono = false, rows = 1, disabled, autoFocus, suggestions, error, inputRef, validate, onCommit, onChange }: {
+export function TextField({ id, label, value, placeholder, width = "lg", mono = false, secret = false, rows = 1, disabled, autoFocus, suggestions, error, inputRef, validate, onCommit, onChange }: {
   label: string;
   value: string;
   placeholder?: string;
   width?: FieldWidth;
   /** For paths, commands and ids. */
   mono?: boolean;
+  /** A password or a key: drawn as dots, never offered by autofill. */
+  secret?: boolean;
+  /** For a `<label htmlFor>` beside the field. */
+  id?: string;
   /** Lines the box shows; more than one makes it a text area. */
   rows?: number;
   disabled?: boolean;
@@ -292,6 +296,7 @@ export function TextField({ label, value, placeholder, width = "lg", mono = fals
   const controlled = onChange !== undefined;
   const shown = error ?? (controlled ? undefined : field.error);
   const shared = {
+    id,
     "aria-label": label,
     "aria-invalid": shown ? true : undefined,
     "aria-describedby": shown ? errorId : undefined,
@@ -308,7 +313,7 @@ export function TextField({ label, value, placeholder, width = "lg", mono = fals
     <FieldShell width={width} error={shown} errorId={errorId} multiline={multiline}>
       {multiline
         ? <textarea {...shared} rows={rows} onChange={(event) => change(event.target.value)} />
-        : <input {...shared} ref={inputRef} type="text" list={suggestions?.length ? listId : undefined} autoCapitalize="off" autoCorrect="off" onChange={(event) => change(event.target.value)} />}
+        : <input {...shared} ref={inputRef} type={secret ? "password" : "text"} autoComplete={secret ? "off" : undefined} list={suggestions?.length ? listId : undefined} autoCapitalize="off" autoCorrect="off" onChange={(event) => change(event.target.value)} />}
       {suggestions?.length && !multiline ? <datalist id={listId}>{suggestions.map((entry) => <option key={entry} value={entry} />)}</datalist> : null}
     </FieldShell>
   );
