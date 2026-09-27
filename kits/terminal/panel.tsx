@@ -20,7 +20,7 @@ function below(button: HTMLElement | null): { x: number; y: number } {
 const NARROW_PANEL = 300;
 const ROOMY_PANEL = 640;
 
-export function TerminalPanel({ actions, active, placement }: PanelProps) {
+export function TerminalPanel({ actions, active }: PanelProps) {
   const { sessions, activeSessionId: switched, layout } = useTerminalKit();
   // The thread on screen, asked on every render: the store's copy only says
   // that it changed, and is empty until the first switch after activation.
