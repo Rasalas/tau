@@ -1612,7 +1612,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 /* An app page takes the thread's place beside the sidebar, title bar included, over a list floating at the chat's edge (z 30); on a phone, the screen. */
 .app-shell > .app-page { grid-area: 1 / 2 / 3 / 4; z-index: 45; display: flex; min-width: 0; min-height: 0; background: var(--shell); }
 .app-shell.sidebar-closed > .app-page, .app-shell.no-sidebar > .app-page { grid-column: 1 / 4; }
-.app-page.stacked { position: fixed; inset: 0; z-index: 50; display: flex; background: var(--shell); }
+/* On a phone it fills what the on-screen keyboard leaves, as the shell does, so a field near its bottom stays in view. */
+.app-page.stacked { position: fixed; left: 0; right: 0; top: var(--tau-viewport-top, 0px); height: var(--tau-viewport-height, 100dvh); z-index: 50; display: flex; background: var(--shell); }
 
 /* Kept beside the kit stylesheets they share elements with, which load after these. */
 .settings-row .segmented { flex: none; max-width: none; }
