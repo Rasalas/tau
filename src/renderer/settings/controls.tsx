@@ -36,6 +36,8 @@ export interface ChoiceOption<T extends string> {
   label: string;
   /** Draws the option as this glyph alone; `label` becomes its tooltip and name. */
   icon?: ReactNode;
+  /** Keeps `label` beside the `icon`, for a glyph that does not say the choice alone (a swatch). */
+  labelled?: boolean;
   disabled?: boolean;
 }
 
@@ -71,15 +73,15 @@ export function SegmentedControl<T extends string>({ label, value, options, disa
           type="button"
           role="radio"
           aria-checked={option.value === value}
-          aria-label={option.icon ? option.label : undefined}
+          aria-label={option.icon && !option.labelled ? option.label : undefined}
           tabIndex={option.value === focusable ? 0 : -1}
           disabled={disabled || option.disabled}
-          data-icon={option.icon ? "" : undefined}
-          {...(option.icon ? tooltipProps(option.label) : {})}
+          data-icon={option.icon && !option.labelled ? "" : undefined}
+          {...(option.icon && !option.labelled ? tooltipProps(option.label) : {})}
           onClick={() => onChange(option.value)}
           onKeyDown={(event) => move(event, index)}
         >
-          {option.icon ?? option.label}
+          {option.icon && option.labelled ? <>{option.icon}{option.label}</> : option.icon ?? option.label}
         </button>
       ))}
     </div>

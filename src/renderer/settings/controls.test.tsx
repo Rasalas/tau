@@ -36,6 +36,14 @@ describe("SegmentedControl", () => {
     expect(within(group).getByRole("radio", { name: "A" }).getAttribute("aria-checked")).toBe("true");
   });
 
+  it("keeps the label beside a glyph that is `labelled`", () => {
+    render(<SegmentedControl label="Colours" value="a" options={[{ value: "a", label: "Red & green", icon: <i data-testid="swatch" />, labelled: true }]} onChange={vi.fn()} />);
+    const radio = screen.getByRole("radio", { name: "Red & green" });
+    expect(radio.textContent).toBe("Red & green");
+    expect(radio.getAttribute("data-tooltip")).toBeNull();
+    expect(within(radio).getByTestId("swatch")).toBeTruthy();
+  });
+
   it("draws an icon-only choice with its name as the tooltip", () => {
     render(<Choice />);
     expect(screen.getByRole("radio", { name: "Dee" }).getAttribute("data-tooltip")).toBe("Dee");
