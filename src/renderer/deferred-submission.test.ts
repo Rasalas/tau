@@ -4,7 +4,7 @@ import { deferredSubmission } from "./deferred-submission";
 
 describe("deferredSubmission", () => {
   it("loads the controller on the first send and hands every send to it", async () => {
-    const run = vi.fn(async () => "not now");
+    const run = vi.fn(async (_args: string) => "not now");
     const ports = {
       registry: { findSlashCommand: (text: string) => ({ command: { run }, args: text }) },
       actions: () => ({}),
