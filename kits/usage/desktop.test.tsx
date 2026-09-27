@@ -130,7 +130,10 @@ describe("Usage page", () => {
     const invoke = answers();
     renderPage(invoke);
     await screen.findByLabelText("Totals");
-    fireEvent.click(screen.getByRole("button", { name: "Read usage and limits again" }));
+    // The button stays disabled until the limits are read too.
+    const again = screen.getByRole("button", { name: "Read usage and limits again" }) as HTMLButtonElement;
+    await waitFor(() => expect(again.disabled).toBe(false));
+    fireEvent.click(again);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("summary", expect.objectContaining({ refresh: true })));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("limits", { refresh: true }));
     expect(screen.getByLabelText("Totals")).toBeTruthy();
