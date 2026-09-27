@@ -16,6 +16,7 @@ import {
   type BackendUsageTurn,
   type LimitSource,
   type UsageBilling,
+  type UsageAccountIdentity,
   type UsageLimitAccount,
   type UsageLimitSourceReport,
   type UsageLimitWindow,
@@ -59,6 +60,13 @@ function turnsOf(value: unknown): BackendUsageTurn[] | undefined {
   });
 }
 
+/** Only a hash passes: an account id sent by mistake never reaches the page. */
+function identityOf(value: unknown): UsageAccountIdentity | undefined {
+  const raw = value && typeof value === "object" ? value as { provider?: unknown; key?: unknown } : undefined;
+  if (typeof raw?.provider !== "string" || !/^[a-z0-9-]{1,40}$/u.test(raw.provider)) return undefined;
+  return typeof raw.key === "string" && /^[0-9a-f]{64}$/u.test(raw.key) ? { provider: raw.provider, key: raw.key } : undefined;
+}
+
 function windowOf(value: unknown): UsageLimitWindow | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
@@ -81,6 +89,7 @@ export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefine
     if (typeof raw.id !== "string" || typeof raw.runtime !== "string" || typeof raw.label !== "string" || checkedAt === undefined) return [];
     const unavailable = raw.unavailable && typeof raw.unavailable === "object" ? raw.unavailable as { reason?: unknown; message?: unknown } : undefined;
     const why = unavailable?.reason === "unsupported" || unavailable?.reason === "failed" || unavailable?.reason === "signed-out" ? unavailable.reason : undefined;
+    const identity = identityOf(raw.identity);
     return [{
       id: raw.id,
       runtime: raw.runtime,
@@ -89,6 +98,7 @@ export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefine
       checkedAt,
       windows: Array.isArray(raw.windows) ? raw.windows.flatMap((window) => windowOf(window) ?? []) : [],
       ...(why ? { unavailable: { reason: why, ...(typeof unavailable?.message === "string" ? { message: unavailable.message } : {}) } } : {}),
+      ...(identity ? { identity } : {}),
     }];
   });
 }

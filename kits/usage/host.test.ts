@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { assistantLine, DAY, writeSession } from "./fixtures.js";
-import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readDays, SCAN_MAX_AGE_MS } from "./host.js";
+import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readLimitsAnswer, readDays, SCAN_MAX_AGE_MS } from "./host.js";
 import type { UsageLimitsSummary, UsageSummary } from "./protocol.js";
 
 const directories: string[] = [];
@@ -118,6 +118,17 @@ describe("Usage host half", () => {
     const byDay = await registry.invoke("tau.usage", "summary", { since: NOW - DAY, days: [NOW - DAY, NOW - 10_000] }) as UsageSummary;
     expect(asked).toHaveLength(2);
     expect(byDay.entries).toEqual([expect.objectContaining({ day: 1, threadId: "s1", billing: "subscription", costUsd: 0, apiValueUsd: 0.12, totalTokens: 110 })]);
+  });
+
+  it("passes an account's identity on only as a hash, so an id sent by mistake never reaches the page", () => {
+    const base = { id: "codex:account", runtime: "codex", label: "Codex", checkedAt: 1, windows: [] };
+    const key = "0123456789abcdef".repeat(4);
+    expect(readLimitsAnswer({ accounts: [
+      { ...base, identity: { provider: "openai", key } },
+      { ...base, identity: { provider: "openai", key: "acct-fixture-1" } },
+      { ...base, identity: { provider: "Open AI", key } },
+      { ...base, identity: "acct-fixture-1" },
+    ] })?.map((account) => account.identity)).toEqual([{ provider: "openai", key }, undefined, undefined, undefined]);
   });
 
   it("takes only ascending day starts from a client", () => {

@@ -150,6 +150,32 @@ describe("Claude Code host half", () => {
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.claude-code/usage.");
   });
 
+  it("names a plan login's account for the Usage kit by a hash of its organization, read from the instance's config directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-identity-"));
+    directories.push(root);
+    await writeFile(join(root, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "user-fixture-1", organizationUuid: "org-fixture-1", emailAddress: "fixture@example.invalid" } }));
+    const real = createClaudeCodeRuntimeAdapter({ storePath: join(root, "store.json"), command: "claude" });
+    const probe = { models: [], modelInfos: [], probedAt: 1, account: { subscriptionType: "max", tokenSource: "claude.ai" }, usage: { rate_limits_available: true, rate_limits: { five_hour: { utilization: 40, resets_at: null } } } };
+    const adapter = { ...real, probe: async () => probe };
+    const registry = await activateHostKit(createClaudeCodeHostExtension({ adapter, fetch: offline, env: { CLAUDE_CONFIG_DIR: root } }), {
+      stateDir: join(root, "state"),
+      sessionsDir: join(root, "sessions"),
+      findCommand: () => "/usr/local/bin/claude",
+      noteSubprocess: () => undefined,
+      registerRuntimeBackend: () => () => undefined,
+    });
+    let read: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.claude-code", "usage-limits"); } });
+    const answer = await read!();
+    expect(answer).toEqual({ accounts: [expect.objectContaining({
+      runtime: "claude-code",
+      plan: "max",
+      windows: [expect.objectContaining({ id: "five_hour", usedPercent: 40 })],
+      identity: { provider: "anthropic", key: "afc3cb12c42d1e5bc2bdc82626464d958a551fd461eb8a992861f720f57d0ef5" },
+    })] });
+    expect(JSON.stringify(answer)).not.toMatch(/fixture/u);
+  });
+
   it("stays on when the CLI cannot be probed: that is a missing prerequisite, not a broken kit", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-claude-probe-"));
     directories.push(root);

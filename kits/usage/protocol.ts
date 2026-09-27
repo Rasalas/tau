@@ -93,6 +93,20 @@ export interface UsageLimitAccount {
   windows: UsageLimitWindow[];
   /** Why there are no windows: an API key has none, a read failed, nobody is signed in. */
   unavailable?: { reason: "unsupported" | "failed" | "signed-out"; message?: string };
+  /** Who is signed in, so two runtimes on one account show once. */
+  identity?: UsageAccountIdentity;
+}
+
+/**
+ * A login's account, read locally by its kit. `key` is the SHA-256 hex of
+ * `tau.account\n<provider>\n<account id>`, never the id: the same account
+ * through two runtimes gives the same key. `openai` hashes the ChatGPT
+ * account id (with `:<user id>` where the token names one), `anthropic`
+ * `org:<organization id>` for a personal plan.
+ */
+export interface UsageAccountIdentity {
+  provider: string;
+  key: string;
 }
 
 /** A kit's answer to `BACKEND_LIMITS_COMMAND`. */

@@ -37,6 +37,8 @@ export interface LimitAccount {
   plan?: string;
   checkedAt: number;
   windows: LimitWindow[];
+  /** A hash of the provider's account id, for showing one account once; never the id itself. */
+  identity?: { provider: string; key: string };
   /** Why there are no windows: an API key has none, a read failed, nobody is signed in. */
   unavailable?: { reason: "unsupported" | "failed" | "signed-out"; message?: string };
 }

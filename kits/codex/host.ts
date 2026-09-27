@@ -55,6 +55,7 @@ import {
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
 import { CodexThreadRuntimeBackend, MODEL_PROVIDER, codexBilling, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
+import { readCodexIdentity, type AccountIdentity } from "./account-identity.js";
 import { codexLimitWindows, codexReadSnapshot, mergeCodexSnapshot, type CodexRateSnapshot, type LimitAccount } from "./limits.js";
 
 export { codexBilling };
@@ -299,7 +300,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
 
       /** Per instance: the quota windows last read or reported by a turn, and the login they belong to. */
-      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; account?: CodexAccount; error?: string }>();
+      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; account?: CodexAccount; identity?: AccountIdentity; error?: string }>();
       const reading = new Map<string, Promise<void>>();
       const noteRateLimits = (id: string, update: unknown): void => {
         const held = limits.get(id);
@@ -320,7 +321,9 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           try {
             const account = await session.account?.();
             const read = account?.type === "chatgpt" ? await session.rateLimits?.() : undefined;
-            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read) } : {}) });
+            // The home the app-server itself reports, so a test's never falls back to the real one.
+            const identity = account?.type === "chatgpt" && session.codexHome ? await readCodexIdentity(session.codexHome) : undefined;
+            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read) } : {}), ...(identity ? { identity } : {}) });
           } finally {
             await session.close().catch(() => undefined);
           }
@@ -332,7 +335,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
       const limitAccount = (id: string): LimitAccount => {
         const held = limits.get(id);
-        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now() };
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now(), ...(held?.identity ? { identity: held.identity } : {}) };
         const account = held?.account as { type?: string; planType?: string } | undefined;
         const plan = account?.planType ?? held?.snapshot?.planType ?? undefined;
         const windows = codexLimitWindows(held?.snapshot);
