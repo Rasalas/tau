@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { AlertTriangle, ChevronDown, Copy, Info, Plus, RotateCw, X } from "lucide-react";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -118,10 +118,10 @@ export function Select<T extends string>({ label, value, options, disabled, widt
 export type FieldWidth = "sm" | "md" | "lg" | "full";
 
 /** What a draft field shows under itself: the error of the last commit that failed. */
-function FieldShell({ width, unit, error, errorId, children }: { width: FieldWidth; unit?: string | undefined; error?: string | undefined; errorId: string; children: ReactNode }) {
+function FieldShell({ width, unit, error, errorId, multiline = false, children }: { width: FieldWidth; unit?: string | undefined; error?: string | undefined; errorId: string; multiline?: boolean; children: ReactNode }) {
   return (
     <span className="tau-field-shell" data-width={width}>
-      <span className="tau-field" data-invalid={error ? "" : undefined}>
+      <span className="tau-field" data-invalid={error ? "" : undefined} data-multiline={multiline ? "" : undefined}>
         {children}
         {unit ? <span className="tau-field-unit" aria-hidden>{unit}</span> : null}
       </span>
@@ -135,7 +135,7 @@ function FieldShell({ width, unit, error, errorId, children }: { width: FieldWid
  * back on Escape. A value `validate` refuses stays in the field with the
  * reason under it, so nothing typed is lost.
  */
-function useDraft(value: string, commit: (text: string) => string | undefined) {
+function useDraft(value: string, commit: (text: string) => string | undefined, multiline = false) {
   const [draft, setDraft] = useState(value);
   const [error, setError] = useState<string>();
   const editing = useRef(false);
@@ -152,8 +152,9 @@ function useDraft(value: string, commit: (text: string) => string | undefined) {
     error,
     onChange: (text: string) => { editing.current = true; setDraft(text); if (error) setError(undefined); },
     onBlur: apply,
-    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Enter") { event.preventDefault(); apply(); }
+    onKeyDown: (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      // Several lines take Return as a line break; ⌘Return or Ctrl+Return writes.
+      if (event.key === "Enter" && (!multiline || event.metaKey || event.ctrlKey)) { event.preventDefault(); apply(); }
       if (event.key === "Escape" && (draft !== value || error)) {
         event.preventDefault();
         event.stopPropagation();
@@ -250,42 +251,106 @@ export function numberProblem(text: string, { min, max, integer = false, clearab
   return undefined;
 }
 
-/** A line of text, written on blur or Enter; `validate` answers why a draft is refused. */
-export function TextField({ label, value, placeholder, width = "lg", mono = false, disabled, validate, onCommit }: {
+/**
+ * Text, written on blur or Enter; `validate` answers why a draft is refused.
+ * With `rows` above 1 it is a box of that many lines: Return breaks the line,
+ * ⌘Return (Ctrl+Return) or leaving the box writes it.
+ */
+export function TextField({ label, value, placeholder, width = "lg", mono = false, rows = 1, disabled, validate, onCommit }: {
   label: string;
   value: string;
   placeholder?: string;
   width?: FieldWidth;
   /** For paths, commands and ids. */
   mono?: boolean;
+  /** Lines the box shows; more than one makes it a text area. */
+  rows?: number;
   disabled?: boolean;
   validate?(text: string): string | undefined;
   onCommit(text: string): void;
 }) {
   const errorId = useId();
+  const multiline = rows > 1;
   const field = useDraft(value, (text) => {
     const problem = validate?.(text);
     if (problem) return problem;
     onCommit(text);
     return undefined;
-  });
+  }, multiline);
+  const shared = {
+    "aria-label": label,
+    "aria-invalid": field.error ? true : undefined,
+    "aria-describedby": field.error ? errorId : undefined,
+    placeholder,
+    disabled,
+    spellCheck: false,
+    "data-mono": mono ? "" : undefined,
+    value: field.draft,
+    onBlur: field.onBlur,
+    onKeyDown: field.onKeyDown,
+  };
   return (
-    <FieldShell width={width} error={field.error} errorId={errorId}>
-      <input
-        type="text"
-        aria-label={label}
-        aria-invalid={field.error ? true : undefined}
-        aria-describedby={field.error ? errorId : undefined}
-        placeholder={placeholder}
-        disabled={disabled}
-        spellCheck={false}
-        data-mono={mono ? "" : undefined}
-        value={field.draft}
-        onChange={(event) => field.onChange(event.target.value)}
-        onBlur={field.onBlur}
-        onKeyDown={field.onKeyDown}
-      />
+    <FieldShell width={width} error={field.error} errorId={errorId} multiline={multiline}>
+      {multiline
+        ? <textarea {...shared} rows={rows} onChange={(event) => field.onChange(event.target.value)} />
+        : <input {...shared} type="text" onChange={(event) => field.onChange(event.target.value)} />}
     </FieldShell>
+  );
+}
+
+/**
+ * A value on a scale, dragged or stepped with the arrow keys, Page Up/Down,
+ * Home and End. The number beside the track follows the thumb; the value is
+ * written once the drag or the key press ends, not at each step.
+ */
+export function Slider({ label, value, min, max, step = 1, unit, format, disabled, onCommit, onPreview }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  /** After the number: `%`, ` ms`. */
+  unit?: string;
+  /** How a value reads beside the track and to a screen reader, when `unit` is not enough. */
+  format?(value: number): string;
+  disabled?: boolean;
+  onCommit(value: number): void;
+  /** Each value while the thumb moves, for a live preview. */
+  onPreview?(value: number): void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const moving = useRef(false);
+  useEffect(() => { if (!moving.current) setDraft(value); }, [value]);
+  const text = format ? format(draft) : `${draft}${unit ?? ""}`;
+  const settle = () => {
+    moving.current = false;
+    if (draft !== value) onCommit(draft);
+  };
+  const fill = max > min ? ((clamp(draft, min, max) - min) / (max - min)) * 100 : 0;
+  return (
+    <span className="tau-slider" data-disabled={disabled ? "" : undefined}>
+      <input
+        type="range"
+        aria-label={label}
+        aria-valuetext={text}
+        min={min}
+        max={max}
+        step={step}
+        value={draft}
+        disabled={disabled}
+        style={{ "--fill": `${fill}%` } as CSSProperties}
+        onChange={(event) => {
+          moving.current = true;
+          const next = Number(event.target.value);
+          setDraft(next);
+          onPreview?.(next);
+        }}
+        onPointerUp={settle}
+        onKeyUp={settle}
+        onBlur={settle}
+      />
+      <output aria-hidden>{text}</output>
+    </span>
   );
 }
 

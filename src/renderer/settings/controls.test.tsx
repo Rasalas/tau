@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DangerAction, ListField, NumberField, SegmentedControl, Select, SettingsState, Switch, TextField, ValueList, numberProblem } from "./controls";
+import { DangerAction, ListField, NumberField, SegmentedControl, Select, SettingsState, Slider, Switch, TextField, ValueList, numberProblem } from "./controls";
 
 afterEach(cleanup);
 
@@ -110,6 +110,46 @@ describe("TextField", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.keyDown(field, { key: "Enter" });
     expect(onCommit).toHaveBeenCalledWith("Iosevka");
+  });
+
+  it("with several rows, takes Return as a line break and writes on ⌘Return or blur", () => {
+    const onCommit = vi.fn();
+    render(<TextField label="Instructions" value="" rows={3} onCommit={onCommit} />);
+    const box = screen.getByRole("textbox", { name: "Instructions" });
+    expect(box.tagName).toBe("TEXTAREA");
+    fireEvent.change(box, { target: { value: "one\ntwo" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    expect(onCommit).toHaveBeenCalledWith("one\ntwo");
+  });
+});
+
+describe("Slider", () => {
+  it("follows the thumb beside the track and writes once the move ends", () => {
+    const onCommit = vi.fn();
+    const onPreview = vi.fn();
+    render(<Slider label="Contrast" value={20} min={0} max={100} step={5} unit="%" onCommit={onCommit} onPreview={onPreview} />);
+    const slider = screen.getByRole("slider", { name: "Contrast" }) as HTMLInputElement;
+    expect(slider.getAttribute("aria-valuetext")).toBe("20%");
+    fireEvent.change(slider, { target: { value: "35" } });
+    expect(onPreview).toHaveBeenCalledWith(35);
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(slider.getAttribute("aria-valuetext")).toBe("35%");
+    expect(slider.style.getPropertyValue("--fill")).toBe("35%");
+    fireEvent.keyUp(slider, { key: "ArrowRight" });
+    expect(onCommit).toHaveBeenCalledWith(35);
+  });
+
+  it("reads a value through `format` and writes nothing when the thumb comes back", () => {
+    const onCommit = vi.fn();
+    render(<Slider label="Panel animations" value={120} min={0} max={400} step={20} format={(ms) => (ms === 0 ? "Off" : `${ms} ms`)} onCommit={onCommit} />);
+    const slider = screen.getByRole("slider", { name: "Panel animations" });
+    fireEvent.change(slider, { target: { value: "0" } });
+    expect(slider.getAttribute("aria-valuetext")).toBe("Off");
+    fireEvent.change(slider, { target: { value: "120" } });
+    fireEvent.pointerUp(slider);
+    expect(onCommit).not.toHaveBeenCalled();
   });
 });
 
