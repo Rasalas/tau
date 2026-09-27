@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultLockStrategy, lockHeld, lockOwner, tryLock, type LockStrategy } from "./process-lock.js";
+import { defaultLockStrategy, lockHeld, lockHeldElsewhereSync, lockOwner, tryLock, type LockStrategy } from "./process-lock.js";
 
 const MODULE = pathToFileURL(join(import.meta.dirname, "process-lock.ts")).href;
 const directories: string[] = [];
@@ -110,6 +110,20 @@ describe("a process lock across processes", () => {
 
     expect(await tryLock(path, owner)).toBeUndefined();
     expect((await lockOwner(path))?.pid).toBe(child.pid);
+  }, 20_000);
+
+  it("is seen without waiting by a caller that cannot, and not once its holder is gone", async () => {
+    const path = join(directory(), "host.lock");
+    expect(lockHeldElsewhereSync(path)).toEqual({ held: false });
+    const { child } = await holder(path);
+
+    const probe = lockHeldElsewhereSync(path);
+    expect(probe.held).toBe(true);
+    expect(probe.held && probe.owner?.pid).toBe(child.pid);
+    child.kill("SIGKILL");
+    await exit(child);
+    // The owner file may stay behind a killed holder; it no longer counts.
+    expect(lockHeldElsewhereSync(path)).toEqual({ held: false });
   }, 20_000);
 
   it("is free once its holder is killed, without any cleanup", async () => {
