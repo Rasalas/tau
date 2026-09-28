@@ -33,10 +33,14 @@ import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
 const REVIEW_KIT_ID = "tau.review";
+/** Workspaces one `thread-branches` call reads at most. */
+const THREAD_BRANCH_WORKSPACES = 200;
+const THREAD_BRANCH_PLAIN_MS = 5 * 60_000;
 const FILES_KIT_ID = "tau.files";
 const SERVERS_KIT_ID = "tau.servers";
 
@@ -415,6 +419,31 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = requiredString(input, "branch");
         return gitWrite(project, () => mergeBranch(project, branch), (result) => `${branch} into ${result.into} ${result.commit}`, "git.merge");
       }, { long: true, callers: [SERVERS_KIT_ID] });
+      // Review Kit's Reviews page: threads' worktree branches as local merge requests, merged here on a click.
+      const plainFolders = new Set<string>();
+      let plainSince = Date.now();
+      context.registerCommand("thread-branches", async (input) => {
+        const named = record(input).workspaces;
+        const ids = (Array.isArray(named) ? named : []).filter((id): id is string => typeof id === "string" && id.length > 0).slice(0, THREAD_BRANCH_WORKSPACES);
+        const paths = (await Promise.all(ids.map((id) => services.knownWorkspacePath(id).catch(() => undefined)))).filter((path): path is string => Boolean(path));
+        // Folders that are no linked worktree stay so; the set is forgotten every few minutes all the same.
+        if (Date.now() - plainSince > THREAD_BRANCH_PLAIN_MS) { plainFolders.clear(); plainSince = Date.now(); }
+        return (await readThreadBranches(paths, undefined, plainFolders)).map((branch) => ({
+          ...branch,
+          workspace: services.workspaceRef(branch.path).workspaceId,
+          rootWorkspace: services.workspaceRef(branch.root).workspaceId,
+        }));
+      }, { access: "read", long: true, callers: [REVIEW_KIT_ID] });
+      context.registerCommand("merge-thread-branch", async (input) => {
+        const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
+        const expectedTip = optionalString(input, "tip");
+        const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
+        return gitWrite(root, async () => {
+          const outcome = await git.write(root, () => mergeThreadBranch(path, expectedTip ? { expectedTip } : {}));
+          git.invalidate(path);
+          return outcome;
+        }, (result) => `${result.branch} into ${result.into}: ${result.state}`, "git.merge-thread-branch");
+      }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "merged a thread's branch" } });
       // Servers Kit keeps a server's files in its own repository; the project's Git is written here.
       context.registerCommand("repo-from-tree", async (input) => {
         const request = decodeRepoFromTree(input);

@@ -25,6 +25,7 @@ import { PendingReviewStore } from "./pending-review.js";
 import { createProactivePanels } from "./proactive-panels.js";
 import { pullRequestClient } from "./pull-request-client.js";
 import { registerPullRequestTab } from "./pull-request-tab.js";
+import { LocalReviewsStore } from "./local-reviews-store.js";
 import { requestClient, RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import type { StripParts } from "./pull-request-strip.js";
@@ -121,7 +122,9 @@ export const reviewExtension: DesktopExtension = {
     // Over the composer, the latest turn's pill opens that sheet on the turn's files.
     plugin.registerRegion({ id: "review.turn-pill", placement: "composer-controls", order: 70, profiles: ["compact"], Component: createCompactTurnPill({ workspace: workspaceHost, store: compactStore }) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
-    const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
+    // Reviews: finished threads' worktree branches; Project Scripts' runs are their checks.
+    const reviews = new LocalReviewsStore(plugin.host, plugin.hostExtension(PROJECT_SCRIPTS_EXTENSION_ID));
+    const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared, { store: reviews, host: plugin.host });
     // Evidence Kit shrinks the pictures and says when a thread's changed; without it the view reads them whole.
     let evidence: EvidenceService | undefined;
     const evidenceListeners = new Set<() => void>();
@@ -163,7 +166,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseLocal(); releaseEvidence(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

@@ -26,7 +26,7 @@ const handle = (): StageTabHandle => ({ id: "ext:review.pull-requests", setTitle
 const actions = () => ({ openExternal: vi.fn(), notify: vi.fn() }) as unknown as WorkbenchActions;
 
 describe("the Pull Requests page", () => {
-  it("keeps a thread's tab to its project and leads to the page for the rest", async () => {
+  it("keeps a thread's tab to its project and leads to Reviews' Remote tab for the rest", async () => {
     const client = listClient(() => ({ service: "github", host: "github.com", repo: "cli/cli", entries: rows.slice(0, 1), truncated: false, limit: 100 }));
     const openPage = vi.fn();
     render(<PullRequestListView params={{ workspace: "/project" }} handle={handle()} actions={{ ...actions(), openPage } as unknown as WorkbenchActions} client={client} open={vi.fn()} />);
@@ -36,7 +36,7 @@ describe("the Pull Requests page", () => {
     expect(screen.queryByRole("menuitem", { name: /Project/u })).toBeNull();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "All projects" }));
-    expect(openPage).toHaveBeenCalledWith("review.pull-requests");
+    expect(openPage).toHaveBeenCalledWith("review.reviews", { tab: "remote" });
   });
 
 

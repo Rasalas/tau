@@ -8,6 +8,7 @@ import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 import { registerLocalRequestCommands } from "./local-request-host.js";
+import { registerLocalReviewCommands } from "./local-reviews-host.js";
 import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -68,6 +69,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         created: (url) => { const thread = services.thread(); if (thread) void links?.link(thread.sessionId, url, "created"); },
       });
       registerLocalRequestCommands(context, sources);
+      registerLocalReviewCommands(context, workspace);
       registerPublishCommands(context, options);
       registerProviderSettings(context, sources);
       context.registerCommand("suggest-commit-message", async (input) => {
