@@ -174,7 +174,7 @@ describe("the rest of the rail", () => {
     expect(card.querySelector(".thread-card-rows")!.textContent).toContain("project");
     expect(card.textContent).toContain("Last turn +12 −3 in 2 files");
     // The branch keeps its end: the head ellipsizes, the tail stays.
-    const branch = row("a").querySelector(".thread-branch")!;
+    const branch = row("a").querySelector(".thread-branch > span")!;
     expect(branch.children).toHaveLength(2);
     expect(branch.lastElementChild!.textContent).toBe("e-20260923");
   });

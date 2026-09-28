@@ -135,7 +135,6 @@
 .touch-thread-row .thread-project-line > strong { font-size: 13px; }
 .touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: 13px; }
 .touch-thread-row .thread-status-age { font-size: 13px; }
-.touch-thread-row .thread-status-age.status-waiting { color: var(--acid-text); }
 .touch-thread-row .thread-title { margin-top: 4px; font: 600 16px/21px var(--sans); }
 .touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 18px; }
 .touch-thread-row .thread-meta-line { margin-top: 3px; line-height: 18px; }

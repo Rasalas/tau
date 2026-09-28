@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ArchiveRestore, Check, CircleAlert, Hourglass, PlugZap } from "lucide-react";
+import { ArchiveRestore, Check, CircleAlert, CircleHelp, GitBranch, Hourglass, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { threadCostLabel, threadCostOrigin } from "../cost-format";
@@ -83,6 +83,8 @@ function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadAc
       {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
       {activity === "failed" ? <CircleAlert size={11} aria-hidden="true" /> : null}
       {activity === "limited" ? <Hourglass size={11} aria-hidden="true" /> : null}
+      {activity === "waiting" ? <CircleHelp size={11} aria-hidden="true" /> : null}
+      {activity === "ready" ? <Check size={11} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
     </span>
@@ -177,7 +179,7 @@ export const ThreadRow = memo(function ThreadRow({
             <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(session.usage)} />
           </span>
           {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}
-          {showLabel && session.projectLabel ? <MiddleTruncate className="thread-branch" value={session.projectLabel} /> : null}
+          {showLabel && session.projectLabel ? <span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={session.projectLabel} /></span> : null}
           {childCount}
         </span>
       </button>
