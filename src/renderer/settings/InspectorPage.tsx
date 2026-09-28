@@ -65,7 +65,7 @@ export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; 
 
   return (
     <div className="settings-page inspector-page">
-      <p className="lede">Every extension both halves know, and the package folders on disk. Editing a package's files reloads it; /reload is for the rest.</p>
+      <p className="lede">Editing a package's files reloads it; /reload is for the rest.</p>
 
       <SettingsSection title="Versions" id={settingAnchor("Versions")} plain>
         {inspection ? (

@@ -51,6 +51,7 @@ export const remoteWorkExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: REMOTE_WORK_SETTINGS_PAGE,
       label: "Remote work",
+      description: "What goes along when a project's work moves to another machine: its commits, its uncommitted work and the ignored files you choose.",
       group: "remote",
       Icon: FolderSync,
       order: 45.5,

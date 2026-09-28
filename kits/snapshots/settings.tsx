@@ -123,10 +123,6 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
     return (
       <div className="settings-page snapshots-settings">
         <h3>SnapShots</h3>
-        <p className="lede">
-          Press the shortcut in any app and Tau captures the window in front: its picture, the app and the window title and,
-          if you allow it, the text and controls macOS reports for it. The SnapShot lands as a chip in the composer on screen.
-        </p>
         <SettingsSection title="Shortcut">
           <SettingRow id="setting-snapshots-enabled" title="Capture with a global shortcut" description="Works while Tau runs, whichever app is in front. Off until you turn it on." setting={enabled}
             control={<Switch label="Capture with a global shortcut" checked={enabled.value} onChange={enabled.set} />} />

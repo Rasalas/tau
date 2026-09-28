@@ -199,11 +199,6 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
 
     const header = <>
       <h3>Push</h3>
-      <p className="lede">
-        Your phone hears of a thread that finished, failed, asks you something or hands over to you while you are not at
-        Tau. This machine sends the notifications itself, with your own Apple and Firebase keys; nothing goes through a
-        relay. Pushes stay quiet while you use Tau on any screen.
-      </p>
     </>;
     if (!status && error) return <div className="settings-page push-settings">{header}<Empty icon={<Lock size={18} />} title="Only this machine can set this up" description={error} /></div>;
     if (!status) return <div className="settings-page push-settings">{header}<SettingsState kind="loading" rows={3} title="Reading the push keys" /></div>;
@@ -318,6 +313,7 @@ const push: DesktopExtension = {
     return context.registerSettingsPage({
       id: "push.settings",
       label: "Push",
+      description: "Your phone hears of a thread that finished, failed or needs you while you are away from Tau. This machine sends the notifications itself, with your own keys and through no relay.",
       Icon: BellRing,
       group: "remote",
       order: 46,

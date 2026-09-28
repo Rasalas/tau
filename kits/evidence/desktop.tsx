@@ -151,6 +151,7 @@ const evidence: DesktopExtension = {
     disposers.push(context.registerSettingsPage({
       id: "evidence",
       label: "Evidence",
+      description: "Pictures of the Preview and of the window an agent drives, to show what a turn did. Tau never pictures the whole screen, and pictures stay on this machine until you save or send them.",
       group: "projects",
       Icon: Images,
       scope: "both",

@@ -45,11 +45,7 @@ export function EvidenceSettingsPage() {
   return (
     <div className="settings-page evidence-settings">
       <h3>Evidence</h3>
-      <p className="lede">
-        Tau never pictures the whole screen: only the Preview&apos;s page and the one window the agent drives. Nothing is taken while a
-        password field has the keyboard in the Preview or while a thread is handed over to you. Pictures stay on this machine until
-        you save or send them.
-      </p>
+      <p className="lede">Nothing is taken while a password field has the keyboard in the Preview or while a thread is handed over to you.</p>
       <SettingsSection title="Capture">
         <SettingRow
           id="setting-evidence-preview"

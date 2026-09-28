@@ -121,11 +121,6 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
 
   return (
     <div className="settings-page">
-      <p className="lede">
-        Pi's own settings, in <code>~/.pi/agent/settings.json</code> and <code>&lt;project&gt;/.pi/settings.json</code>, shared
-        with the Pi CLI. A change applies to the next runtime Tau builds; a running thread keeps what it started with.
-      </p>
-
       <SettingsSection title="Projects">
         <SettingRow
           id={settingAnchor("Write Pi settings to")}

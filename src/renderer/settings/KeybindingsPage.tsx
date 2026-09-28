@@ -350,9 +350,9 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
   return (
     <div className="settings-page">
       {keymap ? (
-        <p className="lede">Chords bound to workbench commands and Pi actions. Click a chord and press the new keys, or pick where it applies from its menu; a save writes <code>{keymap.label}</code> and applies at once. A chord without a <code>when</code> clause keeps its default&rsquo;s.</p>
+        <p className="lede">Click a chord and press the new keys, or pick where it applies from its menu; a save writes <code>{keymap.label}</code> and applies at once. A chord without a <code>when</code> clause keeps its default&rsquo;s.</p>
       ) : (
-        <p className="lede">Chords bound to workbench commands and Pi actions. Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>, as a chord or as <code>{"{"} "key": "mod+d", "when": "terminalFocus" {"}"}</code> to say where it applies; a rebound chord without <code>when</code> keeps the default&rsquo;s.</p>
+        <p className="lede">Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>, as a chord or as <code>{"{"} "key": "mod+d", "when": "terminalFocus" {"}"}</code> to say where it applies; a rebound chord without <code>when</code> keeps the default&rsquo;s.</p>
       )}
 
       <div className="keybinding-search">

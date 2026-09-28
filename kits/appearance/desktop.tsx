@@ -28,6 +28,7 @@ export const appearanceExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: APPEARANCE_SETTINGS_PAGE,
       label: "Appearance",
+      description: "How Tau looks on this device: light or dark, the theme, density, motion and fonts.",
       group: "general",
       Icon: Palette,
       order: 5,

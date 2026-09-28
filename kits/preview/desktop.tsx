@@ -62,6 +62,7 @@ export const previewExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: "preview.settings",
       label: "Preview",
+      description: "The browser beside a thread: the size and zoom a new page opens at, where links open, recordings and the floating preview.",
       group: "projects",
       Icon: Globe,
       order: 40,

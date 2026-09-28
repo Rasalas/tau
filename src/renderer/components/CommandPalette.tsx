@@ -45,7 +45,7 @@ function highlight(label: string, query: string): ReactNode {
 
 function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem[] {
   const entries = settingsSearchEntries({
-    pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, keywords: page.keywords, extensionName: page.extensionName, rows: page.rows })),
+    pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, description: page.description, keywords: page.keywords, extensionName: page.extensionName, rows: page.rows })),
     extensions: registry.getExtensionSummaries(),
   });
   return searchSettings(entries, needle, SETTINGS_LIMIT).map((entry) => ({

@@ -291,12 +291,7 @@ export function createRemoteWorkPage(host: HostExtensionClient, openThere?: (lin
     }, [cwd, view, setView, setProblem]);
 
     const lede = (
-      <p className="lede">
-        A project goes to another machine as its commits and its uncommitted work. Ignored files stay here unless you turn
-        them on below: Tau offers small text files, <code>.env</code> files and note or issue folders, never dependencies,
-        builds or caches. They travel over Tau&apos;s encrypted connection, and your choice is remembered for this project on
-        this machine.
-      </p>
+      <p className="lede">Tau offers small text files, <code>.env</code> files and note or issue folders, never dependencies, builds or caches. Your choice is remembered for this project on this machine.</p>
     );
     if (!cwd) {
       return (

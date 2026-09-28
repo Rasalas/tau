@@ -27,6 +27,7 @@ const servers: DesktopExtension = {
     const unregisterPage = context.registerSettingsPage({
       id: SERVERS_SETTINGS_PAGE,
       label: "Servers",
+      description: "Servers this project deploys to over SFTP or FTP, read from the sftp.json of VS Code's SFTP extension. Tau never uploads on its own.",
       group: "remote",
       Icon: Server,
       order: 47,

@@ -178,10 +178,6 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
     return (
       <div className="settings-page thread-rail-settings">
         <h3>Thread rail</h3>
-        <p className="lede">
-          Settled threads leave the active list without being deleted. These rules settle a thread on the host, even with
-          no window open; a running or snoozed thread, and one you just took off the shelf, are left alone.
-        </p>
         <SettingsSection title="Settle automatically">
           <SettingRow
             id="setting-thread-rail-inactive"
@@ -436,6 +432,7 @@ export const threadRailExtension: DesktopExtension = {
       context.registerSettingsPage({
         id: "thread-rail.settings",
         label: "Thread rail",
+        description: "Which threads the rail keeps in the active list, and when it settles one on its own. Settling never deletes a thread.",
         group: "threads",
         Icon: ListTree,
         order: 40,
@@ -488,6 +485,7 @@ export const threadRailExtension: DesktopExtension = {
       context.registerSettingsPage({
         id: "thread-rail.archived",
         label: "Archived",
+        description: "Threads you archived or deleted: bring one back, or remove it for good.",
         group: "threads",
         Icon: Archive,
         order: 41,

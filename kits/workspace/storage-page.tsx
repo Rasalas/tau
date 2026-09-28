@@ -267,10 +267,6 @@ export function createStoragePage(host: StorageHost) {
     return (
       <div className="settings-page workspace-storage">
         <h3>Storage</h3>
-        <p className="lede">
-          Worktrees Tau made for threads, what they take on disk, and the rules that remove them. A rule never removes
-          uncommitted work, unpushed commits or ignored files other than node_modules, and every branch stays.
-        </p>
 
         <SettingsSection title="Worktree cleanup">
           {repository && policy ? (
