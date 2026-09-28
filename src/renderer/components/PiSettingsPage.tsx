@@ -5,6 +5,7 @@ import { useHostClient } from "../host-client-context";
 import { errorMessage } from "../../workbench/error-message";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { ProviderIconStack } from "./ProviderIconStack";
+import { modelOnPlan } from "../runtime-marks";
 import { tooltipProps } from "./ui/Tooltip";
 import { Badge, NumberField, SegmentedControl, Select, SettingsState, Switch, TextField } from "../settings/controls";
 import { SettingRow, SettingsSection } from "../settings/settings-layout";
@@ -61,7 +62,7 @@ function StartupModel({ value, models, onChange }: { value: string; models: read
       <button ref={anchor} type="button" className="settings-model-button" aria-haspopup="dialog" aria-expanded={open}
         aria-label={`Startup model: ${shown}`} onClick={() => setOpen((current) => !current)}
         {...tooltipProps(value || undefined, { when: "truncated" })}>
-        {chosen ? <ProviderIconStack modelProvider={chosen.provider} runtimeProvider="pi" className="chip-icon" hint={false} /> : <Sparkles size={14} className="accent" />}
+        {chosen ? <ProviderIconStack modelProvider={chosen.provider} plan={modelOnPlan(chosen)} className="chip-icon" hint={false} /> : <Sparkles size={14} className="accent" />}
         <span>{shown}</span>
         <ChevronDown size={14} aria-hidden />
       </button>

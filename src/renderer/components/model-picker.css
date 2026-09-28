@@ -174,11 +174,10 @@
   font: 11px var(--sans); color: var(--faint); white-space: nowrap;
 }
 .model-sub .sub-icon, .model-line .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
-.model-sub .sub-icon.stacked { margin-right: -2px; }
-/* A runtime's mark, then its provider's, in rows that list more than one runtime. */
-.model-marks { flex: none; display: inline-flex; align-items: center; gap: 1px; }
-.model-marks > .sub-icon + .sub-icon { margin-left: -1px; }
-.model-row.grouped .model-marks { min-width: 36px; }
+/* A route's mark in rows across runtimes; under a model's heading it stands in for the name, at full size. */
+.model-marks { flex: none; display: inline-flex; align-items: center; }
+.model-row.grouped .model-marks .sub-icon { transform: none; }
+.model-row.grouped .model-marks { min-width: 24px; }
 .model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .model-levels { display: inline-flex; align-items: center; gap: 2px; font: 10px var(--mono); color: var(--muted); }
 .model-context { font: 11px var(--mono); color: var(--muted); text-align: right; }

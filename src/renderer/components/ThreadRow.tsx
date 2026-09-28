@@ -3,6 +3,7 @@ import { ArchiveRestore, Check, CircleAlert, Hourglass, PlugZap } from "lucide-r
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { threadCostLabel, threadCostOrigin } from "../cost-format";
+import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
 
@@ -170,7 +171,7 @@ export const ThreadRow = memo(function ThreadRow({
           <span className="thread-meta-end">
             {machine ? <MachineMark machine={machine} /> : null}
             {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadCostOrigin(session.usage))}>{cost}</span> : null}
-            <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
+            <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(session.usage)} />
           </span>
           {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}
           {showLabel && session.projectLabel ? <MiddleTruncate className="thread-branch" value={session.projectLabel} /> : null}

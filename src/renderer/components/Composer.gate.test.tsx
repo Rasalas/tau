@@ -214,7 +214,7 @@ describe("model badges", () => {
     expect(badge.getAttribute("title")).toBe("Acme says no");
     expect(badge.classList).toContain("model-badge-warning");
     expect(screen.getAllByText("Acme models are risky.")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /^OpenAI/u }));
+    fireEvent.click(screen.getByRole("button", { name: /^ChatGPT plan/u }));
     expect(screen.queryByText("risky")).toBeNull();
     expect(screen.queryByText("Acme models are risky.")).toBeNull();
   });

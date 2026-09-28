@@ -68,7 +68,7 @@ describe("ThreadRow project mark", () => {
     expect(getByLabelText("Claude Code").closest(".thread-meta-line")).toBeTruthy();
   });
 
-  it("overlaps the model provider over its runtime", () => {
+  it("badges the provider's mark with its runtime's", () => {
     const { container, getByLabelText } = render(<ThreadRow
       activity="idle"
       active={false}
@@ -78,7 +78,7 @@ describe("ThreadRow project mark", () => {
       onToggleSettled={() => {}}
     />);
 
-    const stack = getByLabelText("Google Gemini via OpenCode");
+    const stack = getByLabelText("OpenCode via Google Gemini");
     expect(stack.classList).toContain("stacked");
     expect(container.querySelectorAll(".provider-icon")).toHaveLength(2);
     expect(container.querySelector(".provider-icon-runtime .provider-mark")).toBeTruthy();
