@@ -8,6 +8,7 @@ const root = mkdtempSync(join(tmpdir(), "tau-web-client-"));
 mkdirSync(join(root, "assets"), { recursive: true });
 writeFileSync(join(root, "index.html"), "<!doctype html><title>Tau</title>");
 writeFileSync(join(root, "assets", "main.js"), "export const ok = 1;\n");
+writeFileSync(join(root, "manifest.webmanifest"), "{\"name\":\"Tau\"}\n");
 
 let web: ReturnType<typeof createWebClientServer>;
 let origin = "";
@@ -35,6 +36,14 @@ describe("the web client a listening host serves", () => {
     const asset = await fetch(`${origin}/assets/main.js`);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toContain("text/javascript");
+    expect(asset.headers.get("cache-control")).toContain("immutable");
+  });
+
+  it("lets the browser revalidate the files that keep their names", async () => {
+    const manifest = await fetch(`${origin}/manifest.webmanifest`);
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get("content-type")).toBe("application/manifest+json");
+    expect(manifest.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("serves nothing it was not given", async () => {

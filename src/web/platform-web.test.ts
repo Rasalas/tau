@@ -83,4 +83,25 @@ describe("what a browser tab can offer the workbench", () => {
     expect(clearAppBadge).toHaveBeenCalledOnce();
     expect(document.head.querySelector("link[data-tau-badge]")).toBeNull();
   });
+
+  it("draws the count over Tau's favicon and gives the page its icons back when cleared", () => {
+    vi.stubGlobal("navigator", {});
+    const own = Object.assign(document.createElement("link"), { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" });
+    document.head.append(own);
+    const calls: string[] = [];
+    const context = new Proxy({}, { get: (_target, name) => typeof name === "string" && name !== "then" ? (...args: unknown[]) => calls.push(`${name}:${args.length}`) : undefined, set: () => true });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,BBBB");
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(32);
+    const attention = webAttention();
+    attention.setBadge(3);
+    expect(calls).toContain("drawImage:5");
+    expect(own.isConnected).toBe(false);
+    expect(document.head.querySelector<HTMLLinkElement>("link[data-tau-badge]")?.href).toBe("data:image/png;base64,BBBB");
+    attention.setBadge(0);
+    expect(own.isConnected).toBe(true);
+    expect(document.head.querySelector("link[data-tau-badge]")).toBeNull();
+    own.remove();
+  });
 });

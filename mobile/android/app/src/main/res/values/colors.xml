@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launch screen before the web layer paints: the app's document surface. -->
+    <color name="tau_splash_background">#FBFAF8</color>
+</resources>

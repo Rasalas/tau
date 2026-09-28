@@ -509,8 +509,9 @@ green and red for diffs and checks, amber for a question, short light shadows,
 and Figtree as the interface face. Figtree ships with Tau as local `woff2`
 files (`src/renderer/assets/fonts/figtree/`, SIL OFL 1.1, listed in the
 third-party licences) that `tokens.css` declares, so no font is fetched from a
-server and the first paint stays offline. The Tau mark keeps its lime
-(`--brand`): the app icon and the reload curtain.
+server and the first paint stays offline. The Tau mark is a warm-white τ on
+that blue (`--brand`, artwork in `assets/icon/`): the app icon, the reload
+curtain and the onboarding mark.
 
 Spacing is a token scale too: `--space-1` to `--space-8` (2 to 32 px), each
 multiplied by `--density`, which is `1` unless a client sets it on `<html>`.

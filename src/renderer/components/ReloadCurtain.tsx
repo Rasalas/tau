@@ -1,3 +1,5 @@
+import { TauGlyph } from "./TauGlyph";
+
 export type ReloadPhase = "building" | "extensions" | "restarting";
 
 const phaseCopy: Record<ReloadPhase, { eyebrow: string; message: string }> = {
@@ -14,7 +16,7 @@ export function ReloadCurtain({ phase }: { phase: ReloadPhase }) {
       <span className="reload-orbit reload-orbit-inner" />
       <span className="reload-pulse" />
       <div className="reload-constant">
-        <strong>τ</strong>
+        <TauGlyph className="reload-glyph" />
         <small>2π</small>
       </div>
     </div>

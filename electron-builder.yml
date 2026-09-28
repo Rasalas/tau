@@ -130,7 +130,9 @@ mac:
   # Architectures come from the command line (`--arm64 --x64`); without one the
   # build is for the host.
   target: [dmg, zip]
-  icon: assets/tau-icon.png
+  # Icon Composer document: actool (Xcode 26+) compiles it into Assets.car for
+  # macOS 26's dark, tinted and clear icons and into icon.icns for older systems.
+  icon: assets/icon/Tau.icon
   category: public.app-category.developer-tools
   hardenedRuntime: true
   entitlements: assets/entitlements.mac.plist
@@ -190,7 +192,8 @@ deb:
 
 win:
   target: [nsis]
-  icon: assets/tau-icon.png
+  # Built by scripts/icons/generate.mjs: the small mark up to 32 px, the grid icon above.
+  icon: assets/icon/tau.ico
 
 nsis:
   # The GUID electron-builder derived from the former appId `dev.tbuck.tau`: it keys the
