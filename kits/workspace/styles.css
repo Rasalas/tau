@@ -38,27 +38,26 @@
 
 .project-action-form-buttons button:disabled { opacity: .45; }
 
+/* No edge: the rail's surface sets it apart from the conversation, as in the design. */
 .session-rail {
   grid-area: 2 / 1 / 3 / 2;
   display: flex; flex-direction: column; min-height: 0;
-  border-right: 1px solid var(--line);
   background: var(--rail);
 }
-.sidebar-controls { padding: calc(10px * var(--density)) var(--space-4) var(--space-3); display: flex; flex-direction: column; gap: 2px; }
-.thread-search-row, .project-scope-row { display: flex; align-items: center; gap: 4px; }
+.sidebar-controls { padding: calc(12px * var(--density)) calc(12px * var(--density)) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.thread-search-row, .project-scope-row { display: flex; align-items: center; gap: var(--space-3); }
 
-/* Both rows read as plain text with a leading icon; the fill only appears on use. */
+/* The search is a filled field with its key, the design's; "+" beside it starts a thread. */
 .thread-search {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
-  height: calc(38px * var(--density)); padding: 0 10px; border-radius: 8px;
-  background: transparent; color: var(--muted);
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-4);
+  height: calc(30px * var(--density)); padding: 0 10px; border-radius: var(--radius-row);
+  background: var(--stage); color: var(--muted);
 }
-.thread-search:hover { background: var(--hover); }
-.thread-search:focus-within { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-field); }
+.thread-search:focus-within { box-shadow: inset 0 0 0 1px var(--line-focus); }
 .thread-search > svg { color: var(--muted); }
 .thread-search input {
   flex: 1; min-width: 0; border: 0; background: transparent;
-  color: var(--ink); font: 500 13.5px var(--sans); outline: none;
+  color: var(--ink); font: var(--text-sm) var(--sans); outline: none;
 }
 .thread-search input::placeholder { color: var(--muted); }
 .thread-search button {
@@ -66,23 +65,28 @@
   color: var(--faint); cursor: pointer; padding: 0 2px;
 }
 .thread-search button:hover { color: var(--ink); }
+.thread-search-row > .sidebar-action.new-thread {
+  width: calc(30px * var(--density)); height: calc(30px * var(--density));
+  background: var(--stage); color: var(--ink);
+}
+.thread-search-row > .sidebar-action.new-thread:hover { background: var(--chip); }
 
 .project-scope {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
-  height: calc(38px * var(--density)); border: 0; border-radius: 8px; background: transparent;
+  height: calc(32px * var(--density)); border: 0; border-radius: var(--radius-row); background: transparent;
   color: var(--muted); padding: 0 10px; text-align: left; cursor: pointer;
 }
 .project-scope:hover { background: var(--hover); color: var(--ink-2); }
 .project-scope > i.all-projects-icon { display: grid; place-items: center; color: inherit; font-style: normal; }
 .project-scope > span {
-  flex: 1; min-width: 0; font: 500 13.5px var(--sans);
+  flex: 1; min-width: 0; font: 500 var(--text-sm) var(--sans);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .project-scope > b { display: grid; place-items: center; color: var(--faint); }
 
 .sidebar-action {
-  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
-  border: 0; border-radius: 8px; background: transparent;
+  width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-row); background: transparent;
   color: var(--muted); cursor: pointer;
 }
 .sidebar-action:hover { background: var(--raised); color: var(--ink); }
@@ -90,7 +94,7 @@
 .project-switcher-popover {
   position: fixed; z-index: 55; top: 132px; left: 12px; width: min(272px, calc(100vw - 24px));
   padding: 8px; border: 1px solid var(--line-float); border-radius: 11px;
-  background: var(--overlay); box-shadow: 0 24px 70px var(--shadow-strong); animation: fade-up .12s ease;
+  background: var(--overlay); box-shadow: var(--elevation-2); animation: fade-up .12s ease;
 }
 .project-switcher-popover > label {
   height: 40px; display: flex; align-items: center; gap: 8px; margin: 0 6px 5px;
@@ -120,12 +124,7 @@
 .project-switcher-results > button > svg { color: var(--faint); }
 .project-switcher-results > p { margin: 12px 8px; color: var(--faint); font-size: 11px; }
 
-.thread-search kbd {
-  font: 10px var(--mono); border: 1px solid var(--line-strong);
-  border-radius: 4px; padding: 1px 5px; color: var(--faint);
-  opacity: 0; transition: opacity .12s ease;
-}
-.thread-search:hover kbd, .thread-search:focus-within kbd { opacity: 1; }
+.thread-search kbd { font: 10.5px var(--mono); color: var(--muted); }
 .thread-search button {
   border: 0; background: transparent; color: var(--faint);
   cursor: pointer; font-size: 13px; padding: 0 2px;
@@ -214,16 +213,23 @@
 }
 
 .sidebar-footer {
-  flex: none; border-top: 1px solid var(--line);
-  padding: 8px 12px; display: flex; align-items: center; gap: 4px;
+  flex: none; padding: var(--space-3) calc(10px * var(--density)) calc(10px * var(--density));
+  display: flex; align-items: center; gap: var(--space-1);
 }
 .sidebar-footer button {
-  width: 30px; height: 30px; display: grid; place-items: center;
-  border: 0; border-radius: 7px;
-  background: transparent; color: var(--faint); cursor: pointer;
+  position: relative; width: 30px; height: 30px; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-row);
+  background: transparent; color: var(--ink-3); cursor: pointer;
 }
-.sidebar-footer button:hover { background: var(--raised); color: var(--ink); }
-.sidebar-footer button.active { background: var(--thread-active); color: var(--ink); box-shadow: inset 0 0 0 1px var(--edge-line); }
+.sidebar-footer button:hover { background: var(--hover-strong); color: var(--ink); }
+.sidebar-footer button.active { background: var(--thread-active); color: var(--ink); }
+/* A page's count (open pull requests): a small accent figure on the icon's corner. */
+.sidebar-footer .page-badge {
+  position: absolute; top: 1px; right: 0; min-width: 14px; height: 14px; padding: 0 3px;
+  border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink);
+  font: 600 9.5px/14px var(--sans); font-variant-numeric: tabular-nums; text-align: center;
+  box-shadow: 0 0 0 2px var(--rail);
+}
 /* On an app page Back leads the row, as it ends Settings' column. */
 .sidebar-footer button.sidebar-back {
   width: auto; flex: 1; justify-content: start; display: flex; align-items: center; gap: 8px;
@@ -244,7 +250,7 @@
 .turn-changes-pill:not(.control-pill) > svg { flex: none; color: var(--faint); }
 .turn-changes-pill > svg.turn-changes-partial { color: var(--working); }
 .turn-changes-live {
-  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--working);
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--info);
   animation: turn-changes-live 1.2s ease-in-out infinite;
 }
 @keyframes turn-changes-live { 50% { opacity: 0.35; } }
@@ -571,7 +577,7 @@ body[data-profile="compact"] .files-panel-search { width: 44px; height: 44px; bo
   background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-2);
   font: 12px/16px var(--sans);
 }
-.thread-card-title { color: var(--ink); font-weight: 500; font-size: 12.5px; line-height: 17px; overflow-wrap: anywhere; }
+.thread-card-title { color: var(--ink); font-weight: 600; font-size: 12.5px; line-height: 17px; overflow-wrap: anywhere; }
 .thread-card-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding-left: 1px; }
 .thread-card-row {
   display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 0;

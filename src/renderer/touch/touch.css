@@ -7,10 +7,13 @@
 
 /* ----------------------------------------------------------- the browser */
 
+/* A tablet's sidebar sits on the rail's surface; a phone's list screen on the document's ground. */
 .touch-browser {
+  --touch-list-ground: var(--rail);
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  background: var(--rail); color: var(--ink);
+  background: var(--touch-list-ground); color: var(--ink);
 }
+.touch-browser.screen { --touch-list-ground: var(--shell); }
 .touch-browser.sidebar { grid-area: 2 / 1 / 3 / 2; border-right: 1px solid var(--line); padding-left: var(--safe-left, 0px); }
 .touch-browser.screen {
   position: fixed; z-index: 60; left: 0; right: 0;
@@ -127,7 +130,7 @@
 .touch-thread-shelf-toggle > svg { flex: none; transition: transform var(--motion-fast) ease; }
 .touch-thread-shelf-toggle[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .touch-thread-shelf-toggle:active { color: var(--muted); }
-.touch-thread-row .swipe-row-content { background: var(--rail); }
+.touch-thread-row .swipe-row-content { background: var(--touch-list-ground, var(--rail)); }
 /* The desktop rail's card (ThreadRow's classes), at touch sizes: spacing and the active surface, no rules between rows. */
 .touch-thread-row .thread-row:active { background: var(--hover); }
 .touch-thread-row .thread-main { min-height: 44px; padding: 10px 12px; }
@@ -139,8 +142,6 @@
 .touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 18px; }
 .touch-thread-row .thread-meta-line { margin-top: 3px; line-height: 18px; }
 .touch-thread-row .thread-branch { font-size: 12px; }
-/* No hover on a phone: the cost reads at full strength. */
-.touch-thread-row .thread-cost-meta { opacity: 1; font-size: 12px; }
 /* A draft's mark stays: a touch leaves :hover behind, and Discard lives in the sheet. */
 .touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: 13px; }
 .touch-thread-pin { flex: none; color: var(--faint); }
@@ -219,6 +220,7 @@
   position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
   border-radius: 2px; background: var(--line-strong);
 }
+.action-sheet-summary { margin: 0 4px 10px; color: var(--muted); font: var(--text-lg) var(--sans); font-variant-numeric: tabular-nums; }
 .action-sheet-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--raised); }
 .action-sheet-list > button { flex: none; }
 .action-sheet-list > button > span { min-width: 0; }

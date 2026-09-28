@@ -102,11 +102,11 @@ export function importVsCodeTheme(source: string | unknown): ImportedTheme {
   const background = flatten({ ...canvas, a: 1 }, "#000000");
   const type = typeof value.type === "string" ? value.type.toLowerCase() : "";
   const appearance: Appearance = type === "light" || type === "hc-light" ? "light" : type === "dark" || type === "hc-black" ? "dark" : isDark(background) ? "dark" : "light";
-  const fallbackInk = appearance === "dark" ? "#e7e4d9" : "#1c1b15";
+  const fallbackInk = appearance === "dark" ? "#e9e6e0" : "#1c1b19";
   const foregroundColor = pick(["editor.foreground", "foreground"]);
   const foreground = foregroundColor ? readable(flatten(foregroundColor, background), background, fallbackInk) : fallbackInk;
   const accentColor = pick(["focusBorder", "button.background", "textLink.foreground", "activityBarBadge.background", "progressBar.background"]);
-  const accent = accentColor ? flatten(accentColor, background) : appearance === "dark" ? "#c7ff3d" : "#b7e229";
+  const accent = accentColor ? flatten(accentColor, background) : appearance === "dark" ? "#6b93e0" : "#4b75c5";
 
   const tokens = derivePalette({ appearance, background, foreground, accent });
   for (const [token, keys] of SURFACE_KEYS) {

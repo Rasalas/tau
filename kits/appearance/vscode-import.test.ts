@@ -50,7 +50,7 @@ describe("VS Code theme import", () => {
   it("falls back where the file is silent and tells light from dark without a type", () => {
     const theme = importVsCodeTheme({ name: "Paper", colors: { "editor.background": "#fafafa" } });
     expect(theme.appearance).toBe("light");
-    expect(theme.tokens["--ink"]).toBe("#1c1b15");
+    expect(theme.tokens["--ink"]).toBe("#1c1b19");
     expect(Object.keys(theme.tokens).length).toBeGreaterThan(40);
     expect(validateTokens(theme.tokens)).toEqual([]);
   });

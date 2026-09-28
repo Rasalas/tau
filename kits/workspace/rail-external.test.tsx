@@ -70,15 +70,16 @@ async function renderRail(threads: RailExternalThread[], own: UiSession[]) {
 const titles = (rail: HTMLElement) => [...rail.querySelectorAll(".rail-active .thread-title")].filter((title) => !title.closest(".rail-shelves")).map((title) => title.textContent);
 
 describe("other machines' threads in the rail", () => {
-  it("stand among this machine's by time, with the machine's mark just before the cost", async () => {
+  it("stand among this machine's by time, with the machine's mark and no cost on the row", async () => {
     const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0.75, turns: 1 };
     const { rail } = await renderRail([remote("r1", 25, {}, { usage })], [session("a", 30), session("b", 20)]);
     expect(titles(rail)).toEqual(["Thread a", "Remote r1", "Thread b"]);
     expect(within(rail).queryByText("Other machines")).toBeNull();
     const row = within(rail).getByText("Remote r1").closest(".thread-row") as HTMLElement;
     const mark = within(row).getByRole("img", { name: "On rex" });
-    const cost = within(row).getByText("$0.75");
-    expect(mark.compareDocumentPosition(cost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mark.closest(".thread-meta-end")).toBeTruthy();
+    // The cost is the hover card's.
+    expect(within(row).queryByText("$0.75")).toBeNull();
     // This machine's threads carry no mark, and another machine's cannot be settled here.
     expect(within(within(rail).getByText("Thread a").closest(".thread-row") as HTMLElement).queryByRole("img", { name: /^On / })).toBeNull();
     expect(within(row).queryByRole("button", { name: /^Settle/u })).toBeNull();

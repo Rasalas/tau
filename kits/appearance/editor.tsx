@@ -62,7 +62,7 @@ export function draftFromWindow(appearance: Appearance, name = "My theme"): Them
   return {
     name,
     appearance,
-    seed: { background: tokens["--shell"] ?? "#131311", foreground: tokens["--ink"] ?? "#e7e4d9", accent: tokens["--acid"] ?? "#c7ff3d" },
+    seed: { background: tokens["--shell"] ?? "#1a1a19", foreground: tokens["--ink"] ?? "#e9e6e0", accent: tokens["--acid"] ?? "#6b93e0" },
     tokens,
   };
 }

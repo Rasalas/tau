@@ -24,4 +24,11 @@ describe("the phone's bottom navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
     expect(onSelect).toHaveBeenCalledWith({ kind: "threads" });
   });
+
+  it("carries a page's count to its tab", () => {
+    const counted = { ...page("requests", "Pull requests"), useBadge: () => 2 };
+    render(<PhoneNav items={phoneNavItems({ getPages: () => [counted, page("usage", "Usage")] })} current={{ kind: "threads" }} onSelect={() => {}} />);
+    expect(screen.getByRole("button", { name: "Pull requests, 2" }).querySelector(".page-badge")?.textContent).toBe("2");
+    expect(screen.getByRole("button", { name: "Usage" }).querySelector(".page-badge")).toBeNull();
+  });
 });

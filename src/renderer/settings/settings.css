@@ -45,7 +45,7 @@
   text-align: left; cursor: pointer;
 }
 .settings-nav-list button:hover, .settings-back:hover { background: var(--hover-strong); color: var(--ink-2); }
-.settings-nav-list button.active { background: var(--thread-active); color: var(--ink); box-shadow: inset 0 0 0 1px var(--edge-line); }
+.settings-nav-list button.active { background: var(--thread-active); color: var(--ink); font-weight: 600; }
 .settings-nav-list button > svg, .settings-back > svg { color: var(--faint); }
 .settings-nav-list button.active > svg { color: var(--ink-2); }
 .settings-nav-list button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -119,15 +119,16 @@
 .settings-section { display: flex; flex-direction: column; gap: 10px; }
 .settings-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 28px; padding: 0 var(--space-6); }
 .settings-section-head > h2 { margin: 0; font: 400 13px var(--sans); letter-spacing: -.005em; color: var(--ink-3); }
-.settings-group { border: 1px solid var(--line-card); border-radius: var(--radius-lg); background: var(--stage); }
-.settings-group > * + * { border-top: 1px solid var(--line-inset); }
+/* A filled card on the page, the design's; a field inside it sits on the document's ground. */
+.settings-group { --field: var(--stage); border: 1px solid transparent; border-radius: var(--radius-md); background: var(--inset); }
+.settings-group > * + * { border-top: 1px solid var(--line); }
 .settings-group.plain { border: 0; background: transparent; display: flex; flex-direction: column; gap: 10px; }
 .settings-group.plain > * + * { border-top: 0; }
 .settings-group-note { margin: 0; padding: var(--space-5) var(--space-6); font-size: 12px; line-height: 1.5; color: var(--muted); }
 
 .settings-row { padding: var(--space-5) var(--space-6); outline: none; }
-.settings-group > .settings-row:first-child { border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); }
-.settings-group > .settings-row:last-child { border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); }
+.settings-group > .settings-row:first-child { border-top-left-radius: var(--radius-md); border-top-right-radius: var(--radius-md); }
+.settings-group > .settings-row:last-child { border-bottom-left-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md); }
 .settings-row-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-8); }
 @container (max-width: 560px) {
   .settings-row-main { grid-template-columns: minmax(0, 1fr); gap: 10px; }

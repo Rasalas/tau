@@ -685,6 +685,11 @@ export interface PageContribution extends ProfileScoped {
   layout?: "readable" | "wide" | "fill";
   /** Words the palette finds the page by, besides its label. */
   keywords?: readonly string[];
+  /**
+   * A hook for a count on the page's entry (the sidebar's foot, a phone's bottom
+   * navigation), say open pull requests; nothing is drawn for `undefined` or 0 (API 1.26.0).
+   */
+  useBadge?(): number | undefined;
   Component: ComponentType<PageProps>;
 }
 

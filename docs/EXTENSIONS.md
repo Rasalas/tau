@@ -981,6 +981,13 @@ plugin.registerPage({
 plugin.registerCommand({ id: "acme.reports.open", label: "Reports", group: "Extensions", access: "read", run: (actions) => actions.openPage?.("acme.reports") });
 ```
 
+`useBadge` (API 1.26.0) is an optional hook the page's entry calls — the
+sidebar's foot and a phone's bottom navigation — for a count drawn on the
+page's icon, and read out with its label ("Pull requests, 3"); `undefined` or
+0 draws nothing. Review Kit counts the open pull requests of the threads the
+rail knows. Being a hook, it may subscribe to a store with
+`useSyncExternalStore`, and it should stay cheap: it runs with the foot.
+
 `useOpenPage()` from `tau` answers the page on screen (`{ id, views }`) or
 undefined, for a sidebar that marks it. A `standalone` Settings page (API
 1.15.0) still opens alone, without Settings' navigation; it is deprecated in
@@ -1314,10 +1321,10 @@ It also exports the renderer's shared state and presentation:
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
-| `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. |
+| `formatCost` | core's money formatting. `ThreadRow` draws no cost since API 1.26.0; the rail's hover card does. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) in front with the runtime's stacked behind it, fanned out side by side on hover or keyboard focus and always on a touch screen, in a box that keeps the fanned width ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the cost, the name as its tooltip; without `onToggleSettled` the row has no Settle button; and the cost reads as the figure alone (`$75.75` for a plan's value too), where it comes from (API, plan, or no price) in its tooltip. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine, the cost and the provider mark stay (the cost cut short last). |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) in front with the runtime's stacked behind it, fanned out side by side on hover or keyboard focus and always on a touch screen, in a box that keeps the fanned width ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws, after T3 Code's draft rows: the project line marked Draft with a pen, the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") and T3 Code's tint for unsent work. `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
@@ -1430,7 +1437,7 @@ its identity until the listener runs, and each `RailExternalThread` carries a un
 `key`, the thread's `session` as its own host lists it (the rail sorts, groups,
 searches and pages it by that, like its own threads, and merges it into the main list
 by time without touching the rail's own order), `running`, `opening`, `machine`
-(`{ name, icon }`: the icon is drawn just before the cost, the name is its tooltip),
+(`{ name, icon }`: the icon is drawn just before the provider marks, the name is its tooltip),
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
@@ -3498,142 +3505,165 @@ not overridden.
 
 Two rules keep the table honest, both checked by `src/renderer/tokens.test.ts`:
 no colour may be written anywhere but `tokens.css` (kit stylesheets included),
-and every token that carries text must reach WCAG AA — 4.5:1 on the five
-surfaces text is read on, in **both** schemes; marks, fills and small print
-reach 3:1. A theme is not held to that automatically, so check your own values.
+and every token that carries text must reach WCAG AA — 4.5:1 on the eight
+surfaces text is read on, in **both** schemes; marks, fills (the accent among
+them) and small print reach 3:1, and each ink reaches 4.5:1 on the fill it sits
+on (the accent, the user's bubble, a diff line). A theme is not held to that automatically, so check your own values.
 
 **Surfaces**
 
+Two grounds carry the window: the document area (`--stage`, `--shell`) and the side surface (`--rail`, `--chrome`, `--field`, `--inset`), which in the dark scheme is the lighter of the two. The title bar takes the rail's surface over the sidebar and the dock and the document's ground between them.
+
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--well` | deepest: an inset control | `#e6e4da` | `#11110f` |
-| `--shell` | the window | `#f2f0e8` | `#131311` |
-| `--rail` | the sidebar | `#eeece2` | `#151513` |
-| `--chrome` | title bar, panel chrome | `#f0eee5` | `#161614` |
-| `--stage` | the document area and panel bodies | `#faf9f4` | `#191917` |
-| `--sunken` | a well inside a surface | `#edebe0` | `#1c1c18` |
-| `--field` | an input | `#fdfcf8` | `#1d1d19` |
-| `--thread-active` | the selected thread row | `#e9e7db` | `#1e1e1a` |
-| `--raised` | a chip or inline code | `#e7e5d9` | `#22221d` |
-| `--raised-strong` | a raised surface that is hovered or floating | `#dedcce` | `#272722` |
-| `--raised-hover` | the hover of a raised control | `#d4d2c3` | `#343431` |
-| `--overlay` | a modal panel | `#fbfaf5` | `#1a1a17` |
-| `--float` | a menu, a toast, a popover card | `#fdfcf8` | `#1f1f1b` |
-| `--hover` | the wash under a hovered row | `#eae8dc` | `#1a1a17` |
-| `--hover-strong` | the same, in a list that needs to read | `#e5e3d6` | `#1c1c19` |
-| `--code-bg` | code blocks, tool output, diffs | `#f6f4ec` | `#101010` |
-| `--inset` | a block inside a settings page | `#f0eee3` | `#191916` |
-| `--chip` | a small label's background | `#e4e2d5` | `#26261f` |
-| `--chip-hover` | a small label, hovered | `#dbd9ca` | `#2a2a23` |
-| `--track` | an empty progress track | `#d8d6c8` | `#393932` |
-| `--scrim` | the dim behind a modal | `#2a2a24a3` | `#0a0a09e8` |
-| `--scrim-deep` | the dim behind a full-screen image | `#1a1a16e0` | `#050505ed` |
-| `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf3ee` | `#20221cee` |
+| `--well` | deepest: an inset control | `#e8e5e0` | `#1a1a19` |
+| `--shell` | the window | `#fbfaf8` | `#1a1a19` |
+| `--rail` | the sidebar | `#f0eeea` | `#232322` |
+| `--chrome` | title bar, panel chrome | `#f0eeea` | `#232322` |
+| `--stage` | the document area and panel bodies | `#fbfaf8` | `#1a1a19` |
+| `--sunken` | a well inside a surface | `#f4f2ef` | `#1f1f1e` |
+| `--field` | an input, and the composer: filled, no edge | `#f0eeea` | `#232322` |
+| `--thread-active` | the selected thread row | `#fbfaf8` | `#1a1a19` |
+| `--raised` | a chip or inline code | `#e1dfdb` | `#31312f` |
+| `--raised-strong` | a raised surface that is hovered or floating | `#dbd9d5` | `#373635` |
+| `--raised-hover` | the hover of a raised control | `#d2d0cd` | `#3f3e3d` |
+| `--overlay` | a modal panel | `#fbfaf8` | `#262523` |
+| `--float` | a menu, a toast, a popover card | `#fbfaf8` | `#262523` |
+| `--hover` | the wash under a hovered row | `#e8e6e2` | `#2b2b2a` |
+| `--hover-strong` | the same, in a list that needs to read | `#e3e1dd` | `#2f2f2d` |
+| `--code-bg` | code blocks, tool output, diffs | `#f0eeea` | `#232322` |
+| `--inset` | a block inside a settings page | `#f0eeea` | `#232322` |
+| `--chip` | a small label's background | `#e8e5e0` | `#302f2c` |
+| `--chip-hover` | a small label, hovered | `#d8d4cd` | `#3d3b37` |
+| `--track` | an empty progress track | `#d8d4cd` | `#3d3b37` |
+| `--scrim` | the dim behind a modal | `#1c1b19a3` | `#0a0a0ae0` |
+| `--scrim-deep` | the dim behind a full-screen image | `#1c1b19e0` | `#050505ed` |
+| `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf8ee` | `#262523ee` |
 
 **Hairlines**
 
+The design's divider is the ink at a low alpha, so one hairline reads on either ground; the two focus and hover edges are opaque.
+
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--line` | the ordinary hairline | `#dedac9` | `#26261f` |
-| `--line-soft` | a hairline that should barely show | `#e6e2d3` | `#23231e` |
-| `--line-inset` | between rows of one list | `#e8e4d6` | `#1f1f1a` |
-| `--line-card` | the edge of a card | `#d8d4c2` | `#2a2a23` |
-| `--line-control` | the edge of a button or chip | `#d4d0bd` | `#2b2b24` |
-| `--line-strong` | an edge that has to be read as one | `#c9c5b1` | `#2f2f28` |
-| `--line-field` | the edge of an input | `#c2bda7` | `#34342c` |
-| `--line-focus` | a field with focus inside it | `#a9a48c` | `#404036` |
-| `--line-float` | a menu or popover edge | `#bcb7a0` | `#3a3a31` |
-| `--line-hover` | a control's edge while hovered | `#a9a48c` | `#4a4a40` |
+| `--line` | the ordinary hairline | `#1c1b1917` | `#e9e6e01a` |
+| `--line-soft` | a hairline that should barely show | `#1c1b190f` | `#e9e6e012` |
+| `--line-inset` | between rows of one list | `#1c1b1912` | `#e9e6e014` |
+| `--line-card` | the edge of a card | `#1c1b191a` | `#e9e6e01c` |
+| `--line-control` | the edge of a button or chip | `#1c1b191f` | `#e9e6e021` |
+| `--line-strong` | an edge that has to be read as one | `#1c1b192e` | `#e9e6e02e` |
+| `--line-field` | the edge of an input | `#1c1b1929` | `#e9e6e029` |
+| `--line-focus` | a field with focus inside it | `#b7b1a8` | `#55524c` |
+| `--line-float` | a menu or popover edge | `#1c1b191f` | `#e9e6e021` |
+| `--line-hover` | a control's edge while hovered | `#b7b1a8` | `#55524c` |
 | `--edge-highlight` | the inner top edge of a raised surface | `#ffffffcc` | `#ffffff08` |
 | `--edge-highlight-strong` | the same, on a round control | `#ffffff` | `#ffffff26` |
-| `--edge-line` | the edge of a selected row | `#00000014` | `#ffffff0f` |
-| `--wash` | a fill barely above its surface | `#00000008` | `#ffffff04` |
-| `--wash-2` | the same, one step up | `#0000000f` | `#ffffff0a` |
+| `--edge-line` | the edge of a selected row | `#1c1b1914` | `#e9e6e00f` |
+| `--wash` | a fill barely above its surface | `#1c1b1908` | `#e9e6e005` |
+| `--wash-2` | the same, one step up | `#1c1b190f` | `#e9e6e00c` |
 
 **Ink**
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--ink` | headings and emphasis | `#1c1b15` | `#e7e4d9` |
-| `--ink-prose` | assistant prose | `#27261e` | `#ddd9cd` |
-| `--ink-2` | body text of the chrome | `#38372d` | `#c9c6ba` |
-| `--ink-3` | secondary text | `#56544a` | `#a09e92` |
-| `--ink-code` | code and diff bodies | `#45443a` | `#b5b3a6` |
-| `--muted` | labels | `#636257` | `#8b8a7f` |
-| `--muted-2` | small print | `#75746a` | `#7c7b70` |
-| `--faint` | glyphs and disabled text | `#85857a` | `#6b6a5f` |
-| `--fainter` | a mark that is only a hint of one | `#adac9f` | `#4f4e45` |
-| `--scrollbar` | the scrollbar thumb | `#cbc8b6` | `#33332b` |
-| `--scrollbar-hover` | the same, hovered | `#b3b09c` | `#45453b` |
+| `--ink` | headings and emphasis | `#1c1b19` | `#e9e6e0` |
+| `--ink-prose` | assistant prose | `#1c1b19` | `#e9e6e0` |
+| `--ink-2` | body text of the chrome | `#35312c` | `#d8d3ca` |
+| `--ink-3` | secondary text | `#504a43` | `#bdb7ad` |
+| `--ink-code` | code and diff bodies | `#433e38` | `#cbc5bc` |
+| `--muted` | labels | `#6d665d` | `#9c968c` |
+| `--muted-2` | small print | `#8f887e` | `#7a756d` |
+| `--faint` | glyphs and disabled text | `#8f887e` | `#7a756d` |
+| `--fainter` | a mark that is only a hint of one | `#b7b1a8` | `#55524c` |
+| `--scrollbar` | the scrollbar thumb | `#d8d4cd` | `#3d3b37` |
+| `--scrollbar-hover` | the same, hovered | `#b7b1a8` | `#55524c` |
 
 **Accent**
 
+Blue, and only for Tau's own actions and selection (send, a primary button, focus, the picked row) and the user's own message. The Tau mark keeps its lime (`--brand`): the app icon and the reload curtain, never a control.
+
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--acid` | the accent as a fill | `#b7e229` | `#c7ff3d` |
-| `--acid-text` | the accent as text or an icon on a surface | `#4a6410` | `#c7ff3d` |
-| `--acid-ink` | text on the accent fill | `#16190c` | `#141512` |
-| `--acid-strong` | the accent fill, hovered | `#a6cf1c` | `#d4ff63` |
-| `--acid-bg` | the accent as a surface | `#eef6d5` | `#1b2010` |
-| `--acid-line` | the accent as an edge | `#c6db8d` | `#3a4423` |
-| `--acid-chip` | the accent as a chip behind accent text | `#e4f0bb` | `#2c3915` |
-| `--acid-track` | the accent as a filled track | `#cde596` | `#3d4d18` |
-| `--acid-glow` | the accent as a glow around a mark | `#a5cf2bbb` | `#c7ff3dbb` |
-| `--focus` | the focus ring | `#4a6410` | `#c7ff3d` |
+| `--acid` | the accent as a fill | `#4b75c5` | `#6b93e0` |
+| `--acid-text` | the accent as text or an icon on a surface | `#2f4f8f` | `#a6bfee` |
+| `--acid-ink` | text on the accent fill | `#ffffff` | `#10131a` |
+| `--acid-strong` | the accent fill, hovered | `#3d63b0` | `#86a7e7` |
+| `--acid-bg` | the accent as a surface | `#e9effa` | `#1b2740` |
+| `--acid-line` | the accent as an edge | `#b4c8ee` | `#2c4478` |
+| `--acid-chip` | the accent as a chip behind accent text | `#d4e0f6` | `#223257` |
+| `--acid-track` | the accent as a filled track | `#80a1dd` | `#3a5ca3` |
+| `--acid-glow` | the accent as a glow around a mark | `#4f79c9bb` | `#6b93e0bb` |
+| `--focus` | the focus ring | `#4f79c9` | `#6b93e0` |
+| `--user-bubble` | the user's own message: the accent's tint | `#e9effa` | `#1b2740` |
+| `--user-bubble-ink` | its text | `#182747` | `#e2eafa` |
+| `--brand` | the Tau mark's lime | `#b7e229` | `#c7ff3d` |
+| `--brand-ink` | the same, as text on a surface | `#4a6410` | `#c7ff3d` |
 
 **Status**
+
+A run in flight is blue (`--info`, `--info-ink`), a question amber (`--warn`), a finished run green (`--ready`, `--done`), a failure red. `--working` names a file a turn changed and a write, not a run.
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
 | `--working` | a file a turn changed; a write | `#a34a08` | `#ff8a4d` |
-| `--ready` | a run that finished | `#1c7440` | `#7ade9f` |
-| `--removed` | something taken away | `#b03a28` | `#f07a6a` |
+| `--ready` | a run that finished | `#2f633c` | `#a4d0b1` |
+| `--removed` | something taken away | `#8c352f` | `#eba9a2` |
 | `--stop` | the abort control | `#c2282d` | `#e5484d` |
 | `--stop-ink` | the square on the stop button | `#ffffff` | `#ffffff` |
+| `--qr-paper` | a QR code's light modules: scanners want dark on light in either scheme | `#ffffff` | `#ffffff` |
+| `--qr-ink` | its dark modules | `#000000` | `#000000` |
 | `--cyan` | numbers and types | `#06706c` | `#6fd3cf` |
-| `--danger` | destructive text | `#a83f30` | `#d88c83` |
-| `--danger-line` | the edge of a destructive control | `#e2b4ab` | `#6f3838` |
-| `--danger-bg` | that control, hovered | `#faeae6` | `#251917` |
-| `--warn` | a caution | `#8a5a09` | `#e0a34d` |
-| `--warn-chip` | a caution as a chip | `#f7ecd8` | `#33241d` |
-| `--fail` | a failed run's mark | `#c2452f` | `#d05a4a` |
-| `--fail-ink` | what that run says | `#a83b28` | `#d98a7c` |
-| `--info` | a run or a step in progress | `#3457d5` | `#4d7cff` |
-| `--info-deep` | a step already done, in a dense bar | `#2745ad` | `#426fe1` |
-| `--info-ink` | the same, as text | `#2b4bbf` | `#79acf0` |
+| `--danger` | destructive text | `#8c352f` | `#eba9a2` |
+| `--danger-line` | the edge of a destructive control | `#edb0a8` | `#6b352f` |
+| `--danger-bg` | that control, hovered | `#fbe9e7` | `#3a1f1c` |
+| `--warn` | a caution, and a question waiting for the user | `#82601a` | `#e8c67f` |
+| `--warn-chip` | a caution as a chip | `#fcf3dc` | `#33280f` |
+| `--fail` | a failed run's mark | `#c9564d` | `#d9756b` |
+| `--fail-ink` | what that run says | `#8c352f` | `#eba9a2` |
+| `--info` | a run or a step in progress | `#4f79c9` | `#6b93e0` |
+| `--info-deep` | a step already done, in a dense bar | `#3d63b0` | `#86a7e7` |
+| `--info-ink` | the same, as text | `#2f4f8f` | `#a6bfee` |
 | `--merged` | a merged pull or merge request | `#7446c2` | `#b59cf2` |
-| `--done` | a step that finished | `#0d7f5f` | `#13c99a` |
+| `--done` | a step that finished | `#4f9660` | `#6fae82` |
 | `--stale` | how long ago something ran | `#8a5a3f` | `#c9a18b` |
 | `--folder` | a directory | `#6f6118` | `#a59d68` |
+
+**Providers**
+
+A provider's own colour, for its share in a chart or a limit bar; never a state.
+
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--provider-openai` | OpenAI, ChatGPT, Codex | `#2a62c4` | `#6ea6f7` |
+| `--provider-anthropic` | Anthropic, Claude | `#b3572f` | `#e5936a` |
+| `--provider-google` | Google, Gemini, Antigravity | `#237a52` | `#5fc28f` |
+| `--provider-pi` | Pi, across its providers | `#7a4fc4` | `#ae93f0` |
+| `--provider-other` | any other provider or runtime | `#6f6a5c` | `#a8a393` |
 
 **Diff**
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--diff-add-bg` | an added line | `#e6f3da` | `#1e2a17` |
-| `--diff-add-ink` | its text | `#2c5418` | `#c6e6a8` |
-| `--diff-add-mark` | the changed run inside an added line | `#a8dc86` | `#527a3c` |
-| `--diff-add-mark-ink` | the run's text | `#1c3f0d` | `#e1ffc8` |
-| `--diff-add-mark-line` | the run's edge | `#6fa552` | `#76a957` |
-| `--diff-del-bg` | a removed line | `#fbe7e1` | `#2b1a17` |
-| `--diff-del-ink` | its text | `#8c2f1f` | `#e0a89e` |
-| `--diff-del-mark` | the changed run inside a removed line | `#f2b4a7` | `#8b433b` |
-| `--diff-del-mark-ink` | the run's text | `#66200f` | `#ffd1c8` |
-| `--diff-del-mark-line` | the run's edge | `#c8695c` | `#b95b50` |
-| `--diff-add-edge` | an addition as a bar, a sign or a count | `#1c7440` | `#7ade9f` |
-| `--diff-del-edge` | a removal as a bar, a sign or a count | `#b03a28` | `#f07a6a` |
+| `--diff-add-bg` | an added line | `#e6f2e8` | `#1b2a1f` |
+| `--diff-add-ink` | its text | `#2f633c` | `#a4d0b1` |
+| `--diff-add-mark` | the changed run inside an added line | `#a9d1b1` | `#2e4d38` |
+| `--diff-add-mark-ink` | the run's text | `#17301d` | `#e1f1e5` |
+| `--diff-add-mark-line` | the run's edge | `#4f9660` | `#6fae82` |
+| `--diff-del-bg` | a removed line | `#fbe9e7` | `#3a1f1c` |
+| `--diff-del-ink` | its text | `#8c352f` | `#eba9a2` |
+| `--diff-del-mark` | the changed run inside a removed line | `#edb0a8` | `#6b352f` |
+| `--diff-del-mark-ink` | the run's text | `#431a17` | `#fae6e3` |
+| `--diff-del-mark-line` | the run's edge | `#c9564d` | `#d9756b` |
+| `--diff-add-edge` | an addition as a bar, a sign or a count | `#2f633c` | `#a4d0b1` |
+| `--diff-del-edge` | a removal as a bar, a sign or a count | `#8c352f` | `#eba9a2` |
 | `--syntax-fn` | highlight.js function and class names | `#5c6b13` | `#d9e88f` |
 
-**Project**
+**Project and reload curtain**
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--project-tint` | a project's mark | `hsl(var(--project-hue) 46% 88%)` | `hsl(var(--project-hue) 34% 15%)` |
+| `--project-tint` | a project's mark (declared on `.thread-project-icon`) | `hsl(var(--project-hue) 46% 88%)` | `hsl(var(--project-hue) 34% 15%)` |
 | `--project-ink` | its letters | `hsl(var(--project-hue) 55% 27%)` | `hsl(var(--project-hue) 70% 66%)` |
-| `--provider-bg` | the tile behind a provider glyph | `#2a2924` | `#f3f1e9` |
-| `--provider-ink` | the glyph itself | `#f3f1e9` | `#171713` |
-| `--provider-google` | brand tint, the same in both schemes | `#f8faff` | `#f8faff` |
-| `--provider-claude` | brand tint, the same in both schemes | `#f3e8df` | `#f3e8df` |
 | `--reload-core` | the centre of the reload curtain | `#e5f0c8` | `#25320f` |
 | `--reload-halo` | its falloff | `#f3f5e6` | `#171a10` |
 | `--reload-panel` | the panel inside it | `#f4f7e6` | `#171a11` |
@@ -3642,35 +3672,45 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--shadow-soft` | a small float | `#3c38281f` | `#00000066` |
-| `--shadow` | a menu or a toast | `#3c382833` | `#00000099` |
-| `--shadow-strong` | a modal | `#2d2a1e40` | `#000000cc` |
+| `--shadow-soft` | a small float | `#1c1b1914` | `#00000066` |
+| `--shadow` | a menu or a toast | `#1c1b191a` | `#00000073` |
+| `--shadow-strong` | a modal | `#1c1b192e` | `#0000008c` |
 
 **Type, size, motion**
 
+Figtree (400–700, a variable face under the SIL Open Font License, `src/renderer/assets/fonts/figtree/`) ships with Tau and loads from its own files, never from a font server; the system stack is its fallback. Code and the terminal keep `--mono`.
+
 | Token | Role | Value |
 |---|---|---|
+| `--elevation-0` | a control that sits on its surface | `0 1px 2px var(--shadow-soft)` |
+| `--elevation-1` | a small float | `0 3px 10px var(--shadow)` |
+| `--elevation-2` | a menu, a toast, a popover | `0 12px 32px var(--shadow-strong)` |
+| `--elevation-3` | a modal | `0 12px 32px var(--shadow-strong)` |
 | `--mono` | code and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
-| `--sans` | everything else | `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` |
-| `--label-font` | section, group and status labels ("Pinned · 2", "Working 0:42", a Settings heading) | `var(--sans)` |
-| `--label-case` | their `text-transform` | `none` |
-| `--label-tracking` | their `letter-spacing` | `normal` |
-| `--label-size` | their size | `11px` |
+| `--sans` | everything else | `"Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` |
+| `--label-font` | a section or status label | `var(--sans)` |
+| `--label-case` | its text-transform | `none` |
+| `--label-tracking` | its letter-spacing | `normal` |
+| `--label-size` | its size | `11px` |
+| `--text-xs` | meta: a branch, an age, a status | `11px` |
+| `--text-sm` | a control, a chip, a menu | `12px` |
+| `--text-md` | body and a thread's title | `13px` |
+| `--text-lg` | prose on a touch screen | `14px` |
+| `--text-title` | a thread's heading | `17px` |
+| `--text-display` | a page's heading | `24px` |
 | `--radius-xs` | a tag | `4px` |
-| `--radius-sm` | a button | `6px` |
-| `--radius-md` | a card | `9px` |
-| `--radius-lg` | a panel | `12px` |
+| `--radius-sm` | a button or a chip | `6px` |
+| `--radius-row` | a row, a field, a footer button | `8px` |
+| `--radius-md` | a card or a popover | `10px` |
+| `--radius-lg` | a panel, the composer | `12px` |
 | `--radius-xl` | a modal | `16px` |
 | `--radius-pill` | a pill or a knob | `999px` |
-| `--control-pill-height` | a pill in the row over the composer (`.control-pill`); `compact` sets `36px` | `32px` |
+| `--control-pill-height` | one pill of that row; 36px in compact | `32px` |
 | `--control-pill-icon` | its icon | `14px` |
 | `--motion-fast` | a hover or a chevron | `120ms` |
 | `--motion` | a row or a card arriving | `180ms` |
 | `--motion-slow` | a curtain | `320ms` |
 | `--ease` | the curve all three use | `cubic-bezier(.4, 0, .2, 1)` |
-| `--elevation-1` | a small float | `0 5px 18px var(--shadow-soft)` |
-| `--elevation-2` | a menu, a toast, a popover | `0 16px 40px var(--shadow)` |
-| `--elevation-3` | a modal | `0 40px 100px var(--shadow-strong)` |
 
 **Spacing**
 
@@ -3700,7 +3740,7 @@ their pixels until a visual pass moves them.
 
 | Name | What reads it | Unset |
 |---|---|---|
-| `--font-family-override`, `--font-size-override` | the interface face and size (core's preferences) | the system sans, `13px` |
+| `--font-family-override`, `--font-size-override` | the interface face and size (core's preferences) | Figtree (`--sans`), `13px` |
 | `--prompt-font-family`, `--prompt-font-size` | the composer's text | the interface face, `13px` |
 | `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
 | `data-density` | Appearance Kit's stylesheet, into `--density` | normal |

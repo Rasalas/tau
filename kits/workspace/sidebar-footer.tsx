@@ -1,5 +1,26 @@
 import { ArrowLeft, Settings } from "lucide-react";
-import { READ_ONLY_REASON, tooltipProps, useOpenPage, useWorkbenchShell, type WorkbenchActions } from "tau";
+import { READ_ONLY_REASON, tooltipProps, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
+
+const noBadge = () => undefined;
+
+/** A page's entry, with the count its kit reports (open pull requests, say). */
+function PageButton({ page, current, actions }: { page: PageContribution; current: boolean; actions: WorkbenchActions }) {
+  const count = (page.useBadge ?? noBadge)();
+  const label = count ? `${page.label}, ${count}` : page.label;
+  return (
+    <button
+      type="button"
+      className={current ? "active" : undefined}
+      aria-current={current ? "page" : undefined}
+      {...tooltipProps(label, { side: "top" })}
+      aria-label={label}
+      onClick={() => (current ? actions.closePage?.() : actions.openPage?.(page.id))}
+    >
+      {page.Icon ? <page.Icon size={15} /> : page.label.slice(0, 1)}
+      {count ? <span className="page-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span> : null}
+    </button>
+  );
+}
 
 /**
  * The sidebar's foot: Settings, then every app page a kit added, then the
@@ -21,22 +42,7 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
       <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
         <Settings size={15} />
       </button>
-      {pages.map((page) => {
-        const current = open?.id === page.id;
-        return (
-          <button
-            key={page.id}
-            type="button"
-            className={current ? "active" : undefined}
-            aria-current={current ? "page" : undefined}
-            {...tooltipProps(page.label, { side: "top" })}
-            aria-label={page.label}
-            onClick={() => (current ? actions.closePage?.() : actions.openPage?.(page.id))}
-          >
-            {page.Icon ? <page.Icon size={15} /> : page.label.slice(0, 1)}
-          </button>
-        );
-      })}
+      {pages.map((page) => <PageButton key={page.id} page={page} current={open?.id === page.id} actions={actions} />)}
       {commands.map((command) => (
         <button
           key={command.id}

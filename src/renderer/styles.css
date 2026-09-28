@@ -35,7 +35,7 @@ button > svg { pointer-events: none; }
 
 .spinner {
   width: 10px; height: 10px; flex: none;
-  border: 1.5px solid var(--working); border-top-color: transparent;
+  border: 1.5px solid var(--info); border-top-color: transparent;
   border-radius: 50%; animation: spin .9s linear infinite;
 }
 .spinner.acid { border-color: var(--acid-text); border-top-color: transparent; }
@@ -128,15 +128,25 @@ body.resizing-col .app-shell { transition: none; }
 
 /* ------------------------------------------------------------- titlebar */
 
+/*
+ * The rail and the dock run to the window's top edge: over them the bar takes
+ * their surface, over the conversation the document's ground, and only the
+ * middle has a hairline under it.
+ */
 .title-bar {
+  --title-left: var(--sidebar-width);
+  --title-right: calc(var(--dock-width) + 46px);
   grid-area: 1 / 1 / 2 / 4;
   -webkit-app-region: drag;
   display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--chrome);
+  background:
+    linear-gradient(var(--line), var(--line)) var(--title-left) 100% / calc(100% - var(--title-left) - var(--title-right)) 1px no-repeat,
+    linear-gradient(to right, var(--rail) var(--title-left), var(--stage) var(--title-left) calc(100% - var(--title-right)), var(--rail) calc(100% - var(--title-right)));
   z-index: 20;
 }
+.app-shell.no-dock > .title-bar { --title-right: 0px; }
+.app-shell:is(.sidebar-closed, .no-sidebar) > .title-bar { --title-left: 0px; }
 .title-bar button, .title-bar .menu-anchor, .title-bar form { -webkit-app-region: no-drag; }
 /* Over the sidebar, so the breadcrumb starts where the conversation does. */
 .title-lead { flex: none; display: flex; align-items: center; width: calc(var(--sidebar-width) - 2px); min-width: min-content; }
@@ -190,7 +200,7 @@ body.resizing-col .app-shell { transition: none; }
 .menu {
   position: absolute; z-index: 61; min-width: 200px;
   display: flex; flex-direction: column; padding: 6px;
-  border: 1px solid var(--line-float); border-radius: 10px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-md);
   background: var(--float); box-shadow: var(--elevation-2);
   animation: fade-up .12s ease;
 }
@@ -226,7 +236,7 @@ body.resizing-col .app-shell { transition: none; }
 .menu button {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: 0; border-radius: 7px; background: transparent;
-  color: var(--ink-2); font: 500 13px var(--sans);
+  color: var(--ink-2); font: 400 12.5px var(--sans);
   padding: 7px 10px; cursor: pointer;
 }
 .menu button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
@@ -269,48 +279,50 @@ body.resizing-col .app-shell { transition: none; }
 
 .thread-row {
   position: relative; display: flex;
-  border: 1px solid transparent; border-radius: 10px;
+  border: 1px solid transparent; border-radius: var(--radius-row);
 }
 .thread-row:hover { background: var(--hover); }
-.thread-row.active { border-color: var(--edge-line); background: var(--thread-active); }
+/* The open thread: the document area's ground, lifted out of the rail, no edge. */
+.thread-row.active { background: var(--thread-active); }
 /* 78 px at the default density, as T3 Code's card: 20 px project line, 18 px title, 16 px meta line. */
 .thread-main {
   flex: 1; min-width: 0; display: flex; flex-direction: column;
   border: 0; background: transparent; padding: calc(8px * var(--density)) var(--space-5);
   text-align: left; cursor: pointer;
 }
-.thread-project-line { display: flex; align-items: center; gap: 8px; height: 20px; }
+.thread-project-line { display: flex; align-items: center; gap: var(--space-3); height: 20px; font-size: var(--text-xs); }
 .thread-project-icon {
-  width: 16px; height: 16px; flex: none; display: grid; place-items: center;
-  border-radius: 5px; font: 500 10px var(--mono); font-style: normal;
+  width: 14px; height: 14px; flex: none; display: grid; place-items: center;
+  border-radius: 4px; font: 700 8.5px var(--sans); font-style: normal;
   background: var(--project-tint);
   color: var(--project-ink);
 }
 .thread-project-icon.has-image { overflow: hidden; background: transparent; }
 .thread-project-icon > img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .thread-project-line > strong {
-  flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--ink-3);
+  flex: 1; min-width: 0; font-size: var(--text-xs); font-weight: 600; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* The age as T3 Code shows it: the row's own face, tabular, muted; the same on a settled row. */
-.thread-project-line > time { font: 12px var(--sans); font-variant-numeric: tabular-nums; color: var(--faint); }
+.thread-project-line > time { font: var(--text-xs) var(--sans); font-variant-numeric: tabular-nums; color: var(--muted); }
 /* One triplet on every client: a run in blue with a spinner, a question in amber, done in green. */
 .thread-status-age {
-  display: inline-flex; align-items: center; gap: 6px; flex: none;
-  color: var(--info-ink); font-weight: 500; font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  color: var(--info-ink); font-size: var(--text-xs); font-weight: 400; font-variant-numeric: tabular-nums;
 }
 .thread-status-age.status-ready { color: var(--ready); }
-.thread-status-age.status-waiting { color: var(--warn); }
+.thread-status-age.status-waiting { color: var(--warn); font-weight: 600; }
 .thread-status-age.status-interrupted, .status-limited { color: var(--warn); }
 .thread-status-age.status-failed { color: var(--fail-ink); }
+/* The design's spinner: a pale ring with the ink's arc. */
 .thread-status-age > i {
-  width: 10px; height: 10px; flex: none; border: 1.5px solid var(--info);
-  border-top-color: transparent; border-radius: 50%; animation: spin .9s linear infinite;
+  width: 9px; height: 9px; flex: none; border: 1.5px solid color-mix(in srgb, var(--info) 35%, transparent);
+  border-top-color: var(--info-ink); border-radius: 50%; animation: spin .9s linear infinite;
 }
-.thread-status-age > time { min-width: 3ch; color: var(--stale); font: inherit; letter-spacing: 0; }
+.thread-status-age > time { min-width: 3ch; color: inherit; font: var(--text-xs) var(--mono); letter-spacing: 0; }
 /* Regular type; the open thread alone is set in semibold. */
 .thread-title {
-  margin-top: calc(4px * var(--density)); font-size: 13px; font-weight: 400; line-height: 18px;
+  margin-top: calc(4px * var(--density)); font-size: var(--text-md); font-weight: 400; line-height: 18px;
   color: var(--ink); letter-spacing: -.005em;
   display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -318,7 +330,7 @@ body.resizing-col .app-shell { transition: none; }
 /*
  * Right to left and wrapping into a clipped second line: when the card is narrow the
  * branch shrinks first, then the agent count and the kits' marks (a request badge) drop;
- * the machine, the cost and the provider mark stay, the cost cut short as a last resort.
+ * the machine and the provider marks stay. The cost is the hover card's.
  */
 .thread-meta-line {
   display: flex; flex-flow: row-reverse wrap; align-items: center; column-gap: 7px;
@@ -328,8 +340,8 @@ body.resizing-col .app-shell { transition: none; }
 .thread-meta-end { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; }
 .thread-meta-marks { flex: none; display: flex; align-items: center; gap: 7px; }
 .thread-branch {
-  flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 5px;
-  font: 11.5px var(--sans); color: var(--muted-2); overflow: hidden; white-space: nowrap;
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--space-3);
+  font: var(--text-xs) var(--sans); color: var(--muted); overflow: hidden; white-space: nowrap;
 }
 .thread-branch > svg { flex: none; color: var(--faint); }
 /* Threads an agent spawned live in the Agents panel; the rail only counts them. */
@@ -342,14 +354,7 @@ body.resizing-col .app-shell { transition: none; }
   background: var(--info); font-style: normal; animation: blink 1.4s ease-in-out infinite;
 }
 
-/* Quiet until the row is hovered or open. */
-.thread-cost-meta {
-  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 11px var(--mono); color: var(--faint);
-  opacity: .55; transition: opacity .12s ease;
-}
-.thread-row:hover .thread-cost-meta, .thread-row.active .thread-cost-meta { opacity: 1; }
-/* Another machine's thread: its mark right before the cost; this machine's threads carry none. */
+/* Another machine's thread: its mark before the provider marks; this machine's threads carry none. */
 .thread-machine { flex: none; display: grid; place-items: center; color: var(--muted); }
 .thread-machine > svg { display: block; }
 .thread-meta-end > .provider-icon-stack { margin-left: 0; }
@@ -471,7 +476,7 @@ body.resizing-col .app-shell { transition: none; }
 .conversation-drop-card {
   max-width: min(440px, 90%); padding: 18px 24px; display: flex; flex-direction: column;
   align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--acid-text) 48%, transparent); border-radius: 14px;
-  background: var(--drop-card); box-shadow: 0 14px 46px var(--shadow); text-align: center;
+  background: var(--drop-card); box-shadow: var(--elevation-2); text-align: center;
 }
 .conversation-drop-card strong { color: var(--ink); font-size: 15px; font-weight: 650; }
 .conversation-drop-card span { color: var(--ink-3); font: 11px/1.45 var(--sans); }
@@ -610,7 +615,7 @@ body.resizing-col .app-shell { transition: none; }
 .thread-title-trigger > svg { flex: none; color: var(--faint); }
 .thread-title-control > .menu {
   width: 292px; padding: 9px; border-radius: 16px; background: var(--float);
-  box-shadow: 0 20px 48px var(--shadow-strong);
+  box-shadow: var(--elevation-2);
 }
 .thread-title-control > .menu > .menu-section > button {
   min-height: 36px; padding: 7px 12px; border-radius: 8px; font-size: 14px;
@@ -637,7 +642,7 @@ body.resizing-col .app-shell { transition: none; }
   position: absolute; top: 12px; right: 24px; z-index: 10;
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;
   background: var(--float); border: 1px solid var(--line-strong);
-  border-radius: 8px; box-shadow: 0 4px 16px var(--shadow);
+  border-radius: 8px; box-shadow: var(--elevation-1);
   pointer-events: auto;
 }
 .transcript-search-bar input {
@@ -723,7 +728,7 @@ body.resizing-col .app-shell { transition: none; }
   display: grid; gap: 4px; padding: 10px 12px;
   border: 1px solid var(--line-card); border-radius: 11px;
   background: color-mix(in srgb, var(--raised) 94%, transparent); color: var(--ink-2);
-  box-shadow: 0 14px 36px var(--shadow-soft), inset 0 1px var(--edge-highlight);
+  box-shadow: var(--elevation-1), inset 0 1px var(--edge-highlight);
   text-align: left; pointer-events: none;
   animation: transcript-turn-preview-in 130ms cubic-bezier(.2, .8, .2, 1) both;
 }
@@ -841,9 +846,10 @@ body.resizing-col .app-shell { transition: none; }
   align-self: flex-end; max-width: 78%;
   display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
 }
+/* The user's own words in the accent's tint, the design's bubble. */
 .message.user .message-text {
-  background: var(--raised); border-radius: 14px 14px 4px 14px;
-  padding: 12px 16px; font-size: 13.5px; line-height: 1.6; color: var(--ink-prose);
+  background: var(--user-bubble); border-radius: 14px 14px 4px 14px;
+  padding: 9px 13px; font-size: 13.5px; line-height: 1.55; color: var(--user-bubble-ink);
   word-break: break-word;
 }
 .message-text-content.collapsed {
@@ -851,7 +857,7 @@ body.resizing-col .app-shell { transition: none; }
 }
 .message-text-content.collapsed::after {
   content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 2.8em;
-  background: linear-gradient(transparent, var(--raised)); pointer-events: none;
+  background: linear-gradient(transparent, var(--user-bubble)); pointer-events: none;
 }
 .message-expand {
   align-self: flex-end; border: 0; border-radius: 5px; padding: 2px 6px;
@@ -902,7 +908,7 @@ body.resizing-col .app-shell { transition: none; }
 .message-image-context-menu {
   position: fixed; z-index: 100; min-width: 132px; padding: 4px;
   border: 1px solid var(--line-control); border-radius: 8px; background: var(--raised);
-  box-shadow: 0 10px 28px var(--shadow); color: var(--ink-2);
+  box-shadow: var(--elevation-2); color: var(--ink-2);
 }
 .message-image-context-menu > button {
   width: 100%; padding: 7px 10px; border: 0; border-radius: 5px;
@@ -938,7 +944,8 @@ body.resizing-col .app-shell { transition: none; }
   font: 500 13px var(--sans); text-align: left; cursor: pointer;
 }
 .activity-disclosure > button:hover, .tool-activity-summary:hover { color: var(--ink-2); }
-.activity-disclosure.attention > button { color: var(--working); }
+/* A sub-agent waiting on the user: the question's amber. */
+.activity-disclosure.attention > button { color: var(--warn); }
 .activity-disclosure > button > span, .tool-activity-summary > span:not(.spinner) { flex: 1; }
 .activity-chevron { flex: none; color: var(--faint); transition: transform 120ms ease; }
 [aria-expanded="true"] > .activity-chevron { transform: rotate(90deg); }
@@ -977,14 +984,14 @@ body.resizing-col .app-shell { transition: none; }
 .markdown hr { margin: 16px 0; border: 0; height: 1px; background: var(--line); }
 
 .markdown :not(pre) > code {
-  font: 11.5px var(--mono); background: var(--raised);
-  border: 1px solid var(--line-control); border-radius: 5px;
-  padding: 1px 6px; color: var(--ink-2); word-break: break-word;
+  font: 11.5px var(--mono); background: var(--code-bg);
+  border: 1px solid transparent; border-radius: 5px;
+  padding: 1px 5px; color: var(--ink-2); word-break: break-word;
 }
 .markdown code.md-file-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: -1px; font: 500 12px var(--sans); word-break: normal; white-space: nowrap; }
 .md-file-chip > svg { color: var(--muted); }
 .message.user .markdown :not(pre) > code {
-  background: var(--line-control); border-color: transparent; color: var(--ink-2);
+  background: color-mix(in srgb, var(--user-bubble-ink) 9%, transparent); border-color: transparent; color: inherit;
 }
 
 .md-table-scroll { overflow-x: auto; margin: 0 0 12px; }
@@ -1033,17 +1040,17 @@ body.resizing-col .app-shell { transition: none; }
 /* ------------------------------------------------ folded and live work */
 
 /* A settled turn reads as one muted line; the log is one click behind it. */
-.work-fold { color: var(--faint); animation: fade-up 180ms ease-out; }
+.work-fold { color: var(--muted); animation: fade-up 180ms ease-out; }
 .work-fold-summary {
   display: flex; align-items: center; gap: 7px; width: 100%;
-  padding: 6px 2px; background: none; border: 0; cursor: pointer;
-  color: inherit; font: inherit; font-size: 12px; text-align: left;
+  padding: 6px 8px; margin-inline: -6px; background: none; border: 0; border-radius: var(--radius-row); cursor: pointer;
+  color: inherit; font: inherit; font-size: var(--text-sm); text-align: left;
 }
 .work-fold-summary > span { flex: 1; }
-.work-fold-summary:hover { color: var(--ink-2); }
+.work-fold-summary:hover { background: var(--wash-2); color: var(--ink-2); }
 .work-fold-summary > .activity-chevron { flex: none; opacity: .6; transition: transform 120ms ease; }
 .work-fold.expanded > .work-fold-summary > .activity-chevron { transform: rotate(90deg); }
-.work-fold-body { margin-left: 20px; padding-left: 8px; border-left: 1px solid var(--line-card); }
+.work-fold-body { margin-left: 20px; padding-left: 8px; border-left: 1px solid var(--line); }
 
 /* The one line a running turn shows; its key never changes, so it morphs. */
 .work-live { color: var(--muted); }
@@ -1084,10 +1091,11 @@ body.resizing-col .app-shell { transition: none; }
 }
 .tool-activity-summary > .tool-activity-status-icon.error { color: var(--removed); }
 .work-fold-summary > .tool-activity-status-icon { flex: none; display: inline-flex; color: var(--removed); }
-.tool-activity-summary > .tool-activity-status-icon.interrupted { color: var(--working); }
+.tool-activity-summary > .tool-activity-status-icon.interrupted { color: var(--warn); }
+/* The design's tool box: filled, edgeless. */
 .tool-activity-detail {
   margin: 5px 0 0 26px; overflow: hidden;
-  border: 1px solid var(--line-card); border-radius: 9px; background: var(--chrome);
+  border: 1px solid transparent; border-radius: var(--radius-md); background: var(--code-bg);
   transform-origin: top; animation: tool-detail-in 180ms ease-out;
 }
 @keyframes tool-detail-in {
@@ -1108,7 +1116,7 @@ body.resizing-col .app-shell { transition: none; }
 .tool-run-glyph { width: 16px; flex: none; text-align: center; font: 12px var(--mono); color: var(--muted); }
 .tone-read .tool-run-glyph { color: var(--cyan); }
 .tone-write .tool-run-glyph { color: var(--working); }
-.tone-shell .tool-run-glyph { color: var(--acid-text); }
+.tone-shell .tool-run-glyph { color: var(--ink-3); }
 .tool-run-name { font: 12px var(--mono); color: var(--ink-2); flex: none; }
 .tool-run-detail {
   flex: 1; min-width: 0; font: 12px var(--mono); color: var(--muted-2);
@@ -1123,7 +1131,7 @@ body.resizing-col .app-shell { transition: none; }
   margin: -5px 13px 0 39px; padding-bottom: 9px; font: 11.5px var(--mono); color: var(--removed);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tool-run-state.waiting { color: var(--acid-text); }
+.tool-run-state.waiting { color: var(--warn); }
 .tool-run-state.stalled { color: var(--faint); font-style: italic; }
 /* The stop control sits on the row's right edge and appears on hover or focus. */
 .tool-run.stoppable { position: relative; }
@@ -1250,13 +1258,14 @@ body.resizing-col .app-shell { transition: none; }
 }
 .composer-read-only svg { flex: none; }
 
+/* Filled and edgeless, as the design draws it; an edge shows only while answering a question. */
 .composer-frame {
   max-width: 780px; margin: 0 auto; position: relative;
-  border: 1px solid var(--line-field); border-radius: 12px;
-  background: var(--field); box-shadow: 0 10px 30px var(--shadow-soft);
+  border: 1px solid transparent; border-radius: var(--radius-lg);
+  background: var(--field);
 }
 .composer-frame.stacked { z-index: 2; margin-top: -9px; }
-.composer-frame:focus-within { border-color: var(--line-focus); }
+.composer-frame:focus-within { border-color: transparent; }
 .composer-attachment-error { padding: 7px 16px 0; color: var(--danger); font: 11px/1.4 var(--sans); }
 .composer-command-menu {
   position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px); max-height: 288px; overflow: auto;
@@ -1285,7 +1294,7 @@ body.resizing-col .app-shell { transition: none; }
 .vim-badge.normal { background: var(--acid); color: var(--acid-ink); }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
-  color: var(--ink); padding: calc(13px * var(--density)) var(--space-6) var(--space-3); line-height: 1.55;
+  color: var(--ink); padding: var(--space-5) calc(14px * var(--density)) var(--space-3); line-height: 1.55;
   font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
   outline: none; min-height: 46px; max-height: 220px; overflow-y: hidden;
 }
@@ -1294,7 +1303,7 @@ body.resizing-col .app-shell { transition: none; }
 .composer-frame textarea.mirrored { position: relative; z-index: 1; color: transparent; caret-color: var(--ink); }
 .composer-mirror {
   position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; box-sizing: border-box;
-  padding: calc(13px * var(--density)) var(--space-6) var(--space-3); line-height: 1.55; color: var(--ink);
+  padding: var(--space-5) calc(14px * var(--density)) var(--space-3); line-height: 1.55; color: var(--ink);
   font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
   font-weight: 400; font-style: normal; font-variant: normal; font-stretch: normal; letter-spacing: normal; word-spacing: normal;
   text-transform: none; text-indent: 0; tab-size: 8; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
@@ -1326,7 +1335,7 @@ body.resizing-col .app-shell { transition: none; }
 .composer-chip-title { margin: 0; color: var(--muted); font: 11px/1.45 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 96px; overflow: auto; }
 .composer-chip-preview { padding: 0; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken); cursor: zoom-in; overflow: hidden; }
 .composer-chip-preview img { display: block; width: 100%; max-height: 160px; object-fit: contain; }
-.composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) calc(10px * var(--density)) calc(10px * var(--density)) var(--space-5); }
+.composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-3) var(--space-3); }
 /* One row: blocks after the model drop their labels, then move into the overflow menu (ComposerFooterControls). */
 .composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .composer-block { flex: none; display: flex; align-items: center; }
@@ -1339,14 +1348,13 @@ body.resizing-col .app-shell { transition: none; }
 .composer-overflow-list { display: flex; flex-direction: column; gap: 2px; }
 .composer-overflow-list .runtime-chip { width: 100%; }
 .runtime-chip {
-  display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; white-space: nowrap;
-  background: transparent; color: var(--ink-3);
-  font: 500 12px var(--mono); padding: 5px 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; border: 0; border-radius: var(--radius-sm); white-space: nowrap;
+  background: transparent; color: var(--ink-2);
+  font: 400 var(--text-sm) var(--sans); padding: 4px 8px; cursor: pointer;
 }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
-.runtime-chip { font-family: var(--sans); font-size: 12.5px; }
 .attach-button {
-  width: 32px; height: 32px; flex: none; display: grid; place-items: center;
+  width: 28px; height: 28px; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
 }
 .attach-button:hover { background: var(--raised); color: var(--ink); }
@@ -1367,21 +1375,23 @@ body.resizing-col .app-shell { transition: none; }
 .attachment-lightbox figure > button {
   position: absolute; top: -14px; right: -14px; z-index: 1; width: 32px; height: 32px;
   display: grid; place-items: center; border: 1px solid var(--edge-highlight-strong); border-radius: 50%;
-  background: var(--raised-strong); color: var(--ink-2); cursor: pointer; box-shadow: 0 4px 18px var(--shadow);
+  background: var(--raised-strong); color: var(--ink-2); cursor: pointer; box-shadow: var(--elevation-1);
 }
 .send-button {
-  width: 34px; height: 34px; flex: none; border: 0; border-radius: 50%;
+  width: 28px; height: 28px; flex: none; border: 0; border-radius: 50%;
   background: var(--acid); color: var(--acid-ink);
   display: grid; place-items: center; cursor: pointer;
 }
+.send-button:not(:disabled, .stop):hover { background: var(--acid-strong); }
 .send-button:disabled { background: var(--raised); color: var(--faint); cursor: default; }
 .send-button.stop { background: var(--stop); }
 .send-button.stop > i { width: 11px; height: 11px; background: var(--stop-ink); border-radius: 2.5px; }
 .prompt-submit-button {
-  height: 34px; flex: none; display: flex; align-items: center; gap: 7px;
-  padding: 0 13px; border: 0; border-radius: 17px;
-  background: var(--acid); color: var(--acid-ink); font: 600 11.5px var(--sans); cursor: pointer;
+  height: 28px; flex: none; display: flex; align-items: center; gap: 5px;
+  padding: 0 12px; border: 0; border-radius: var(--radius-pill);
+  background: var(--acid); color: var(--acid-ink); font: 600 var(--text-md) var(--sans); cursor: pointer;
 }
+.prompt-submit-button:not(:disabled):hover { background: var(--acid-strong); }
 .prompt-submit-button:disabled { background: var(--raised); color: var(--faint); cursor: default; }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1576,10 +1586,11 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .prompt-arrival { display: contents; }
 .prompt-arrival.waiting > * { opacity: .55; transition: opacity .2s var(--ease); }
 .prompt-arrival-note { margin: 0; padding: 6px 12px 0; color: var(--muted); font: 11.5px/1.4 var(--sans); }
+/* The question and the composer under it read as one filled card, a hairline between them. */
 .extension-prompt {
   max-width: 780px; margin: 0 auto; padding: 11px 10px 8px;
-  border: 1px solid var(--line-card); border-bottom: 0;
-  border-radius: 12px 12px 0 0; background: var(--chrome);
+  border: 1px solid transparent; border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field);
 }
 .extension-prompt > header { display: flex; align-items: center; gap: 9px; padding: 0 4px 2px; }
 .extension-prompt > header > strong {
@@ -1656,7 +1667,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt > footer > button.primary:disabled { color: var(--fainter); border-color: var(--line-soft); background: transparent; cursor: default; }
 
 /* The composer becomes the answer field while a question is open. */
-.composer-frame.answering { border-color: var(--acid-line); }
+.composer-frame.answering { border-top-color: var(--line); }
 
 /* Rail marker for a thread that cannot continue without you: the question's amber, not the accent a selection uses. */
 .thread-row.activity-waiting { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
@@ -1892,7 +1903,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .review-scope { position: relative; margin-left: 18px; overflow: visible; }
 .review-scope-popover {
   position: absolute; z-index: 40; top: 34px; left: 0; width: 260px; display: flex; align-items: flex-start; gap: 8px;
-  padding: 9px 10px; border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: 0 12px 34px var(--shadow);
+  padding: 9px 10px; border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: var(--elevation-2);
   color: var(--removed); font: 10px/1.4 var(--mono);
 }
 .review-scope-popover > span { flex: 1; }
@@ -2081,7 +2092,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .changes-action-popover {
   position: absolute; z-index: 30; right: 5px; bottom: 32px; width: 188px;
   display: flex; flex-direction: column; gap: 4px; padding: 10px;
-  border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: 0 12px 34px var(--shadow);
+  border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: var(--elevation-2);
 }
 .changes-action-popover strong { color: var(--ink); font: 600 11px var(--sans); }
 .changes-action-popover small { color: var(--faint); font: 9.5px var(--mono); }
@@ -2168,7 +2179,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .project-picker-context-menu {
   position: fixed; z-index: 83; width: 204px; padding: 5px;
   border: 1px solid var(--line-float); border-radius: 10px;
-  background: var(--stage); box-shadow: 0 18px 48px var(--shadow-strong);
+  background: var(--stage); box-shadow: var(--elevation-2);
   animation: fade-up .1s ease;
 }
 .project-picker-context-menu > button {
@@ -2282,7 +2293,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 .thread-tree-node:not(.on-branch) { color: var(--faint); }
 .thread-tree-node > i { display: inline-flex; flex: none; opacity: 0.7; }
 .thread-tree-node > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-tree-node > small { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--working); font-weight: 500; }
+.thread-tree-node > small { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--info-ink); font-weight: 500; }
 .thread-tree-label { margin-right: 6px; padding: 1px 5px; border-radius: 4px; background: var(--acid-chip); font-weight: 600; font-size: 11px; }
 .thread-tree-error { margin: 0; padding: 8px 14px; color: var(--danger); font: 12px var(--sans); }
 .thread-tree-empty { padding: 14px; color: var(--faint); font: 12px var(--sans); }
@@ -2297,7 +2308,8 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .folder-browser-results > button:hover, .folder-browser-results > button.selected { background: var(--raised); }
 
-/* Reload is a full lifecycle boundary, so the curtain hides stale UI until the new bundle owns the window. */
+/* Reload is a full lifecycle boundary, so the curtain hides stale UI until the new bundle owns the window.
+   It is Tau's splash, so it wears the mark's lime (`--brand`), not the accent. */
 .reload-curtain {
   position: fixed; inset: 0; z-index: 1000;
   display: grid; place-content: center; justify-items: center;
@@ -2309,31 +2321,31 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .reload-curtain::before {
   content: ""; position: absolute; inset: -20%; opacity: .2;
-  background: repeating-radial-gradient(circle at center, transparent 0 42px, color-mix(in srgb, var(--acid) 4%, transparent) 43px 44px);
+  background: repeating-radial-gradient(circle at center, transparent 0 42px, color-mix(in srgb, var(--brand) 4%, transparent) 43px 44px);
   animation: reload-field 4s ease-in-out infinite;
 }
 .reload-mark { position: relative; width: 176px; height: 176px; margin-bottom: 34px; }
 .reload-orbit, .reload-pulse, .reload-constant { position: absolute; border-radius: 50%; }
-.reload-orbit { border: 1px solid color-mix(in srgb, var(--acid-text) 25%, transparent); }
+.reload-orbit { border: 1px solid color-mix(in srgb, var(--brand-ink) 25%, transparent); }
 .reload-orbit::after {
   content: ""; position: absolute; left: 50%; top: -4px;
   width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%;
-  background: var(--acid); box-shadow: 0 0 18px var(--acid-glow);
+  background: var(--brand); box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 73%, transparent);
 }
 .reload-orbit-outer { inset: 0; border-left-color: transparent; animation: reload-orbit 4.8s linear infinite; }
 .reload-orbit-inner { inset: 22px; border-right-color: transparent; animation: reload-orbit 3.2s linear infinite reverse; }
 .reload-pulse {
-  inset: 39px; background: color-mix(in srgb, var(--acid) 7%, transparent); border: 1px solid color-mix(in srgb, var(--acid) 14%, transparent);
-  box-shadow: 0 0 52px color-mix(in srgb, var(--acid) 9%, transparent); animation: reload-breathe 1.55s cubic-bezier(.4, 0, .2, 1) infinite;
+  inset: 39px; background: color-mix(in srgb, var(--brand) 7%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 14%, transparent);
+  box-shadow: 0 0 52px color-mix(in srgb, var(--brand) 9%, transparent); animation: reload-breathe 1.55s cubic-bezier(.4, 0, .2, 1) infinite;
 }
 .reload-constant {
   inset: 50px; display: grid; place-content: center; justify-items: center;
-  border: 1px solid var(--acid-line); background: var(--reload-panel);
-  box-shadow: inset 0 0 24px color-mix(in srgb, var(--acid) 4%, transparent), 0 12px 45px var(--shadow-strong);
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); background: var(--reload-panel);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--brand) 4%, transparent), 0 12px 45px var(--shadow-strong);
 }
-.reload-constant strong { color: var(--acid-text); font: 300 43px/38px Georgia, serif; }
+.reload-constant strong { color: var(--brand-ink); font: 300 43px/38px Georgia, serif; }
 .reload-constant small { margin-top: 5px; color: var(--muted); font: 500 9px var(--mono); letter-spacing: .16em; }
-.reload-curtain p { position: relative; margin: 0 0 8px; color: var(--acid-text); font-weight: 600; }
+.reload-curtain p { position: relative; margin: 0 0 8px; color: var(--brand-ink); font-weight: 600; }
 .reload-curtain h2 { position: relative; margin: 0; color: var(--ink-2); font: 400 15px var(--sans); }
 .reload-ellipsis { display: inline-block; width: 12px; color: var(--muted); animation: blink 1s ease-in-out infinite; }
 @keyframes reload-orbit { to { transform: rotate(360deg); } }
