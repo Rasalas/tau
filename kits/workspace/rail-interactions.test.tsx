@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
+import { runPaletteCommand } from "../../src/renderer/test-support/palette.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
@@ -97,7 +98,8 @@ describe("rail selection", () => {
     fireEvent.contextMenu(row("c"));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Settle (2)" }));
     await waitFor(() => expect(organizer.runBulkMenu).toHaveBeenCalledWith([expect.objectContaining({ id: "a" }), expect.objectContaining({ id: "c" })], "settle", expect.anything()));
-    expect(selectedIds()).toEqual([]);
+    // The run starts before the render that ends the selection.
+    await waitFor(() => expect(selectedIds()).toEqual([]));
 
     fireEvent.click(main("a"), { metaKey: true });
     fireEvent.click(main("b"), { metaKey: true });
@@ -179,12 +181,7 @@ describe("the rest of the rail", () => {
 
   it("opens the thread's Project settings from the command palette", async () => {
     await renderRail([shell("a", 0)]);
-    const mac = /mac|iphone|ipad/iu.test(navigator.platform);
-    fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
-    const palette = await screen.findByRole("dialog", { name: "Command palette" });
-    const input = within(palette).getByRole("textbox", { name: "Command" });
-    fireEvent.change(input, { target: { value: "Project settings" } });
-    fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+    await runPaletteCommand("Project settings");
     const dialog = await screen.findByRole("dialog", { name: "Project settings" });
     expect(within(dialog).getByText("/project")).toBeTruthy();
   });

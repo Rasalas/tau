@@ -667,7 +667,10 @@ describe("a thread a provider limit stopped", () => {
     expect(document.querySelector(".turn-error-line")).toBeNull();
     fireEvent.click(within(notice).getByRole("button", { name: "Resume at reset" }));
     await waitFor(() => expect(resumeLimited).toHaveBeenCalledWith("session", "reset"));
-    fireEvent.click(within(notice).getByRole("button", { name: "Resume now" }));
+    // The buttons stay disabled until the host has answered the first request.
+    const now = within(notice).getByRole("button", { name: "Resume now" }) as HTMLButtonElement;
+    await waitFor(() => expect(now.disabled).toBe(false));
+    fireEvent.click(now);
     await waitFor(() => expect(resumeLimited).toHaveBeenCalledWith("session", "now"));
   });
 });

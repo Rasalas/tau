@@ -45,7 +45,8 @@ describe("Settings → Connections → Background", () => {
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
 
     await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau’s host runs as a service"));
-    expect(screen.getByText("Running · Tau 0.4.0")).toBeTruthy();
+    // The notice goes out before the section draws the new status.
+    expect(await screen.findByText("Running · Tau 0.4.0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Uninstall…" })).toBeTruthy();
   });
 
@@ -134,7 +135,7 @@ describe("Settings → Connections → Background, invisible display", () => {
 
     await waitFor(() => expect(notify).toHaveBeenCalledWith("The invisible display is removed"));
     expect(installService).toHaveBeenCalledWith({ display: false });
-    expect(screen.getByRole("button", { name: "Add…" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Add…" })).toBeTruthy();
   });
 
   it("adds the AppArmor profile the display's window needs with a button, not a command to copy", async () => {
@@ -148,7 +149,7 @@ describe("Settings → Connections → Background, invisible display", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add AppArmor profile…" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("The window on the invisible display can start now"));
     expect(allowServiceSandbox).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "Add AppArmor profile…" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add AppArmor profile…" })).toBeNull());
   });
 
   it("says why the profile could not be added", async () => {

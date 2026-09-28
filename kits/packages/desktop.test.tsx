@@ -95,7 +95,8 @@ describe("Packages kit", () => {
     fireEvent.click(install);
     await waitFor(() => expect(notify).toHaveBeenCalledWith("installed"));
     expect(invoke).toHaveBeenCalledWith("install", { source: "./ext/hello", scope: "project" });
-    expect((screen.getByRole("textbox", { name: "Package source" }) as HTMLInputElement).value).toBe("");
+    // The notice goes out before the render that empties the field.
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Package source" }) as HTMLInputElement).value).toBe(""));
   });
 
   it("installs on Return, and says under the field why an install failed", async () => {

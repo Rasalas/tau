@@ -110,7 +110,7 @@ describe("Codex desktop extension", () => {
     render(<CodexProviderCard onNotify={onNotify} host={host(invoke)} instance="work" instances={instances} />);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: false, instance: "work" }));
     expect(await screen.findByText("home ~/.codex-work")).toBeTruthy();
-    expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "work" });
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "work" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove…" }));
     expect(screen.getByRole("dialog", { name: "Remove “Codex · Work”?" }).textContent).toMatch(/Its 3 threads leave the thread list/u);
     fireEvent.click(screen.getByRole("button", { name: "Remove instance" }));
