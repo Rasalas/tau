@@ -8,9 +8,9 @@ import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { createRunOnControl } from "./run-on.js";
+import { branchSection, createDraftMachine, createRunOnControl, runOnDetail } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
-import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { BRANCH_SECTION_SERVICE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -238,14 +238,60 @@ describe("Run on", () => {
     expect(environments.open).not.toHaveBeenCalled();
   });
 
-  it("is not offered for a started thread, nor with one machine", () => {
+  it("leads every new thread, one machine too, and is not offered for a started thread", () => {
     const one = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
     const Control = createRunOnControl(one.environments);
     const { container, rerender } = render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
-    expect(container.innerHTML).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(screen.getByRole("menuitem", { name: /laptop/u }).textContent).toContain("this machine · idle");
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
     const two = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Started = createRunOnControl(two.environments);
     rerender(<Started actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} snapshot={{ messages: [{ id: "m" }], isStreaming: false } as never} />);
+    expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("Run on, as in the design", () => {
+  afterEach(() => branchSection.set(undefined));
+
+  it("says per machine whether it is this one, online or offline, and how busy", () => {
+    expect(runOnDetail(laptop, 0)).toBe("this machine · idle");
+    expect(runOnDetail(studio, 0)).toBe("online · 1 running");
+    expect(runOnDetail(machine("box"), 0)).toBe("online · idle");
+    expect(runOnDetail(attic, 60_000)).toBe(statusText(attic, 60_000));
+  });
+
+  it("draws Workspace Kit's Branch section under the machines, for a draft only", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const { registry } = createKitHarness(undefined, undefined, { environments });
+    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => {
+      context.provideService(BRANCH_SECTION_SERVICE, { Section: () => <input aria-label="Branch name" /> });
+    } });
+    registry.activate(environmentsExtension);
+    const control = registry.getComposerControls().find((entry) => entry.id === "environments.run-on");
+    expect(control?.placement).toBe("lead");
+    const Control = control!.Component;
+    const draft = fakeActions({ activeThread: () => ({ draftPending: true }) });
+    const { rerender } = render(<Control actions={draft} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    const field = screen.getByRole("textbox", { name: "Branch name" });
+    // Typing stays in the field: the menu's typeahead must not take the keys.
+    const key = new KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true });
+    field.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    rerender(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    expect(screen.queryByRole("textbox", { name: "Branch name" })).toBeNull();
+  });
+
+  it("names a new thread's machine in the header, and nothing for a running thread", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const Machine = createDraftMachine(environments);
+    const { container, rerender } = render(<Machine actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
+    expect(container.textContent).toBe("laptop");
+    rerender(<Machine actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} />);
     expect(container.innerHTML).toBe("");
   });
 });

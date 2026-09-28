@@ -67,3 +67,7 @@
   border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 1.5px var(--raised);
 }
 .machine-runtime.not-installed::after, .machine-runtime.checking::after { background: var(--faint); }
+/* "Run on" with the new thread's Branch section under the machines (design 1k). */
+.menu:has(> .run-on-branch) { width: min(400px, calc(100vw - 24px)); }
+.run-on-branch { margin: 0 -6px -6px; }
+.run-on-branch > hr { margin: 6px 10px 0; }
