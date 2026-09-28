@@ -51,6 +51,8 @@ body[data-profile="compact"] .title-bar {
 body[data-profile="compact"] .window-controls-inset { display: none; }
 body[data-profile="compact"] .title-bar .chrome-ghost.glyph { width: 44px; height: 44px; border-radius: 12px; }
 body[data-profile="compact"] .title-bar .chrome-ghost.glyph > svg { width: 20px; height: 20px; }
+/* The phone's bar is one line of details under the title (design 1n): they give way, never wrap out of the bar. */
+body[data-profile="compact"] .title-bar .thread-details { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; font-size: var(--text-xs); }
 
 /* On a phone the chat is the whole centre: no stage column, no split. */
 body[data-profile="compact"] .app-shell:not(.touch-split) .workbench-center { display: flex; flex-direction: column; }
