@@ -68,6 +68,7 @@ export class ComposerScopeStore {
   private readonly activeSubmissionHandles = new Map<ComposerScope, SubmissionHandle>();
   private readonly submissionScopeRefs = new Map<SubmissionHandle | Promise<SubmissionHandle>, { scope: ComposerScope }>();
   private readonly operationScopeRefs = new Set<ComposerScopeReference>();
+  private readonly moveListeners = new Set<(from: ComposerScope, to: ComposerScope) => void>();
 
   private nextSubmissionId = 0;
 
@@ -118,9 +119,16 @@ export class ComposerScopeStore {
     };
   }
 
+  /** Hears every `moveScope`, whether or not the scope held anything; a draft becoming its thread is one. */
+  onMove(listener: (from: ComposerScope, to: ComposerScope) => void): () => void {
+    this.moveListeners.add(listener);
+    return () => { this.moveListeners.delete(listener); };
+  }
+
   /** Move a pending draft atomically when a correlated new thread gets an id. */
   moveScope(from: ComposerScope, to: ComposerScope): void {
     if (from === to) return;
+    for (const listener of [...this.moveListeners]) listener(from, to);
     const source = this.states.get(from);
     if (!source) return;
     const destination = this.states.get(to);

@@ -460,10 +460,22 @@ is the whole of the above as one file; Terminal Kit's "open as tab" is the
 shipped caller, and Review Kit's pull-request view (`review.pull-request`,
 params `{ url, number, service, workspace? }`) the second.
 
+**Stage tabs belong to a thread.** Each thread and each draft has its own
+stage (new in API 1.26.0): switching threads shows the tabs, the active one and
+the maximize that thread was left with, across restarts, and a new thread
+starts with none. Hiding a thread's stage unmounts your tab's content, like
+any tab behind another, but does not close it: `onClose` does not run and the
+handle stays, so keep what must outlive the view (a shell, a page, unsaved
+text) outside the component, as Terminal Kit keeps its shells in the host and
+Files Kit its buffers in a registry. `actions.stageTabs()`, `openStageTab` and
+`closeStageTab` act on the stage on screen. The same tab id can sit on two
+threads' stages; closing it on one runs its `onClose` listeners, and the other
+thread's tab gets a fresh handle and `restore` when it is shown again.
+
 Core's file tabs are loaded by the document source a kit registers
-(`registerDocumentSource`; Workspace Kit's in Tau). The stage is kept per
-project, and the project a draft shows need not be the one the host has open,
-so core calls `loadFile(path, { workspace })` and `loadDiff(path, options,
+(`registerDocumentSource`; Workspace Kit's in Tau). A stage belongs to a
+thread or draft of one project, and the project a draft shows need not be the
+one the host has open, so core calls `loadFile(path, { workspace })` and `loadDiff(path, options,
 { workspace })` with the stage's project: its workspace id, or its path where
 the host mints none (new in API 1.26.0). A source reads that project; without
 the argument it reads the project it follows. A file or project that is gone

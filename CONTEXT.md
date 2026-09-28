@@ -48,7 +48,7 @@ The persisted runtime record that backs a thread. Pi provides the sessions of Pi
 
 ## Stage
 
-The document area of the workbench beside the conversation. It shows workspace files as tabs, each as source or as its working-tree diff, so a person can read what the agent touches without leaving the thread. Beside the conversation it shares the centre with at most one other tool; maximized, or in a centre too narrow for both, it fills the centre and the conversation becomes its first, pinned tab.
+The document area of the workbench beside the conversation. It shows workspace files as tabs, each as source or as its working-tree diff, so a person can read what the agent touches without leaving the thread. Beside the conversation it shares the centre with at most one other tool; maximized, or in a centre too narrow for both, it fills the centre and the conversation becomes its first, pinned tab. Each thread and each draft has its own stage: switching back to a thread shows what was left there.
 
 ## Stage tab
 

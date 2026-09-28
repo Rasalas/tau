@@ -213,8 +213,7 @@ describe("WorkbenchSession", () => {
   });
 
   it("carries the live composer draft across project navigation without a DOM reader", () => {
-    const onProjectChange = vi.fn();
-    const session = new WorkbenchSession({ storage: createMemoryStorage(), onProjectChange });
+    const session = new WorkbenchSession({ storage: createMemoryStorage() });
     session.newThread.begin({ ...pending, draft: "older persisted text" });
     session.scopes.setDraft(createDraftKey(draftKey(undefined, pending)), "latest typed text");
 
@@ -224,10 +223,8 @@ describe("WorkbenchSession", () => {
     ] });
 
     expect(session.scopes.getSnapshot(createDraftKey(draftKey("destination"))).draft).toBe("latest typed text");
-    expect(onProjectChange).toHaveBeenCalledOnce();
     session.applyHostResult({ version: HOST_PROTOCOL_VERSION, updates: [detail("another", { messages: [], isStreaming: false })] }, false);
     expect(session.scopes.getSnapshot(createDraftKey(draftKey("another"))).draft).toBe("");
-    expect(onProjectChange).toHaveBeenCalledOnce();
   });
 
   it("turns a rejected notification promise into a session notice", async () => {

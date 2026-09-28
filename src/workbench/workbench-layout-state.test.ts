@@ -8,12 +8,17 @@ import {
   pruneStageState,
   readDockState,
   readStageState,
+  mergeDock,
   shownPanel,
+  takeProjectLayout,
   writeDockState,
-  writeStageState,
 } from "./workbench-layout-state";
 
 const workspace = "workspace-1";
+
+function writeStageState(storage: ReturnType<typeof createMemoryStorage>, key: string, stage: StageState): void {
+  storage.set(stageStateKey(key), JSON.stringify(stage));
+}
 
 describe("stage persistence", () => {
   it("round-trips tabs and the active one", () => {
@@ -26,13 +31,8 @@ describe("stage persistence", () => {
     expect(readStageState(storage, workspace)).toEqual(stage);
   });
 
-  it("starts empty for a workspace it has not seen, and forgets an emptied stage", () => {
-    const storage = createMemoryStorage();
-    expect(readStageState(storage, workspace)).toEqual(EMPTY_STAGE);
-
-    writeStageState(storage, workspace, openFileTab(EMPTY_STAGE, "/repo/a.ts"));
-    writeStageState(storage, workspace, EMPTY_STAGE);
-    expect(storage.get(stageStateKey(workspace))).toBeNull();
+  it("starts empty for a workspace it has not seen", () => {
+    expect(readStageState(createMemoryStorage(), workspace)).toEqual(EMPTY_STAGE);
   });
 
   it("keeps a tab kind it does not know and drops one it cannot read", () => {
@@ -123,25 +123,43 @@ describe("pruneStageState", () => {
 });
 
 describe("dock persistence", () => {
-  it("round-trips which panels are open and how wide the dock is", () => {
+  it("keeps the project's part of the dock: mounted panels, the last pick and the width", () => {
     const storage = createMemoryStorage();
-    writeDockState(storage, workspace, { open: true, activePanel: "tau.agents", openedPanels: ["tau.agents", "tau.terminal"], width: 380 });
+    writeDockState(storage, workspace, { open: true, activePanel: "tau.agents", openedPanels: ["tau.agents", "tau.terminal"], width: 380, drawer: "terminal" });
 
     expect(readDockState(storage, workspace)).toEqual({
-      open: true, activePanel: "tau.agents", openedPanels: ["tau.agents", "tau.terminal"], width: 380,
+      open: false, activePanel: "tau.agents", openedPanels: ["tau.agents", "tau.terminal"], width: 380,
     });
   });
 
-  it("keeps which drawer panel was open, and drops a drawer that is not a panel id", () => {
+  it("puts a thread's open dock and drawer over its project's, and starts a thread without one closed", () => {
+    const project = { open: false, activePanel: "files", openedPanels: ["files"], width: 380 };
+    expect(mergeDock(project, { open: true, activePanel: "terminal", drawer: "logs" })).toEqual({
+      open: true, activePanel: "terminal", openedPanels: ["files"], width: 380, drawer: "logs",
+    });
+    expect(mergeDock(project, undefined)).toEqual({ open: false, activePanel: "files", openedPanels: ["files"], width: 380 });
+  });
+
+  it("drops a drawer that is not a panel id", () => {
     const storage = createMemoryStorage();
-    writeDockState(storage, workspace, { open: false, openedPanels: [], drawer: "terminal" });
-    expect(readDockState(storage, workspace).drawer).toBe("terminal");
     storage.set(`tau.dock.v1:${workspace}`, JSON.stringify({ open: false, openedPanels: [], drawer: 3 }));
     expect(readDockState(storage, workspace)).toEqual(EMPTY_DOCK);
   });
 
   it("starts closed for a workspace it has not seen", () => {
     expect(readDockState(createMemoryStorage(), workspace)).toEqual(EMPTY_DOCK);
+  });
+
+  it("hands the project's old stage, open dock and drawer over once, and keeps them until then", () => {
+    const storage = createMemoryStorage();
+    const stage = openFileTab(EMPTY_STAGE, "src/a.ts", { pin: true });
+    writeStageState(storage, workspace, stage);
+    storage.set(`tau.dock.v1:${workspace}`, JSON.stringify({ open: true, activePanel: "files", openedPanels: ["files"], drawer: "terminal" }));
+    writeDockState(storage, workspace, { open: false, activePanel: "files", openedPanels: ["files"], width: 300 });
+
+    expect(takeProjectLayout(storage, workspace)).toEqual({ stage, dock: { open: true, activePanel: "files", drawer: "terminal" } });
+    expect(JSON.parse(storage.get(`tau.dock.v1:${workspace}`) ?? "{}")).toEqual({ activePanel: "files", openedPanels: ["files"], width: 300 });
+    expect(takeProjectLayout(storage, workspace)).toBeUndefined();
   });
 });
 

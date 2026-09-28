@@ -7,7 +7,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import {
-  createMemoryStorage, createNewThreadDraft, setClientStorage, setHostClient, stageStateKey, writeNewThreadDraft,
+  createMemoryStorage, createNewThreadDraft, setClientStorage, setHostClient, stageOwner, threadStageKey, writeNewThreadDraft,
 } from "../../src/renderer/test-support/kit-harness.js";
 import filesExtension from "./desktop.js";
 import { FILE_EDITOR_TAB, FILES_KIT_ID } from "./protocol.js";
@@ -27,9 +27,10 @@ const projectB = { path: "/project-b", workspaceId: "ws-b", name: "project-b", l
  */
 function restartedOnAnotherProject() {
   const storage = createMemoryStorage();
-  writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: projectB.path, workspaceId: projectB.workspaceId, projectName: projectB.name }));
+  const draft = createNewThreadDraft({ projectPath: projectB.path, workspaceId: projectB.workspaceId, projectName: projectB.name });
+  writeNewThreadDraft(storage, draft);
   const tab = { id: `ext:${FILE_EDITOR_TAB}:${PATH}`, kind: "extension", tabKind: FILE_EDITOR_TAB, params: { path: PATH }, title: "same.ts", preview: false };
-  storage.set(stageStateKey(projectB.workspaceId), JSON.stringify({ tabs: [tab], activeId: tab.id }));
+  storage.set(threadStageKey(stageOwner(undefined, draft)!), JSON.stringify({ tabs: [tab], activeId: tab.id }));
 
   const disk: Record<string, Record<string, string>> = { "ws-a": { [PATH]: "export const a = 1;\n" }, "ws-b": { [PATH]: "export const b = 1;\n" } };
   const calls: Array<{ command: string; workspace?: string }> = [];

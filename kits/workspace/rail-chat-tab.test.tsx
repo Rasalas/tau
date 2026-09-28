@@ -85,7 +85,7 @@ async function openTerminal(): Promise<HTMLElement> {
 const selected = (stage: HTMLElement, name: string | RegExp) => within(stage).getByRole("tab", { name }).getAttribute("aria-selected");
 
 describe("picking a thread in the rail while the centre shows tabs", () => {
-  it("brings the chat tab forward for another thread and for the one on screen, and keeps the terminal open", async () => {
+  it("brings the chat tab forward for another thread and for the one on screen; each thread keeps its own terminal tab", async () => {
     setWindowWidth(1000);
     const { pick, center, switchSession } = await renderRail();
     const stage = await openTerminal();
@@ -96,13 +96,19 @@ describe("picking a thread in the rail while the centre shows tabs", () => {
     expect(selected(stage, "Chat")).toBe("true");
     expect(center()).toContain("chat-focused");
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/b.jsonl"));
-    expect(within(stage).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
+    // Thread b has a stage of its own, and nothing on it yet.
+    await waitFor(() => expect(screen.queryByRole("tab", { name: /Terminal/ })).toBeNull());
 
-    fireEvent.click(within(stage).getByRole("tab", { name: /Terminal/ }));
-    expect(selected(stage, "Chat")).toBe("false");
+    const stageB = await openTerminal();
+    fireEvent.click(within(stageB).getByRole("tab", { name: /Terminal/ }));
+    expect(selected(stageB, "Chat")).toBe("false");
     pick("b");
-    expect(selected(stage, "Chat")).toBe("true");
+    expect(selected(stageB, "Chat")).toBe("true");
     await waitFor(() => expect(switchSession).toHaveBeenCalledTimes(2));
+
+    pick("a");
+    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/a.jsonl"));
+    expect(within(await screen.findByRole("region", { name: "Stage" })).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
   });
 
   it("keeps a maximized tool maximized and only changes the front tab", async () => {
@@ -125,7 +131,7 @@ describe("picking a thread in the rail while the centre shows tabs", () => {
     const { pick, center } = await renderRail();
     const stage = await openTerminal();
     expect(center()).not.toContain("compact");
-    pick("b");
+    pick("a");
     expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
     expect(selected(stage, /Terminal/)).toBe("true");
 
@@ -170,10 +176,9 @@ function pressNewThreadShortcut(key = "n", shiftKey = false): void {
 }
 
 describe("starting a new thread while the centre shows tabs", () => {
-  it("brings the draft's chat forward and focuses its composer from the shortcut, the rail, the palette, the title bar and the start card", async () => {
+  it("shows the draft's chat with a stage of its own and focuses its composer from the shortcut, the rail, the palette, the title bar and the start card", async () => {
     setWindowWidth(1000);
     await renderRail();
-    const stage = await openTerminal();
 
     // ⌘N, the rail and the palette open in the project on screen; ⇧⌘O and "New thread in…" ask.
     const starts: Array<() => Promise<void>> = [
@@ -185,19 +190,19 @@ describe("starting a new thread while the centre shows tabs", () => {
       async () => { fireEvent.click(await screen.findByRole("button", { name: "New thread in project" })); },
     ];
     for (const start of starts) {
+      const stage = await openTerminal();
       fireEvent.click(within(stage).getByRole("tab", { name: /Terminal/ }));
       (document.activeElement as HTMLElement | null)?.blur();
       expect(selected(stage, "Chat")).toBe("false");
 
       await start();
-      expect(selected(stage, "Chat")).toBe("true");
       expect(startScreenShown()).toBe(true);
       expect(composerFocused()).toBe(true);
-      expect(within(stage).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
+      // A new draft starts with nothing beside its chat.
+      expect(screen.queryByRole("region", { name: "Stage" })).toBeNull();
     }
 
     // The start card's project button sits in the chat itself.
-    fireEvent.click(within(stage).getByRole("tab", { name: "Chat" }));
     (document.activeElement as HTMLElement | null)?.blur();
     fireEvent.click(screen.getByRole("button", { name: /^Change project/ }));
     await pickProjectWithEnter();
@@ -205,19 +210,26 @@ describe("starting a new thread while the centre shows tabs", () => {
     expect(composerFocused()).toBe(true);
   });
 
-  it("keeps a maximized tool maximized", async () => {
+  it("starts the draft without the maximized tool, which its thread keeps", async () => {
     setWindowWidth(1728);
-    await renderRail();
+    const { pick } = await renderRail();
     fireEvent.click(await screen.findByRole("button", { name: "Diffs" }));
     fireEvent.click(await screen.findByRole("button", { name: "Maximize Diffs" }));
-    const stage = await screen.findByRole("region", { name: "Stage" });
-    expect(selected(stage, "Chat")).toBe("false");
+    expect(selected(await screen.findByRole("region", { name: "Stage" }), "Chat")).toBe("false");
 
     pressNewThreadShortcut();
-    expect(selected(stage, "Chat")).toBe("true");
-    expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("region", { name: "Stage" })).toBeNull();
     expect(startScreenShown()).toBe(true);
     expect(composerFocused()).toBe(true);
+    // A tab opened beside the draft's chat puts documents in front.
+    await openTerminal();
+
+    pick("a");
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(within(stage).getByRole("tab", { name: /Diffs/ })).toBeTruthy());
+    expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+    // Picked from a draft with its documents in front: the thread's chat comes to the front, not the tool.
+    expect(selected(stage, "Chat")).toBe("true");
   });
 });
 

@@ -3,9 +3,9 @@ import { EMPTY_STAGE, type StageState, type StageTab } from "./stage";
 import { dockStateKey, stageStateKey } from "./storage-keys";
 
 /**
- * What a window puts back when it opens on a workspace it has seen before:
- * the stage's tabs and the dock's panels. Pure, so the pruning rules can be
- * tested without a window.
+ * What a window puts back when it shows a thread or project it has seen
+ * before: the stage's tabs and the dock's panels. Pure, so the pruning rules
+ * can be tested without a window.
  *
  * The stage format is deliberately generic — a tab is stored the way it is
  * held, with only `id`, `kind` and `preview` required, so a kind added later
@@ -22,6 +22,33 @@ export interface DockState {
 }
 
 export const EMPTY_DOCK: DockState = { open: false, openedPanels: [] };
+
+/** The part of the dock each thread keeps: whether it is open, what it shows, and the drawer. */
+export interface ThreadDockState {
+  open: boolean;
+  activePanel?: string;
+  drawer?: string;
+}
+
+export function threadDock(dock: DockState): ThreadDockState {
+  return {
+    open: dock.open,
+    ...(dock.activePanel ? { activePanel: dock.activePanel } : {}),
+    ...(dock.drawer ? { drawer: dock.drawer } : {}),
+  };
+}
+
+/** A thread's dock over its project's: a thread that kept none starts closed, on the panel last picked in the project. */
+export function mergeDock(project: DockState, thread: ThreadDockState | undefined): DockState {
+  const activePanel = thread?.activePanel ?? project.activePanel;
+  return {
+    open: thread?.open ?? false,
+    openedPanels: project.openedPanels,
+    ...(activePanel ? { activePanel } : {}),
+    ...(project.width !== undefined ? { width: project.width } : {}),
+    ...(thread?.drawer ? { drawer: thread.drawer } : {}),
+  };
+}
 
 function parse(storage: ClientStorage, key: string): Record<string, unknown> | undefined {
   try {
@@ -65,14 +92,9 @@ export function decodeStageState(value: unknown): StageState {
   return { tabs, activeId };
 }
 
+/** The stage a project kept before stages were per thread (`tau.stage.v1`). */
 export function readStageState(storage: ClientStorage, workspace: string): StageState {
   return decodeStageState(parse(storage, stageStateKey(workspace)));
-}
-
-export function writeStageState(storage: ClientStorage, workspace: string, state: StageState): void {
-  const key = stageStateKey(workspace);
-  if (state.tabs.length === 0) { storage.remove(key); return; }
-  write(storage, key, { tabs: state.tabs, ...(state.activeId ? { activeId: state.activeId } : {}) });
 }
 
 export function decodeDockState(value: unknown): DockState {
@@ -94,8 +116,37 @@ export function readDockState(storage: ClientStorage, workspace: string): DockSt
   return decodeDockState(parse(storage, dockStateKey(workspace)));
 }
 
+/**
+ * The project's part of the dock. `open` and `drawer` are each thread's now;
+ * a record from before keeps them until a thread takes them over.
+ */
 export function writeDockState(storage: ClientStorage, workspace: string, state: DockState): void {
-  write(storage, dockStateKey(workspace), state);
+  const legacy = parse(storage, dockStateKey(workspace));
+  write(storage, dockStateKey(workspace), {
+    ...(legacy?.open === true ? { open: true } : {}),
+    ...(typeof legacy?.drawer === "string" && legacy.drawer ? { drawer: legacy.drawer } : {}),
+    ...(state.activePanel ? { activePanel: state.activePanel } : {}),
+    openedPanels: state.openedPanels,
+    ...(state.width !== undefined ? { width: state.width } : {}),
+  });
+}
+
+/**
+ * Hands a project's layout from before stages were per thread to one thread:
+ * the old stage, and whether the dock and the drawer were open. Both are
+ * removed from the project, so only one thread ever gets them.
+ */
+export function takeProjectLayout(storage: ClientStorage, workspace: string): { stage: StageState; dock: ThreadDockState } | undefined {
+  const stage = readStageState(storage, workspace);
+  const stored = parse(storage, dockStateKey(workspace));
+  const dock = decodeDockState(stored);
+  if (stage.tabs.length === 0 && !dock.open && !dock.drawer) return undefined;
+  storage.remove(stageStateKey(workspace));
+  if (stored) {
+    const { open: _open, drawer: _drawer, ...rest } = stored;
+    write(storage, dockStateKey(workspace), rest);
+  }
+  return { stage, dock: threadDock(dock) };
 }
 
 /**

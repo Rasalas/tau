@@ -3,10 +3,11 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { afterEach, describe, expect, it } from "vitest";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
-import { dockStateKey, stageStateKey } from "../workbench/storage-keys";
+import { dockStateKey, threadStageKey } from "../workbench/storage-keys";
+import { stageOwner } from "../workbench/thread-stages";
 import { createNewThreadDraft, writeNewThreadDraft } from "../workbench/draft-store";
 import type { UiFileContent } from "../shared/workspace-kit-types";
-import type { DesktopExtension, DocumentOrigin } from "./extension-system";
+import type { DesktopExtension, DocumentOrigin, WorkbenchActions } from "./extension-system";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 
@@ -57,9 +58,11 @@ describe("App stage restore across a restart", () => {
   /** The host came back on project A; the window was left on a draft of project B with one of B's files open. */
   function restartedOnAnotherProject() {
     const storage = createMemoryStorage();
-    writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: projectB.path, workspaceId: projectB.workspaceId, projectName: projectB.name }));
+    const draft = createNewThreadDraft({ projectPath: projectB.path, workspaceId: projectB.workspaceId, projectName: projectB.name });
+    writeNewThreadDraft(storage, draft);
     const tab = { id: "file:src/only-in-b.ts", kind: "file", path: "src/only-in-b.ts", view: "source", preview: false };
-    storage.set(stageStateKey(projectB.workspaceId), JSON.stringify({ tabs: [tab], activeId: tab.id }));
+    const key = threadStageKey(stageOwner(undefined, draft)!);
+    storage.set(key, JSON.stringify({ tabs: [tab], activeId: tab.id }));
     const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
@@ -69,7 +72,7 @@ describe("App stage restore across a restart", () => {
         project: { cwd: "/project-a", workspaceId: "ws-a" },
       }),
     });
-    return { storage, client };
+    return { storage, client, key };
   }
 
   /** A source that reads like Workspace Kit's host: the named project, or the host's own when none is named. */
@@ -107,7 +110,7 @@ describe("App stage restore across a restart", () => {
   });
 
   it("says a restored file is not found, with its path and a way to close it", async () => {
-    const { storage, client } = restartedOnAnotherProject();
+    const { storage, client, key } = restartedOnAnotherProject();
     renderApp(client, { storage, extensions: [documents({ "ws-b": {} }, [])] });
 
     await screen.findByText("File not found");
@@ -115,6 +118,124 @@ describe("App stage restore across a restart", () => {
     expect(screen.getAllByText("src/only-in-b.ts").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByText("File not found")).toBeNull());
-    await waitFor(() => expect(storage.get(stageStateKey(projectB.workspaceId))).toBeNull());
+    await waitFor(() => expect(storage.get(key)).toBeNull());
+  });
+});
+
+describe("App stage per thread", () => {
+  const projectA = { path: "/project-a", workspaceId: "ws-a", name: "project-a", lastOpenedAt: 2 };
+  const projectB = { path: "/project-b", workspaceId: "ws-b", name: "project-b", lastOpenedAt: 1 };
+  const threadOf = (id: string, project: typeof projectA, modifiedAt: number) => ({
+    id, path: `/sessions/${id}.jsonl`, title: id, modifiedAt, projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name, messageCount: 1,
+  });
+  const sessions = [threadOf("a1", projectA, 3), threadOf("a2", projectA, 2), threadOf("b1", projectB, 1)];
+  const projectOf = (id: string) => (id === "b1" ? projectB : projectA);
+
+  /** A host with two threads in project A and one in B; switching answers with the thread and its project. */
+  function twoProjects(storage = createMemoryStorage()) {
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [projectA, projectB], sessions },
+        detail: { sessionId: "a1", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "a1", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: projectA.path, workspaceId: projectA.workspaceId },
+      }),
+      switchSession: async (path: string) => {
+        const id = sessions.find((session) => session.path === path)!.id;
+        const project = projectOf(id);
+        return { version: 1 as const, updates: [
+          { version: 1 as const, type: "project" as const, project: { cwd: project.path, workspaceId: project.workspaceId } },
+          { version: 1 as const, type: "thread-detail" as const, detail: { sessionId: id, messages: [], isStreaming: false, activeTools: [] } },
+        ] };
+      },
+    });
+    return { storage, client };
+  }
+
+  /** Files of both projects, a note kind, and a panel that hands the test the workbench's actions. */
+  function kit(loads: Array<{ path: string; from?: DocumentOrigin }>, got: { actions?: WorkbenchActions }): DesktopExtension {
+    const files: Record<string, Record<string, string>> = { "ws-a": { "src/x.ts": "from A\n" }, "ws-b": { "src/x.ts": "from B\n" } };
+    const state = { changes: { isRepo: true, files: [] } };
+    return {
+      id: "test.kit", name: "Kit",
+      activate: (plugin) => {
+        plugin.registerDocumentSource({
+          id: "test.documents",
+          loadFile: async (path, from) => {
+            loads.push({ path, ...(from ? { from } : {}) });
+            const text = files[from?.workspace ?? "ws-a"]![path]!;
+            return { path, name: "x.ts", size: text.length, kind: "text", text } satisfies UiFileContent;
+          },
+          loadDiff: async (path) => ({ path, added: 0, removed: 0, hunks: [] }),
+          openInEditor: () => undefined,
+          getState: () => state as never,
+          subscribe: () => () => undefined,
+        });
+        plugin.registerStageTab<{ name: string }>({
+          kind: "test.note", title: (params) => `Note ${params.name}`,
+          render: (params, _handle, _actions, from) => <p>note {params.name} in {from?.workspace}</p>,
+        });
+        plugin.registerPanel({ id: "grab", label: "Grab", Component: ({ actions }) => { got.actions = actions; return null; } });
+      },
+    };
+  }
+
+  async function start(storage?: ReturnType<typeof createMemoryStorage>) {
+    const { client, storage: kept } = twoProjects(storage);
+    const loads: Array<{ path: string; from?: DocumentOrigin }> = [];
+    const got: { actions?: WorkbenchActions } = {};
+    renderApp(client, { storage: kept, extensions: [kit(loads, got)] });
+    await screen.findByRole("button", { name: "Send" });
+    if (!got.actions) fireEvent.click(await screen.findByRole("button", { name: "Grab" }));
+    await waitFor(() => expect(got.actions?.activeThread()?.sessionId).toBe("a1"));
+    const actions = () => got.actions!;
+    const show = async (id: string) => {
+      await act(async () => { await actions().switchSession(`/sessions/${id}.jsonl`); });
+      await waitFor(() => expect(actions().activeThread()?.sessionId).toBe(id));
+    };
+    return { storage: kept, loads, actions, show };
+  }
+
+  it("shows each thread's own tabs again after A → B → A, and a new draft starts empty", async () => {
+    const { actions, show } = await start();
+    act(() => { actions().openStageTab("test.note", { name: "alpha" }); });
+    await screen.findByText("note alpha in ws-a");
+
+    await show("a2");
+    await waitFor(() => expect(screen.queryByText("note alpha in ws-a")).toBeNull());
+    act(() => { actions().openStageTab("test.note", { name: "beta" }); });
+    await screen.findByText("note beta in ws-a");
+
+    await show("a1");
+    await screen.findByText("note alpha in ws-a");
+    expect(screen.queryByText(/note beta/u)).toBeNull();
+
+    act(() => { actions().newSession(); });
+    await waitFor(() => expect(screen.queryByText(/note alpha/u)).toBeNull());
+    await show("a1");
+    await screen.findByText("note alpha in ws-a");
+  });
+
+  it("reads each thread's file tab in that thread's project, across a restart", async () => {
+    const first = await start();
+    act(() => { first.actions().openFile("src/x.ts", { pin: true }); });
+    await screen.findByText("from A");
+    await first.show("b1");
+    await waitFor(() => expect(screen.queryByText("from A")).toBeNull());
+    act(() => { first.actions().openFile("src/x.ts", { pin: true }); });
+    await screen.findByText("from B");
+    expect(first.loads.at(-1)).toEqual({ path: "src/x.ts", from: { workspace: "ws-b" } });
+    await first.show("a1");
+    await screen.findByText("from A");
+    expect(first.loads.at(-1)).toEqual({ path: "src/x.ts", from: { workspace: "ws-a" } });
+    cleanup();
+
+    // The host comes back on a1; b1 still has B's file.
+    const again = await start(first.storage);
+    await screen.findByText("from A");
+    await again.show("b1");
+    await screen.findByText("from B");
+    expect(again.loads.at(-1)).toEqual({ path: "src/x.ts", from: { workspace: "ws-b" } });
   });
 });
