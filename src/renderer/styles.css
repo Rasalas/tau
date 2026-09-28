@@ -1338,6 +1338,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* A new thread's machine and project, before the model. */
 .composer-project-chip { flex: 0 1 auto; min-width: 48px; }
 .composer-lead-rule { width: 1px; height: 16px; flex: none; background: var(--line); }
+/* The kits' lead controls drew nothing (a thread that started): no rule before the model. */
+.composer-lead-rule:first-child { display: none; }
 /* The reasoning level reads as text beside the model, as in the design. */
 .composer-thinking-chip { color: var(--muted); }
 .composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }

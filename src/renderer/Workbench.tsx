@@ -778,7 +778,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               {showStartScreen ? <div className="conversation-empty">
                 <i aria-hidden><MessageSquare size={18} /></i>
                 <h1 id="start-screen-title">What should {startProjectName} do next?</h1>
-                <p>Just chat, or hand it work. Files, Terminal and your editor sit top right.</p>
+                <p>Just chat, or hand it work. Files and the terminal open from the header.</p>
               </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
