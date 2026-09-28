@@ -70,24 +70,21 @@ interface PiHostInternals {
   detachBridge?(): void;
   attachAvailableBridge?(): void;
 
-  // Snapshot and updates
-  snapshotSync?(updates: unknown[]): unknown;
-  detailForSnapshot?(snapshot: unknown): unknown;
+  // What the host publishes
+  publication: {
+    activeUpdates(activationEpoch?: number): Promise<{ version: number; updates: unknown[] }>;
+  };
 
   // Extension and lifecycle
   lifecycle?: unknown;
   activateHostExtensions?(): Promise<void>;
   handleSessionEvent?(event: unknown): void;
-  ensureModels?(): Promise<void>;
 
   // Prewarming
   prewarm: {
     scheduleThreads?(): void;
     scheduleSpare?(): void;
   };
-
-  // Updates and versioning
-  activeUpdates?(): Promise<{ version: number; updates: unknown[] }>;
 
   // Logging and cleanup
   logReplacement?(): void;
@@ -293,7 +290,7 @@ export function mockInternalMethods(
     i.runtimes.open = mocks.openRuntime;
   }
   if (mocks.logReplacement) i.logReplacement = mocks.logReplacement;
-  if (mocks.activeUpdates) i.activeUpdates = mocks.activeUpdates;
+  if (mocks.activeUpdates) i.publication.activeUpdates = mocks.activeUpdates;
   if (mocks.release) i.threads.release = mocks.release;
   if (mocks.prompt) i.prompt = mocks.prompt;
 }

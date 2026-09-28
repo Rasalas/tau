@@ -62,7 +62,7 @@ describe("PiHost lifecycle queue", () => {
     await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
     internals.threads.setActive("session");
     internals.rememberProject = async () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
 
     await expect(host.setWorkspace("/repo")).resolves.toEqual({ version: 1, updates: [] });
     expect(order).toEqual(["hook", "exclusive"]);

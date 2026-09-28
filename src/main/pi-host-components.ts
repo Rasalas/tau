@@ -4,8 +4,6 @@ import { join } from "node:path";
 import { getAgentDir, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   HostEvent,
-  HostSnapshot,
-  NewThreadRequestId,
   ThreadBackendKind,
   ThreadHostEvent,
   UiComposerCommand,
@@ -116,8 +114,6 @@ export interface PiHostDeps {
   logPhase(phase: string, startedAt: number, reason: string, cwd: string, note?: string, thread?: ThreadRuntime): void;
   logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string): void;
   recordBackground(name: string, startedAt: number): void;
-  publishActiveCatalog(): Promise<void>;
-  publishLabel(cwd: string, label: string | undefined): void;
   setWindowTitle(title: string): void;
   windowTitle(): string | undefined;
   abortThread(thread: ThreadRuntime): Promise<void>;
@@ -140,9 +136,8 @@ export interface PiHostDeps {
   ownedByPi(thread: ThreadRuntime | undefined): boolean;
   liveThreadForPath(path: string | undefined): ThreadRuntime | undefined;
   liveThreadIds(): Set<string>;
-  snapshot(): Promise<HostSnapshot>;
-  detailForSnapshot(snapshot: HostSnapshot, requestId?: NewThreadRequestId): import("../shared/host-protocol.js").ThreadDetail;
-  lifecycleUpdates(snapshot: HostSnapshot, requestId?: NewThreadRequestId): HostUpdate[];
+  /** Extensions of the runtime on screen, as the catalog counts them. */
+  extensionCount(): number;
   refreshActiveThreadShell(): Promise<void>;
   setWorkspace(path: string): Promise<HostActionResult>;
   knownWorkspacePath(path: string): Promise<string>;
@@ -159,8 +154,6 @@ export interface PiHostDeps {
   sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void>;
   /** Continues a thread with a prompt the host writes, hidden where its runtime allows. */
   continueThread(sessionId: string, text: string): Promise<void>;
-  /** A Pi provider was signed in or out: the model lists the host holds are stale. */
-  modelCredentialsChanged(): void;
 }
 
 /** What PiHost currently assigns in its constructor, as one construction pass. */
@@ -253,7 +246,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     onChange: () => {
       if (!index.scanned) return;
       index.repriceAll();
-      void deps.publishActiveCatalog().catch((error: unknown) => deps.log("usage-pricing.publish-failed", deps.errorMessage(error)));
+      void publication.publishActiveCatalog().catch((error: unknown) => deps.log("usage-pricing.publish-failed", deps.errorMessage(error)));
     },
     log: (label, detail) => deps.log(label, detail),
   });
@@ -331,7 +324,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   });
   /** What extensions know about projects: name, label, nesting, all cached. */
   const projects = new ProjectFactsCache({
-    onLabel: (cwd, label) => deps.publishLabel(cwd, label),
+    onLabel: (cwd, label) => publication.publishLabel(cwd, label),
     onNesting: () => index.publishSnapshotSoon(),
     recordBackground: (name, startedAt) => deps.recordBackground(name, startedAt),
     log: (label, detail) => deps.log(label, detail),
@@ -377,12 +370,6 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.sessionLineageCachePath ? { lineageCachePath: options.sessionLineageCachePath } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
   });
-  const publication = new HostPublication({
-    index,
-    workspaces,
-    metrics: lifecycleMetrics,
-    emitUpdate: (update) => deps.emitUpdate(update),
-  });
   const extensionUi = new ExtensionUiCoordinator(
     (thread, event) => deps.emitForThread(thread, event),
     (thread, label, detail) => thread ? deps.logForThread(thread, label, detail) : deps.log(label, detail),
@@ -410,9 +397,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     cwd: () => deps.getCwd(),
     setCwd: (cwd) => deps.setCwd(cwd),
     onSessionEvent: (event, threadId) => deps.handleSessionEvent(event, attachedThread, threadId, deps.getCwd()),
-    snapshot: () => deps.snapshot(),
-    detailForSnapshot: (snapshot, requestId) => deps.detailForSnapshot(snapshot, requestId),
-    lifecycleUpdates: (snapshot) => deps.lifecycleUpdates(snapshot),
+    snapshot: () => publication.snapshot(),
+    detailForSnapshot: (snapshot, requestId) => publication.detailForSnapshot(snapshot, requestId),
+    lifecycleUpdates: (snapshot) => publication.lifecycleUpdates(snapshot),
     refreshActiveThreadShell: () => deps.refreshActiveThreadShell(),
     openWorkspace: (path) => deps.setWorkspace(path),
     knownWorkspacePath: (path) => deps.knownWorkspacePath(path),
@@ -433,7 +420,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       runtime: () => completions.modelRuntime(),
       changed: () => {
         catalogs.recheck("pi");
-        deps.modelCredentialsChanged();
+        publication.credentialsChanged();
       },
     }),
     setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(deps.requireThread(sessionId), title, source); },
@@ -475,7 +462,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       backendsChangePending = true;
       queueMicrotask(() => {
         backendsChangePending = false;
-        void deps.publishActiveCatalog().catch((error: unknown) => deps.log("runtime-backends.publish-failed", deps.errorMessage(error)));
+        void publication.publishActiveCatalog().catch((error: unknown) => deps.log("runtime-backends.publish-failed", deps.errorMessage(error)));
         void index.refresh("changes").catch((error: unknown) => deps.log("runtime-backends.index-failed", deps.errorMessage(error)));
       });
     },
@@ -550,7 +537,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     emitForThread: (thread, event) => deps.emitForThread(thread, event),
     presentUi: (method, ...args) => deps.presentUi(method, ...args),
     setWindowTitle: (title) => deps.setWindowTitle(title),
-    publishActiveCatalog: () => deps.publishActiveCatalog(),
+    publishActiveCatalog: () => publication.publishActiveCatalog(),
     recordBackground: (name, startedAt) => deps.recordBackground(name, startedAt),
     logPhase: (phase, startedAt, reason, phaseCwd, thread) => deps.logPhase(phase, startedAt, reason, phaseCwd, undefined, thread),
     log: (label, detail) => deps.log(label, detail),
@@ -595,6 +582,24 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     errorMessage: (error) => deps.errorMessage(error),
     runtimeUnavailable: (threadId, reason) => index.setRuntimeError(threadId, reason),
     sessionLocks,
+  });
+  const publication = new HostPublication({
+    index,
+    workspaces,
+    metrics: lifecycleMetrics,
+    emitUpdate: (update) => deps.emitUpdate(update),
+    view: { active: () => deps.getActive(), cwd: () => deps.getCwd(), extensionCount: () => deps.extensionCount() },
+    projection,
+    projects,
+    completions,
+    modelsKey: (cwd) => runtimes.fingerprint(cwd),
+    backends: () => seam.backends.values(),
+    piModes: () => runtimeExtensionModes(seam.runtimeExtensions),
+    defaultBackendKind,
+    isCurrentActivation: (epoch) => lifecycle.isCurrentActivation(epoch),
+    log: (label, detail) => deps.log(label, detail),
+    errorMessage: (error) => deps.errorMessage(error),
+    fail: (error, sessionId) => deps.fail(error, sessionId),
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
   /**

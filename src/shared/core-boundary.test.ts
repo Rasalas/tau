@@ -189,7 +189,7 @@ function coreSourceFiles(): string[] {
 }
 
 describe("core boundary", () => {
-  it.each(["src/main/pi-host.ts", "src/main/pi-host-components.ts", "src/main/host-report.ts", "src/main/host-lifecycle-coordinator.ts", "src/main/thread-activation.ts"])("%s names no moved feature and imports no feature module", (file) => {
+  it.each(["src/main/pi-host.ts", "src/main/pi-host-components.ts", "src/main/host-publication.ts", "src/main/host-report.ts", "src/main/host-lifecycle-coordinator.ts", "src/main/thread-activation.ts"])("%s names no moved feature and imports no feature module", (file) => {
     const source = readFileSync(file, "utf8");
     const offenders = words(source).filter((word) => FORBIDDEN.some((rule) => HOST_RULES.has(rule.label) && rule.test.test(word)));
     expect(offenders).toEqual([]);
@@ -265,7 +265,7 @@ describe("core boundary", () => {
 
   // The two core files only shrink. Raise a ceiling deliberately, in the same
   // change that explains why the core had to grow.
-  for (const [file, ceiling] of Object.entries({ "src/main/pi-host.ts": 2_300, "src/renderer/App.tsx": 700 })) {
+  for (const [file, ceiling] of Object.entries({ "src/main/pi-host.ts": 2_080, "src/renderer/App.tsx": 700 })) {
     it(`${file} stays under ${ceiling} lines`, () => {
       expect(readFileSync(file, "utf8").split("\n").length).toBeLessThanOrEqual(ceiling);
     });
