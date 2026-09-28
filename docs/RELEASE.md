@@ -226,6 +226,18 @@ and a Dismiss button. A supervised host of another version is replaced when the
 window starts (ADR 0021), so in practice this shows for a window attached to a
 host on another machine (`TAU_HOST_URL`) that runs a different build.
 
+### A build replaced under an open page
+
+The renderer loads most surfaces as hashed chunks. A browser tab keeps the
+build its host served, and a window keeps the build it started with, so after
+a host update or a rebuild the next chunk it asks for may be gone. The first
+missing chunk reloads the page once; a marker per build in `sessionStorage`
+stops a second reload of the same build. If the chunk is still missing, the
+feature shows *Tau was updated. Reload to continue.* in its own place, with
+*Reload window* and the failed URL under Details. A browser tab also watches
+the host's version in its hello: when it changes after the page loaded, the
+status line offers *Reload*.
+
 ### The move to `de.tbuck.tau`
 
 The desktop app was `dev.tbuck.tau`, its bundle id on macOS and its

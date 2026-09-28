@@ -3139,7 +3139,8 @@ its own. There is no revocation list: removing a key from
   or a frozen workbench. On the renderer side every slot a package renders
   (panel, sidebar item, status item, etc.) sits behind a `LazyFeatureBoundary`
   that deactivates the package and raises a toast instead of blanking the
-  workbench on a render error.
+  workbench on a render error. A chunk that failed to load is not the
+  package's fault: it reloads the page once and leaves the package on.
 
 ## 6. What an isolated (worker) package cannot use
 
