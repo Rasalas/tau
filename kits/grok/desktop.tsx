@@ -281,6 +281,8 @@ export const grokExtension: DesktopExtension = {
       order,
       keywords: ["grok", "xai", "grok build", "acp", "instance", entry.id],
       rows: searchRows(entry.id, entry.label),
+      // The rows the Runtimes page's Update, Install and "Add a custom runtime" open.
+      runtimeRows: { program: rowIds(entry.id).program, ...(entry.id === DEFAULT_INSTANCE_ID ? { addInstance: `${rowIds(entry.id).setup}-add` } : {}) },
       Component: card(entry.id),
     });
     const sync = (report: GrokInstancesReport) => {

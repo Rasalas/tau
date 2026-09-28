@@ -268,8 +268,8 @@ describe("command palette on a Read-only device", () => {
       entry("workbench.focus-composer", "Focus composer", "Workbench", "read"),
     ], registry);
     fireEvent.change(input, { target: { value: "composer" } });
-    // Core's Settings rows only look; the matching command ranks first. General's description names the composer.
-    expect(labels()).toEqual(["Focus composer", "Composer thread", "Composer editing modeGeneral", "Fold the composer while scrollingGeneral", "GeneralSettings"]);
+    // Core's Settings rows only look; the matching command ranks first. General's and Runtimes' descriptions name the composer.
+    expect(labels()).toEqual(["Focus composer", "Composer thread", "Composer editing modeGeneral", "Fold the composer while scrollingGeneral", "GeneralSettings", "RuntimesSettings"]);
   });
 
   it("disables a level's rows that write and does not open on a level whose command writes", () => {

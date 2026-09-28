@@ -1728,7 +1728,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
    stays here because the chunk's loading fallback draws it. */
 .settings-screen {
   position: fixed; inset: 0; z-index: 50;
-  display: grid; grid-template-columns: 282px minmax(0, 1fr);
+  display: grid; grid-template-columns: 248px minmax(0, 1fr);
   background: var(--shell); color: var(--ink);
 }
 .settings-screen.loading { display: grid; place-items: center; grid-template-columns: 1fr; }

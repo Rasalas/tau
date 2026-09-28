@@ -409,6 +409,8 @@ export const claudeCodeExtension: DesktopExtension = {
       runtime: entry.kind,
       order,
       rows: searchRows(entry.id, entry.label),
+      // The rows the Runtimes page's Update, Install and "Add a custom runtime" open.
+      runtimeRows: { program: rowIds(entry.id).program, ...(entry.id === DEFAULT_INSTANCE_ID ? { addInstance: `${rowIds(entry.id).setup}-add` } : {}) },
       keywords: ["claude", "instance", entry.id],
       Component: (props: SettingsPageProps) => <ClaudeCodeProviderCard {...props} host={plugin.host} instance={entry.id} instances={instances} terminal={terminal()} runner={() => runner} />,
     });

@@ -10,6 +10,8 @@ import { PreferencesStore } from "../preferences";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
 import { SettingsScreen } from "./SettingsScreen";
+import { AppPageContext } from "../app-page-context";
+import { AppPageStore } from "../../workbench/app-page-store";
 import { SettingsPageAction } from "./page-action";
 import { CORE_PAGE_DESCRIPTIONS } from "./settings-nav";
 
@@ -56,7 +58,7 @@ function renderScreen(options: { page?: string; client?: ReturnType<typeof hostW
 }
 
 describe("the Settings screen", () => {
-  it("takes the whole window: a section column, the page under its head, and a way back", () => {
+  it("takes the whole window: a section column, the page under its head, and a way back to the thread", () => {
     const { page, onClose } = renderScreen();
     expect(page.getAttribute("aria-modal")).toBe("true");
     // "defaults" is the older name of General. A page at the top has no breadcrumb.
@@ -64,8 +66,26 @@ describe("the Settings screen", () => {
     expect(within(head).getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
     expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.general)).toBeTruthy();
     expect(within(page).queryByRole("navigation", { name: "Settings breadcrumb" })).toBeNull();
-    fireEvent.click(within(page).getByRole("button", { name: "Back" }));
+    // Above the search and under About: both go to the thread, past a page Settings was opened over.
+    const backs = within(page).getAllByRole("button", { name: "Back to thread" });
+    expect(backs).toHaveLength(2);
+    for (const back of backs) fireEvent.click(back);
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("goes back to the thread past the app page it was opened over, which Escape returns to", () => {
+    const pages = new AppPageStore();
+    pages.open("pull-requests");
+    const onClose = vi.fn();
+    render(<AppPageContext.Provider value={pages}><TestProviders>
+      <SettingsScreen page="general" snapshot={snapshot} registry={new ExtensionRegistry(undefined, { preferences: new PreferencesStore() })} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={onClose} onNotify={vi.fn()} />
+    </TestProviders></AppPageContext.Provider>);
+    fireEvent.keyDown(window, { key: "Escape", bubbles: true, cancelable: true });
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(pages.getSnapshot()).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Back to thread" })[0]!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(pages.getSnapshot()).toBeUndefined();
   });
 
   it("goes back on Escape and on the chord that opened it, but clears a search first", () => {
@@ -193,14 +213,33 @@ describe("the section column", () => {
     } });
     const { page } = renderScreen({ registry });
     const groups = within(within(page).getByRole("navigation", { name: "Settings sections" })).getAllByRole("group");
-    expect(groups.map((group) => [group.getAttribute("aria-label"), within(group).getAllByRole("button").map((button) => button.textContent)])).toEqual([
-      ["General", ["General", "Look", "Keybindings"]],
-      ["Threads", ["Models", "Pi"]],
-      ["Projects", ["Shell"]],
-      ["Remote", ["Connections"]],
-      ["Extensions", ["All extensions", "Loose"]],
-      ["Diagnostics", ["Inspector"]],
+    const listed = () => groups.map((group) => [group.getAttribute("aria-label"), within(group).getAllByRole("button").map((button) => button.textContent)]);
+    // The main pages open; the rest folded under their headings, nothing lost.
+    expect(listed()).toEqual([
+      ["Settings", ["General", "Look", "Models", "Runtimes", "Keybindings", "Connections"]],
+      ["Threads", ["Threads"]],
+      ["Projects", ["Projects"]],
+      ["Extensions", ["Extensions"]],
+      ["Diagnostics", ["Diagnostics"]],
     ]);
+    for (const heading of ["Threads", "Projects", "Extensions", "Diagnostics"]) fireEvent.click(within(page).getByRole("button", { name: heading }));
+    expect(listed()).toEqual([
+      ["Settings", ["General", "Look", "Models", "Runtimes", "Keybindings", "Connections"]],
+      ["Threads", ["Threads", "Pi"]],
+      ["Projects", ["Projects", "Shell"]],
+      ["Extensions", ["Extensions", "All extensions", "Loose"]],
+      ["Diagnostics", ["Diagnostics", "Inspector"]],
+    ]);
+    fireEvent.click(within(page).getByRole("button", { name: "Threads" }));
+    expect(within(page).queryByRole("button", { name: "Pi" })).toBeNull();
+  });
+
+  it("opens the folded group that holds the page on screen", () => {
+    const { page } = renderScreen({ page: "inspector" });
+    const diagnostics = within(page).getByRole("group", { name: "Diagnostics" });
+    expect(within(diagnostics).getByRole("button", { name: "Diagnostics" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(diagnostics).getByRole("button", { name: "Inspector" }).getAttribute("aria-current")).toBe("page");
+    expect(within(page).getByRole("button", { name: "Threads" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("opens a row a link names, and an extension's page by its older link", async () => {

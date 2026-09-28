@@ -39,6 +39,7 @@ describe("Settings → Providers", () => {
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(within(nav).queryByText("Early")).toBeNull();
     expect(within(nav).queryByText("Late")).toBeNull();
+    fireEvent.click(within(nav).getByRole("button", { name: "Extensions" }));
     expect(within(nav).getByText("Plain")).toBeTruthy();
     fireEvent.click(within(nav).getByText("Providers"));
     expect(onSetPage).toHaveBeenCalledWith("providers");
