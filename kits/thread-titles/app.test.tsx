@@ -81,7 +81,7 @@ describe("Thread Title Generator in the workbench", () => {
     });
 
     renderApp(client, { extensions: [titleGeneratorExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));

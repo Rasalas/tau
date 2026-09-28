@@ -71,7 +71,7 @@ describe("last-turn activity", () => {
 
   it("does not unsettle a thread for a recovered run without a new user message", async () => {
     const view = renderApp(client, { seed: ({ preferences }) => { preferences.unsettle("session"); preferences.toggleSettled("session"); } });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: true });
@@ -135,7 +135,7 @@ describe("last-turn activity", () => {
       };
     };
     const view = renderApp(client, { seed: ({ preferences }) => { preferences.unsettle("background-session"); preferences.toggleSettled("background-session"); } });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
 
     act(() => client.emit({
       type: "user-message",
@@ -148,7 +148,7 @@ describe("last-turn activity", () => {
 
   it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
     const view = renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: true });
@@ -167,7 +167,7 @@ describe("last-turn activity", () => {
 
   it("does not persist renderer-derived completion when agent status settles", async () => {
     const view = renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: true });
@@ -211,7 +211,7 @@ describe("last-turn activity", () => {
 
   it("does not mount virtual rows for tool-only assistant messages", async () => {
     const view = renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
 
     act(() => client.emit({ type: "assistant-start", sessionId: "session", id: "tool-only", timestamp: 1 }));
     expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(0);
@@ -327,7 +327,7 @@ describe("last-turn activity", () => {
     client.sendPrompt = sendPrompt;
     const queue = hostQueue(client);
     const view = renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
@@ -352,7 +352,7 @@ describe("last-turn activity", () => {
   it("shows a queue the host restored as held", async () => {
     const queue = hostQueue(client);
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "user-message", sessionId: "session", message: { id: "u1", role: "user", text: "earlier work", timestamp: 1 } }));
     queue.items.push({ id: "restored", text: "from before the restart", attachments: [] });
     queue.publish({ held: true });
@@ -365,7 +365,7 @@ describe("last-turn activity", () => {
     client.steer = steer;
     hostQueue(client);
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u);
@@ -392,7 +392,7 @@ describe("last-turn activity", () => {
     client.sendPrompt = sendPrompt;
     hostQueue(client);
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
@@ -417,7 +417,7 @@ describe("last-turn activity", () => {
     client.followUp = vi.fn(async () => undefined);
     client.steer = steer;
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/Queue after this turn/u);
@@ -483,7 +483,7 @@ describe("last-turn activity", () => {
 
   it("aggregates steering into the current run and resets on the next run", async () => {
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
 
     act(() => {
       client.emit({ type: "agent-status", sessionId: "session", running: true });

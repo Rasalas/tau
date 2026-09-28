@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -148,6 +148,7 @@ export function Composer({
   onOpenPromptEditor,
   onRunShellAction,
   newThread = false,
+  lead,
 }: {
   snapshot?: HostSnapshot;
   scopeStore: ComposerScopeStore;
@@ -188,6 +189,8 @@ export function Composer({
   onRunShellAction?(command: string, includeInContext?: boolean): Promise<unknown>;
   /** The composer is a draft whose thread does not exist yet. */
   newThread?: boolean;
+  /** Core's chips before the model, after the kits' `lead` controls (a draft's project). */
+  lead?: ReactNode;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const { readOnly } = useHostCapabilities();
@@ -759,6 +762,7 @@ export function Composer({
   // A model without reasoning levels shows none; a runtime that picks its own still says which.
   const thinkingLevel = thinkingSelectionAvailable || (runtimeOwnsModel && !draftOnOtherRuntime) ? snapshot?.thinkingLevel : undefined;
   const menuControls = composerControls.filter((control) => control.placement === "menu");
+  const leadControls = composerControls.filter((control) => control.placement === "lead");
   const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
   // The row keeps model and reasoning longest, then the context dial, then attach; kits' chips fold first.
   const footerBlocks: FooterBlock[] = [
@@ -1082,6 +1086,13 @@ export function Composer({
           <ComposerFooterControls
             revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}
             leading={<>
+              {leadControls.map((control) => (
+                <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
+                  <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+                </LazyFeatureBoundary>
+              ))}
+              {lead}
+              {leadControls.length > 0 || lead ? <span className="composer-lead-rule" aria-hidden /> : null}
               {text.trimStart().startsWith("!") ? (
                 <span className="runtime-chip shell-mode-chip" {...tooltipProps("Shell command mode")}>
                   <Terminal size={12} className="chip-icon" />

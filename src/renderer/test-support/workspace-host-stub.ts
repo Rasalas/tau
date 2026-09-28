@@ -34,6 +34,7 @@ interface WorkspaceHostClient {
   getDefaultBranch(workspace?: string): Promise<unknown>;
   autoPull(workspace?: string): Promise<unknown>;
   switchRef(ref: string): Promise<unknown>;
+  createBranch(branch: string): Promise<unknown>;
   listEditors(): Promise<unknown>;
   openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<unknown>;
   checkpoints(sessionId: string): Promise<unknown>;
@@ -92,6 +93,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     getDefaultBranch: async () => "main",
     autoPull: async () => [],
     switchRef: unsupported("switchRef"),
+    createBranch: unsupported("createBranch"),
     openInEditor: unsupported("openInEditor"),
     checkpoints: async () => ({ checkpoints: [], restoreSupported: false }),
     canRestoreCheckpoint: async () => false,
@@ -152,6 +154,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "default-branch": return client.getDefaultBranch(...optional(field<string>(input, "workspace")));
       case "auto-pull": return client.autoPull(...optional(field<string>(input, "workspace")));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
+      case "create-branch": return client.createBranch(field(input, "branch")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "relPath"), field(input, "workspace"));
       case "checkpoints": return client.checkpoints(field(input, "sessionId")!);

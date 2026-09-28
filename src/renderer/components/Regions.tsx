@@ -15,30 +15,36 @@ interface RegionHostProps {
  * Renders whatever extensions registered for one placement; nothing when empty.
  * `lead` and `children` are core's own controls, drawn before and after the contributions.
  */
-export function Region({ registry, placement, snapshot, actions, lookIn, lead, children }: RegionHostProps & { lead?: ReactNode; children?: ReactNode }) {
+export function Region({ registry, placement, snapshot, actions, lookIn, lead, children, bare }: RegionHostProps & { lead?: ReactNode; children?: ReactNode; bare?: boolean }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const regions = registry.getRegions(placement);
   if (regions.length === 0 && children === undefined && !lead) return null;
-  return (
-    <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">
-      {lead}
-      {regions.map((region) => (
-        <LazyFeatureBoundary
-          key={region.id}
-          label={region.id}
-          extensionId={region.extensionId}
-          extensionName={region.extensionName}
-          registry={registry}
-          onNotify={actions.notify}
-        >
-          <Suspense fallback={<LazyFeatureFallback label={region.id} />}>
-            <region.Component snapshot={snapshot} actions={actions} {...(lookIn ? { lookIn } : {})} />
-          </Suspense>
-        </LazyFeatureBoundary>
-      ))}
-      {children}
-    </div>
-  );
+  const drawn = <>
+    {lead}
+    {regions.map((region) => (
+      <LazyFeatureBoundary
+        key={region.id}
+        label={region.id}
+        extensionId={region.extensionId}
+        extensionName={region.extensionName}
+        registry={registry}
+        onNotify={actions.notify}
+      >
+        <Suspense fallback={<LazyFeatureFallback label={region.id} />}>
+          <region.Component snapshot={snapshot} actions={actions} {...(lookIn ? { lookIn } : {})} />
+        </Suspense>
+      </LazyFeatureBoundary>
+    ))}
+    {children}
+  </>;
+  // Bare: the contributions are the container's own children (a header's sub-line).
+  return bare ? drawn : <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">{drawn}</div>;
+}
+
+/** A placement kits may take over from core: their contributions while any is registered, else `fallback`. */
+export function RegionOr({ fallback, ...props }: RegionHostProps & { fallback: ReactNode; bare?: boolean }) {
+  useSyncExternalStore(props.registry.subscribe, props.registry.getVersion);
+  return props.registry.getRegions(props.placement).length > 0 ? <Region {...props} /> : fallback;
 }
 
 /** Pi's footer, assembled from status items; hidden until an extension contributes one. */

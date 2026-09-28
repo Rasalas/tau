@@ -8,6 +8,8 @@ import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { ThreadCost } from "./ThreadCost";
 import { tooltipProps } from "./ui/Tooltip";
+import { Region, RegionOr } from "./Regions";
+import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 
 const turnCounts = new WeakMap<TranscriptState, number>();
 
@@ -26,15 +28,39 @@ function TurnCount({ view }: { view: ThreadViewStore }) {
   return turns > 0 ? <span className="thread-detail">turn {turns}</span> : null;
 }
 
+/** Where kits add to the sub-line: `thread-details` items, and a `thread-branch` that replaces core's label. */
+export interface ThreadDetailSlots {
+  registry: ExtensionRegistry;
+  actions: WorkbenchActions;
+}
+
+/** The kits' items, then their branch or core's plain one. */
+function SlotDetails({ slots, snapshot, branch }: { slots?: ThreadDetailSlots; snapshot?: HostSnapshot; branch?: string }) {
+  const plain = branch ? <span className="thread-detail" {...tooltipProps(branch, { side: "bottom", when: "truncated" })}>
+    <GitBranch size={12} aria-hidden /><span>{branch}</span>
+  </span> : null;
+  if (!slots) return plain;
+  return <>
+    <Region bare registry={slots.registry} placement="thread-details" snapshot={snapshot} actions={slots.actions} />
+    <RegionOr bare registry={slots.registry} placement="thread-branch" snapshot={snapshot} actions={slots.actions} fallback={plain} />
+  </>;
+}
+
+/** A new thread's sub-line: project · machine · branch, the last two from kits. */
+export function DraftDetails({ project, projectPath, snapshot, slots }: { project: string; projectPath: string; snapshot?: HostSnapshot; slots?: ThreadDetailSlots }) {
+  return <div className="thread-details">
+    <span className="thread-detail" {...tooltipProps(projectPath, { side: "bottom", variant: "code" })}>{project}</span>
+    <SlotDetails slots={slots} snapshot={snapshot} />
+  </div>;
+}
+
 /** Branch · model · turn · cost, each only where the thread has it, as in the workbench design. */
-export function ThreadDetails({ snapshot, view }: { snapshot?: HostSnapshot; view: ThreadViewStore }) {
+export function ThreadDetails({ snapshot, view, slots }: { snapshot?: HostSnapshot; view: ThreadViewStore; slots?: ThreadDetailSlots }) {
   const preferences = usePreferences();
   const { showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const model = snapshot?.model;
   return <div className="thread-details">
-    {snapshot?.projectLabel ? <span className="thread-detail" {...tooltipProps(snapshot.projectLabel, { side: "bottom", when: "truncated" })}>
-      <GitBranch size={12} aria-hidden /><span>{snapshot.projectLabel}</span>
-    </span> : null}
+    <SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} />
     {model ? <span className="thread-detail">
       <ProviderIconStack modelProvider={model.provider} runtimeProvider={snapshot?.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(model)} hint={false} />
       <span>{model.name}</span>

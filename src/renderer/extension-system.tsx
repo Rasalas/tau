@@ -298,9 +298,11 @@ export interface TranscriptRowsHandle {
  * is the thread header's end, beside the stage toggle, and stays mounted while
  * the conversation is folded (API 1.27.0: the window-wide bar is gone);
  * `stage-bar` sits at the right of the stage's tab strip, before its maximize
- * (API 1.27.0).
+ * (API 1.27.0). `thread-details` adds items to the thread header's sub-line,
+ * before the branch; `thread-branch` draws the branch there instead of core's
+ * plain label (both API 1.27.0).
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
 export interface LookInRegionContext {
@@ -381,11 +383,12 @@ export interface ComposerControlContribution extends ProfileScoped {
   id: string;
   order?: number;
   /**
-   * `toolbar` sits beside model and thinking; `menu` is drawn inside the
+   * `toolbar` sits beside model and thinking; `lead` before the model chip
+   * (API 1.27.0: a new thread's machine); `menu` is drawn inside the
    * composer's "…" menu, built from `ComposerMenuSection`/`ComposerMenuItem`;
    * `footer` spans the row below the editor.
    */
-  placement?: "toolbar" | "menu" | "footer";
+  placement?: "toolbar" | "lead" | "menu" | "footer";
   /** Shortcut ids (`data-composer-shortcut`) that open a `menu` control: the menu's trigger answers to them. */
   shortcuts?: readonly string[];
   Component: ComponentType<ComposerControlProps>;

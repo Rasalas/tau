@@ -29,7 +29,7 @@ const snapshot: HostSnapshot = {
 
 afterEach(cleanup);
 
-function renderFooter(onSelectAccess = vi.fn()) {
+function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode) {
   const { registry } = createKitHarness();
   registry.activate({
     id: "test.footer",
@@ -47,6 +47,7 @@ function renderFooter(onSelectAccess = vi.fn()) {
         ),
       });
       context.registerComposerControl({ id: "test.chip", Component: () => <button type="button" className="runtime-chip">Kit chip</button> });
+      context.registerComposerControl({ id: "test.machine", placement: "lead", Component: () => <button type="button" className="runtime-chip">Machine</button> });
     },
   });
   render(
@@ -66,6 +67,7 @@ function renderFooter(onSelectAccess = vi.fn()) {
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}
+          lead={lead}
         />
       </WorkbenchShellContext.Provider>
     </TestProviders>,
@@ -74,6 +76,13 @@ function renderFooter(onSelectAccess = vi.fn()) {
 }
 
 describe("the composer's slim footer", () => {
+  it("leads with the kits' lead controls, then core's lead, a rule, and the model (a new thread's machine and project)", () => {
+    renderFooter(vi.fn(), <button type="button">Project</button>);
+    const row = screen.getByText("Machine").closest(".composer-chips") as HTMLElement;
+    const labels = [...row.querySelectorAll("button, .composer-lead-rule")].map((node) => node.classList.contains("composer-lead-rule") ? "|" : node.textContent);
+    expect(labels.slice(0, 4)).toEqual(["Machine", "Project", "|", "GPT-5.6 Luna"]);
+  });
+
   it("draws the model with its marks, the reasoning level as text, and a round send", () => {
     renderFooter();
     const model = screen.getByLabelText("Select model: GPT-5.6 Luna");
