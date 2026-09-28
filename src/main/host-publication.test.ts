@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { HostPublication } from "./host-publication.js";
 import type { HostSnapshot } from "../shared/contracts.js";
+import type { HostPublicationDeps } from "./host-publication.js";
+import type { ThreadRuntime } from "./thread-runtime.js";
 
 describe("HostPublication", () => {
-  const makePublication = () => {
+  const makePublication = (overrides: Partial<HostPublicationDeps> = {}) => {
     const emitUpdate = vi.fn();
     const index = {
       byId: vi.fn((id: string) => ({ id, title: "Test Shell" })),
+      snapshot: vi.fn(() => ({ projects: [], sessions: [] })),
+      publishLabel: vi.fn(),
     } as any;
     const workspaces = {
       ref: vi.fn((cwd: string) => ({ workspaceId: "ws-1", displayPath: cwd })),
@@ -14,18 +18,36 @@ describe("HostPublication", () => {
     const metrics = {
       recordIpc: vi.fn(),
     } as any;
+    const view = { active: vi.fn((): ThreadRuntime | undefined => undefined), cwd: vi.fn(() => "/test/dir"), extensionCount: vi.fn(() => 0) };
 
     const pub = new HostPublication({
       index,
       workspaces,
       metrics,
       emitUpdate,
+      view,
+      projection: {
+        hostSnapshot: (thread, models, cwd) => ({ ...makeSnapshot(thread?.threadId, cwd), models }),
+        catalog: (_thread, models) => ({ models }) as never,
+      },
+      projects: { label: () => undefined, settleClassifications: async () => undefined },
+      completions: { models: () => new Promise<never>(() => undefined) },
+      modelsKey: (cwd) => `key:${cwd}`,
+      backends: () => [],
+      piModes: () => [],
+      defaultBackendKind: "pi",
+      isCurrentActivation: () => true,
+      log: vi.fn(),
+      errorMessage: (error) => String(error),
+      fail: vi.fn(),
+      ...overrides,
     });
 
-    return { pub, emitUpdate, index, workspaces, metrics };
+    return { pub, emitUpdate, index, workspaces, metrics, view };
   };
 
-  const makeSnapshot = (sessionId = "sess-1", cwd = "/test/dir"): HostSnapshot => ({
+  function makeSnapshot(sessionId = "sess-1", cwd = "/test/dir"): HostSnapshot {
+    return {
     sessionId,
     cwd,
     projectLabel: "my-project",
@@ -41,7 +63,8 @@ describe("HostPublication", () => {
     turnActivityHistory: [],
     runtimeCommands: [],
     agentStatus: "idle",
-  } as unknown as HostSnapshot);
+    } as unknown as HostSnapshot;
+  }
 
   it("projects detail for snapshot and caches in detailStore", () => {
     const { pub } = makePublication();

@@ -546,8 +546,8 @@ describe("PiHost.generateThreadTitle", () => {
     const runtime = makeActivationThread("prepared-thread");
     internals.runtimes.open = async () => runtime;
     internals.activateThread = vi.fn(async () => true);
-    internals.snapshot = async () => ({}) as never;
-    internals.lifecycleUpdates = () => [];
+    internals.publication.snapshot = async () => ({}) as never;
+    internals.publication.lifecycleUpdates = () => [];
 
     const prepared = await internals.prepareThread({} as never, {} as never);
     await prepared.activate();
@@ -703,7 +703,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
     let acceptPrompt!: () => void;
     const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
     internals.prompt = vi.fn(async () => preflight);
@@ -742,15 +742,15 @@ describe("PiHost.generateThreadTitle", () => {
     internals.prewarm.scheduleSpare = () => {};
     let releaseCatalog!: () => void;
     const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
-    internals.ensureModels = async () => {
+    internals.publication.ensureModels = async () => {
       // A real AgentSession can serialize catalog access with prompt delivery.
       // This is the regression seam: acceptance must not await this read at
       // all. The read is allowed to finish later and publish its update.
       await catalog;
       return [];
     };
-    internals.activeUpdates = async () => {
-      await internals.ensureModels();
+    internals.publication.activeUpdates = async () => {
+      await internals.publication.ensureModels();
       return { version: 1, updates: [] };
     };
     let releasePrompt!: () => void;
@@ -785,7 +785,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.prewarm.scheduleSpare = () => {};
-    internals.snapshotSync = () => ({
+    internals.publication.snapshotSync = () => ({
       cwd: "/repo",
       threadId: "new-thread",
       providerSessionId: "new-thread",
@@ -804,7 +804,7 @@ describe("PiHost.generateThreadTitle", () => {
     });
     let releaseCatalog!: () => void;
     const catalog = new Promise<void>((resolve) => { releaseCatalog = resolve; });
-    internals.activeUpdates = async () => {
+    internals.publication.activeUpdates = async () => {
       await catalog;
       return { version: 1, updates: [] };
     };
@@ -835,7 +835,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.runtimes.open = async () => newThread;
     internals.logReplacement = () => {};
     internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
     let acceptPrompt!: () => void;
     const preflight = new Promise<void>((resolve) => { acceptPrompt = resolve; });
     internals.prompt = vi.fn(async () => preflight);
@@ -880,7 +880,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
     const rejection = new Error("prompt preflight rejected");
     internals.prompt = vi.fn(async () => { throw rejection; });
 
@@ -909,7 +909,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
     let acceptPrompt!: () => void;
     const delivery = new Promise<void>((resolve) => { acceptPrompt = resolve; });
     internals.prompt = vi.fn(async () => { await delivery; });
@@ -943,7 +943,7 @@ describe("PiHost.generateThreadTitle", () => {
     internals.runtimes.open = async () => thread;
     internals.logReplacement = () => {};
     internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
     // The real prompt() runs here so the marker bookkeeping is exercised.
     thread.backend.prompt = async (input: { onAdmitted?: (accepted: boolean) => void }) => {
       input.onAdmitted?.(true);
@@ -1131,7 +1131,7 @@ describe("Pi bridge transcript projection", () => {
     const internals = host as unknown as {
       attached: { session: { snapshot?: PiBridgeSnapshot } };
       projection: { attachedHostSnapshot(): HostSnapshot };
-      detailForSnapshot(snapshot: HostSnapshot): ThreadDetail;
+      publication: { detailForSnapshot(snapshot: HostSnapshot): ThreadDetail };
     };
     internals.attached.session.snapshot = bridgeSnapshot;
 
@@ -1149,7 +1149,7 @@ describe("Pi bridge transcript projection", () => {
 
     // A bridge page is already bounded. detailForSnapshot must preserve the
     // adapter cursor instead of applying the local decimal-index policy.
-    const detail = internals.detailForSnapshot(projected);
+    const detail = internals.publication.detailForSnapshot(projected);
     expect(detail.messages).toHaveLength(20);
     expect(detail.olderCursor).toBe(projected.olderCursor);
     expect(detail.transcriptWindow).toBe("bounded");
