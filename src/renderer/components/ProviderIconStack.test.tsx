@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { declareRuntimeMarks } from "../runtime-marks";
+import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
 import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 
 afterEach(cleanup);
+beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
+afterAll(() => declareRuntimeMarks([]));
 
 describe("ProviderIconStack", () => {
   it("shows Pi only where nothing else stands for the thread", () => {
@@ -45,12 +49,21 @@ describe("ProviderIconStack", () => {
     ["pi", "openai-codex", false, ["codex", "pi"], "Pi via ChatGPT plan"],
     ["pi", "anthropic", true, ["claude-code", "pi"], "Pi via Claude plan"],
     ["pi", "xai", true, ["grok", "pi"], "Pi via Grok plan"],
+    ["cursor", "anthropic", true, ["anthropic", "cursor"], "Cursor via Anthropic"],
   ] as const)("draws %s with %s (plan: %s)", (runtime, provider, plan, families, tooltip) => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider={provider} runtimeProvider={runtime} plan={plan} />);
     const stack = getByLabelText(tooltip);
     expect(stack.getAttribute("title")).toBe(tooltip);
     expect([...stack.children].map((icon) => [...icon.classList].find((name) => name.startsWith("provider-family-"))?.slice("provider-family-".length))).toEqual(families);
     expect(stack.classList).toContain(families.length > 1 ? "stacked" : "single");
+  });
+
+  it("follows what a runtime declares once the host names it", () => {
+    declareRuntimeMarks([]);
+    const { getByLabelText } = render(<ProviderIconStack modelProvider="openai" runtimeProvider="codex" />);
+    expect(getByLabelText("Codex via OpenAI").classList).toContain("stacked");
+    act(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
+    expect(getByLabelText("Codex (OpenAI)").classList).toContain("single");
   });
 
   it("draws a plan by its mark where the list is Pi's", () => {

@@ -282,6 +282,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           label: settings.label(id),
           order: 40,
           adapter,
+          homeProviders: ["opencode-go"],
           listThreads: async () => (await store.list(id)).map(record),
           removeThread: async (threadId) => {
             const taken = await store.take(threadId);

@@ -18,6 +18,7 @@ export async function loadExternalSessionShells(options: {
     catch (error) { options.onError(provider, error); continue; }
     for (const record of records) {
       const firstUser = record.messages.find((message) => message.role === "user");
+      const modelProvider = record.model?.provider ?? provider.modelProvider;
       shells.push({
         id: record.threadId,
         path: externalThreadPath(provider.kind, record.threadId),
@@ -28,7 +29,8 @@ export async function loadExternalSessionShells(options: {
         projectLabel: options.projectLabel(record.cwd),
         messageCount: record.messages.length,
         backendKind: provider.kind,
-        ...(provider.modelProvider ? { modelProvider: provider.modelProvider } : {}),
+        ...(modelProvider ? { modelProvider } : {}),
+        ...(record.model?.id ? { model: record.model.id } : {}),
       });
     }
   }

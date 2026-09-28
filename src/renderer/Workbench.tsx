@@ -15,6 +15,7 @@ import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { ComposerReserve } from "./components/ComposerReserve";
 import { retryPrompt, TurnErrorLine } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
+import { declareRuntimeMarks } from "./runtime-marks";
 import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
@@ -930,6 +931,8 @@ function WorkbenchProviders({ model, threadStore, children }: { model: Workbench
   const { tools } = useSyncExternalStore(model.view.subscribeToTools, model.view.getToolView);
   const context = useMemo(() => ({ ...model.context, tools }), [model.context, tools]);
   const observatory = useMemo(() => ({ ...model.observatoryContext, tools }), [model.observatoryContext, tools]);
+  const runtimeBackends = model.shellContext.snapshot?.runtimeBackends;
+  useEffect(() => declareRuntimeMarks(runtimeBackends), [runtimeBackends]);
   return <ThreadStoreContext.Provider value={threadStore}>
     <WorkbenchShellContext.Provider value={model.shellContext}>
       <WorkbenchContext.Provider value={context}>

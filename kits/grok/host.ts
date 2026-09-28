@@ -213,6 +213,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           label: settings.label(id),
           order: 60,
           adapter,
+          homeProviders: ["xai"],
           listThreads: async () => (await store.list(id)).map(record),
           removeThread: async (threadId) => {
             const taken = await store.take(threadId);

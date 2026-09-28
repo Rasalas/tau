@@ -254,6 +254,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           order: 10,
           adapter,
           modelProvider: "anthropic",
+          homeProviders: ["anthropic"],
           listThreads: async () => (await store.list(undefined, id)).map(record),
           removeThread: (threadId) => store.take(threadId),
           restoreThread: (threadId, value) => store.put(threadId, value),

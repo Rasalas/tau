@@ -68,7 +68,7 @@ function caller(id: string): HostExtension & { call?: (command: string, input?: 
 describe("OpenCode host half", () => {
   it("registers an OpenCode backend that asks for approvals, takes files and plans", async () => {
     const { provider } = await harness();
-    expect(provider).toMatchObject({ kind: "opencode", label: "OpenCode", order: 40, restrictsTools: true });
+    expect(provider).toMatchObject({ kind: "opencode", label: "OpenCode", order: 40, restrictsTools: true, homeProviders: ["opencode-go"] });
     expect(provider.adapter.capabilities).toMatchObject({ interactiveApprovals: true, fileAttachments: true, modes: ["plan"], ownsModelSelection: false });
   });
 

@@ -74,7 +74,7 @@ describe("Claude Code host half", () => {
     const [provider] = backends;
     expect(provider?.kind).toBe("claude-code");
     expect(provider?.adapter.id).toBe("claude-code");
-    expect(provider?.modelProvider).toBe("anthropic");
+    expect(provider).toMatchObject({ modelProvider: "anthropic", homeProviders: ["anthropic"] });
     expect(provider?.label).toBe("Claude Code");
     // Only names Claude can be asked to run; the dialect is the adapter's.
     expect(provider?.composerCommands("/repo")).toEqual([

@@ -8,7 +8,7 @@ import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline
 import piIcon from "@lobehub/icons-static-svg/icons/pi.svg?no-inline";
 import vertexAiIcon from "@lobehub/icons-static-svg/icons/vertexai-color.svg?no-inline";
 import kiConnectIcon from "../assets/providers/ki-connect.png";
-import { providerMarks } from "../runtime-marks";
+import { providerMarks, useRuntimeMarkDeclarations, type RuntimeMarkDeclarations } from "../runtime-marks";
 import { runtimeDriver } from "../../shared/runtime-instances";
 import { tooltipProps, type TooltipOptions } from "./ui/Tooltip";
 import "./provider-marks.css";
@@ -117,8 +117,8 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
   );
 }
 
-function stackIdentities(modelProvider: string | undefined, runtimeProvider: string | undefined, plan: boolean | undefined, runtimeName?: string) {
-  const marks = providerMarks(modelProvider, runtimeProvider, { plan: plan === true });
+function stackIdentities(modelProvider: string | undefined, runtimeProvider: string | undefined, plan: boolean | undefined, runtimeName?: string, runtimes?: RuntimeMarkDeclarations) {
+  const marks = providerMarks(modelProvider, runtimeProvider, { plan: plan === true, ...(runtimes ? { runtimes } : {}) });
   const model = marks.plan ? planIdentity(marks.model) : providerIdentity(marks.model);
   const runtime = providerIdentity(marks.runtime);
   const home = providerIdentity(marks.home);
@@ -155,7 +155,8 @@ export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtim
   hint?: TooltipOptions | false;
   name?: string;
 }) {
-  const { model, runtime, route } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName);
+  const runtimes = useRuntimeMarkDeclarations();
+  const { model, runtime, route } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName, runtimes);
   if (!model && !runtime) return null;
   const label = name ?? (modelName ? `${modelName} · ${route}` : route);
   const stacked = Boolean(runtimeMark && model && runtime);

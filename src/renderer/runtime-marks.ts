@@ -1,20 +1,9 @@
-import type { UiModel, UiThreadUsage } from "../shared/contracts";
+import { useSyncExternalStore } from "react";
+import type { UiModel, UiRuntimeBackend, UiThreadUsage } from "../shared/contracts";
 import { runtimeDriver } from "../shared/runtime-instances";
 
 /** The runtime a thread gets unless another is chosen. */
 export const DEFAULT_RUNTIME = "pi";
-
-/**
- * Model providers a runtime owns, by program: beside one of them the runtime's
- * mark says it all. A runtime is home to a provider of its own name as well.
- */
-export const HOME_PROVIDERS: Readonly<Record<string, readonly string[]>> = {
-  codex: ["openai"],
-  "claude-code": ["anthropic"],
-  grok: ["xai"],
-  antigravity: ["google"],
-  opencode: ["opencode-go"],
-};
 
 /** Providers that are a subscription plan by name; others are one when the caller says so. */
 const PLAN_PROVIDERS: ReadonlySet<string> = new Set(["openai-codex"]);
@@ -30,27 +19,70 @@ export interface ProviderMarks {
   home?: string;
 }
 
+/** What runtimes declared of their marks (`homeProviders`, `ownPlan`), by program. */
+export type RuntimeMarkDeclarations = ReadonlyMap<string, { homes: ReadonlySet<string>; ownPlan: boolean }>;
+
 /** An instance (`codex@work`) wears its program's mark. */
 function spelling(value: string): string {
   return runtimeDriver(value).toLocaleLowerCase().replace(/[_.\s]/gu, "-");
 }
 
-function isHome(runtime: string, modelProvider: string): boolean {
+let declared: RuntimeMarkDeclarations = new Map();
+let declaredKey = "";
+const listeners = new Set<() => void>();
+
+/**
+ * Takes the host's `runtimeBackends` as what runtimes say of their marks; the
+ * first instance of a program speaks for it. Undefined keeps what was known.
+ */
+export function declareRuntimeMarks(backends: readonly Pick<UiRuntimeBackend, "kind" | "homeProviders" | "ownPlan">[] | undefined): void {
+  if (!backends) return;
+  const next = new Map<string, { homes: ReadonlySet<string>; ownPlan: boolean }>();
+  for (const backend of backends) {
+    const program = spelling(backend.kind);
+    if (!next.has(program)) next.set(program, { homes: new Set((backend.homeProviders ?? []).map(spelling)), ownPlan: backend.ownPlan === true });
+  }
+  const key = JSON.stringify([...next].map(([program, entry]) => [program, [...entry.homes], entry.ownPlan]));
+  if (key === declaredKey) return;
+  declared = next;
+  declaredKey = key;
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** The declarations, re-rendering the caller when they change. */
+export function useRuntimeMarkDeclarations(): RuntimeMarkDeclarations {
+  return useSyncExternalStore(subscribe, () => declared, () => declared);
+}
+
+function isHome(runtime: string, modelProvider: string, runtimes: RuntimeMarkDeclarations): boolean {
   const driver = spelling(runtime);
   const provider = spelling(modelProvider);
-  return driver === provider || (HOME_PROVIDERS[driver]?.includes(provider) ?? false);
+  return driver === provider || (runtimes.get(driver)?.homes.has(provider) ?? false);
 }
 
 /**
  * Which marks stand for a model and the runtime that runs it. A runtime with
- * its home provider shows its own mark alone; any other pair shows both, Pi
- * included. Without a runtime (a list that is one runtime's) the model's
- * mark stands alone; without a model the runtime's does.
+ * a provider it owns (its declared `homeProviders`, or its own name) shows its
+ * own mark alone; any other pair shows both, Pi included. A plan is the
+ * provider's unless the runtime says its plans are its own. Without a runtime
+ * (a list that is one runtime's) the model's mark stands alone; without a
+ * model the runtime's does.
  */
-export function providerMarks(modelProvider: string | undefined, runtime: string | undefined, options: { plan?: boolean } = {}): ProviderMarks {
+export function providerMarks(
+  modelProvider: string | undefined,
+  runtime: string | undefined,
+  options: { plan?: boolean; runtimes?: RuntimeMarkDeclarations } = {},
+): ProviderMarks {
+  const runtimes = options.runtimes ?? declared;
   if (!modelProvider) return runtime ? { runtime } : {};
-  if (runtime && isHome(runtime, modelProvider)) return { runtime, home: modelProvider };
-  const plan = options.plan === true || PLAN_PROVIDERS.has(spelling(modelProvider));
+  if (runtime && isHome(runtime, modelProvider, runtimes)) return { runtime, home: modelProvider };
+  const ownPlan = runtime !== undefined && (runtimes.get(spelling(runtime))?.ownPlan ?? false);
+  const plan = !ownPlan && (options.plan === true || PLAN_PROVIDERS.has(spelling(modelProvider)));
   return { model: modelProvider, ...(runtime ? { runtime } : {}), ...(plan ? { plan } : {}) };
 }
 

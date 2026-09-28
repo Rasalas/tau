@@ -80,7 +80,7 @@ import type {
   HostWorkspaceCloseReason,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
-import { runtimeBackendOwner, runtimeExtensionModes, sortByRuntimeOrder } from "./host-extensions.js";
+import { runtimeBackendMarks, runtimeBackendOwner, runtimeExtensionModes, sortByRuntimeOrder } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ThreadIndex } from "./thread-index.js";
@@ -1573,7 +1573,7 @@ export class PiHost {
     const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
     const registered = sortByRuntimeOrder([...this.seam.backends.values()]).map((provider) => {
       const version = this.runtimeVersions.get(provider.kind);
-      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}), ...withModes(provider.adapter.capabilities.modes) };
+      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}), ...withModes(provider.adapter.capabilities.modes), ...runtimeBackendMarks(provider) };
     });
     return [{ kind: "pi", label: "Pi", ...withModes(runtimeExtensionModes(this.seam.runtimeExtensions)) }, ...registered];
   }

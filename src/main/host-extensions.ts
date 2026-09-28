@@ -8,6 +8,7 @@ import type {
   GlobalHostEvent,
   HostExtensionSummary,
   RuntimeToolVersion,
+  UiRuntimeBackend,
   UiRuntimeCatalog,
   ThreadBackendKind,
   UiComposerCommand,
@@ -70,6 +71,8 @@ export interface HostBackendThreadRecord {
   updatedAt: number;
   /** Visible messages, enough for a title and a count. */
   messages: ReadonlyArray<Pick<UiMessage, "role" | "text">>;
+  /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
+  model?: Pick<UiModel, "provider" | "id">;
 }
 
 /** What core hands a backend when it opens a thread. */
@@ -118,6 +121,11 @@ export function sortByRuntimeOrder<T extends { readonly order?: number }>(provid
     .map(({ provider }) => provider);
 }
 
+/** What a backend declares of its marks, as its `runtimeBackends` entry carries it. */
+export function runtimeBackendMarks(provider: Pick<HostRuntimeBackendProvider, "homeProviders" | "ownPlan">): Pick<UiRuntimeBackend, "homeProviders" | "ownPlan"> {
+  return { ...(provider.homeProviders?.length ? { homeProviders: [...provider.homeProviders] } : {}), ...(provider.ownPlan ? { ownPlan: true } : {}) };
+}
+
 export interface HostRuntimeBackendProvider {
   readonly kind: ThreadBackendKind;
   /** What the workbench calls this backend where a new thread's runtime is chosen; defaults to the kind. */
@@ -131,6 +139,17 @@ export interface HostRuntimeBackendProvider {
   readonly adapter: AgentRuntimeAdapter;
   /** Provider identity used for the thread index when the backend has no selectable model. */
   readonly modelProvider?: string;
+  /**
+   * Model providers the runtime owns (Codex: `openai`): beside one of them its
+   * own mark stands alone. A provider of the runtime's own name is one without
+   * saying so (API 1.24.0).
+   */
+  readonly homeProviders?: readonly string[];
+  /**
+   * A subscription here is the runtime's own plan (Cursor's), not the model
+   * provider's, so a model keeps its provider's mark (API 1.24.0).
+   */
+  readonly ownPlan?: boolean;
   /** Every thread the backend persisted, for the index. */
   listThreads(): Promise<HostBackendThreadRecord[]>;
   /**

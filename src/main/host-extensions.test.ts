@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "./host-extensions.js";
+import { HostExtensionRegistry, runtimeBackendMarks, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "./host-extensions.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, currentCaller, type AuditedCall } from "./host-invocation.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
@@ -613,5 +613,16 @@ describe("HostExtensionRegistry", () => {
     r.addKnown(waiting);
     await r.followChoices();
     expect(waiting.activate).not.toHaveBeenCalled();
+  });
+});
+
+describe("runtimeBackendMarks", () => {
+  it("publishes what a backend declares of its marks, and nothing it left out", () => {
+    const homes = ["google"] as const;
+    const marks = runtimeBackendMarks({ homeProviders: homes, ownPlan: true });
+    expect(marks).toEqual({ homeProviders: ["google"], ownPlan: true });
+    expect(marks.homeProviders).not.toBe(homes);
+    expect(runtimeBackendMarks({})).toEqual({});
+    expect(runtimeBackendMarks({ homeProviders: [], ownPlan: false })).toEqual({});
   });
 });
