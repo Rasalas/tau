@@ -437,7 +437,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       context.registerCommand("usage-logs", () => ({
         folders: settings.list().map((instance) => {
           const billing = limits.get(instance.id)?.billing;
-          return { format: "claude", path: join(claudeConfigDir(settings.environment(instance.id, env)), "projects"), instance: settings.kind(instance.id), ...(billing ? { billing } : {}) };
+          return { format: "agent-sdk", path: join(claudeConfigDir(settings.environment(instance.id, env)), "projects"), instance: settings.kind(instance.id), ...(billing ? { billing } : {}) };
         }),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.

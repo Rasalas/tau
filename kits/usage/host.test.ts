@@ -117,7 +117,7 @@ describe("Usage host half", () => {
       id: "tau.claude-code",
       name: "Claude Code",
       activate(context) {
-        context.registerCommand("usage-logs", () => ({ folders: [{ format: "claude", path: join(claudeHome, "projects"), instance: "claude-code" }, { format: "claude", path: "relative/projects", instance: "claude-code" }] }), { callers: ["tau.usage"] });
+        context.registerCommand("usage-logs", () => ({ folders: [{ format: "agent-sdk", path: join(claudeHome, "projects"), instance: "claude-code" }, { format: "agent-sdk", path: "relative/projects", instance: "claude-code" }] }), { callers: ["tau.usage"] });
       },
     });
     const result = await registry.invoke("tau.usage", "summary", { days: [NOW - DAY, NOW - 10_000] }) as UsageSummary;
@@ -136,10 +136,10 @@ describe("Usage host half", () => {
       { format: "codex", path: "/home/codex/sessions", instance: "codex", billing: "subscription" },
       { format: "codex", path: "relative", instance: "codex" },
       { format: "pi", path: "/pi", instance: "pi" },
-      { format: "claude", path: "/claude/projects", instance: "claude-code", billing: "gift" },
+      { format: "agent-sdk", path: "/claude/projects", instance: "claude-code", billing: "gift" },
     ] })).toEqual([
       { format: "codex", path: "/home/codex/sessions", instance: "codex", billing: "subscription" },
-      { format: "claude", path: "/claude/projects", instance: "claude-code" },
+      { format: "agent-sdk", path: "/claude/projects", instance: "claude-code" },
     ]);
     expect(readLogsAnswer({ folders: "no" })).toBeUndefined();
   });

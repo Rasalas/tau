@@ -157,8 +157,8 @@ describe("Claude Code host half", () => {
     let read: (() => Promise<unknown>) | undefined;
     await registry.activate({ id: "tau.usage", name: "Usage", activate(context) { read = () => context.invokeHostExtension("tau.claude-code", "usage-logs"); } });
     await expect(read!()).resolves.toEqual({ folders: [
-      { format: "claude", path: join(agentDir, "claude-home", "projects"), instance: "claude-code" },
-      { format: "claude", path: join(agentDir, "work-home", "projects"), instance: "claude-code@work" },
+      { format: "agent-sdk", path: join(agentDir, "claude-home", "projects"), instance: "claude-code" },
+      { format: "agent-sdk", path: join(agentDir, "work-home", "projects"), instance: "claude-code@work" },
     ] });
   });
 

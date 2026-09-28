@@ -34,8 +34,8 @@ async function fixture() {
   const roots: OutsideRoot[] = [
     { format: "codex", backend: "codex", label: "Codex", path: join(codexHome, "sessions"), billing: "subscription" },
     { format: "codex", backend: "codex", label: "Codex", path: join(codexHome, "archived_sessions") },
-    { format: "claude", backend: "claude-code", label: "Claude Code", path: join(claudeHome, "projects") },
-    { format: "claude", backend: "claude-code", label: "Claude Code", path: join(root, "no-such-home", "projects") },
+    { format: "agent-sdk", backend: "claude-code", label: "Claude Code", path: join(claudeHome, "projects") },
+    { format: "agent-sdk", backend: "claude-code", label: "Claude Code", path: join(root, "no-such-home", "projects") },
   ];
   return { root, roots, rollout, archived, session, agent, cacheFile: join(root, "state", "outside-usage.json") };
 }

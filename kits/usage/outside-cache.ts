@@ -154,7 +154,7 @@ export function encodeUnit(unit: OutsideUnit): StoredUnit {
 
 export function decodeUnit(value: unknown): OutsideUnit | undefined {
   const stored = value && typeof value === "object" ? value as Partial<StoredUnit> : undefined;
-  if (!stored || typeof stored.path !== "string" || !["codex", "claude", "opencode"].includes(stored.format as string)) return undefined;
+  if (!stored || typeof stored.path !== "string" || !["codex", "agent-sdk", "opencode"].includes(stored.format as string)) return undefined;
   if (!Array.isArray(stored.models) || !Array.isArray(stored.sessions)) return undefined;
   const models = stored.models.map((model) => typeof model === "string" ? model : "unknown model");
   const sessions: OutsideSession[] = [];

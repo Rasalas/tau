@@ -9,14 +9,14 @@ const NOW = Date.UTC(2026, 8, 22, 12);
 const codexSource = BACKEND_USAGE_SOURCES.find((source) => source.backend === "codex")!;
 const codexRoot: OutsideRoot = { format: "codex", backend: "codex", label: "Codex", path: "/codex-home/sessions", billing: "subscription" };
 const archiveRoot: OutsideRoot = { format: "codex", backend: "codex", label: "Codex", path: "/codex-home/archived_sessions", billing: "subscription" };
-const claudeRoot: OutsideRoot = { format: "claude", backend: "claude-code", label: "Claude Code", path: "/claude-home/projects" };
+const claudeRoot: OutsideRoot = { format: "agent-sdk", backend: "claude-code", label: "Claude Code", path: "/claude-home/projects" };
 
 function record(key: string, at: number, total = 10): OutsideRecord {
   return { key, at, model: "gpt-5.6-luna", provider: "openai", input: total, output: 0, cacheRead: 0, cacheWrite: 0, total, cost: 0 };
 }
 
 function unit(path: string, sessions: OutsideSession[]): OutsideUnit {
-  return { path, format: path.includes("claude") ? "claude" : "codex", size: 1, mtimeMs: 1, sessions, skipped: 0 };
+  return { path, format: path.includes("claude") ? "agent-sdk" : "codex", size: 1, mtimeMs: 1, sessions, skipped: 0 };
 }
 
 const usage = { inputTokens: 5, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 5, costUsd: 0, turns: 1 };

@@ -162,7 +162,7 @@ export function readLogsAnswer(value: unknown): BackendLogFolder[] | undefined {
   if (!Array.isArray(folders)) return undefined;
   return folders.flatMap((item): BackendLogFolder[] => {
     const raw = item && typeof item === "object" ? item as Record<string, unknown> : undefined;
-    if (!raw || (raw.format !== "codex" && raw.format !== "claude" && raw.format !== "opencode")) return [];
+    if (!raw || (raw.format !== "codex" && raw.format !== "agent-sdk" && raw.format !== "opencode")) return [];
     if (typeof raw.path !== "string" || !isAbsolute(raw.path) || typeof raw.instance !== "string") return [];
     const billing = billingOf(raw.billing);
     return [{ format: raw.format, path: raw.path, instance: raw.instance, ...(billing ? { billing } : {}) }];

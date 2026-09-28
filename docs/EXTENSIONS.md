@@ -1484,6 +1484,27 @@ turns has only `usage` and is dated by its last activity. The Agent SDK runtime,
 Antigravity, Codex, OpenCode, Grok and Cursor answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
 in `kits/usage/protocol.ts`, and one that does not answer is listed as not available.
 
+Work outside Tau counts too. A thread in the `usage` answer may name `sessionId`, the
+runtime's own session id as its CLI logs it, and a kit whose CLI logs its sessions on
+its own answers `usage-logs`, granted to `tau.usage`, with `{ folders: [{ format, path,
+instance, billing? }] }`: `format` is `codex` (a folder of rollouts, `<CODEX_HOME>/sessions`
+and `archived_sessions`), `agent-sdk` (the Agent SDK runtime's CLI, `projects` in its config
+folder) or `opencode` (the XDG data folder holding `opencode.db`), each named from the
+instance's own home, and `billing` is the instance's login where the kit knows it. The kit
+reads nothing for it. Usage reads the folders in its worker: only lines that carry usage
+(Codex's `token_usage_record` per response, or older `token_count` events counted by the
+step of their running total, without a fork's replayed start; one assistant response of
+the CLI once per message and request id; OpenCode's assistant messages), cached per file
+by size and mtime in `outside-usage.json` with counts and digests only, over the last
+twelve months. A summary waits a moment for a first read and otherwise answers with what
+is read so far and `reading: true`, and the page asks again. A session a Tau thread ran
+as, or one it forked or spawned, is that thread's: skipped where the kit kept the
+thread's usage, counted for the thread where it kept none (an imported session). The
+rest comes as rows and entries with `outside: true`, `threadId` then being the CLI's
+session id; the page marks them, names their sessions and projects, and filters by where
+the work ran. Codex, the Agent SDK runtime and OpenCode answer it (`OUTSIDE_LOG_SOURCES`);
+an OpenCode instance on a server the user runs elsewhere names no folder.
+
 A kit whose runtime's login reports quota windows answers `usage-limits`, granted to
 `tau.usage`, with `{ accounts: [{ id, runtime, label, plan?, checkedAt, windows:
 [{ id, kind, label, usedPercent, resetsAt?, windowMinutes? }], unavailable? }] }`

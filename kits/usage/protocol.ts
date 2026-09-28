@@ -83,7 +83,7 @@ export interface BackendUsageThread {
 export const BACKEND_LOGS_COMMAND = "usage-logs";
 
 /** How a log folder is laid out: Codex rollouts, the Agent SDK CLI's projects, OpenCode's data folder. */
-export type OutsideFormat = "codex" | "claude" | "opencode";
+export type OutsideFormat = "codex" | "agent-sdk" | "opencode";
 
 export interface BackendLogFolder {
   format: OutsideFormat;
