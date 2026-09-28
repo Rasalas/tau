@@ -231,4 +231,33 @@ describe("NewThreadController", () => {
     controller.begin(createNewThreadDraft(project()));
     expect(controller.current()?.model).toBeUndefined();
   });
+
+  it("starts the next draft on what the thread on screen runs, unless something was chosen for it", () => {
+    const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    const controller = new NewThreadController(createMemoryStorage());
+    controller.inherit({ runtime: "codex", model: luna, thinkingLevel: "high", mode: "plan" });
+    controller.begin(createNewThreadDraft(project()));
+    expect(controller.current()).toMatchObject({ runtime: "codex", model: luna, thinkingLevel: "high", selectionRuntime: "codex", mode: "plan" });
+
+    // An explicit choice (a model picker's "New thread on") wins over the thread on screen.
+    controller.carryToNextDraft("pi");
+    controller.inherit({ runtime: "codex", model: luna });
+    controller.begin(createNewThreadDraft(project()));
+    expect(controller.current()?.runtime).toBe("pi");
+    expect(controller.current()?.model).toBeUndefined();
+
+    // `default` is no choice of mode.
+    controller.inherit({ runtime: "pi", mode: "default" });
+    controller.begin(createNewThreadDraft(project()));
+    expect(controller.current()?.mode).toBeUndefined();
+  });
+
+  it("keeps the runtime a draft is bound to across a reload and a switch", () => {
+    const storage = createMemoryStorage();
+    const controller = new NewThreadController(storage);
+    controller.begin(createNewThreadDraft(project()));
+    controller.switchRuntime("pi", "codex");
+    expect(controller.current()?.runtime).toBe("codex");
+    expect(new NewThreadController(storage).current()?.runtime).toBe("codex");
+  });
 });

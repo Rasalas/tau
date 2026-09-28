@@ -99,6 +99,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", access: "write", run: (app) => app.openSettings("models#setting-thinking-level") });
     plugin.registerCommand({ id: "runtime.compact", label: "Compact context", group: "Thread", access: "write", run: later("runtime.compact") });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", access: "write", run: (app) => app.newSession() });
+    plugin.registerCommand({ id: "runtime.new-session-in", label: "New thread in…", group: "Thread", access: "write", run: (app) => app.newSession({ pick: true }) });
     plugin.registerCommand({ id: "runtime.new-thread-on", label: "New thread on…", group: "Thread", access: "write", submenu: lazyLevel("New thread on", (loaded, app) => loaded.runtimeItems(app)), run: (app) => app.openCommandPalette({ menu: "runtime.new-thread-on" }) });
     for (const level of TRANSCRIPT_DETAIL_LEVELS) {
       plugin.registerCommand({
@@ -196,8 +197,10 @@ export const runtimeControls: DesktopExtension = {
     // As in T3 Code; the open Settings screen answers the same chord by closing.
     plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
     // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).
+    // As in T3 Code: `mod+n` and `mod+shift+n` in the project on screen, `mod+shift+o` asks which project.
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
-    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+shift+n", commandId: "runtime.new-session", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session-in", when: "!terminalFocus" });
     // Only from the chat: Escape elsewhere is a panel's, and an open overlay's always.
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort", when: "chatFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+enter", commandId: "thread.steerQueuedMessage", when: "!terminalFocus" });

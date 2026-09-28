@@ -121,7 +121,7 @@ export async function followArrival(target: EnvironmentTarget, ports: ArrivalPor
     }
     // Without a project the picker opens, once; with one, the page may not know it yet.
     if (workspaceId) actions.newSession({ workspace: workspaceId });
-    else if (attempt === 0) actions.newSession();
+    else if (attempt === 0) actions.newSession({ pick: true });
     await ports.wait(250);
   }
   return false;

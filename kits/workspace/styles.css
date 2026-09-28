@@ -148,6 +148,14 @@
   color: var(--faint); font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
 }
 .thread-group-label > i { flex: 1; height: 1px; background: var(--line); }
+.thread-group-new {
+  width: 22px; height: 22px; margin: -4px 0; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
+  opacity: 0; transition: opacity var(--motion-fast) ease;
+}
+.thread-group-label:hover > .thread-group-new, .thread-group-new:focus-visible { opacity: 1; }
+.thread-group-new:hover { background: var(--raised); color: var(--ink); }
+@media (hover: none) { .thread-group-new { opacity: 1; } }
 
 .settled-shelf { display: flex; flex-direction: column; gap: 2px; }
 /* T3 Code's shelf header: 32 px, the count only while folded, a chevron that turns when open. */

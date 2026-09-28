@@ -122,7 +122,7 @@ export class SubmissionController {
    */
   private newThreadStart(pending: NewThreadDraft) {
     const snapshot = this.ports.view.getSnapshot();
-    const runtime = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
+    const runtime = effectiveNewThreadRuntime(pending.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
     const inherited = runtime === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
     // What the draft chose goes to the runtime it was chosen from and no other.
     const chosen = (pending.selectionRuntime ?? "pi") === runtime;
@@ -249,7 +249,7 @@ export class SubmissionController {
           text,
           pendingNewThread ? undefined : this.ports.hostSession.sessionIdFor(snapshot?.sessionId),
           skillDraft,
-          pendingNewThread ? chosenNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
+          pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
         );
       } catch (error) {
         // ComposerScopeStore keeps the captured draft when a submission is

@@ -164,9 +164,9 @@ async function pickProjectWithEnter(): Promise<void> {
   fireEvent.keyDown(within(picker).getByRole("textbox", { name: "Search projects" }), { key: "Enter", bubbles: true, cancelable: true });
 }
 
-function pressNewThreadShortcut(): void {
+function pressNewThreadShortcut(key = "n", shiftKey = false): void {
   const mac = /mac|iphone|ipad/iu.test(navigator.platform);
-  fireEvent.keyDown(window, { key: "n", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
+  fireEvent.keyDown(window, { key, metaKey: mac, ctrlKey: !mac, shiftKey, bubbles: true, cancelable: true });
 }
 
 describe("starting a new thread while the centre shows tabs", () => {
@@ -175,10 +175,13 @@ describe("starting a new thread while the centre shows tabs", () => {
     await renderRail();
     const stage = await openTerminal();
 
+    // ⌘N, the rail and the palette open in the project on screen; ⇧⌘O and "New thread in…" ask.
     const starts: Array<() => Promise<void>> = [
-      async () => { pressNewThreadShortcut(); await pickProjectWithEnter(); },
-      async () => { fireEvent.click(screen.getByRole("button", { name: "New thread" })); await pickProjectWithEnter(); },
-      async () => { await runPaletteCommand("Create new thread"); await pickProjectWithEnter(); },
+      async () => { pressNewThreadShortcut(); },
+      async () => { fireEvent.click(screen.getByRole("button", { name: "New thread" })); },
+      async () => { await runPaletteCommand("Create new thread"); },
+      async () => { pressNewThreadShortcut("O", true); await pickProjectWithEnter(); },
+      async () => { await runPaletteCommand("New thread in…"); await pickProjectWithEnter(); },
       async () => { fireEvent.click(await screen.findByRole("button", { name: "New thread in project" })); },
     ];
     for (const start of starts) {
@@ -211,7 +214,6 @@ describe("starting a new thread while the centre shows tabs", () => {
     expect(selected(stage, "Chat")).toBe("false");
 
     pressNewThreadShortcut();
-    await pickProjectWithEnter();
     expect(selected(stage, "Chat")).toBe("true");
     expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
     expect(startScreenShown()).toBe(true);

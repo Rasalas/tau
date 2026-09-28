@@ -31,6 +31,12 @@ afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefine
  * needs the rail, a panel, the worktree bar or a checkpoint card, which core
  * alone does not draw.
  */
+/** ⇧⌘O: a new thread in a project chosen in the picker. */
+function pressNewThreadInShortcut(): void {
+  const mac = /mac|iphone|ipad/iu.test(navigator.platform);
+  fireEvent.keyDown(window, { key: "O", metaKey: mac, ctrlKey: !mac, shiftKey: true, bubbles: true, cancelable: true });
+}
+
 describe("Workspace Kit in the workbench", () => {
   it("offers no new thread on a device paired Read only, and says why", async () => {
     const invokeHostExtension = workspaceHostStub({ listEditors: async () => [], getFileTree: async () => [] });
@@ -590,14 +596,12 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
-    const firstPicker = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(firstPicker).getByRole("option", { name: /project/u }));
     const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "first request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
 
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    pressNewThreadInShortcut();
     const secondPicker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(secondPicker).getByRole("option", { name: /second/u }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());
@@ -736,8 +740,6 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
-    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(dialog).getByRole("option", { name: /project/u }));
     const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     const image = new File([new Uint8Array([137, 80, 78, 71])], "draft.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [image] } });
@@ -762,8 +764,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
-    const nextDialog = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(nextDialog).getByRole("option", { name: /project/u }));
+    await waitFor(() => expect(plainChipText(composer.value)).toBe(""));
     expect(screen.queryByText(/Wait for the current message delivery/u)).toBeNull();
   });
 
@@ -799,8 +800,6 @@ describe("Workspace Kit in the workbench", () => {
     await screen.findByText("Existing work");
     fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
     fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
-    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(dialog).getByRole("option", { name: /project/u }));
 
     expect(await screen.findByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
     expect(screen.queryByText("Used 1 tool")).toBeNull();
@@ -1336,8 +1335,7 @@ describe("Workspace Kit in the workbench", () => {
     // The persisted prompt is the delivery commit. The agent run continues, but
     // the draft no longer holds the workspace or thread navigation.
     await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
-    fireEvent.click(screen.getByRole("button", { name: /Untitled thread/u }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "New thread" }));
+    pressNewThreadInShortcut();
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /other/u }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());

@@ -73,8 +73,9 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+alt+b` | | `workbench.toggle-dock` | Hide or show the dock | core | `rightPanel.toggle` |
 | `mod+alt+shift+b` | | `rightPanel.toggleMaximized` | Maximize the panel in front onto the stage, or move it back | core | same (no default chord) |
 | `mod+k` | | `runtime.command-palette` | Command palette | core | `commandPalette.toggle` |
-| `mod+n` | `!terminalFocus` | `runtime.new-session` | New thread | core | `chat.new` |
-| `mod+shift+o` | `!terminalFocus` | `runtime.new-session` | New thread | core | `chat.new` |
+| `mod+n` | `!terminalFocus` | `runtime.new-session` | New thread in the project on screen | core | `chat.new` |
+| `mod+shift+n` | `!terminalFocus` | `runtime.new-session` | New thread in the project on screen | core | `chat.newLocal` |
+| `mod+shift+o` | `!terminalFocus` | `runtime.new-session-in` | New thread in a project chosen in the picker | core | `chat.new` |
 | `mod+shift+m` | | `runtime.model` | Model picker | core | `modelPicker.toggle` |
 | `mod+alt+shift+a` | | `runtime.theme` | Cycle light, dark, system | core | `appearance.cycle` |
 | `mod+w` | | `workbench.close-stage-tab` | Close the stage tab | core | `rightPanel.close` |
@@ -165,7 +166,11 @@ reach the workbench as usual.
   keeps every other binding off them. A view that wants the zoom chords for its
   own page (a preview) takes them in that view's `before-input-event` and calls
   `preventDefault`, which also keeps the menu's accelerator from firing.
-- No Tau command yet for `chat.newLocal`, `composer.host`,
+- ⌘N opens a new thread in the project on screen, like T3 Code's
+  `chat.newLocal` (⇧⌘N, bound the same in Tau); T3 Code's `chat.new` asks for
+  the project in its palette whenever there is more than one, which in Tau is
+  ⇧⌘O and the palette's "New thread in…".
+- No Tau command yet for `composer.host`,
   `composer.previousWorktree`, `pullRequest.copyNumber` and
   `thread.copyReference`.
 - `rightPanel.toggleMaximized` has no default chord in T3 Code; Tau binds

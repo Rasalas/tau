@@ -266,7 +266,7 @@ describe("useWorkbenchActions", () => {
     const project = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
     const createThreadInProject = vi.fn();
     const options = createMockOptions({
-      threadStore: { getSnapshot: () => ({ activeThreadId: "thread-1" }), getProjects: () => [project] } as any,
+      threadStore: { getSnapshot: () => ({ activeThreadId: "thread-1", threads: [] }), getProjects: () => [project] } as any,
       createThreadInProject,
     });
     const { result } = renderHook(() => useWorkbenchActions(options));
@@ -275,8 +275,40 @@ describe("useWorkbenchActions", () => {
     result.current.newSession({ workspace: "ws1_unknown" });
     expect(createThreadInProject).toHaveBeenCalledTimes(1);
     expect(options.openNewThreadPicker).not.toHaveBeenCalled();
-    result.current.newSession();
+    result.current.newSession({ pick: true });
     expect(options.openNewThreadPicker).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a new thread nobody named a project for", () => {
+    const app = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
+    const site = { path: "/work/site", workspaceId: "ws1_site", name: "site", lastOpenedAt: 5 };
+    const setup = (screen: { thread?: Partial<HostSnapshot>; draft?: object; covered?: boolean; projects?: object[] }) => {
+      const createThreadInProject = vi.fn();
+      const options = createMockOptions({
+        threadStore: { getSnapshot: () => ({ activeThreadId: "", threads: [] }), getProjects: () => screen.projects ?? [app, site] } as any,
+        viewStore: { getSnapshot: () => screen.thread } as any,
+        pendingNewThread: screen.draft as any,
+        threadView: () => ({ covered: Boolean(screen.covered) }),
+        createThreadInProject,
+      });
+      renderHook(() => useWorkbenchActions(options)).result.current.newSession();
+      return { createThreadInProject, picker: options.openNewThreadPicker };
+    };
+
+    it("opens in the project of the thread on screen", () => {
+      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app", cwd: "/work/app" } }).createThreadInProject).toHaveBeenCalledWith(app);
+    });
+
+    it("opens in the project of the draft on screen", () => {
+      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_site" }, draft: { kind: "draft", draftId: "d", projectPath: "/work/app", workspaceId: "ws1_app", projectName: "app" } }).createThreadInProject).toHaveBeenCalledWith(app);
+    });
+
+    it("opens where the host last worked while a page covers the thread, and asks without a project", () => {
+      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true }).createThreadInProject).toHaveBeenCalledWith(site);
+      const none = setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true, projects: [] });
+      expect(none.createThreadInProject).not.toHaveBeenCalled();
+      expect(none.picker).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("starts a thread on another runtime: the draft moves, a thread opens a draft in its project", () => {

@@ -1200,10 +1200,17 @@ released oldest first, and one nobody used for ten minutes is released too, so a
 released thread's transcript is projected from its session file, with the same
 paging, cursors and client-message correlation.
 
-`actions.newSession()` opens the project picker for a new thread, as the rail's
-button does. `actions.newSession({ workspace })` puts a new thread's draft
-straight into the project that workspace id names, and does nothing for a
-project the window does not know yet (new in API 1.10.0). Workspace Kit's
+`actions.newSession()` opens a new thread's draft in the project of the draft
+or thread on screen, as ⌘N and the rail's button do (as T3 Code's new thread
+does). With nothing on screen (a page, Settings or a phone's thread list
+covers it) it opens where the host last worked, and asks with the project
+picker when there is no such project. The draft starts on the runtime, model,
+thinking level and mode of the draft or thread on screen; access and the
+workspace mode stay at their defaults (new in API 1.25.0).
+`actions.newSession({ pick: true })` asks with the picker, as "New thread in…"
+and ⇧⌘O do (new in API 1.25.0). `actions.newSession({ workspace })` puts a new
+thread's draft straight into the project that workspace id names, and does
+nothing for a project the window does not know yet (new in API 1.10.0). Workspace Kit's
 `tau app <path>` is the caller: it opens the folder with `openWorkspace` first,
 so a project Tau never saw arrives on its own empty thread.
 

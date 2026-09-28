@@ -166,7 +166,9 @@ component and adds only its entry, its platform and the token handling. Below
 edge, and on a phone the thread list as its home page, with a project filter at
 its head and a floating New thread button that starts a draft in the filtered
 project, else in the one the host last worked in (`lastUsedProject`, never `/`),
-else asks. A chat is a screen over the list with Back in its bar. The list, the
+else asks; a tablet's list beside a thread starts it in that thread's project
+when no filter is set, as ⌘N does everywhere (`newThreadProject` in
+`src/workbench/new-thread-project.ts`). A chat is a screen over the list with Back in its bar. The list, the
 app pages that claim `compact` (`registerPage`, three at most, in their order)
 and Settings are the phone's main pages, with a bottom navigation (`PhoneNav`)
 as their last row; a chat, a page's view and a Settings section are sub-pages

@@ -30,6 +30,7 @@ import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -210,6 +211,10 @@ export default function App() {
   const showThread = useCallback((options?: ShowThreadOptions) => workbenchControlRef.current?.showThread(options), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const threadView = useCallback(() => workbenchControlRef.current?.threadView(), []);
+  const inheritSelection = useCallback(() => {
+    const draft = newThreadController.current();
+    newThreadController.inherit(selectionOnScreen({ covered: threadView()?.covered, draft, draftRuntime: effectiveNewThreadRuntime(draft?.runtime ?? preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), thread: viewStore.getSnapshot() }));
+  }, [newThreadController, preferences, threadView, viewStore]);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
@@ -337,6 +342,7 @@ export default function App() {
     activeDraftKey: currentDraftKey,
     composerRef,
     closeNewThreadPicker,
+    inheritSelection,
     showThread,
   });
   const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree, editFromMessage } = useThreadTree({
@@ -480,7 +486,7 @@ export default function App() {
   const { reloadWorkbench, reloadUi } = useWorkbenchReload({ client, requireHost, addEvent, setNotice });
 
   // A draft keeps its choice for the runtime it will run on, whatever thread is on screen.
-  const draftRuntime = useCallback(() => effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), [preferences, viewStore]);
+  const draftRuntime = useCallback(() => effectiveNewThreadRuntime(newThreadController.current()?.runtime ?? preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), [newThreadController, preferences, viewStore]);
   const setComposerModel = useCallback(
     (provider: string, id: string) => newThreadController.setModel(
       provider, id, threadCommands.setModel,
@@ -562,7 +568,7 @@ export default function App() {
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
   // A draft bound for another runtime than the one on screen chooses from that runtime's own catalog.
-  const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(settings.newThreadRuntime, snapshot) : undefined;
+  const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot) : undefined;
   const otherDraftRuntime = boundRuntime && boundRuntime !== (snapshot?.backendKind ?? "pi") ? boundRuntime : undefined;
   const draftCatalog = useRuntimeCatalog(otherDraftRuntime);
   const draftSnapshot = useMemo(() => pendingNewThread && snapshot && otherDraftRuntime
@@ -580,7 +586,7 @@ export default function App() {
     ...(draftSnapshot === snapshot && pendingNewThread.model && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { model: pendingNewThread.model } : {}),
     ...(draftSnapshot === snapshot && pendingNewThread.thinkingLevel && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),
     mode: pendingNewThread.mode,
-    modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(settings.newThreadRuntime, snapshot))?.modes,
+    modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot))?.modes,
     supportsImageInput: pendingNewThread.sessionId
       ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
       : preparedThreadCapability?.cwd === pendingNewThread.projectPath
@@ -632,7 +638,7 @@ export default function App() {
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({
-    snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread),
+    snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread), draftRuntime: pendingNewThread?.runtime,
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,

@@ -15,6 +15,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { newThreadProject } from "../workbench/new-thread-project";
 import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
@@ -105,12 +106,21 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   } = options;
 
   return useMemo<WorkbenchActions>(() => {
-    // `pick`: a project the window does not list yet is chosen in the picker.
-    const newSession = (request?: { workspace?: string }, pick = false) => {
+    // `unlisted`: a project the window does not list yet is chosen in the picker.
+    const newSession = (request?: { workspace?: string; pick?: boolean }, unlisted = false) => {
+      if (request?.pick) { options.openNewThreadPicker(); return; }
       const workspace = request?.workspace;
-      const project = workspace ? options.threadStore.getProjects().find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace) : undefined;
+      const projects = options.threadStore.getProjects();
+      const draft = pendingNewThreadRef.current;
+      const thread = options.viewStore.getSnapshot();
+      // Unnamed: the project on screen, as T3 Code's new thread; with none on screen, where the host last worked.
+      const project = workspace
+        ? projects.find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace)
+        : newThreadProject(projects, options.threadStore.getSnapshot().threads, {
+          covered: Boolean(options.threadView?.()?.covered), ...(draft ? { draft } : {}), ...(thread ? { thread } : {}),
+        });
       if (project) options.createThreadInProject?.(project);
-      else if (!workspace || pick) options.openNewThreadPicker();
+      else if (!workspace || unlisted) options.openNewThreadPicker();
     };
     const actions: WorkbenchActions = {
       openPanel,
@@ -118,7 +128,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
       openCommandPalette: options.openPalette,
       openSettings: (page) => options.setSettingsPage(page ?? "general"),
-      newSession: (request) => newSession(request),
+      // Read what is on screen first: Settings covers the thread until the next render.
+      newSession: (request) => { newSession(request); options.setSettingsPage(undefined); },
       switchSession,
       ...(options.openDraft ? { openDraft: options.openDraft } : {}),
       ...(options.discardDraft ? { discardDraft: options.discardDraft } : {}),
@@ -215,7 +226,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           };
         }
         // A draft starts on its own runtime and model, not on the last thread's.
-        const backendKind = effectiveNewThreadRuntime(options.preferences?.getSnapshot().newThreadRuntime, snapshot);
+        const backendKind = effectiveNewThreadRuntime(pending.runtime ?? options.preferences?.getSnapshot().newThreadRuntime, snapshot);
         const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
         const model = pending.model ?? inherited;
         return {
@@ -310,7 +321,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           if (model) void controller?.setModel(model.provider, model.id, undefined, () => model.name, runtime);
           return;
         }
-        if (model) controller?.carryToNextDraft(runtime, model);
+        controller?.carryToNextDraft(runtime, model);
         options.preferences?.setNewThreadRuntime(runtime);
         // In the project on screen, as the model picker's new thread.
         const workspace = snapshot?.workspaceId ?? options.workspaceCwd;

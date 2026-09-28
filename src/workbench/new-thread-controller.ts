@@ -31,8 +31,8 @@ export class NewThreadController {
   private pending: NewThreadDraft | undefined;
   private request: NewThreadRequestId;
   private awaitingPromotion: { scope: DraftKey; requestId: NewThreadRequestId } | undefined;
-  /** A model chosen for the next draft before it exists; `begin` takes it. */
-  private carried: { runtime: string; model: UiModel } | undefined;
+  /** What the next draft starts on, chosen before it exists; `begin` takes it. */
+  private carried: NewThreadSelection | undefined;
   private readonly listeners = new Set<() => void>();
   private readonly storage: ClientStorage;
 
@@ -65,7 +65,7 @@ export class NewThreadController {
     const scopedDraft = {
       ...draft,
       draftId: draft.draftId ?? newDraftIdentity(),
-      ...(carried ? { model: { provider: carried.model.provider, id: carried.model.id, name: carried.model.name }, ...selectionRuntime(carried.runtime) } : {}),
+      ...(carried ? selectionDraft(carried) : {}),
     };
     writeNewThreadDraft(this.storage, scopedDraft);
     this.set(scopedDraft);
@@ -125,9 +125,14 @@ export class NewThreadController {
     return scope;
   };
 
-  /** The next draft that begins starts on `model` of `runtime`: another runtime's model picked in a thread that exists. */
-  carryToNextDraft = (runtime: string, model: UiModel): void => {
-    this.carried = { runtime, model };
+  /** The next draft that begins starts on `runtime`, and on `model` of it: a choice made in a thread that exists. */
+  carryToNextDraft = (runtime: string, model?: UiModel): void => {
+    this.carried = { runtime, ...(model ? { model } : {}) };
+  };
+
+  /** The next draft starts on what the thread on screen runs, unless something was chosen for it already. */
+  inherit = (selection: NewThreadSelection | undefined): void => {
+    if (selection && !this.carried) this.carried = selection;
   };
 
   /**
@@ -153,6 +158,7 @@ export class NewThreadController {
     const mode = back ? back.mode : pending.mode;
     this.store({
       ...rest,
+      runtime: to,
       ...(back?.model || back?.thinkingLevel ? selectionRuntime(to) : {}),
       ...(back?.model ? { model: back.model } : {}),
       ...(back?.thinkingLevel ? { thinkingLevel: back.thinkingLevel } : {}),
@@ -204,6 +210,25 @@ export class NewThreadController {
     writeNewThreadDraft(this.storage, next);
     this.set(next);
   }
+}
+
+/** What a new draft starts on: the runtime, and the model, level and mode chosen with it. */
+export interface NewThreadSelection {
+  runtime: string;
+  model?: UiModel;
+  thinkingLevel?: string;
+  mode?: string;
+}
+
+function selectionDraft(selection: NewThreadSelection): Partial<NewThreadDraft> {
+  const { runtime, model, thinkingLevel, mode } = selection;
+  return {
+    runtime,
+    ...(model ? { model: { provider: model.provider, id: model.id, name: model.name } } : {}),
+    ...(thinkingLevel ? { thinkingLevel } : {}),
+    ...(model || thinkingLevel ? selectionRuntime(runtime) : {}),
+    ...(mode && mode !== "default" ? { mode } : {}),
+  };
 }
 
 function selectionRuntime(runtime: string | undefined): { selectionRuntime?: string } {

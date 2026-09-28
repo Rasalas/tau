@@ -44,6 +44,8 @@ export interface ThreadNavigationPorts {
   drafts: Pick<DraftThreads, "keep" | "take" | "discard" | "find">;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   closeNewThreadPicker(): void;
+  /** Read before a new draft begins: it starts on what the draft or thread on screen runs. */
+  inheritSelection?(): void;
   /** A thread was asked for, the one on screen too: its chat comes to the front. */
   showThread(options?: ShowThreadOptions): void;
 }
@@ -60,7 +62,7 @@ export interface ThreadNavigationPorts {
 export function useThreadNavigation(ports: ThreadNavigationPorts) {
   const {
     activeDraftKey, client, closeNewThreadPicker, composerRef, detachPendingDelivery, drafts,
-    history, newThread, requireHost, scopes, showThread, storage, threads, view, workbench, stage, setStage,
+    history, inheritSelection, newThread, requireHost, scopes, showThread, storage, threads, view, workbench, stage, setStage,
   } = ports;
   const { applyActionResult, applySnapshot, applyHostResult } = workbench;
   const notify = view.setNotice;
@@ -139,6 +141,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
    * start screen's project button).
    */
   const createThreadInProject = useCallback((project: UiProject, options?: { carry?: boolean }) => {
+    inheritSelection?.();
     showThread({ focusComposer: true });
     const current = newThread.current();
     const scope = current ? activeDraftKey() : undefined;
@@ -146,7 +149,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       leavePendingNewThread(current, detachPendingDelivery());
     }
     moveDraftToProject(project);
-  }, [activeDraftKey, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
+  }, [activeDraftKey, detachPendingDelivery, inheritSelection, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
 
   /** A draft from the list becomes the draft on screen again; the one it replaces is left. */
   const openDraft = useCallback((draftId: string) => {

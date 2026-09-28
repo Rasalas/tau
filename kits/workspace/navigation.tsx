@@ -43,7 +43,7 @@ const ROW_STRIDE = 78;
 const THREAD_PAGE_SIZE = 25;
 
 export type NavigationRow =
-  | { kind: "group"; id: string; label: string; count: number }
+  | { kind: "group"; id: string; label: string; count: number; project?: UiProject }
   | { kind: "more"; id: string; key: string; remaining: number }
   | { kind: "thread"; id: string; session: UiSession };
 
@@ -93,8 +93,9 @@ export function navigationRowsFor(threads: readonly UiSession[], order: RailOrde
   const projectOf = (session: UiSession) => findProjectForSession(projects, session);
   return groupThreads(threads, order.grouping, order.projectSort, projectOf).flatMap((group): NavigationRow[] => {
     const shown = openGroups.has(group.key) ? group.threads : group.threads.slice(0, order.preview);
+    const project = group.threads[0] ? projectOf(group.threads[0]) : undefined;
     return [
-      { kind: "group", id: `group:${group.key}`, label: group.label, count: group.threads.length },
+      { kind: "group", id: `group:${group.key}`, label: group.label, count: group.threads.length, ...(project ? { project } : {}) },
       ...shown.map((session) => ({ kind: "thread" as const, id: session.id, session })),
       ...(shown.length < group.threads.length ? [{ kind: "more" as const, id: `more:${group.key}`, key: group.key, remaining: group.threads.length - shown.length }] : []),
     ];
@@ -1260,7 +1261,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "group" ? (
-                  <div className="thread-group-label">{row.label} · {row.count}<i /></div>
+                  <div className="thread-group-label">{row.label} · {row.count}<i />
+                    {/* As T3 Code's project header: a new thread in this project, whatever is on screen. */}
+                    {row.project && !readOnlyDevice ? <button
+                      type="button"
+                      className="thread-group-new"
+                      aria-label={`New thread in ${row.project.name}`}
+                      {...tooltipProps(`New thread in ${row.project.name}`, { side: "top" })}
+                      onClick={() => actions.newSession({ workspace: row.project!.workspaceId ?? row.project!.path })}
+                    ><SquarePen size={13} /></button> : null}
+                  </div>
                 ) : row.kind === "more" ? (
                   <ShowMoreThreadRow remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
                 ) : (() => {

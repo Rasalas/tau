@@ -494,6 +494,22 @@ describe("a new thread's draft in the phone's list", () => {
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
 
+  it("starts a new thread in the project of the thread beside the list, or in the filtered one", async () => {
+    // `other` is where the host last worked; the thread on screen is in `project`.
+    const projects: ProjectEntry[] = [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 99 }];
+    renderCompactClient({ bootstrap: bootstrapWith(THREADS, { projects }) });
+    const sidebar = await screen.findByRole("navigation", { name: "Thread list" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "New thread" }));
+    expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Search projects")).toBeNull();
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Project: all projects. Change" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^other/u }));
+    // The header's button; the empty list offers one too.
+    fireEvent.click(within(sidebar).getAllByRole("button", { name: "New thread" })[0]!);
+    expect(await screen.findByRole("button", { name: "Change project, current project other" })).toBeTruthy();
+  });
+
   it("lists a new thread's draft in the sidebar as soon as it opens, and drops it when left empty", async () => {
     renderCompactClient();
     const sidebar = await screen.findByRole("navigation", { name: "Thread list" });
