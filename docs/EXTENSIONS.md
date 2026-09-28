@@ -1878,6 +1878,18 @@ Settings → Resume compaction turns it back on. Both that list and "Keep full
 history" live in Tau's config (`values.tau.resume-compaction.off` and
 `.kept`), so they hold on every device.
 
+A compaction shows in the transcript as a divider (new in API 1.27.0): a
+`UiMessage` with role `notice`, a short text ("Context compacted") and
+`compaction` (`UiCompaction`: `tokensBefore`, `tokensAfter`, `turns: { first,
+last }` for the 1-based user turns the summary replaced, and the `summary` in
+Markdown, each optional). The transcript draws "Context compacted · turns 1–3
+summarised · 142k → 38k tokens" across the conversation and, with a summary,
+a "Show" that opens it. A streamed backend reports it as an `assistant-end`
+event where it happened and answers it from `transcript()` after a restart;
+the Agent SDK runtime turns `compact_boundary` into one (its sizes, no summary)
+and keeps it in its session store. Pi's own compaction entries become dividers
+in core, with `tokensAfter` estimated from the context the entry left.
+
 An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
 text, number, integer, boolean, single- and multiple-choice fields — the same
 shape in MCP, Codex's app-server and ACP). `elicitationFields(schema)` from
