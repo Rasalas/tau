@@ -182,7 +182,7 @@ describe("ModelPicker", () => {
     // A row names its provider by its mark, not in text.
     const row = screen.getByRole("option", { name: /^Claude Opus 5, Pi/u });
     expect(row.textContent).not.toContain("Anthropic");
-    expect(row.querySelector("[data-tooltip='Anthropic']")).toBeTruthy();
+    expect(row.querySelector("[data-tooltip='Claude Opus 5 · Pi via Anthropic']")).toBeTruthy();
   });
 
   it("marks the runtime and provider of an offering in search instead of naming them", () => {
@@ -203,14 +203,14 @@ describe("ModelPicker", () => {
       expect(row.textContent).not.toMatch(/Pi|Codex|OpenAI/u);
     }
     const marks = (row: HTMLElement) => [...row.querySelectorAll("[data-tooltip]")].map((mark) => mark.getAttribute("data-tooltip"));
-    expect(marks(pi)).toEqual(["Pi", "ChatGPT plan"]);
-    expect(marks(codex)).toEqual(["Codex"]);
-    // A list across runtimes: the runtime's mark, then the provider's unless the runtime owns it.
+    expect(marks(pi)).toEqual(["GPT-5.6 Luna · Pi via ChatGPT plan"]);
+    expect(marks(codex)).toEqual(["GPT-5.6 Luna · Codex (OpenAI)"]);
+    // A list across runtimes: the access mark with the runtime's badge, or the runtime's own mark at home.
     fireEvent.change(search(), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
     const favourite = screen.getByRole("option", { name: /^GPT-5.6 Luna, Codex/u });
     expect(favourite.textContent).not.toMatch(/Codex|OpenAI/u);
-    expect(marks(favourite)).toEqual(["Codex"]);
+    expect(marks(favourite)).toEqual(["GPT-5.6 Luna · Codex (OpenAI)"]);
   });
 
   it("says each thing once: no billing badge beside the price, no counts, a dot only for a runtime that is not ready", () => {
@@ -229,7 +229,7 @@ describe("ModelPicker", () => {
     expect(fable.textContent).not.toContain("Plan");
     expect(fable.textContent).toContain("incl.");
     // Across providers a row wears its provider's mark, a plan's for a plan; within one provider it needs none.
-    expect(fable.querySelector("[data-tooltip='Claude plan']")).toBeTruthy();
+    expect(fable.querySelector("[data-tooltip='Claude Fable 5.1 · Pi via Claude plan']")).toBeTruthy();
     fireEvent.click(within(screen.getByRole("navigation", { name: "Pi providers" })).getByRole("button", { name: "Anthropic (4)" }));
     expect(screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" }).querySelector(".model-sub [data-tooltip]")).toBeNull();
     fireEvent.click(within(rail).getByRole("button", { name: /^Codex,/u }));

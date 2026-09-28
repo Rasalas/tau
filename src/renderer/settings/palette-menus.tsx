@@ -105,7 +105,7 @@ export async function modelItems(preferences: PreferencesStore, actions: Workben
           id: offeringKey(backend.kind, model),
           label: model.name,
           ...(badge ? { detail: badge.label } : {}),
-          icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} plan={modelOnPlan(model)} />,
+          icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} plan={modelOnPlan(model)} runtimeName={backend.label} />,
           keywords: [model.id, model.provider, providerLabel(model.provider), backend.label, backend.kind],
           current: current(model),
           access: "write",

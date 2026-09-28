@@ -227,9 +227,9 @@ in the middle a runtime's providers, only when it has several (Pi), which a
 narrow window turns into a row of filters above the list. Both columns show
 marks only (`ProviderIconStack`; a provider without one gets its monogram, a
 second instance its initials) and name each entry, its state and model count in
-a tooltip (a dot on a mark only for a runtime that is not ready); rows mark
-their runtime, and their provider only in a list that mixes providers and only
-where the runtime does not own it. On the right the
+a tooltip (a dot on a mark only for a runtime that is not ready); a row across
+runtimes (search, Favourites, Recent) wears its route's mark, a runtime's own
+list only the access mark, and only where it mixes providers. On the right the
 models, each an offering of one runtime (`model-offerings.ts`) with its context,
 price per million tokens and reasoning levels; the price column says how it is
 paid, with no badge beside the name: a plan shows "incl." and still the price the same model has over its
@@ -266,14 +266,16 @@ and `newSession` hands model and level to the new thread through
 `catalogWrite` before its first prompt. A runtime that can only name its
 models inside a session (Antigravity before its first one) says so, and the
 thread starts on its default. One rule picks the marks everywhere
-(`providerMarks` in `src/renderer/runtime-marks.ts`): a runtime with a provider
-it owns shows its own mark alone (Codex with OpenAI, the Agent SDK runtime with
-Anthropic, Grok with xAI, Antigravity with Google; `HOME_PROVIDERS`), any other
-pair shows both, Pi included (Pi + OpenAI), and a subscription plan wears its
-product's mark (Pi's `openai-codex` is Pi + Codex; an Anthropic plan login
-wears the Agent SDK runtime's mark beside Pi's). The tooltip names both. A list that is one runtime's (Pi's settings,
-the Pi-providers list, a runtime's own list in the picker) leaves the runtime
-out. What the
+(`providerMarks` in `src/renderer/runtime-marks.ts`), at most two, and never
+the model's maker: a runtime with a provider it owns shows its own mark alone
+(Codex with OpenAI, the Agent SDK runtime with Anthropic, Grok with xAI,
+Antigravity with Google; `HOME_PROVIDERS`); any other pair, Pi included, shows
+the access mark in front and the runtime's behind it, fanned out on hover or
+focus (`ProviderIconStack`); a subscription plan wears its product's mark (Pi's
+`openai-codex` is Codex's; an Anthropic plan login the Agent SDK runtime's).
+The tooltip names both. A list that is one runtime's (Pi's settings, the
+Pi-providers list, a runtime's own list in the picker) leaves the runtime's
+mark out. What the
 catalog does not say — which generations are legacy, which model wears a "new"
 badge for a while — lives in `src/renderer/model-manifest.ts`, hand maintained
 and dated; an unmatched model is current. A model behind a subscription login

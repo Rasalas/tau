@@ -1,7 +1,7 @@
 import { Brain, Eye, EyeOff, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel } from "../../shared/contracts";
 import type { ModelBadgeContribution } from "../extension-system";
-import { DEFAULT_RUNTIME, modelOnPlan, providerMarks } from "../runtime-marks";
+import { modelOnPlan } from "../runtime-marks";
 import { billingBadge, formatPrice, formatTokens, type Offering } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 
@@ -42,26 +42,20 @@ function PriceCell({ model, custom }: { model: UiModel; custom?: boolean }) {
 
 const HINT = { side: "top" } as const;
 
-/** The runtime's mark, then the model provider's unless it is the runtime's home; each named in its tooltip. */
-function OfferingMarks({ offering, provider }: { offering: Offering; provider: boolean }) {
+/** A route to a model across runtimes: the access mark with the runtime's behind it, or the runtime's own mark at home. */
+function OfferingMarks({ offering }: { offering: Offering }) {
   const { runtime, runtimeLabel, model } = offering;
-  const plan = modelOnPlan(model);
   return (
     <span className="model-marks">
-      <ProviderIconStack runtimeProvider={runtime} name={runtimeLabel} className="sub-icon" hint={HINT} />
-      {provider && providerMarks(model.provider, runtime).model
-        ? <ProviderIconStack modelProvider={model.provider} plan={plan} className="sub-icon" hint={HINT} />
-        : null}
+      <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} plan={modelOnPlan(model)} modelName={model.name} runtimeName={runtimeLabel} className="sub-icon" hint={HINT} />
     </span>
   );
 }
 
-/** In one runtime's list, which the rail names: what the model adds, else the runtime's own mark. */
+/** In one runtime's list, which the rail names: the access mark without the runtime's, still named. */
 function ListMarks({ offering }: { offering: Offering }) {
-  const { runtime, model } = offering;
-  return providerMarks(model.provider, runtime).model
-    ? <ProviderIconStack modelProvider={model.provider} plan={modelOnPlan(model)} className="sub-icon" hint={HINT} />
-    : <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" hint={HINT} />;
+  const { runtime, runtimeLabel, model } = offering;
+  return <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} plan={modelOnPlan(model)} runtimeMark={false} modelName={model.name} runtimeName={runtimeLabel} className="sub-icon" hint={HINT} />;
 }
 
 /** One offering: a model as one runtime reaches it. */
@@ -83,7 +77,6 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
   const current = cells.inUse(offering.key);
   const chosen = cells.chosen(offering.key);
   const jump = cells.jump(offering.key);
-  const piRuntime = runtime === DEFAULT_RUNTIME;
   const levels = offering.levels.length > 1 ? offering.levels : [];
   return (
     <div
@@ -92,13 +85,13 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
       aria-selected={selected}
       aria-label={`${model.name}, ${offering.runtimeLabel}${access ? `, ${access.label}` : ""}${current ? ", in use" : ""}`}
       data-provider={model.provider}
-      className={`model-row${grouped ? " grouped" : ""}${selected ? " selected" : ""}${current ? " current" : ""}${offering.hidden ? " hidden-model" : ""}`}
+      className={`model-row fan-marks${grouped ? " grouped" : ""}${selected ? " selected" : ""}${current ? " current" : ""}${offering.hidden ? " hidden-model" : ""}`}
       onMouseMove={onPoint}
       onClick={(event) => onChoose(event.shiftKey)}
     >
       <div className="model-cell-main">
         <span className="model-line">
-          {grouped ? <OfferingMarks offering={offering} provider={piRuntime} /> : <strong>{model.name}</strong>}
+          {grouped ? <OfferingMarks offering={offering} /> : <strong>{model.name}</strong>}
           {offering.isNew ? <span className="model-badge model-badge-new">NEW</span> : null}
           {cells.showLegacy && offering.legacy ? <span className="model-badge">legacy</span> : null}
           {offering.hidden ? <span className="model-badge">hidden</span> : null}
@@ -112,7 +105,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
         {grouped ? null : (
           <small className="model-sub">
             {cross
-              ? <OfferingMarks offering={offering} provider />
+              ? <OfferingMarks offering={offering} />
               : cells.showProvider ? <ListMarks offering={offering} /> : null}
             <span className="model-id">{model.id}</span>
             {levels.length ? <span className="model-levels" title={`Reasoning: ${levels.join(", ")}`}><Brain size={10} />{levels.length}</span> : null}

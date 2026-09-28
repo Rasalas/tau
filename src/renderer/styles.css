@@ -351,7 +351,7 @@ body.resizing-col .app-shell { transition: none; }
   width: 18px; height: 18px; flex: none; margin-left: auto;
   display: inline-flex; align-items: center;
 }
-.provider-icon-stack.stacked { width: 43px; gap: 3px; }
+.provider-icon-stack.stacked { position: relative; }
 .provider-icon {
   width: 18px; height: 18px; flex: none; display: grid; place-items: center;
   color: var(--ink-3); font: 650 9px var(--mono);
@@ -366,8 +366,50 @@ body.resizing-col .app-shell { transition: none; }
 .provider-icon-fallback {
   width: 17px; height: 17px; border: 1px solid var(--line-control); border-radius: 5px;
 }
-.provider-icon-stack.stacked .provider-icon-runtime {
-  width: 22px; padding-right: 4px; border-right: 1px solid var(--line-control); opacity: .66;
+/*
+ * Two marks as a card stack: the runtime's behind the access mark, up and to the left, fanned out side by side on
+ * hover or focus (always on touch). The box keeps the fanned width, so nothing moves or is covered. Rest positions
+ * start at the left; at the end of a thread row they start at the right, and only the runtime's mark slides.
+ */
+.provider-icon-stack.stacked { position: relative; width: 33px; }
+.provider-icon-stack.stacked > .provider-icon {
+  position: absolute; left: 0; top: 0;
+  transition: transform 140ms ease-out, mask-position 140ms ease-out, -webkit-mask-position 140ms ease-out;
+}
+.provider-icon-stack.stacked > .provider-icon-model { width: 16px; height: 16px; z-index: 1; transform: translate(8px, 2px); }
+.provider-icon-stack.stacked > .provider-icon-runtime { width: 14px; height: 14px; transform: translate(0, 0); }
+.provider-icon-stack.stacked > .provider-icon-model > .provider-mark { width: 16px; height: 16px; }
+.provider-icon-stack.stacked > .provider-icon-runtime > .provider-mark { width: 14px; height: 14px; }
+.provider-icon-stack.stacked > .provider-icon-fallback { border-radius: 4px; font-size: 7px; }
+/* Where the access mark covers the runtime's, a 1.5px gap cut from the runtime's reads as a ring on any surface. */
+.provider-icon-stack.stacked > .provider-icon-runtime {
+  mask-image: linear-gradient(black, black), linear-gradient(black, black);
+  mask-size: 100% 100%, 19px 19px; mask-repeat: no-repeat; mask-composite: exclude;
+  mask-position: 0 0, 6.5px 0.5px;
+  -webkit-mask-image: linear-gradient(black, black), linear-gradient(black, black);
+  -webkit-mask-size: 100% 100%, 19px 19px; -webkit-mask-repeat: no-repeat; -webkit-mask-composite: xor;
+  -webkit-mask-position: 0 0, 6.5px 0.5px;
+}
+.thread-meta-end .provider-icon-stack.stacked > .provider-icon-model { transform: translate(17px, 2px); }
+.thread-meta-end .provider-icon-stack.stacked > .provider-icon-runtime { transform: translate(9px, 0); }
+.provider-icon-stack.stacked:hover > .provider-icon-model,
+:focus-visible .provider-icon-stack.stacked > .provider-icon-model,
+.fan-marks:hover .provider-icon-stack.stacked > .provider-icon-model,
+.fan-marks.selected .provider-icon-stack.stacked > .provider-icon-model { transform: translate(17px, 1px); }
+.provider-icon-stack.stacked:hover > .provider-icon-runtime,
+:focus-visible .provider-icon-stack.stacked > .provider-icon-runtime,
+.fan-marks:hover .provider-icon-stack.stacked > .provider-icon-runtime,
+.fan-marks.selected .provider-icon-stack.stacked > .provider-icon-runtime {
+  transform: translate(0, 2px); mask-position: 0 0, 15.5px -2.5px; -webkit-mask-position: 0 0, 15.5px -2.5px;
+}
+@media (pointer: coarse) {
+  .provider-icon-stack.stacked > .provider-icon-model, .thread-meta-end .provider-icon-stack.stacked > .provider-icon-model { transform: translate(17px, 1px); }
+  .provider-icon-stack.stacked > .provider-icon-runtime, .thread-meta-end .provider-icon-stack.stacked > .provider-icon-runtime {
+    transform: translate(0, 2px); mask-position: 0 0, 15.5px -2.5px; -webkit-mask-position: 0 0, 15.5px -2.5px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .provider-icon-stack.stacked > .provider-icon { transition: none; }
 }
 .provider-family-ki-connect .provider-mark { width: 18px; height: 18px; }
 /* Hover actions take the status slot: shown on hover, keyboard focus or while their popover is open. */
@@ -1678,7 +1720,6 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 
 /* The popover's rules load with its chunk (components/model-picker.css). */
 .chip-icon { margin-left: 0; transform: scale(.8); transform-origin: left center; }
-.chip-icon.stacked { margin-right: -5px; }
 
 /* ------------------------------------------------------------- settings */
 

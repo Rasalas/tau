@@ -994,7 +994,7 @@ export function Composer({
               ) : null}
               <button
                 ref={modelChipRef}
-                className="runtime-chip composer-model-chip"
+                className="runtime-chip composer-model-chip fan-marks"
                 aria-expanded={modelPickerOpen}
                 aria-haspopup="dialog"
                 disabled={!modelPickerAvailable}
@@ -1008,7 +1008,7 @@ export function Composer({
                 onClick={() => { if (modelPickerAvailable) setModelPickerOpen((open) => !open); }}
               >
                 {snapshot?.model && !draftOnOtherRuntime
-                  ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(snapshot.model)} className="chip-icon" />
+                  ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(snapshot.model)} modelName={snapshot.model.name} className="chip-icon" />
                   : runtimeChoice
                     ? <ProviderIconStack runtimeProvider={runtimeChoice.kind} className="chip-icon" />
                     : <Sparkles size={13} className="accent" />}
