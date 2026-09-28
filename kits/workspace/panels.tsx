@@ -162,7 +162,7 @@ function ChangedList({ files, current, onOpen, onPin }: {
  * sheet (`placement: "sheet"`), which has no stage, the file opens in the
  * sheet to read; in the drawer a click opens it on the stage.
  */
-export function FilesPanel({ active, placement, extensionName, search }: PanelProps & { search?: ServiceSlot<SearchFilesService> }) {
+export function FilesPanel({ active, placement, search }: PanelProps & { search?: ServiceSlot<SearchFilesService> }) {
   const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd, workspace } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
@@ -185,8 +185,12 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
   const readFile = useCallback((path: string) => workspaceStore.host.readFile(path, workspaceStore.workspace()), [workspaceStore]);
   const readDiff = useCallback((path: string) => workspaceStore.host.getFileDiff(path, undefined, workspaceStore.workspace()), [workspaceStore]);
   useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
-  // Another project's paths name other files.
-  useEffect(() => setReading(undefined), [cwd]);
+  // Another project's paths name other files; the first render keeps what a focus request picked.
+  const shownCwd = useRef(cwd);
+  useEffect(() => {
+    if (shownCwd.current !== cwd) setReading(undefined);
+    shownCwd.current = cwd;
+  }, [cwd]);
   const changedPaths = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
   const pin = (path: string) => { if (!workspaceStore.editFile(path)) openFile(path, { pin: true }); };
   const open = (path: string, options?: { pin?: boolean }) => {
@@ -256,18 +260,16 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
     {inSheet && reading ? <FileReader path={reading} load={readFile} onBack={() => setReading(undefined)} /> : null}
     <header className="panel-header" hidden={Boolean(inSheet && reading)}>
       {/* The sheet's own header names it already. */}
-      {inSheet ? null : <><h2>Files</h2>{touch ? null : <small>{extensionName.toLowerCase()}</small>}</>}
+      {inSheet ? null : <h2>Files</h2>}
       <span className="spacer" />
       {goToFile}
-      {touch
-        ? <button type="button" className="icon-button files-panel-search" aria-label="Refresh files" onClick={() => void refreshFiles()}><RotateCw size={18} /></button>
-        : <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>}
+      <button type="button" className="icon-button files-panel-search" aria-label="Refresh files" {...tooltipProps("Refresh files", { side: "bottom" })} onClick={() => void refreshFiles()}><RotateCw size={touch ? 18 : 14} /></button>
     </header>
     <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>{tree}</div>
   </section>;
 }
 
-export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
+export function ChangesPanel({ active, actions }: PanelProps) {
   const workspaceStore = useWorkspaceStore();
   const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace, changesSections } = useWorkspaceKit();
   const { activeDocumentPath: activePath } = useWorkbench();
@@ -300,11 +302,11 @@ export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
   return <section className="panel-body">
     <header className="panel-header">
       <h2>Changes</h2>
-      <small>{changes.branch ?? extensionName.toLowerCase()}</small>
+      {changes.branch ? <small>{changes.branch}</small> : null}
       <span className="spacer" />
       {changes.refreshStatus?.state === "error" ? <small title={changes.refreshStatus.message}>stale · refresh failed</small> : null}
       <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><FileDiff size={14} /></button>
-      <button className="text-button" onClick={() => void refreshChanges()}>rescan</button>
+      <button className="icon-button compact" aria-label="Rescan changes" {...tooltipProps("Rescan changes", { side: "bottom" })} onClick={() => void refreshChanges()}><RotateCw size={14} /></button>
     </header>
     {changesSections.map((Section, index) => <Section key={index} actions={actions} message={message} committed={() => setDirty(false)} />)}
     {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : <>

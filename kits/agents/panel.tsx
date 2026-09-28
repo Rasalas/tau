@@ -108,7 +108,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
   );
 });
 
-function PanelHeader({ model, extensionName }: { model: AgentsPanelModel; extensionName: string }) {
+function PanelHeader({ model }: { model: AgentsPanelModel }) {
   const counts: Array<[AgentThreadStatus | "pending", number]> = [
     ["running", model.running],
     ["waiting", model.waiting],
@@ -120,7 +120,6 @@ function PanelHeader({ model, extensionName }: { model: AgentsPanelModel; extens
   return (
     <header className="panel-header">
       <h2>Agents</h2>
-      <small>{extensionName.toLowerCase()}</small>
       <span className="spacer" />
       <span className="agent-counts">
         {counts.filter(([, count]) => count > 0).map(([status, count]) => (
@@ -134,7 +133,7 @@ function PanelHeader({ model, extensionName }: { model: AgentsPanelModel; extens
   );
 }
 
-export function AgentsPanel({ extensionName, actions, canLookIn }: PanelProps & {
+export function AgentsPanel({ actions, canLookIn }: PanelProps & {
   /** Whether this client reads another machine's thread in a stage tab (API 1.15.0). */
   canLookIn?: () => boolean;
 }) {
@@ -191,7 +190,7 @@ export function AgentsPanel({ extensionName, actions, canLookIn }: PanelProps & 
 
   return (
     <section className="panel-body agents-panel">
-      <PanelHeader model={model} extensionName={extensionName} />
+      <PanelHeader model={model} />
       <DefinitionsSection state={state} activeThreadId={activeThreadId} actions={actions} />
       {rows.length === 0 ? (
         <div className="agents-empty">

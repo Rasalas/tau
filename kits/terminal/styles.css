@@ -2,6 +2,11 @@
 /* The panel's one row of chrome: tabs, other threads' shells, actions. Core's header box keeps the maximize button's corner free. */
 .terminal-panel .terminal-toolbar { display: flex; align-items: stretch; gap: 0; min-width: 0; padding-left: 0; }
 .terminal-toolbar > .terminal-panel-actions { align-self: center; margin-left: 6px; }
+/* One shell on the stage: no strip of its own; its actions float at the corner while the pointer or keyboard is there. */
+.terminal-panel.solo { position: relative; }
+.terminal-panel.solo > .terminal-toolbar { position: absolute; z-index: 3; top: 6px; right: 10px; height: auto; padding: 2px; border: 0; border-radius: var(--radius-sm); background: var(--raised); box-shadow: var(--elevation-0); opacity: 0; transition: opacity 120ms ease; }
+.terminal-panel.solo > .terminal-toolbar > .terminal-tabs { display: none; }
+.terminal-panel.solo:is(:hover, :focus-within) > .terminal-toolbar { opacity: 1; }
 .terminal-toolbar-title { display: flex; align-items: center; padding: 0 var(--space-6); font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .terminal-note { margin: 0 8px 4px; font: 11px var(--mono); color: var(--faint); }
 .terminal-menu-note { margin: 4px 0 0; padding: 6px 8px 2px; border-top: 1px solid var(--line-soft); max-width: 260px; font: 11.5px/1.4 var(--sans); color: var(--muted); }

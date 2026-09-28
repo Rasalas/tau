@@ -88,9 +88,10 @@ export function Stage({
   const lookIn = current?.kind === "thread" ? lookInMachine(current.machine, environments) : undefined;
   const from = useMemo<DocumentOrigin>(() => workspace ? { workspace } : {}, [workspace]);
   const changedRelative = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
-  const changedAbsolute = useMemo(
-    () => new Set(cwd ? changes.files.map((file) => `${cwd}/${file.path}`) : []),
-    [changes.files, cwd],
+  // A tab names its file relative to the project, or absolutely when a source did.
+  const changedPaths = useMemo(
+    () => new Set([...changedRelative, ...(cwd ? changes.files.map((file) => `${cwd}/${file.path}`) : [])]),
+    [changedRelative, changes.files, cwd],
   );
 
   // Escape closes the tab under focus; it must not bubble to the window
@@ -107,7 +108,7 @@ export function Stage({
       <StageTabs
         tabs={stage.tabs}
         activeId={stage.activeId}
-        changedPaths={changedAbsolute}
+        changedPaths={changedPaths}
         {...(registry ? { registry } : {})}
         onActivate={onActivate}
         onClose={onClose}

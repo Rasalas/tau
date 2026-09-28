@@ -667,7 +667,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     title={threadTitle}
     details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
-    {...(panels.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+    {...(panels.length > 0 || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}

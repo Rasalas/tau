@@ -8,6 +8,7 @@ import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } fr
 import { terminalKeyOutcome } from "./keys.js";
 import { focusPane, isStaged } from "./layout.js";
 import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
+import { forGround } from "./palette.js";
 import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } from "./protocol.js";
 
 /** Lines a view keeps; the host retains as many for a view that reattaches. */
@@ -37,7 +38,18 @@ function themeFrom(element: HTMLElement): ITheme {
     selectionBackground: token("--accent", "#3b6ea8"),
   };
   probe.remove();
-  return theme;
+  // xterm's own ANSI colours are made for a dark ground; on a light one yellow and white vanish.
+  return forGround(theme);
+}
+
+/** Calls back when the window's colours may have changed: its theme attribute, a theme's style, or the system scheme. */
+function watchTheme(changed: () => void): () => void {
+  if (typeof MutationObserver === "undefined" || typeof document === "undefined") return () => undefined;
+  const observer = new MutationObserver(changed);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style", "class"] });
+  const scheme = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : undefined;
+  scheme?.addEventListener?.("change", changed);
+  return () => { observer.disconnect(); scheme?.removeEventListener?.("change", changed); };
 }
 
 const FONT_SAMPLE = "iMW0@# .─│";
@@ -234,8 +246,10 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         terminalStore.focusDone(request.seq);
       };
       const stopFocus = terminalStore.subscribe(takeFocus);
+      // A theme switched while the shell is open repaints it, light or dark.
+      const stopTheme = watchTheme(() => { if (!disposed && element.isConnected) instance.options.theme = themeFrom(element); });
       cleanup = () => {
-        stop(); unwatch(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); observer.disconnect();
+        stop(); unwatch(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); stopTheme(); observer.disconnect();
         instance.textarea?.removeEventListener("focus", onFocus);
         touchRef.current?.attach(undefined);
         instance.dispose();

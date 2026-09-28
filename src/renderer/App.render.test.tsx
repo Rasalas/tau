@@ -231,35 +231,11 @@ describe("App render isolation", () => {
     expect(renders).toBe(before);
   });
 
-  it("shows neither a dock column nor its toggle when no extension registered a panel", async () => {
+  it("shows no stage toggle and no panel rail when no extension registered a panel", async () => {
     const view = renderApp(undefined);
     await screen.findByRole("button", { name: "Send" });
-    const shell = view.container.querySelector(".app-shell") as HTMLElement;
-    expect(shell.className).toContain("no-dock");
-    expect(shell.style.getPropertyValue("--dock-width")).toBe("0px");
-    expect(screen.queryByRole("button", { name: /^(Hide|Show) panel$/ })).toBeNull();
-    expect(view.container.querySelector(".instrument-dock")).toBeNull();
-  });
-
-  it("resizes the right sidebar and resets it on double-click", async () => {
-    // The dock exists once any extension registers a panel; core owns the resizer.
-    const dockProbe: DesktopExtension = { id: "test.dock", name: "Dock probe", activate: (plugin) => { plugin.registerPanel({ id: "probe", label: "Probe", order: 1, Component: () => <div>probe</div> }); } };
-    const view = renderApp(undefined, { extensions: [dockProbe] });
-    const shell = view.container.querySelector(".app-shell") as HTMLElement;
-    fireEvent.click(await screen.findByRole("button", { name: "Probe" }));
-    const resizer = await screen.findByRole("separator", { name: "Resize right sidebar" });
-
-    // Nothing open beside it: the list floats and takes no column.
-    expect(shell.style.getPropertyValue("--dock-width")).toBe("0px");
-    expect(shell.style.getPropertyValue("--list-width")).toBe("320px");
-    fireEvent(resizer, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 800 }));
-    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 700 }));
-    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
-
-    expect(shell.style.getPropertyValue("--list-width")).toBe("420px");
-    expect(view.storage.get("tau:dock-width")).toBe("420");
-    fireEvent.doubleClick(resizer);
-    expect(shell.style.getPropertyValue("--list-width")).toBe("320px");
+    expect(screen.queryByRole("button", { name: /^(Hide|Show) stage$/ })).toBeNull();
+    expect(view.container.querySelector(".panel-rail, .instrument-dock, .title-bar")).toBeNull();
   });
 
   it("uses a focused start screen until the first message is sent", async () => {

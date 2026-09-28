@@ -11,8 +11,8 @@
 }
 .stage-tabs::-webkit-scrollbar { display: none; }
 .stage-tab {
-  position: relative; flex: 0 1 auto; display: flex; align-items: center; gap: 7px;
-  min-width: 72px; max-width: 220px; height: 34px; padding: 0 6px 0 12px;
+  position: relative; flex: none; display: flex; align-items: center; gap: 7px;
+  max-width: 220px; height: 34px; padding: 0 6px 0 12px;
   border-radius: var(--radius-row) var(--radius-row) 0 0; color: var(--muted);
   font: var(--text-md) var(--sans); white-space: nowrap; cursor: pointer; user-select: none; -webkit-app-region: no-drag;
 }
@@ -44,6 +44,8 @@
 
 /* A tablet: the strip and its targets at a finger's size; names stay whole and the strip scrolls. */
 body[data-profile="compact"] .stage-strip { height: 52px; }
-body[data-profile="compact"] .stage-tab { flex: none; height: 44px; font-size: var(--text-lg); padding-left: 14px; }
+body[data-profile="compact"] .stage-tab { height: 44px; font-size: var(--text-lg); padding-left: 14px; }
 body[data-profile="compact"] .stage-tab-close { width: 36px; height: 36px; opacity: 1; }
 body[data-profile="compact"] .stage-strip-actions .stage-tool { width: 44px; height: 44px; }
+/* On the stage the tab names the panel: its own header keeps only its controls. */
+.panel-pane .panel-header > h2 { display: none; }
