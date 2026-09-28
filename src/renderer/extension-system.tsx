@@ -676,6 +676,8 @@ export interface PageProps {
 export interface PageContribution extends ProfileScoped {
   id: string;
   label: string;
+  /** A sentence or two under the title in the page head, as a Settings page has (API 1.27.0). */
+  description?: string;
   Icon?: PanelIconComponent;
   order?: number;
   /**

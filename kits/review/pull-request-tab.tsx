@@ -66,6 +66,7 @@ export function registerPullRequestTab(
     plugin.registerPage({
       id: PULL_REQUESTS_PAGE,
       label: "Pull requests",
+      description: "Every project's pull and merge requests, with their checks and reviews. Open one to read, review or merge it.",
       // A phone's bottom navigation has it too, as a screen of its own.
       profiles: ["desktop", "compact"],
       Icon: GitPullRequest,

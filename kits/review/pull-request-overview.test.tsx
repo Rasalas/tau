@@ -11,7 +11,7 @@ import { hideWhitespace } from "./pull-request-diff.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { PullRequestListView } from "./pull-request-list-view.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
-import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
+import { TestPageActionSlot, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { LinkWatcher, worthShowing } from "./proactive-panels.js";
 
 afterEach(cleanup);
@@ -39,6 +39,28 @@ describe("the Pull Requests page", () => {
     expect(openPage).toHaveBeenCalledWith("review.pull-requests");
   });
 
+
+  it("puts Refresh in the page head while the list is on screen", async () => {
+    const client = { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient;
+    const slot = document.createElement("div");
+    document.body.append(slot);
+    const page = (headAction: boolean) => (
+      <TestThreadStore threads={[]} projects={[{ path: "/cli", workspaceId: "/cli", name: "cli", lastOpenedAt: 1 }]}>
+        <TestPageActionSlot slot={slot}>
+          <PullRequestListView surface="page" headAction={headAction} params={{ scope: "all" }} actions={actions()} client={client} open={vi.fn()} />
+        </TestPageActionSlot>
+      </TestThreadStore>
+    );
+    const { rerender } = render(page(true));
+    await waitFor(() => expect(client.listMany).toHaveBeenCalled());
+    expect(within(slot).getByRole("button", { name: "Refresh pull requests" })).toBeTruthy();
+    expect(within(screen.getByLabelText("Pull requests")).queryByRole("button", { name: "Refresh pull requests" })).toBeNull();
+    // A request's view covers the list: Refresh goes back into the hidden list.
+    rerender(page(false));
+    expect(within(slot).queryByRole("button")).toBeNull();
+    expect(within(screen.getByLabelText("Pull requests")).getByRole("button", { name: "Refresh pull requests" })).toBeTruthy();
+    slot.remove();
+  });
 
   it("lists every project across hosts, each row with its repository and its host's own viewer", async () => {
     const gitlab = { ...rows[0]!, ref: { ...rows[0]!.ref, service: "gitlab" as const, host: "gitlab.com", repo: "acme/tools", number: 3, url: "https://gitlab.com/acme/tools/-/merge_requests/3" }, author: { login: "mona" }, stack: { number: 9, size: 3, position: 2 } };

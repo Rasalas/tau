@@ -88,8 +88,8 @@ export function SettingsPageHead({ title, description, crumbs = [], scope, actio
       {crumbs.length ? (
         <nav aria-label="Settings breadcrumb">
           <ol>
-            {crumbs.map((crumb) => (
-              <li key={crumb.label}><button type="button" onClick={crumb.open}>{crumb.label}</button></li>
+            {crumbs.map((crumb, index) => (
+              <li key={index}><button type="button" onClick={crumb.open}>{crumb.label}</button></li>
             ))}
           </ol>
         </nav>

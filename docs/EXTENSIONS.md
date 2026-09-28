@@ -953,14 +953,16 @@ New in API 1.17.0.
 `registerPage` adds a page of the app like Settings — Usage and Pull Requests
 are two — typed `PageContribution`: `id`, `label`, an `Icon` and an `order`
 (the sidebar's foot lists every page after Settings in that order,
-`registry.getPages()`, which a phone's navigation can take as well), optional `keywords`, `profiles`, a `layout`
+`registry.getPages()`, which a phone's navigation can take as well), optional `description`, `keywords`, `profiles`, a `layout`
 and a `Component` receiving `PageProps`. `actions.openPage(id, params?)` opens
 it and `actions.closePage()` closes it; both are optional on `WorkbenchActions`,
 absent in a client without pages.
 
 On a desktop the page takes the place of the thread, the stage and the dock,
-title bar included, in Settings' frame: a bar with the page's label, the page
-below. The sidebar stays beside it, and its foot leads with Back and marks the
+title bar included, in Settings' frame: Settings' page head (new in API
+1.27.0) over the page — its label as the title, its `description`, and at the
+right the action it draws with `SettingsPageAction` — under the strip the window
+is dragged by. The sidebar stays beside it, and its foot leads with Back and marks the
 page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
 `newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
 `focusComposer`, `openWorkspace`) closes the page first, and so does another
@@ -981,8 +983,12 @@ system's back gesture steps out of it, then out of the page to the thread list.
 itself, as a stage tab does. `PageProps` carries `actions`, the `params` of the
 view on screen, `navigate(params, { label?, replace? })` and `close()`. A page
 steps into a view of itself with `navigate` — a request's detail, a sub-page —
-and `label` follows the page's own in the bar; Escape and a click on the
-page's label step back out, and at the page's own view Escape closes it.
+and `label` is the head's title then, with the page and the views below as a
+breadcrumb over it (on a phone the title sits in the bar beside Back); Escape
+and a crumb step back out, and at the page's own view Escape closes it.
+`description` (API 1.27.0) is a sentence or two under the title of the page's
+own view; `SettingsPageAction` in an app page draws in its head since API
+1.27.0, and in place on an older host.
 
 ```tsx
 plugin.registerPage({
@@ -1075,7 +1081,7 @@ A page is built from the same pieces core builds its own with, all on `tau`:
 | Export | What it is |
 |---|---|
 | `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
-| `SettingsPageAction({ children })` | The page's own action, drawn at the right of its head (new in API 1.26.0). |
+| `SettingsPageAction({ children })` | The page's own action, drawn at the right of its head (new in API 1.26.0); an app page's head too (API 1.27.0). |
 | `SettingRow({ id?, title, description?, help?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `help` (new in API 1.18.0) is the text a description should not carry, behind an info glyph beside the title. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
 | `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
 | `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |

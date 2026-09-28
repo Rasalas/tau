@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChartColumn, RefreshCw } from "lucide-react";
-import { Empty, errorMessage, formatCost, ProviderIconStack, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
+import { Empty, errorMessage, formatCost, ProviderIconStack, SettingsPageAction, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { ActivityCalendar, ReadingHistory } from "./activity.js";
 import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, ofRuntime, rankUsage, runtimesOf, USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageOrigin, type UsageRange } from "./dashboard.js";
 import { UsageHistory } from "./history.js";
@@ -276,10 +276,12 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const read = summary ? `Read ${new Date(summary.scannedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : "Reading usage…";
   return (
     <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
-      <div className="usage-toolbar">
-        <span role="status">{busy ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${logsReading ? " · still reading the CLIs' logs" : ""}`}</span>
-        <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain}><RefreshCw size={14} /></button>
-      </div>
+      <SettingsPageAction>
+        <div className="usage-toolbar">
+          <span role="status">{busy ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${logsReading ? " · still reading the CLIs' logs" : ""}`}</span>
+          <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain}><RefreshCw size={14} /></button>
+        </div>
+      </SettingsPageAction>
 
       {error && !summary ? (
         <Empty icon={<ChartColumn size={18} />} title="Usage could not be read" description={error}>

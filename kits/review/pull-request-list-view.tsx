@@ -16,7 +16,7 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
+import { Empty, errorMessage, getClientStorage, Menu, SettingsPageAction, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
 import { PULL_REQUESTS_PAGE, providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
@@ -192,7 +192,7 @@ const GROUPINGS: Array<{ value: Grouping; label: string }> = [{ value: "involvem
  * Requests page it lists every project, grouped by involvement or project; as
  * a thread's tab, its project's alone. A row opens the request.
  */
-export function PullRequestListView({ params, handle, actions, client, open, surface = "tab" }: {
+export function PullRequestListView({ params, handle, actions, client, open, surface = "tab", headAction = false }: {
   params: PullRequestsTabParams;
   /** The tab it draws in; the page has none. */
   handle?: Pick<StageTabHandle, "setTitle">;
@@ -200,6 +200,8 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   client: PullRequestClient;
   open(entry: PullRequestListEntry, workspace?: string): void;
   surface?: "tab" | "page";
+  /** On the page, Refresh goes to the page head's action while the list is on screen. */
+  headAction?: boolean;
 }) {
   const onPage = surface === "page";
   const phone = useCompactProfile();
@@ -420,7 +422,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
               </span>
               {list && !manyRepositories ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
               <span className="spacer" />
-              {refresh}
+              {headAction ? <SettingsPageAction><span className="pr-page-action">{refresh}</span></SettingsPageAction> : refresh}
             </div>
           ) : (
             <div className="pr-list-title">
