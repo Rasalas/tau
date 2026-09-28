@@ -133,6 +133,7 @@ export const terminalExtension: DesktopExtension = {
     const settings = plugin.registerSettingsPage({
       id: "terminal.settings",
       label: "Terminal",
+      description: "Where the terminal opens and the font it draws with.",
       group: "projects",
       Icon: Terminal,
       order: 30,

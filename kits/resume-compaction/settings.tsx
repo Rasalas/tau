@@ -29,12 +29,6 @@ export function createSettingsPage(preferences: Preferences) {
     return (
       <div className="settings-page resume-compaction-settings">
         <h3>Resume compaction</h3>
-        <p className="lede">
-          A thread that has been quiet for 70 minutes with at least 100k tokens of context resumes with a cold prompt
-          cache: the next turn writes all of it into the cache again. Tau then offers to compact it first, above the
-          composer. It does so where the runtime says its provider caches the prompt: the Agent SDK runtime, and Pi
-          with a Claude model.
-        </p>
         <SettingsSection title="Offer to compact old threads" id="setting-resume-compaction-runtimes">
           {off.length === 0 ? (
             <SettingsState

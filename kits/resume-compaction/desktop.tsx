@@ -24,6 +24,7 @@ export const resumeCompactionExtension: DesktopExtension = {
       plugin.registerSettingsPage({
         id: "resume-compaction.settings",
         label: "Resume compaction",
+        description: "A thread quiet for over an hour with a long context resumes with a cold prompt cache. Tau then offers to compact it first, on the runtimes whose provider caches the prompt.",
         Icon: Minimize2,
         group: "threads",
         order: 60,

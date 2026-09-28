@@ -3,6 +3,7 @@ import { ChevronRight, Plus, Search, X } from "lucide-react";
 import type { HostExtensionSummary } from "../../shared/contracts";
 import type { ExtensionRegistry, SettingsSectionProps } from "../extension-system";
 import { Button, SettingsState, Switch } from "./controls";
+import { SettingsPageAction } from "./page-action";
 import {
   EXTENSION_FILTERS,
   extensionBlurb,
@@ -96,7 +97,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
             onKeyDown={(event) => { if (event.key === "Escape" && query) { event.preventDefault(); event.stopPropagation(); setQuery(""); } }} />
           {query ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setQuery("")}><X size={13} /></button> : null}
         </label>
-        {installPage ? <Button icon={<Plus size={14} />} onClick={() => onOpen(installPage)}>Install…</Button> : null}
+        {installPage ? <SettingsPageAction><Button icon={<Plus size={14} />} onClick={() => onOpen(installPage)}>Install…</Button></SettingsPageAction> : null}
       </div>
       <fieldset className="extensions-filters" aria-label="Show">
         {EXTENSION_FILTERS.map((option) => (

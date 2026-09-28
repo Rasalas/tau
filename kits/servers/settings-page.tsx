@@ -235,10 +235,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
 
     const header = <>
       <h3>Servers</h3>
-      <p className="lede">
-        Servers this project deploys to over SFTP or FTP. Tau reads them from {state?.file ? <code>{state.file}</code> : <code>.vscode/sftp.json</code>}, the
-        file the VS Code SFTP extension uses, and never uploads on its own.
-      </p>
+      {state?.file ? <p className="lede">Read from <code>{state.file}</code>.</p> : null}
     </>;
     if (!cwd) return <div className="settings-page servers-settings">{header}<SettingsState kind="empty" title="No project open" description="Open a project to see its servers." /></div>;
     if (error) return <div className="settings-page servers-settings">{header}<SettingsState kind="error" title="Could not read the servers" description={error} onRetry={load} /></div>;

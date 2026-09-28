@@ -106,7 +106,9 @@ describe("Settings → Evidence", () => {
     expect([...(retention as HTMLSelectElement).options].map((entry) => entry.textContent)).toEqual(["3 days", "7 days", "14 days", "30 days", "90 days"]);
     fireEvent.change(retention, { target: { value: "30" } });
     await waitFor(() => expect(updates).toContainEqual({ values: { [`${EVIDENCE_EXTENSION_ID}.retention-days`]: "30" } }));
-    expect(screen.getByText(/Tau never pictures the whole screen/u)).toBeTruthy();
+    // The privacy promise is in the head's description; the page keeps what it holds back.
+    expect(page.description).toMatch(/Tau never pictures the whole screen/u);
+    expect(screen.getByText(/Nothing is taken while a password field has the keyboard/u)).toBeTruthy();
     expect(missingSettingsRows(page)).toEqual([]);
   });
 });

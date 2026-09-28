@@ -47,6 +47,19 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
   about: "About",
 };
 
+/** What a core page governs, in one sentence under its title; the search finds it too. */
+export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
+  general: "How the transcript and the composer behave, and how Tau runs in the background, quits and updates.",
+  keybindings: "The keys for the workbench's commands and Pi's actions, and where each of them applies.",
+  models: "What a new thread starts with: its model, how hard it thinks and the runtime that runs it.",
+  providers: "The programs that run threads and the providers they reach: whether each is installed and current, and who is signed in.",
+  pi: "Pi's own settings, shared with the Pi CLI. A change applies to the next thread Tau starts; a running one keeps what it began with.",
+  connections: "How other devices reach this machine's Tau: its addresses, the devices you paired and links to pair another.",
+  extensions: "Everything that adds to Tau, bundled or installed. Turn one on or off, approve what it asks for, or open its page.",
+  inspector: "Every extension both halves know and the package folders on disk, to find out why something did not load.",
+  about: "The version of Tau on this machine, its updates and the licences of the software it ships.",
+};
+
 export interface SettingsNavItem {
   id: string;
   label: string;

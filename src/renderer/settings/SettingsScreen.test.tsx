@@ -10,6 +10,8 @@ import { PreferencesStore } from "../preferences";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
 import { SettingsScreen } from "./SettingsScreen";
+import { SettingsPageAction } from "./page-action";
+import { CORE_PAGE_DESCRIPTIONS } from "./settings-nav";
 
 afterEach(cleanup);
 
@@ -54,12 +56,14 @@ function renderScreen(options: { page?: string; client?: ReturnType<typeof hostW
 }
 
 describe("the Settings screen", () => {
-  it("takes the whole window: a section column, a breadcrumb with the page, and a way back", () => {
+  it("takes the whole window: a section column, the page under its head, and a way back", () => {
     const { page, onClose } = renderScreen();
     expect(page.getAttribute("aria-modal")).toBe("true");
-    // "defaults" is the older name of General.
-    expect(within(page).getByRole("navigation", { name: "Settings breadcrumb" }).textContent).toContain("General");
-    expect(within(page).getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
+    // "defaults" is the older name of General. A page at the top has no breadcrumb.
+    const head = page.querySelector<HTMLElement>(".settings-page-head")!;
+    expect(within(head).getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
+    expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.general)).toBeTruthy();
+    expect(within(page).queryByRole("navigation", { name: "Settings breadcrumb" })).toBeNull();
     fireEvent.click(within(page).getByRole("button", { name: "Back" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -205,9 +209,65 @@ describe("the section column", () => {
     cleanup();
     const onBeta = renderScreen({ extensions: ["Alpha", "Beta"], page: "beta" });
     expect(within(onBeta.page).getByRole("heading", { level: 1, name: "Beta" })).toBeTruthy();
-    expect(within(onBeta.page).getByRole("navigation", { name: "Settings breadcrumb" }).textContent).toBe("Settings/Extensions/Beta");
+    const crumbs = within(onBeta.page).getByRole("navigation", { name: "Settings breadcrumb" });
+    expect(within(crumbs).getAllByRole("button").map((crumb) => crumb.textContent)).toEqual(["Settings", "Extensions"]);
+    fireEvent.click(within(crumbs).getByRole("button", { name: "Extensions" }));
+    expect(onBeta.onSetPage).toHaveBeenLastCalledWith("extensions");
     expect(within(onBeta.page).getByRole("button", { name: "All extensions" }).getAttribute("aria-current")).toBe("page");
     expect(page).toBeTruthy();
+  });
+});
+
+describe("the page head", () => {
+  const pages = () => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+    registry.activate({ id: "fixture.pages", name: "Pages", activate(context) {
+      context.registerSettingsPage({
+        id: "look", label: "Look", description: "How the zebra stripes are drawn.", group: "general", scope: "both",
+        Component: () => <div className="settings-page"><SettingsPageAction><button type="button">Add stripes</button></SettingsPageAction><p>Rows</p></div>,
+      });
+      context.registerSettingsPage({ id: "plain", label: "Plain", Component: () => <div className="settings-page"><h3>Plain</h3><p>Rows</p></div> });
+    } });
+    return registry;
+  };
+
+  it("gives a kit's page its title, its description, where it applies and its action at the right", async () => {
+    const { page } = renderScreen({ registry: pages(), page: "look" });
+    const head = page.querySelector<HTMLElement>(".settings-page-head")!;
+    expect(within(head).getByRole("heading", { level: 1, name: "Look" })).toBeTruthy();
+    expect(within(head).getByText("How the zebra stripes are drawn.")).toBeTruthy();
+    expect(await within(head).findByRole("button", { name: /Settings apply to this machine/u })).toBeTruthy();
+    // The page keeps its action's state; the head draws it.
+    await waitFor(() => expect(within(head.querySelector<HTMLElement>(".settings-page-action")!).getByRole("button", { name: "Add stripes" })).toBeTruthy());
+    expect(page.querySelector(".settings-page")!.textContent).toBe("Rows");
+  });
+
+  it("gives a page without a description its title alone", () => {
+    const { page } = renderScreen({ registry: pages(), page: "plain" });
+    const head = page.querySelector<HTMLElement>(".settings-page-head")!;
+    expect(within(head).getByRole("heading", { level: 1, name: "Plain" })).toBeTruthy();
+    expect(head.querySelector("p")).toBeNull();
+  });
+
+  it("finds a page by its description and shows the description under the result", () => {
+    const { page } = renderScreen({ registry: pages() });
+    fireEvent.change(within(page).getByRole("searchbox", { name: "Search settings" }), { target: { value: "zebra" } });
+    const result = within(page).getByRole("option", { name: /Look/u });
+    expect(result.textContent).toContain("How the zebra stripes are drawn.");
+    fireEvent.change(within(page).getByRole("searchbox", { name: "Search settings" }), { target: { value: "licences software" } });
+    expect(within(page).getByRole("option", { name: /About/u })).toBeTruthy();
+  });
+
+  it("puts the title in the bar on a phone, under a way back, and keeps the rest of the head on the page", () => {
+    render(<HostClientProvider client={undefined}><TestProviders>
+      <SettingsScreen page="extensions" stacked view="page" registry={new ExtensionRegistry(undefined, { preferences: new PreferencesStore() })} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+    </TestProviders></HostClientProvider>);
+    const bar = document.querySelector<HTMLElement>(".settings-topbar")!;
+    expect(within(bar).getByRole("heading", { level: 1, name: "Extensions" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "All settings" })).toBeTruthy();
+    const head = document.querySelector<HTMLElement>(".settings-page-head")!;
+    expect(within(head).queryByRole("heading")).toBeNull();
+    expect(within(head).getByText(CORE_PAGE_DESCRIPTIONS.extensions)).toBeTruthy();
   });
 });
 
@@ -240,8 +300,9 @@ describe("Settings → Extensions", () => {
     fireEvent.click(within(page).getByRole("switch", { name: "Turn off Alpha" }));
     expect(within(page).getByRole("switch", { name: "Turn on Alpha" }).getAttribute("aria-checked")).toBe("false");
     fireEvent.click(within(page).getByRole("button", { name: /Alpha/u }));
-    expect(within(page).getByRole("heading", { level: 1, name: "Alpha" })).toBeTruthy();
-    expect(within(page).getByRole("heading", { level: 2, name: "Alpha" })).toBeTruthy();
+    // Its own head names it once, beside its mark, under the breadcrumb.
+    expect(within(page).getAllByRole("heading", { name: "Alpha" })).toEqual([within(page).getByRole("heading", { level: 1, name: "Alpha" })]);
+    expect(within(page).getByRole("navigation", { name: "Settings breadcrumb" })).toBeTruthy();
     expect(within(page).getByText("Bundled with Tau")).toBeTruthy();
   });
 

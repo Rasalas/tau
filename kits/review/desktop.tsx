@@ -81,6 +81,7 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: "review.settings",
       label: "Review",
+      description: "How a thread's changes are reviewed and handed in: commit messages, pull requests, merging and the look of diffs.",
       group: "projects",
       Icon: GitCompare,
       order: 36,

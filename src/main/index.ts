@@ -388,7 +388,7 @@ function openWindow(): BrowserWindow {
     titleBarStyle: "hiddenInset",
     // Centres the native traffic lights (14pt since the macOS 26 SDK) in Tau's 52px title bar.
     trafficLightPosition: { x: 19, y: 19 },
-    backgroundColor: "#1a1a19",
+    backgroundColor: "#0f1116",
     // Shown inactive right below: showing from the constructor activates the app.
     ...(backgroundMode ? { show: false } : {}),
     ...(appIconPath ? { icon: appIconPath } : {}),

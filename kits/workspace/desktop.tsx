@@ -156,6 +156,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.storage",
       label: "Storage",
+      description: "Worktrees Tau made for threads, what they take on disk and the rules that remove them. A rule never removes uncommitted work, unpushed commits or ignored files but node_modules, and every branch stays.",
       group: "projects",
       Icon: HardDrive,
       order: 50,
@@ -173,6 +174,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.source-control",
       label: "Source control",
+      description: "Where new threads run and what they start from: worktrees, branches, submodules, and the folder new projects start in.",
       group: "projects",
       Icon: GitBranch,
       order: 35,

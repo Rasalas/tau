@@ -701,6 +701,12 @@ export interface PageContribution extends ProfileScoped {
 export interface SettingsPageContribution extends ProfileScoped {
   id: string;
   label: string;
+  /**
+   * What the page governs, in a sentence or two under its title in the page
+   * head; the search finds it too (API 1.26.0). The head draws the title, so
+   * the page need not.
+   */
+  description?: string;
   /** @deprecated A page of its own is `registerPage`'s; this one opens without Settings navigation. */
   standalone?: boolean;
   /** The nav glyph, the way a panel passes one. */

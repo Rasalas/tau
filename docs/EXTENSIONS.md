@@ -912,9 +912,11 @@ is an esbuild alias onto Tau's own compiled module, which is why
 
 `DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
 of Settings with its own nav entry, typed `SettingsPageContribution` (`id`,
-`label`, an optional `Icon` the way panels pass theirs, an optional `order`,
-optional `keywords` — the words the Settings search field and the palette find
-the page by besides its label — an optional `scope` (below) and a `Component`
+`label`, an optional `description` — a sentence or two on what the page
+governs, shown under the title in the page's head and found by the search (new
+in API 1.26.0) — an optional `Icon` the way panels pass theirs, an optional
+`order`, optional `keywords` — the words the Settings search field and the
+palette find the page by besides its label — an optional `scope` (below) and a `Component`
 receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.19.0). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
@@ -927,8 +929,8 @@ the name and version of the set the `bundled` entries came in, absent in safe
 mode, which loads none. Core keeps General, Models, Pi, Keybindings,
 Connections, Extensions and the Inspector; every other page is a contribution
 and is gone with its extension. The search field at the top of the Settings
-column finds core's own rows (and scrolls to the row), a contributed page by
-its label and `keywords` and the `rows` it names, an extension's page by its
+column finds core's own rows (and scrolls to the row), a page by its label,
+its description and `keywords` and the `rows` it names, an extension's page by its
 name and its options, and every live keybinding — which opens the Keybindings
 page filtered to its command.
 
@@ -997,9 +999,22 @@ favour of `registerPage`.
 
 Settings is a page of its own that covers the whole window (T3 Code's layout):
 the section column on the left with the search, the pages in groups and About
-with the version and Back at its foot, a bar with the breadcrumb `Settings /
-<page> / <scope>`, and the page below at a readable width. Escape, Back and
-`mod+,` return to the workbench, which stays mounted underneath (`inert`).
+with the version and Back at its foot, and the page at a readable width under
+its head (new in API 1.26.0): the page's title, its `description`, where a
+change applies (below) and, at the right, the page's action. Core draws the
+head for every page, a kit's too, so a page need not name itself; an older
+page's first `h3` is hidden. A nested page — an extension's own — has the
+pages above it as a breadcrumb over its title (`Settings / Extensions`). On a
+phone the title sits in the bar beside the way back, and the rest of the head
+tops the page. Escape, Back and `mod+,` return to the workbench, which stays
+mounted underneath (`inert`).
+
+A page puts its action in the head with `SettingsPageAction` from `tau`
+(new in API 1.26.0): `<SettingsPageAction><Button …>Install…</Button></SettingsPageAction>`
+anywhere in the page draws its children at the right of the head, while the
+page keeps the state behind them; outside Settings they draw in place. Keep it
+to the one action the page is for; an action on a group of rows belongs in
+that `SettingsSection`'s `headerAction`.
 
 **Where a page sits (new in API 1.18.0).** `group` on `registerSettingsPage`
 places a page in the section column: `general` (the first group, without a
@@ -1048,6 +1063,7 @@ A page is built from the same pieces core builds its own with, all on `tau`:
 | Export | What it is |
 |---|---|
 | `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
+| `SettingsPageAction({ children })` | The page's own action, drawn at the right of its head (new in API 1.26.0). |
 | `SettingRow({ id?, title, description?, help?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `help` (new in API 1.18.0) is the text a description should not carry, behind an info glyph beside the title. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
 | `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
 | `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |
@@ -1115,8 +1131,8 @@ the reason as its title) where the edited level cannot hold a key of that
 `scope`.
 
 Which level is edited is the page's: a page whose `scope` is `"project"` or
-`"both"` gets the scope menu as the breadcrumb's last crumb — "This machine" or
-a project from the project list — and a page without one always edits this
+`"both"` gets the scope menu in its head, under the description ("Applies to
+This machine" or a project from the project list), and a page without one always edits this
 machine. Pi's own keys (the startup model, compaction, retry, delivery modes,
 tools, shell, trust) are Pi's: they have Pi's global and project files, the Pi
 page writes them there, and they take no part in these levels. The host methods
@@ -3516,29 +3532,29 @@ Two grounds carry the window: the document area (`--stage`, `--shell`) and the s
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--well` | deepest: an inset control | `#e8e5e0` | `#1a1a19` |
-| `--shell` | the window | `#fbfaf8` | `#1a1a19` |
-| `--rail` | the sidebar | `#f0eeea` | `#232322` |
-| `--chrome` | title bar, panel chrome | `#f0eeea` | `#232322` |
-| `--stage` | the document area and panel bodies | `#fbfaf8` | `#1a1a19` |
-| `--sunken` | a well inside a surface | `#f4f2ef` | `#1f1f1e` |
-| `--field` | an input, and the composer: filled, no edge | `#f0eeea` | `#232322` |
-| `--thread-active` | the selected thread row | `#fbfaf8` | `#1a1a19` |
-| `--raised` | a chip or inline code | `#e1dfdb` | `#31312f` |
-| `--raised-strong` | a raised surface that is hovered or floating | `#dbd9d5` | `#373635` |
-| `--raised-hover` | the hover of a raised control | `#d2d0cd` | `#3f3e3d` |
-| `--overlay` | a modal panel | `#fbfaf8` | `#262523` |
-| `--float` | a menu, a toast, a popover card | `#fbfaf8` | `#262523` |
-| `--hover` | the wash under a hovered row | `#e8e6e2` | `#2b2b2a` |
-| `--hover-strong` | the same, in a list that needs to read | `#e3e1dd` | `#2f2f2d` |
-| `--code-bg` | code blocks, tool output, diffs | `#f0eeea` | `#232322` |
-| `--inset` | a block inside a settings page | `#f0eeea` | `#232322` |
-| `--chip` | a small label's background | `#e8e5e0` | `#302f2c` |
-| `--chip-hover` | a small label, hovered | `#d8d4cd` | `#3d3b37` |
-| `--track` | an empty progress track | `#d8d4cd` | `#3d3b37` |
-| `--scrim` | the dim behind a modal | `#1c1b19a3` | `#0a0a0ae0` |
-| `--scrim-deep` | the dim behind a full-screen image | `#1c1b19e0` | `#050505ed` |
-| `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf8ee` | `#262523ee` |
+| `--well` | deepest: an inset control | `#e8e5e0` | `#0f1116` |
+| `--shell` | the window | `#fbfaf8` | `#0f1116` |
+| `--rail` | the sidebar | `#f0eeea` | `#171a1f` |
+| `--chrome` | title bar, panel chrome | `#f0eeea` | `#171a1f` |
+| `--stage` | the document area and panel bodies | `#fbfaf8` | `#0f1116` |
+| `--sunken` | a well inside a surface | `#f4f2ef` | `#13161b` |
+| `--field` | an input, and the composer: filled, no edge | `#f0eeea` | `#171a1f` |
+| `--thread-active` | the selected thread row | `#fbfaf8` | `#0f1116` |
+| `--raised` | a chip or inline code | `#e1dfdb` | `#24272c` |
+| `--raised-strong` | a raised surface that is hovered or floating | `#dbd9d5` | `#2a2c31` |
+| `--raised-hover` | the hover of a raised control | `#d2d0cd` | `#313439` |
+| `--overlay` | a modal panel | `#fbfaf8` | `#191c21` |
+| `--float` | a menu, a toast, a popover card | `#fbfaf8` | `#191c21` |
+| `--hover` | the wash under a hovered row | `#e8e6e2` | `#1f2226` |
+| `--hover-strong` | the same, in a list that needs to read | `#e3e1dd` | `#23252a` |
+| `--code-bg` | code blocks, tool output, diffs | `#f0eeea` | `#171a1f` |
+| `--inset` | a block inside a settings page | `#f0eeea` | `#171a1f` |
+| `--chip` | a small label's background | `#e8e5e0` | `#23252a` |
+| `--chip-hover` | a small label, hovered | `#d8d4cd` | `#2e3136` |
+| `--track` | an empty progress track | `#d8d4cd` | `#2e3136` |
+| `--scrim` | the dim behind a modal | `#1c1b19a3` | `#050608e0` |
+| `--scrim-deep` | the dim behind a full-screen image | `#1c1b19e0` | `#020204ed` |
+| `--drop-card` | the card in a drag-and-drop overlay | `#fbfaf8ee` | `#191c21ee` |
 
 **Hairlines**
 
@@ -3546,37 +3562,37 @@ The design's divider is the ink at a low alpha, so one hairline reads on either 
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--line` | the ordinary hairline | `#1c1b1917` | `#e9e6e01a` |
-| `--line-soft` | a hairline that should barely show | `#1c1b190f` | `#e9e6e012` |
-| `--line-inset` | between rows of one list | `#1c1b1912` | `#e9e6e014` |
-| `--line-card` | the edge of a card | `#1c1b191a` | `#e9e6e01c` |
-| `--line-control` | the edge of a button or chip | `#1c1b191f` | `#e9e6e021` |
-| `--line-strong` | an edge that has to be read as one | `#1c1b192e` | `#e9e6e02e` |
-| `--line-field` | the edge of an input | `#1c1b1929` | `#e9e6e029` |
-| `--line-focus` | a field with focus inside it | `#b7b1a8` | `#55524c` |
-| `--line-float` | a menu or popover edge | `#1c1b191f` | `#e9e6e021` |
-| `--line-hover` | a control's edge while hovered | `#b7b1a8` | `#55524c` |
+| `--line` | the ordinary hairline | `#1c1b1917` | `#e3e6ec1a` |
+| `--line-soft` | a hairline that should barely show | `#1c1b190f` | `#e3e6ec12` |
+| `--line-inset` | between rows of one list | `#1c1b1912` | `#e3e6ec14` |
+| `--line-card` | the edge of a card | `#1c1b191a` | `#e3e6ec1c` |
+| `--line-control` | the edge of a button or chip | `#1c1b191f` | `#e3e6ec21` |
+| `--line-strong` | an edge that has to be read as one | `#1c1b192e` | `#e3e6ec2e` |
+| `--line-field` | the edge of an input | `#1c1b1929` | `#e3e6ec29` |
+| `--line-focus` | a field with focus inside it | `#b7b1a8` | `#45484d` |
+| `--line-float` | a menu or popover edge | `#1c1b191f` | `#e3e6ec21` |
+| `--line-hover` | a control's edge while hovered | `#b7b1a8` | `#45484d` |
 | `--edge-highlight` | the inner top edge of a raised surface | `#ffffffcc` | `#ffffff08` |
 | `--edge-highlight-strong` | the same, on a round control | `#ffffff` | `#ffffff26` |
-| `--edge-line` | the edge of a selected row | `#1c1b1914` | `#e9e6e00f` |
-| `--wash` | a fill barely above its surface | `#1c1b1908` | `#e9e6e005` |
-| `--wash-2` | the same, one step up | `#1c1b190f` | `#e9e6e00c` |
+| `--edge-line` | the edge of a selected row | `#1c1b1914` | `#e3e6ec0f` |
+| `--wash` | a fill barely above its surface | `#1c1b1908` | `#e3e6ec05` |
+| `--wash-2` | the same, one step up | `#1c1b190f` | `#e3e6ec0c` |
 
 **Ink**
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--ink` | headings and emphasis | `#1c1b19` | `#e9e6e0` |
-| `--ink-prose` | assistant prose | `#1c1b19` | `#e9e6e0` |
-| `--ink-2` | body text of the chrome | `#35312c` | `#d8d3ca` |
-| `--ink-3` | secondary text | `#504a43` | `#bdb7ad` |
-| `--ink-code` | code and diff bodies | `#433e38` | `#cbc5bc` |
-| `--muted` | labels | `#6d665d` | `#9c968c` |
-| `--muted-2` | small print | `#8f887e` | `#7a756d` |
-| `--faint` | glyphs and disabled text | `#8f887e` | `#7a756d` |
-| `--fainter` | a mark that is only a hint of one | `#b7b1a8` | `#55524c` |
-| `--scrollbar` | the scrollbar thumb | `#d8d4cd` | `#3d3b37` |
-| `--scrollbar-hover` | the same, hovered | `#b7b1a8` | `#55524c` |
+| `--ink` | headings and emphasis | `#1c1b19` | `#e3e6ec` |
+| `--ink-prose` | assistant prose | `#1c1b19` | `#e3e6ec` |
+| `--ink-2` | body text of the chrome | `#35312c` | `#d0d4db` |
+| `--ink-3` | secondary text | `#504a43` | `#b3b8c1` |
+| `--ink-code` | code and diff bodies | `#433e38` | `#c2c6ce` |
+| `--muted` | labels | `#6d665d` | `#9197a1` |
+| `--muted-2` | small print | `#8f887e` | `#71767f` |
+| `--faint` | glyphs and disabled text | `#8f887e` | `#71767f` |
+| `--fainter` | a mark that is only a hint of one | `#b7b1a8` | `#45484d` |
+| `--scrollbar` | the scrollbar thumb | `#d8d4cd` | `#2e3136` |
+| `--scrollbar-hover` | the same, hovered | `#b7b1a8` | `#45484d` |
 
 **Accent**
 
@@ -3588,13 +3604,13 @@ Blue, and only for Tau's own actions and selection (send, a primary button, focu
 | `--acid-text` | the accent as text or an icon on a surface | `#2f4f8f` | `#a6bfee` |
 | `--acid-ink` | text on the accent fill | `#ffffff` | `#10131a` |
 | `--acid-strong` | the accent fill, hovered | `#3d63b0` | `#86a7e7` |
-| `--acid-bg` | the accent as a surface | `#e9effa` | `#1b2740` |
+| `--acid-bg` | the accent as a surface | `#e9effa` | `#121d36` |
 | `--acid-line` | the accent as an edge | `#b4c8ee` | `#2c4478` |
-| `--acid-chip` | the accent as a chip behind accent text | `#d4e0f6` | `#223257` |
+| `--acid-chip` | the accent as a chip behind accent text | `#d4e0f6` | `#19284c` |
 | `--acid-track` | the accent as a filled track | `#80a1dd` | `#3a5ca3` |
 | `--acid-glow` | the accent as a glow around a mark | `#4f79c9bb` | `#6b93e0bb` |
 | `--focus` | the focus ring | `#4f79c9` | `#6b93e0` |
-| `--user-bubble` | the user's own message: the accent's tint | `#e9effa` | `#1b2740` |
+| `--user-bubble` | the user's own message: the accent's tint | `#e9effa` | `#121d36` |
 | `--user-bubble-ink` | its text | `#182747` | `#e2eafa` |
 | `--brand` | the Tau mark's plate | `#4f79c9` | `#6b93e0` |
 | `--brand-on` | the τ on the plate | `#fbfaf8` | `#11110f` |
@@ -3616,9 +3632,9 @@ A run in flight is blue (`--info`, `--info-ink`), a question amber (`--warn`), a
 | `--cyan` | numbers and types | `#06706c` | `#6fd3cf` |
 | `--danger` | destructive text | `#8c352f` | `#eba9a2` |
 | `--danger-line` | the edge of a destructive control | `#edb0a8` | `#6b352f` |
-| `--danger-bg` | that control, hovered | `#fbe9e7` | `#3a1f1c` |
+| `--danger-bg` | that control, hovered | `#fbe9e7` | `#301613` |
 | `--warn` | a caution, and a question waiting for the user | `#82601a` | `#e8c67f` |
-| `--warn-chip` | a caution as a chip | `#fcf3dc` | `#33280f` |
+| `--warn-chip` | a caution as a chip | `#fcf3dc` | `#291e05` |
 | `--fail` | a failed run's mark | `#c9564d` | `#d9756b` |
 | `--fail-ink` | what that run says | `#8c352f` | `#eba9a2` |
 | `--info` | a run or a step in progress | `#4f79c9` | `#6b93e0` |
@@ -3639,18 +3655,18 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 | `--provider-anthropic` | Anthropic, Claude | `#b3572f` | `#e5936a` |
 | `--provider-google` | Google, Gemini, Antigravity | `#237a52` | `#5fc28f` |
 | `--provider-pi` | Pi, across its providers | `#7a4fc4` | `#ae93f0` |
-| `--provider-other` | any other provider or runtime | `#6f6a5c` | `#a8a393` |
+| `--provider-other` | any other provider or runtime | `#6f6a5c` | `#9ea3ad` |
 
 **Diff**
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--diff-add-bg` | an added line | `#e6f2e8` | `#1b2a1f` |
+| `--diff-add-bg` | an added line | `#e6f2e8` | `#122016` |
 | `--diff-add-ink` | its text | `#2f633c` | `#a4d0b1` |
 | `--diff-add-mark` | the changed run inside an added line | `#a9d1b1` | `#2e4d38` |
 | `--diff-add-mark-ink` | the run's text | `#17301d` | `#e1f1e5` |
 | `--diff-add-mark-line` | the run's edge | `#4f9660` | `#6fae82` |
-| `--diff-del-bg` | a removed line | `#fbe9e7` | `#3a1f1c` |
+| `--diff-del-bg` | a removed line | `#fbe9e7` | `#301613` |
 | `--diff-del-ink` | its text | `#8c352f` | `#eba9a2` |
 | `--diff-del-mark` | the changed run inside a removed line | `#edb0a8` | `#6b352f` |
 | `--diff-del-mark-ink` | the run's text | `#431a17` | `#fae6e3` |

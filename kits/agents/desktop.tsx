@@ -82,6 +82,7 @@ export const agentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: AGENTS_SETTINGS_PAGE,
       label: "Agents",
+      description: "Where the sub-agents a thread starts do their work: on this computer or on another machine.",
       group: "threads",
       Icon: Bot,
       order: 45.2,

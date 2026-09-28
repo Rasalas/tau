@@ -110,9 +110,6 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
   return (
     <div className="settings-page packages-page">
       <h3>Packages</h3>
-      <p className="lede">
-        Install extension packages the way Pi does. An install never starts a package: approve its permissions on its own page, and both halves start there and then.
-      </p>
 
       <SettingsSection title="Install">
         <SettingRow
@@ -286,6 +283,7 @@ export const packagesExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
+      description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve its permissions on its page.",
       group: "extensions",
       profiles: ["desktop", "web"],
       Icon: Package,

@@ -9,7 +9,6 @@ export function SignalsPage() {
   return (
     <div className="settings-page signals-page">
       <h3>Signals</h3>
-      <p className="lede">What this window and its host are doing, for debugging Tau itself.</p>
       <SettingsSection id="setting-signals-now" title="Now" plain headerAction={<Badge tone="success" dot>Live</Badge>}>
         <ValueList label="Now" items={[
           { label: "Session", value: snapshot?.sessionId.slice(0, 8) ?? "None", mono: true, ...(snapshot?.sessionId ? { copy: snapshot.sessionId } : {}) },
@@ -46,7 +45,7 @@ export const observatoryExtension: DesktopExtension = {
   name: "Signals",
   activate(plugin) {
     plugin.registerSettingsPage({
-      id: SIGNALS_SETTINGS_PAGE, label: "Signals", Icon: Activity, group: "diagnostics", order: 90, profiles: ["desktop", "web"],
+      id: SIGNALS_SETTINGS_PAGE, label: "Signals", description: "What this window and its host are doing, for debugging Tau itself.", Icon: Activity, group: "diagnostics", order: 90, profiles: ["desktop", "web"],
       keywords: ["developer", "debug", "events", "diagnostics"], Component: SignalsPage,
       rows: SIGNALS_SETTINGS_ROWS,
     });

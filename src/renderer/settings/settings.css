@@ -7,6 +7,7 @@
  */
 .settings-screen.standalone-page { grid-template-columns: minmax(0, 1fr); }
 .standalone-page .standalone-back { width: auto; -webkit-app-region: no-drag; }
+.standalone-page .settings-topbar { height: 46px; gap: 12px; padding: 0 20px; border-bottom: 1px solid var(--line-soft); }
 .standalone-page .settings-topbar h1 { margin: 0; font-size: 13px; font-weight: 600; }
 
 .settings-nav {
@@ -77,36 +78,47 @@
 .settings-about-link:hover, .settings-about-link.active { background: var(--hover-strong); color: var(--ink); }
 
 .settings-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.settings-topbar {
-  flex: none; height: 46px; display: flex; align-items: center; gap: 12px;
-  padding: 0 20px; border-bottom: 1px solid var(--line-soft); -webkit-app-region: drag;
-}
-.settings-topbar nav { min-width: 0; }
-.settings-topbar ol { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; padding: 0; list-style: none; font: 500 13px var(--sans); }
+/* On a desktop only the strip the window is dragged by; the page names itself in its head. */
+.settings-topbar { flex: none; height: var(--space-8); display: flex; align-items: center; -webkit-app-region: drag; }
 .settings-topbar button { -webkit-app-region: no-drag; }
-.settings-crumb { display: flex; align-items: center; min-width: 0; color: var(--muted); }
-.settings-crumb > button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.settings-crumb > button:hover { color: var(--ink); }
-.settings-crumb.current { color: var(--ink); }
-.settings-crumb.current > h1 { margin: 0; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-crumb-separator { color: var(--fainter); }
-.settings-scope { position: relative; }
-.settings-scope > button { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; }
+
+/* A page's head (design 1j): title, what it governs, where it applies; its action at the right. */
+.settings-page-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-3) var(--space-8); }
+.settings-page-head > nav { grid-column: 1 / -1; }
+.settings-page-head ol { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: 0; padding: 0; list-style: none; font: 500 var(--text-md) var(--sans); color: var(--muted); }
+.settings-page-head li + li::before { content: "/"; margin-right: var(--space-3); color: var(--fainter); }
+.settings-page-head li > button, .settings-scope > button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.settings-page-head li > button:hover, .settings-scope > button:hover { color: var(--ink); }
+.settings-page-head h1 { margin: 0; font: 600 var(--text-display)/1.25 var(--sans); letter-spacing: -.015em; color: var(--ink); }
+.settings-page-head p { margin: var(--space-3) 0 0; max-width: 640px; font: var(--text-lg)/1.5 var(--sans); color: var(--ink-3); }
+.settings-page-head > div > :first-child { margin-top: 0; }
+.settings-content > .settings-page-head { margin-bottom: calc(var(--space-7) - var(--space-8)); }
+/* A breadcrumb alone sits close over the title the page draws; a head with nothing in it takes no room. */
+.settings-content > .settings-page-head:has(> nav + .settings-page-action) { margin-bottom: calc(var(--space-4) - var(--space-8)); }
+.settings-page-head:has(> .settings-page-action:first-child:empty) { display: none; }
+.settings-page-action { display: flex; gap: var(--space-4); }
+.settings-page-action:empty { display: none; }
+.settings-scope { position: relative; display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); font: var(--text-sm) var(--sans); color: var(--muted); }
+.settings-scope > button { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; color: var(--ink-2); font-weight: 500; }
 .settings-scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-scope > button.narrowed { color: var(--acid-text); }
-.settings-scope > .menu { top: calc(100% + 10px); left: -8px; right: auto; min-width: 240px; }
+@media (pointer: coarse) {
+  .settings-page-head li > button, .settings-scope > button { position: relative; }
+  .settings-page-head li > button::after, .settings-scope > button::after { content: ""; position: absolute; inset: -14px -6px; }
+}
+.settings-scope > .menu { top: calc(100% + 8px); left: 0; right: auto; min-width: 240px; }
 
 .settings-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; }
 .settings-content {
   container-type: inline-size;
-  max-width: 896px; margin: 0 auto; padding: var(--space-7) var(--space-7) 48px;
+  max-width: 896px; margin: 0 auto; padding: var(--space-2) var(--space-7) 48px;
   display: flex; flex-direction: column; gap: var(--space-8);
 }
-/* A kit's page names itself in an h3; the breadcrumb already does. */
 .settings-read-only {
   margin: 0; padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md);
   color: var(--muted); font-size: 12.5px; line-height: 1.45;
 }
+/* An older kit's page names itself in an h3; the head already does. */
 .settings-content > .settings-page > h3:first-child { display: none; }
 .settings-content > .settings-page > h3:first-child + * { margin-top: 0; }
 
@@ -452,7 +464,7 @@
 .settings-screen.stacked .settings-nav-header { height: 52px; justify-content: space-between; padding: 0 4px 0 20px; }
 .settings-screen.stacked .settings-nav-header > h1 { margin: 0; font: 650 17px var(--sans); }
 .settings-screen.stacked .settings-nav-footer .settings-back { display: none; }
-.settings-screen.stacked .settings-topbar nav { flex: 1; }
+.settings-topbar-title { flex: 1; min-width: 0; margin: 0; font: 600 var(--text-title) var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-screen.stacked .settings-close { margin-left: auto; }
 .settings-screen.stacked .settings-nav-search { height: 40px; margin: 0 var(--space-5) var(--space-4); background: var(--field); }
 .settings-screen.stacked .settings-nav-search > input { font-size: 16px; }
@@ -542,15 +554,15 @@
 .settings-screen.stacked .extension-row { grid-template-columns: minmax(0, 1fr) auto; }
 
 /* One extension's page: who it is, then what it needs from the user, then its settings and facts. */
-.extension-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-6); padding: 0 var(--space-6); }
+.extension-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-6); }
 .extension-hero-text { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.extension-hero-text > h2 { margin: 0; font: 600 20px/1.25 var(--sans); letter-spacing: -.01em; color: var(--ink); }
-.extension-hero-text > p { margin: 0; max-width: 560px; font: 13.5px/1.5 var(--sans); color: var(--ink-3); }
+.extension-hero-text > h1 { margin: 0; font: 600 var(--text-display)/1.25 var(--sans); letter-spacing: -.015em; color: var(--ink); }
+.extension-hero-text > p { margin: 0; max-width: 640px; font: var(--text-lg)/1.5 var(--sans); color: var(--ink-3); }
 .extension-hero-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .extension-hero-control { padding-top: 4px; }
 .settings-page > .extension-hero + * { margin-top: var(--space-8); }
 @container (max-width: 560px) {
-  .extension-hero { grid-template-columns: auto minmax(0, 1fr); padding: 0 var(--space-2); }
+  .extension-hero { grid-template-columns: auto minmax(0, 1fr); }
   .extension-hero-control { grid-column: 1 / -1; }
 }
 .extension-approval { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5) var(--space-6); font: 13px/1.5 var(--sans); color: var(--ink-2); }
