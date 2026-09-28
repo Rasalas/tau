@@ -722,3 +722,11 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 .review-server-add { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: var(--space-4); }
 .settings-screen.stacked .review-server-add { justify-content: stretch; }
 .settings-screen.stacked .review-server-add > * { flex: 1 1 100%; }
+
+/* The thread's requests on its rail row's hover card: the state's glyph in its colour, the number, the title. */
+.request-card-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.request-card-line .thread-card-text > b { font: 11px var(--mono); font-variant-numeric: tabular-nums; font-weight: 400; color: var(--muted); }
+.request-card-line.state-open .thread-card-icon { color: var(--done); }
+.request-card-line.state-draft .thread-card-icon { color: var(--muted); }
+.request-card-line.state-merged .thread-card-icon { color: var(--merged); }
+.request-card-line.state-closed .thread-card-icon { color: var(--danger); }

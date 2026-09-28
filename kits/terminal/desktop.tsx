@@ -26,7 +26,7 @@ import {
   WORKSPACE_STORE_SERVICE,
   type WorkspaceStoreMirror,
 } from "./protocol.js";
-import { TerminalRowStatus, watchForegrounds } from "./row-status.js";
+import { TerminalCardRow, TerminalRowStatus, watchForegrounds } from "./row-status.js";
 
 /** A command keeps the actions it ran with, so a link clicked later has them too. */
 function withActions(run: (actions: WorkbenchActions) => unknown) {
@@ -95,8 +95,11 @@ export const terminalExtension: DesktopExtension = {
       plugin.useService<WorkspaceStoreMirror>(WORKSPACE_STORE_SERVICE, (workspace) => {
         terminalServices.workspace = workspace;
         const unmark = workspace.registerThreadRowAccessory(TerminalRowStatus);
+        // After the model, as in T3 Code's card.
+        const unlist = workspace.registerThreadCardSection?.({ place: "row", order: 45, Component: TerminalCardRow });
         return () => {
           unmark();
+          unlist?.();
           if (terminalServices.workspace === workspace) delete terminalServices.workspace;
         };
       }),

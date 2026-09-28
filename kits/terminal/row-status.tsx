@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react";
 import { SquareTerminal } from "lucide-react";
 import { tooltipProps } from "tau";
-import type { UiTerminalSession } from "./protocol.js";
+import type { ComponentType, ReactNode } from "react";
+import type { ThreadCardRowSlotProps, UiTerminalSession } from "./protocol.js";
 import { terminalStore } from "./store.js";
 
 /** How often the shells a thread opened are asked what runs in them. */
@@ -54,4 +55,13 @@ export function TerminalRowStatus({ session }: { session: { id: string } }) {
       <SquareTerminal size={12} aria-hidden="true" />{count > 1 ? count : null}
     </span>
   );
+}
+
+/** The same count as a line of the row's hover card, as T3 Code's card says it. */
+export function TerminalCardRow({ session, Row }: ThreadCardRowSlotProps) {
+  const busy = useSyncExternalStore(busyShells.subscribe, busyShells.get);
+  const count = useSyncExternalStore(terminalStore.subscribe, () => runningShells(terminalStore.getSnapshot().sessions, busy, session.id));
+  if (count === 0) return null;
+  const Line = Row as ComponentType<{ icon: ReactNode; children: ReactNode; tone?: "working" }>;
+  return <Line icon={<SquareTerminal size={12} />} tone="working">{shellLabel(count)}</Line>;
 }

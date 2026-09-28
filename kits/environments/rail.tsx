@@ -2,7 +2,7 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { Laptop, Server } from "lucide-react";
 import { Menu, tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type UiSession, type WorkbenchActions } from "tau";
 import { otherMachines, shownMachine, statusText, unavailableReason } from "./machines.js";
-import type { RemoteAgentThreadsService } from "./protocol.js";
+import type { MachineCardRowProps, RemoteAgentThreadsService } from "./protocol.js";
 
 const noSubscription = () => () => undefined;
 /** Offline machines' reasons say how long ago they were seen; the rail reads them again this often. */
@@ -191,5 +191,15 @@ export function createShownMachine(environments: PlatformEnvironments) {
         ) : null}
       </span>
     );
+  };
+}
+
+/** The machine line of a rail row's hover card, for the window's own machine's threads; another machine's row names its own. */
+export function createMachineCardRow(environments: PlatformEnvironments) {
+  return function MachineCardRow({ external, Row }: MachineCardRowProps) {
+    const list = useEnvironments(environments);
+    const machine = list ? shownMachine(list) : undefined;
+    if (external || !machine) return null;
+    return <Row icon={<MachineIcon environment={machine} size={12} />}>{machine.name}</Row>;
   };
 }

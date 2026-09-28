@@ -4,7 +4,7 @@ import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type P
 import { createAutoRunOnHook } from "./auto.js";
 import { followArrival, readPendingArrival } from "./machines.js";
 import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
-import { agentThreadsSource, createMachineThreads, createShownMachine } from "./rail.js";
+import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 
@@ -89,10 +89,12 @@ export const environmentsExtension: DesktopExtension = {
     context.registerPromptHook(createAutoRunOnHook(environments, context.host));
     const RailSection = createRailSection(environments);
     const threads = createMachineThreads(environments);
+    const MachineCardRow = createMachineCardRow(environments);
     context.useService<WorkspaceRailSlice>(WORKSPACE_STORE_SERVICE, (store) => {
       const section = store.registerRailSection?.(RailSection);
       const listed = store.registerRailThreads?.(threads);
-      return () => { section?.(); listed?.(); };
+      const card = store.registerThreadCardSection?.({ place: "row", order: 20, Component: MachineCardRow });
+      return () => { section?.(); listed?.(); card?.(); };
     });
     context.useService<RemoteAgentThreadsService>(REMOTE_AGENT_THREADS_SERVICE, (service) => {
       agentThreadsSource.set(service);

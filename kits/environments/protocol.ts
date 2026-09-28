@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { WorkbenchActions } from "tau";
 import type { MachineRailThread } from "./rail.js";
 
@@ -12,6 +12,14 @@ export interface WorkspaceRailSlice {
   registerRailSection?(section: ComponentType<{ actions: WorkbenchActions }>): () => void;
   /** Absent in an older Workspace Kit; the other machines' threads are then not listed. */
   registerRailThreads?(source: { subscribe(listener: () => void): () => void; threads(): readonly MachineRailThread[] }): () => void;
+  /** Absent before API 1.23.0; the row's hover card then names no machine for this machine's threads. */
+  registerThreadCardSection?(section: { place: "row"; order?: number; Component: ComponentType<MachineCardRowProps> }): () => void;
+}
+
+/** The part of Workspace Kit's `ThreadCardSectionProps` the machine's line reads. */
+export interface MachineCardRowProps {
+  external: boolean;
+  Row: ComponentType<{ icon: ReactNode; children: ReactNode }>;
 }
 
 /** The host half's event: the machines this host's agents reach changed (ADR 0027). */
