@@ -68,6 +68,8 @@ export function activityOfLatestTurn<T extends { tools: readonly UiToolRun[]; an
   history: readonly UiTurnActivityEntry[] = [],
 ): T | undefined {
   if (!activity) return undefined;
+  // A tool still running is this run's, even after a steering message.
+  if (activity.tools.some((tool) => tool.status === "running")) return activity;
   let lastPrompt = messages.length - 1;
   while (lastPrompt >= 0 && messages[lastPrompt].role !== "user") lastPrompt -= 1;
   if (lastPrompt <= 0) return activity;
