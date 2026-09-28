@@ -76,7 +76,7 @@ describe("Workspace Kit in the workbench", () => {
       }),
     });
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     expect(getFileTree).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
@@ -356,7 +356,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
@@ -550,7 +550,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
@@ -628,7 +628,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "first request" } });
@@ -650,7 +650,7 @@ describe("Workspace Kit in the workbench", () => {
       sessionId: "created",
       message: { id: "created-message", clientMessageId: createdClientMessageId, role: "user", text: "first request", timestamp: Date.now() },
     });
-    expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /do next\?$/ })).toBeTruthy();
     expect(screen.queryByText("first request")).toBeNull();
 
     fireEvent.change(freshComposer, { target: { value: "second request" } });
@@ -690,10 +690,11 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { storage, extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("/other"));
-    expect(screen.getByRole("button", { name: "main" })).toBeTruthy();
+    // The draft's header names the pending project's branch, not the host's folder.
+    expect(await screen.findByRole("button", { name: "Branch main" })).toBeTruthy();
   });
 
   it("keeps an unsubmitted draft when changing its project from the sidebar", async () => {
@@ -731,7 +732,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const draftDialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(draftDialog).getByRole("option", { name: /project/u }));
@@ -772,7 +773,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
     const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     const image = new File([new Uint8Array([137, 80, 78, 71])], "draft.png", { type: "image/png" });
@@ -835,7 +836,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
     fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
 
-    expect(await screen.findByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /do next\?$/ })).toBeTruthy();
     expect(screen.queryByText("Used 1 tool")).toBeNull();
   });
 
@@ -1208,7 +1209,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
@@ -1275,7 +1276,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1336,7 +1337,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension, promptHook] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option", { name: /project/u }));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1364,7 +1365,7 @@ describe("Workspace Kit in the workbench", () => {
     ));
     expect(afterPrompt).toHaveBeenCalledOnce();
 
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
     expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
     // The persisted prompt is the delivery commit. The agent run continues, but
     // the draft no longer holds the workspace or thread navigation.
@@ -1410,7 +1411,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1436,7 +1437,7 @@ describe("Workspace Kit in the workbench", () => {
       },
     });
 
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
     await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
     expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
   });
@@ -1487,9 +1488,11 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search worktrees" }), { target: { value: "feat/race" } });
-    fireEvent.click(screen.getByRole("option", { name: /Create worktree “feat\/race”/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Branch main" }));
+    fireEvent.click(await screen.findByRole("button", { name: /New worktree…/u }));
+    const branch = screen.getByRole("textbox", { name: "Branch for the new worktree" });
+    fireEvent.change(branch, { target: { value: "feat/race" } });
+    fireEvent.keyDown(branch, { key: "Enter" });
 
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "Must run in the worktree" } });
@@ -1501,7 +1504,7 @@ describe("Workspace Kit in the workbench", () => {
     resolveCreation({ workspaceId: "ws1_feat-race", displayPath: "/project-worktrees/feat-race" });
 
     await waitFor(() => expect(openProject).toHaveBeenCalledWith("ws1_feat-race"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "feat-race" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Branch feat/race" })).toBeTruthy());
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
       "Must run in the worktree",
@@ -1512,7 +1515,7 @@ describe("Workspace Kit in the workbench", () => {
     ));
   });
 
-  it("refreshes the bottom-left worktree name after changing workspaces", async () => {
+  it("refreshes the header's branch after opening another worktree from its menu", async () => {
     let cwd = "/project";
     const getWorkspaceInfo = vi.fn(async () => ({
       root: cwd,
@@ -1562,14 +1565,17 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    fireEvent.click(await screen.findByRole("button", { name: "Current checkout" }));
-    fireEvent.click(screen.getByRole("option", { name: /feat\/worktree-label/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Branch main" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Branch" })).getByRole("button", { name: /^feat\/worktree-label/u }));
 
-    expect(await screen.findByRole("button", { name: "feat-worktree-label" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Branch feat/worktree-label" })).toBeTruthy();
     expect(getWorkspaceInfo).toHaveBeenLastCalledWith();
   });
 
-  it("keeps the checkout row off a thread whose conversation has begun", async () => {
+  it("moves the checkout row into the header's branch menu once the conversation has begun", async () => {
+    const moved: HostActionResult = { version: 1, updates: [] };
+    const switchRef = vi.fn(async () => moved);
+    const createBranch = vi.fn(async () => moved);
     const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
@@ -1581,14 +1587,79 @@ describe("Workspace Kit in the workbench", () => {
       invokeHostExtension: workspaceHostStub({
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-        getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, hasRemote: false, worktrees: [], refs: [], worktreeParent: "/project-worktrees" }),
+        getWorkspaceInfo: async () => ({
+          root: "/project", isRepo: true, isDirty: false, branch: "main", hasRemote: false,
+          worktrees: [{ path: "/project", name: "project", branch: "main", isMain: true, isCurrent: true }],
+          refs: [{ name: "main", isCurrent: true }, { name: "feat/paging", isCurrent: false }],
+          worktreeParent: "/project-worktrees",
+        }),
+        getWorktreeStatuses: async () => [],
+        getWorktreeBase: async () => ({ ref: "origin/main", commit: "abc1234", shortCommit: "abc1234", fromOrigin: true }),
         getFileTree: async () => [],
+        switchRef,
+        createBranch,
       }),
     });
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByText("fix it");
-    expect(screen.queryByRole("button", { name: "Current checkout" })).toBeNull();
     expect(document.querySelector(".workspace-bar")).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Branch main" }));
+    let menu = await screen.findByRole("dialog", { name: "Branch" });
+    fireEvent.click(within(menu).getByRole("button", { name: "feat/paging" }));
+    await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Branch" })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch main" }));
+    menu = await screen.findByRole("dialog", { name: "Branch" });
+    expect(within(menu).getByText("New worktree…")).toBeTruthy();
+    const search = within(menu).getByRole("textbox", { name: /Switch branch or type a new name/u });
+    fireEvent.change(search, { target: { value: "fix/header" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() => expect(createBranch).toHaveBeenCalledWith("fix/header"));
+  });
+
+  it("draws a new thread as a chat: its project and branch in the header, its Branch section behind the branch", async () => {
+    const storage = createMemoryStorage();
+    writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: "/project", projectName: "shop-api" }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "shop-api", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({
+          root: "/project", isRepo: true, isDirty: false, branch: "main", worktrees: [],
+          refs: [{ name: "main", isCurrent: true }, { name: "origin/release", isCurrent: false }], worktreeParent: "/project-worktrees",
+        }),
+        getWorktreeBase: async () => ({ ref: "origin/main", commit: "abc1234", shortCommit: "abc1234", fromOrigin: true }),
+        getFileTree: async () => [],
+      }),
+    });
+    renderApp(client, { storage, extensions: [workspaceExtension] });
+    expect(await screen.findByRole("heading", { name: "What should shop-api do next?" })).toBeTruthy();
+    const header = document.querySelector(".thread-header") as HTMLElement;
+    expect(within(header).getByText("New thread")).toBeTruthy();
+    expect(within(header).getByText("shop-api")).toBeTruthy();
+    // The composer carries the project; the checkout row under it is gone.
+    expect(screen.getByRole("button", { name: "Change project, current project shop-api" }).closest(".composer-chips")).toBeTruthy();
+    expect(document.querySelector(".workspace-bar")).toBeNull();
+
+    fireEvent.click(await within(header).findByRole("button", { name: "Branch main" }));
+    const section = await screen.findByRole("dialog", { name: "Branch" });
+    fireEvent.click(await within(section).findByRole("switch", { name: "Run in a new worktree" }));
+    expect(await within(header).findByRole("button", { name: "Branch tau/auto-named" })).toBeTruthy();
+    await waitFor(() => expect(within(section).getByRole("button", { name: /from origin\/main/u })).toBeTruthy());
+    fireEvent.change(within(section).getByRole("textbox", { name: "Branch name for the new worktree" }), { target: { value: "feat/pages" } });
+    expect(within(header).getByRole("button", { name: "Branch feat/pages" })).toBeTruthy();
+    fireEvent.click(within(section).getByRole("button", { name: /from origin\/main/u }));
+    fireEvent.click(within(section).getByRole("button", { name: "origin/release" }));
+    expect(within(section).getByRole("button", { name: /from origin\/release/u })).toBeTruthy();
   });
 
   it("leaves out the branch each project names as its default, and shows main where it is not", async () => {

@@ -207,6 +207,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       draftPending: next.draftPending,
       ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
+      ...(projectChanged || threadChanged || next.draftPending !== this.state.draftPending ? { draftBranch: undefined, draftBase: undefined } : {}),
     });
     if (next.cwd && (projectChanged || threadChanged)) {
       void this.refreshChanges();
@@ -251,6 +252,14 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const root = this.state.cwd;
     if (root) this.preferences.setValue(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root), mode);
     this.update({ workspaceMode: mode });
+  }
+
+  /** The draft's branch name and base; empty values go back to automatic. */
+  setDraftBranch(branch: { name?: string; base?: string }): void {
+    this.update({
+      ...("name" in branch ? { draftBranch: branch.name?.trim() || undefined } : {}),
+      ...("base" in branch ? { draftBase: branch.base || undefined } : {}),
+    });
   }
 
   /** Whether a new worktree starts from the freshly fetched remote commit. */
@@ -557,9 +566,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ preparingWorktree: true });
     try {
       event.preparing("Setting up worktree…");
-      const named = await this.threadBranchName(event.prompt);
+      const named = this.state.draftBranch ?? await this.threadBranchName(event.prompt);
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
-      const created = await this.host.createWorktree(branch, this.worktreeOptions(), this.workspace());
+      const base = this.state.draftBase;
+      const created = await this.host.createWorktree(branch, { ...(base ? { baseRef: base } : {}), ...this.worktreeOptions() }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
     } catch (error) {
       this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
@@ -732,6 +742,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref)); }
+  createBranch(branch: string): Promise<boolean> { return this.workspaceAction(() => this.host.createBranch(branch)); }
   /** A worktree whose folder vanished is recreated rather than refused. */
   async openWorktree(path: string): Promise<boolean> {
     if (path === this.state.cwd) return true;

@@ -179,6 +179,26 @@ describe("Workspace Kit thread worktrees", () => {
     await expect(workspaceStore.prepareThreadWorktree(request)).resolves.toEqual({});
   });
 
+  it("makes the draft's worktree on the name and base chosen in its Branch section, and forgets them with the draft", async () => {
+    const createWorktree = vi.fn(async (branch: string) => ({ workspaceId: `ws1_${branch}`, displayPath: `/project-worktrees/${branch}` }));
+    const workspaceStore = storeOver({ createWorktree });
+    workspaceStore.bind(actionsWith());
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    workspaceStore.update({ workspace: REPO });
+    workspaceStore.setWorkspaceMode("worktree");
+    workspaceStore.setDraftBranch({ name: "  feat/pages  ", base: "origin/release" });
+    expect(workspaceStore.getSnapshot()).toMatchObject({ draftBranch: "feat/pages", draftBase: "origin/release" });
+
+    await workspaceStore.prepareThreadWorktree({ prompt: "add paging", preparing: () => undefined });
+    expect(createWorktree).toHaveBeenCalledWith("feat/pages", expect.objectContaining({ baseRef: "origin/release" }), "ws1_project");
+
+    // An emptied name goes back to automatic naming.
+    workspaceStore.setDraftBranch({ name: "" });
+    expect(workspaceStore.getSnapshot().draftBranch).toBeUndefined();
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "started", draftPending: false });
+    expect(workspaceStore.getSnapshot()).toMatchObject({ draftBranch: undefined, draftBase: undefined });
+  });
+
   it("takes the mode from the project, then from the checked-in default, then from the global one", async () => {
     const preferences = new PreferencesStore();
     const workspaceStore = storeOver({ getProjectDefaults: async () => ({ workspaceMode: "worktree" }) }, preferences);

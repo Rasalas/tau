@@ -259,6 +259,8 @@ export interface WorkspaceHostCommands {
   /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
+  /** A new branch at the checkout's HEAD, switched to in place. */
+  "create-branch": { input: { branch: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   /** `file-manager` reveals the file in Finder, Explorer or Files; a line reaches editors that take one. */
   "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string } & EditorPosition; output: void };
@@ -315,6 +317,7 @@ export interface WorkspaceHostClient {
   getDefaultBranch(workspace?: string): Promise<string>;
   autoPull(workspace?: string): Promise<AutoPullOutcome[]>;
   switchRef(ref: string): Promise<HostActionResult>;
+  createBranch(branch: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
   listTerminals(): Promise<UiTerminal[]>;
@@ -364,6 +367,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),
     autoPull: (workspace) => call("auto-pull", workspace === undefined ? undefined : { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
+    createBranch: (branch) => call("create-branch", { branch }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
     listTerminals: () => call("list-terminals", undefined),
@@ -386,6 +390,15 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
  * resolves whichever kit activates first.
  */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
+
+/**
+ * A new thread's "Branch" section (worktree or checkout, branch name, base),
+ * for another kit's popover: Machines Kit's "Run on" draws it under the machines.
+ */
+export const BRANCH_SECTION_SERVICE = "tau.workspace/branch-section";
+export interface BranchSectionService {
+  Section: ComponentType<{ actions: WorkbenchActions }>;
+}
 
 /** What the kit knows about the project the workbench is showing. */
 export interface WorkspaceKitState {
@@ -416,6 +429,10 @@ export interface WorkspaceKitState {
   workspaceMode: WorkspaceMode;
   /** Where a new worktree would start, as the picker shows it. */
   worktreeBase?: UiWorktreeBase;
+  /** The draft's own name for its worktree's branch; unset, it is named when the prompt is sent. */
+  draftBranch?: string;
+  /** The ref the draft's worktree starts from; unset, the host's default base. */
+  draftBase?: string;
   /** A worktree is being created for the thread that is starting. */
   preparingWorktree: boolean;
   /** Sections other kits add to the Changes panel. */

@@ -315,53 +315,58 @@
 }
 .changed-file-row .stat-add, .changed-file-row .stat-del { font-size: 11px; }
 
-.workspace-bar {
-  max-width: 780px; margin: -1px auto 0; display: flex; align-items: center;
-  padding: 5px 8px 0; gap: 8px;
+/* The branch in the thread header (K84): a quiet trigger that opens the checkout menu or a new thread's Branch section. */
+.thread-branch-trigger {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; margin: -2px -5px; padding: 2px 5px;
+  border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer;
 }
-.workspace-bar-spacer { flex: 1; }
-.workspace-chip {
-  display: flex; align-items: center; gap: 7px; max-width: 320px;
-  border: 1px solid transparent; border-radius: 7px; background: transparent;
-  color: var(--faint); font: 500 11.5px var(--sans); padding: 5px 9px; cursor: pointer;
+.thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+.thread-branch-trigger .chev { flex: none; color: var(--faint); }
+.thread-branch-trigger:hover:not(:disabled), .thread-branch-trigger[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
+.popover.branch-popover { width: min(380px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 80px)); padding: 0; overflow: auto; }
+.branch-menu .menu-heading, .branch-section .menu-heading { padding: 10px 12px 4px; color: var(--faint); font-size: 12px; }
+.branch-note { margin: 0; padding: 4px 12px 12px; color: var(--muted); font: 12px/1.5 var(--sans); }
+.branch-section { padding-bottom: 6px; }
+.branch-section.picking { padding: 0; }
+.branch-name {
+  display: flex; align-items: center; gap: 8px; margin: 2px 6px; padding: 7px 9px; border-radius: 7px;
+  background: var(--raised); color: var(--muted);
 }
-.workspace-chip:hover:not(:disabled) { background: var(--raised); color: var(--ink-2); border-color: var(--line-control); }
-.workspace-chip:disabled { opacity: .5; cursor: default; }
-.workspace-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.workspace-menu {
-  width: min(390px, calc(100vw - 24px)); max-height: min(470px, calc(100vh - 96px));
-  min-width: 280px; padding: 0; overflow: hidden;
+.branch-name > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 12.5px var(--mono); outline: none; }
+.branch-name > input::placeholder { color: var(--ink-3); }
+.branch-name > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: 12.5px var(--mono); }
+.branch-name > small { color: var(--faint); font-size: 11px; }
+.branch-section button.branch-base {
+  width: auto; display: inline-flex; align-items: center; gap: 6px; margin: 2px 6px; padding: 5px 9px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 12px var(--sans); cursor: pointer;
 }
-.worktree-search {
-  display: flex; align-items: center; gap: 9px; height: 40px; flex: none;
-  padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--faint);
+.branch-base > code { color: var(--ink-2); font: 12px var(--mono); }
+.branch-base:hover { background: var(--raised); }
+.branch-worktree { display: flex; align-items: center; gap: 10px; margin: 4px 6px 0; padding: 7px 9px; }
+.branch-worktree > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.branch-worktree strong { color: var(--ink-2); font: 500 12.5px var(--sans); }
+.branch-worktree small { color: var(--faint); font-size: 11px; }
+/* Inside "Run on" (a menu), whose button rule would flatten the switch. */
+.branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
+.branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
+.ref-create { max-height: none; padding-top: 0; }
+.ref-create code, .ref-list code { font: 12px var(--mono); }
+.branch-menu .worktree-list { max-height: 240px; overflow: auto; padding: 2px 6px 6px; }
+.branch-menu .worktree-list > button, .branch-menu .worktree-list > .worktree-remove {
+  width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 6px 9px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer;
 }
-.worktree-search input {
-  flex: 1; min-width: 0; border: 0; background: transparent;
-  color: var(--ink); font-size: 13px; outline: none;
-}
-.worktree-search input::placeholder { color: var(--faint); }
-.workspace-menu > button.new-worktree { width: auto; margin: 6px 6px 0; flex: none; }
-.worktree-list { min-height: 0; max-height: 360px; overflow: auto; padding: 6px; }
-.worktree-list > button { min-height: 49px; }
-.worktree-list > button > svg { flex: none; }
-
-.worktree-list > p { padding: 14px 10px; color: var(--faint); font-size: 12px; }
-.worktree-list .cleanup-candidate { color: var(--acid-text); }
-
-/* Where the thread of a pending draft runs; gone once it has one. */
-.workspace-mode {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-  margin: 6px; padding: 4px; border: 1px solid var(--line); border-radius: 6px;
-}
-.workspace-mode > button { flex: 1; min-width: 96px; height: 24px; font-size: 12px; }
-.workspace-mode > small { flex-basis: 100%; padding: 2px 4px 0; color: var(--faint); font-size: 11px; }
+.branch-menu .worktree-list > button:hover, .branch-menu .worktree-list > button.selected { background: var(--raised); color: var(--ink); }
+.branch-menu .menu-label { flex: 1; min-width: 0; display: grid; }
+.branch-menu .menu-label em { font: 500 12.5px var(--sans); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-menu .menu-label small { color: var(--faint); font-size: 11px; }
+.new-worktree-name { margin: 4px 0 2px; }
+.ref-list > button.selected { background: var(--raised); color: var(--ink); }
 .worktree-remove-action {
   display: inline-flex; align-items: center; padding: 2px; border-radius: 4px;
   color: var(--faint); opacity: 0; transition: opacity 90ms ease;
 }
-.worktree-list > button:hover .worktree-remove-action { opacity: 1; }
+.worktree-list > button:hover .worktree-remove-action, .worktree-remove-action:focus-visible { opacity: 1; }
 .worktree-remove-action:hover { color: var(--danger); }
 .worktree-remove {
   display: flex; align-items: center; gap: 8px; min-height: 49px; padding: 6px 10px;
@@ -369,7 +374,6 @@
 .worktree-remove > .menu-label { flex: 1; min-width: 0; }
 .worktree-remove > button { height: 24px; padding: 0 10px; font-size: 12px; }
 
-.ref-picker { min-width: 300px; padding: 0; overflow: hidden; }
 .ref-search {
   display: flex; align-items: center; gap: 9px; height: 40px;
   padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--faint);
