@@ -82,11 +82,23 @@ function updated(at: number, now: number): string {
   return `Updated ${new Date(at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`;
 }
 
-/** The provider an account's plan belongs to: a Pi login is its provider's, a runtime of its own is itself. */
-function providerMark(group: LimitGroup): { modelProvider?: string; runtimeProvider?: string } {
-  if (group.members.length > 1 && group.shown.identity) return { modelProvider: group.shown.identity.provider };
+/** A shared account's provider as a plan's mark knows it: a ChatGPT plan is `openai-codex`. */
+const PLAN_PROVIDER: Readonly<Record<string, string>> = { openai: "openai-codex" };
+
+/**
+ * The mark of an account's plan: a shared one wears its plan's mark, a Pi
+ * login its plan's with Pi named (one mark per box), a runtime of its own is
+ * itself. An account here is a plan: only a subscription reports limits.
+ */
+export function providerMark(group: Pick<LimitGroup, "members" | "shown">): { modelProvider?: string; runtimeProvider?: string; plan?: boolean; runtimeMark?: boolean } {
+  if (group.members.length > 1 && group.shown.identity) {
+    const provider = group.shown.identity.provider;
+    return { modelProvider: PLAN_PROVIDER[provider] ?? provider, plan: true };
+  }
   const account = group.members[0]!;
-  return account.runtime === PI_BACKEND && account.id.startsWith("pi:") ? { modelProvider: account.id.slice(3) } : { runtimeProvider: account.runtime };
+  return account.runtime === PI_BACKEND && account.id.startsWith("pi:")
+    ? { modelProvider: account.id.slice(3), runtimeProvider: PI_BACKEND, plan: true, runtimeMark: false }
+    : { runtimeProvider: account.runtime };
 }
 
 /** Billed money and a plan's value, never one figure. */

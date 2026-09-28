@@ -132,6 +132,24 @@ describe("Usage page", () => {
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem")).toHaveLength(1));
   });
 
+  it("marks a Pi plan account with its plan's mark and a shared ChatGPT account with the ChatGPT plan's", async () => {
+    const key = "ab".repeat(32);
+    const plans: UsageLimitsSummary = {
+      checkedAt: NOW.getTime(),
+      sources: [],
+      accounts: [
+        { id: "pi:anthropic", runtime: "pi", label: "Pi · anthropic", checkedAt: NOW.getTime(), windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 20 }] },
+        { id: "codex:account", runtime: "codex", label: "Codex", checkedAt: NOW.getTime(), identity: { provider: "openai", key }, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 30 }] },
+        { id: "pi:openai-codex", runtime: "pi", label: "Pi · openai-codex", checkedAt: NOW.getTime() - 60_000, identity: { provider: "openai", key }, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 28 }] },
+      ],
+    };
+    renderPage(vi.fn(async (command: string) => command === "limits" ? plans : summary()));
+    const anthropic = await screen.findByRole("region", { name: "Pi · anthropic limits" });
+    expect(within(anthropic).getByRole("img", { name: "Pi via Claude plan" })).toBeTruthy();
+    const shared = screen.getByRole("region", { name: /^ChatGPT · Codex, Pi limits$/u });
+    expect(within(shared).getByRole("img", { name: "ChatGPT plan" })).toBeTruthy();
+  });
+
   it("shows no origin filter when nothing ran outside Tau, and says when the logs are still being read", async () => {
     renderPage(answers(() => summary({ reading: true })));
     await screen.findByRole("region", { name: "Threads" });

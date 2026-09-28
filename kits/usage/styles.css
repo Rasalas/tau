@@ -12,7 +12,9 @@
 }
 .usage-page .provider-icon-stack { margin-left: 0; }
 /* One slot for a single mark or a pair, so the names line up. */
-.usage-rank-label > .provider-icon-stack { width: 43px; justify-content: flex-end; }
+/* The fanned-out stack's width for every row, a single mark centred in it, so the marks line up in their column. */
+.usage-rank-label > .provider-icon-stack { width: 33px; margin-left: 0; }
+.usage-rank-label > .provider-icon-stack.single { justify-content: center; }
 .usage-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .usage-note[data-level="error"] { color: var(--warn); }
 
