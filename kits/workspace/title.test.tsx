@@ -48,7 +48,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
   const openInEditor = vi.spyOn(workspaceStore, "openInEditor").mockResolvedValue(undefined);
   const openTerminal = vi.spyOn(workspaceStore, "openTerminal").mockResolvedValue(undefined);
   const openReview = vi.spyOn(workspaceStore, "openReview").mockImplementation(() => undefined);
-  const openChangesView = vi.spyOn(workspaceStore, "openChangesView").mockReturnValue(true);
+  const showChangedFiles = vi.spyOn(workspaceStore, "showChangedFiles").mockImplementation(() => undefined);
   const pull = vi.spyOn(workspaceStore, "pull").mockResolvedValue(undefined);
   const runShellAction = vi.spyOn(workspaceStore, "runShellAction").mockResolvedValue(undefined);
   const client = createFakeHostClient({ hasCapability: (capability) => capability !== HOST_CAPABILITY.localFiles || localFiles });
@@ -61,7 +61,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
       </ClientStorageProvider>
     </HostClientProvider>,
   );
-  return { openInEditor, openTerminal, openReview, openChangesView, pull, runShellAction };
+  return { openInEditor, openTerminal, openReview, showChangedFiles, pull, runShellAction };
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -158,11 +158,11 @@ describe("Workspace Kit title actions", () => {
     expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
   });
 
-  it("names the changed files and opens the review from them, as the design's \"N files changed ›\"", () => {
-    const { openChangesView } = setup();
+  it("names the changed files and shows them on the stage, as the design's \"N files changed ›\"", () => {
+    const { showChangedFiles } = setup();
     const link = screen.getByRole("button", { name: /1 file changed/u });
     fireEvent.click(link);
-    expect(openChangesView).toHaveBeenCalledOnce();
+    expect(showChangedFiles).toHaveBeenCalledOnce();
   });
 
   it("chooses commit versus commit and push from upstream state", () => {

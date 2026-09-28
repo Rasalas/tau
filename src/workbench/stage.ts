@@ -64,6 +64,16 @@ export interface StageState {
 
 export const EMPTY_STAGE: StageState = { tabs: [] };
 
+/**
+ * The path a file tab is kept under: absolute inside the project. A link in
+ * a reply or a kit's list may name it relative to the project; both are one tab.
+ */
+export function stageFilePath(path: string, cwd: string | undefined): string {
+  const bare = path.replace(/^\.\//u, "");
+  if (!cwd || bare.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(bare) || bare.startsWith("\\\\")) return bare;
+  return `${cwd.replace(/[\\/]+$/u, "")}/${bare}`;
+}
+
 export function fileTabId(path: string): string {
   return `file:${path}`;
 }

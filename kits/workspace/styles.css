@@ -392,6 +392,31 @@
 .files-panel-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .files-panel-tree[hidden], .files-panel > .panel-header[hidden] { display: none; }
 .files-panel-search { display: inline-grid; place-items: center; }
+/* The stage's Files tab (design 1l): the explorer beside the file it shows. */
+.files-stage { flex-direction: row; }
+.files-explorer { flex: none; width: clamp(200px, 32%, 300px); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+.files-explorer-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 8px 6px 14px; }
+.files-explorer-scope { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-sm); }
+.files-explorer-scope > b { font-weight: 400; color: var(--muted); }
+.files-explorer-view { flex: none; }
+.files-changed-list { flex: 1; min-height: 0; overflow: auto; padding: 0 0 8px; }
+.files-changed-list .file-row { width: 100%; }
+.files-changed-list .file-row .name { direction: rtl; text-align: left; }
+.files-status-A { color: var(--diff-add-ink); }
+.files-status-D { color: var(--danger); }
+.files-open-editor {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 0; border-top: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer; text-align: left;
+}
+.files-open-editor:hover { color: var(--ink); background: var(--hover); }
+.files-open-editor > span { flex: 1; }
+.files-open-editor > kbd { font: var(--text-xs) var(--mono); color: var(--faint); }
+.files-reading { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.files-reading-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 10px 0 16px; }
+.files-reading-head > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--text-md) var(--mono); direction: rtl; text-align: left; }
+.files-reading .file-reader-header { display: none; }
+.files-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.files-stage-empty { flex: 1; display: grid; place-items: center; padding: 24px; }
 /* A finger's rows and buttons on a phone or tablet: the rows are 44 px (FilesPanel's rowHeight). */
 body[data-profile="compact"] .file-row { height: 40px; font-size: 14px; gap: 10px; }
 body[data-profile="compact"] .file-row .file-disclosure { width: 16px; }

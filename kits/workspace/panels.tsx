@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronRight, FileDiff, RotateCw, Search } from "lucide-react";
-import { ChangesTree, FileKindIcon, tooltipProps, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
+import { ChevronDown, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen } from "lucide-react";
+import { ChangesTree, DiffView, FileKindIcon, tooltipProps, useHostCapabilities, useWorkbench, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
@@ -117,31 +117,139 @@ function useCompactLayout(): boolean {
   return compact;
 }
 
+/** A changed file's working-tree diff in the Files tab, the design's "Diff" beside "Source". */
+function FileDiffPane({ path, load }: { path: string; load(path: string): Promise<UiFileDiff> }) {
+  const [diff, setDiff] = useState<UiFileDiff>();
+  useEffect(() => {
+    let live = true;
+    setDiff(undefined);
+    load(path).then((next) => { if (live) setDiff(next); }, () => { if (live) setDiff({ path, added: 0, removed: 0, hunks: [], note: "The diff could not be read." }); });
+    return () => { live = false; };
+  }, [load, path]);
+  return <div className="files-diff"><DiffView diff={diff} mode="unified" path={path} /></div>;
+}
+
+/** The changed files as a flat list with their Git status, the Files tab's "Changed" view. */
+function ChangedList({ files, current, onOpen, onPin }: {
+  files: readonly { path: string; name: string; status: string }[];
+  current?: string;
+  onOpen(path: string): void;
+  onPin(path: string): void;
+}) {
+  if (files.length === 0) return <p className="empty-copy">The worktree is clean.</p>;
+  const letter = (status: string) => status === "added" || status === "untracked" ? "A" : status === "deleted" ? "D" : status === "renamed" ? "R" : "M";
+  return <div className="files-changed-list">
+    {files.map((file) => <button
+      key={file.path}
+      type="button"
+      className={`file-row file ${file.path === current ? "active" : ""}`}
+      aria-current={file.path === current ? "true" : undefined}
+      title={file.path}
+      onClick={() => onOpen(file.path)}
+      onDoubleClick={() => onPin(file.path)}
+    >
+      <span className="file-kind-icon"><FileKindIcon name={file.name} /></span>
+      <span className="name">{file.path}</span>
+      <em className={`files-status-${letter(file.status)}`}>{letter(file.status)}</em>
+    </button>)}
+  </div>;
+}
+
 /**
- * The project's files as a tree. A tap opens a file on the stage, beside the
- * chat; in a phone's sheet (`placement: "sheet"`), which has no stage, the
- * file opens in the sheet to read.
+ * The project's files. On the stage (the workbench design's Files tab) the
+ * explorer stands beside the file it shows, with Changed / All and "Open in
+ * your editor"; a double-click opens a file as a tab of its own. In a phone's
+ * sheet (`placement: "sheet"`), which has no stage, the file opens in the
+ * sheet to read; in the drawer a click opens it on the stage.
  */
 export function FilesPanel({ active, placement, extensionName, search }: PanelProps & { search?: ServiceSlot<SearchFilesService> }) {
   const workspaceStore = useWorkspaceStore();
-  const { fileTree, changes, cwd } = useWorkspaceKit();
+  const { fileTree, changes, cwd, workspace } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
   const touch = useCompactLayout();
   const inSheet = placement === "sheet";
+  const onStage = placement === "stage";
   const [reading, setReading] = useState<string>();
+  const [view, setView] = useState<"changed" | "all">(() => changes.files.length > 0 ? "changed" : "all");
+  const [fileView, setFileView] = useState<"diff" | "source">("diff");
+  const { filesFocus } = useWorkspaceKit();
+  // "N files changed" asked for the Changed view and its first file.
+  useEffect(() => {
+    if (!filesFocus) return;
+    setView("changed");
+    setFileView("diff");
+    if (filesFocus.path) setReading(filesFocus.path);
+  }, [filesFocus?.token]);
   const refreshFiles = () => workspaceStore.refreshFiles();
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
   const readFile = useCallback((path: string) => workspaceStore.host.readFile(path, workspaceStore.workspace()), [workspaceStore]);
+  const readDiff = useCallback((path: string) => workspaceStore.host.getFileDiff(path, undefined, workspaceStore.workspace()), [workspaceStore]);
   useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
   // Another project's paths name other files.
   useEffect(() => setReading(undefined), [cwd]);
   const changedPaths = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
+  const pin = (path: string) => { if (!workspaceStore.editFile(path)) openFile(path, { pin: true }); };
   const open = (path: string, options?: { pin?: boolean }) => {
-    if (inSheet) setReading(path);
+    if (inSheet || (onStage && !options?.pin)) setReading(path);
     else if (options) openFile(path, options);
     else openFile(path);
   };
   const searcher = useSyncExternalStore(search?.subscribe ?? noSlot, () => search?.get());
+  const { localFiles } = useHostCapabilities();
+  const editor = localFiles ? workspaceStore.activeEditor() : undefined;
+
+  const tree = <FileTree
+    nodes={fileTree}
+    changedPaths={changedPaths}
+    activePath={onStage ? reading : relativeHostPath(activePath, cwd)}
+    rowHeight={touch ? 44 : 30}
+    loadFiles={loadFiles}
+    openFile={open}
+    editFile={(path) => !inSheet && workspaceStore.editFile(path)}
+  />;
+  const goToFile = searcher ? <button
+    type="button"
+    className="icon-button files-panel-search"
+    aria-label="Go to file"
+    {...tooltipProps("Go to file", { shortcut: "⌘P", side: "bottom" })}
+    onClick={() => searcher.pickFile(inSheet || onStage ? setReading : undefined)}
+  ><Search size={touch ? 18 : 14} /></button> : null;
+
+  if (onStage) {
+    const project = cwd?.split(/[\\/]/u).filter(Boolean).at(-1);
+    return <section className="panel-body files-panel files-stage">
+      <aside className="files-explorer" aria-label="Explorer">
+        <header className="files-explorer-head">
+          <span className="files-explorer-scope" title={cwd}>{project}{workspace?.branch ? <> · <b>{workspace.branch}</b></> : null}</span>
+          <div className="toggle-group files-explorer-view" role="group" aria-label="Show">
+            <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
+            <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
+          </div>
+          {goToFile}
+        </header>
+        <div className="files-panel-tree">
+          {view === "changed" ? <ChangedList files={changes.files} current={reading} onOpen={open} onPin={pin} /> : tree}
+        </div>
+        {editor ? <button type="button" className="files-open-editor" onClick={() => void workspaceStore.openInEditor(reading, editor.id)}>
+          <SquarePen size={14} aria-hidden="true" /><span>Open in your editor</span><kbd>{/mac|iphone|ipad/iu.test(navigator.platform) ? "⌘O" : "Ctrl+O"}</kbd>
+        </button> : null}
+      </aside>
+      {reading ? <div className="files-reading">
+        <header className="files-reading-head">
+          <strong title={reading}>{reading}</strong>
+          {changedPaths.has(reading) ? <div className="toggle-group" role="group" aria-label="View">
+            <button type="button" className={fileView === "diff" ? "active" : ""} aria-pressed={fileView === "diff"} onClick={() => setFileView("diff")}>Diff</button>
+            <button type="button" className={fileView === "source" ? "active" : ""} aria-pressed={fileView === "source"} onClick={() => setFileView("source")}>Source</button>
+          </div> : null}
+          <button type="button" className="icon-button" aria-label="Open as a tab" {...tooltipProps("Open as a tab", { side: "bottom" })} onClick={() => openFile(reading, { pin: true, ...(changedPaths.has(reading) && fileView === "diff" ? { view: "diff" as const } : {}) })}><PanelTop size={14} /></button>
+          <button type="button" className="icon-button" aria-label="Edit file" {...tooltipProps("Edit file", { side: "bottom" })} onClick={() => pin(reading)}><SquarePen size={14} /></button>
+        </header>
+        {changedPaths.has(reading) && fileView === "diff"
+          ? <FileDiffPane path={reading} load={readDiff} />
+          : <FileReader key={reading} path={reading} load={readFile} />}
+      </div> : <div className="files-stage-empty"><p className="empty-copy">Pick a file to read it here; a double-click opens it as a tab of its own.</p></div>}
+    </section>;
+  }
 
   // The tree stays mounted under the file, so back finds its folders as they were.
   return <section className="panel-body files-panel">
@@ -150,28 +258,12 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
       {/* The sheet's own header names it already. */}
       {inSheet ? null : <><h2>Files</h2>{touch ? null : <small>{extensionName.toLowerCase()}</small>}</>}
       <span className="spacer" />
-      {searcher ? <button
-        type="button"
-        className="icon-button files-panel-search"
-        aria-label="Go to file"
-        {...tooltipProps("Go to file", { shortcut: "⌘P", side: "bottom" })}
-        onClick={() => searcher.pickFile(inSheet ? setReading : undefined)}
-      ><Search size={touch ? 18 : 14} /></button> : null}
+      {goToFile}
       {touch
         ? <button type="button" className="icon-button files-panel-search" aria-label="Refresh files" onClick={() => void refreshFiles()}><RotateCw size={18} /></button>
         : <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>}
     </header>
-    <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>
-      <FileTree
-        nodes={fileTree}
-        changedPaths={changedPaths}
-        activePath={activePath}
-        rowHeight={touch ? 44 : 30}
-        loadFiles={loadFiles}
-        openFile={open}
-        editFile={(path) => !inSheet && workspaceStore.editFile(path)}
-      />
-    </div>
+    <div className="files-panel-tree" hidden={Boolean(inSheet && reading)}>{tree}</div>
   </section>;
 }
 

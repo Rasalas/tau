@@ -53,6 +53,7 @@ button > svg { pointer-events: none; }
 .app-shell {
   --sidebar-width: 256px;
   --spine-width: 44px;
+  --window-top: 0px;
   width: 100vw; height: 100vh;
   display: grid;
   grid-template: minmax(0, 1fr) / var(--sidebar-width) minmax(0, 1fr);
@@ -118,7 +119,8 @@ button > svg { pointer-events: none; }
   -webkit-app-region: drag;
 }
 .thread-header :is(button, input, form, .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
-.thread-heading { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* The title keeps its room first; the kits' actions fold (Workspace Kit's row measures what it gets). */
+.thread-heading { flex: 1 0 auto; min-width: 0; max-width: 100%; width: min(320px, 45%); display: flex; flex-direction: column; gap: 1px; }
 .thread-heading-title { display: flex; align-items: center; min-width: 0; }
 .thread-header :is(.thread-title-trigger, .title-draft) { font: 600 var(--text-title) var(--sans); letter-spacing: -.01em; }
 .thread-header .thread-title-trigger { padding: 2px 6px; margin-left: -6px; }
@@ -127,7 +129,8 @@ button > svg { pointer-events: none; }
 .thread-detail + .thread-detail::before { content: "·"; margin-right: 3px; color: var(--faint); }
 .thread-detail > span { overflow: hidden; text-overflow: ellipsis; }
 .thread-detail-cost { font-family: var(--mono); }
-.thread-header-actions { flex: 0 1 auto; display: flex; min-width: 0; }
+.thread-header-actions { flex: 0 1 auto; display: flex; justify-content: flex-end; min-width: 0; overflow: hidden; }
+.thread-header-actions .region-title-bar { flex: 0 1 auto; min-width: 0; }
 /* Room for the native macOS traffic lights where the sidebar is hidden; they ignore page zoom. */
 .window-controls-inset { width: calc(64px / var(--page-zoom, 1)); flex: none; }
 .title-draft { color: var(--ink); white-space: nowrap; }
@@ -883,6 +886,8 @@ button > svg { pointer-events: none; }
   border-radius: 6px; background: var(--sunken); color: var(--ink-2);
   vertical-align: middle; line-height: 1.2; white-space: nowrap; font: 500 11px var(--mono);
 }
+button.file-context-chip { cursor: pointer; }
+button.file-context-chip:hover { border-color: var(--line-strong); color: var(--ink); }
 .file-context-chip > svg { color: var(--faint); }
 .message-user-meta {
   min-height: 22px; display: flex; align-items: center; justify-content: flex-end; gap: 4px;
@@ -991,6 +996,8 @@ button > svg { pointer-events: none; }
 }
 .markdown code.md-file-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: -1px; font: 500 12px var(--sans); word-break: normal; white-space: nowrap; }
 .md-file-chip > svg { color: var(--muted); }
+.md-file-link { display: inline; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.md-file-link:hover > .md-file-chip { box-shadow: inset 0 -1px var(--info-ink); color: var(--info-ink); }
 .message.user .markdown :not(pre) > code {
   background: color-mix(in srgb, var(--user-bubble-ink) 9%, transparent); border-color: transparent; color: inherit;
 }

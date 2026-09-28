@@ -317,6 +317,7 @@ export const workspaceExtension: DesktopExtension = {
         title: tool.name,
         tone: "read",
         detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace"),
+        ...(tool.name === "read" && typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
       }),
       { profiles: ["desktop", "web", "compact"] },
     );
@@ -328,6 +329,7 @@ export const workspaceExtension: DesktopExtension = {
         title: tool.name,
         tone: "write",
         detail: String(tool.args.path ?? "file mutation"),
+        ...(typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
       }),
       { profiles: ["desktop", "web", "compact"] },
     );

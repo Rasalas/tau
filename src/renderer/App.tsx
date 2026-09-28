@@ -34,7 +34,7 @@ import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
+import { activeTab as activeStageTab, openFileTab, openThreadTab, stageFilePath as absoluteStagePath, stageTabPath, type StageView } from "../workbench/stage";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
@@ -459,7 +459,11 @@ export default function App() {
   });
   revealDocuments.current = panelLayout.documentOpened;
   const openPanel = panelLayout.openPanel;
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); revealDocuments.current(); }, []);
+  // One tab per file: a link's relative path and the tree's absolute one name the same tab.
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => {
+    setStage((current) => openFileTab(current, absoluteStagePath(path, workspaceCwd), options));
+    revealDocuments.current();
+  }, [workspaceCwd]);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
     setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));

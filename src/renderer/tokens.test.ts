@@ -34,6 +34,8 @@ const RUNTIME_PROPERTIES = [
   "--composer-inset",
   // The unfolded dock's height, kept free at the transcript's end (components/ComposerReserve.tsx).
   "--composer-reserve",
+  // The chat's width beside the stage, from its divider (Workbench.tsx).
+  "--chat-width",
   "--font-family-override",
   "--font-size-override",
   // Typography a client sets on <html> beside the two above (Appearance Kit).

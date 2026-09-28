@@ -130,7 +130,7 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
         type="button"
         className="workspace-changes-link"
         {...tooltipProps("Review the changes", { side: "bottom" })}
-        onClick={() => { if (!workspaceStore.openChangesView()) workspaceStore.openReview(); }}
+        onClick={() => workspaceStore.showChangedFiles()}
       >{changed} {changed === 1 ? "file" : "files"} changed<ChevronRight size={13} /></button> : null}
 
       {readOnly ? null : <div className="menu-anchor">

@@ -296,9 +296,9 @@ export interface TranscriptRowsHandle {
  * bottom, Pi's footer. `look-in` sits under the header of a tab that shows a
  * thread of another machine (API 1.15.0); its props carry `lookIn`. `title-bar`
  * is the thread header's end, beside the stage toggle, and stays mounted while
- * the conversation is folded (API 1.26.0: the window-wide bar is gone);
+ * the conversation is folded (API 1.27.0: the window-wide bar is gone);
  * `stage-bar` sits at the right of the stage's tab strip, before its maximize
- * (API 1.26.0).
+ * (API 1.27.0).
  */
 export type RegionPlacement = "title-bar" | "thread-title" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
 
@@ -574,7 +574,7 @@ export interface PanelProps {
 
 /**
  * Where a panel is drawn now. On desktop, web and a tablet every panel is a
- * stage tab (`stage`, API 1.26.0) unless it asked for the `drawer`; `dock` is
+ * stage tab (`stage`, API 1.27.0) unless it asked for the `drawer`; `dock` is
  * what a contribution asks for by default and is no longer drawn there.
  * `sheet` is a phone's sheet over the thread (API 1.20.0): no stage is drawn
  * there, so a document the panel opens must show in the panel.
@@ -590,7 +590,7 @@ export interface PanelContribution extends ProfileScoped {
    */
   placement?: "dock" | "drawer";
   /**
-   * Ignored since API 1.26.0: every panel opens as a stage tab. It told the
+   * Ignored since API 1.27.0: every panel opens as a stage tab. It told the
    * dock whether the panel filled the space beside the chat (API 1.16.0).
    */
   width?: "narrow" | "wide";
@@ -611,10 +611,10 @@ export interface PanelContribution extends ProfileScoped {
   order?: number;
   /**
    * A button of its own at the right of the stage's tab strip and on its spine
-   * (API 1.26.0); every other panel is under the strip's "More tools" menu.
+   * (API 1.27.0); every other panel is under the strip's "More tools" menu.
    */
   stageButton?: boolean;
-  /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.26.0). */
+  /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */
   useBadge?(): number | undefined;
   Component: ComponentType<PanelProps>;
 }
@@ -1161,6 +1161,11 @@ export interface ToolPresentation {
    * counting the calls as anonymous tools.
    */
   source?: string;
+  /**
+   * The file this call read or wrote, as the tool named it. The row offers to
+   * open it on the stage, or bring its tab forward (API 1.27.0).
+   */
+  file?: string;
 }
 
 export interface ToolCardProps {

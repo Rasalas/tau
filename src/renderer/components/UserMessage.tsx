@@ -1,7 +1,7 @@
 import { FileText, Sparkles } from "lucide-react";
 import { useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { UiMessage } from "../../shared/contracts";
-import { WorkbenchShellContext } from "../workbench-context";
+import { WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { drawsBlocksFor, splitMessageBlocks } from "./message-blocks";
 import { Markdown } from "./Markdown";
@@ -77,6 +77,7 @@ export function UserMessage({
   const { text, blocks } = useUserBlocks(message);
   const visibleText = visibleUserMessageText(text);
   const attachedFiles = embeddedFileContexts(text);
+  const openFile = useContext(WorkbenchContext)?.openFile;
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
   const hasMessageContent = Boolean(visibleText || message.skill || attachedFiles.length > 0);
@@ -105,7 +106,13 @@ export function UserMessage({
               data-collapsed={long && !expanded ? "true" : "false"}
             >
               {message.skill ? <SkillChip name={message.skill.name} /> : null}
-              {attachedFiles.map((file) => (
+              {attachedFiles.map((file) => openFile ? (
+                // An @file mention opens the file on the stage, or brings its tab forward.
+                <button type="button" className="file-context-chip" key={file} title={`Included file context: ${file}`} aria-label={`Open ${file}`} onClick={() => openFile(file)}>
+                  <FileText size={11} strokeWidth={2} />
+                  <span>{file}</span>
+                </button>
+              ) : (
                 <span className="file-context-chip" key={file} title={`Included file context: ${file}`}>
                   <FileText size={11} strokeWidth={2} />
                   <span>{file}</span>
