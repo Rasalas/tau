@@ -134,6 +134,49 @@ On Apple silicon the x64 app runs only under Rosetta, and macOS 27 warns on
 launch that macOS 28 will not open it. The x64 build is for Intel Macs, which
 stop at macOS 27.
 
+## App icons
+
+The artwork is SVG in `assets/icon/`, and every other icon file is derived from
+it by one script:
+
+```bash
+node scripts/icons/generate.mjs
+```
+
+| source | what it is |
+|---|---|
+| `icon-light.svg`, `icon-dark.svg` | the macOS grid: an 824 squircle in 1024, the τ at its optical centre |
+| `square-light.svg`, `square-dark.svg` | full bleed; iOS and the Android launcher cut their own shape |
+| `android-foreground.svg` | the τ inside the adaptive icon's 66 dp safe circle |
+| `mark-light.svg`, `mark-dark.svg` | the 32-unit mark: favicon, small Windows sizes, the Tau repo's avatar (`t3.json`) |
+| `tau-glyph.svg` | the bare τ in `currentColor` (reload curtain) |
+
+The script writes:
+
+- **Desktop:** `assets/tau-icon.png` (checkout window and dock icon, Linux),
+  `assets/icon/tau.ico` (Windows: the mark at 16–32 px, the grid icon at
+  48–256), and `assets/icon/Tau.icon`, the Icon Composer document `mac.icon`
+  points at. electron-builder compiles it with `actool` into `Assets.car` (the
+  light, dark, tinted and clear icons of macOS 26+) and `icon.icns` for older
+  systems, so **a Mac build needs Xcode 26 or newer**. Without it, point
+  `mac.icon` at `assets/tau-icon.png`: macOS 27 shows that as it is, only without
+  the dark and tinted appearances.
+- **Android:** vector drawables for the adaptive icon's background, foreground
+  and Android 13 monochrome layer; `ic_launcher.png` and `ic_launcher_round.png`
+  for launchers before Android 8; `splash.png` for light and night.
+- **iOS:** the 1024 app icon for the default, dark and tinted appearances, and
+  the launch image for light and dark, all without an alpha channel.
+- **Web:** `src/web/public/` (favicon, touch icon, manifest icons,
+  `manifest.webmanifest`), which the browser client and the phone app's web
+  layer both copy to their root.
+
+It needs `rsvg-convert` (`brew install librsvg`, `apt install librsvg2-bin`) and
+nothing from npm. The outputs are committed and CI never runs the script, so the
+tool is only needed on the machine that changes the artwork. Edit the SVGs, run
+the script, commit both. `scripts/icons/icon-files.test.mjs` fails when a
+committed text output (vectors, `Tau.icon`, asset catalogs, manifest) no longer
+matches the SVGs.
+
 ## How an update reaches a user
 
 `publish:` in `electron-builder.yml` names the GitHub repository, and

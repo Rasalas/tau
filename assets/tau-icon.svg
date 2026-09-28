@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">Tau</title>
-  <rect x="64" y="64" width="896" height="896" rx="220" fill="#c7ff3d"/>
-  <path d="M284 326H740" fill="none" stroke="#151611" stroke-width="104" stroke-linecap="round"/>
-  <path d="M492 344V628C492 718 538 766 618 766C660 766 695 752 724 728" fill="none" stroke="#151611" stroke-width="104" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
