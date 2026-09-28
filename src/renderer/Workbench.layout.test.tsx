@@ -66,19 +66,19 @@ describe("workbench layout", () => {
   it("resizes the sidebar by keyboard within T3's bounds and keeps the width for this client", async () => {
     const view = renderApp(undefined, { extensions: [rail] });
     const handle = await screen.findByRole("separator", { name: "Resize sidebar" });
-    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("256px");
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("248px");
     expect(handle.getAttribute("aria-valuemin")).toBe("208");
 
     fireEvent.keyDown(handle, { key: "ArrowRight" });
-    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("272px");
-    expect(view.storage.get("tau:sidebar-width")).toBe("272");
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("264px");
+    expect(view.storage.get("tau:sidebar-width")).toBe("264");
     fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
     fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
     expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("208px");
     fireEvent.keyDown(handle, { key: "Home" });
-    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("256px");
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("248px");
 
-    fireEvent(handle, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 256 }));
+    fireEvent(handle, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 248 }));
     fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 330 }));
     fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
     expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("330px");
@@ -196,12 +196,12 @@ describe("workbench layout", () => {
     await runPaletteCommand("Open the fixture file");
     await screen.findByRole("region", { name: "Stage" });
     const center = view.container.querySelector(".workbench-center") as HTMLElement;
-    // 1600 − 256 sidebar − 800 for the stage.
-    expect(center.style.getPropertyValue("--chat-width")).toBe("544px");
+    // 1600 − 248 sidebar (the design's) − 800 for the stage.
+    expect(center.style.getPropertyValue("--chat-width")).toBe("552px");
     const divider = screen.getByRole("separator", { name: "Resize chat" });
     fireEvent.keyDown(divider, { key: "ArrowRight" });
-    expect(center.style.getPropertyValue("--chat-width")).toBe("560px");
-    expect(view.storage.get("tau:chat-width")).toBe("560");
+    expect(center.style.getPropertyValue("--chat-width")).toBe("568px");
+    expect(view.storage.get("tau:chat-width")).toBe("568");
   });
 
   it("maximizes the stage when the divider is pushed past the chat's minimum", async () => {

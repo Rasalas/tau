@@ -35,7 +35,7 @@ function RowTime({ row }: { row: ThreadSupervisionRow }) {
   return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, Date.now())}</time>;
 }
 
-/** Whether this client has the settled shelf open; folded is the default, as in T3 Code. */
+/** Whether this client has the settled shelf open; open is the default, the design's. */
 export const SETTLED_OPEN_KEY = "tau.thread-list.settled-open.v1";
 
 /** The branch every checkout starts on says nothing on a row, as on the desktop rail. */
@@ -77,7 +77,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     [actions.openDraft, allDrafts, current, project, snapshot.threads],
   );
   const clientStorage = useClientStorage();
-  const [settledOpen, setSettledOpen] = useState(() => clientStorage.get(SETTLED_OPEN_KEY) === "true");
+  const [settledOpen, setSettledOpen] = useState(() => clientStorage.get(SETTLED_OPEN_KEY) !== "false");
   const toggleSettled = () => setSettledOpen((open) => {
     clientStorage.set(SETTLED_OPEN_KEY, String(!open));
     return !open;
@@ -154,7 +154,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     ...(actions.discardDraft ? [{ id: "discard", label: "Discard draft", Icon: Trash2, destructive: true, run: () => actions.discardDraft?.(draft.draftId) }] : []),
   ];
   const settledCount = settled ? settled.rows.length + settled.hidden : 0;
-  // One scroll, as the desktop rail: the settled shelf follows the active threads and sits at the bottom while those are few.
+  // One scroll, as the desktop rail: the settled shelf follows right after the active threads.
   return <>
     {connection}
     <div className="touch-thread-lists" onScrollCapture={() => setOpenRow(undefined)}>
@@ -166,7 +166,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         </ul>
         {settled ? <div className="touch-thread-shelf">
           <button type="button" className="touch-thread-shelf-toggle" aria-expanded={settledOpen} onClick={toggleSettled}>
-            <span>{settledOpen ? "Settled" : `Settled · ${settledCount}`}</span><i /><ChevronDown size={14} aria-hidden />
+            <span>{`Settled · ${settledCount}`}</span><ChevronDown size={14} aria-hidden />
           </button>
           {settledOpen ? <ul className="touch-thread-list" aria-label="Settled threads">
             <GroupRows group={{ ...settled, label: "" }} {...rowProps} onMore={more(settled)} />

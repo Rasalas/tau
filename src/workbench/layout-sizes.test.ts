@@ -5,9 +5,9 @@ import {
 import { CHAT_MIN_WIDTH, STAGE_MIN_WIDTH } from "./center-layout";
 
 describe("layout sizes", () => {
-  it("sizes the sidebar as T3 Code does: 256 by default, 208 at least, 640 left for the rest", () => {
-    expect(storedSidebarWidth(null)).toBe(256);
-    expect(storedSidebarWidth("garbage")).toBe(256);
+  it("sizes the sidebar at the design's 248 by default, 208 at least, 640 left for the rest", () => {
+    expect(storedSidebarWidth(null)).toBe(248);
+    expect(storedSidebarWidth("garbage")).toBe(248);
     expect(storedSidebarWidth("120")).toBe(208);
     expect(storedSidebarWidth("311.6")).toBe(312);
     expect(sidebarMaxWidth(1440)).toBe(800);

@@ -158,8 +158,19 @@ describe("the rest of the rail", () => {
     act(() => workspace.setRailProjectFilter("other"));
     expect(screen.queryByText("Thread a")).toBeNull();
     expect(screen.getByText("Thread b")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show all projects" }));
+    // The filter is an icon between the search and "+", not a row under them.
+    const filter = screen.getByRole("button", { name: "Filter threads by project: other" });
+    expect(filter.previousElementSibling?.classList.contains("thread-search")).toBe(true);
+    expect(filter.nextElementSibling?.getAttribute("aria-label")).toBe("New thread");
+    expect(document.querySelector(".project-scope-row")).toBeNull();
+    fireEvent.click(filter);
+    const list = await screen.findByRole("dialog", { name: "Filter by project" });
+    fireEvent.click(within(list).getByText("All projects"));
     expect(screen.getByText("Thread a")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Filter threads by project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Filter by project" })).getByText("other"));
+    expect(workspace.getSnapshot().railProjectFilter).toBe("other");
+    expect(screen.queryByText("Thread a")).toBeNull();
   });
 
   it("puts the last turn's changes on the row and the details on its hover card", async () => {

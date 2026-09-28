@@ -118,29 +118,40 @@ describe("other machines' threads in the rail", () => {
 });
 
 describe("the rail's shelves", () => {
-  it("follow the active threads in the one scroller, folded until opened", async () => {
+  it("follow the active threads in the one scroller, open under their count until folded", async () => {
     const own = [session("a", 30), session("b", 20), session("c", 10)];
     const { rail, services } = await renderRail([], own);
     act(() => { services.preferences.toggleSettled("b"); services.preferences.toggleSettled("c"); });
     const active = rail.querySelector(".rail-active") as HTMLElement;
     const shelves = active.querySelector(".rail-shelves") as HTMLElement;
     const toggle = within(shelves).getByRole("button", { name: "Settled · 2" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(within(rail).queryByText("Thread b")).toBeNull();
-    fireEvent.click(toggle);
-    expect(toggle.textContent).toBe("Settled");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(within(shelves).getByText("Thread b")).toBeTruthy();
     expect(titles(rail)).toEqual(["Thread a"]);
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toBe("Settled · 2");
+    expect(within(rail).queryByText("Thread b")).toBeNull();
   });
 
-  it("sit at the rail's bottom while the active threads are few, and scroll with them when many", () => {
+  it("sit right after the active threads, as the design draws them, and scroll with them", () => {
     // jsdom lays nothing out, so the rules that do are read from the stylesheet.
     const css = readFileSync(join(import.meta.dirname, "styles.css"), "utf8");
     const rule = (selector: string) => new RegExp(`^${selector.replace(".", "\\.")} \\{([^}]*)\\}`, "mu").exec(css)?.[1] ?? "";
     expect(rule(".rail-active")).toMatch(/overflow: auto;[^}]*display: flex; flex-direction: column/u);
     expect(rule(".rail-active-rows")).toMatch(/flex: 1 0 auto/u);
-    expect(rule(".rail-shelves")).toMatch(/margin-top: auto/u);
+    expect(rule(".rail-shelves")).not.toMatch(/margin-top/u);
     expect(rule(".rail-shelves")).not.toMatch(/overflow|flex: 0 0/u);
+  });
+
+  it("draw the design's 70 px cards 2 px apart", () => {
+    const kit = readFileSync(join(import.meta.dirname, "styles.css"), "utf8");
+    const core = readFileSync(join(import.meta.dirname, "../../src/renderer/styles.css"), "utf8");
+    const rule = (css: string, selector: string) => new RegExp(`^${selector.replace(/\./gu, "\\.")} \\{([^}]*)\\}`, "mu").exec(css)?.[1] ?? "";
+    expect(rule(kit, ".rail-virtual > .rail-row")).toMatch(/padding-bottom: 2px/u);
+    // 1 + 7 + 16 + 2 + 18 + 2 + 16 + 7 + 1 = 70.
+    expect(rule(core, ".thread-main")).toMatch(/padding: calc\(7px \* var\(--density\)\)/u);
+    expect(rule(core, ".thread-project-line")).toMatch(/height: 16px/u);
+    expect(rule(core, ".thread-title")).toMatch(/margin-top: calc\(2px \* var\(--density\)\);[^}]*line-height: 18px/u);
   });
 });
 

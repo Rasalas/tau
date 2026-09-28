@@ -1,5 +1,4 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Clock } from "lucide-react";
 import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
@@ -326,7 +325,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         { id: "pinned", label: "Pinned", threads: last.pinned },
         { id: "active", threads: last.active },
         { id: "snoozed", label: "Snoozed", shelf: true, collapsed: true, threads: last.snoozed },
-        { id: "settled", label: "Settled", shelf: true, collapsed: true, settled: true, threads: last.settled },
+        { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: last.settled },
       ];
     },
     menu(session) {
@@ -460,20 +459,6 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
-    // T3 Code's clock beside Settle: the presets and Custom…, for a thread still in the rail.
-    rowActions(session) {
-      const section = sectionOf(meta(session.id), now());
-      if ((section !== "pinned" && section !== "active") || hostIsReadOnly()) return [];
-      return [{
-        id: "snooze",
-        label: "Snooze thread",
-        icon: <Clock size={12} aria-hidden="true" />,
-        menu: () => [
-          { items: snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })) },
-          { items: [{ id: "snooze:custom", label: "Custom…" }] },
-        ],
-      }];
-    },
     dropLabel: (threadId, target) => dropLabel(sectionOf(meta(threadId), now()), target.sectionId),
     drop,
     Layer,
