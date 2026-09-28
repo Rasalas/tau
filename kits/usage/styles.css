@@ -12,7 +12,9 @@
 }
 .usage-page .provider-icon-stack { margin-left: 0; }
 /* One slot for a single mark or a pair, so the names line up. */
-.usage-rank-label > .provider-icon-stack { width: 43px; justify-content: flex-end; }
+/* The fanned-out stack's width for every row, a single mark centred in it, so the marks line up in their column. */
+.usage-rank-label > .provider-icon-stack { width: 33px; margin-left: 0; }
+.usage-rank-label > .provider-icon-stack.single { justify-content: center; }
 .usage-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .usage-note[data-level="error"] { color: var(--warn); }
 
@@ -187,6 +189,8 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-rank-name { display: flex; flex-direction: column; min-width: 0; }
 .usage-rank-name > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 12.5px; font-weight: 500; }
 .usage-rank-name > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11px; }
+.usage-rank-name > small.usage-origin { display: flex; align-items: center; gap: 4px; }
+.usage-rank-name > small.usage-origin > svg { flex: none; }
 .usage-rank-bar { display: flex; gap: 2px; height: 6px; }
 .usage-rank-bar > i { height: 100%; min-width: 2px; background: var(--usage-tone); }
 .usage-rank-bar > i:first-child { border-radius: 3px 0 0 3px; }

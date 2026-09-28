@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -76,6 +77,11 @@ export const OPENCODE_VERSION_POLICY: VersionPolicy = {
   ranges: [{ range: `<${MIN_OPENCODE_VERSION}`, status: "broken", message: `Tau speaks the server API of OpenCode ${MIN_OPENCODE_VERSION} and newer; threads do not start on an older one.` }],
   recommendedVersion: TESTED_OPENCODE_VERSION,
 };
+
+/** Where OpenCode keeps its database: the XDG data folder, `~/.local/share` on every platform. */
+export function openCodeDataDir(env: NodeJS.ProcessEnv): string {
+  return join(env.XDG_DATA_HOME?.trim() || join(env.HOME?.trim() || homedir(), ".local", "share"), "opencode");
+}
 
 /** OpenCode keeps everything under the XDG folders, so an instance's home becomes all four for its process. */
 export function openCodeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -463,8 +469,16 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       context.registerCommand("usage", async () => ({
         threads: (await store.list()).map((entry) => {
           const model = entry.model ?? entry.observedModel;
-          return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model: model.id } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
+          return { threadId: entry.tauThreadId, ...(entry.sessionId ? { sessionId: entry.sessionId } : {}), cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model: model.id } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
+      }), { access: "read", callers: [USAGE_KIT_ID] });
+      // Where each local instance keeps its database, for the Usage kit to count work outside Tau; a server the user runs elsewhere has none here.
+      context.registerCommand("usage-logs", () => ({
+        folders: settings.list().filter((instance) => !servers.get(instance.id)).map((instance) => ({
+          format: "opencode",
+          path: openCodeDataDir(instanceEnv(instance.id)),
+          instance: settings.kind(instance.id),
+        })),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });

@@ -1,21 +1,26 @@
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
-import { applyPrices, priceEntries, summarize, type BackendScan, type RowPrice, type UsageScan } from "./aggregate.js";
+import { applyPrices, priceEntries, summarize, type BackendScan, type OutsideLogs, type RowPrice, type UsageScan } from "./aggregate.js";
+import { OutsideUsageCache, type OutsideRoot } from "./outside-cache.js";
 import { PiUsageCache } from "./pi-sessions.js";
 import { LimitHistory } from "./limit-history.js";
 import {
   BACKEND_LIMITS_COMMAND,
+  BACKEND_LOGS_COMMAND,
   BACKEND_USAGE_COMMAND,
   BACKEND_USAGE_SOURCES,
   LIMIT_SOURCES,
+  OUTSIDE_LOG_SOURCES,
   USAGE_EXTENSION_ID,
   USAGE_LIMITS_COMMAND,
   USAGE_SUMMARY_COMMAND,
+  type BackendLogFolder,
   type BackendUsageAnswer,
   type BackendUsageSource,
   type BackendUsageThread,
   type BackendUsageTurn,
   type LimitSource,
+  type OutsideLogSource,
   type UsageBilling,
   type UsageAccountIdentity,
   type UsageLimitAccount,
@@ -31,10 +36,15 @@ export const SCAN_MAX_AGE_MS = 5 * 60_000;
 /** Limits read younger than this answer without asking the kits again. */
 export const LIMITS_MAX_AGE_MS = 5 * 60_000;
 
+/** How long a summary waits for the CLIs' logs before it answers with what is read so far. */
+export const OUTSIDE_WAIT_MS = 1_500;
+
 export interface UsageHostOptions {
   now?(): number;
   sources?: readonly BackendUsageSource[];
   limitSources?: readonly LimitSource[];
+  logSources?: readonly OutsideLogSource[];
+  outsideWaitMs?: number;
 }
 
 const BILLING = new Set<string>(["subscription", "api-key", "free", "local"]);
@@ -135,6 +145,7 @@ export function readBackendAnswer(value: unknown): BackendUsageAnswer | undefine
       const turns = turnsOf(thread.turns);
       return [{
         threadId: thread.threadId,
+        ...(typeof thread.sessionId === "string" && thread.sessionId ? { sessionId: thread.sessionId } : {}),
         cwd: thread.cwd,
         updatedAt,
         ...(typeof thread.model === "string" && thread.model ? { model: thread.model } : {}),
@@ -143,6 +154,19 @@ export function readBackendAnswer(value: unknown): BackendUsageAnswer | undefine
       }];
     }),
   };
+}
+
+/** A kit's log folders, kept to the agreed shape: absolute paths of a known layout. */
+export function readLogsAnswer(value: unknown): BackendLogFolder[] | undefined {
+  const folders = value && typeof value === "object" ? (value as { folders?: unknown }).folders : undefined;
+  if (!Array.isArray(folders)) return undefined;
+  return folders.flatMap((item): BackendLogFolder[] => {
+    const raw = item && typeof item === "object" ? item as Record<string, unknown> : undefined;
+    if (!raw || (raw.format !== "codex" && raw.format !== "agent-sdk" && raw.format !== "opencode")) return [];
+    if (typeof raw.path !== "string" || !isAbsolute(raw.path) || typeof raw.instance !== "string") return [];
+    const billing = billingOf(raw.billing);
+    return [{ format: raw.format, path: raw.path, instance: raw.instance, ...(billing ? { billing } : {}) }];
+  });
 }
 
 /** Day starts from a client: finite, ascending, at most a year of them. */
@@ -173,6 +197,10 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
     async activate(context: WorkerHostExtensionContext) {
       const services = context.services;
       const cache = new PiUsageCache(join(services.stateDir, "pi-usage.json"));
+      const outsideCache = new OutsideUsageCache(join(services.stateDir, "outside-usage.json"), now);
+      const logSources = options.logSources ?? OUTSIDE_LOG_SOURCES;
+      const outsideWait = options.outsideWaitMs ?? OUTSIDE_WAIT_MS;
+      let loggedRoots: string | undefined;
       let scan: UsageScan | undefined;
       let stale = true;
       let reading: Promise<UsageScan> | undefined;
@@ -186,10 +214,38 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         }
       };
 
+      /** The CLIs' own logs: folders from the kits, read in the background; a summary waits a moment for them. */
+      const readOutside = async (): Promise<OutsideLogs> => {
+        const errors: OutsideLogs["errors"] = [];
+        const roots: OutsideRoot[] = [];
+        await Promise.all(logSources.map(async (source) => {
+          try {
+            const folders = readLogsAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_LOGS_COMMAND));
+            if (!folders) { errors.push({ source, error: `${source.label} answered in a shape this kit does not read` }); return; }
+            for (const folder of folders) roots.push({ format: folder.format, backend: source.backend, label: source.label, path: folder.path, ...(folder.billing ? { billing: folder.billing } : {}) });
+          } catch (error) {
+            errors.push({ source, error: reason(error) });
+          }
+        }));
+        const named = roots.map((root) => root.path).sort().join(", ");
+        if (named !== loggedRoots) { loggedRoots = named; services.log("usage.outside-folders", named || "none"); }
+        let finished = false;
+        const done = outsideCache.refresh(roots).then(
+          () => { if (finished) stale = true; },
+          (error: unknown) => services.log("usage.outside-read-failed", reason(error)),
+        );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([done, new Promise<void>((resolve) => { timer = setTimeout(resolve, outsideWait); })]);
+        clearTimeout(timer);
+        // Past this point a read that ends later makes the next summary read again.
+        finished = true;
+        return { scan: outsideCache.snapshot(), errors };
+      };
+
       const read = async (): Promise<UsageScan> => {
         stale = false;
-        const [pi, backends] = await Promise.all([cache.scan(services.sessionsDir), Promise.all(sources.map(askBackend))]);
-        return { scannedAt: now(), sessionsDir: services.sessionsDir, pi, backends };
+        const [pi, backends, outside] = await Promise.all([cache.scan(services.sessionsDir), Promise.all(sources.map(askBackend)), readOutside()]);
+        return { scannedAt: now(), sessionsDir: services.sessionsDir, pi, backends, outside };
       };
 
       const current = (refresh: boolean): Promise<UsageScan> => {

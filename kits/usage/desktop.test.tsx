@@ -111,6 +111,52 @@ describe("Usage page", () => {
     expect(within(within(totals).getByRole("region", { name: "Last 30 days" })).getByText("$0.51")).toBeTruthy();
   });
 
+  it("marks work outside Tau, names its sessions and projects, and filters by where it ran", async () => {
+    const outside = [
+      entry({ day: LAST - 1, backend: "codex", threadId: "019a-cli-session", cwd: "/work/side-project", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", costUsd: 3, outside: true }),
+    ];
+    const reads: string[] = [];
+    const invoke = vi.fn(async (command: string) => { reads.push(command); return command === "limits" ? limits : summary({ entries: [...entries, ...outside] }); });
+    renderPage(invoke);
+    const threads = await screen.findByRole("region", { name: "Threads" });
+    await waitFor(() => expect(within(threads).getByText("Codex session 019a-cli")).toBeTruthy());
+    expect(within(threads).getByText("Outside Tau · side-project")).toBeTruthy();
+    const projects = screen.getByRole("region", { name: "Projects" });
+    expect(within(projects).getByText("side-project")).toBeTruthy();
+    expect(within(projects).getByText("Outside Tau")).toBeTruthy();
+
+    const where = screen.getByRole("radiogroup", { name: "Where the work ran" });
+    fireEvent.click(within(where).getByRole("radio", { name: "In Tau" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).queryByText("Codex session 019a-cli")).toBeNull());
+    fireEvent.click(within(where).getByRole("radio", { name: "Outside Tau" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem")).toHaveLength(1));
+  });
+
+  it("marks a Pi plan account with its plan's mark and a shared ChatGPT account with the ChatGPT plan's", async () => {
+    const key = "ab".repeat(32);
+    const plans: UsageLimitsSummary = {
+      checkedAt: NOW.getTime(),
+      sources: [],
+      accounts: [
+        { id: "pi:anthropic", runtime: "pi", label: "Pi · anthropic", checkedAt: NOW.getTime(), windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 20 }] },
+        { id: "codex:account", runtime: "codex", label: "Codex", checkedAt: NOW.getTime(), identity: { provider: "openai", key }, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 30 }] },
+        { id: "pi:openai-codex", runtime: "pi", label: "Pi · openai-codex", checkedAt: NOW.getTime() - 60_000, identity: { provider: "openai", key }, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 28 }] },
+      ],
+    };
+    renderPage(vi.fn(async (command: string) => command === "limits" ? plans : summary()));
+    const anthropic = await screen.findByRole("region", { name: "Pi · anthropic limits" });
+    expect(within(anthropic).getByRole("img", { name: "Pi via Claude plan" })).toBeTruthy();
+    const shared = screen.getByRole("region", { name: /^ChatGPT · Codex, Pi limits$/u });
+    expect(within(shared).getByRole("img", { name: "ChatGPT plan" })).toBeTruthy();
+  });
+
+  it("shows no origin filter when nothing ran outside Tau, and says when the logs are still being read", async () => {
+    renderPage(answers(() => summary({ reading: true })));
+    await screen.findByRole("region", { name: "Threads" });
+    expect(screen.queryByRole("radiogroup", { name: "Where the work ran" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("still reading the CLIs' logs"));
+  });
+
   it("draws the days of the range and ranks projects, models and threads by the measure chosen", async () => {
     renderPage(answers());
     const days = await screen.findByRole("list", { name: "Cost per day" });

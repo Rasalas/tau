@@ -554,12 +554,21 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           const model = entry.model ?? entry.observedModel;
           return {
             threadId: entry.tauThreadId,
+            ...(entry.codexThreadId ? { sessionId: entry.codexThreadId } : {}),
             cwd: entry.cwd,
             updatedAt: entry.updatedAt,
             ...(model ? { model } : {}),
             ...(entry.usage ? { usage: { ...entry.usage } } : {}),
             ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
+        }),
+      }), { access: "read", callers: [USAGE_KIT_ID] });
+      // Where each instance's CLI logs its sessions, for the Usage kit to count work outside Tau; read by that kit, not here.
+      context.registerCommand("usage-logs", () => ({
+        folders: settings.list().flatMap((instance) => {
+          const home = codexHome(instanceEnv(instance.id));
+          const billing = codexBilling(limits.get(instance.id)?.account);
+          return ["sessions", "archived_sessions"].map((folder) => ({ format: "codex", path: join(home, folder), instance: settings.kind(instance.id), ...(billing ? { billing } : {}) }));
         }),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.

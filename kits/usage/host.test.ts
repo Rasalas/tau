@@ -1,11 +1,11 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import { assistantLine, DAY, writeSession } from "./fixtures.js";
-import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readLimitsAnswer, readDays, SCAN_MAX_AGE_MS } from "./host.js";
+import { assistantLine, claudeLine, codexMeta, codexResponse, DAY, writeSession } from "./fixtures.js";
+import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readLimitsAnswer, readDays, readLogsAnswer, SCAN_MAX_AGE_MS } from "./host.js";
 import type { UsageLimitsSummary, UsageSummary } from "./protocol.js";
 
 const directories: string[] = [];
@@ -86,6 +86,62 @@ describe("Usage host half", () => {
     advance(SCAN_MAX_AGE_MS + 1);
     await summary();
     expect(claudeCalls.count).toBe(4);
+  });
+
+  it("counts what the CLIs logged outside Tau, in the folders the kits name, and each Tau session once", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-usage-outside-host-"));
+    directories.push(root);
+    const codexHome = join(root, "codex-home");
+    const claudeHome = join(root, "claude-home");
+    const write = async (path: string, lines: string[]) => { await mkdir(join(path, ".."), { recursive: true }); await writeFile(path, `${lines.join("\n")}\n`); };
+    await write(join(codexHome, "sessions", "2026", "09", "22", "rollout-a.jsonl"), [codexMeta("s-tau", "/work/alpha", NOW - 5_000), codexResponse(NOW - 4_000, "r-tau", { input: 900, output: 9 })]);
+    await write(join(codexHome, "sessions", "2026", "09", "22", "rollout-b.jsonl"), [codexMeta("s-cli", "/work/side", NOW - 5_000), codexResponse(NOW - 4_000, "r-cli", { input: 30, output: 3 })]);
+    await write(join(claudeHome, "projects", "-work-beta", "c-1.jsonl"), [claudeLine({ sessionId: "c-1", cwd: "/work/beta", at: NOW - 2_000, messageId: "m1", requestId: "q1", input: 10, output: 5 })]);
+    const registry = await activateHostKit(createUsageHostExtension({ now: () => NOW, sources: [{ extensionId: "tau.codex", backend: "codex", label: "Codex" }], outsideWaitMs: 60_000 }) as unknown as HostExtension, {
+      sessionsDir: join(root, "sessions"),
+      stateDir: join(root, "state"),
+      registerTurnObserver: () => () => undefined,
+    } as never);
+    await registry.activate({
+      id: "tau.codex",
+      name: "Codex",
+      activate(context) {
+        context.registerCommand("usage", () => ({ threads: [{ threadId: "tau-1", sessionId: "s-tau", cwd: "/work/alpha", updatedAt: NOW - 1_000, usage }] }), { callers: ["tau.usage"] });
+        context.registerCommand("usage-logs", () => ({ folders: [
+          { format: "codex", path: join(codexHome, "sessions"), instance: "codex", billing: "subscription" },
+          { format: "codex", path: join(codexHome, "archived_sessions"), instance: "codex" },
+        ] }), { callers: ["tau.usage"] });
+      },
+    });
+    await registry.activate({
+      id: "tau.claude-code",
+      name: "Claude Code",
+      activate(context) {
+        context.registerCommand("usage-logs", () => ({ folders: [{ format: "agent-sdk", path: join(claudeHome, "projects"), instance: "claude-code" }, { format: "agent-sdk", path: "relative/projects", instance: "claude-code" }] }), { callers: ["tau.usage"] });
+      },
+    });
+    const result = await registry.invoke("tau.usage", "summary", { days: [NOW - DAY, NOW - 10_000] }) as UsageSummary;
+    expect(result.rows.map((row) => [row.backend, row.cwd, row.totalTokens, row.outside ?? false]).sort()).toEqual([
+      ["claude-code", "/work/beta", 15, true],
+      ["codex", "/work/alpha", 12, false],
+      ["codex", "/work/side", 33, true],
+    ]);
+    expect(result.entries?.filter((entry) => entry.outside).map((entry) => entry.threadId).sort()).toEqual(["c-1", "s-cli"]);
+    expect(result.sources.find((source) => source.backend === "opencode-outside")?.status).toBe("unavailable");
+    expect(await readFile(join(root, "state", "tau.usage", "outside-usage.json"), "utf8")).not.toContain("never be kept");
+  });
+
+  it("takes only absolute folders of a known layout from a kit", () => {
+    expect(readLogsAnswer({ folders: [
+      { format: "codex", path: "/home/codex/sessions", instance: "codex", billing: "subscription" },
+      { format: "codex", path: "relative", instance: "codex" },
+      { format: "pi", path: "/pi", instance: "pi" },
+      { format: "agent-sdk", path: "/claude/projects", instance: "claude-code", billing: "gift" },
+    ] })).toEqual([
+      { format: "codex", path: "/home/codex/sessions", instance: "codex", billing: "subscription" },
+      { format: "agent-sdk", path: "/claude/projects", instance: "claude-code" },
+    ]);
+    expect(readLogsAnswer({ folders: "no" })).toBeUndefined();
   });
 
   it("keeps only what has the agreed shape of another kit's answer", () => {

@@ -39,10 +39,15 @@ export interface ParsedSession {
   messages: ClaudeStoredMessage[];
 }
 
+/** The CLI's config folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`. */
+export function claudeConfigDir(env: NodeJS.ProcessEnv): string {
+  return env.CLAUDE_CONFIG_DIR?.trim() || join(env.HOME?.trim() || homedir(), ".claude");
+}
+
 export function claudeProjectDirs(env: NodeJS.ProcessEnv): string[] {
   const roots = env[IMPORT_ROOTS_VARIABLE]?.split(delimiter).filter(Boolean);
   if (roots?.length) return roots.map((root) => join(resolve(root), "claude-code", "projects"));
-  return [join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects")];
+  return [join(claudeConfigDir(env), "projects")];
 }
 
 function text(content: unknown): string {

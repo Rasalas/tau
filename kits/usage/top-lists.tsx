@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { SquareTerminal } from "lucide-react";
 import { formatCost, ProviderIconStack, tooltipProps } from "tau";
 import { measure, type RankedUsage, type UsageMetric } from "./dashboard.js";
 import { formatTokens } from "./view-model.js";
@@ -44,7 +45,11 @@ export function RankList({ title, rows, metric, empty }: { title: string; rows: 
                 {row.marks ? <ProviderIconStack {...row.marks} hint={{ side: "top" }} /> : null}
                 <span className="usage-rank-name">
                   <strong {...(row.title ? tooltipProps(row.title, { side: "top" }) : {})}>{row.name}</strong>
-                  {row.detail ? <small>{row.detail}</small> : null}
+                  {row.item.origin !== "tau" ? (
+                    <small className="usage-origin" {...tooltipProps(row.item.origin === "outside" ? "Logged by the CLI on its own, outside Tau" : "Partly logged by the CLI on its own, outside Tau", { side: "top" })}>
+                      <SquareTerminal size={11} aria-hidden="true" />{row.detail}
+                    </small>
+                  ) : row.detail ? <small>{row.detail}</small> : null}
                 </span>
               </>
             );

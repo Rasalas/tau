@@ -218,6 +218,7 @@ describe("Codex host half", () => {
     const store = new CodexSessionStore({ filePath: CodexSessionStore.defaultPath(join(root, "agent", "sessions")) });
     await store.recordUsage("thread-1", "/repo", { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 0, totalTokens: 17, costUsd: 0, turns: 1 });
     await store.setObservedModel("thread-1", "/repo", "gpt-5.6-luna");
+    await store.setCodexThread("thread-1", "/repo", "codex-thread-1");
     const reader = (id: string): HostExtension & { read?: () => Promise<unknown> } => {
       const extension: HostExtension & { read?: () => Promise<unknown> } = { id, name: id, activate(activation) { extension.read = () => activation.invokeHostExtension("tau.codex", "usage"); } };
       return extension;
@@ -226,8 +227,21 @@ describe("Codex host half", () => {
     const stranger = reader("acme.stranger");
     await registry.activate(usageKit);
     await registry.activate(stranger);
-    await expect(usageKit.read!()).resolves.toMatchObject({ threads: [{ threadId: "thread-1", cwd: "/repo", model: "gpt-5.6-luna", usage: { totalTokens: 17, turns: 1 } }] });
+    await expect(usageKit.read!()).resolves.toMatchObject({ threads: [{ threadId: "thread-1", sessionId: "codex-thread-1", cwd: "/repo", model: "gpt-5.6-luna", usage: { totalTokens: 17, turns: 1 } }] });
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/usage.");
+  });
+
+  it("names each instance's log folders for the Usage kit, from the instance's own home", async () => {
+    const { registry, root } = await harness();
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work", home: join(root, "work-home") } });
+    let read: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.codex", "usage-logs"); } });
+    await expect(read!()).resolves.toEqual({ folders: [
+      { format: "codex", path: join(root, "home", "sessions"), instance: "codex" },
+      { format: "codex", path: join(root, "home", "archived_sessions"), instance: "codex" },
+      { format: "codex", path: join(root, "work-home", "sessions"), instance: "codex@work" },
+      { format: "codex", path: join(root, "work-home", "archived_sessions"), instance: "codex@work" },
+    ] });
   });
 
   it("hands what each thread said to Search Kit, only what it does not hold, and to no other kit", async () => {

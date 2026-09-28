@@ -32,7 +32,7 @@ import {
   threadTextsDelta,
 } from "tau/host-extension";
 import { readAgentSdkIdentity, type AccountIdentity } from "./account-identity.js";
-import { claudeProjectDirs, importClaudeSessions, scanClaudeSessions } from "./history-import.js";
+import { claudeConfigDir, claudeProjectDirs, importClaudeSessions, scanClaudeSessions } from "./history-import.js";
 import {
   CLAUDE_CODE_BACKEND_KIND,
   CLAUDE_CODE_HOST_EXTENSION_ID,
@@ -424,12 +424,20 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           const model = entry.observedModel ?? entry.model;
           return {
             threadId: entry.tauThreadId,
+            sessionId: entry.claudeSessionId,
             cwd: entry.cwd,
             updatedAt: entry.updatedAt,
             ...(model ? { model } : {}),
             ...(entry.usage ? { usage: { ...entry.usage } } : {}),
             ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
+        }),
+      }), { access: "read", callers: [USAGE_KIT_ID] });
+      // Where each instance's CLI logs its sessions, for the Usage kit to count work outside Tau; read by that kit, not here.
+      context.registerCommand("usage-logs", () => ({
+        folders: settings.list().map((instance) => {
+          const billing = limits.get(instance.id)?.billing;
+          return { format: "agent-sdk", path: join(claudeConfigDir(settings.environment(instance.id, env)), "projects"), instance: settings.kind(instance.id), ...(billing ? { billing } : {}) };
         }),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.

@@ -102,7 +102,16 @@ export interface RankedUsage extends Omit<UsageFigures, "threads"> {
   threadId?: string;
   /** Another machine's host id, for a project or a thread there. */
   machine?: string;
+  /** Whether its work ran in Tau, outside it (a CLI on its own), or both. */
+  origin: UsageOrigin | "both";
   parts: ProviderPart[];
+}
+
+/** Work Tau ran, or work a CLI logged on its own. */
+export type UsageOrigin = "tau" | "outside";
+
+export function originOf(entry: Pick<UsageEntry, "outside">): UsageOrigin {
+  return entry.outside ? "outside" : "tau";
 }
 
 /** What a ranking orders by: money (billed, then a plan's value), tokens or turns. */
@@ -110,9 +119,10 @@ export function measure(figures: Pick<UsageFigures, "costUsd" | "apiValueUsd" | 
   return metric === "tokens" ? figures.totalTokens : metric === "turns" ? figures.requests : figures.costUsd + figures.apiValueUsd;
 }
 
-/** One runtime's entries, or all of them; one machine's (`""` this one), or every machine's. */
-export function ofRuntime(entries: readonly UsageEntry[], backend: string | undefined, machine?: string): readonly UsageEntry[] {
-  return backend || machine !== undefined ? entries.filter((entry) => (!backend || entry.backend === backend) && (machine === undefined || (entry.machine ?? "") === machine)) : entries;
+/** One runtime's entries, or all of them; one machine's (`""` this one), or every machine's; Tau's, outside Tau, or both. */
+export function ofRuntime(entries: readonly UsageEntry[], backend: string | undefined, machine?: string, origin?: UsageOrigin): readonly UsageEntry[] {
+  if (!backend && machine === undefined && !origin) return entries;
+  return entries.filter((entry) => (!backend || entry.backend === backend) && (machine === undefined || (entry.machine ?? "") === machine) && (!origin || originOf(entry) === origin));
 }
 
 /** Runtimes that recorded anything, the busiest first. */
@@ -146,9 +156,12 @@ export function rankUsage(entries: readonly UsageEntry[], fromDay: number, by: U
         ...(entry.provider ? { provider: entry.provider } : {}),
         ...(by === "thread" ? { threadId: entry.threadId } : {}),
         ...(by !== "model" && entry.machine ? { machine: entry.machine } : {}),
+        origin: originOf(entry),
         costUsd: 0, apiValueUsd: 0, totalTokens: 0, requests: 0, parts: [],
       };
       ranked.set(key, item);
+    } else if (item.origin !== originOf(entry)) {
+      item.origin = "both";
     }
     add(item, entry);
     addPart(item.parts, entry);

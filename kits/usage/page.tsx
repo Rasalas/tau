@@ -2,18 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChartColumn, RefreshCw } from "lucide-react";
 import { Empty, errorMessage, formatCost, ProviderIconStack, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { ActivityCalendar, ReadingHistory } from "./activity.js";
-import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, ofRuntime, rankUsage, runtimesOf, USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageRange } from "./dashboard.js";
+import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, ofRuntime, rankUsage, runtimesOf, USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageOrigin, type UsageRange } from "./dashboard.js";
 import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
 import { mergeEntries, mergeLimits, useOtherMachines, type MachineRead, type UsageMachine } from "./machines.js";
-import { BACKEND_USAGE_SOURCES, PI_BACKEND, USAGE_EXTENSION_ID, USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
+import { BACKEND_USAGE_SOURCES, PI_BACKEND, USAGE_EXTENSION_ID, USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
 import { RankList, type RankRow } from "./top-lists.js";
 import { formatTokens } from "./view-model.js";
 
 const METRICS: ReadonlyArray<{ id: UsageMetric; label: string }> = [{ id: "cost", label: "Cost" }, { id: "tokens", label: "Tokens" }, { id: "turns", label: "Turns" }];
+const ORIGINS: ReadonlyArray<{ id: UsageOrigin | "all"; label: string }> = [{ id: "all", label: "All" }, { id: "tau", label: "In Tau" }, { id: "outside", label: "Outside Tau" }];
 /** How often an open, visible page reads again. */
 const POLL_MS = 5 * 60_000;
+/** While a host still reads the CLIs' logs, the page asks again this soon. */
+const READING_POLL_MS = 5_000;
 const RUNTIME_LABELS: Record<string, string> = Object.fromEntries([[PI_BACKEND, "Pi"], ...BACKEND_USAGE_SOURCES.map((source) => [source.backend, source.label])]);
 
 function folderName(cwd: string): string {
@@ -91,12 +94,14 @@ function PeriodTile({ label, figures }: { label: string; figures: UsageFigures }
 }
 
 function Sources({ summary, limits, machines = [] }: { summary: UsageSummary | undefined; limits: UsageLimitsSummary | undefined; machines?: readonly MachineRead[] }) {
-  const status = (value: "ok" | "empty" | "unavailable") => value === "ok" ? "read" : value === "empty" ? "no data" : "not available";
+  const status = (value: UsageSourceReport["status"]) => value === "ok" ? "read" : value === "empty" ? "no data" : value === "reading" ? "reading" : "not available";
   return (
     <div className="usage-subpage">
       <p className="lede">
         Where the figures come from. Pi writes every response with its tokens into its session files; the Codex, Agent SDK, Antigravity,
-        OpenCode, Grok and Cursor kits keep every turn. Limits are what a runtime&apos;s login reports about its plan. Nothing here is a bill:
+        OpenCode, Grok and Cursor kits keep every turn. Work outside Tau comes from the logs the Codex, Claude Code and OpenCode CLIs keep
+        on their own, in the folders each runtime&apos;s settings name; only counts are read, and a session a Tau thread ran counts once, with
+        its thread. Limits are what a runtime&apos;s login reports about its plan. Nothing here is a bill:
         billed is what an API key was charged per token, plan value is what a subscription&apos;s tokens would have cost over the provider&apos;s API.
       </p>
       <ul className="usage-sources" aria-label="Sources">
@@ -153,6 +158,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const [limitsBusy, setLimitsBusy] = useState(false);
   const [runtime, setRuntime] = useState<string>();
   const [machine, setMachine] = useState<string>();
+  const [origin, setOrigin] = useState<UsageOrigin>();
   const machines = useOtherMachines(environments);
   const [summaries, setSummaries] = useState<readonly MachineRead[]>([]);
   const [machineLimits, setMachineLimits] = useState<readonly MachineRead[]>([]);
@@ -215,13 +221,22 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
     return () => { clearInterval(tick); clearInterval(poll); };
   }, [now]);
   const readAgain = () => { void load(true); void loadLimits(true); };
+  // A first read of a large log history answers in parts; the page asks again until it is whole.
+  const logsReading = Boolean(summary?.reading || summaries.some((read) => read.summary?.reading));
+  useEffect(() => {
+    if (!logsReading || busy) return undefined;
+    const again = setTimeout(() => { void polling.current.load(false); }, READING_POLL_MS);
+    return () => clearTimeout(again);
+  }, [logsReading, busy]);
 
   const allEntries = useMemo(() => mergeEntries(summary?.entries ?? [], summaries), [summary, summaries]);
   const allLimits = useMemo(() => mergeLimits(limits, machineLimits), [limits, machineLimits]);
   const runtimes = useMemo(() => runtimesOf(allEntries), [allEntries]);
   const shownRuntime = runtime && runtimes.includes(runtime) ? runtime : undefined;
   const shownMachine = machine === undefined || machine === "" || machines.some((other) => other.id === machine) ? machine : undefined;
-  const entries = useMemo(() => ofRuntime(allEntries, shownRuntime, shownMachine), [allEntries, shownRuntime, shownMachine]);
+  const anyOutside = useMemo(() => allEntries.some((entry) => entry.outside), [allEntries]);
+  const shownOrigin = anyOutside ? origin : undefined;
+  const entries = useMemo(() => ofRuntime(allEntries, shownRuntime, shownMachine, shownOrigin), [allEntries, shownRuntime, shownMachine, shownOrigin]);
   const machineName = (id: string | undefined) => (id ? machines.find((other) => other.id === id)?.name ?? "another machine" : undefined);
   const last = days.length;
   const from = last - (USAGE_RANGES.find((entry) => entry.id === range)?.days ?? 30);
@@ -230,7 +245,10 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
 
   const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
   const threadOf = (threadId: string | undefined) => (threadId ? index.threads.find((thread) => thread.id === threadId) : undefined);
-  const projects: RankRow[] = rankUsage(entries, from, "project", metric, 6).map((item) => ({ item, name: projectName(item.cwd), title: item.cwd, ...(item.machine ? { detail: machineName(item.machine) } : {}) }));
+  const projects: RankRow[] = rankUsage(entries, from, "project", metric, 6).map((item) => {
+    const where = [item.origin === "outside" ? "Outside Tau" : item.origin === "both" ? "Also outside Tau" : undefined, machineName(item.machine)].filter(Boolean).join(" · ");
+    return { item, name: projectName(item.cwd), title: item.cwd, ...(where ? { detail: where } : {}) };
+  });
   const models: RankRow[] = rankUsage(entries, from, "model", metric, 6).map((item) => ({
     item,
     name: item.model,
@@ -238,11 +256,12 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
     marks: { runtimeProvider: item.backend, ...(item.provider ? { modelProvider: item.provider } : {}) },
   }));
   const threads: RankRow[] = rankUsage(entries, from, "thread", metric, 8).map((item) => {
-    const thread = item.machine ? undefined : threadOf(item.threadId);
+    const outside = item.origin === "outside";
+    const thread = item.machine || outside ? undefined : threadOf(item.threadId);
     return {
       item,
-      name: thread?.title || `Thread ${item.threadId?.slice(0, 8) ?? ""}`,
-      detail: item.machine ? `${projectName(item.cwd)} · ${machineName(item.machine)}` : projectName(item.cwd),
+      name: thread?.title || (outside ? `${RUNTIME_LABELS[item.backend] ?? item.backend} session ${item.threadId?.slice(0, 8) ?? ""}` : `Thread ${item.threadId?.slice(0, 8) ?? ""}`),
+      detail: [outside ? "Outside Tau" : undefined, projectName(item.cwd), machineName(item.machine)].filter(Boolean).join(" · "),
       marks: { runtimeProvider: item.backend, ...(item.provider ? { modelProvider: item.provider } : {}) },
       ...(thread && actions ? { onOpen: () => { void actions.switchSession(thread.path); } } : {}),
     };
@@ -258,7 +277,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   return (
     <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
       <div className="usage-toolbar">
-        <span role="status">{busy ? "Reading…" : machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}</span>
+        <span role="status">{busy ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${logsReading ? " · still reading the CLIs' logs" : ""}`}</span>
         <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain}><RefreshCw size={14} /></button>
       </div>
 
@@ -286,6 +305,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
               <h2 id="usage-breakdown-title">Activity</h2>
               <span className="spacer" />
               {machines.length > 0 ? <MachineFilter machines={machines} value={shownMachine} onChange={setMachine} /> : null}
+              {anyOutside ? <Segmented<UsageOrigin | "all"> label="Where the work ran" value={shownOrigin ?? "all"} options={ORIGINS} onChange={(value) => setOrigin(value === "all" ? undefined : value)} /> : null}
               {runtimes.length > 1 ? <RuntimeFilter runtimes={runtimes} value={shownRuntime} onChange={setRuntime} /> : null}
               <Segmented<UsageRange> label="Range" value={range} options={USAGE_RANGES} onChange={setRange} />
               <Segmented<UsageMetric> label="Measure" value={metric} options={METRICS} onChange={setMetric} />
