@@ -5,8 +5,9 @@ import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
+import type { ThreadActivity } from "../../workbench/thread-row-status";
 
-export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted" | "failed" | "limited";
+export type { ThreadActivity };
 
 export interface ThreadRowMachine {
   name: string;
@@ -68,7 +69,13 @@ function elapsedLabel(milliseconds: number): string {
   return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadActivity; label: string; hint?: string; startedAt: number }) {
+/** Whether a row shows its state rather than its age. */
+export function showsThreadStatus(activity: ThreadActivity): boolean {
+  return activity === "working" || activity === "tool" || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited";
+}
+
+/** A row's state badge, the same on every client: `Working 2:14` with a spinner, `? Question` in amber, and the rest. */
+export function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadActivity; label: string; hint?: string; startedAt: number }) {
   const working = activity === "working" || activity === "tool";
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -120,7 +127,7 @@ export const ThreadRow = memo(function ThreadRow({
     settled ? "Settled" : activity === "ready" ? "Ready" : activity === "idle" ? "Idle" : "Working"
   );
   const working = activity === "working" || activity === "tool";
-  const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited";
+  const showStatus = showsThreadStatus(activity);
   const childCount = workingChildren > 0
     ? (
       <span className="thread-agent-count" aria-label={`${workingChildren} agent${workingChildren === 1 ? "" : "s"} running`}>

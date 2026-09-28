@@ -1,6 +1,7 @@
 import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
+import { threadRowStatus, type ThreadRowStatus } from "./thread-row-status";
 
 /**
  * What a thread is doing right now, in the words a supervisor needs: a phone
@@ -21,7 +22,9 @@ export interface ThreadSupervisionRow {
   projectLabel?: string;
   usage?: UiThreadUsage;
   status: ThreadSupervisionStatus;
-  /** Set while the thread is running, for the elapsed timer. */
+  /** What the row's badge says, from the derivation the desktop rail uses too. */
+  state: ThreadRowStatus;
+  /** Set while the thread is running: the host's start of the run, for the elapsed timer. */
   startedAt?: number;
   /** A finished run the user has not looked at yet. */
   unread: boolean;
@@ -59,6 +62,7 @@ function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organizatio
     ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
     ...(thread.usage ? { usage: thread.usage } : {}),
     status,
+    state: threadRowStatus(thread.id, activity, thread),
     ...(startedAt === undefined ? {} : { startedAt }),
     unread: activity.unreadThreadIds.includes(thread.id),
     modifiedAt: thread.modifiedAt,
@@ -197,8 +201,3 @@ export function threadAge(modifiedAt: number, now: number): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-/** The running timer: `42s`, then `3m 05s`. */
-export function threadElapsed(startedAt: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
-}

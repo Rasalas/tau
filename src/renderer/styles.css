@@ -429,7 +429,8 @@ body.resizing-col .app-shell { transition: none; }
   height: 20px; display: flex; gap: 2px; opacity: 0; pointer-events: none;
 }
 .thread-row:is(:hover, :has(:focus-visible, [aria-expanded="true"])) .thread-row-actions { opacity: 1; pointer-events: auto; }
-.thread-row:is(:hover, :has(.thread-row-actions :focus-visible, [aria-expanded="true"])) :is(.thread-project-line > time, .thread-status-age, .thread-main > time) { visibility: hidden; }
+/* Only a row with actions gives up its state: a tap leaves :hover on a touch list's open row. */
+.thread-row:has(> .thread-row-actions):is(:hover, :has(.thread-row-actions :focus-visible, [aria-expanded="true"])) :is(.thread-project-line > time, .thread-status-age, .thread-main > time) { visibility: hidden; }
 .thread-row-actions > button {
   display: inline-flex; align-items: center; gap: 4px; padding: 0 6px;
   border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 12px var(--sans); cursor: pointer;
@@ -1668,9 +1669,6 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }
-
-/* Rail marker for a thread that cannot continue without you: the question's amber, not the accent a selection uses. */
-.thread-row.activity-waiting { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
 /* Rail marker for a thread whose turn a restart cut short. */
 .thread-row.activity-interrupted { border-color: var(--warn-chip); }

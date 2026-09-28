@@ -1,22 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Check, ChevronDown, CircleAlert, CircleHelp, GitBranch, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
+import { useCallback, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { Check, ChevronDown, GitBranch, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
   threadAge,
-  threadElapsed,
   threadListDrafts,
   threadListGroups,
   type ThreadListGroup,
   type ThreadSupervisionRow,
-  type ThreadSupervisionStatus,
 } from "../../workbench/thread-supervision";
 import type { UiProject } from "../../shared/contracts";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { DraftRow, draftTitle } from "../components/DraftRow";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
-import { projectHue, projectInitial } from "../components/ThreadRow";
+import { projectHue, projectInitial, showsThreadStatus, ThreadStatus } from "../components/ThreadRow";
 import { MiddleTruncate } from "../components/ui/MiddleTruncate";
 import { threadCostLabel } from "../cost-format";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
@@ -28,33 +26,13 @@ import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
 
-/** What the project line's right edge says when the thread needs a look, in the desktop rail's colours. */
-const STATUS_SHORT: Partial<Record<ThreadSupervisionStatus, string>> = { waiting: "Waiting", failed: "Failed" };
-const STATUS_CLASS: Record<ThreadSupervisionStatus, string> = { waiting: "status-waiting", running: "status-working", failed: "status-failed", done: "" };
-
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return undefined;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [active]);
-  return now;
-}
-
-/** The state when the thread needs a look or runs, else its age: the desktop row's project line. */
+/** The desktop rail's badge where the thread needs a look or runs, else its age; a settled row shows only its age. */
 function RowTime({ row }: { row: ThreadSupervisionRow }) {
-  const now = useNow(row.startedAt !== undefined);
-  if (row.status === "running") {
-    return <span className="thread-status-age status-working"><i />{row.startedAt !== undefined ? <time>{threadElapsed(row.startedAt, now)}</time> : "Working"}</span>;
+  const { state } = row;
+  if (!row.settled && showsThreadStatus(state.activity)) {
+    return <ThreadStatus activity={state.activity} label={state.label} {...(state.hint ? { hint: state.hint } : {})} startedAt={state.startedAt ?? row.modifiedAt} />;
   }
-  const short = STATUS_SHORT[row.status];
-  if (short) {
-    const Icon = row.status === "waiting" ? CircleHelp : CircleAlert;
-    return <span className={`thread-status-age ${STATUS_CLASS[row.status]}`}><Icon size={12} aria-hidden="true" />{short}</span>;
-  }
-  if (row.unread && !row.settled) return <span className="thread-status-age status-ready"><Check size={12} aria-hidden="true" />Ready</span>;
-  return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, now)}</time>;
+  return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, Date.now())}</time>;
 }
 
 /** Whether this client has the settled shelf open; folded is the default, as in T3 Code. */
@@ -78,8 +56,9 @@ export interface TouchThreadListProps {
  * The compact thread list: pinned, active and settled threads, each row a
  * tap to open and a swipe to settle, as in T3 Code's thread list. A long
  * press (or a right click) lists every action, the kits' `thread-row`
- * commands among them. Running rows keep a stop button: supervision on a
- * phone means stopping a run without opening it.
+ * commands among them, Stop the run too. A row carries no stop button of its
+ * own, as in the design and T3 Code: a run stopped by a slipped tap is lost
+ * work, and the open thread's composer stops it in one tap.
  */
 export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread, project }: TouchThreadListProps) {
   const store = useThreadStore();
@@ -163,8 +142,6 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     setOpenRow,
     swipeActions,
     onOpen,
-    // A Read-only device may not stop a run; the row's sheet says why.
-    ...(readOnly ? {} : { onStop }),
     onSheet: setSheetFor,
   };
   const more = (group: ThreadListGroup) => () => setShown((value) => group.id === "settled"
@@ -229,14 +206,13 @@ function shortLabel(label: string): string {
   return label.replace(/…$/u, "").replace(/\s+thread$/iu, "");
 }
 
-function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onStop, onSheet, onMore }: {
+function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onSheet, onMore }: {
   group: ThreadListGroup;
   activeId: string;
   openRow?: string | undefined;
   setOpenRow(id: string | undefined): void;
   swipeActions(row: ThreadSupervisionRow): SwipeAction[];
   onOpen(row: ThreadSupervisionRow): void;
-  onStop?(row: ThreadSupervisionRow): void;
   onSheet(row: ThreadSupervisionRow): void;
   onMore(): void;
 }) {
@@ -253,12 +229,6 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
         >
           <div className={`thread-row${row.settled ? " compact" : ""}${active ? " active" : ""}`}>
             <ThreadCard row={row} onOpen={() => onOpen(row)} />
-            {row.status === "running" && onStop ? <button
-              type="button"
-              className="touch-thread-stop"
-              aria-label={`Stop ${row.title}`}
-              onClick={() => onStop(row)}
-            ><Square size={12} /></button> : null}
             <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
           </div>
         </SwipeRow>

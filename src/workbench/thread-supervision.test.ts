@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts";
 import { ThreadStore, type ThreadActivitySnapshot } from "./thread-store";
-import { threadAge, threadElapsed, threadListDrafts, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
+import { threadAge, threadListDrafts, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
 
 function thread(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/p/${id}`, title, modifiedAt, projectPath: "/p", projectName: "p", messageCount: 1 };
@@ -116,8 +116,6 @@ describe("the compact thread list", () => {
     expect(threadAge(now - 3 * 3_600_000, now)).toBe("3h");
     expect(threadAge(now - 2 * 86_400_000, now)).toBe("2d");
     expect(threadAge(now - 21 * 86_400_000, now)).toBe("21d");
-    expect(threadElapsed(0, 42_000)).toBe("42s");
-    expect(threadElapsed(0, 185_000)).toBe("3m 05s");
   });
 });
 
