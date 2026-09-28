@@ -6,7 +6,7 @@ import { HOST_CORE_PRINCIPAL } from "./host-invocation.js";
 import type { UiHostServiceProblem } from "../shared/connections.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { writeHostDescriptor } from "./host-process-supervisor.js";
-import { HostServiceManager, abstractX11Displays, createHostServiceMethods, serviceCommandRunner, type ServiceCommandResult, type ServiceStep } from "./host-service.js";
+import { HostServiceManager, createHostServiceMethods, serviceCommandRunner, type ServiceCommandResult, type ServiceStep } from "./host-service.js";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -318,16 +318,6 @@ describe("the invisible display on Linux", () => {
     expect(existsSync(join(units, service.names.unit))).toBe(false);
   });
 
-  it("counts a display another network-namespace peer listens on as taken", () => {
-    const table = [
-      "Num       RefCount Protocol Flags    Type St Inode Path",
-      "0000000000000000: 00000002 00000000 00010000 0001 01 1234 @/tmp/.X11-unix/X99",
-      "0000000000000000: 00000003 00000000 00000000 0001 03 1256 @/tmp/.X11-unix/X0",
-      "0000000000000000: 00000002 00000000 00010000 0001 01 1235 /tmp/.X11-unix/X101",
-    ].join("\n");
-    expect([...abstractX11Displays(table)].sort()).toEqual([0, 99]);
-  });
-
 
   it("adds Xvfb and a window unit, a private cookie, and DISPLAY for the host", async () => {
     const { service, units, userData, calls } = manager("linux", { displayTaken: (number) => number < 101 });
@@ -370,6 +360,27 @@ describe("the invisible display on Linux", () => {
     // Every number is taken now, Xvfb's own included: the installed one is kept, not chosen again.
     await later.install();
     expect((await later.installedDisplay())?.number).toBe(99);
+  });
+
+  it("moves to a free display when Tau's Xvfb is down and something else holds its number", async () => {
+    const { service, userData, units } = manager("linux");
+    await service.install({ display: true });
+    const cookie = readFileSync(join(userData, "display", "Xauthority"));
+    const xvfbUnit = service.names.unit.replace("tau-host", "tau-xvfb");
+    const later = new HostServiceManager({
+      execPath: "/Applications/Tau.app/Contents/MacOS/Tau",
+      entry: "/Applications/Tau.app/Contents/Resources/app.asar.unpacked/dist-electron/main/headless.js",
+      userData, platform: "linux", home: join(userData, "..", "home"), uid: 501,
+      env: { TAU_SERVICE_UNIT_DIR: units },
+      runner: fakeRunner((command) => (command === `systemctl --user is-active ${xvfbUnit}` ? { code: 3 } : undefined)).runner,
+      locateXvfb: () => "/usr/bin/Xvfb", displayTaken: (number) => number === 99,
+    });
+    await later.install();
+    expect((await later.installedDisplay())?.number).toBe(100);
+    expect(readFileSync(join(units, service.names.unit), "utf8")).toContain('Environment="DISPLAY=:100"');
+    const moved = readFileSync(join(userData, "display", "Xauthority"));
+    expect(moved).not.toEqual(cookie);
+    expect(moved.includes(Buffer.from("\u0000\u0003100"))).toBe(true);
   });
 
   it("removes the display with --no-display and with the service", async () => {
