@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -47,6 +47,8 @@ export interface ClaudeRuntimeSessionRecord {
   usage?: UiThreadUsage;
   /** Each turn's tokens per model, dated; threads from before turns were kept have only `usage`. */
   usageTurns?: UsageTurn[];
+  /** The context the last turn left, so a thread opened later still knows its size and age. */
+  contextUsage?: UiContextUsage;
   /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
   model?: string;
   effort?: string;
@@ -224,6 +226,20 @@ function storedUsage(value: unknown): UiThreadUsage | undefined {
   return usage as UiThreadUsage;
 }
 
+function storedContextUsage(value: unknown): UiContextUsage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const finite = (field: unknown): field is number => typeof field === "number" && Number.isFinite(field) && field >= 0;
+  if (!finite(item.tokens) || !finite(item.contextWindow) || !finite(item.percent)) return undefined;
+  return {
+    tokens: item.tokens,
+    contextWindow: item.contextWindow,
+    percent: item.percent,
+    ...(finite(item.updatedAt) ? { updatedAt: item.updatedAt } : {}),
+    ...(finite(item.promptCacheTtlMs) ? { promptCacheTtlMs: item.promptCacheTtlMs } : {}),
+  };
+}
+
 function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
@@ -269,6 +285,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(titleSource ? { titleSource } : {}),
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
     ...(readUsageTurns(item.usageTurns) ? { usageTurns: readUsageTurns(item.usageTurns) } : {}),
+    ...(storedContextUsage(item.contextUsage) ? { contextUsage: storedContextUsage(item.contextUsage) } : {}),
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
     ...(boundedString(item.mode, 16) ? { mode: boundedString(item.mode, 16) } : {}),
@@ -291,6 +308,7 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
     messages: record.messages.map(cloneMessage),
     ...(record.usage ? { usage: { ...record.usage } } : {}),
     ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
+    ...(record.contextUsage ? { contextUsage: { ...record.contextUsage } } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
   };
 }
@@ -517,6 +535,17 @@ export class ClaudeRuntimeSessionStore {
     if (!record) return;
     record.usage = { ...usage };
     for (const turn of turns) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
+  /** The context the thread's last turn left; `undefined` forgets it, after a compaction nobody measured yet. */
+  async setContextUsage(tauThreadId: string, cwd: string, contextUsage: UiContextUsage | undefined): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record) return;
+    if (contextUsage) record.contextUsage = { ...contextUsage };
+    else delete record.contextUsage;
     record.updatedAt = this.now();
     await this.persist();
   }

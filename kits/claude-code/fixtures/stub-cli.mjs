@@ -10,7 +10,8 @@
 // Bash calls (the first fails), a Read the CLI refuses, then "Done.". A prompt
 // with `wait <ms>` pauses that long before each step; one with `ask` asks a
 // single-choice question (AskUserQuestion, through `can_use_tool`) instead and
-// says what was chosen.
+// says what was chosen. `long` in a prompt reports a 150k-token context;
+// `/compact` compacts it to 4k with the CLI's boundary and no reply.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -58,7 +59,14 @@ function streamTurns() {
     send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: text, duration_ms: 1, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: {}, permission_denials: [] });
   }
 
+  async function compact() {
+    await sleep(300);
+    send({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 150_000, post_tokens: 4_000 } });
+    send({ type: "result", subtype: "success", is_error: false, num_turns: 0, result: "", duration_ms: 300, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: { [model]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, contextWindow: 200_000 } }, permission_denials: [] });
+  }
+
   async function play(prompt) {
+    if (prompt.trim() === "/compact") return compact();
     if (/\bask\b/iu.test(prompt)) return askColor();
     const pause = Math.min(Number(/\bwait\s+(\d+)/u.exec(prompt)?.[1] ?? 150), 60_000);
     const step = async (write) => { await sleep(pause); write(); };
@@ -72,7 +80,8 @@ function streamTurns() {
     await step(() => assistant([{ type: "tool_use", id: read, name: "Read", input: { file_path: join(process.cwd(), "stub-missing.ts") } }]));
     await step(() => result(read, "<tool_use_error>File does not exist.</tool_use_error>", true));
     await step(() => assistant([{ type: "text", text: "Done." }]));
-    send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "Done.", duration_ms: pause * 7, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: {}, permission_denials: [] });
+    const context = /\blong\b/iu.test(prompt) ? 150_000 : 0;
+    send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "Done.", duration_ms: pause * 7, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: context, cache_creation_input_tokens: 0 }, modelUsage: context ? { [model]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: context, cacheCreationInputTokens: 0, costUSD: 0, contextWindow: 200_000 } } : {}, permission_denials: [] });
   }
 
   createInterface({ input: process.stdin }).on("line", (line) => {
