@@ -10,6 +10,7 @@ import { createSocketHostClient } from "../workbench/host-connection-socket";
 import { browserWakeSource } from "../renderer/browser-wakes";
 import { PairingWait, TokenGate } from "./TokenGate";
 import { accessRefusal } from "../workbench/access-refusal";
+import { watchChunkLoadErrors } from "../renderer/chunk-reload";
 import { pairWithHost } from "../workbench/host-pairing";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 import { WEB_TOKEN_KEY, hostSocketUrl, pairingNotice, takePairingCode } from "./host-token";
@@ -22,6 +23,8 @@ import "./web.css";
  * `?host=`: the host that served this page is the host it talks to, over the
  * socket at the same origin.
  */
+// A host update removes this page's chunks; one reload fetches the new build.
+watchChunkLoadErrors();
 const storage = createLocalStorageAdapter();
 setClientStorage(storage);
 const root = createRoot(document.getElementById("root")!);
@@ -82,7 +85,7 @@ function connect(token: string): void {
       client={host.client}
       storage={storage}
       services={createRendererServices()}
-      environment={webClientEnvironment(profile)}
+      environment={{ ...webClientEnvironment(profile), servedByHost: true }}
     />
   </StrictMode>);
 }

@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostLink } from "../workbench/host-link";
 import { HostClientProvider } from "./host-client-context";
-import { HostConnectionStatus, HostLinkIndicator, describeHostLink } from "./host-connection-status";
+import { HostConnectionStatus, HostLinkIndicator, describeHostLink, hostUpdatedTo } from "./host-connection-status";
+import { ClientEnvironmentProvider, electronClientEnvironment } from "./client-environment";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 
 afterEach(cleanup);
@@ -87,6 +88,36 @@ describe("host connection status", () => {
     versions = { window: "0.4.1", host: "0.3.0" };
     act(() => { for (const listener of listeners) listener(); });
     expect(screen.getByRole("status").textContent).toContain("its host runs 0.3.0");
+  });
+
+  it("offers a reload in a page the host served once the host runs another version", () => {
+    const listeners = new Set<() => void>();
+    let versions: { host?: string; window?: string } = {};
+    const client = createFakeHostClient({
+      getVersions: () => versions,
+      onVersions: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    });
+    const hello = (host: string) => { versions = { host }; act(() => { for (const listener of listeners) listener(); }); };
+    render(<ClientEnvironmentProvider environment={{ ...electronClientEnvironment(new URLSearchParams()), servedByHost: true }}>
+      <HostClientProvider client={client}><HostConnectionStatus /></HostClientProvider>
+    </ClientEnvironmentProvider>);
+    hello("0.7.8");
+    expect(screen.queryByRole("status")).toBeNull();
+    // A reconnect to the same host says nothing new.
+    hello("0.7.8");
+    expect(screen.queryByRole("status")).toBeNull();
+    hello("0.7.9");
+    expect(screen.getByRole("status").textContent).toBe("Tau was updated. Reload to continue.Reload");
+  });
+
+  it("says nothing about a host update where the page's code is its own", () => {
+    const client = createFakeHostClient({ getVersions: () => ({ host: "0.7.8" }), onVersions: () => () => undefined });
+    expect(hostUpdatedTo(client, "0.7.8")).toBeUndefined();
+    expect(hostUpdatedTo(client, "0.7.9")).toBe("0.7.9");
+    render(<ClientEnvironmentProvider environment={electronClientEnvironment(new URLSearchParams())}>
+      <HostClientProvider client={client}><HostConnectionStatus /></HostClientProvider>
+    </ClientEnvironmentProvider>);
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("offers to retry now while waiting for the next attempt, and says so when the device is offline", () => {

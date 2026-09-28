@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { deferred, deferredModule, preloadDeferred } from "./deferred";
+import { LazyFeatureBoundary } from "./LazyFeature";
 
 function Label({ text }: { text: string }) {
   return <span>{text}</span>;
@@ -54,6 +55,17 @@ describe("deferred", () => {
     await Deferred.preload();
     expect(load).toHaveBeenCalledTimes(2);
     expect(renderToStaticMarkup(<Deferred text="back" />)).toBe("<span>back</span>");
+  });
+
+  it("loads again when a boundary's Retry follows a failed render", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(Label);
+    const Deferred = deferred(load);
+    render(<LazyFeatureBoundary label="menu"><Deferred text="back" /></LazyFeatureBoundary>);
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("back")).toBeTruthy();
+    expect(load).toHaveBeenCalledTimes(2);
   });
 });
 

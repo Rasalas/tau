@@ -1,4 +1,5 @@
 import { createElement, lazy, Suspense, type ComponentProps, type ComponentType } from "react";
+import { markImportFailed } from "./LazyFeature";
 
 type AnyComponent = ComponentType<any>;
 
@@ -26,9 +27,14 @@ export function deferred<C extends AnyComponent>(
     (error: unknown) => { loading = undefined; throw error; },
   );
   // A loaded chunk answers with a thenable that settles synchronously, so React never suspends for it.
-  const Lazy = lazy(() => (loaded
+  const factory = () => (loaded
     ? { then: (resolve: (module: { default: C }) => void) => resolve({ default: loaded! }) }
-    : preload().then(() => ({ default: loaded! }))) as Promise<{ default: C }>);
+    : preload().then(() => ({ default: loaded! }), (error: unknown) => {
+      // `lazy` keeps a rejection for good; Retry swaps in a fresh one.
+      markImportFailed(() => { Lazy = lazy(factory); });
+      throw error;
+    })) as Promise<{ default: C }>;
+  let Lazy = lazy(factory);
   loaders.push(preload);
   const Deferred = (props: ComponentProps<C>) => (when && !when(props)
     ? null

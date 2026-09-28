@@ -10,7 +10,7 @@ import type { ComposerAttachmentHandle, ComposerControlHandle, SubmitResult } fr
 import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { UiQueuedMessage } from "../shared/contracts";
-import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
+import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { retryPrompt, TurnErrorLine } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
@@ -91,11 +91,11 @@ function storedDockWidth(storage: ClientStorage): number {
   const width = Number(storage.get(DOCK_WIDTH_KEY));
   return Number.isFinite(width) && width > 0 ? clampDockWidth(width) : DEFAULT_DOCK_WIDTH;
 }
-const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
+const LazyCommandPalette = retryableLazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
-const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
-const LazyAppPageScreen = lazy(() => import("./pages/AppPageScreen").then(({ AppPageScreen }) => ({ default: AppPageScreen })));
-const LazySettingsScreen = lazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
+const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
+const LazyAppPageScreen = retryableLazy(() => import("./pages/AppPageScreen").then(({ AppPageScreen }) => ({ default: AppPageScreen })));
+const LazySettingsScreen = retryableLazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
 const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
 const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
@@ -532,12 +532,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     actions={actions}
   />;
 
-  const appPage = openPage ? <LazyFeatureBoundary label="page">
-    <Suspense fallback={<section className={`app-page${pageScreen ? " stacked" : ""}`}><LazyFeatureFallback label="page" /></section>}>
+  // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
+  const pageFrame = (content: React.ReactNode) => <section className={`app-page${pageScreen ? " stacked" : ""}`}>{content}</section>;
+  const appPage = openPage ? <LazyFeatureBoundary label="page" title="This page failed to load." frame={pageFrame} onClose={pages.close}>
+    <Suspense fallback={pageFrame(<LazyFeatureFallback label="page" />)}>
       <LazyAppPageScreen registry={registry} store={pages} actions={actions} stacked={pageScreen} sidebarShown={split ? touchSidebarShown : sidebarShown} nav={bottomNav} />
     </Suspense>
   </LazyFeatureBoundary> : null;
 
+  const settingsFrame = (content: React.ReactNode) => <div className="settings-screen loading">{content}</div>;
   const overlays = <>
     {compact ? <Suspense fallback={null}><LazyTouchLayer
       syncUrl={clientProfile !== "desktop"}
@@ -560,7 +563,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={() => setSystemPromptOpen(false)} />
       </Suspense>
     ) : null}
-    <LazyFeatureBoundary label="command palette">
+    <LazyFeatureBoundary label="command palette" frame={(content) => paletteOpen ? <div className="palette-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closePalette(); }}><div className="lazy-feature-dialog">{content}</div></div> : null} onClose={closePalette}>
       <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
         <LazyCommandPalette
           open={paletteOpen}
@@ -588,8 +591,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       />
     </Suspense>
     {openPage && pageScreen ? appPage : null}
-    {settingsPage ? <LazyFeatureBoundary label="settings">
-      <Suspense fallback={<div className="settings-screen loading"><LazyFeatureFallback label="settings" /></div>}>
+    {settingsPage ? <LazyFeatureBoundary label="settings" title="Settings failed to load." frame={settingsFrame} onClose={() => setSettingsPage(undefined)}>
+      <Suspense fallback={settingsFrame(<LazyFeatureFallback label="settings" />)}>
         <LazySettingsScreen
           page={settingsPage}
           stacked={compact && !split}
@@ -616,6 +619,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>;
 
   const activeOverlay = registry.getOverlay(activeOverlayId);
+  const overlayFrame = (content: React.ReactNode) => <div className="lazy-feature-screen">{content}</div>;
   const providers = (content: React.ReactNode) => <WorkbenchProviders model={model} threadStore={threadStore}>{content}</WorkbenchProviders>;
   if (activeOverlay) return providers(<>
     <LazyFeatureBoundary
@@ -624,8 +628,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       extensionName={activeOverlay.extensionName}
       registry={registry}
       onNotify={actions.notify}
+      onClose={closeOverlay}
+      frame={overlayFrame}
     >
-      <Suspense fallback={<LazyFeatureFallback label={activeOverlay.id} />}>
+      <Suspense fallback={overlayFrame(<LazyFeatureFallback label={activeOverlay.id} />)}>
         <activeOverlay.Component actions={actions} onClose={closeOverlay} />
       </Suspense>
     </LazyFeatureBoundary>
@@ -633,6 +639,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     {floats}
   </>);
 
+  const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
     <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": listDocked ? `${drawnDockWidth}px` : "0px", "--list-width": `${drawnDockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
@@ -771,8 +778,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           {widePanels.map((panel) => openedPanels.has(panel.id) && !staged.has(panel.id) ? <PanelSlot key={panel.id} host={hostFor(panel.id)} /> : null)}
           {wideShown && activeDockPanel?.maximizable && panelLayout ? <PanelMaximizeButton label={activeDockPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout.maximize(activeDockPanel.id)} /> : null}
         </section> : null}
-        {stage.tabs.length > 0 ? <LazyFeatureBoundary label="stage">
-          <Suspense fallback={<section className="stage"><LazyFeatureFallback label="stage" /></section>}>
+        {stage.tabs.length > 0 ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>
+          <Suspense fallback={stageFrame(<LazyFeatureFallback label="stage" />)}>
             <LazyStage
               focusRef={stageRef}
               stage={stage}
