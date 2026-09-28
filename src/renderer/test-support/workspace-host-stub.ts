@@ -13,7 +13,7 @@ interface WorkspaceHostClient {
   listClones(): Promise<unknown>;
   forgetClone(id: string): Promise<unknown>;
   getFileTree(relPath?: string, workspace?: string): Promise<unknown>;
-  getChanges(query?: unknown): Promise<unknown>;
+  getChanges(query?: unknown, workspace?: string): Promise<unknown>;
   getFileDiff(relPath: string, options?: unknown, workspace?: string): Promise<unknown>;
   stageFile(relPath: string): Promise<unknown>;
   unstageFile(relPath: string): Promise<unknown>;
@@ -129,7 +129,9 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "file-tree": return field<string>(input, "workspace") === undefined
         ? client.getFileTree(...optional(field<string>(input, "relPath")))
         : client.getFileTree(field<string>(input, "relPath"), field<string>(input, "workspace"));
-      case "changes": return client.getChanges(...optional(field(input, "query")));
+      case "changes": return field<string>(input, "workspace") === undefined
+        ? client.getChanges(...optional(field(input, "query")))
+        : client.getChanges(field(input, "query"), field<string>(input, "workspace"));
       case "file-diff": return client.getFileDiff(field(input, "relPath")!, field(input, "options"), ...optional(field<string>(input, "workspace")));
       case "stage-file": return client.stageFile(field(input, "relPath")!);
       case "unstage-file": return client.unstageFile(field(input, "relPath")!);

@@ -7,7 +7,7 @@ import type { FileDocument } from "./document.js";
 import { fileViewKind, RENDERED_BY_DEFAULT, renderedMode, renderedToggleLabel, tableDelimiter, type RenderedMode } from "./file-kind.js";
 import { kit, WRAP_OPTION, wrapLines, type WorkspaceStoreLike } from "./kit.js";
 import { OpenInPicker } from "./open-in.js";
-import { FILES_KIT_ID, type FileEditorParams } from "./protocol.js";
+import { FILES_KIT_ID, UNKNOWN_PROJECT, type FileEditorParams } from "./protocol.js";
 
 /** How often the tab on screen asks whether the disk moved on. */
 export const CHECK_INTERVAL_MS = 2_000;
@@ -146,6 +146,16 @@ export function MediaTab({ params, handle, actions }: { params: FileEditorParams
       {workspace ? <OpenInPicker store={workspace} relPath={params.path} /> : null}
     </header>
     <div className="files-body">{kind === "text" ? null : <SharedMedia path={params.path} kind={kind} actions={actions} />}</div>
+  </div>;
+}
+
+/** A tab whose stage names no project: nothing is read, so nothing can be saved into the wrong one. */
+export function UnknownProjectTab({ path }: { path: string }) {
+  return <div className="files-tab">
+    <header className="stage-pane-header files-header"><Breadcrumbs path={path} /></header>
+    <div className="files-body">
+      <div className="stage-empty" role="alert">{UNKNOWN_PROJECT} It is not opened here, and nothing is saved.</div>
+    </div>
   </div>;
 }
 

@@ -2,30 +2,31 @@ import { FilePen } from "lucide-react";
 import { errorMessage, type DesktopExtension, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { FileDocument } from "./document.js";
 import { DocumentRegistry } from "./documents.js";
-import { fileEditorParams, fileName, FileEditorTab, MediaTab, saveDocument } from "./editor-tab.js";
+import { fileEditorParams, fileName, FileEditorTab, MediaTab, saveDocument, UnknownProjectTab } from "./editor-tab.js";
 import { fileViewKind } from "./file-kind.js";
 import { AUTOSAVE_OPTION, autosaveDelay, kit, WRAP_OPTION, workspaceRelative, type WorkspaceStoreLike } from "./kit.js";
-import { createFilesHost, FILE_EDITOR_TAB, FILES_KIT_ID, WORKSPACE_STORE_SERVICE, type FileEditorParams } from "./protocol.js";
+import { createFilesHost, FILE_EDITOR_TAB, FILES_KIT_ID, UNKNOWN_PROJECT, WORKSPACE_STORE_SERVICE, type FileEditorParams } from "./protocol.js";
 
 /** Which document each tab's dot follows; a handle lives as long as its tab. */
 const bindings = new WeakMap<StageTabHandle, { document: FileDocument; stop(): void }>();
 
 /**
  * The dot on the tab follows the document even while the tab is in the
- * background. The document can be a new one — after a project switch or a
- * reload of this kit — so the binding moves with it.
+ * background. The document can be a new one — another project's stage has a
+ * tab of the same path, or this kit reloaded — so the binding moves with it.
  */
-function bindTab(handle: StageTabHandle, params: FileEditorParams): FileDocument | undefined {
+function bindTab(handle: StageTabHandle, params: FileEditorParams, workspace: string): FileDocument | undefined {
   const current = kit.current;
   if (!current) return undefined;
-  const document = current.documents.open(params.path);
+  const document = current.documents.open(workspace, params.path);
   const bound = bindings.get(handle);
   if (bound?.document === document) return document;
   if (bound) bound.stop();
   else handle.onClose(() => {
-    bindings.get(handle)?.stop();
+    const closing = bindings.get(handle);
+    closing?.stop();
     bindings.delete(handle);
-    kit.current?.documents.close(params.path);
+    if (closing) kit.current?.documents.close(closing.document);
   });
   bindings.set(handle, { document, stop: document.subscribe(() => handle.setDirty(document.getState().dirty)) });
   handle.setDirty(document.getState().dirty);
@@ -34,6 +35,12 @@ function bindTab(handle: StageTabHandle, params: FileEditorParams): FileDocument
 
 export function openFileEditor(actions: WorkbenchActions, relPath: string, line?: number): void {
   actions.openStageTab(FILE_EDITOR_TAB, line ? { path: relPath, line } : { path: relPath }, { key: relPath });
+}
+
+/** The project on screen, whose stage the commands act on; undefined when the window knows none. */
+function shownProject(actions: WorkbenchActions): string | undefined {
+  const thread = actions.activeThread();
+  return thread?.workspaceId ?? thread?.cwd;
 }
 
 /**
@@ -63,11 +70,15 @@ export const filesExtension: DesktopExtension = {
       title: (params) => fileName(fileEditorParams(params).path),
       Icon: FilePen,
       restore: (params) => Boolean(fileEditorParams(params).path),
-      render: (raw, handle, actions) => {
+      // The tab reads and saves in the project whose stage it is on, never in the one the host has open.
+      render: (raw, handle, actions, from) => {
         const params = fileEditorParams(raw);
-        if (fileViewKind(params.path) !== "text") return <MediaTab key={params.path} params={params} handle={handle} actions={actions} />;
-        const document = bindTab(handle, params);
-        return document ? <FileEditorTab key={params.path} params={params} handle={handle} actions={actions} document={document} /> : null;
+        const workspace = from?.workspace;
+        if (!workspace) return <UnknownProjectTab path={params.path} />;
+        const key = `${workspace}\u0000${params.path}`;
+        if (fileViewKind(params.path) !== "text") return <MediaTab key={key} params={params} handle={handle} actions={actions} />;
+        const document = bindTab(handle, params, workspace);
+        return document ? <FileEditorTab key={key} params={params} handle={handle} actions={actions} document={document} /> : null;
       },
     });
 
@@ -105,8 +116,11 @@ export const filesExtension: DesktopExtension = {
       run: async (actions) => {
         const shown = actions.activeStageTab?.();
         const path = shown?.kind === "extension" && shown.tabKind === FILE_EDITOR_TAB ? fileEditorParams(shown.params).path : undefined;
-        const document = path ? documents.get(path) : undefined;
-        if (!path || !document) { actions.notify("Open a file in the editor first."); return; }
+        if (!path) { actions.notify("Open a file in the editor first."); return; }
+        const workspace = shownProject(actions);
+        if (!workspace) { actions.notify(`Not saved: ${UNKNOWN_PROJECT}`); return; }
+        const document = documents.get(workspace, path);
+        if (!document) { actions.notify("Open a file in the editor first."); return; }
         await saveDocument(document, fileName(path), actions);
       },
     });
@@ -120,9 +134,12 @@ export const filesExtension: DesktopExtension = {
       access: "write",
       run: async (actions) => {
         const open = actions.stageTabs().filter((tab) => tab.kind === "extension" && tab.tabKind === FILE_EDITOR_TAB && tab.dirty);
+        if (open.length === 0) return;
+        const workspace = shownProject(actions);
+        if (!workspace) { actions.notify(`Not saved: ${UNKNOWN_PROJECT}`); return; }
         for (const tab of open) {
           if (tab.kind !== "extension") continue;
-          const document = documents.get(fileEditorParams(tab.params).path);
+          const document = documents.get(workspace, fileEditorParams(tab.params).path);
           if (!document) continue;
           try {
             if (!await document.save()) actions.notify(`${tab.title} was not saved.`);
@@ -140,8 +157,6 @@ export const filesExtension: DesktopExtension = {
     });
     // Tools of a thread this client does not show never reach it; the end of that thread's turn does.
     context.events.on("agent-status", (event) => { if (!event.running) void documents.checkAll(); });
-    // Another project's paths name other files.
-    context.events.on("workspace-changed", (event) => { if (event.from && event.from !== event.to) documents.clear(); });
 
     return () => {
       documents.clear();

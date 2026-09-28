@@ -331,9 +331,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!hostAvailable()) return;
     const request = ++this.changesRequest;
     const cwd = this.state.cwd;
-    if (this.state.draftPending) { this.update({ changes: NO_CHANGES }); return; }
     try {
-      const next = await this.host.getChanges();
+      // The project on screen, a draft's too; acting on the changes waits until the draft is a thread.
+      const next = await this.host.getChanges(undefined, this.workspace());
       if (request === this.changesRequest && cwd === this.state.cwd) this.update({ changes: next });
     } catch (error) {
       if (request === this.changesRequest) this.notify(errorMessage(error));

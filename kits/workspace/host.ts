@@ -180,8 +180,8 @@ export function createWorkspaceHostExtension(): HostExtension {
       const cwd = () => services.cwd();
       // A command may name another workspace by id; without one it means the host's.
       const workspaceOf = (input: unknown) => optionalString(input, "workspace") ?? optionalString(input, "cwd") ?? cwd();
-      // Reading commands follow the project the client shows: a draft's is not the host's.
-      const readRoot = async (input: unknown) => {
+      // File commands follow the project the client shows: a draft's is not the host's.
+      const shownRoot = async (input: unknown) => {
         const named = optionalString(input, "workspace");
         return named ? services.knownWorkspacePath(named) : cwd();
       };
@@ -276,7 +276,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("clone-jobs", () => clones.list(), { access: "read" });
       context.registerCommand("clone-forget", (input) => { clones.forget(requiredString(input, "id")); });
       context.registerCommand("file-tree", async (input) => {
-        const project = await readRoot(input);
+        const project = await shownRoot(input);
         const relative = optionalRelativePath(input);
         if (relative) await workspaceGit.assertWorkspacePath(project, relative);
         return readFileTree(relative ? resolve(project, relative) : project, relative ?? "");
@@ -291,11 +291,12 @@ export function createWorkspaceHostExtension(): HostExtension {
       };
       context.registerCommand("changes", async (input) => {
         const query = (record(input).query ?? {}) as WorkspaceChangesQuery;
-        if (query.scope === "branch") return branchChanges(cwd(), query);
-        return git.getChanges(cwd());
+        const project = await shownRoot(input);
+        if (query.scope === "branch") return branchChanges(project, query);
+        return git.getChanges(project);
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("file-diff", async (input) => {
-        const project = await readRoot(input);
+        const project = await shownRoot(input);
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
@@ -309,20 +310,20 @@ export function createWorkspaceHostExtension(): HostExtension {
         return refreshedChanges(project);
       });
       context.registerCommand("read-file", async (input) => {
-        const project = await readRoot(input);
+        const project = await shownRoot(input);
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
       }, { access: "read", callers: [FILES_KIT_ID] });
       context.registerCommand("file-stat", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return statFile(resolve(project, path));
       }, { access: "read", callers: [FILES_KIT_ID] });
       // An editor's save: refused as a conflict when the file changed since `expectedMtimeMs`.
       context.registerCommand("write-file", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const path = relativePath(input);
         const fields = record(input);
         if (typeof fields.text !== "string") throw new HostCommandError('Workspace command needs "text".');
