@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChartColumn, RefreshCw } from "lucide-react";
 import { Empty, errorMessage, formatCost, useThreadStore, type HostExtensionClient, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, rankUsage, USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageRange } from "./dashboard.js";
+import { QuotaHistory, UsageActivity } from "./activity.js";
 import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
@@ -98,7 +99,10 @@ export function UsagePage({ host, actions, params = {}, navigate, now }: Partial
   const [limits, setLimits] = useState<UsageLimitsSummary>();
   const [limitsError, setLimitsError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [limitsBusy, setLimitsBusy] = useState(false);
+  const [clock, setClock] = useState(() => (now?.() ?? new Date()).getTime());
   const request = useRef(0);
+  const limitsRequest = useRef(0);
   const [days, setDays] = useState(() => dayStarts(HISTORY_DAYS, now?.()));
   const index = useThreadIndex();
 
@@ -122,22 +126,39 @@ export function UsagePage({ host, actions, params = {}, navigate, now }: Partial
   }, [host, now]);
 
   const loadLimits = useCallback(async (refresh: boolean) => {
+    const id = ++limitsRequest.current;
+    setLimitsBusy(true);
     try {
-      setLimits(await host.invoke(USAGE_LIMITS_COMMAND, refresh ? { refresh } : {}) as UsageLimitsSummary);
+      const result = await host.invoke(USAGE_LIMITS_COMMAND, refresh ? { refresh } : {}) as UsageLimitsSummary;
+      if (id !== limitsRequest.current) return;
+      setLimits(result);
+      setClock((now?.() ?? new Date()).getTime());
       setLimitsError(undefined);
     } catch (failure) {
-      setLimitsError(errorMessage(failure));
+      if (id === limitsRequest.current) setLimitsError(errorMessage(failure));
+    } finally {
+      if (id === limitsRequest.current) setLimitsBusy(false);
     }
-  }, [host]);
+  }, [host, now]);
 
   useEffect(() => { void load(false); void loadLimits(false); }, [load, loadLimits]);
-  const readAgain = () => { void load(true); void loadLimits(true); };
+  useEffect(() => {
+    const timer = setInterval(() => setClock((now?.() ?? new Date()).getTime()), 30_000);
+    return () => clearInterval(timer);
+  }, [now]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible" || busy || limitsBusy) return;
+      void load(false); void loadLimits(false);
+    }, 5 * 60_000);
+    return () => clearInterval(timer);
+  }, [load, loadLimits, busy, limitsBusy]);
+  const readAgain = () => { setClock((now?.() ?? new Date()).getTime()); void load(true); void loadLimits(true); };
 
   const entries = useMemo(() => summary?.entries ?? [], [summary]);
   const last = days.length;
   const from = last - (USAGE_RANGES.find((entry) => entry.id === range)?.days ?? 30);
   const series = useMemo(() => dailyFigures(entries, days, from), [days, entries, from]);
-  const clock = (now?.() ?? new Date()).getTime();
   const rangeLabel = USAGE_RANGES.find((entry) => entry.id === range)?.label ?? "";
 
   const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
@@ -171,7 +192,7 @@ export function UsagePage({ host, actions, params = {}, navigate, now }: Partial
     <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
       <div className="usage-toolbar">
         <span role="status">{busy ? "Reading…" : read}</span>
-        <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy} onClick={readAgain}><RefreshCw size={14} /></button>
+        <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain}><RefreshCw size={14} /></button>
       </div>
 
       {error && !summary ? (
@@ -190,7 +211,10 @@ export function UsagePage({ host, actions, params = {}, navigate, now }: Partial
           <section className="usage-section" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
             <UsageLimits limits={limits} error={limitsError} now={clock} entries={entries} fromDay={last - 30} period="Last 30 days" />
+            <QuotaHistory limits={limits} now={clock} />
           </section>
+
+          <UsageActivity entries={entries} labels={RUNTIME_LABELS} loaded={!!summary} rangeDays={last - from} now={clock} />
 
           <section className="usage-section" aria-labelledby="usage-breakdown-title">
             <header className="usage-section-head">

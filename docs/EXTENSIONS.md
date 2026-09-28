@@ -1505,6 +1505,13 @@ names one; `anthropic` hashes `org:<organization id>` for a personal plan and ad
 `:user:<account id>` for a team or enterprise plan, which Pi cannot tell, so those stay
 apart. Pi Limits keeps only the hash in its state file.
 
+Usage's `limits` answer also carries `history`: the readings of the last 24 hours
+(at most 12,000), kept in the kit's own `limit-history.json`. A reading is an
+account at its `checkedAt`, which is when the provider was asked, never when a
+cached answer was handed on; a cached answer adds nothing. A source whose read
+fails keeps its last windows, marked `unavailable: { reason: "failed" }`; a
+signed-out or unsupported account drops its readings.
+
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
 conversations their CLIs ran outside Tau. A backend that can import them
 registers two commands granted to `tau.onboarding`:

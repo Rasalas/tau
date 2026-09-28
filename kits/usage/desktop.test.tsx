@@ -148,9 +148,8 @@ describe("Usage page", () => {
     expect(within(codex).getByText("pro")).toBeTruthy();
     expect(within(codex).getByText("34% used")).toBeTruthy();
     expect(within(codex).getByText("resets in 1h 30m")).toBeTruthy();
-    const weekly = within(codex).getByRole("meter", { name: "Weekly used" });
-    expect(weekly.getAttribute("aria-valuenow")).toBe("95");
-    expect(weekly.closest(".usage-window")?.getAttribute("data-level")).toBe("critical");
+    const weekly = within(codex).getByRole("img", { name: /^Weekly: 95% used/u });
+    expect(weekly.getAttribute("data-low")).toBe("true");
     expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText(/An API key or a cloud provider has no plan limits/u)).toBeTruthy();
   });
 
@@ -162,7 +161,7 @@ describe("Usage page", () => {
     const limitsList = await screen.findByLabelText("Limits");
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["ChatGPT · Codex, Pi limits"]);
     const account = within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Pi limits" });
-    expect(within(account).getAllByRole("meter")).toHaveLength(1);
+    expect(within(account).getAllByRole("img", { name: /^5-hour:/u })).toHaveLength(1);
     expect(within(account).getByText("10% used")).toBeTruthy();
     expect(within(account).getByText(/via Pi/u)).toBeTruthy();
     expect(within(account).getByText("pro")).toBeTruthy();

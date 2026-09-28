@@ -139,6 +139,30 @@ describe("Usage host half", () => {
     expect(readDays(Array.from({ length: 400 }, (_, index) => index + 1))).toBeUndefined();
   });
 
+  it("retains quota readings on failure and clears them on sign-out", async () => {
+    const { registry } = await harness();
+    let mode = "ok";
+    await registry.activate({
+      id: "tau.codex", name: "Codex",
+      activate(context) {
+        context.registerCommand("usage-limits", () => {
+          if (mode === "failed") throw new Error("Provider offline");
+          return { accounts: [{ id: "codex:account", runtime: "codex", label: "Codex", checkedAt: NOW, windows: mode === "ok" ? [{ id: "w", kind: "session", label: "5-hour", usedPercent: 30 }] : [], ...(mode === "signed-out" ? { unavailable: { reason: "signed-out" } } : {}) }] };
+        }, { callers: ["tau.usage"] });
+      },
+    });
+    const limits = () => registry.invoke("tau.usage", "limits", { refresh: true }) as Promise<UsageLimitsSummary>;
+    expect((await limits()).history).toHaveLength(1);
+    mode = "failed";
+    const failed = await limits();
+    expect(failed.accounts[0]).toMatchObject({ checkedAt: NOW, unavailable: { reason: "failed" }, windows: [{ usedPercent: 30 }] });
+    expect(failed.history).toHaveLength(1);
+    mode = "signed-out";
+    expect((await limits()).history).toEqual([]);
+    mode = "failed";
+    expect((await limits()).accounts).toEqual([]);
+  });
+
   it("asks every kit that reports limits, keeps what it answered a while, and says which could not be asked", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-usage-limits-"));
     directories.push(root);

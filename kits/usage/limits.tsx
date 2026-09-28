@@ -1,63 +1,40 @@
 import { formatCost, ProviderIconStack, tooltipProps } from "tau";
 import { groupAccounts, memberCosts, memberName, type LimitGroup, type MemberCost } from "./accounts.js";
-import type { UsageEntry, UsageLimitAccount, UsageLimitWindow, UsageLimitsSummary } from "./protocol.js";
+import type { UsageEntry, UsageLimitAccount, UsageLimitSample, UsageLimitWindow, UsageLimitsSummary } from "./protocol.js";
+import { FRESH_MS, providerOf, providerTone, quotaState } from "./quota.js";
 import { elapsedShare, resetsIn } from "./view-model.js";
 
-/** From here a window reads as nearly spent. */
-const WARN_PERCENT = 75;
-const CRITICAL_PERCENT = 90;
-
-function resetAt(window: UsageLimitWindow, now: number): string | undefined {
-  if (!window.resetsAt) return undefined;
-  const at = new Date(window.resetsAt);
-  const sameDay = new Date(now).toDateString() === at.toDateString();
-  return at.toLocaleString(undefined, sameDay ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
-}
-
-/**
- * One window: how much of it is used, and when it resets. The tick on the
- * track is how far the window's time has run, where even use would be now.
- */
-function WindowLine({ window, now }: { window: UsageLimitWindow; now: number }) {
+function WindowRow({ account, window, history, now }: { account: UsageLimitAccount; window: UsageLimitWindow; history: readonly UsageLimitSample[]; now: number }) {
   const used = Math.round(Math.max(0, Math.min(100, window.usedPercent)));
   const elapsed = elapsedShare(window, now);
-  const pace = elapsed === undefined ? undefined : Math.round(elapsed * 100);
-  const countdown = resetsIn(window, now);
-  const at = resetAt(window, now);
-  const level = used >= CRITICAL_PERCENT ? "critical" : used >= WARN_PERCENT ? "warn" : undefined;
-  const hint = [
-    `${window.label}: ${used}% used`,
-    pace === undefined ? undefined : `${pace}% of the window has passed; the tick is where even use would be.`,
-    at ? `Resets ${at}.` : undefined,
-  ].filter(Boolean).join("\n");
+  const timeElapsed = elapsed === undefined ? undefined : Math.round(elapsed * 100);
+  const state = quotaState(account, window, history, now);
+  const expired = state.kind === "expired";
+  const countdown = expired ? "Reset reached" : resetsIn(window, now) ?? "Reset time unavailable";
+  const at = window.resetsAt ? new Date(window.resetsAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : undefined;
+  const summary = expired ? `${window.label}: reset reached, waiting for a new reading` : `${window.label}: ${used}% used${timeElapsed === undefined ? "" : `, ${timeElapsed}% of the window elapsed`}, ${countdown}${state.kind === "stale" ? ", last known reading" : ""}`;
+  const warning = ["exhausted", "forecast", "ahead"].includes(state.kind);
   return (
-    <div className="usage-window" data-level={level}>
-      <span className="usage-window-label">{window.label}</span>
-      <div
-        className="usage-meter"
-        role="meter"
-        aria-label={`${window.label} used`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={used}
-        aria-valuetext={`${used}% used${countdown ? `, ${countdown}` : ""}`}
-        tabIndex={0}
-        {...tooltipProps(hint)}
-      >
-        {used > 0 ? <span className="usage-meter-fill" style={{ width: `${used}%` }} /> : null}
-        {pace !== undefined ? <span className="usage-meter-pace" style={{ left: `${pace}%` }} /> : null}
+    <div className="usage-window" data-state={state.kind}>
+      <div className="usage-window-label"><strong>{window.label}</strong><small>{expired ? "No current reading" : `${used}% used`}</small></div>
+      <div className="usage-window-bar" role="img" aria-label={summary} tabIndex={0} {...tooltipProps(expired ? state.detail : summary)} data-low={!expired && used >= 90 ? "true" : undefined}>
+        <span className="usage-window-track" />
+        {!expired && used > 0 ? <span className="usage-window-fill" style={{ width: `${used}%` }} /> : null}
+        {!expired && timeElapsed !== undefined ? <span className="usage-window-time" style={{ left: `${timeElapsed}%` }} /> : null}
       </div>
-      <span className="usage-window-used">{used}% used</span>
-      <span className="usage-window-reset">{countdown ?? "no reset time"}{at && countdown !== "reset" ? <small>{at}</small> : null}</span>
+      <div className="usage-window-footer">
+        <span className="usage-window-reset" {...tooltipProps(at ? `Resets ${at}` : countdown)}>{countdown}</span>
+        <span className="usage-window-status" tabIndex={0} {...tooltipProps(state.detail)}>{warning ? <span aria-hidden="true">△ </span> : null}{state.label}</span>
+      </div>
     </div>
   );
 }
 
 function checked(at: number, now: number): string {
-  const minutes = Math.round((now - at) / 60_000);
-  if (minutes < 1) return "checked just now";
-  if (minutes < 60) return `checked ${minutes} min ago`;
-  return `checked ${new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  const minutes = Math.max(0, Math.floor((now - at) / 60_000));
+  if (minutes < 1) return "Updated just now";
+  if (minutes < 60) return `Updated ${minutes} min ago`;
+  return `Last read ${new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
 }
 
 /** A Pi account is one provider's login: its mark is the provider's, through Pi. */
@@ -88,19 +65,26 @@ function SharedCost({ costs, period }: { costs: MemberCost[]; period: string }) 
   );
 }
 
-function AccountLimits({ group, costs, period, now }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; now: number }) {
-  const { shown } = group;
+function AccountCard({ group, costs, period, history, failed, now }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number }) {
+  const shown: UsageLimitAccount = failed ? { ...group.shown, unavailable: { reason: "failed", message: failed } } : group.shown;
   const shared = group.members.length > 1;
+  const stale = !!shown.unavailable || now - shown.checkedAt > FRESH_MS || shown.checkedAt > now;
+  const provider = providerOf(shown);
   return (
-    <section className="usage-account" aria-label={`${group.label} limits`}>
+    <section className="usage-account" aria-label={`${group.label} limits`} data-provider={providerTone(provider)}>
       <header>
-        <GroupMarks group={group} />
-        <strong {...(shared ? tooltipProps(`${group.members.map(memberName).join(" and ")} are signed in to the same account; its limits show once, from the latest read.`, { side: "top" }) : {})}>{group.label}</strong>
-        {shown.plan ? <span className="usage-plan">{shown.plan}</span> : null}
-        <small>{checked(shown.checkedAt, now)}{shared ? ` · via ${memberName(shown)}` : ""}</small>
+        <div className="usage-provider-mark"><GroupMarks group={group} /></div>
+        <div className="usage-account-heading">
+          <strong {...(shared ? tooltipProps(`${group.members.map(memberName).join(" and ")} are signed in to the same account; its limits show once, from the latest read.`, { side: "top" }) : {})}>{group.label}</strong>
+          <span>{shown.plan ?? "Subscription"}</span>
+        </div>
+        <small data-stale={stale || undefined}>{stale ? "Last known reading" : "Live reading"}</small>
       </header>
-      {shown.windows.map((window) => <WindowLine key={window.id} window={window} now={now} />)}
+      <div className="usage-windows">
+        {shown.windows.map((window) => <WindowRow key={window.id} account={shown} window={window} history={history} now={now} />)}
+      </div>
       {shared && costs ? <SharedCost costs={costs} period={period} /> : null}
+      <footer className="usage-account-checked">{checked(shown.checkedAt, now)}{shared ? ` · via ${memberName(group.shown)}` : ""}</footer>
     </section>
   );
 }
@@ -118,20 +102,22 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
   fromDay?: number;
   period?: string;
 }) {
-  if (error) return <p className="usage-note" data-level="error">{error}</p>;
-  if (!limits) return <p className="usage-note">Reading limits…</p>;
+  if (!limits) return <p className="usage-note" data-level={error ? "error" : undefined}>{error ?? "Reading limits…"}</p>;
   const groups = groupAccounts(limits.accounts);
   const fullest = (group: LimitGroup) => Math.max(0, ...group.shown.windows.map((window) => window.usedPercent));
   const reporting = groups.filter((group) => group.shown.windows.length > 0).sort((left, right) => fullest(right) - fullest(left));
   const silent = groups.filter((group) => group.shown.windows.length === 0);
   return (
     <div className="usage-limits" aria-label="Limits">
+      {error ? <p className="usage-note" data-level="error">{error} Showing the last known readings.</p> : null}
       {reporting.length === 0 ? (
-        <p className="usage-note">
-          No plan reports its limits yet. Codex and the Agent SDK runtime report them for a signed-in plan; Pi&apos;s providers send
-          them with their answers, so they show up here after a thread on a plan has answered.
-        </p>
-      ) : reporting.map((group) => <AccountLimits key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} now={now} />)}
+        <div className="usage-empty-card"><h4>No subscription readings yet</h4><p>Codex and the Agent SDK report limits for a signed-in plan. Pi providers report them after a thread on a plan has answered.</p></div>
+      ) : (
+        <div className="usage-account-grid">
+          {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} />)}
+        </div>
+      )}
+      {reporting.length > 0 ? <p className="usage-legend"><span className="usage-legend-diamond" aria-hidden="true" /> The diamond marks steady usage over the window. Each bar is a separate limit.</p> : null}
       {silent.length > 0 ? (
         <ul className="usage-silent" aria-label="Accounts without limits">
           {silent.map((group) => (

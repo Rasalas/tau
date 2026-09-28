@@ -135,10 +135,19 @@ export interface UsageLimitSourceReport {
   detail: string;
 }
 
+/** One account as a limits source reported it, at its own `checkedAt`. */
+export interface UsageLimitSample {
+  /** The kit that reported it. */
+  source: string;
+  account: UsageLimitAccount;
+}
+
 export interface UsageLimitsSummary {
   checkedAt: number;
   accounts: UsageLimitAccount[];
   sources: UsageLimitSourceReport[];
+  /** Readings of the last 24 hours, each one a new observation (a cached answer is not). */
+  history?: UsageLimitSample[];
 }
 
 /** A runtime backend whose kit keeps usage per thread. */
