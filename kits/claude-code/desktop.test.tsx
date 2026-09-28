@@ -31,6 +31,18 @@ describe("Claude Code desktop extension", () => {
     expect(screen.queryByRole("img", { name: "Claude Code" })).toBeNull();
   });
 
+  it("turns the resume offer off for the instance whose question the user answered with \"Don't ask again\"", () => {
+    const { registry } = createKitHarness();
+    const turnOff = vi.fn();
+    registry.activate({ id: "tau.resume-compaction", name: "Resume Compaction", activate: (context) => context.provideService("tau.resume-compaction/opt-out", { turnOff }) });
+    registry.activate(claudeCodeExtension);
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "tau.claude-code", name: "resume-question-off", payload: { runtime: "claude-code@work" } });
+    expect(turnOff).toHaveBeenCalledWith("claude-code@work");
+    registry.deactivate("tau.resume-compaction");
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "tau.claude-code", name: "resume-question-off", payload: { runtime: "claude-code" } });
+    expect(turnOff).toHaveBeenCalledTimes(1);
+  });
+
   it("reports the CLI and the account it is signed in as, and asks the CLI again on demand", async () => {
     const invoke = vi.fn(async (command: string, input?: unknown) => command === "status"
       ? { kind: "claude-code", command: "claude", path: "/usr/local/bin/claude" }

@@ -14,6 +14,15 @@ export const ONBOARDING_KIT_ID = "tau.onboarding";
 export const CLAUDE_HOME_VARIABLE = "CLAUDE_CONFIG_DIR";
 /** Pushed with a `ClaudeInstancesReport` whenever an instance is added, changed or removed. */
 export const INSTANCES_EVENT = "instances";
+/** Pushed when the user answers the CLI's resume question with "Don't ask again", for the desktop half to pass on. */
+export const RESUME_QUESTION_OFF_EVENT = "resume-question-off";
+/** Resume Compaction Kit's desktop service (`kits/resume-compaction/protocol.ts`), named here: a kit never imports another. */
+export const RESUME_COMPACTION_OPT_OUT_SERVICE = "tau.resume-compaction/opt-out";
+
+export interface ResumeQuestionOffEvent {
+  /** The backend kind of the instance the thread runs on. */
+  runtime: string;
+}
 
 /** One instance as the Providers page shows it. */
 export interface ClaudeInstanceView extends RuntimeInstanceConfig {

@@ -26,6 +26,8 @@ import {
   CLAUDE_CODE_HOST_EXTENSION_ID,
   CLAUDE_HOME_VARIABLE,
   INSTANCES_EVENT,
+  RESUME_COMPACTION_OPT_OUT_SERVICE,
+  RESUME_QUESTION_OFF_EVENT,
   type ClaudeInstanceView,
   type ClaudeInstancesReport,
   type ClaudeStatusReport,
@@ -35,6 +37,10 @@ import { isAgentSdkTool, presentAgentSdkTool } from "./tool-presentation.js";
 const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
 /** Terminal Kit's desktop service (`kits/terminal/protocol.ts`), named here: a kit never imports another. */
 const TERMINAL_RUN_SERVICE = "tau.terminal/run";
+/** Turns the resume banner off for a runtime on every device; see `RESUME_COMPACTION_OPT_OUT_SERVICE`. */
+interface ResumeCompactionOptOut {
+  turnOff(runtime: string): void;
+}
 interface TerminalRunService {
   run(request: { command: string; label?: string }, actions?: WorkbenchActions): Promise<{ id: string; exitCode?: number }>;
 }
@@ -420,6 +426,7 @@ export const claudeCodeExtension: DesktopExtension = {
       }
     };
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
+    let optOut: ResumeCompactionOptOut | undefined;
     const stops = [
       // Its tools carry their own names and arguments; without this the transcript names the arguments.
       plugin.registerToolRenderer("claude-code.tools", isAgentSdkTool, presentAgentSdkTool, { profiles: ["desktop", "web", "compact"] }),
@@ -436,6 +443,15 @@ export const claudeCodeExtension: DesktopExtension = {
         };
       }),
       plugin.host.onEvent(INSTANCES_EVENT, (payload) => { if (isReport(payload)) sync(payload); }),
+      plugin.useService<ResumeCompactionOptOut>(RESUME_COMPACTION_OPT_OUT_SERVICE, (service) => {
+        optOut = service;
+        return () => { if (optOut === service) optOut = undefined; };
+      }),
+      // "Don't ask again" in the CLI's own question also keeps the banner away for that instance.
+      plugin.host.onEvent(RESUME_QUESTION_OFF_EVENT, (payload) => {
+        const runtime = (payload as { runtime?: unknown } | undefined)?.runtime;
+        if (typeof runtime === "string") optOut?.turnOff(runtime);
+      }),
     ];
     let active = true;
     void plugin.host.invoke("instances").then((report) => { if (active && isReport(report)) sync(report); }, () => undefined);
