@@ -25,3 +25,6 @@ reports/*.json
 # The performance report test reads these as checked-in inputs.
 !reports/renderer-report.json
 !reports/renderer-transcript-current-run-0[1-3].json
+
+# Agent worktrees
+.claude/worktrees/
