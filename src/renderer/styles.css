@@ -39,6 +39,8 @@ button > svg { pointer-events: none; }
   border-radius: 50%; animation: spin .9s linear infinite;
 }
 .spinner.acid { border-color: var(--acid-text); border-top-color: transparent; }
+/* A run in flight: the blue of the rail's Working. */
+.spinner.info { border-color: var(--info); border-top-color: transparent; }
 .spinner.small { width: 9px; height: 9px; }
 .spinner-sm { width: 12px; height: 12px; }
 .spinner-md { width: 14px; height: 14px; border-width: 2px; }
@@ -292,24 +294,27 @@ body.resizing-col .app-shell { transition: none; }
 }
 /* The age as T3 Code shows it: the row's own face, tabular, muted; the same on a settled row. */
 .thread-project-line > time { font: 12px var(--sans); font-variant-numeric: tabular-nums; color: var(--faint); }
+/* One triplet on every client: a run in blue with a spinner, a question in amber, done in green. */
 .thread-status-age {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
-  color: var(--working); font-weight: 500; font-variant-numeric: tabular-nums;
+  color: var(--info-ink); font-weight: 500; font-variant-numeric: tabular-nums;
 }
 .thread-status-age.status-ready { color: var(--ready); }
+.thread-status-age.status-waiting { color: var(--warn); }
 .thread-status-age.status-interrupted, .status-limited { color: var(--warn); }
 .thread-status-age.status-failed { color: var(--fail-ink); }
 .thread-status-age > i {
-  width: 10px; height: 10px; flex: none; border: 1.5px solid var(--working);
+  width: 10px; height: 10px; flex: none; border: 1.5px solid var(--info);
   border-top-color: transparent; border-radius: 50%; animation: spin .9s linear infinite;
 }
 .thread-status-age > time { min-width: 3ch; color: var(--stale); font: inherit; letter-spacing: 0; }
+/* Regular type; the open thread alone is set in semibold. */
 .thread-title {
-  margin-top: calc(4px * var(--density)); font-size: 13.5px; font-weight: 600; line-height: 18px;
-  color: var(--ink-2); letter-spacing: -.01em;
+  margin-top: calc(4px * var(--density)); font-size: 13px; font-weight: 400; line-height: 18px;
+  color: var(--ink); letter-spacing: -.005em;
   display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.thread-row.active .thread-title { font-weight: 650; color: var(--ink); }
+.thread-row.active .thread-title { font-weight: 600; }
 /*
  * Right to left and wrapping into a clipped second line: when the card is narrow the
  * branch shrinks first, then the agent count and the kits' marks (a request badge) drop;
@@ -323,17 +328,18 @@ body.resizing-col .app-shell { transition: none; }
 .thread-meta-end { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; }
 .thread-meta-marks { flex: none; display: flex; align-items: center; gap: 7px; }
 .thread-branch {
-  flex: 1 1 0; min-width: 0; font: 11px var(--mono); color: var(--muted-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 5px;
+  font: 11.5px var(--sans); color: var(--muted-2); overflow: hidden; white-space: nowrap;
 }
+.thread-branch > svg { flex: none; color: var(--faint); }
 /* Threads an agent spawned live in the Agents panel; the rail only counts them. */
 .thread-agent-count {
   display: inline-flex; align-items: center; gap: 4px; flex: none;
-  color: var(--working); font: 500 10px var(--mono);
+  color: var(--info-ink); font: 500 10px var(--mono);
 }
 .thread-agent-count > i {
   width: 6px; height: 6px; flex: none; border-radius: 50%;
-  background: var(--working); font-style: normal; animation: blink 1.4s ease-in-out infinite;
+  background: var(--info); font-style: normal; animation: blink 1.4s ease-in-out infinite;
 }
 
 /* Quiet until the row is hovered or open. */
@@ -1047,6 +1053,7 @@ body.resizing-col .app-shell { transition: none; }
   color: inherit; font: inherit; text-align: left;
 }
 .work-live-line:hover { color: var(--ink-2); }
+.work-live-question { flex: none; color: var(--warn); }
 .work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-live.running .work-live-label {
   background: linear-gradient(90deg, var(--muted) 30%, var(--ink-2) 50%, var(--muted) 70%) 0 0 / 300% 100%;
@@ -1581,9 +1588,10 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
+/* A question is amber wherever it shows: the rail, the live line, the card on the composer. */
 .extension-prompt-mark {
   width: 20px; height: 20px; flex: none; display: grid; place-items: center;
-  border-radius: 6px; background: var(--acid-chip); color: var(--acid-text);
+  border-radius: 6px; background: var(--warn-chip); color: var(--warn);
 }
 .extension-prompt-message {
   margin: 6px 4px 2px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap;
@@ -1650,8 +1658,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-color: var(--acid-line); }
 
-/* Rail marker for a thread that cannot continue without you. */
-.thread-row.activity-waiting { border-color: var(--acid-line); }
+/* Rail marker for a thread that cannot continue without you: the question's amber, not the accent a selection uses. */
+.thread-row.activity-waiting { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
 /* Rail marker for a thread whose turn a restart cut short. */
 .thread-row.activity-interrupted { border-color: var(--warn-chip); }

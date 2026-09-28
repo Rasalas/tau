@@ -89,7 +89,7 @@
   --focus: light-dark(#4a6410, #c7ff3d);             /* the focus ring */
 
   /* -------------------------------------------------------------- status */
-  --working: light-dark(#a34a08, #ff8a4d);           /* a run in flight */
+  --working: light-dark(#a34a08, #ff8a4d);           /* a file a turn changed; a write */
   --ready: light-dark(#1c7440, #7ade9f);             /* a run that finished */
   --removed: light-dark(#b03a28, #f07a6a);           /* something taken away */
   --stop: light-dark(#c2282d, #e5484d);              /* the abort control */
@@ -104,7 +104,7 @@
   --warn-chip: light-dark(#f7ecd8, #33241d);         /* a caution as a chip */
   --fail: light-dark(#c2452f, #d05a4a);              /* a failed run's mark */
   --fail-ink: light-dark(#a83b28, #d98a7c);          /* what that run says */
-  --info: light-dark(#3457d5, #4d7cff);              /* a step in progress */
+  --info: light-dark(#3457d5, #4d7cff);              /* a run or a step in progress */
   --info-deep: light-dark(#2745ad, #426fe1);         /* a step already done, in a dense bar */
   --info-ink: light-dark(#2b4bbf, #79acf0);          /* the same, as text */
   --merged: light-dark(#7446c2, #b59cf2);            /* a merged pull or merge request */
@@ -132,13 +132,6 @@
   --diff-add-edge: light-dark(#1c7440, #7ade9f);     /* an addition as a bar, a sign or a count */
   --diff-del-edge: light-dark(#b03a28, #f07a6a);     /* a removal as a bar, a sign or a count */
   --syntax-fn: light-dark(#5c6b13, #d9e88f);         /* highlight.js function and class names */
-
-  /* ------------------------------------------------------------- project */
-  /* A project's colour is its own hue, set on the element; the theme says how
-     deep that hue reads. Both are substituted where they are used, so
-     `--project-hue` resolves on the icon and not here. */
-  --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%)); /* a project's mark */
-  --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%)); /* its letters */
 
   /* The reload curtain: a full-screen boundary of its own. */
   --reload-core: light-dark(#e5f0c8, #25320f);       /* the centre of the reload curtain */
@@ -192,6 +185,14 @@
   --motion: 180ms;                                   /* a row or a card arriving */
   --motion-slow: 320ms;                              /* a curtain */
   --ease: cubic-bezier(.4, 0, .2, 1);                /* the curve all three use */
+}
+
+/* A project's colour is its own hue, which the client sets on the mark; the theme
+   says how deep that hue reads. Declared on the mark and not on :root: a custom
+   property's var() resolves where it is declared, and :root has no hue. */
+.thread-project-icon {
+  --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%)); /* a project's mark */
+  --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%)); /* its letters */
 }
 
 /* The preference, as the client writes it onto <html>. `system` is the base

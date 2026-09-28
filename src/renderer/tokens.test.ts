@@ -144,6 +144,16 @@ describe("the token contract", () => {
     expect(single.map(([name]) => name).sort()).toEqual(["--qr-ink", "--qr-paper", "--stop-ink"]);
   });
 
+  it("resolves a project's tint on its mark, where the hue is set", async () => {
+    const tokens = await readFile(TOKENS, "utf8");
+    // On :root, var(--project-hue) has no value, and the tint would be invalid on every mark.
+    const root = /^:root\s*\{([\s\S]*?)^\}/mu.exec(tokens)?.[1] ?? "";
+    expect(root).not.toMatch(/--project-(tint|ink):/u);
+    const mark = /^\.thread-project-icon\s*\{([\s\S]*?)^\}/mu.exec(tokens)?.[1] ?? "";
+    expect(mark).toMatch(/--project-tint:\s*light-dark\(hsl\(var\(--project-hue\)/u);
+    expect(mark).toMatch(/--project-ink:\s*light-dark\(hsl\(var\(--project-hue\)/u);
+  });
+
   it("defines every token the stylesheets ask for", async () => {
     const tokens = await readFile(TOKENS, "utf8");
     const defined = new Set([...tokens.matchAll(/^\s*(--[\w-]+):/gmu)].map((match) => match[1]));

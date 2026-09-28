@@ -588,7 +588,7 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .thread-card-icon > .provider-icon-stack.stacked:hover > .provider-icon-runtime { transform: translate(0, 0); mask-position: 0 0, 6.5px 0.5px; -webkit-mask-position: 0 0, 6.5px 0.5px; }
 .thread-card-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-card-muted { color: var(--faint); }
-.thread-card-row.tone-working, .thread-card-row.tone-working .thread-card-icon { color: var(--working); }
+.thread-card-row.tone-working, .thread-card-row.tone-working .thread-card-icon { color: var(--info-ink); }
 .thread-card-row.tone-warning, .thread-card-row.tone-warning .thread-card-icon { color: var(--warn); }
 .thread-card-row.tone-danger, .thread-card-row.tone-danger .thread-card-icon { color: var(--fail-ink); }
 .thread-card-row.tone-warning .thread-card-text, .thread-card-row.tone-danger .thread-card-text { white-space: normal; overflow-wrap: anywhere; }

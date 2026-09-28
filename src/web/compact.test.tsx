@@ -133,6 +133,8 @@ describe("the web client at 400 px", () => {
     const rows = within(list).getAllByRole("listitem");
     expect(rows.map((row) => row.dataset.status)).toEqual(["waiting", "running", "done"]);
     expect(rows[0].textContent).toContain("Waiting");
+    // The desktop rail's triplet: a question in amber behind a help glyph.
+    expect(rows[0].querySelector(".thread-status-age.status-waiting > svg")).toBeTruthy();
     expect(within(rows[0]).getByRole("button", { name: "Open thread Ship the web client" }).getAttribute("aria-description")).toBe("Waiting for an answer");
     expect(rows[1].textContent).toContain("Fix the flaky test");
   });

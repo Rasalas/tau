@@ -141,6 +141,42 @@ describe("ThreadRow project mark", () => {
   });
 });
 
+describe("ThreadRow state and type", () => {
+  const css = readFileSync(join(import.meta.dirname, "..", "styles.css"), "utf8");
+  const rule = (selector: string) => new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")} \\{([^}]*)\\}`, "u").exec(css)?.[1] ?? "";
+
+  it("marks a question with a help glyph and a finished run with a check", () => {
+    const waiting = render(<ThreadRow activity="waiting" activityLabel="Needs you" active={false} age="now" session={session} onSelect={() => {}} />);
+    const question = waiting.container.querySelector(".thread-status-age.status-waiting");
+    expect(question?.textContent).toBe("Needs you");
+    expect(question?.querySelector("svg.lucide-circle-help, svg.lucide-circle-question-mark")).toBeTruthy();
+    waiting.unmount();
+    const ready = render(<ThreadRow activity="ready" active={false} age="now" session={session} onSelect={() => {}} />);
+    expect(ready.container.querySelector(".thread-status-age.status-ready svg.lucide-check")).toBeTruthy();
+  });
+
+  it("colours the states as one triplet: a run blue, a question amber, done green", () => {
+    expect(rule(".thread-status-age")).toMatch(/color: var\(--info-ink\)/u);
+    expect(rule(".thread-status-age > i")).toMatch(/var\(--info\)/u);
+    expect(rule(".thread-status-age.status-waiting")).toMatch(/color: var\(--warn\)/u);
+    expect(rule(".thread-status-age.status-ready")).toMatch(/color: var\(--ready\)/u);
+    expect(rule(".thread-row.activity-waiting")).toMatch(/var\(--warn\)/u);
+  });
+
+  it("sets titles in regular type and only the open thread's in semibold", () => {
+    expect(rule(".thread-title")).toMatch(/font-weight: 400/u);
+    expect(rule(".thread-row.active .thread-title")).toMatch(/font-weight: 600/u);
+  });
+
+  it("leads the branch with a branch glyph, in the row's sans face", () => {
+    const { container } = render(<ThreadRow activity="idle" active={false} age="now" session={{ ...session, projectLabel: "fix/pairing-flake" }} onSelect={() => {}} />);
+    const branch = container.querySelector(".thread-branch")!;
+    expect(branch.firstElementChild?.matches("svg.lucide-git-branch")).toBe(true);
+    expect(branch.getAttribute("aria-hidden")).toBeNull();
+    expect(rule(".thread-branch")).toMatch(/var\(--sans\)/u);
+  });
+});
+
 describe("ThreadRow cost", () => {
   const usage = {
     inputTokens: 12_300, outputTokens: 2_100, cacheReadTokens: 8_000, cacheWriteTokens: 0,

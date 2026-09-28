@@ -135,8 +135,7 @@
 .touch-thread-row .thread-project-line > strong { font-size: 13px; }
 .touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: 13px; }
 .touch-thread-row .thread-status-age { font-size: 13px; }
-.touch-thread-row .thread-status-age.status-waiting { color: var(--acid-text); }
-.touch-thread-row .thread-title { margin-top: 4px; font: 600 16px/21px var(--sans); }
+.touch-thread-row .thread-title { margin-top: 4px; font: 400 16px/21px var(--sans); }
 .touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 18px; }
 .touch-thread-row .thread-meta-line { margin-top: 3px; line-height: 18px; }
 .touch-thread-row .thread-branch { font-size: 12px; }
@@ -148,7 +147,7 @@
 .touch-thread-provider { flex: none; }
 /* Settled rows are the rail's slim, quiet ones. */
 .touch-thread-row .thread-row.compact .thread-main { padding-block: 10px; }
-.touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 450 15px/20px var(--sans); color: var(--muted); }
+.touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 400 15px/20px var(--sans); color: var(--muted); }
 .touch-thread-stop {
   flex: none; align-self: center; width: 44px; height: 44px; margin-right: 6px; padding: 0;
   display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); cursor: pointer;

@@ -1,4 +1,4 @@
-import { ChevronRight, CircleAlert, CircleStop, Clock, Hammer } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleHelp, CircleStop, Clock, Hammer } from "lucide-react";
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import {
@@ -114,7 +114,9 @@ function LiveRow({ row, context }: { row: Extract<WorkRow, { kind: "live" }>; co
   const running = row.tools.some((tool) => tool.status === "running");
   return <section className={`work-live${open ? " expanded" : ""}${running && !context.stalled ? " running" : ""}`}>
     <button type="button" className="work-live-line" aria-expanded={open} onClick={() => setOpen(!open)}>
-      {running && !context.stalled ? <span className="spinner acid small" /> : <Hammer size={15} strokeWidth={1.7} />}
+      {context.waiting
+        ? <CircleHelp className="work-live-question" size={14} aria-hidden="true" />
+        : running && !context.stalled ? <span className="spinner info small" /> : <Hammer size={15} strokeWidth={1.7} />}
       <span className="work-live-label">{context.waiting ? "Waiting for your answer" : row.label}</span>
       <WorkingTimer startedAt={row.startedAt} />
       <ChevronRight className="activity-chevron" size={13} />

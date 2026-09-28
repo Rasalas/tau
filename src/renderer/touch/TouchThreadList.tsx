@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Check, ChevronDown, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, CircleHelp, GitBranch, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
@@ -49,8 +49,11 @@ function RowTime({ row }: { row: ThreadSupervisionRow }) {
     return <span className="thread-status-age status-working"><i />{row.startedAt !== undefined ? <time>{threadElapsed(row.startedAt, now)}</time> : "Working"}</span>;
   }
   const short = STATUS_SHORT[row.status];
-  if (short) return <span className={`thread-status-age ${STATUS_CLASS[row.status]}`}>{short}</span>;
-  if (row.unread && !row.settled) return <span className="thread-status-age status-ready">Ready</span>;
+  if (short) {
+    const Icon = row.status === "waiting" ? CircleHelp : CircleAlert;
+    return <span className={`thread-status-age ${STATUS_CLASS[row.status]}`}><Icon size={12} aria-hidden="true" />{short}</span>;
+  }
+  if (row.unread && !row.settled) return <span className="thread-status-age status-ready"><Check size={12} aria-hidden="true" />Ready</span>;
   return <time dateTime={new Date(row.modifiedAt).toISOString()}>{threadAge(row.modifiedAt, now)}</time>;
 }
 
@@ -316,7 +319,7 @@ function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; show
         <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(row.usage)} className="touch-thread-provider" hint={{ side: "left" }} />
       </span>
       {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}
-      {branch ? <MiddleTruncate className="thread-branch" value={branch} /> : null}
+      {branch ? <span className="thread-branch"><GitBranch size={12} aria-hidden="true" /><MiddleTruncate value={branch} /></span> : null}
     </span>
   </button>;
 }
