@@ -50,18 +50,19 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
   const { storage, stages, owner, workspaceKey, workspacePath, knownThreadIds, panelIds } = options;
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
   const [stageMaximized, setStageMaximized] = useState(false);
+  const [stageFolded, setStageFolded] = useState(false);
   const [dock, setDock] = useState<DockState>(EMPTY_DOCK);
   /** Whose layout is on screen and its project; state, so the restore re-renders. */
   const [restored, setRestored] = useState<Restored>();
   /** Counts calls that show, hide or pick a dock panel; a restore is not one. */
   const [dockAsks, setDockAsks] = useState(0);
-  const held = useRef({ restored, stage, stageMaximized, dock });
-  held.current = { restored, stage, stageMaximized, dock };
+  const held = useRef({ restored, stage, stageMaximized, stageFolded, dock });
+  held.current = { restored, stage, stageMaximized, stageFolded, dock };
 
   const persist = useCallback(() => {
-    const { restored: at, stage: tabs, stageMaximized: maximized, dock: shown } = held.current;
+    const { restored: at, stage: tabs, stageMaximized: maximized, stageFolded: folded, dock: shown } = held.current;
     if (!at) return;
-    stages.write(at.owner, { stage: tabs, maximized, dock: threadDock(shown) });
+    stages.write(at.owner, { stage: tabs, maximized, folded, dock: threadDock(shown) });
     if (at.workspace) writeDockState(storage, at.workspace, shown);
   }, [stages, storage]);
 
@@ -80,6 +81,7 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     setRestored({ owner, ...(workspaceKey ? { workspace: workspaceKey } : {}) });
     setStage(pruneStageState(layout?.stage ?? EMPTY_STAGE, { ...(workspacePath ? { workspacePath } : {}) }));
     setStageMaximized(layout?.maximized ?? false);
+    setStageFolded(layout?.folded ?? false);
     setDock(mergeDock(workspaceKey ? readDockState(storage, workspaceKey) : EMPTY_DOCK, layout?.dock));
   }, [owner, persist, stages, storage, workspaceKey, workspacePath]);
 
@@ -95,7 +97,7 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     if (!restored) return;
     const timer = window.setTimeout(persist, WRITE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [dock, persist, restored, stage, stageMaximized]);
+  }, [dock, persist, restored, stage, stageFolded, stageMaximized]);
 
   // A window that closes inside the write delay still keeps what it showed.
   useEffect(() => {
@@ -125,6 +127,10 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     const { drawer: _closed, ...rest } = current;
     return drawer ? { ...rest, drawer } : rest;
   }), []);
+  // The dock's old toggle shows or folds the stage now.
+  const setStageShown = useCallback((shown: SetStateAction<boolean>) => {
+    setStageFolded((folded) => !(typeof shown === "function" ? shown(!folded) : shown));
+  }, []);
   const setDockWidth = useCallback((width: number) => setDock((current) => current.width === width ? current : { ...current, width }), []);
   // The stored panel stays the choice while its kit has not activated; the
   // stand-in shown meanwhile is never written back.
@@ -138,8 +144,10 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     stage, setStage,
     /** The project of the stage on screen; it lags `workspaceKey` until the restore runs. */
     stageWorkspace: restored?.workspace,
-    /** The documents fill the centre, the chat their first tab; kept with the thread. */
+    /** The documents fill the centre, the chat folded to its spine; kept with the thread. */
     stageMaximized, setStageMaximized,
+    /** The stage folded to its spine; kept with the thread. */
+    stageFolded, setStageFolded, setStageShown,
     dockOpen: dock.open, setDockOpen, dockAsks,
     activePanel, setActivePanel,
     openedPanels,

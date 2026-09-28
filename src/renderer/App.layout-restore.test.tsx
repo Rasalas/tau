@@ -26,7 +26,7 @@ function projectClient() {
 }
 
 describe("App layout restore", () => {
-  it("keeps a restored dock panel whose kit offers it after another kit's panel", async () => {
+  it("keeps the tool last picked in a project while its kit has not activated yet", async () => {
     const storage = createMemoryStorage();
     storage.set(dockStateKey("/project"), JSON.stringify({ open: true, activePanel: "late", openedPanels: ["early", "late"] }));
     let arrive: (() => void) | undefined;
@@ -41,13 +41,10 @@ describe("App layout restore", () => {
     };
 
     renderApp(projectClient(), { storage, extensions: [early, late] });
-    await screen.findByRole("button", { name: "Early" });
     await screen.findByRole("button", { name: "Send" });
+    // The stand-in shown meanwhile is never written back: the tool last picked stays the late kit's.
+    await waitFor(() => expect(JSON.parse(storage.get(dockStateKey("/project")) ?? "{}")).toMatchObject({ activePanel: "late" }));
     act(() => arrive?.());
-
-    const lateButton = await screen.findByRole("button", { name: "Late" });
-    await waitFor(() => expect(lateButton.getAttribute("aria-pressed")).toBe("true"));
-    expect(screen.getByRole("button", { name: "Early" }).getAttribute("aria-pressed")).toBe("false");
     await waitFor(() => expect(JSON.parse(storage.get(dockStateKey("/project")) ?? "{}")).toMatchObject({ activePanel: "late" }));
   });
 });
@@ -176,7 +173,7 @@ describe("App stage per thread", () => {
           kind: "test.note", title: (params) => `Note ${params.name}`,
           render: (params, _handle, _actions, from) => <p>note {params.name} in {from?.workspace}</p>,
         });
-        plugin.registerPanel({ id: "grab", label: "Grab", Component: ({ actions }) => { got.actions = actions; return null; } });
+        plugin.registerRegion({ id: "test.grab", placement: "composer-below", Component: ({ actions }) => { got.actions = actions; return null; } });
       },
     };
   }
@@ -187,7 +184,6 @@ describe("App stage per thread", () => {
     const got: { actions?: WorkbenchActions } = {};
     renderApp(client, { storage: kept, extensions: [kit(loads, got)] });
     await screen.findByRole("button", { name: "Send" });
-    if (!got.actions) fireEvent.click(await screen.findByRole("button", { name: "Grab" }));
     await waitFor(() => expect(got.actions?.activeThread()?.sessionId).toBe("a1"));
     const actions = () => got.actions!;
     const show = async (id: string) => {

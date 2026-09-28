@@ -57,7 +57,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // An AppImage without sandbox installing the .deb and restarting from it (K26).
   "./appimage-install.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
-  "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",
+  "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",   "./compaction-record.js",
   "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./configured-sampling.js",   "./dangling-tool-calls.js",   "./data-folder-lock.js",   "./dependency-loader.js",   "./desktop-extensions.js",
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
@@ -125,6 +125,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./background-mode.js",
   // What a worker package's heap cap leaves out: its buffers, and the host process's memory limit.
   "./worker-memory-cap.js",
+  // The host's start of each run, which every client times a thread's work from (API 1.27.0).
+  "./thread-run-clock.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

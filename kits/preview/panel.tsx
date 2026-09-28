@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Monitor, RotateCw, Smartphone } from "lucide-react";
+import { ArrowLeft, ArrowRight, Monitor, RotateCw, Smartphone, X } from "lucide-react";
 import { errorMessage, reserveRegion, tooltipProps, type PanelProps } from "tau";
 import { overlayWatch } from "./overlay-watch.js";
 import { activeThread, previewView, screenService, type PreviewView } from "./screen-store.js";
@@ -30,7 +30,7 @@ const VIEWS: { id: PreviewView; label: string }[] = [{ id: "browser", label: "Br
  * `WebContentsView` the host draws over that rectangle, so the panel's work is
  * to say where the rectangle is and when it is gone.
  */
-export function PreviewPanel({ active, placement, extensionName, actions }: PanelProps) {
+export function PreviewPanel({ active, placement, actions }: PanelProps) {
   const surface = useRef<HTMLDivElement>(null);
   const state = usePreviewState();
   const screen = screenService.use();
@@ -125,9 +125,9 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
           className={view === entry.id ? "preview-view active" : "preview-view"}
           onClick={() => previewView.set(entry.id)}
         >{entry.label}</button>)}
-      </div> : <small>{extensionName.toLowerCase()}</small>}
+      </div> : null}
       <span className="spacer" />
-      {view === "browser" ? <button className="text-button" onClick={() => guard(previewKit.close())}>close</button> : null}
+      {view === "browser" ? <button type="button" className="icon-button" aria-label="Close the page" {...tooltipProps("Close the page", { side: "bottom" })} onClick={() => guard(previewKit.close())}><X size={14} /></button> : null}
     </header>
     {view === "screen" && screen ? <Suspense fallback={<section className="screen-view" />}>
       <ScreenView service={screen} threadId={threadId} />

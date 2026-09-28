@@ -5,6 +5,7 @@ import { tooltipProps } from "./ui/Tooltip";
 import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { parseMarkdown, renderMarkdown, type MarkdownComponents } from "./markdown-pipeline";
+import { WorkbenchContext } from "../workbench-context";
 type LanguageDefinition = LanguageFn;
 
 // The core arrives with the first grammar: nothing highlights before one is loaded anyway.
@@ -286,6 +287,17 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
   );
 }
 
+/**
+ * A path in inline code, as T3 Code draws it. One with a directory opens the
+ * file on the stage, or brings its tab forward; a bare name names no file.
+ */
+function FileChip({ path, name }: { path: string; name: string }) {
+  const openFile = useContext(WorkbenchContext)?.openFile;
+  const chip = <code className="md-file-chip" {...tooltipProps(path, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
+  if (!openFile || !path.includes("/")) return chip;
+  return <button type="button" className="md-file-link" aria-label={`Open ${path}`} onClick={() => openFile(path.replace(/^\.\//u, ""))}>{chip}</button>;
+}
+
 type CodeChild = ReactElement<{ className?: string; children?: ReactNode }>;
 
 // A relative path with a directory and an extension, or a bare name of a common source file.
@@ -312,7 +324,7 @@ const COMPONENTS: MarkdownComponents = {
   code({ children }) {
     const name = typeof children === "string" ? inlineCodeFile(children) : undefined;
     if (!name) return <code>{children}</code>;
-    return <code className="md-file-chip" {...tooltipProps(children as string, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
+    return <FileChip path={children as string} name={name} />;
   },
   a({ href, children }) {
     return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;

@@ -133,7 +133,8 @@ describe("the web client at 400 px", () => {
     await waitFor(() => expect(within(list).getAllByRole("listitem")[0].textContent).toContain("Ship the web client"));
     const rows = within(list).getAllByRole("listitem");
     expect(rows.map((row) => row.dataset.status)).toEqual(["waiting", "running", "done"]);
-    expect(rows[0].textContent).toContain("Waiting");
+    // One word for a question on every client, the desktop rail's too.
+    expect(rows[0].querySelector(".thread-status-age")?.textContent).toBe("Question");
     // The desktop rail's triplet: a question in amber behind a help glyph.
     expect(rows[0].querySelector(".thread-status-age.status-waiting > svg")).toBeTruthy();
     expect(within(rows[0]).getByRole("button", { name: "Open thread Ship the web client" }).getAttribute("aria-description")).toBe("Waiting for an answer");
@@ -148,14 +149,39 @@ describe("the web client at 400 px", () => {
     expect(client.calls.find((call) => call.method === "switchSession")?.args[0]).toBe("/sessions/t-a.json");
   });
 
-  it("stops a running thread without opening it", async () => {
+  it("stops a running thread from its sheet, without opening it; the row itself has no stop button", async () => {
     const client = renderHome();
     await screen.findByRole("list", { name: "Threads" });
     client.emit(running("t-b"));
-    const stop = await screen.findByRole("button", { name: "Stop Ship the web client" });
-    fireEvent.click(stop);
+    await waitFor(() => expect(rowNamed("Ship the web client").dataset.status).toBe("running"));
+    expect(within(rowNamed("Ship the web client")).queryByRole("button", { name: /^Stop /u })).toBeNull();
+    fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Ship the web client" })).getByRole("button", { name: "Stop the run" }));
     await waitFor(() => expect(client.calls.some((call) => call.method === "abort")).toBe(true));
     expect(client.calls.find((call) => call.method === "abort")?.args[0]).toBe("t-b");
+  });
+
+  it("shows a run that started before it connected as Working, timed from the host's start", async () => {
+    const startedAt = Date.now() - 134_000;
+    renderCompactClient({ bootstrap: async () => {
+      const bootstrap = await bootstrapWith(THREADS, { home: true })();
+      return { ...bootstrap, threadIndex: { ...bootstrap.threadIndex, runs: { "t-c": startedAt } } };
+    } });
+    const list = await screen.findByRole("list", { name: "Threads" });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")[0].dataset.status).toBe("running"));
+    const badge = within(list).getAllByRole("listitem")[0].querySelector(".thread-status-age.status-working");
+    // The desktop rail's words and clock: "Working 2:14", not the seconds since this page loaded.
+    expect(badge?.textContent).toMatch(/^Working2:1[45]$/u);
+  });
+
+  it("keeps the host's start of a run the host reports as started again, as after an automatic retry", async () => {
+    const client = renderHome();
+    const list = await screen.findByRole("list", { name: "Threads" });
+    const startedAt = Date.now() - 79_000;
+    client.emit({ type: "agent-status", sessionId: "t-c", running: true, startedAt });
+    client.emit({ type: "agent-status", sessionId: "t-c", running: true, startedAt });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")[0].dataset.status).toBe("running"));
+    expect(within(list).getAllByRole("listitem")[0].querySelector(".thread-status-age")?.textContent).toMatch(/^Working1:(19|20)$/u);
   });
 
   it("answers a Pi confirm on the thread that is open", async () => {
@@ -281,19 +307,13 @@ describe("the web client at 400 px", () => {
     };
     renderCompactClient({}, [probe, asking]);
     await openChat();
-    // Two panels or more fold into the bar's More menu on a phone.
-    const openFromMenu = async (label: string) => {
-      fireEvent.click(screen.getByRole("button", { name: "More" }));
-      fireEvent.click(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: label }));
-    };
-    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
-    await openFromMenu("Review");
+    // Two panels keep their glyphs in the bar (design 1n); a third would fold into More.
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Show agents" }));
     expect(await within(await screen.findByRole("dialog", { name: "Agents" })).findByText("agents panel body")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: "Agents" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Review" }));
-    await waitFor(() => expect(screen.queryByRole("menu", { name: "Panels" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review" })).toBeNull());
   });
@@ -543,6 +563,19 @@ describe("the compact client on a tablet", () => {
     expect(screen.queryByRole("dialog", { name: "Threads" })).toBeNull();
   });
 
+  it("keeps the question on the open row beside its thread", async () => {
+    // `t-a` is the thread the host holds open.
+    const client = renderCompactClient();
+    const sidebar = await screen.findByRole("navigation", { name: "Thread list" });
+    client.emit({ type: "extension-ui-prompt", sessionId: "t-a", prompt: { id: "q2", sessionId: "t-a", kind: "confirm", title: "Write the file?" } });
+    const row = () => within(sidebar).getByRole("button", { name: "Open thread Rename the store" }).closest("li") as HTMLElement;
+    await waitFor(() => expect(row().dataset.status).toBe("waiting"));
+    expect(row().dataset.active).toBe("true");
+    // The row has no hover actions, so the stylesheet leaves its state visible after the tap (see ThreadRow.test).
+    expect(row().querySelector(".thread-row-actions")).toBeNull();
+    expect(row().querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question");
+  });
+
   it("stays one screen wide on a phone turned sideways", async () => {
     setViewport(844, 390);
     renderCompactClient();
@@ -586,17 +619,17 @@ describe("the compact client on a tablet", () => {
     }
   });
 
-  it("docks a compact panel on the rail beside the chat, where a phone opens a sheet", async () => {
+  it("opens a compact panel as a stage tab beside the chat, where a phone opens a sheet", async () => {
     renderCompactClient({}, [probe]);
     await screen.findByRole("navigation", { name: "Thread list" });
-    const rail = document.querySelector(".panel-rail");
-    expect(rail).not.toBeNull();
+    expect(document.querySelector(".panel-rail")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
     // Only what claims the compact client: a desktop-only panel is not there.
-    expect(within(rail as HTMLElement).queryByRole("button", { name: "Files" })).toBeNull();
-    fireEvent.click(within(rail as HTMLElement).getByRole("button", { name: "Agents" }));
-    expect(await screen.findByText("agents panel body")).toBeTruthy();
+    expect(within(stage).queryByRole("button", { name: "Files" })).toBeNull();
+    expect(await within(stage).findByText("agents panel body")).toBeTruthy();
+    expect(within(stage).getByRole("tab", { name: /Agents/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull();
-    expect(document.querySelector(".workbench-center .side-panel, .instrument-dock .panel-stage")?.textContent).toContain("agents panel body");
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
   });
 });

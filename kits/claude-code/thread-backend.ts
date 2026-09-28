@@ -250,6 +250,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       timestamp: message.timestamp,
       ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
       ...(message.skill ? { skill: { ...message.skill } } : {}),
+      ...(message.compaction ? { compaction: { ...message.compaction } } : {}),
     }));
     this.title = record.title;
     this.titleSource = record.titleSource;
@@ -593,8 +594,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   /**
    * Sends `/compact` as a turn of its own, between turns: the CLI summarises
-   * the conversation and reports the size it left. Nothing joins the
-   * transcript; the boundary's notice says what happened.
+   * the conversation and reports the size it left. The boundary becomes the
+   * transcript's divider; no prompt or reply joins it.
    */
   private async compact(): Promise<void> {
     if (this.turns.length > 0) throw new Error("Claude Code is still working on this thread. Compact it once the turn ends.");
@@ -702,9 +703,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private handleEvent(event: ThreadRuntimeEvent): void {
     if (event.type === "assistant-end") {
-      this.messages.push(event.message);
-      void this.persist([event.message]);
-      this.deliverMessage(event.message);
+      const message = event.message.compaction ? withSummarisedTurns(event.message, this.messages) : event.message;
+      this.messages.push(message);
+      void this.persist([message]);
+      this.deliverMessage(message);
       return;
     }
     this.report(event);
@@ -779,4 +781,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       commands,
     });
   }
+}
+
+/** The CLI summarises every turn since its last compaction; the divider names them. */
+export function withSummarisedTurns(message: UiMessage, before: readonly UiMessage[]): UiMessage {
+  const users = before.filter((entry) => entry.role === "user").length;
+  let previous = before.length - 1;
+  while (previous >= 0 && before[previous]!.compaction === undefined) previous -= 1;
+  const first = before.slice(0, previous + 1).filter((entry) => entry.role === "user").length + 1;
+  return users >= first ? { ...message, compaction: { ...message.compaction, turns: { first, last: users } } } : message;
 }

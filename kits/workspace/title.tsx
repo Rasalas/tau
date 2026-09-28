@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, Download, Ellipsis, GitCommitHorizontal, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, SquarePen, Upload } from "lucide-react";
 import { Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
@@ -8,10 +8,10 @@ import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 import { titleCollapse, useTitleCollapse, type TitleCollapse } from "./title-collapse.js";
 
 /**
- * The title-bar controls Workspace Kit owns: project actions, "Open in",
- * and the Git quick action. Core's title bar only lends the place; the row
- * collapses itself to the room it gets. The external terminal has no place
- * here: the terminal opens in the app, the external one on mod+alt+j.
+ * The thread header's controls Workspace Kit owns, as in the workbench design:
+ * the project actions, "N files changed ›", which opens the review, and the Git
+ * quick action. Core's header only lends the place; the row collapses itself
+ * to the room it gets. "Open in" is the stage strip's (`WorkspaceEditorButton`).
  */
 export function WorkspaceTitleActions(props: RegionProps) {
   const row = useRef<HTMLDivElement>(null);
@@ -21,18 +21,76 @@ export function WorkspaceTitleActions(props: RegionProps) {
 
 const EDITOR_PREFIX = "editor:";
 
-export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
+/** The editors "Open in" offers, the chosen one marked. */
+function editorSections(editors: ReturnType<typeof useWorkspaceKit>["editors"], active?: { id: string }): MenuSection[] {
+  return editors.length > 0 ? [{
+    heading: "Open in",
+    items: editors.map((editor) => ({
+      id: `${EDITOR_PREFIX}${editor.id}`,
+      label: editor.name,
+      selected: editor.id === active?.id,
+      icon: <EditorIcon editorId={editor.id} className="menu-editor-icon" />,
+    })),
+  }] : [];
+}
+
+/**
+ * "Open in" at the stage strip's right end, the design's Editor button: the
+ * chosen editor's logo opens the project, the chevron picks another editor.
+ */
+export function WorkspaceEditorButton(_props: RegionProps) {
   const workspaceStore = useWorkspaceStore();
   const preferences = usePreferences();
   const state = useWorkspaceKit();
-  const { localFiles, readOnly } = useHostCapabilities();
-  // Re-render when the editor preference changes.
+  const { localFiles } = useHostCapabilities();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
-  const [openMenu, setOpenMenu] = useState(false);
+  const [menu, setMenu] = useState(false);
+  if (!localFiles) return null;
+  const activeEditor = workspaceStore.activeEditor();
+  const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
+  const label = activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH";
+  return <span className="menu-anchor workspace-editor-button" aria-label="Open in editor" role="group">
+    <button
+      type="button"
+      className="stage-tool"
+      disabled={!activeEditor}
+      aria-label="Open"
+      {...tooltipProps(label, { side: "bottom", ...(activeEditor ? { shortcut: mac ? "⌘O" : "Ctrl+O" } : {}) })}
+      onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
+    >{activeEditor ? <EditorIcon editorId={activeEditor.id} className="editor-icon" /> : <SquarePen size={16} />}</button>
+    <button
+      type="button"
+      className="stage-tool workspace-editor-choose"
+      aria-label="Choose editor"
+      aria-haspopup="menu"
+      aria-expanded={menu}
+      disabled={state.editors.length === 0}
+      {...tooltipProps("Choose editor", { side: "bottom" })}
+      onClick={() => setMenu((open) => !open)}
+    ><ChevronDown size={12} /></button>
+    {menu ? <Menu
+      align="right"
+      sections={editorSections(state.editors, activeEditor)}
+      label="Open in"
+      onSelect={(id) => {
+        setMenu(false);
+        if (!id.startsWith(EDITOR_PREFIX)) return;
+        const editor = id.slice(EDITOR_PREFIX.length);
+        workspaceStore.chooseEditor(editor);
+        void workspaceStore.openInEditor(undefined, editor);
+      }}
+      onClose={() => setMenu(false)}
+    /> : null}
+  </span>;
+}
+
+export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
+  const workspaceStore = useWorkspaceStore();
+  const state = useWorkspaceKit();
+  const { readOnly } = useHostCapabilities();
   const [gitMenu, setGitMenu] = useState(false);
   const [moreMenu, setMoreMenu] = useState(false);
   const projectActions = useProjectActions(state.workspaceId ?? state.cwd, (command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name));
-  const activeEditor = workspaceStore.activeEditor();
   const gitAction = useMemo(
     () => resolveGitQuickAction(state.changes, state.workspace, state.committing),
     [state.changes, state.committing, state.workspace],
@@ -43,62 +101,16 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
     if (kind === "pull") void workspaceStore.pull();
     if (kind === "push") void workspaceStore.push();
   };
-  const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
 
   // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
   const showActions = !readOnly;
-  const showOpen = localFiles;
-  const openSections: MenuSection[] = [
-    ...(state.editors.length > 0 ? [{
-      heading: "Open in",
-      items: state.editors.map((editor) => ({
-        id: `${EDITOR_PREFIX}${editor.id}`,
-        label: editor.name,
-        selected: editor.id === activeEditor?.id,
-        icon: <EditorIcon editorId={editor.id} className="menu-editor-icon" />,
-      })),
-    }] : []),
-  ];
-  const pickOpen = (id: string) => {
-    if (id.startsWith(EDITOR_PREFIX)) {
-      const editor = id.slice(EDITOR_PREFIX.length);
-      workspaceStore.chooseEditor(editor);
-      void workspaceStore.openInEditor(undefined, editor);
-    }
-  };
-  const moreSections: MenuSection[] = [
-    ...(showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : []),
-    ...(showOpen && collapse.editor === "overflow" ? openSections : []),
-  ];
+  const moreSections: MenuSection[] = showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : [];
   const gitIcon = gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />;
+  const changed = state.changes.files.length;
 
   return (
     <div ref={row} className="workspace-title-actions">
       {showActions && collapse.actions !== "overflow" ? <ProjectActionsControl state={projectActions} iconOnly={collapse.actions === "icon"} /> : null}
-
-      {showOpen && collapse.editor !== "overflow" ? <div className="menu-anchor">
-        <div className="chrome-group" aria-label="Open in editor">
-          <button
-            className="chrome-button split-main"
-            disabled={!activeEditor}
-            aria-label="Open"
-            {...tooltipProps(activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH", { side: "bottom", ...(activeEditor ? { shortcut: mac ? "⌘O" : "Ctrl+O" } : {}) })}
-            onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
-          >
-            <EditorIcon editorId={activeEditor?.id} className="editor-icon" />
-            {collapse.editor === "label" ? <span>Open</span> : null}
-          </button>
-          <button
-            className="chrome-button split-trigger"
-            aria-label="Choose editor"
-            disabled={state.editors.length === 0}
-            onClick={() => setOpenMenu(true)}
-          >
-            <ChevronDown size={13} />
-          </button>
-        </div>
-        {openMenu ? <Menu align="right" sections={openSections} label="Open in" onSelect={pickOpen} onClose={() => setOpenMenu(false)} /> : null}
-      </div> : null}
 
       {moreSections.length > 0 || (projectActions.editing && collapse.actions === "overflow") ? <div className="menu-anchor">
         <button className="chrome-button title-more" aria-label="More actions" {...tooltipProps("More actions", { side: "bottom" })} onClick={() => setMoreMenu(true)}>
@@ -108,11 +120,18 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
           align="right"
           sections={moreSections}
           label="More actions"
-          onSelect={(id) => { if (!pickProjectAction(projectActions, id)) pickOpen(id); }}
+          onSelect={(id) => { pickProjectAction(projectActions, id); }}
           onClose={() => setMoreMenu(false)}
         /> : null}
         {projectActions.editing && collapse.actions === "overflow" ? <ProjectActionEditor state={projectActions} /> : null}
       </div> : null}
+
+      {changed > 0 ? <button
+        type="button"
+        className="workspace-changes-link"
+        {...tooltipProps("Review the changes", { side: "bottom" })}
+        onClick={() => workspaceStore.showChangedFiles()}
+      >{changed} {changed === 1 ? "file" : "files"} changed<ChevronRight size={13} /></button> : null}
 
       {readOnly ? null : <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">

@@ -60,6 +60,8 @@ export interface HostPublicationDeps {
   log(label: string, detail?: string): void;
   errorMessage(error: unknown): string;
   fail(error: unknown, sessionId?: string): void;
+  /** The running threads and the host's start of each run; absent in hosts that do not keep them. */
+  runs?(): Record<string, number>;
 }
 
 /**
@@ -108,7 +110,8 @@ export class HostPublication {
     const host = { ...this.snapshotSync(await this.ensureModels()), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
-      threadIndex: this.deps.index.snapshot(),
+      // A client that connects mid-run learns the run and its start only here.
+      threadIndex: { ...this.deps.index.snapshot(), ...(this.deps.runs ? { runs: this.deps.runs() } : {}) },
       version: HOST_PROTOCOL_VERSION,
       detail,
       catalog: catalogFromSnapshot(host),

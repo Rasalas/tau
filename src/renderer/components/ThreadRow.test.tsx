@@ -146,9 +146,9 @@ describe("ThreadRow state and type", () => {
   const rule = (selector: string) => new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")} \\{([^}]*)\\}`, "u").exec(css)?.[1] ?? "";
 
   it("marks a question with a help glyph and a finished run with a check", () => {
-    const waiting = render(<ThreadRow activity="waiting" activityLabel="Needs you" active={false} age="now" session={session} onSelect={() => {}} />);
+    const waiting = render(<ThreadRow activity="waiting" activityLabel="Question" active={false} age="now" session={session} onSelect={() => {}} />);
     const question = waiting.container.querySelector(".thread-status-age.status-waiting");
-    expect(question?.textContent).toBe("Needs you");
+    expect(question?.textContent).toBe("Question");
     expect(question?.querySelector("svg.lucide-circle-help, svg.lucide-circle-question-mark")).toBeTruthy();
     waiting.unmount();
     const ready = render(<ThreadRow activity="ready" active={false} age="now" session={session} onSelect={() => {}} />);
@@ -160,7 +160,14 @@ describe("ThreadRow state and type", () => {
     expect(rule(".thread-status-age > i")).toMatch(/var\(--info\)/u);
     expect(rule(".thread-status-age.status-waiting")).toMatch(/color: var\(--warn\)/u);
     expect(rule(".thread-status-age.status-ready")).toMatch(/color: var\(--ready\)/u);
-    expect(rule(".thread-row.activity-waiting")).toMatch(/var\(--warn\)/u);
+    // The badge says it; the row gets no amber frame of its own.
+    expect(css).not.toMatch(/\.thread-row\.activity-waiting\b/u);
+  });
+
+  it("gives up the state for its actions only on a row that has them, so a tapped touch row keeps it", () => {
+    const hiding = css.split("\n").filter((line) => /\.thread-status-age/u.test(line) && /visibility: hidden/u.test(line));
+    expect(hiding.length).toBeGreaterThan(0);
+    for (const line of hiding) expect(line).toMatch(/^\.thread-row:has\(> \.thread-row-actions\)/u);
   });
 
   it("sets titles in regular type and only the open thread's in semibold", () => {

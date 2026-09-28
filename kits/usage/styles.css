@@ -18,7 +18,8 @@
 .usage-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .usage-note[data-level="error"] { color: var(--warn); }
 
-.usage-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: -12px 0 -24px; color: var(--muted-2); font-size: 11.5px; }
+/* In the page head's action slot on an app page; in place on an older host. */
+.usage-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; color: var(--muted-2); font-size: 11.5px; }
 .usage-icon-button {
   width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
   border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer;
@@ -238,7 +239,6 @@ button.usage-rank-label:hover { background: var(--hover); }
   .usage-kpi > h3 { margin-bottom: 6px; }
   .usage-kpi-figures b { font-size: 22px; }
   .usage-kpi-detail { margin-top: 6px; }
-  .usage-toolbar { margin: 0; }
   .usage-accounts { grid-template-columns: minmax(0, 1fr); }
   .usage-account { padding: 16px; }
   .usage-days { grid-template-columns: minmax(0, 1fr); gap: 24px; }

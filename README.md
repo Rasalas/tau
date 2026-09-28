@@ -527,9 +527,10 @@ driven from the browser, and the desktop window shows them.
 Below 720 px the workbench lays itself out compactly, on any client: the thread list
 becomes a sheet behind a button in the title bar, the composer sticks to the bottom edge,
 the dock and the stage step aside, and the start screen becomes the list a supervisor
-wants — every thread with what it is doing (running, waiting for an answer, failed, done),
-a tap to open it, and a stop button that does not make you open it first. A Pi
-confirm is answered in the composer, the way it is on the desktop.
+wants — every thread with what it is doing, in the desktop rail's words ("Working 2:14"
+from the host's start of the run, "Question", "Failed", "Ready"), a tap to open it, and a
+long press for its actions, Stop the run among them. A Pi confirm is answered in the
+composer, the way it is on the desktop.
 
 Without TLS the socket is unencrypted and the page is served over plain HTTP, so the host
 refuses to bind anything but a loopback address. To reach it from a phone, start the host

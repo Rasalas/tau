@@ -7,6 +7,7 @@ import { ClientStorageProvider } from "../client-storage-context";
 import { createRendererServices } from "../renderer-services";
 import type { PreferencesStore } from "../preferences";
 import { RendererServicesProvider } from "../renderer-services-context";
+import { SettingsPageActionSlot } from "../settings/page-action";
 
 /**
  * Wraps a component tree with fresh in-memory storage and fresh
@@ -34,4 +35,9 @@ export function TestThreadStore({ threads, projects = [], children }: { threads:
     return next;
   });
   return <ThreadStoreContext.Provider value={store}>{children}</ThreadStoreContext.Provider>;
+}
+
+/** A page head's action slot, as a Settings or app page gives one: `SettingsPageAction` draws into `slot`. */
+export function TestPageActionSlot({ slot, children }: { slot: HTMLElement; children: ReactNode }) {
+  return <SettingsPageActionSlot.Provider value={slot}>{children}</SettingsPageActionSlot.Provider>;
 }

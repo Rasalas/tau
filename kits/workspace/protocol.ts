@@ -403,6 +403,8 @@ export interface WorkspaceKitState {
   committing: boolean;
   pushPrimary: boolean;
   commitFocusToken: number;
+  /** "N files changed" asked the Files tab for its Changed view and this file (K75). */
+  filesFocus?: { path?: string; token: number };
   /** Changes at the start of the running turn, so the dock can show what the turn touched. */
   turnBaseline?: UiWorkspaceChanges;
   /** The turn is over; the dock yields to the transcript's checkpoint card. */

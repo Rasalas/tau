@@ -189,7 +189,7 @@ describe("what a thread's card says", () => {
     expect(rowTexts()).toContain("Working");
     expect(rowTexts()).toContain("2 agents running");
     cleanup();
-    drawCard({ activity: "waiting", activityLabel: "Needs you" });
+    drawCard({ activity: "waiting", activityLabel: "Question" });
     expect(rowTexts()).toContain("Waiting for your answer");
   });
 

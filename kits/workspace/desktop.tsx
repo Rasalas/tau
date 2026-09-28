@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Files, GitBranch, GitCompare, HardDrive } from "lucide-react";
+import { Folder, GitBranch, GitCompare, HardDrive } from "lucide-react";
 import {
   errorMessage,
   hostHasLocalFiles,
@@ -25,7 +25,7 @@ import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type Searc
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
-import { WorkspaceTitleActions } from "./title.js";
+import { WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
@@ -93,7 +93,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     const FilesPanelWithSearch = (props: PanelProps) => <FilesPanel {...props} search={search} />;
     context.registerPanel({
-      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, maximizable: true, profiles: ["desktop", "compact"],
+      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, profiles: ["desktop", "compact"],
       Component: bind(FilesPanelWithSearch),
     });
     // The Changes panel reads the same Git state as the rest of the kit, so it
@@ -107,6 +107,8 @@ export const workspaceExtension: DesktopExtension = {
     // A phone or tablet follows too: its Files panel and documents read the thread's project.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop", "compact"], Component: bind(WorkspaceFollower) });
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
+    // The design's Editor button at the stage strip's right end.
+    context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
     context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, profiles: ["desktop"], Component: bind(WorkspaceBarControl) });
     const documents = documentStates(store);
     context.registerDocumentSource({
@@ -268,6 +270,8 @@ export const workspaceExtension: DesktopExtension = {
       label: "Open in external editor",
       group: "Project",
       access: "write",
+      // The thread's menu keeps it in reach while the stage, whose strip has the button, is hidden.
+      surfaces: ["thread-title"],
       run: async (app) => {
         const activeEditor = store.activeEditor();
         if (activeEditor) app.notify(`Opening in ${activeEditor.name}…`);
@@ -313,6 +317,7 @@ export const workspaceExtension: DesktopExtension = {
         title: tool.name,
         tone: "read",
         detail: String(tool.args.path ?? tool.args.pattern ?? tool.args.query ?? "workspace"),
+        ...(tool.name === "read" && typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
       }),
       { profiles: ["desktop", "web", "compact"] },
     );
@@ -324,6 +329,7 @@ export const workspaceExtension: DesktopExtension = {
         title: tool.name,
         tone: "write",
         detail: String(tool.args.path ?? "file mutation"),
+        ...(typeof tool.args.path === "string" ? { file: tool.args.path } : {}),
       }),
       { profiles: ["desktop", "web", "compact"] },
     );

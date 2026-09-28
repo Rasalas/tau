@@ -46,26 +46,18 @@ describe("Workspace Kit in the workbench", () => {
     expect(button.getAttribute("data-tooltip")).toMatch(/^Read only/u);
   });
 
-  it("starts with the right sidebar closed and opens it from the rail", async () => {
+  it("opens Files as a stage tab from the header's toggle: the explorer beside the file it reads", async () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension] });
-    const shell = view.container.querySelector(".app-shell") as HTMLElement;
-    const filesButton = await screen.findByRole("button", { name: "Files" });
-    await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("false"));
-    expect(shell.classList.contains("dock-closed")).toBe(true);
-    expect(screen.getAllByRole("button", { name: "Show panel" })).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Expand panel" })).toBeNull();
-
-    // No document open yet: the list floats over the chat.
-    fireEvent.click(filesButton);
-    expect(shell.classList.contains("dock-overlay")).toBe(true);
-    expect(filesButton.getAttribute("aria-pressed")).toBe("true");
-
-    fireEvent.click(filesButton);
-    expect(shell.classList.contains("dock-overlay")).toBe(false);
-    expect(filesButton.getAttribute("aria-pressed")).toBe("false");
+    expect(view.container.querySelector(".panel-rail")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(within(stage).getByRole("tab", { name: /Files/ }).getAttribute("aria-selected")).toBe("true"));
+    expect(within(stage).getByRole("complementary", { name: "Explorer" })).toBeTruthy();
+    expect(within(stage).getByRole("group", { name: "Show" })).toBeTruthy();
+    expect(within(stage).getByRole("button", { name: "Files" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("does not load a hidden Files panel", async () => {
+  it("does not load the files until the Files tab is opened", async () => {
     const getFileTree = vi.fn(async () => []);
     const client = createFakeHostClient({
       bootstrap: async () => ({
@@ -84,14 +76,11 @@ describe("Workspace Kit in the workbench", () => {
     });
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    const filesButton = await screen.findByRole("button", { name: "Files" });
-    await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("false"));
-    expect(screen.queryByRole("heading", { name: "Files" })).toBeNull();
     expect(getFileTree).not.toHaveBeenCalled();
-
-    fireEvent.click(filesButton);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Files" })).toBeTruthy());
-    expect(getFileTree).toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(within(stage).getByRole("complementary", { name: "Explorer" })).toBeTruthy());
+    await waitFor(() => expect(getFileTree).toHaveBeenCalled());
   });
 
   it("keeps the virtual thread canvas from shrinking inside the scroll rail", async () => {
@@ -173,6 +162,45 @@ describe("Workspace Kit in the workbench", () => {
     const limited = screen.getByText("Thread limited").closest(".thread-row")?.querySelector(".thread-status-age.status-limited");
     expect(limited?.textContent).toBe("Limited");
     expect(limited?.getAttribute("data-tooltip")).toContain("continues by itself at");
+  });
+
+  it("names a question Question, without a frame, and times a run from the host's start, as a phone does", async () => {
+    const shell = (id: string) => ({ id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 2 });
+    const organizing: DesktopExtension = {
+      id: "test.organizer",
+      name: "Organizer",
+      activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer({
+        subscribe: () => () => undefined,
+        getVersion: () => 1,
+        sections: (threads) => [{ id: "pinned", label: "Pinned", threads: [...threads] }, { id: "active", threads: [] }],
+        menu: () => [],
+        runMenu: () => undefined,
+        toggleSettled: () => undefined,
+        dropLabel: () => "Move",
+        drop: () => undefined,
+      })),
+    };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [shell("asking"), shell("busy"), shell("fine")],
+          runs: { busy: Date.now() - 134_000 },
+        },
+        detail: { sessionId: "fine", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "fine", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, { extensions: [workspaceExtension, organizing] });
+    await screen.findByText("Thread asking");
+    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "asking", prompt: { id: "q1", sessionId: "asking", kind: "confirm", title: "Write the file?" } }));
+    const asking = screen.getByText("Thread asking").closest(".thread-row") as HTMLElement;
+    await waitFor(() => expect(asking.querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question"));
+    const busy = screen.getByText("Thread busy").closest(".thread-row")?.querySelector(".thread-status-age.status-working");
+    expect(busy?.textContent).toMatch(/^Working2:1[45]$/u);
   });
 
   it("folds settled history by default, keeps the open thread, and pages it ten then twenty-five at a time", async () => {
@@ -658,7 +686,6 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { storage, extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
-    expect(document.querySelector(".title-project")?.textContent).toBe("other");
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("/other"));
     expect(screen.getByRole("button", { name: "main" })).toBeTruthy();
   });
@@ -1082,7 +1109,7 @@ describe("Workspace Kit in the workbench", () => {
 
     renderApp(client, { extensions: [workspaceExtension] });
     // The kit subscribes to the event when it activates; wait for its own surface first.
-    await screen.findByRole("button", { name: "Files" });
+    await screen.findByRole("button", { name: "Show stage" });
     act(() => client.emit({
       type: "extension-event",
       extensionId: "tau.workspace",
@@ -1250,8 +1277,8 @@ describe("Workspace Kit in the workbench", () => {
 
     await waitFor(() => expect(newSession).toHaveBeenCalled());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
-    // The draft already names its project, so opening that folder stays available while allocation settles.
-    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false);
+    // The draft already names its project, so the header's project controls stay available while allocation settles.
+    expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false);
 
     // The host reports the missing user turn from prompt(), then commits the
     // detached delivery. Both arrive in that order over one channel.
@@ -1263,7 +1290,7 @@ describe("Workspace Kit in the workbench", () => {
       accepted: true,
     });
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
     expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
     // No user turn was persisted, so the optimistic prompt must not linger.
     expect(screen.queryByText("/extension-command")).toBeNull();
@@ -1334,7 +1361,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getAllByText("start in the detached runtime").length).toBeGreaterThan(0);
     // The persisted prompt is the delivery commit. The agent run continues, but
     // the draft no longer holds the workspace or thread navigation.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
     pressNewThreadInShortcut();
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /other/u }));
@@ -1403,7 +1430,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false));
     expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
   });
 

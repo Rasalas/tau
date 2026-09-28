@@ -20,8 +20,9 @@ function legacyStorage(cacheKey: string, legacy: string): ClientStorage {
 describe("bootstrap cache", () => {
   it("stores a bounded renderable shell without catalogs or running state", () => {
     const storage = createMemoryStorage();
-    writeBootstrapCache(snapshot, { projects: [], sessions: [] }, storage);
+    writeBootstrapCache(snapshot, { projects: [], sessions: [], runs: { session: 1_000 } }, storage);
     const cached = readBootstrapCache(storage);
+    expect(cached?.threadIndex.runs).toBeUndefined();
     expect(cached?.snapshot.messages).toHaveLength(10);
     expect(cached?.snapshot.models).toEqual([]);
     expect(cached?.snapshot.allTools).toEqual([]);

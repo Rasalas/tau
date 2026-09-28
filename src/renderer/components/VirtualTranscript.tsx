@@ -2,6 +2,7 @@ import { measureElement, observeElementOffset, useVirtualizer } from "@tanstack/
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
+import { collapseRetriedErrors } from "../../workbench/transcript-state";
 import { Message } from "./Message";
 import {
   groupTranscriptActivitiesForMessageIds,
@@ -108,7 +109,7 @@ export interface TranscriptVisibleRange {
 
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
 export const VirtualTranscript = memo(function VirtualTranscript({
-  messages,
+  messages: transcriptMessages,
   scrollRef,
   isStreaming,
   sessionKey = "default",
@@ -125,6 +126,9 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   onRetryMessage,
   onFocusComposer,
 }: VirtualTranscriptProps) {
+  // A runtime's automatic retries read as one failed answer that counts them.
+  const { messages: collapsed, retried } = useMemo(() => collapseRetriedErrors(transcriptMessages), [transcriptMessages]);
+  const messages = collapsed as UiMessage[];
   const pendingActivities = useMemo<TranscriptActivity[]>(() => [
     ...activities,
     ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, fallbackToTail: true, content: activity }] : []),
@@ -535,6 +539,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           onFork={onForkMessage}
           onEdit={onEditMessage}
           onRetry={message.error && !isStreaming && message === messages.at(-1) ? onRetryMessage : undefined}
+          retried={retried.get(message.id)}
           onToggleExpanded={onMessageToggleExpanded}
           expanded={expandedMessageIds.has(message.id)}
         />

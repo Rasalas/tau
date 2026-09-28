@@ -29,8 +29,8 @@ export const slashRuns: Record<string, SlashRun> = {
   clone: async (_args, app) => (await app.duplicateThread()) ? undefined : "The thread could not be duplicated.",
   compact: async (_args, app) => {
     if (!app.compactContext) return "Context compaction is not available.";
+    // The transcript marks the compaction; a failure arrives as a notice.
     await app.compactContext();
-    app.notify("Context compacted.");
     return undefined;
   },
   model: async (args, app) => {
@@ -88,7 +88,6 @@ export const commandRuns: Record<string, (app: WorkbenchActions) => void | Promi
   "runtime.compact": async (app) => {
     if (!app.compactContext) return;
     await app.compactContext();
-    app.notify("Context compacted.");
   },
   "composer.effort": (app) => {
     const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut~="composer.effort"]');

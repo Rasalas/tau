@@ -11,6 +11,7 @@ import { ThreadViewStore } from "./thread-view-store";
 import { TranscriptHistoryController } from "./transcript-history";
 import { WorkbenchSession } from "./workbench-session";
 import { WorkbenchStore } from "./workbench-store";
+import { writeCachedTurnActivity } from "./turn-activity";
 
 const snapshot: HostSnapshot = {
   cwd: "/w/one",
@@ -188,6 +189,48 @@ describe("WorkbenchStore", () => {
     store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: "one", messages: [], isStreaming: false, activeTools: [] } });
     expect(view.getSnapshot()?.workspaceId).toBe("ws1_one");
     expect(view.getSnapshot()?.displayPath).toBe("~/w/one");
+  });
+
+  it("leaves an earlier turn's work in its fold when the next turn starts without tools", () => {
+    const { store, storage, view } = build();
+    const edit = { id: "t1", name: "edit", args: { path: "a.ts" }, status: "done" as const, startedAt: 2, endedAt: 3 };
+    const earlier = { id: "turn-activity-u1", anchorMessageId: "u1", tools: [edit], status: "completed" as const };
+    const messages: UiMessage[] = [
+      { id: "u1", role: "user", text: "fix it", timestamp: 1 },
+      { id: "a1", role: "assistant", text: "fixed", timestamp: 4 },
+      { id: "u2", role: "user", text: "keep going", timestamp: 5 },
+    ];
+    // The client cache still holds the earlier turn, as it did after that turn settled.
+    writeCachedTurnActivity(storage, { sessionId: "one", tools: [edit], anchorMessageId: "u1" });
+    store.applySnapshot(snapshot);
+    view.dispatch({ type: "agent-status", sessionId: "one", running: true });
+
+    // The host names the last turn that used tools, which is the earlier one.
+    store.applyHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-detail",
+      detail: { sessionId: "one", messages, isStreaming: true, activeTools: [], turnActivity: { tools: [edit], anchorMessageId: "u1" }, turnActivityHistory: [earlier] },
+    });
+    expect(view.getToolView().tools).toEqual([]);
+
+    store.applyHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-detail",
+      detail: { sessionId: "one", messages, isStreaming: true, activeTools: [], turnActivityHistory: [earlier] },
+    });
+    expect(view.getToolView().tools).toEqual([]);
+    expect(view.getToolView().turnActivityHistory).toEqual([earlier]);
+  });
+
+  it("keeps the running turn's own work when a detail restores it", () => {
+    const { store, view } = build();
+    const read = { id: "t2", name: "read", args: { path: "a.ts" }, status: "running" as const, startedAt: 6 };
+    const messages: UiMessage[] = [
+      { id: "u1", role: "user", text: "fix it", timestamp: 1 },
+      { id: "u2", role: "user", text: "keep going", timestamp: 5 },
+    ];
+    store.applySnapshot({ ...snapshot, messages, isStreaming: true, turnActivity: { tools: [read], anchorMessageId: "u2" } });
+    expect(view.getToolView().tools).toEqual([read]);
   });
 
   it("keeps a project update's workspace id when the next detail arrives", () => {

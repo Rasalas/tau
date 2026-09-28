@@ -223,13 +223,18 @@ describe("thread runtime backends", () => {
     await backend.capabilities.compaction!.compact();
     expect(sessions[0]?.send).toHaveBeenLastCalledWith("/compact", "next");
     expect(backend.catalogView().contextUsage).toEqual({ tokens: 4_000, contextWindow: 200_000, percent: 2, updatedAt: 5_000_000, promptCacheTtlMs: 3_600_000 });
-    expect(await backend.transcript()).toEqual(transcript);
-    expect(events.map((event) => event.type)).toEqual(["turn-started", "queue", "notice", "usage", "turn-settled", "queue"]);
+    // The boundary is the transcript's divider; no prompt or reply joins it.
+    const divider = { id: "claude-compaction-5000000", role: "notice", text: "Context compacted", timestamp: 5_000_000, compaction: { tokensBefore: 153_000, tokensAfter: 4_000, turns: { first: 1, last: 1 } } };
+    expect(await backend.transcript()).toEqual([...transcript, divider]);
+    expect(events.map((event) => event.type)).toEqual(["turn-started", "queue", "assistant-end", "usage", "turn-settled", "queue"]);
     expect(events.filter((event) => event.type === "queue")).toEqual([
       { type: "queue", steering: [], followUp: [] },
       { type: "queue", steering: [], followUp: [] },
     ]);
     await vi.waitFor(async () => expect((await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread"))?.contextUsage).toMatchObject({ tokens: 4_000, updatedAt: 5_000_000 }));
+    const afterRestart = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
+    await afterRestart.start("resume");
+    expect((await afterRestart.transcript()).at(-1)).toMatchObject({ role: "notice", compaction: divider.compaction });
   });
 
   it("says why when the CLI had nothing to compact", async () => {

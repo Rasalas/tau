@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-const SHEETS = ["./styles.css", "./profile-compact.css"].map((path) => new URL(path, import.meta.url));
+const SHEETS = ["./styles.css", "./profile-compact.css", "./components/stage-panels.css"].map((path) => new URL(path, import.meta.url));
 
 /** Selectors whose subject is the `.stage` element itself, with the declarations they set. */
 async function stageRules(): Promise<Array<{ selector: string; body: string }>> {
@@ -32,7 +32,7 @@ describe("stage styles", () => {
 
   // A button keeps the browser's own padding unless told otherwise; in an 18 px box it pushed the glyph 3 px right.
   it("centres the tab close glyph in a box without padding", async () => {
-    const css = (await readFile(SHEETS[0]!, "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
+    const css = (await readFile(SHEETS[2]!, "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
     const body = [...css.matchAll(/(^|\})\s*\.stage-tab-close\s*\{([^{}]*)\}/gu)].map((match) => match[2]).join(";");
     expect(body).toMatch(/padding:\s*0\b/u);
     expect(body).toMatch(/place-items:\s*center/u);

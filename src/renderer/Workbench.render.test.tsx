@@ -7,14 +7,15 @@ import { createFakeHostClient, type FakeHostClient } from "./test-support/fake-h
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 
-// TitleBar renders inside Workbench and outside the transcript, so its render
-// count is the workbench's render count.
+// The thread header renders inside Workbench and outside the transcript, so its
+// render count is the workbench's render count.
 const titleBarRenders = vi.hoisted(() => ({ count: 0 }));
-vi.mock("./components/TitleBar", () => ({
-  TitleBar: () => {
+vi.mock("./components/ThreadHeader", () => ({
+  ThreadHeader: () => {
     titleBarRenders.count += 1;
     return <header data-testid="title-bar" />;
   },
+  ThreadDetails: () => null,
 }));
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });

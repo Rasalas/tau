@@ -20,7 +20,7 @@ function below(button: HTMLElement | null): { x: number; y: number } {
 const NARROW_PANEL = 300;
 const ROOMY_PANEL = 640;
 
-export function TerminalPanel({ actions, active }: PanelProps) {
+export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const { sessions, activeSessionId: switched, layout } = useTerminalKit();
   // The thread on screen, asked on every render: the store's copy only says
   // that it changed, and is empty until the first switch after activation.
@@ -105,7 +105,9 @@ export function TerminalPanel({ actions, active }: PanelProps) {
   };
 
   // One row of chrome: the tabs, the other threads' shells, and the actions; the dock's maximize button keeps its corner.
-  return <section ref={section} className={`panel-body terminal-panel${narrow ? " narrow" : ""}`}>
+  // On the stage the tab already names the one shell: its own strip would be a second row of tabs (design 1a).
+  const solo = placement === "stage" && scope.shown.length <= 1 && scope.elsewhere.length === 0;
+  return <section ref={section} className={`panel-body terminal-panel${narrow ? " narrow" : ""}${solo ? " solo" : ""}`}>
     <header className="panel-header terminal-toolbar">
       <div ref={tabs} className="terminal-tabs" role="tablist" aria-label="Terminals">
         {scope.shown.map((group) => <TerminalTab

@@ -5,12 +5,23 @@ import { noticeHeadline } from "./notice-text";
 const IMAGES_ONLY = /^\[\d+ images? attached\]$/u;
 
 /** Why a turn failed, where it failed; the whole provider text is one hover away. */
-export function TurnErrorLine({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function TurnErrorLine({ message, retries = 0, recovered = false, onRetry }: {
+  message: string;
+  /** Automatic retries after the first failure; the line counts them and shows the last reason. */
+  retries?: number;
+  recovered?: boolean;
+  onRetry?: () => void;
+}) {
   const headline = noticeHeadline(message);
+  const count = retries > 0 ? `${recovered ? "Retried" : "Failed · retried"} ${retries}×` : undefined;
   return (
-    <div className="turn-error-line" role="status">
+    <div className={`turn-error-line${recovered ? " recovered" : ""}`} role="status">
       <CircleAlert size={14} aria-hidden="true" />
-      <span title={headline === message.trim() ? undefined : message}>{headline}</span>
+      <span title={headline === message.trim() ? undefined : message}>
+        {count ? <strong className="turn-error-count">{count}</strong> : null}
+        {count ? " · " : null}
+        {headline}
+      </span>
       {onRetry ? (
         <button type="button" className="mini-button" onClick={onRetry}>
           <RotateCcw size={12} aria-hidden="true" />Retry
@@ -22,7 +33,8 @@ export function TurnErrorLine({ message, onRetry }: { message: string; onRetry?:
 
 /** The prompt that led to a failed answer (the last one when none is named), to send once more. */
 export function retryPrompt(messages: readonly UiMessage[], failed?: UiMessage): { text: string; attachments: UiPromptAttachment[] } | undefined {
-  const end = failed ? messages.indexOf(failed) : messages.length;
+  // By id: a collapsed retry row is a copy of the failed answer.
+  const end = failed ? messages.findIndex((message) => message.id === failed.id) : messages.length;
   const prompt = [...messages.slice(0, end < 0 ? messages.length : end)].reverse().find((message) => message.role === "user");
   if (!prompt) return undefined;
   const images = prompt.images ?? [];

@@ -105,6 +105,31 @@ describe("ThreadStore selective navigation subscriptions", () => {
     store.setThreadRunning("one", false);
     expect(store.getActivity().runningStartedAt.one).toBeUndefined();
   });
+
+  it("times a run from the host's start, over its own clock", () => {
+    const store = new ThreadStore();
+    store.setThreadRunning("one", true);
+    store.setThreadRunning("one", true, 1_000);
+    expect(store.getActivity().runningStartedAt.one).toBe(1_000);
+    // Started again, as after an automatic retry: the run keeps its first start.
+    store.setThreadRunning("one", true);
+    expect(store.getActivity().runningStartedAt.one).toBe(1_000);
+  });
+
+  it("takes a bootstrap's runs over what it knew, and keeps its runs through an index without them", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two"), shell("three")] });
+    store.setThreadRunning("one", true);
+    store.markFailed("two");
+    // Away for a while: "one" ended, "two" started again, and this client heard of neither.
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two"), shell("three")], runs: { two: 5_000 } });
+    expect(store.getActivity().runningThreadIds).toEqual(["two"]);
+    expect(store.getActivity().runningStartedAt).toEqual({ two: 5_000 });
+    expect(store.getActivity().failedThreadIds).toEqual([]);
+    const activity = store.getActivity();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two", "renamed"), shell("three")] });
+    expect(store.getActivity()).toBe(activity);
+  });
 });
 
 describe("ThreadStore interrupted threads", () => {

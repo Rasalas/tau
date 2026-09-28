@@ -91,7 +91,9 @@ export function writeBootstrapCache(
 ): void {
   if (!snapshot || !threadIndex || !storage) return;
   try {
-    const raw = JSON.stringify({ snapshot: boundedSnapshot(snapshot), threadIndex } satisfies CachedBootstrap);
+    // Runs are the host's word at bootstrap time; a cold start must not replay stale ones.
+    const { runs: _runs, ...index } = threadIndex;
+    const raw = JSON.stringify({ snapshot: boundedSnapshot(snapshot), threadIndex: index } satisfies CachedBootstrap);
     if (raw.length > MAX_BYTES) { storage.remove(CACHE_KEY); return; }
     storage.set(CACHE_KEY, raw);
   } catch {

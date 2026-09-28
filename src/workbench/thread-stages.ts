@@ -4,10 +4,12 @@ import type { StageState } from "./stage";
 import { STORAGE_KEYS, threadStageKey } from "./storage-keys";
 import { decodeStageState, takeProjectLayout, type ThreadDockState } from "./workbench-layout-state";
 
-/** What one thread or draft left on screen: its stage, whether it filled the centre, and its dock. */
+/** What one thread or draft left on screen: its stage, whether it filled the centre or was folded, and its dock. */
 export interface ThreadStage {
   stage: StageState;
   maximized: boolean;
+  /** The stage was folded to its spine. */
+  folded?: boolean;
   dock: ThreadDockState;
 }
 
@@ -105,7 +107,12 @@ export class ThreadStages {
     const stored = parse(this.ports.storage.get(threadStageKey(this.resolve(owner))));
     if (stored) {
       const stage = decodeStageState(stored);
-      return { stage, maximized: stored.maximized === true && stage.tabs.length > 0, dock: decodeDock(stored.dock) };
+      return {
+        stage,
+        maximized: stored.maximized === true && stage.tabs.length > 0,
+        ...(stored.folded === true && stage.tabs.length > 0 ? { folded: true } : {}),
+        dock: decodeDock(stored.dock),
+      };
     }
     if (!isThread || !workspace || (!first && !this.isLatest(owner.slice(THREAD.length), workspace))) return undefined;
     const taken = takeProjectLayout(this.ports.storage, workspace);
@@ -124,6 +131,7 @@ export class ThreadStages {
         tabs: layout.stage.tabs,
         ...(layout.stage.activeId ? { activeId: layout.stage.activeId } : {}),
         ...(layout.maximized && layout.stage.tabs.length > 0 ? { maximized: true } : {}),
+        ...(layout.folded && layout.stage.tabs.length > 0 ? { folded: true } : {}),
         dock: layout.dock,
         seenAt: this.now(),
       }));

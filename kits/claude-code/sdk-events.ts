@@ -330,8 +330,21 @@ export class SdkTurnTranslator {
     if (subtype === "compact_boundary") {
       const metadata = (message as { compact_metadata?: { pre_tokens?: number; post_tokens?: number } }).compact_metadata;
       this.compaction = { ...(typeof metadata?.post_tokens === "number" ? { postTokens: metadata.post_tokens } : {}) };
-      const detail = metadata?.pre_tokens ? ` (${metadata.pre_tokens.toLocaleString("en-US")} → ${(metadata.post_tokens ?? 0).toLocaleString("en-US")} tokens)` : "";
-      return [{ type: "notice", message: `Claude compacted the conversation${detail}.`, level: "info" }];
+      // A divider in the transcript; the backend adds the turns it summarised.
+      const timestamp = this.now();
+      return [{
+        type: "assistant-end",
+        message: {
+          id: `claude-compaction-${timestamp}`,
+          role: "notice",
+          text: "Context compacted",
+          timestamp,
+          compaction: {
+            ...(typeof metadata?.pre_tokens === "number" && metadata.pre_tokens > 0 ? { tokensBefore: metadata.pre_tokens } : {}),
+            ...(typeof metadata?.post_tokens === "number" && metadata.post_tokens > 0 ? { tokensAfter: metadata.post_tokens } : {}),
+          },
+        },
+      }];
     }
     if (subtype === "status") {
       const status = message as { compact_result?: string; compact_error?: string };
