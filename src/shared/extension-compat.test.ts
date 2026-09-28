@@ -49,7 +49,7 @@ describe("extension compatibility", () => {
   });
 
   it("keeps a package written against an older minor loading, per ADR 0008's additive rule", () => {
-    // EXTENSION_API_VERSION is 1.21.0: same major as 1.0.0, minor grew. A package
+    // EXTENSION_API_VERSION is 1.22.0: same major as 1.0.0, minor grew. A package
     // that asks for "^1.0.0" (the README's own convention) still loads; one
     // that needs a minor Tau has not shipped yet, or a different major, does not.
     const versions = { tau: "0.0.0", pi: "0.84.4", api: EXTENSION_API_VERSION };
@@ -58,7 +58,7 @@ describe("extension compatibility", () => {
     expect(describeIncompatibility({ api: "1.5.0" }, versions)).toBe(
       `needs the extension API 1.5.0, this Tau has ${EXTENSION_API_VERSION}`,
     );
-    expect(describeIncompatibility({ api: "1.21.0" }, versions)).toBeUndefined();
+    expect(describeIncompatibility({ api: "1.22.0" }, versions)).toBeUndefined();
     expect(describeIncompatibility({ api: "2.0.0" }, versions)).toBe(
       `needs the extension API 2.0.0, this Tau has ${EXTENSION_API_VERSION}`,
     );
