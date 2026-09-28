@@ -142,6 +142,8 @@
 .touch-thread-row .thread-branch { font-size: 12px; }
 /* No hover on a phone: the cost reads at full strength. */
 .touch-thread-row .thread-cost-meta { opacity: 1; font-size: 12px; }
+/* A draft's mark stays: a touch leaves :hover behind, and Discard lives in the sheet. */
+.touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: 13px; }
 .touch-thread-pin { flex: none; color: var(--faint); }
 .touch-thread-provider { flex: none; }
 /* Settled rows are the rail's slim, quiet ones. */

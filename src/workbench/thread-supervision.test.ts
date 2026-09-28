@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts";
 import { ThreadStore, type ThreadActivitySnapshot } from "./thread-store";
-import { threadAge, threadElapsed, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
+import { threadAge, threadElapsed, threadListDrafts, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
 
 function thread(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/p/${id}`, title, modifiedAt, projectPath: "/p", projectName: "p", messageCount: 1 };
@@ -118,5 +118,20 @@ describe("the compact thread list", () => {
     expect(threadAge(now - 21 * 86_400_000, now)).toBe("21d");
     expect(threadElapsed(0, 42_000)).toBe("42s");
     expect(threadElapsed(0, 185_000)).toBe("3m 05s");
+  });
+});
+
+describe("the compact list's drafts", () => {
+  const draft = (draftId: string, projectPath: string, sessionId?: string) => ({
+    draftId, projectName: projectPath.slice(1), projectPath, preview: "", attachments: 0, createdAt: 1, active: false, ...(sessionId ? { sessionId } : {}),
+  });
+
+  it("keeps the filtered project's drafts, and gives way to a thread the list shows", () => {
+    const drafts = [draft("a", "/p"), draft("b", "/q"), draft("c", "/p", "fresh"), draft("d", "/p", "written")];
+    const threads = [{ ...thread("fresh", 1), messageCount: 0 }, thread("written", 2)];
+    expect(threadListDrafts(drafts, threads, idle).map((entry) => entry.draftId)).toEqual(["a", "b", "c"]);
+    expect(threadListDrafts(drafts, threads, idle, { path: "/p" }).map((entry) => entry.draftId)).toEqual(["a", "c"]);
+    // A session nobody wrote in shows once it runs; the draft gives way then.
+    expect(threadListDrafts(drafts, threads, { ...idle, runningThreadIds: ["fresh"] }).map((entry) => entry.draftId)).toEqual(["a", "b"]);
   });
 });

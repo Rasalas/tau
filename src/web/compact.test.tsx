@@ -415,8 +415,97 @@ describe("a phone with no thread open", () => {
   });
 });
 
+describe("a new thread's draft in the phone's list", () => {
+  const composer = () => screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+  async function startDraft(): Promise<HTMLElement> {
+    const home = await screen.findByRole("region", { name: "Threads" });
+    fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
+    await screen.findByRole("button", { name: "Back to threads" });
+    return home;
+  }
+  const back = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+    return await screen.findByRole("region", { name: "Threads" });
+  };
+
+  it("closes a draft nobody wrote in on the way back to the list", async () => {
+    renderHome();
+    await startDraft();
+    const home = await back();
+    expect(within(home).queryByRole("button", { name: /^Open draft / })).toBeNull();
+  });
+
+  it("keeps a draft with text above the active threads, opens it again with a tap, and discards it from its sheet", async () => {
+    renderHome();
+    await startDraft();
+    fireEvent.change(composer(), { target: { value: "Sketch the onboarding" } });
+    const home = await back();
+    const row = within(home).getByRole("button", { name: "Open draft Sketch the onboarding" });
+    const rows = within(within(home).getByRole("list", { name: "Threads" })).getAllByRole("listitem");
+    expect(rows[0]?.contains(row)).toBe(true);
+    expect(within(row).getByText("Draft")).toBeTruthy();
+
+    fireEvent.click(row);
+    await screen.findByRole("button", { name: "Back to threads" });
+    expect(composer().value).toBe("Sketch the onboarding");
+
+    const again = await back();
+    fireEvent.click(within(again).getByRole("button", { name: "Actions for draft Sketch the onboarding" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Sketch the onboarding" })).getByRole("button", { name: "Discard draft" }));
+    await waitFor(() => expect(within(again).queryByRole("button", { name: /^Open draft / })).toBeNull());
+  });
+
+  it("opens the draft's sheet on a long press on its title", async () => {
+    renderHome();
+    await startDraft();
+    fireEvent.change(composer(), { target: { value: "Press me" } });
+    const home = await back();
+    const title = within(home).getByRole("button", { name: "Open draft Press me" }).querySelector(".thread-title")!;
+    fireEvent.pointerDown(title, { pointerType: "touch", pointerId: 3, button: 0, clientX: 40, clientY: 20 });
+    expect(await screen.findByRole("dialog", { name: "Press me" }, { timeout: 2_000 })).toBeTruthy();
+  });
+
+  it("takes no swipe: a draft is never thrown away by a gesture", async () => {
+    renderHome();
+    await startDraft();
+    fireEvent.change(composer(), { target: { value: "Keep me" } });
+    const home = await back();
+    const item = within(home).getByRole("button", { name: "Open draft Keep me" }).closest("li") as HTMLElement;
+    swipe(item.querySelector(".swipe-row")!, 300, 20);
+    expect(within(home).getByRole("button", { name: "Open draft Keep me" })).toBeTruthy();
+  });
+
+  it("stays out of the list order a settle moves along", async () => {
+    let order: readonly string[] | undefined;
+    const reader: DesktopExtension = { id: "test.order", name: "Order", activate(plugin) {
+      plugin.registerCommand({ id: "test.read-order", label: "Read order", group: "Thread", surfaces: ["thread-row"], run: (actions) => { order = actions.threadListOrder?.(); } });
+    } };
+    renderCompactClient({ bootstrap: bootstrapWith(THREADS, { home: true }) }, [reader]);
+    await startDraft();
+    fireEvent.change(composer(), { target: { value: "Not a thread yet" } });
+    const home = await back();
+    expect(within(home).getByRole("button", { name: "Open draft Not a thread yet" })).toBeTruthy();
+    fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Ship the web client" })).getByRole("button", { name: "Read order" }));
+    await waitFor(() => expect(order).toEqual(["t-a", "t-b", "t-c"]));
+  });
+});
+
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
+
+  it("lists a new thread's draft in the sidebar as soon as it opens, and drops it when left empty", async () => {
+    renderCompactClient();
+    const sidebar = await screen.findByRole("navigation", { name: "Thread list" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "New thread" }));
+    const row = await within(sidebar).findByRole("button", { name: "Open draft New thread" });
+    expect(row.getAttribute("aria-current")).toBe("true");
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "Tablet idea" } });
+    expect(await within(sidebar).findByRole("button", { name: "Open draft Tablet idea" })).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "" } });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Open thread Ship the web client" }));
+    await waitFor(() => expect(within(sidebar).queryByRole("button", { name: /^Open draft / })).toBeNull());
+  });
 
   it("keeps the thread list in a sidebar beside the thread, and the title bar folds it away", async () => {
     const client = renderCompactClient();

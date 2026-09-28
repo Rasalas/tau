@@ -1,5 +1,6 @@
 import type { UiProject, UiSession, UiThreadUsage } from "../shared/contracts";
 import type { ThreadActivitySnapshot } from "./thread-store";
+import type { DraftThread } from "./draft-threads";
 
 /**
  * What a thread is doing right now, in the words a supervisor needs: a phone
@@ -133,7 +134,7 @@ export function threadListGroups(
   const rows = threads
     .filter((thread) => !thread.parentThreadId || activity.waitingThreadIds.includes(thread.id))
     // A session nobody wrote in yet (the one a host opens at start) is no thread to list.
-    .filter((thread) => thread.messageCount > 0 || activity.runningThreadIds.includes(thread.id) || activity.waitingThreadIds.includes(thread.id))
+    .filter((thread) => listed(thread, activity))
     .filter((thread) => !project || inProject(thread, project))
     .map((thread) => rowFor(thread, activity, options))
     .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
@@ -149,6 +150,29 @@ export function threadListGroups(
   if (active.length > 0) groups.push({ id: "active", label: "", ...page("active", active) });
   if (settled.length > 0) groups.push({ id: "settled", label: "Settled", ...page("settled", settled) });
   return groups;
+}
+
+/** A session the list shows: someone wrote in it, or it is at work or asking. */
+function listed(thread: UiSession, activity: ThreadActivitySnapshot): boolean {
+  return thread.messageCount > 0 || activity.runningThreadIds.includes(thread.id) || activity.waitingThreadIds.includes(thread.id);
+}
+
+/**
+ * The drafts the compact list shows above its active threads: those of the
+ * filtered project, less any whose thread the list shows already (its row
+ * takes over once the host has it).
+ */
+export function threadListDrafts(
+  drafts: readonly DraftThread[],
+  threads: readonly UiSession[],
+  activity: ThreadActivitySnapshot,
+  project?: Pick<UiProject, "path" | "workspaceId">,
+): DraftThread[] {
+  return drafts.filter((draft) => {
+    if (project && !inProject({ workspaceId: draft.workspaceId, projectPath: draft.projectPath }, project)) return false;
+    const thread = draft.sessionId ? threads.find((candidate) => candidate.id === draft.sessionId) : undefined;
+    return !thread || !listed(thread, activity);
+  });
 }
 
 /** The compact list's threads top to bottom, every page of it. */
