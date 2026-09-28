@@ -1,5 +1,5 @@
 import { memo, type CSSProperties, type ReactNode } from "react";
-import { SquarePen, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { plainChipText } from "./composer-chip-token";
 import { projectHue, projectInitial } from "./ThreadRow";
@@ -24,9 +24,9 @@ export interface DraftRowProps {
 }
 
 /**
- * A new thread's draft in a thread list, in the card a thread gets: the
- * project line marked Draft with T3 Code's pen, the draft's first line as
- * its title, and the tint T3 Code gives unsent work.
+ * A new thread's draft in a thread list: the project line with a quiet grey
+ * "draft" where a thread shows its state (the design's), and the draft's first
+ * line as its title. Two lines, no branch yet.
  */
 export const DraftRow = memo(function DraftRow({ draft, projectIcon, onOpen, onDiscard, actions }: DraftRowProps) {
   const title = draftTitle(draft);
@@ -46,11 +46,10 @@ export const DraftRow = memo(function DraftRow({ draft, projectIcon, onOpen, onD
             {projectIcon ? <img src={projectIcon} alt="" aria-hidden="true" /> : projectInitial(draft.projectName)}
           </i>
           <strong>{draft.projectName}</strong>
-          <span className="thread-draft-mark"><SquarePen size={11} aria-hidden="true" />Draft</span>
+          <span className="thread-draft-mark">draft</span>
         </span>
         {/* A touch list's long press would show a tooltip instead of its sheet. */}
         <span className="thread-title" {...(actions ? {} : tooltipProps(title, { when: "truncated", side: "right" }))}>{title}</span>
-        <span className="thread-meta-line" aria-hidden="true" />
       </button>
       {actions ?? (onDiscard ? <span className="thread-row-actions">
         <button type="button" className="thread-discard" aria-label={`Discard draft ${title}`} {...tooltipProps("Discard draft")} onClick={() => onDiscard(draft.draftId)}>

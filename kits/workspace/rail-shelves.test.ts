@@ -15,11 +15,14 @@ const settled = (count: number): ThreadRailSection => ({
 });
 
 describe("the rail's shelves", () => {
-  it("start folded unless the client opened them, and remember that choice", () => {
+  it("start as their section says unless the client chose, and remember that choice", () => {
     const storage = createMemoryStorage();
     expect(shelfIsOpen(settled(3), readShelvesOpen(storage))).toBe(false);
+    expect(shelfIsOpen({ ...settled(3), collapsed: false }, readShelvesOpen(storage))).toBe(true);
     writeShelvesOpen(storage, { settled: true });
     expect(shelfIsOpen(settled(3), readShelvesOpen(storage))).toBe(true);
+    writeShelvesOpen(storage, { settled: false });
+    expect(shelfIsOpen({ ...settled(3), collapsed: false }, readShelvesOpen(storage))).toBe(false);
     // A section that is no shelf is always open.
     expect(shelfIsOpen({ id: "pinned", label: "Pinned", threads: [] }, {})).toBe(true);
   });
@@ -42,8 +45,7 @@ describe("the rail's shelves", () => {
     expect(shelfRows(section, false, 10, "elsewhere")).toEqual([]);
   });
 
-  it("count their threads only while folded", () => {
-    expect(shelfHeading(settled(26), false)).toBe("Settled · 26");
-    expect(shelfHeading(settled(26), true)).toBe("Settled");
+  it("count their threads, open or folded, as the design's heading", () => {
+    expect(shelfHeading(settled(26))).toBe("Settled · 26");
   });
 });

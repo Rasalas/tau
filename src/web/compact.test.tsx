@@ -216,12 +216,13 @@ describe("the web client at 400 px", () => {
     renderHome();
     await screen.findByRole("list", { name: "Threads" });
     swipe(rowNamed("Fix the flaky test").querySelector(".swipe-row")!, 380, 60);
-    // The shelf starts folded, as in T3 Code: the thread leaves the list and the count takes it.
+    // The shelf starts open under its count, right after the active threads, as the design draws it.
     const toggle = await screen.findByRole("button", { name: "Settled · 1" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toBe("Settled · 1");
     expect(screen.queryByRole("list", { name: "Settled threads" })).toBeNull();
     fireEvent.click(toggle);
-    expect(toggle.textContent).toBe("Settled");
     const shelf = screen.getByRole("list", { name: "Settled threads" });
     expect(within(shelf).getByText("Fix the flaky test")).toBeTruthy();
     expect(rowNamed("Fix the flaky test").dataset.settled).toBe("true");
@@ -424,17 +425,22 @@ describe("a phone with no thread open", () => {
     const other = { ...thread("t-o", "Tune the other one", 50), projectPath: "/other", projectName: "other" };
     renderCompactClient({ bootstrap: bootstrapWith([...THREADS, other], { home: true, projects: TWO_PROJECTS }) });
     const home = await screen.findByRole("region", { name: "Threads" });
-    fireEvent.click(within(home).getByRole("button", { name: "Project: all projects. Change" }));
+    // An icon in the header, between search and More, as on the desktop rail; no row over the list.
+    const filter = within(home).getByRole("button", { name: "Filter threads by project" });
+    expect(filter.closest(".touch-browser-header")).toBeTruthy();
+    expect(home.querySelector(".touch-project-filter-button")).toBeNull();
+    fireEvent.click(filter);
     const sheet = await screen.findByRole("dialog", { name: "Show threads of" });
     expect(within(sheet).getByRole("button", { name: /^All projects/u }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(within(sheet).getByRole("button", { name: /^project/u }));
     await waitFor(() => expect(within(home).queryByRole("button", { name: "Open thread Tune the other one" })).toBeNull());
     expect(within(home).getByRole("button", { name: "Open thread Rename the store" })).toBeTruthy();
-    fireEvent.click(within(home).getByRole("button", { name: "Show all projects" }));
+    fireEvent.click(within(home).getByRole("button", { name: "Filter threads by project: project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^All projects/u }));
     expect(await within(home).findByRole("button", { name: "Open thread Tune the other one" })).toBeTruthy();
 
     // `other` was busy last, but the filter names the project a new thread starts in.
-    fireEvent.click(within(home).getByRole("button", { name: "Project: all projects. Change" }));
+    fireEvent.click(within(home).getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^project/u }));
     fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
@@ -469,7 +475,7 @@ describe("a new thread's draft in the phone's list", () => {
     const row = within(home).getByRole("button", { name: "Open draft Sketch the onboarding" });
     const rows = within(within(home).getByRole("list", { name: "Threads" })).getAllByRole("listitem");
     expect(rows[0]?.contains(row)).toBe(true);
-    expect(within(row).getByText("Draft")).toBeTruthy();
+    expect(within(row).getByText("draft")).toBeTruthy();
 
     fireEvent.click(row);
     await screen.findByRole("button", { name: "Back to threads" });
@@ -529,7 +535,7 @@ describe("the compact client on a tablet", () => {
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
     expect(screen.queryByPlaceholderText("Search projects")).toBeNull();
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Project: all projects. Change" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^other/u }));
     // The header's button; the empty list offers one too.
     fireEvent.click(within(sidebar).getAllByRole("button", { name: "New thread" })[0]!);

@@ -59,6 +59,33 @@ describe("sidebar footer pages", () => {
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
+  it("leads with a prominent page's label and count, and ends with a page's figure in place of its icon", async () => {
+    let figure: { text: string; short?: string; hint?: string } | undefined;
+    const pages: DesktopExtension = {
+      id: "foot-test", name: "Foot test", activate(plugin) {
+        plugin.registerPage({ id: "usage", label: "Usage", Icon: ChartColumn, order: 20, useSummary: () => figure, Component: () => null });
+        plugin.registerPage({ id: "requests", label: "Pull requests", Icon: GitPullRequest, order: 10, Component: () => null });
+        plugin.registerPage({ id: "reviews", label: "Reviews", Icon: GitPullRequest, order: 30, prominent: true, useBadge: () => 4, Component: () => null });
+      },
+    };
+    const view = renderApp(undefined, { extensions: [workspaceExtension, pages] });
+    const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
+    const reviews = await footer.findByRole("button", { name: "Reviews, 4" });
+    expect(reviews.textContent).toBe("Reviews4");
+    expect(reviews.querySelector(".page-count")?.textContent).toBe("4");
+    // Without a figure yet, the page keeps its icon at the end.
+    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Settings", "Pull requests", "Usage"]);
+
+    figure = { text: "$12.40 · 22 · 3.1M tok", short: "$12.40", hint: "This month · $12.40 billed per token" };
+    fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
+    const usage = await footer.findByRole("button", { name: "Usage: This month · $12.40 billed per token" });
+    expect(usage.closest(".sidebar-footer-end")).toBeTruthy();
+    expect(usage.querySelector(".sidebar-summary-full")?.textContent).toBe("$12.40 · 22 · 3.1M tok");
+    expect(usage.querySelector(".sidebar-summary-short")?.textContent).toBe("$12.40");
+    fireEvent.click(usage);
+    expect(await screen.findByRole("region", { name: "Usage" })).toBeTruthy();
+  });
+
   it("does not show entries from absent kits", async () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension] });
     await screen.findByRole("button", { name: "Settings" });
