@@ -59,6 +59,10 @@ export interface WorkbenchActions {
   /** A new thread's draft, through the project picker; with `workspace`, in that project directly, and nothing when the window does not know it yet. */
   newSession(options?: { workspace?: string }): void;
   switchSession(path: string): Promise<boolean>;
+  /** Makes a new thread's draft from the list (`threadStore.getDrafts()`) the one on screen (API 1.21.0). */
+  openDraft?(draftId: string): void;
+  /** Throws a draft away; the draft on screen closes onto the thread the host has open (API 1.21.0). */
+  discardDraft?(draftId: string): void;
   settleActiveThread(): void;
   abort(): void;
   /** Builds Tau, reloads Pi resources and desktop extensions, then restarts the app when required. */

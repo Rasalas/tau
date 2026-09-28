@@ -1,4 +1,5 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiProject, UiSession } from "../shared/contracts";
+import type { DraftThread } from "./draft-threads";
 
 export interface ThreadActivitySnapshot {
   activeThreadId: string;
@@ -134,12 +135,26 @@ export class ThreadStore {
   private runningTools = new Map<string, string>();
   /** Deliveries the host refused, by thread; the rest of `failedThreadIds` comes from the index. */
   private refusedThreadIds: readonly string[] = [];
+  private drafts: readonly DraftThread[] = [];
+  private draftListeners = new Set<() => void>();
 
   getSnapshot = (): ThreadStoreSnapshot => this.snapshot;
   getThreadIds = (): readonly string[] => this.threadIds;
   getProjects = (): readonly UiProject[] => this.snapshot.projects;
   getActivity = (): ThreadActivitySnapshot => this.activitySnapshot;
   getThread = (id: string): UiSession | undefined => this.snapshot.threads.find((thread) => thread.id === id);
+  /** New threads' drafts, newest first: the one on screen and the ones left with text in them. */
+  getDrafts = (): readonly DraftThread[] => this.drafts;
+
+  subscribeToDrafts = (listener: () => void): (() => void) => {
+    this.draftListeners.add(listener);
+    return () => this.draftListeners.delete(listener);
+  };
+
+  setDrafts(drafts: readonly DraftThread[]): void {
+    this.drafts = drafts;
+    this.draftListeners.forEach((listener) => listener());
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);

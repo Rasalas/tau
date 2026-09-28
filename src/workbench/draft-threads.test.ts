@@ -1,0 +1,111 @@
+import { describe, expect, it } from "vitest";
+import { createMemoryStorage, type ClientStorage } from "./client-storage";
+import { ComposerScopeStore, createDraftKey } from "./composer-scope-store";
+import { createNewThreadDraft, draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { DraftThreads, type DraftThread } from "./draft-threads";
+import { NewThreadController } from "./new-thread-controller";
+
+function setup(storage: ClientStorage = createMemoryStorage()) {
+  const scopes = new ComposerScopeStore();
+  const newThread = new NewThreadController(storage);
+  let published: readonly DraftThread[] = [];
+  const drafts = new DraftThreads({ storage, scopes, newThread, publish: (rows) => { published = rows; } });
+  /** What the composer does when the user types into the draft on screen. */
+  const type = (draft: NewThreadDraft, text: string) => {
+    const scope = createDraftKey(draftKey(undefined, draft));
+    scopes.setDraft(scope, text);
+    writeComposerDraft(storage, scope, text);
+  };
+  /** What navigation does when the draft on screen is left. */
+  const leave = () => {
+    const current = newThread.current();
+    if (current) drafts.keep(current);
+    newThread.set(undefined);
+    writeNewThreadDraft(storage);
+  };
+  return { storage, scopes, newThread, drafts, rows: () => published, type, leave };
+}
+
+const project = { projectPath: "/repos/tau", projectName: "tau" };
+
+describe("draft rows", () => {
+  it("shows a new thread's draft from the moment it opens, titled by its first line as it is typed", () => {
+    const { newThread, rows, type } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    expect(rows()).toMatchObject([{ draftId: draft.draftId, projectName: "tau", preview: "", attachments: 0, active: true }]);
+
+    type(draft, "\n  Fix the login bug\nwith details");
+    expect(rows()[0]?.preview).toBe("Fix the login bug");
+  });
+
+  it("drops a draft left empty, and keeps one left with text until it is opened again", () => {
+    const { storage, newThread, drafts, rows, type, leave } = setup();
+    const empty = createNewThreadDraft(project);
+    newThread.begin(empty);
+    leave();
+    expect(rows()).toEqual([]);
+
+    const written = createNewThreadDraft(project);
+    newThread.begin(written);
+    type(written, "Keep me");
+    leave();
+    expect(rows()).toMatchObject([{ draftId: written.draftId, preview: "Keep me", active: false }]);
+
+    // It outlives the window.
+    const again = setup(storage);
+    expect(again.rows()).toMatchObject([{ draftId: written.draftId, preview: "Keep me", active: false }]);
+
+    const taken = drafts.take(written.draftId);
+    expect(taken).toMatchObject({ draftId: written.draftId, draft: "Keep me" });
+    newThread.begin(taken!);
+    expect(rows()).toMatchObject([{ draftId: written.draftId, preview: "Keep me", active: true }]);
+    expect(setup(storage).rows()).toMatchObject([{ draftId: written.draftId, active: true }]);
+  });
+
+  it("keeps a draft whose composer holds only images, for as long as the window lives", () => {
+    const { storage, scopes, newThread, rows, leave } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    scopes.setAttachments(createDraftKey(draftKey(undefined, draft)), [{ id: 1, kind: "image", mimeType: "image/png", data: "", previewUrl: "" } as never]);
+    leave();
+    expect(rows()).toMatchObject([{ draftId: draft.draftId, preview: "", attachments: 1 }]);
+    expect(setup(storage).rows()).toEqual([]);
+  });
+
+  it("lists newest first and forgets a discarded draft with its composer", () => {
+    const { scopes, newThread, drafts, rows, type, leave } = setup();
+    const older = { ...createNewThreadDraft(project), createdAt: 1 };
+    const newer = { ...createNewThreadDraft({ projectPath: "/repos/other", projectName: "other" }), createdAt: 2 };
+    newThread.begin(older);
+    type(older, "older");
+    leave();
+    newThread.begin(newer);
+    type(newer, "newer");
+    expect(rows().map((row) => [row.preview, row.active])).toEqual([["newer", true], ["older", false]]);
+
+    drafts.discard(older);
+    expect(rows().map((row) => row.preview)).toEqual(["newer"]);
+    expect(scopes.getSnapshot(createDraftKey(draftKey(undefined, older))).draft).toBe("");
+  });
+
+  it("keeps the title while the first message is on its way, and keeps no draft that is being sent", async () => {
+    const { storage, scopes, newThread, drafts, rows, type } = setup();
+    const draft = createNewThreadDraft(project);
+    newThread.begin(draft);
+    type(draft, "Ship it");
+    const scope = createDraftKey(draftKey(undefined, draft));
+    const handle = await scopes.beginSubmission(scope);
+    expect("attachments" in handle).toBe(true);
+    expect(scopes.getSnapshot(scope).draft).toBe("");
+    expect(rows()[0]?.preview).toBe("Ship it");
+    expect(drafts.keep(draft)).toBe(false);
+    // The host took it; the draft waits for its thread and keeps the title it sent.
+    if ("settle" in handle) handle.settle({ accepted: true });
+    writeComposerDraft(storage, scope, "");
+    expect(scopes.getSnapshot(scope).submissionPending).toBe(false);
+    expect(rows()[0]?.preview).toBe("Ship it");
+    type(draft, "Next thought");
+    expect(rows()[0]?.preview).toBe("Next thought");
+  });
+});

@@ -47,6 +47,8 @@ export interface UseWorkbenchActionsOptions {
   /** Puts a new thread's draft in a project without the picker. */
   createThreadInProject?: (project: UiProject) => void;
   switchSession: WorkbenchActions["switchSession"];
+  openDraft?: WorkbenchActions["openDraft"];
+  discardDraft?: WorkbenchActions["discardDraft"];
   settleActiveThread: () => void;
   isVisibleThreadRunning: () => boolean;
   reloadWorkbench: WorkbenchActions["reloadWorkbench"];
@@ -118,6 +120,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       openSettings: (page) => options.setSettingsPage(page ?? "general"),
       newSession: (request) => newSession(request),
       switchSession,
+      ...(options.openDraft ? { openDraft: options.openDraft } : {}),
+      ...(options.discardDraft ? { discardDraft: options.discardDraft } : {}),
       settleActiveThread,
       // Escape is bound to this; only a visibly running thread has anything to stop.
       abort: () => {
@@ -329,5 +333,6 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
     stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles, options.pages,
+    options.openDraft, options.discardDraft,
   ]);
 }

@@ -202,7 +202,8 @@ export interface WorkbenchLayout {
   closeNewThreadPicker(): void;
   projects: readonly UiProject[];
   removeProject(project: UiProject): void;
-  createThreadInProject(project: UiProject): void;
+  /** `carry` moves the draft on screen to the project instead of leaving it in the list. */
+  createThreadInProject(project: UiProject, options?: { carry?: boolean }): void;
   settingsPage?: string;
   setSettingsPage(page?: string): void;
   setNotice(message?: string, level?: "info" | "warning" | "error"): void;
@@ -355,6 +356,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const phone = compact && !split;
   const phoneNav = usePhoneNavigation({ phone, pages, settingsPage, setSettingsPage, sessionId: snapshot?.sessionId, drafting: pendingNewThread });
   const phoneHome = phone && !phoneNav.chatShown;
+  // Back to a phone's list from a draft nobody wrote in closes it; one with something in it stays a row.
+  useEffect(() => {
+    const draft = phoneHome ? threadStore.getDrafts().find((candidate) => candidate.active) : undefined;
+    if (draft && !draft.preview && draft.attachments === 0) actions.discardDraft?.(draft.draftId);
+  }, [phoneHome]);
+  // The start screen's project button moves the draft; the project picker's other doors start another.
+  const pickerCarries = useRef(false);
   // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
   const [panelSheet, setPanelSheet] = useState<string>();
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
@@ -582,9 +590,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         open={newThreadOpen}
         projects={projects}
         onBrowse={() => actions.openProjectSources()}
-        onClose={closeNewThreadPicker}
+        onClose={() => { pickerCarries.current = false; closeNewThreadPicker(); }}
         onRemove={removeProject}
-        onSelect={createThreadInProject}
+        onSelect={(project) => { const carry = pickerCarries.current; pickerCarries.current = false; createThreadInProject(project, carry ? { carry } : undefined); }}
       />
     </Suspense>
     {openPage && pageScreen ? appPage : null}
@@ -726,7 +734,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             <div className="conversation-start-content">
               {showStartScreen ? <>
                 <h1 id="start-screen-title">What do you want to build?</h1>
-                <button type="button" className="conversation-start-project" aria-label={`Change project, current project ${startProjectName}`} onClick={openNewThreadPicker}>
+                <button type="button" className="conversation-start-project" aria-label={`Change project, current project ${startProjectName}`} onClick={() => { pickerCarries.current = true; openNewThreadPicker(); }}>
                   <i><Folder size={17} /></i>
                   <span><small>Current project</small><strong>{startProjectName}</strong><code {...tooltipProps(startProjectPath, { variant: "code", side: "bottom" })}>{displayPath(startProjectPath)}</code></span>
                   <b>Change</b><ChevronDown size={15} />

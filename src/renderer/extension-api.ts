@@ -74,6 +74,7 @@ export type { FloatingAlign, FloatingSide } from "./components/ui/floating";
 export type { ToastAction, ToastHandle, ToastOptions, ToastType } from "../workbench/toast-store";
 export { FileKindIcon } from "./components/FileKindIcon";
 export { ThreadRow } from "./components/ThreadRow";
+export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
 export { ProviderIconStack } from "./components/ProviderIconStack";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
@@ -190,6 +191,7 @@ export type {
   TimelineEvent,
 } from "./workbench-context";
 export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "../workbench/thread-store";
+export type { DraftThread } from "../workbench/draft-threads";
 /** The shape of a stage tab, as `actions.stageTabs()` hands it over. */
 export type { StageExtensionTab, StageFileTab, StagePanelTab, StageState, StageTab, StageThreadTab, StageView } from "../workbench/stage";
 export type { PreferencesStore } from "./preferences";

@@ -10,6 +10,7 @@ import {
   type NewThreadDeliveryPromotion,
 } from "./new-thread-delivery";
 import { NewThreadController } from "./new-thread-controller";
+import { DraftThreads } from "./draft-threads";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
 import { ToastStore } from "./toast-store";
@@ -39,6 +40,8 @@ export class WorkbenchSession {
   readonly history: TranscriptHistoryController;
   readonly scopes: ComposerScopeStore;
   readonly newThread: NewThreadController;
+  /** The drafts the thread list shows; `threads.getDrafts()` reads them. */
+  readonly drafts: DraftThreads;
   readonly hostSession: HostSessionState;
   readonly turn: TurnScopeController;
   /** The window's toast stack; notices become toasts in the client that draws them. */
@@ -61,6 +64,12 @@ export class WorkbenchSession {
     this.history = new TranscriptHistoryController(cached?.snapshot, cached?.threadIndex, this.view.details);
     this.scopes = new ComposerScopeStore();
     this.newThread = new NewThreadController(storage);
+    this.drafts = new DraftThreads({
+      storage,
+      scopes: this.scopes,
+      newThread: this.newThread,
+      publish: (drafts) => this.threads.setDrafts(drafts),
+    });
     this.hostSession = new HostSessionState();
     this.turn = new TurnScopeController(() => this.currentScopeKey());
 

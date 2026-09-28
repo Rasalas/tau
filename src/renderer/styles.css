@@ -368,6 +368,13 @@ body.resizing-col .app-shell { transition: none; }
 }
 .thread-row-actions > button:hover, .thread-row-actions > button[aria-expanded="true"] { background: var(--chip-hover); color: var(--ink); }
 .thread-row-actions > .thread-settle:hover { background: var(--acid-chip); color: var(--acid-text); }
+/* A new thread's draft: T3 Code's tint and pen for unsent work. */
+.thread-draft-row { background: color-mix(in srgb, var(--warn) 4%, transparent); }
+.thread-draft-row:hover { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.thread-draft-row.active { background: var(--thread-active); }
+.thread-draft-mark { display: inline-flex; align-items: center; gap: 4px; flex: none; font: 500 12px var(--sans); color: var(--warn); }
+.thread-row:is(:hover, :has(.thread-row-actions :focus-visible)) .thread-draft-mark { visibility: hidden; }
+.thread-row-actions > .thread-discard:hover { background: var(--warn-chip); color: var(--warn); }
 
 .thread-row.compact { opacity: .62; }
 .thread-row.compact:hover { opacity: 1; }
