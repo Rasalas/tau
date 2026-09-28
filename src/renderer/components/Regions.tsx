@@ -13,14 +13,15 @@ interface RegionHostProps {
 
 /**
  * Renders whatever extensions registered for one placement; nothing when empty.
- * `children` are core's own controls, drawn after the contributions.
+ * `lead` and `children` are core's own controls, drawn before and after the contributions.
  */
-export function Region({ registry, placement, snapshot, actions, lookIn, children }: RegionHostProps & { children?: ReactNode }) {
+export function Region({ registry, placement, snapshot, actions, lookIn, lead, children }: RegionHostProps & { lead?: ReactNode; children?: ReactNode }) {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const regions = registry.getRegions(placement);
-  if (regions.length === 0 && children === undefined) return null;
+  if (regions.length === 0 && children === undefined && !lead) return null;
   return (
     <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">
+      {lead}
       {regions.map((region) => (
         <LazyFeatureBoundary
           key={region.id}

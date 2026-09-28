@@ -710,13 +710,20 @@ the last message is never under them and folding the composer moves nothing; whe
 a kit's region draws no background, lines scrolled back show through it. What a
 kit draws in `composer-controls` gives the row its height, so it never covers the
 latest message; it is left out on the start screen.
-Core's Jump to latest floats while the reader is away from the latest message
-and never changes the row's height: beside the kits' controls when there are
-any (they stay centred), else centred over the transcript's bottom edge. Keep
-what goes there at pill size (32 px high on a desktop, 36 px in `compact` with
-a 44 px tap area) and render nothing when there is nothing to say: a row with
-nothing from a kit has no height. Workspace Kit's turn pill and, in `compact`, Review Kit's live there;
-banners and bars stay in `composer-above`. An older core never draws it. New in API 1.15.0, `look-in` draws under the header of a
+Core leads the row with the running task list's pill (done of all, "1/3";
+hovering or clicking opens the list above it) and ends it with Jump to latest,
+which floats while the reader is away from the latest message and never changes
+the row's height: beside the pills when there are any (they stay centred), else
+centred over the transcript's bottom edge. Draw what goes there as core's
+`.control-pill` (a `button`; add `icon-only` for a lone icon): one height
+(`--control-pill-height`, 32 px on a desktop, 36 px in `compact` with a 44 px
+tap area), edge, fill, 14 px icon (`--control-pill-icon`), tabular figures and
+hover, open (`aria-expanded`) and focus states for all of them. A pill whose
+detail opens on hover heads that detail with what the pill counts, as the tasks
+and the turn's changes do; a lone icon gets a tooltip. Render nothing when
+there is nothing to say: a row with no pill has no height. Workspace Kit's turn
+pill and, in `compact`, Review Kit's live there; banners and bars stay in
+`composer-above`. An older core never draws it. New in API 1.15.0, `look-in` draws under the header of a
 tab that shows a thread of another machine (`openThread(id, { machine })`); its
 props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
 it shows comes from that machine through `context.environments.readExtension`.
@@ -3556,6 +3563,8 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--radius-lg` | a panel | `12px` |
 | `--radius-xl` | a modal | `16px` |
 | `--radius-pill` | a pill or a knob | `999px` |
+| `--control-pill-height` | a pill in the row over the composer (`.control-pill`); `compact` sets `36px` | `32px` |
+| `--control-pill-icon` | its icon | `14px` |
 | `--motion-fast` | a hover or a chevron | `120ms` |
 | `--motion` | a row or a card arriving | `180ms` |
 | `--motion-slow` | a curtain | `320ms` |

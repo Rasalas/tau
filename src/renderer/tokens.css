@@ -165,6 +165,10 @@
   --radius-xl: 16px;                                 /* a modal */
   --radius-pill: 999px;                              /* a pill or a knob */
 
+  /* The row of pills over the composer: tasks, a turn's changes, Jump to latest. */
+  --control-pill-height: 32px;                       /* one pill of that row; 36px in compact */
+  --control-pill-icon: 14px;                         /* its icon */
+
   /* Spacing: one scale, multiplied by --density. The client may set --density on
      <html> (compact .8, comfortable 1.2); unset, every step is its pixel value. A
      value between two steps is written calc(Npx * var(--density)). */

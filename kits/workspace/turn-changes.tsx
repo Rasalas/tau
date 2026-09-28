@@ -68,7 +68,8 @@ export function TurnChangesPill({ changes, live = false, onOpenDiff, onRestore, 
       <button
         ref={anchor}
         type="button"
-        className={`turn-changes-pill${live ? " live" : ""}${open ? " open" : ""}`}
+        // Over the composer it is one of the row's pills and wears their shared look.
+        className={`turn-changes-pill${side === "top" ? " control-pill" : ""}${live ? " live" : ""}${open ? " open" : ""}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`${title}: ${countFiles(fileCount, partial)}, ${changes.added} lines added, ${changes.removed} removed`}
@@ -84,7 +85,7 @@ export function TurnChangesPill({ changes, live = false, onOpenDiff, onRestore, 
       >
         {live ? <span className="turn-changes-live" aria-hidden="true" /> : <FileDiff size={14} aria-hidden="true" />}
         <span className="turn-changes-count">{countFiles(fileCount, partial)}</span>
-        {partial ? <TriangleAlert size={13} className="turn-changes-partial" aria-hidden="true" /> : null}
+        {partial ? <TriangleAlert size={14} className="turn-changes-partial" aria-hidden="true" /> : null}
         <span className="stat-add">+{changes.added}</span>
         <span className="stat-del">−{changes.removed}</span>
         <Chevron size={14} className="chev" aria-hidden="true" />

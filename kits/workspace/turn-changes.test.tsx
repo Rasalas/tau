@@ -29,6 +29,13 @@ describe("TurnChangesPill", () => {
     expect(countFiles(1)).toBe("1 file");
   });
 
+  it("wears the row's shared pill look over the composer, and its own small one in the transcript", () => {
+    const view = render(<TurnChangesPill changes={changes} onOpenDiff={vi.fn()} />);
+    expect(pill().classList.contains("control-pill")).toBe(true);
+    view.rerender(<TurnChangesPill changes={changes} onOpenDiff={vi.fn()} side="bottom" />);
+    expect(pill().classList.contains("control-pill")).toBe(false);
+  });
+
   it("draws nothing for a turn that changed no files, even one that could be rewound", () => {
     const view = render(<TurnChangesPill changes={{ files: [], fileCount: 0, added: 0, removed: 0 }} onOpenDiff={vi.fn()} onRestore={vi.fn()} />);
     expect(view.container.innerHTML).toBe("");

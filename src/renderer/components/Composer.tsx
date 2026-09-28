@@ -26,7 +26,6 @@ import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
 import { usePromptArrival } from "./use-prompt-arrival";
 import { LazyFeatureBoundary } from "./LazyFeature";
-import { TaskProgress } from "./TaskProgress";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 import { promptTakesFiles } from "../../shared/extension-prompt-options";
@@ -764,7 +763,6 @@ export function Composer({
   return (
     <footer className="composer-zone" data-keybinding-context="composer">
       <div className="composer-surface" data-composer-surface="true">
-      {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {prompt ? (() => {
         // An extension that recognises the prompt draws it; core draws the four dialogs.
         const promptRenderer = registry?.getPromptRenderer(prompt);

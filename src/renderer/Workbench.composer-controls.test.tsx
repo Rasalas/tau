@@ -20,9 +20,8 @@ const kit: DesktopExtension = {
   },
 };
 
-describe("the controls row over the composer", () => {
-  it("sits on the transcript's bottom edge, outside the transcript and before its footer", async () => {
-    const client = createFakeHostClient({
+function clientWith(detail: Record<string, unknown> = {}) {
+  return createFakeHostClient({
       platform: "darwin",
       bootstrap: async () => ({
         version: 1,
@@ -30,7 +29,7 @@ describe("the controls row over the composer", () => {
           projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
           sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 }],
         },
-        detail: { sessionId: "session", messages: [{ id: "user-1", role: "user", text: "hello", timestamp: 1 }], isStreaming: false, activeTools: [] },
+        detail: { sessionId: "session", messages: [{ id: "user-1", role: "user", text: "hello", timestamp: 1 }], isStreaming: false, activeTools: [], ...detail },
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
@@ -41,7 +40,11 @@ describe("the controls row over the composer", () => {
         getFileTree: async () => [],
       }),
     });
-    const view = renderApp(client, { extensions: [kit] });
+}
+
+describe("the controls row over the composer", () => {
+  it("sits on the transcript's bottom edge, outside the transcript and before its footer", async () => {
+    const view = renderApp(clientWith(), { extensions: [kit] });
     await screen.findByText("hello");
 
     const pill = await screen.findByRole("button", { name: "3 files" });
@@ -59,5 +62,24 @@ describe("the controls row over the composer", () => {
     // At the tail there is nothing to jump to.
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
     expect(view.container.querySelector(".transcript-viewport .jump-to-latest")).toBeNull();
+  });
+
+  // K55: the task pill sat inside the composer, under every banner over it, a pull request's strip included.
+  it("leads the row with the task pill, before the kits' pills and above every banner over the composer", async () => {
+    const taskProgress = {
+      completed: 0,
+      total: 2,
+      tasks: [{ id: 1, subject: "Write", status: "in_progress" }, { id: 2, subject: "Check", status: "pending" }],
+    };
+    const view = renderApp(clientWith({ taskProgress }), { extensions: [kit] });
+    const tasks = await screen.findByRole("button", { name: "Tasks: 0 of 2 done, now: Write" });
+    const row = tasks.closest(".region-composer-controls")!;
+    expect(row).toBeTruthy();
+    expect(row.firstElementChild).toBe(tasks);
+    const kitPill = screen.getByRole("button", { name: "3 files" });
+    expect(tasks.compareDocumentPosition(kitPill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const above = screen.getByText("banner").closest(".region-composer-above")!;
+    expect(row.compareDocumentPosition(above) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(view.container.querySelector(".composer-zone .task-progress-pill, .composer-zone .task-progress")).toBeNull();
   });
 });

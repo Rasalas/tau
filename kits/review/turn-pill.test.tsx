@@ -62,7 +62,9 @@ describe("the phone's turn pill", () => {
     expect(screen.queryByRole("button")).toBeNull();
 
     record([turn("t1", 1)]);
-    expect(await screen.findByRole("button", { name: /^Turn changes: 1 file,/u })).toBeTruthy();
+    const pill = await screen.findByRole("button", { name: /^Turn changes: 1 file,/u });
+    // Core's shared look for the row's pills (K55).
+    expect(pill.classList.contains("control-pill")).toBe(true);
   });
 
   it("steps aside while a turn runs", async () => {
