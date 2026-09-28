@@ -220,7 +220,10 @@ describe("Review Kit request lifecycle in the workbench", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
     expect(await screen.findByText("No PR for feat/review")).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "Commit & create PR…" }));
+    // The button waits for the drafted commit message.
+    const create = await screen.findByRole("button", { name: "Commit & create PR…" }) as HTMLButtonElement;
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith("Update a", false));
     expect(await screen.findByDisplayValue("Review every changed file")).toBeTruthy();
@@ -302,7 +305,8 @@ describe("Review Kit request lifecycle in the workbench", () => {
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { enable: true, method: "squash", deleteBranch: true }));
     expect(await screen.findByText("auto-merge · squash")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Disable auto-merge" }));
+    // The request's line shows the new status before the actions come back.
+    fireEvent.click(await screen.findByRole("button", { name: "Disable auto-merge" }));
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { enable: false }));
     await waitFor(() => expect(screen.queryByText("auto-merge · squash")).toBeNull());
   });

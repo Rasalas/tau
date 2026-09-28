@@ -68,6 +68,12 @@ function setup(options: { readOnly?: boolean; turns?: ReviewTurn[]; ahead?: numb
 }
 
 const button = (name: RegExp | string) => screen.findByRole("button", { name });
+/** A button once it may be pressed: several wait for the branch's status or for a step to finish. */
+async function enabledButton(name: RegExp | string): Promise<HTMLButtonElement> {
+  const found = await button(name) as HTMLButtonElement;
+  await waitFor(() => expect(found.disabled).toBe(false));
+  return found;
+}
 
 describe("the review on a compact client", () => {
   it("opens on the latest turn and sends a comment on a range into the composer", async () => {
@@ -136,9 +142,10 @@ describe("the review on a compact client", () => {
     fireEvent.click(within(push).getByRole("button", { name: "Push" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("push"));
     fireEvent.click(await button("Pull request…"));
-    fireEvent.click(await button(/Write title and description/));
+    fireEvent.click(await enabledButton(/Write title and description/));
     await waitFor(() => expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Add c"));
-    fireEvent.click(await button("Open PR…"));
+    // The title shows before the writing step ends.
+    fireEvent.click(await enabledButton("Open PR…"));
     const open = await screen.findByRole("dialog", { name: "Open a pull request?" });
     expect(open.textContent).toContain("Pushes feat/x and opens “Add c” into main on GitHub.");
     expect(requests.create).not.toHaveBeenCalled();
