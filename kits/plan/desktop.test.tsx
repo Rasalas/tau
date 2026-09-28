@@ -31,10 +31,25 @@ describe("Plan Kit desktop extension", () => {
     const actions = actionsFor();
     const { rerender, container } = render(<control.Component snapshot={snapshot({})} actions={actions} />);
     expect(container.textContent).toBe("");
+    expect(control.placement).toBe("menu");
     rerender(<control.Component snapshot={snapshot({ modes: ["plan"] })} actions={actions} />);
-    fireEvent.click(screen.getByRole("button", { name: /Build mode/u }));
+    expect(screen.getByRole("radio", { name: /Build/u }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: /Plan/u }));
     expect(actions.setMode).toHaveBeenCalledWith("plan");
     rerender(<control.Component snapshot={snapshot({ modes: ["plan"], mode: "plan" })} actions={actions} />);
+    fireEvent.click(screen.getByRole("radio", { name: /Build/u }));
+    expect(actions.setMode).toHaveBeenLastCalledWith("default");
+  });
+
+  it("shows plan mode beside the model while the thread plans, and leaves it from there", () => {
+    const { registry } = createKitHarness();
+    registry.activate(planKitExtension);
+    const chip = registry.getComposerControls().find((entry) => entry.id === "plan.planning")!;
+    expect(chip.placement).toBeUndefined();
+    const actions = actionsFor();
+    const { rerender, container } = render(<chip.Component snapshot={snapshot({ modes: ["plan"] })} actions={actions} />);
+    expect(container.textContent).toBe("");
+    rerender(<chip.Component snapshot={snapshot({ modes: ["plan"], mode: "plan" })} actions={actions} />);
     fireEvent.click(screen.getByRole("button", { name: /Plan mode/u }));
     expect(actions.setMode).toHaveBeenLastCalledWith("default");
   });

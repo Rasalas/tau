@@ -1259,6 +1259,20 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
+Since API 1.27.0 the frame draws the workbench design's card (1n). Its head
+says what it is — `kind` `"question"` (the default) or `"approval"` — then
+`from`, who asks, and `pick` (`"one"` or `"any"`) at the right; `title` is the
+question under it, and an approval's `message` is its subject in mono (a path,
+a command). `hint` opens the foot ("Or type an answer below"), `footer` sits
+before the primary action, and `submit` (`{ label, disabled?, enter?,
+onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
+composer's Enter does the same (register it with `usePromptSubmit` too).
+`PromptRendererProps.asker` is who asks as the composer knows it — the
+thread's model — for `from`. `OptionRow` draws a box to tick for `mode`
+`"checkbox"`, a round one for `"radio"`, and `detail` as the second line; it
+no longer draws `index`. Core's own dialogs use the same frame: a `confirm` is
+an approval with Approve and Decline, a `select` a question to pick one.
+
 `actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page
 may load a workspace file from — `{ url, name, size, mimeType }`, the URL
 `tau-ext://files/<token>/<name>` — for an `<iframe>`, `<img>`, `<audio>` or
@@ -1785,6 +1799,24 @@ text with `composerDraft()` and `setComposerDraft(text)` (which also persists
 it) and its images with `composerImages()` and `setComposerImages(images)`, the
 `UiPromptImageAttachment` shape a prompt sends. Chips belong to whoever drew
 them; Composer Context's are reached through its chip service.
+
+The composer's footer is one slim row (API 1.27.0, the workbench design):
+the model chip with its marks, the reasoning level as text, the controls a
+package places in the row (`placement: "toolbar"`, the default), one "…"
+menu, and the context dial, attach and the round send at the end. A control
+that is a setting rather than something to see all the time — Access Kit's
+level, Plan Kit's Build/Plan, Service Tier, Prompt Tools' stash — takes
+`placement: "menu"`: its `Component` is drawn inside that menu only while it
+is open, and builds its entries from `ComposerMenuSection` (`heading`, the
+entries as children) and `ComposerMenuItem` (`icon`, `label`, `detail` as a
+second line, `selected` for one choice of a section, `disabled` with
+`disabledReason`, `trailing`, `keepOpen`, `onSelect`); a pick closes the menu
+unless `keepOpen`. `shortcuts` lists the `data-composer-shortcut` ids a
+command clicks to open such a control; the menu's trigger answers to them, so
+`composer.mode` still opens the access level. As the row narrows, the
+package chips first lose their labels and then move into the menu, then
+attach, then the context dial; the model and the reasoning level stay
+longest. A host older than 1.27.0 draws a `menu` control in the row.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,

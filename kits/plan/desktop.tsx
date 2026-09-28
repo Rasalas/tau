@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Bot, ChevronDown, Ellipsis, ListChecks, PencilRuler } from "lucide-react";
 import {
+  ComposerMenuItem,
+  ComposerMenuSection,
   Markdown,
   Menu,
   errorMessage,
@@ -34,22 +36,33 @@ const FOLD_CHARS = 900;
 const FOLD_LINES = 20;
 const PREVIEW_LINES = 10;
 
-/** The composer's Build/Plan switch; drawn only where the thread's runtime offers `plan`. */
+/** Build or Plan as a section of the composer's "…" menu; drawn only where the thread's runtime offers `plan`. */
 function PlanModeControl({ snapshot, actions }: ComposerControlProps) {
   if (!snapshot?.modes?.includes(PLAN_MODE) || !actions?.setMode) return null;
   const planning = snapshot.mode === PLAN_MODE;
-  const label = planning ? "Plan mode — click to return to build mode" : "Build mode — click to plan first";
+  return (
+    <ComposerMenuSection heading="Mode">
+      <ComposerMenuItem icon={<Bot size={13} />} label="Build" detail="Works on the task" selected={!planning} onSelect={() => { if (planning) void actions.setMode?.(DEFAULT_MODE); }} />
+      <ComposerMenuItem icon={<PencilRuler size={13} />} label="Plan" detail="Plans first, changes nothing" selected={planning} onSelect={() => { if (!planning) void actions.setMode?.(PLAN_MODE); }} />
+    </ComposerMenuSection>
+  );
+}
+
+/** While a thread plans, the footer says so beside the model; a click goes back to building. */
+function PlanningChip({ snapshot, actions }: ComposerControlProps) {
+  if (snapshot?.mode !== PLAN_MODE || !actions?.setMode) return null;
+  const label = "Plan mode — click to return to build mode";
   return (
     <button
       type="button"
-      className={`runtime-chip plan-mode-chip${planning ? " active" : ""}`}
-      aria-pressed={planning}
+      className="runtime-chip plan-mode-chip active"
+      aria-pressed
       aria-label={label}
       {...tooltipProps(label)}
-      onClick={() => { void actions.setMode?.(planning ? DEFAULT_MODE : PLAN_MODE); }}
+      onClick={() => { void actions.setMode?.(DEFAULT_MODE); }}
     >
-      {planning ? <PencilRuler size={13} /> : <Bot size={13} />}
-      {planning ? "Plan" : "Build"}
+      <PencilRuler size={13} />
+      Plan
     </button>
   );
 }
@@ -217,7 +230,8 @@ export const planKitExtension: DesktopExtension = {
   id: PLAN_HOST_EXTENSION_ID,
   name: "Plan Kit",
   activate(plugin) {
-    plugin.registerComposerControl({ id: "plan.mode", order: 40, profiles: [...PROFILES], Component: PlanModeControl });
+    plugin.registerComposerControl({ id: "plan.mode", placement: "menu", order: 40, profiles: [...PROFILES], Component: PlanModeControl });
+    plugin.registerComposerControl({ id: "plan.planning", order: 40, profiles: [...PROFILES], Component: PlanningChip });
     plugin.registerMessageBlock({ id: "plan.card", tag: PLAN_TAG, profiles: [...PROFILES], Component: PlanCard });
     plugin.registerRegion({ id: "plan.follow-up", placement: "composer-above", profiles: [...PROFILES], Component: createFollowUp(plugin.host) });
     plugin.registerCommand({

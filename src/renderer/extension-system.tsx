@@ -380,8 +380,14 @@ export interface ComposerControlProps {
 export interface ComposerControlContribution extends ProfileScoped {
   id: string;
   order?: number;
-  /** `toolbar` sits beside model and thinking; `footer` spans the row below the editor. */
-  placement?: "toolbar" | "footer";
+  /**
+   * `toolbar` sits beside model and thinking; `menu` is drawn inside the
+   * composer's "…" menu, built from `ComposerMenuSection`/`ComposerMenuItem`;
+   * `footer` spans the row below the editor.
+   */
+  placement?: "toolbar" | "menu" | "footer";
+  /** Shortcut ids (`data-composer-shortcut`) that open a `menu` control: the menu's trigger answers to them. */
+  shortcuts?: readonly string[];
   Component: ComponentType<ComposerControlProps>;
 }
 
@@ -1027,6 +1033,8 @@ export interface PromptRendererProps {
   prompt: ExtensionUiPrompt;
   /** Further questions queued behind this one. */
   pending: number;
+  /** Who asks, for the card's head (`ExtensionPromptFrame`'s `from`): the thread's agent, by its model. */
+  asker?: string;
   onAnswer(value: string | boolean, typed?: boolean): void;
   onCancel(): void;
 }

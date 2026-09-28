@@ -51,9 +51,10 @@ describe("prompt controls in the composer", () => {
 
     const send = screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Stop the run" })).toBeTruthy();
+    // Marked, so a phone can leave it out while it answers (profile-compact.css).
+    expect(screen.getByRole("button", { name: "Stop the run" }).classList.contains("answering")).toBe(true);
 
-    fireEvent.change(screen.getByPlaceholderText(/Answer yourself/u), { target: { value: "Continue" } });
+    fireEvent.change(screen.getByPlaceholderText(/Answer in text/u), { target: { value: "Continue" } });
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     expect(onAnswerPrompt).toHaveBeenCalledWith("Continue", true);
@@ -92,11 +93,11 @@ describe("prompt controls in the composer", () => {
     await attach("shot.png");
     // A pick among fixed choices takes no files; an image alone does not answer it.
     expect((screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/or answer below$/u)).toBeTruthy();
+    expect(screen.getByText("Or type an answer below")).toBeTruthy();
 
     rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
-    expect(screen.getByText("answer below; attached files go with it")).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText(/Answer yourself/u), { target: { value: "Because" } });
+    expect(screen.getByText("Type your answer below; attached files go with it")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText(/Answer in text/u), { target: { value: "Because" } });
     fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
     await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledOnce());
     expect(onAnswerPrompt.mock.calls[0]).toEqual(["Because", true, [expect.objectContaining({ kind: "image", name: "shot.png" })]]);
@@ -145,7 +146,7 @@ describe("prompt controls in the composer", () => {
     rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
     fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], "late.png", { type: "image/png" })] } });
     await screen.findByRole("button", { name: "Preview late.png" });
-    fireEvent.change(screen.getByPlaceholderText(/Answer yourself/u), { target: { value: "Here" } });
+    fireEvent.change(screen.getByPlaceholderText(/Answer in text/u), { target: { value: "Here" } });
     fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
     await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledWith("Here", true, [expect.objectContaining({ name: "late.png" })]));
   });
@@ -284,7 +285,7 @@ describe("prompt controls in the composer", () => {
     fireEvent.click(send);
     expect(onSubmit).toHaveBeenCalledTimes(1);
 
-    const textarea = screen.getByPlaceholderText(/Answer yourself/u);
+    const textarea = screen.getByPlaceholderText(/Answer in text/u);
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });

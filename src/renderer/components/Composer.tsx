@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, Lock, Paperclip, Sparkles, Terminal, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Lock, Paperclip, Shrink, Sparkles, Terminal, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -12,12 +12,10 @@ import type {
   UiPromptAttachment,
   UiRuntimeBackend,
   UiSkillDraft,
-  UiThreadUsage,
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { ThreadCost } from "./ThreadCost";
-import { ExtensionPrompt, Menu } from "../deferred-surfaces";
+import { ComposerMenuItem, ExtensionPrompt, Menu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -60,7 +58,7 @@ import {
 } from "./ComposerAutocomplete";
 import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
-import { ComposerFooterControls } from "./ComposerFooterControls";
+import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
 import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
@@ -110,6 +108,11 @@ interface OpenGate {
 
 const MAX_COMPOSER_HEIGHT = 220;
 
+/** How a level reads in the footer, where it stands without the menu's heading. */
+function thinkingLabel(level: string): string {
+  return level === "off" ? "Reasoning off" : THINKING_LABELS[level] ?? level;
+}
+
 export type SubmitResult = SubmissionResult;
 
 export type { ComposerAttachmentHandle } from "./useComposerAttachments";
@@ -123,7 +126,6 @@ export function Composer({
   queue,
   contextUsage,
   contextBreakdown,
-  threadUsage,
   textareaRef,
   controlRef,
   attachmentRef,
@@ -155,8 +157,6 @@ export function Composer({
   queue: readonly UiQueuedMessage[];
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
-  /** What this thread has spent; absent when unknown or when costs are hidden. */
-  threadUsage?: UiThreadUsage;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   controlRef?: RefObject<ComposerControlHandle | null>;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
@@ -755,6 +755,96 @@ export function Composer({
     onSubmit: () => submitCurrent(),
   });
 
+  const attachAvailable = supportsImageInput || inlineTakesFiles;
+  // A model without reasoning levels shows none; a runtime that picks its own still says which.
+  const thinkingLevel = thinkingSelectionAvailable || (runtimeOwnsModel && !draftOnOtherRuntime) ? snapshot?.thinkingLevel : undefined;
+  const menuControls = composerControls.filter((control) => control.placement === "menu");
+  const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
+  // The row keeps model and reasoning longest, then the context dial, then attach; kits' chips fold first.
+  const footerBlocks: FooterBlock[] = [
+    ...(thinkingLevel ? [{ id: "reasoning", rank: 3, node: (
+      <span className="menu-anchor composer-runtime-menu-anchor">
+        <button
+          className="runtime-chip composer-thinking-chip"
+          data-composer-shortcut="composer.effort"
+          disabled={!thinkingSelectionAvailable}
+          {...tooltipProps(thinkingSelectionAvailable
+            ? "Reasoning"
+            : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
+          aria-label={thinkingSelectionAvailable ? `Reasoning: ${thinkingLabel(thinkingLevel)}` : "Reasoning controls unavailable"}
+          aria-expanded={menu === "thinking"}
+          onClick={() => {
+            if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
+          }}
+        >
+          {thinkingLabel(thinkingLevel)}
+        </button>
+        {menu === "thinking" ? (
+          <Menu
+            placement="above"
+            sections={[
+              {
+                heading: "Reasoning",
+                items: (snapshot?.thinkingLevels ?? []).map((level) => ({
+                  id: `thinking:${level}`,
+                  label: THINKING_LABELS[level] ?? level,
+                  badge: level === DEFAULT_THINKING ? "Default" : undefined,
+                  selected: level === snapshot?.thinkingLevel,
+                  disabled: !thinkingSelectionAvailable,
+                })),
+              },
+            ]}
+            onSelect={(id) => {
+              const [group, level] = id.split(":");
+              if (group === "thinking" && level) onSetThinking(level);
+            }}
+            onClose={() => setMenu(undefined)}
+          />
+        ) : null}
+      </span>
+    ) }] : []),
+    ...composerControls.filter((control) => control.placement === undefined || control.placement === "toolbar").map((control) => ({ id: control.id, node: (
+      <LazyFeatureBoundary
+        label={control.id}
+        extensionId={control.extensionId}
+        extensionName={control.extensionName}
+        registry={registry}
+        onNotify={onNotify}
+      >
+        <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+      </LazyFeatureBoundary>
+    ) })),
+    ...(contextUsage ? [{
+      id: "context",
+      end: true,
+      rank: 2,
+      node: <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />,
+      menuNode: <ComposerMenuItem
+        icon={<Shrink size={13} />}
+        label="Compact context"
+        detail={`${Math.round(Math.min(100, Math.max(0, contextUsage.percent)))}% of the context used`}
+        onSelect={onCompactContext}
+      />,
+    }] : []),
+    {
+      id: "attach",
+      end: true,
+      rank: 1,
+      node: (
+        <button className="attach-button" type="button" {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)} aria-label="Attach files" disabled={!attachAvailable} onClick={() => fileInputRef.current?.click()}>
+          <Paperclip size={17} />
+        </button>
+      ),
+      menuNode: <ComposerMenuItem
+        icon={<Paperclip size={13} />}
+        label="Attach files"
+        disabled={!attachAvailable}
+        disabledReason={IMAGE_INPUT_UNAVAILABLE_MESSAGE}
+        onSelect={() => fileInputRef.current?.click()}
+      />,
+    },
+  ];
+
   // The host refuses every send and change from a Read-only device (ADR 0024); say so instead of offering them.
   if (readOnly) {
     return (
@@ -787,6 +877,7 @@ export function Composer({
                 <Renderer
                   prompt={prompt}
                   pending={promptsPending}
+                  {...(snapshot?.model?.name ? { asker: snapshot.model.name } : {})}
                   onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
                   onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
                 />
@@ -960,7 +1051,8 @@ export function Composer({
           }}
           placeholder={
             answerable && prompt
-              ? prompt.placeholder ?? "Answer yourself — ↵ sends it back to the extension"
+              // A plain input's own hint; a renderer that draws the choices says it with them.
+              ? (prompt.kind === "input" && !registry?.getPromptRenderer(prompt) ? prompt.placeholder : undefined) ?? "Answer in text…"
               : isVimEnabled && vim.vimMode === "normal"
                 ? "Vim NORMAL mode — press 'i' to insert, ↵ to send"
                 : text.trimStart().startsWith("!")
@@ -988,7 +1080,7 @@ export function Composer({
 
         <div className="composer-toolbar">
           <ComposerFooterControls
-            revision={text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}
+            revision={`${text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}|${snapshot?.model?.name ?? ""}|${snapshot?.thinkingLevel ?? ""}`}
             leading={<>
               {text.trimStart().startsWith("!") ? (
                 <span className="runtime-chip shell-mode-chip" {...tooltipProps("Shell command mode")}>
@@ -1022,63 +1114,20 @@ export function Composer({
                 {modelPickerAvailable ? <ChevronDown size={12} className="chev" /> : null}
               </button>
             </>}
-            blocks={[
-              { id: "reasoning", node: (
-                <span className="menu-anchor composer-runtime-menu-anchor">
-                  <button
-                    className="runtime-chip"
-                    data-composer-shortcut="composer.effort"
-                    disabled={!thinkingSelectionAvailable}
-                    {...tooltipProps(thinkingSelectionAvailable
-                      ? "Reasoning"
-                      : draftOnOtherRuntime ? `${runtimeLabel} sets reasoning once this thread exists.`
-                        : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
-                    aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
-                    onClick={() => {
-                      if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
-                    }}
-                  >
-                    <Brain size={13} />
-                    {draftOnOtherRuntime ? "—" : snapshot?.thinkingLevel ?? "—"}
-                    {thinkingSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
-                  </button>
-                  {menu === "thinking" ? (
-                    <Menu
-                      placement="above"
-                      sections={[
-                        {
-                          heading: "Reasoning",
-                          items: (snapshot?.thinkingLevels ?? []).map((level) => ({
-                            id: `thinking:${level}`,
-                            label: THINKING_LABELS[level] ?? level,
-                            badge: level === DEFAULT_THINKING ? "Default" : undefined,
-                            selected: level === snapshot?.thinkingLevel,
-                            disabled: !thinkingSelectionAvailable,
-                            description: !thinkingSelectionAvailable && runtimeOwnsModel ? "This runtime controls reasoning itself." : undefined,
-                          })),
-                        },
-                      ]}
-                      onSelect={(id) => {
-                        const [group, thinkingLevel] = id.split(":");
-                        if (group === "thinking" && thinkingLevel) onSetThinking(thinkingLevel);
-                      }}
-                      onClose={() => setMenu(undefined)}
-                    />
-                  ) : null}
-                </span>
-              ) },
-              ...composerControls.filter((control) => control.placement !== "footer").map((control) => ({ id: control.id, node: (
-                <LazyFeatureBoundary
-                  label={control.id}
-                  extensionId={control.extensionId}
-                  extensionName={control.extensionName}
-                  registry={registry}
-                  onNotify={onNotify}
-                >
-                  <control.Component snapshot={snapshot} actions={shellContext?.actions} />
-                </LazyFeatureBoundary>
-              ) })),
-            ]}
+            blocks={footerBlocks}
+            menu={menuControls.length > 0 ? menuControls.map((control) => (
+              <LazyFeatureBoundary
+                key={control.id}
+                label={control.id}
+                extensionId={control.extensionId}
+                extensionName={control.extensionName}
+                registry={registry}
+                onNotify={onNotify}
+              >
+                <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+              </LazyFeatureBoundary>
+            )) : undefined}
+            menuShortcuts={menuShortcuts}
           />
 
           {isVimEnabled ? (
@@ -1087,22 +1136,13 @@ export function Composer({
             </span>
           ) : null}
 
-          {threadUsage ? <ThreadCost usage={threadUsage} /> : null}
-
-          {contextUsage ? (
-            <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
-          ) : null}
-
-          <button className="attach-button" type="button" {...tooltipProps(supportsImageInput || inlineTakesFiles ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)} aria-label="Attach files" disabled={!supportsImageInput && !inlineTakesFiles} onClick={() => fileInputRef.current?.click()}>
-            <Paperclip size={17} />
-          </button>
           <input
             ref={fileInputRef}
             className="attachment-input"
             aria-label="Choose attachment files"
             type="file"
             tabIndex={-1}
-            disabled={!supportsImageInput && !inlineTakesFiles}
+            disabled={!attachAvailable}
             accept={inlineTakesFiles ? undefined : IMAGE_ACCEPT}
             multiple
             onChange={(event) => {
@@ -1112,11 +1152,12 @@ export function Composer({
           />
 
           {answerable && prompt ? (() => {
+            // The card holds the choices' own send; this one sends what was typed, or what the card would.
             const typedAnswer = Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
             const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
             return (
               <button
-                className="prompt-submit-button"
+                className="send-button"
                 {...tooltipProps(submitLabel)}
                 aria-label={submitLabel}
                 disabled={held || (!typedAnswer && (promptSubmit?.disabled ?? true))}
@@ -1125,8 +1166,7 @@ export function Composer({
                   else promptSubmit?.submit();
                 }}
               >
-                {submitLabel}
-                <ArrowUp size={15} />
+                <ArrowUp size={16} />
               </button>
             );
           })() : null}
@@ -1147,7 +1187,7 @@ export function Composer({
             );
           })() : null}
           {streaming ? (
-            <button className="send-button stop" {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
+            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
           ) : !answerable ? (
             <button
               className="send-button"

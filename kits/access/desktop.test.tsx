@@ -39,22 +39,30 @@ describe("Access Kit desktop extension", () => {
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");
   });
 
-  it("contributes the composer control and disables ask mode a runtime cannot serve", () => {
+  it("puts the level in the composer menu and disables ask mode a runtime cannot serve", () => {
     const { registry, preferences } = activate();
     const [control] = registry.getComposerControls();
-    expect(control?.id).toBe("access.level");
+    expect(control).toMatchObject({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"] });
     const snapshot = { backendKind: "claude-code", runtimeCapabilities: { skillInvocationDialect: "claude-code", interactiveApprovals: false } } as unknown as HostSnapshot;
+    const openSettings = vi.fn();
     render(
       <RendererServicesProvider services={{ preferences }}>
-        <control.Component snapshot={snapshot} />
+        <control.Component snapshot={snapshot} actions={{ openSettings } as never} />
       </RendererServicesProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: /full access/u }));
-    const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
+    expect(screen.getByRole("group", { name: "Access" })).toBeTruthy();
+    // Settings' names, and the Edit files card's line for each level.
+    const full = screen.getByRole("radio", { name: /^Full access/u });
+    expect(full.getAttribute("aria-checked")).toBe("true");
+    expect(full.textContent).toContain("Edit files, run commands: allowed without asking");
+    const ask = screen.getByRole("radio", { name: /^Ask/u });
+    expect(ask.textContent).toContain("asks every time");
     expect(ask).toHaveProperty("disabled", true);
     expect(ask.getAttribute("data-tooltip")).toContain("cannot stop for an approval");
-    fireEvent.click(screen.getAllByRole("menuitem", { name: /read-only/u })[0]!);
+    fireEvent.click(screen.getByRole("radio", { name: /^Read only/u }));
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("read-only");
+    fireEvent.click(screen.getByRole("button", { name: "Details in Settings → Runtimes" }));
+    expect(openSettings).toHaveBeenCalledWith("runtimes#runtime-permissions");
   });
 
   it("offers one palette command per level", () => {
@@ -66,13 +74,13 @@ describe("Access Kit desktop extension", () => {
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");
   });
 
-  it("opens the access menu with composer.mode, as T3 Code's chord does", () => {
-    const { registry, preferences } = activate();
-    const Control = registry.getComposerControls()[0]!.Component;
-    render(<RendererServicesProvider services={{ preferences }}><Control /></RendererServicesProvider>);
+  it("opens the composer menu with composer.mode, as T3 Code's chord does", () => {
+    const { registry } = activate();
+    const opened = vi.fn();
+    render(<button type="button" data-composer-shortcut="composer.mode" onClick={opened}>…</button>);
     const notify = vi.fn();
     act(() => { void registry.getCommands().find((command) => command.id === "composer.mode")!.run({ notify } as never); });
-    expect(screen.getByRole("menuitem", { name: /read-only/u })).toBeTruthy();
+    expect(opened).toHaveBeenCalledOnce();
     expect(registry.getKeybindings().find((binding) => binding.commandId === "composer.mode")?.keys).toBe("mod+shift+a");
     cleanup();
     void registry.getCommands().find((command) => command.id === "composer.mode")!.run({ notify } as never);

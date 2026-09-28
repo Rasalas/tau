@@ -1569,6 +1569,28 @@ describe("Workspace Kit in the workbench", () => {
     expect(getWorkspaceInfo).toHaveBeenLastCalledWith();
   });
 
+  it("keeps the checkout row off a thread whose conversation has begun", async () => {
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [{ id: "u1", role: "user", text: "fix it", timestamp: 1 }], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: true, isDirty: false, hasRemote: false, worktrees: [], refs: [], worktreeParent: "/project-worktrees" }),
+        getFileTree: async () => [],
+      }),
+    });
+    renderApp(client, { extensions: [workspaceExtension] });
+    await screen.findByText("fix it");
+    expect(screen.queryByRole("button", { name: "Current checkout" })).toBeNull();
+    expect(document.querySelector(".workspace-bar")).toBeNull();
+  });
+
   it("leaves out the branch each project names as its default, and shows main where it is not", async () => {
     const thread = (id: string, projectPath: string, projectLabel: string) => ({
       id, path: `/sessions/${id}.jsonl`, title: id, modifiedAt: 1, projectPath, projectName: projectPath.slice(1), projectLabel, messageCount: 1,

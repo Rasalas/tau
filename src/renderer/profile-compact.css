@@ -81,14 +81,15 @@ body[data-profile="compact"] .conversation-start-content > h1 { font-size: 21px;
 /* Touch sizes: a finger needs 40 px or so, and iOS zooms into any field under 16 px. */
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: 16px; }
 body[data-profile="compact"] :is(.send-button, .attach-button) { width: 44px; height: 44px; }
+/* A phone keeps model and reasoning in view while it answers (design 1n); the card's Skip or Decline ends the wait, and stop comes back. */
+body[data-profile="compact"] .send-button.stop.answering { display: none; }
 /* The rest of the composer's footer and the thread title: 44 px to tap, drawn as small as before. */
 body[data-profile="compact"] :is(.composer-toolbar, .composer-chips) { gap: 0; }
-body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) :is(.runtime-chip, .thread-cost) { min-height: 44px; border-radius: 10px; }
+body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) .runtime-chip, body[data-profile="compact"] .composer-menu-item { min-height: 44px; border-radius: 10px; }
 body[data-profile="compact"] .composer-chips .runtime-chip { padding-inline: 10px; }
 body[data-profile="compact"] :is(.composer-overflow-anchor, .composer-block[data-icon-only]) .runtime-chip { min-width: 44px; justify-content: center; }
-body[data-profile="compact"] .composer-toolbar .thread-cost { padding: 0 8px; }
-/* What a plan's tokens would have cost is no money spent; the model's name needs the room more. */
-body[data-profile="compact"] .composer-toolbar .thread-cost.plan { display: none; }
+/* The phone's bar clips its details to one line; the cost's split would be cut off with them. */
+body[data-profile="compact"] .title-bar .thread-cost-popover { display: none; }
 body[data-profile="compact"] .context-dial { position: relative; width: 44px; height: 44px; border-radius: 10px; background: none; }
 body[data-profile="compact"] .context-dial::before {
   content: ""; position: absolute; inset: 14px; border-radius: 50%;

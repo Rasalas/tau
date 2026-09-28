@@ -17,6 +17,11 @@ export const QueuedMessages = deferred(
 export const ExtensionPrompt = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPrompt));
 export const ExtensionPromptFrame = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPromptFrame));
 export const OptionRow = deferred(() => import("./components/ExtensionPrompt").then((module) => module.OptionRow));
+// The composer's "…" menu and its entries (API 1.27.0); one chunk, loaded when the menu opens.
+const composerMenu = () => import("./components/ComposerMenu");
+export const ComposerMenuPopover = deferred(() => composerMenu().then((module) => module.ComposerMenuPopover));
+export const ComposerMenuSection = deferred(() => composerMenu().then((module) => module.ComposerMenuSection));
+export const ComposerMenuItem = deferred(() => composerMenu().then((module) => module.ComposerMenuItem));
 export const AttachmentLightbox = deferred(() => import("./components/AttachmentLightbox").then((module) => module.AttachmentLightbox));
 export const FileSource = deferred(() => import("./components/FileSource").then((module) => module.FileSource));
 export const ChangesTree = deferred(() => import("./components/ChangesTree").then((module) => module.ChangesTree));

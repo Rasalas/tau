@@ -25,10 +25,12 @@ export function WorkspaceFollower({ actions }: RegionProps) {
   return null;
 }
 
-/** Worktree and branch switching, below the composer. */
-export function WorkspaceBarControl(_props: ComposerControlProps) {
+/** Worktree and branch for a thread that has not started, below the composer. */
+export function WorkspaceBarControl({ snapshot }: ComposerControlProps) {
   const workspaceStore = useWorkspaceStore();
   const state = useSyncExternalStore(workspaceStore.subscribe, workspaceStore.getSnapshot, workspaceStore.getSnapshot);
+  // Once a thread has a conversation its head names the branch; only one that has none still chooses where it runs.
+  if (!state.draftPending && (snapshot?.messages.length ?? 0) > 0) return null;
   return (
     <WorkspaceBar
       info={state.workspace}

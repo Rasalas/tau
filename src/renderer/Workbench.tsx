@@ -522,7 +522,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     conversationSnapshot={conversationSnapshot}
     pendingNewThread={pendingNewThread}
     draftRuntime={draftRuntime}
-    showStartScreen={showStartScreen}
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
     actions={actions}
@@ -1012,14 +1011,13 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, showStartScreen, activeDraftKey, onNotify, actions }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions }: {
   view: ThreadViewStore;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
   conversationSnapshot?: HostSnapshot;
   pendingNewThread: boolean;
   draftRuntime?: string | undefined;
-  showStartScreen: boolean;
   activeDraftKey?: string;
   onNotify?(message: string): void;
   actions?: WorkbenchActions;
@@ -1028,7 +1026,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   // Only at the meter's precision: tool output would otherwise re-render the composer every frame.
   const toolKiloTokens = useSyncExternalStore(view.subscribeToTools, () => toolOutputKiloTokens(view.getToolView().tools));
   const preferences = usePreferences();
-  const { showCosts, newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   // The runtime is a property of the thread; it is chosen before the thread exists and never after.
   const runtimeBackends = snapshot?.runtimeBackends ?? [];
   const runtimeChoice = pendingNewThread && runtimeBackends.length > 1
@@ -1050,7 +1048,6 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     queue={queue}
     contextUsage={snapshot?.contextUsage}
     contextBreakdown={contextBreakdown}
-    threadUsage={showCosts && !showStartScreen ? snapshot?.usage : undefined}
     textareaRef={textareaRef}
     attachmentRef={attachmentRef}
     controlRef={controlRef}

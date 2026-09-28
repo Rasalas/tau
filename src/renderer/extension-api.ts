@@ -18,6 +18,8 @@ export type { MenuItem, MenuSection } from "./components/Menu";
 // Components drawn after a user action are deferred: each loads in its own chunk (./deferred-surfaces).
 export { ExtensionPromptFrame, OptionRow } from "./deferred-surfaces";
 export { PromptSubmitContext, usePromptSubmit } from "./components/prompt-submit";
+// The entries of the composer's "…" menu, for a `placement: "menu"` control (API 1.27.0).
+export { ComposerMenuItem, ComposerMenuSection } from "./deferred-surfaces";
 export type { PromptSubmitAction } from "./components/prompt-submit";
 export {
   choiceOptions,

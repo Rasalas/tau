@@ -3,10 +3,10 @@ import { GitBranch, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ThreadViewStore } from "../../workbench/thread-view-store";
 import type { TranscriptState } from "../../workbench/transcript-state";
-import { threadCostLabel, threadCostOrigin } from "../cost-format";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { ProviderIconStack } from "./ProviderIconStack";
+import { ThreadCost } from "./ThreadCost";
 import { tooltipProps } from "./ui/Tooltip";
 
 const turnCounts = new WeakMap<TranscriptState, number>();
@@ -30,7 +30,6 @@ function TurnCount({ view }: { view: ThreadViewStore }) {
 export function ThreadDetails({ snapshot, view }: { snapshot?: HostSnapshot; view: ThreadViewStore }) {
   const preferences = usePreferences();
   const { showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  const cost = showCosts && snapshot?.usage ? threadCostLabel(snapshot.usage) : undefined;
   const model = snapshot?.model;
   return <div className="thread-details">
     {snapshot?.projectLabel ? <span className="thread-detail" {...tooltipProps(snapshot.projectLabel, { side: "bottom", when: "truncated" })}>
@@ -41,7 +40,7 @@ export function ThreadDetails({ snapshot, view }: { snapshot?: HostSnapshot; vie
       <span>{model.name}</span>
     </span> : null}
     <TurnCount view={view} />
-    {cost && snapshot?.usage ? <span className="thread-detail thread-detail-cost" {...tooltipProps(threadCostOrigin(snapshot.usage), { side: "bottom" })}>{cost}</span> : null}
+    {showCosts && snapshot?.usage ? <ThreadCost usage={snapshot.usage} className="thread-detail thread-detail-cost" /> : null}
   </div>;
 }
 

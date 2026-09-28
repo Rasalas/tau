@@ -23,26 +23,26 @@ describe("Service Tier Kit desktop extension", () => {
     const [control] = registry.getComposerControls();
     const view = render(<control.Component snapshot={{ sessionId: "s", model: { provider: "p", id: "m" } } as unknown as HostSnapshot} />);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("tau.service-tier", "state", undefined));
-    expect(view.container.querySelector(".runtime-chip")).toBeNull();
+    expect(view.container.textContent).toBe("");
   });
 
-  it("offers the tier menu when available and sets the tier through the host", async () => {
+  it("offers the tiers in the composer menu when available and sets the tier through the host", async () => {
     const { registry, invoke } = activate({ tier: "standard", available: true });
     const [control] = registry.getComposerControls();
+    expect(control?.placement).toBe("menu");
     render(<control.Component snapshot={{ sessionId: "s", model: { provider: "p", id: "m" } } as unknown as HostSnapshot} />);
-    const chip = await screen.findByRole("button", { name: /standard/u });
-    fireEvent.click(chip);
-    await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /^Fast/u })); });
+    await waitFor(() => expect(screen.getByRole("radio", { name: /^Standard/u }).getAttribute("aria-checked")).toBe("true"));
+    await act(async () => { fireEvent.click(screen.getByRole("radio", { name: /^Fast/u })); });
     expect(invoke).toHaveBeenCalledWith("tau.service-tier", "set-tier", { tier: "fast" });
-    await screen.findByRole("button", { name: /fast/u });
+    await waitFor(() => expect(screen.getByRole("radio", { name: /^Fast/u }).getAttribute("aria-checked")).toBe("true"));
   });
 
   it("follows tier changes the host announces", async () => {
     const { registry } = activate({ tier: "standard", available: true });
     const [control] = registry.getComposerControls();
     render(<control.Component snapshot={{ sessionId: "s" } as unknown as HostSnapshot} />);
-    await screen.findByRole("button", { name: /standard/u });
+    await screen.findByRole("radio", { name: /^Standard/u, checked: true });
     act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "tau.service-tier", name: "state", payload: { tier: "fast", available: true } }));
-    await screen.findByRole("button", { name: /fast/u });
+    await screen.findByRole("radio", { name: /^Fast/u, checked: true });
   });
 });

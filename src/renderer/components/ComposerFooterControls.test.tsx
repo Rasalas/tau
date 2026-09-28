@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
 
-// jsdom lays nothing out: a labelled chip is 100 px, its icon 13 px, the overflow trigger 29 px, and the row as wide as `available`.
+// jsdom lays nothing out: a labelled chip is 100 px, its icon 13 px, the overflow trigger 29 px, no gaps, and the row as wide as `available`.
 let available = 400;
 const rect = (width: number) => ({ width, height: 24, top: 0, left: 0, right: width, bottom: 24, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
 
@@ -11,7 +11,8 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const iconOnly = this.closest("[data-icon-only]") !== null;
     if (this.dataset.composerOverflow !== undefined) return rect(29);
-    if (this.dataset.composerBlock !== undefined || this.classList.contains("runtime-chip")) return rect(iconOnly ? 13 : 100);
+    // Only a chip with an icon shrinks to it; a text-only one keeps its label.
+    if (this.dataset.composerBlock !== undefined || this.classList.contains("runtime-chip")) return rect(iconOnly && this.querySelector("svg") ? 13 : 100);
     return rect(0);
   });
   vi.spyOn(SVGElement.prototype, "getBoundingClientRect").mockImplementation(() => rect(13));
@@ -88,5 +89,45 @@ describe("ComposerFooterControls", () => {
     expect(block("effort")?.dataset.iconOnly).toBeUndefined();
     expect(block("access")?.dataset.iconOnly).toBeUndefined();
     expect(screen.queryByLabelText("More composer controls")).toBeNull();
+  });
+
+  it("keeps the menu trigger for its own entries, and folds the lowest rank into it first", () => {
+    available = 700;
+    const ranked: FooterBlock[] = [
+      { id: "reasoning", rank: 3, node: <button type="button" className="runtime-chip">Medium</button> },
+      { id: "kit", node: chip("Kit", "kit.open") },
+      { id: "context", end: true, rank: 2, node: <button type="button" className="runtime-chip">Ring</button>, menuNode: <button type="button">Compact context</button> },
+      { id: "attach", end: true, rank: 1, node: <button type="button" className="runtime-chip">Clip</button>, menuNode: <button type="button">Attach files</button> },
+    ];
+    const Row = ({ revision }: { revision: string }) => (
+      <ComposerFooterControls revision={revision} leading={<button type="button" className="runtime-chip">Model</button>} blocks={ranked} menu={<button type="button">Access</button>} menuShortcuts={["composer.mode"]} />
+    );
+    const view = render(<Row revision="a" />);
+    // Row order: model, reasoning, kit, the menu, then the end blocks.
+    const row = document.querySelector(".composer-chips")!;
+    expect([...row.children].map((child) => (child as HTMLElement).dataset.composerBlock ?? ((child as HTMLElement).dataset.composerOverflow !== undefined ? "menu" : "lead")))
+      .toEqual(["lead", "reasoning", "kit", "menu", "context", "attach"]);
+    const trigger = screen.getByLabelText("More composer controls");
+    expect(trigger.dataset.composerShortcut).toBe("composer.mode");
+
+    // Model 100, menu 29 and reasoning 100 stay; the kit goes first, then attach, then context.
+    available = 250;
+    view.rerender(<Row revision="b" />);
+    expect(block("kit")).toBeNull();
+    expect(block("attach")).toBeNull();
+    expect(block("context")).toBeNull();
+    expect(block("reasoning")).not.toBeNull();
+    expect(trigger.dataset.composerShortcut).toBe("composer.mode kit.open");
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("dialog", { name: "More composer controls" });
+    expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Kit", "Compact context", "Attach files", "Access"]);
+  });
+
+  it("never reduces a text-only chip to nothing", () => {
+    available = 400;
+    const view = render(<ComposerFooterControls revision="a" leading={null} blocks={[{ id: "reasoning", node: <button type="button" className="runtime-chip">Medium</button> }]} />);
+    available = 110;
+    view.rerender(<ComposerFooterControls revision="b" leading={null} blocks={[{ id: "reasoning", node: <button type="button" className="runtime-chip">Medium</button> }]} />);
+    expect(block("reasoning")?.textContent).toBe("Medium");
   });
 });
