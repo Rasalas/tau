@@ -492,15 +492,48 @@ body.resizing-col .app-shell { transition: none; }
 .conversation-column.conversation-start .conversation-start-content .composer-surface { max-width: none; }
 .conversation-column.conversation-start .conversation-start-content .composer-frame { max-width: none; }
 .conversation-column.conversation-start .conversation-start-content .workspace-bar { max-width: none; }
-.conversation-column:not(.conversation-start) .conversation-start-screen,
-.conversation-column:not(.conversation-start) .conversation-start-content { display: contents; }
 .conversation-column.conversation-start .conversation-thread { display: none; }
-.conversation-column:not(.conversation-start) .region-composer-above { order: 2; }
-.conversation-column:not(.conversation-start) .conversation-composer-host { order: 3; }
-.conversation-column:not(.conversation-start) .region-composer-below { order: 4; }
-.conversation-column:not(.conversation-start) .conversation-thread { order: 1; }
+/*
+ * A thread: the transcript runs on under the dock (controls row to composer), which lies over it, so folding
+ * the composer never changes the transcript's height (K51). ComposerReserve pads its end by the unfolded dock.
+ */
+.conversation-column:not(.conversation-start) {
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  grid-template-rows:
+    [connection] auto [header] auto [banner] auto [transcript] minmax(0, 1fr)
+    [controls] auto [footer] auto [above] auto [caption] auto [composer] auto [dock-end below] auto [status] auto;
+}
+.conversation-column:not(.conversation-start) :is(.conversation-start-screen, .conversation-start-content, .conversation-thread) { display: contents; }
+/* One column for all: an item with only a row would be auto-placed beside the transcript, not over it. */
+.conversation-column:not(.conversation-start) :is(
+  .host-connection-status, .region-transcript-header, .thread-runtime-banner, .transcript-viewport, .composer-reserve-probe,
+  .region-composer-controls, .region-transcript-footer, .region-composer-above, .conversation-composer-host, .region-composer-below, .status-line
+) { grid-column: 1 / -1; }
+.conversation-column:not(.conversation-start) > .host-connection-status { grid-row: connection / span 1; }
+.conversation-column:not(.conversation-start) .region-transcript-header { grid-row: header / span 1; }
+.conversation-column:not(.conversation-start) .thread-runtime-banner { grid-row: banner / span 1; }
+.conversation-column:not(.conversation-start) .transcript-viewport { grid-row: transcript / dock-end; }
+.conversation-column:not(.conversation-start) .composer-reserve-probe { grid-row: controls / dock-end; visibility: hidden; pointer-events: none; }
+/*
+ * The dock paints over the transcript as positioned boxes after it in the DOM; no z-index, so a fixed
+ * overlay inside the composer (a gate's backdrop) still stacks against the whole window.
+ */
+.conversation-column:not(.conversation-start) .region-composer-controls { grid-row: controls / span 1; }
+.conversation-column:not(.conversation-start) .region-transcript-footer { grid-row: footer / span 1; position: relative; }
+.conversation-column:not(.conversation-start) .region-composer-above { grid-row: above / span 1; position: relative; }
+.conversation-column:not(.conversation-start) .conversation-composer-host { grid-row: composer / span 1; position: relative; }
+/*
+ * Its gutters let the wheel and the scrollbar reach the transcript under them. A backdrop as wide as the text
+ * column, fading in above the frame, keeps passing lines from showing around the composer; the scrollbar stays clear.
+ */
+.conversation-column:not(.conversation-start) .conversation-composer-host {
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--stage) 14px) center bottom / min(calc(100% - 24px), 812px) 100% no-repeat;
+}
+.conversation-column:not(.conversation-start) .conversation-composer-host .composer-surface { pointer-events: auto; }
+.conversation-column:not(.conversation-start) .region-composer-below { grid-row: below / span 1; }
 /* Pi's footer stays under the composer, and away while no item draws anything. */
-.conversation-column:not(.conversation-start) .status-line { order: 5; }
+.conversation-column:not(.conversation-start) .status-line { grid-row: status / span 1; }
 .status-line:not(:has(.status-item:not(:empty))) { display: none; }
 @keyframes start-screen-enter {
   from { opacity: 0; transform: translateY(7px); }
@@ -576,6 +609,8 @@ body.resizing-col .app-shell { transition: none; }
 }
 .transcript:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
+/* The dock lies over the transcript's end; this keeps the last line above it (ComposerReserve). */
+.transcript-inner::after { content: ""; flex: none; height: var(--composer-reserve, 0px); }
 /* The older turns' line lives in the scroller's top padding and takes no height, so nothing moves when it comes or goes. */
 .transcript-history { position: relative; height: 0; }
 .transcript-history-row {
@@ -599,7 +634,7 @@ body.resizing-col .app-shell { transition: none; }
 @media (pointer: coarse) { .transcript-history-row > button::after { content: ""; position: absolute; inset: -14px -10px; } }
 @media (prefers-reduced-motion: reduce) { .transcript-history-row.loading, .transcript-history-spinner { animation: none; } }
 .transcript-turn-navigation {
-  position: absolute; z-index: 5; inset: 0 auto 0 0; width: 72px;
+  position: absolute; z-index: 5; inset: 0 auto var(--composer-reserve, 0px) 0; width: 72px;
   pointer-events: none; opacity: .42; transition: opacity 150ms ease-out;
 }
 .transcript-turn-navigation:hover,

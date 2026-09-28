@@ -12,6 +12,7 @@ import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
+import { ComposerReserve } from "./components/ComposerReserve";
 import { retryPrompt, TurnErrorLine } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
@@ -737,6 +738,24 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               <span>{THREAD_DROP_FEEDBACK[dropController.state].description}</span>
             </div>
           </div> : null}
+          {/* Before the composer in the DOM: the dock paints over the transcript by tree order. */}
+          <div className="conversation-thread">
+            {!showStartScreen ? <>
+              <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
+              {snapshot?.sessionId ? <ThreadRuntimeBanner
+                sessionId={snapshot.sessionId}
+                onRetry={(path) => void actions.switchSession(path)}
+                onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
+              /> : null}
+              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+              {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
+              <Region registry={registry} placement="composer-controls" snapshot={snapshot} actions={actions}>
+                <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
+              </Region>
+              <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
+              <ComposerReserve />
+            </> : null}
+          </div>
           <section className="conversation-start-screen" aria-labelledby={showStartScreen ? "start-screen-title" : undefined}>
             <div className="conversation-start-content">
               {showStartScreen ? <>
@@ -752,22 +771,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
             </div>
           </section>
-          <div className="conversation-thread">
-            {!showStartScreen ? <>
-              <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
-              {snapshot?.sessionId ? <ThreadRuntimeBanner
-                sessionId={snapshot.sessionId}
-                onRetry={(path) => void actions.switchSession(path)}
-                onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
-              /> : null}
-              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
-              {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
-              <Region registry={registry} placement="composer-controls" snapshot={snapshot} actions={actions}>
-                <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
-              </Region>
-              <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
-            </> : null}
-          </div>
           <HostConnectionStatus />
           <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
         </main>

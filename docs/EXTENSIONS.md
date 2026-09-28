@@ -703,8 +703,13 @@ reads the `snapshot` it is given. The other placements are `title-bar`,
 `composer-above`, `composer-controls`, `composer-below`, `transcript-header` and
 `transcript-footer`. `composer-controls` is one centred row on the
 transcript's bottom edge, before `transcript-footer` and everything over the
-composer, for a small control or two. What a kit draws there gives the row its
-height, so it never covers the transcript; it is left out on the start screen.
+composer, for a small control or two. In a thread, that row, `transcript-footer`,
+`composer-above` and the composer lie over the transcript's lower end, which keeps
+their height free (while the composer is folded, the height it has unfolded), so
+the last message is never under them and folding the composer moves nothing; where
+a kit's region draws no background, lines scrolled back show through it. What a
+kit draws in `composer-controls` gives the row its height, so it never covers the
+latest message; it is left out on the start screen.
 Core's Jump to latest floats while the reader is away from the latest message
 and never changes the row's height: beside the kits' controls when there are
 any (they stay centred), else centred over the transcript's bottom edge. Keep
