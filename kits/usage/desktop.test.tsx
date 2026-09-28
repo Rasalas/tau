@@ -153,9 +153,9 @@ describe("Usage page", () => {
 
   it("shows no origin filter when nothing ran outside Tau, and says when the logs are still being read", async () => {
     renderPage(answers(() => summary({ reading: true })));
-    await screen.findByRole("region", { name: "Threads" });
-    expect(screen.queryByRole("radiogroup", { name: "Where the work ran" })).toBeNull();
+    // The regions draw before the summary; ask about the filter once it is there.
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("still reading the CLIs' logs"));
+    expect(screen.queryByRole("radiogroup", { name: "Where the work ran" })).toBeNull();
   });
 
   it("draws the days of the range and ranks projects, models and threads by the measure chosen", async () => {
@@ -234,7 +234,8 @@ describe("Usage page", () => {
     await screen.findByLabelText("Totals");
     view.show({ view: "sources" });
     const sources = await screen.findByLabelText("Sources");
-    expect(within(sources).getByText("not available")).toBeTruthy();
+    // The list draws before the summary that fills it.
+    expect(await within(sources).findByText("not available")).toBeTruthy();
     expect(within(sources).getByText(/tau\.antigravity is not installed/u)).toBeTruthy();
     await waitFor(() => expect(within(screen.getByLabelText("Sources")).getByText("Codex limits")).toBeTruthy());
   });
@@ -333,7 +334,8 @@ describe("Usage across machines", () => {
     await waitFor(() => expect(within(today).getByText("$2.01")).toBeTruthy());
     expect(reads).toEqual(expect.arrayContaining([["rex-id", "tau.usage summary"], ["rex-id", "tau.usage limits"]]));
     expect(reads.some(([machine]) => machine !== "rex-id")).toBe(false);
-    const limitsList = screen.getByLabelText("Limits");
+    // The limits are an answer of their own, apart from the summary.
+    const limitsList = await screen.findByLabelText("Limits");
     await waitFor(() => expect(within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Codex on rex limits" })).toBeTruthy());
     expect(within(limitsList).getByRole("region", { name: "Grok on rex limits" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toMatch(/this computer and rex$/u);
