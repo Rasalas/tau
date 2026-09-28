@@ -42,15 +42,16 @@ export const TOKEN_GROUPS: ReadonlyArray<{ id: string; title: string; tokens: Re
       ["--acid", "the accent as a fill"], ["--acid-text", "the accent as text"], ["--acid-ink", "text on the accent fill"],
       ["--acid-strong", "the accent fill, hovered"], ["--acid-bg", "the accent as a surface"], ["--acid-line", "the accent as an edge"],
       ["--acid-chip", "the accent behind accent text"], ["--acid-track", "the accent as a filled track"], ["--focus", "the focus ring"],
+      ["--user-bubble", "the user's own message"], ["--user-bubble-ink", "its text"],
     ],
   },
   {
     id: "status",
     title: "Status",
     tokens: [
-      ["--working", "a run in flight"], ["--ready", "a run that finished"], ["--removed", "something taken away"], ["--stop", "the abort control"],
+      ["--working", "a file a turn changed"], ["--ready", "a run that finished"], ["--removed", "something taken away"], ["--stop", "the abort control"],
       ["--cyan", "numbers and types"], ["--danger", "destructive text"], ["--warn", "a caution"], ["--fail", "a failed run's mark"],
-      ["--info", "a step in progress"], ["--done", "a step that finished"], ["--merged", "a merged request"],
+      ["--info", "a run or a step in progress"], ["--done", "a step that finished"], ["--merged", "a merged request"],
     ],
   },
   {

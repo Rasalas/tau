@@ -49,21 +49,23 @@ const RUNTIME_PROPERTIES = [
 ];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */
-const TEXT_SURFACES = ["shell", "stage", "chrome", "field", "overlay"];
+const TEXT_SURFACES = ["shell", "stage", "chrome", "field", "overlay", "rail", "float", "inset"];
 /** Tokens that carry running text: WCAG AA, 4.5:1. */
 const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted"];
 /** Accent and status tokens used as text or as an icon beside it. */
 const AA_ACCENT = [
+  "brand-ink",
   "acid-text", "working", "ready", "removed", "cyan", "info-ink", "merged", "danger", "warn", "fail-ink",
   "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge",
 ];
 /** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */
-const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder", "provider-openai", "provider-anthropic", "provider-google", "provider-pi", "provider-other"];
+const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "acid", "stale", "folder", "provider-openai", "provider-anthropic", "provider-google", "provider-pi", "provider-other"];
 /** Ink that sits on a fill rather than on a surface. */
 const ON_FILL: ReadonlyArray<[string, string]> = [
   ["acid-ink", "acid"], ["acid-ink", "acid-strong"],
   ["diff-add-mark-ink", "diff-add-mark"], ["diff-del-mark-ink", "diff-del-mark"],
   ["diff-add-ink", "diff-add-bg"], ["diff-del-ink", "diff-del-bg"], ["acid-text", "acid-chip"],
+  ["acid-text", "acid-bg"], ["user-bubble-ink", "user-bubble"], ["warn", "warn-chip"], ["danger", "danger-bg"],
 ];
 
 /** A shape rather than a glyph: non-text contrast, 3:1. */
@@ -142,6 +144,27 @@ describe("the token contract", () => {
     // The mark on the stop button and a QR code are the same in both schemes on
     // purpose; anything else with one value is a token that was not themed.
     expect(single.map(([name]) => name).sort()).toEqual(["--qr-ink", "--qr-paper", "--stop-ink"]);
+  });
+
+  it("sets the side surface lighter than the document area in the dark scheme only", async () => {
+    const tokens = await readTokens();
+    const lighter = (scheme: "light" | "dark") => luminance(colour(tokens, "rail", scheme)) > luminance(colour(tokens, "stage", scheme));
+    expect(lighter("dark")).toBe(true);
+    expect(lighter("light")).toBe(false);
+  });
+
+  it("ships Figtree as the sans with its own local files, never a font server", async () => {
+    const tokens = await readTokens();
+    expect(tokens.get("--sans")).toMatch(/^"Figtree", system-ui,/u);
+    expect(tokens.get("--mono")).toMatch(/^ui-monospace,/u);
+    const css = await readFile(TOKENS, "utf8");
+    const sources = [...css.matchAll(/src:\s*url\("([^"]+)"\)/gu)].map((match) => match[1]);
+    expect(sources).toHaveLength(4);
+    for (const source of sources) {
+      expect(source).toMatch(/^\.\/assets\/fonts\/figtree\/figtree-[\w-]+\.woff2$/u);
+      await expect(readFile(new URL(source, TOKENS))).resolves.toBeTruthy();
+    }
+    await expect(readFile(new URL("./assets/fonts/figtree/OFL.txt", TOKENS), "utf8")).resolves.toMatch(/SIL OPEN FONT LICENSE Version 1\.1/u);
   });
 
   it("resolves a project's tint on its mark, where the hue is set", async () => {

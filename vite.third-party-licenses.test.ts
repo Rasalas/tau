@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { BUILD_ONLY_DEV_DEPENDENCIES, collectThirdPartyLicenses } from "./vite.third-party-licenses";
+import { BUILD_ONLY_DEV_DEPENDENCIES, bundledFileLicenses, collectThirdPartyLicenses } from "./vite.third-party-licenses";
 import { packLicenses, unpackLicenses } from "./src/shared/third-party-licenses";
 
 let root: string | undefined;
@@ -16,6 +16,12 @@ async function pkg(directory: string, manifest: Record<string, unknown>, license
 }
 
 describe("the packages Tau ships", () => {
+  it("names the interface font it bundles, with the font's own licence", () => {
+    const [figtree] = bundledFileLicenses(fileURLToPath(new URL(".", import.meta.url)));
+    expect(figtree).toMatchObject({ name: "Figtree", license: "OFL-1.1" });
+    expect(figtree?.text).toMatch(/Copyright 2022 The Figtree Project Authors[\s\S]*SIL OPEN FONT LICENSE Version 1\.1/u);
+  });
+
   it("walks dependencies and bundled devDependencies as Node resolves them, never build tools", async () => {
     root = await mkdtemp(join(tmpdir(), "tau-licenses-"));
     const modules = join(root, "node_modules");

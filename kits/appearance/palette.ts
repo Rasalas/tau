@@ -13,27 +13,27 @@ export interface PaletteSeed {
 /** How a surface sits against the window: toward the ink, lifted toward white (or the ink, in the dark), or deeper. */
 type Step = readonly ["ink" | "lift" | "deep", number, number?];
 
-/** Offsets read off Tau's own two token sets; the optional second number is the light scheme's lift. */
+/** Offsets read off Tau's own two token sets (the workbench palette); the optional second number is the light scheme's lift. */
 const SURFACES: Readonly<Record<string, Step>> = {
   "--well": ["deep", 0.3],
-  "--rail": ["ink", 0.012],
-  "--chrome": ["ink", 0.017],
-  "--stage": ["lift", 0.03, 0.62],
-  "--sunken": ["ink", 0.045],
-  "--field": ["lift", 0.045, 0.82],
-  "--thread-active": ["ink", 0.052],
-  "--raised": ["ink", 0.07],
-  "--raised-strong": ["ink", 0.1],
-  "--raised-hover": ["ink", 0.16],
-  "--overlay": ["lift", 0.035, 0.7],
-  "--float": ["lift", 0.05, 0.82],
-  "--hover": ["ink", 0.035],
-  "--hover-strong": ["ink", 0.045],
-  "--code-bg": ["deep", 0.35],
-  "--inset": ["ink", 0.028],
-  "--chip": ["ink", 0.09],
-  "--chip-hover": ["ink", 0.11],
-  "--track": ["ink", 0.18],
+  "--rail": ["ink", 0.04],
+  "--chrome": ["ink", 0.04],
+  "--stage": ["lift", 0, 0],
+  "--sunken": ["ink", 0.02],
+  "--field": ["ink", 0.04],
+  "--thread-active": ["lift", 0, 0],
+  "--raised": ["ink", 0.1],
+  "--raised-strong": ["ink", 0.12],
+  "--raised-hover": ["ink", 0.15],
+  "--overlay": ["lift", 0.058, 0],
+  "--float": ["lift", 0.058, 0],
+  "--hover": ["ink", 0.075],
+  "--hover-strong": ["ink", 0.09],
+  "--code-bg": ["ink", 0.04],
+  "--inset": ["ink", 0.04],
+  "--chip": ["ink", 0.085],
+  "--chip-hover": ["ink", 0.12],
+  "--track": ["ink", 0.12],
 };
 
 const HAIRLINES: Readonly<Record<string, number>> = {
@@ -82,5 +82,7 @@ export function derivePalette(seed: PaletteSeed): Record<string, string> {
   tokens["--acid-chip"] = mix(bg, accent, 0.2);
   tokens["--acid-track"] = mix(bg, accent, 0.45);
   tokens["--focus"] = tokens["--acid-text"];
+  tokens["--user-bubble"] = tokens["--acid-bg"];
+  tokens["--user-bubble-ink"] = readable(mix(tokens["--ink"], accent, 0.25), tokens["--user-bubble"], tokens["--ink"]);
   return tokens;
 }

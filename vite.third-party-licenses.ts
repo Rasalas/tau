@@ -97,6 +97,18 @@ export function collectThirdPartyLicenses(root: string): ThirdPartyLicense[] {
   return [...found.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version));
 }
 
+/** Files Tau carries that come from no npm package: the interface font. */
+export const BUNDLED_FILES: ReadonlyArray<Omit<ThirdPartyLicense, "text"> & { notice: string }> = [
+  { name: "Figtree", version: "Google Fonts v9, via @fontsource-variable/figtree 5.3.0", license: "OFL-1.1", repository: "https://github.com/erikdkennedy/figtree", notice: "src/renderer/assets/fonts/figtree/OFL.txt" },
+];
+
+/** The bundled files' entries, each with its licence text; a file that is gone is left out. */
+export function bundledFileLicenses(root: string): ThirdPartyLicense[] {
+  return BUNDLED_FILES.flatMap(({ notice, ...entry }) => {
+    try { return [{ ...entry, text: readFileSync(join(root, notice), "utf8").trim() }]; } catch { return []; }
+  });
+}
+
 /**
  * Writes `third-party-licenses.json` beside the page, which Settings → About
  * reads when it opens. JSON rather than a module: it stays out of every
@@ -104,7 +116,7 @@ export function collectThirdPartyLicenses(root: string): ThirdPartyLicense[] {
  */
 export function thirdPartyLicenses(root: string = process.cwd()): Plugin {
   let cached: string | undefined;
-  const json = () => (cached ??= JSON.stringify(packLicenses(collectThirdPartyLicenses(root))));
+  const json = () => (cached ??= JSON.stringify(packLicenses([...collectThirdPartyLicenses(root), ...bundledFileLicenses(root)])));
   return {
     name: "tau-third-party-licenses",
     configureServer(server) {
