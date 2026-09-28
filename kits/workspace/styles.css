@@ -9,11 +9,20 @@
  * `tau`), the menu, the panel frame, the chips and buttons, the transcript.
  */
 
-/* The title-bar row takes the room core's region gives it; `title-collapse.ts` folds it until it fits. */
+/* The thread header's row takes the room core's region gives it; `title-collapse.ts` folds it until it fits. */
 .workspace-title-actions { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
 .workspace-title-actions > :first-child { margin-left: auto; }
 .workspace-title-actions .chrome-button { white-space: nowrap; }
 .workspace-title-actions .title-more { width: 31px; justify-content: center; padding: 0; }
+/* The design's "3 files changed ›": a link in the accent's ink, not a button. */
+.workspace-changes-link {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 6px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--info-ink); font: 600 var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer;
+}
+.workspace-changes-link:hover { background: var(--hover); }
+/* Open in: the editor's logo, and a narrow chevron for the others. */
+.workspace-editor-button { align-items: center; }
+.workspace-editor-button .workspace-editor-choose { width: 16px; margin-left: -2px; }
 .chrome-group { display: flex; align-items: stretch; }
 .chrome-group .split-main { border-radius: 9px 0 0 9px; }
 .chrome-group .split-trigger { width: 31px; justify-content: center; padding: 0; border-left-color: var(--edge-highlight); border-radius: 0 9px 9px 0; }
@@ -40,7 +49,7 @@
 
 /* No edge: the rail's surface sets it apart from the conversation, as in the design. */
 .session-rail {
-  grid-area: 2 / 1 / 3 / 2;
+  grid-area: 1 / 1 / -1 / 2; padding-top: var(--window-top, 0px);
   display: flex; flex-direction: column; min-height: 0;
   background: var(--rail);
 }

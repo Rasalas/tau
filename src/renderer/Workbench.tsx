@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Folder } from "lucide-react";
+import { ChevronDown, Folder, ListTree } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
@@ -21,7 +21,6 @@ import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
 import type { ToastStore } from "../workbench/toast-store";
-import { PanelIcon } from "./components/PanelIcon";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
 import { compactSidebarWidth, rendersOnProfile, type ClientProfile } from "../workbench/client-profile";
@@ -39,18 +38,21 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
+import { ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
+import { ConversationSpine, StageTools } from "./components/StageSpine";
+import { WindowControlsInset } from "./components/WindowControlsInset";
+import { useHostClient } from "./host-client-context";
 import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
-import { CHAT_MIN_WIDTH, DOCK_PANEL_MIN_WINDOW, DOCK_RAIL_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
+import { CHAT_MIN_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
 import {
-  CHAT_MAXIMIZE_OVERDRAG, DOCK_MAX_WIDTH, DOCK_MIN_WIDTH, DOCKED_CONTENT_MIN_WIDTH, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
-  chatMaxWidth, defaultChatWidth, dockMaxWidth, drawerMaxHeight, shownChatWidth, shownDockWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
+  CHAT_MAXIMIZE_OVERDRAG, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
+  chatMaxWidth, defaultChatWidth, drawerMaxHeight, shownChatWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
   storedChatWidth, storedDrawerHeight, storedSidebarWidth,
 } from "../workbench/layout-sizes";
 import { useClientStorage } from "./client-storage-context";
-import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
@@ -80,19 +82,6 @@ import type { ShowThreadOptions } from "./use-thread-navigation";
 import { phoneTab } from "../workbench/phone-route";
 import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
-const DEFAULT_DOCK_WIDTH = 320;
-const DOCK_WIDTH_KEY = STORAGE_KEYS.dockWidth;
-
-function clampDockWidth(width: number): number {
-  return Number.isFinite(width)
-    ? Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, width))
-    : DEFAULT_DOCK_WIDTH;
-}
-
-function storedDockWidth(storage: ClientStorage): number {
-  const width = Number(storage.get(DOCK_WIDTH_KEY));
-  return Number.isFinite(width) && width > 0 ? clampDockWidth(width) : DEFAULT_DOCK_WIDTH;
-}
 const LazyCommandPalette = retryableLazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
 const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
@@ -160,24 +149,20 @@ export interface WorkbenchLayout {
   sidebarContributions: ReturnType<ExtensionRegistry["getSidebarContributions"]>;
   panels: ReturnType<ExtensionRegistry["getPanels"]>;
   activePanel: string;
-  openedPanels: ReadonlySet<string>;
   openPanel(id: string): void;
-  /** Which panels are on the stage, and the moves between dock, drawer and stage. */
+  /** Which panels are on the stage, and the moves between drawer and stage. */
   panelLayout?: PanelLayout;
   /** The drawer panel showing below the conversation. */
   drawer?: string;
-  dockOpen: boolean;
-  setDockOpen(open: boolean): void;
-  /** Grows with each call that shows, hides or picks a dock panel. */
-  dockAsks: number;
-  /** The width this workspace was last left at; the default otherwise. */
-  dockWidth?: number;
-  onDockWidthChange(width: number): void;
-  /** The stage fills the centre, the chat its first tab: maximized on its own, or by a panel tab. */
+  /** The user folded the thread's stage to its spine. */
+  stageFolded: boolean;
+  setStageFolded(folded: boolean): void;
+  /** The stage fills the centre, the conversation folded to its spine. */
   maximized: boolean;
+  /** Where only one of the two is shown: the conversation rather than the stage. */
   chatFocused: boolean;
   setChatFocused(focused: boolean): void;
-  /** The stage over the whole centre, the chat its first tab; cleared when the stage closes. */
+  /** The stage over the whole centre; cleared when the stage closes. */
   stageMaximized: boolean;
   setStageMaximized(maximized: boolean): void;
   stage: StageState;
@@ -306,7 +291,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
-    openedPanels, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth: restoredDockWidth, onDockWidthChange,
+    openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
     documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette, commands,
@@ -349,12 +334,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     clientStorage.set(STORAGE_KEYS.drawerHeight, String(height));
   };
   const [chatWidthPreference, setChatWidthPreference] = useState(() => storedChatWidth(clientStorage.get(STORAGE_KEYS.chatWidth)));
-  const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
-  // The workspace's own width arrives with its restored dock state.
-  useEffect(() => {
-    if (restoredDockWidth !== undefined) setDockWidthState(clampDockWidth(restoredDockWidth));
-  }, [restoredDockWidth]);
-  // One screen wide: the thread list is a screen of its own and the dock has nowhere to go.
+  // Parked where it stays visible while the conversation is folded: its layers must not hide with it.
+  const [titleActionsHost] = useState(() => { const host = document.createElement("div"); host.className = "panel-host"; return host; });
+  // One screen wide: the thread list is a screen of its own and the stage has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
   const compact = layoutProfile === "compact";
   // A tablet gets the desktop's arrangement: list, chat, tools and documents beside it, a rail.
@@ -432,92 +414,82 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     if (composerFocusRequest > 0) composer.textareaRef.current?.focus();
   }, [composer.textareaRef, composerFocusRequest]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
-  // A tablet docks the panels a phone opens as sheets.
+  // A tablet draws the stage beside the chat, as a desktop does; a phone opens panels as sheets.
   const panels = compact && !split ? EMPTY_CONTRIBUTIONS : allPanels;
   const sheetPanels = useMemo(() => phone ? allPanels.filter((panel) => rendersOnProfile(panel.profiles, "compact")) : EMPTY_CONTRIBUTIONS, [allPanels, phone]);
   const sheetPanel = sheetPanels.find((panel) => panel.id === panelSheet);
   compactRef.current.sheets = sheetPanels.map((panel) => panel.id);
-  const dockPanels = useMemo(() => panels.filter((panel) => panel.placement !== "drawer"), [panels]);
   const drawerPanels = useMemo(() => panels.filter((panel) => panel.placement === "drawer"), [panels]);
-  const widePanels = useMemo(() => dockPanels.filter((panel) => panel.width === "wide"), [dockPanels]);
-  const listPanels = useMemo(() => dockPanels.filter((panel) => panel.width !== "wide"), [dockPanels]);
   const staged = panelLayout?.staged ?? EMPTY_STAGED;
   const drawerPanel = drawerPanels.find((panel) => panel.id === drawer && !staged.has(panel.id));
   const hostFor = usePanelHosts();
-  const activeDockPanel = dockPanels.find((panel) => panel.id === activePanel && !staged.has(panel.id));
   const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
-  // Beside the chat: one wide tool, or the documents with a list docked at their right; an open stage takes wide tools as tabs.
-  const stageShown = stage.tabs.length > 0;
-  const wideShown = !maximized && !stageShown && dockOpen && activeDockPanel?.width === "wide";
-  const listPanel = dockOpen && activeDockPanel && activeDockPanel.width !== "wide" ? activeDockPanel : undefined;
-  // A list docked beside documents keeps its narrowest width beside the chat; the sidebar gives way first.
-  const sidebarReserve = listPanel && stageShown && windowWidth > DOCK_PANEL_MIN_WINDOW ? DOCKED_CONTENT_MIN_WIDTH : undefined;
-  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth, sidebarReserve) : 0;
+  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
   const touchSidebarShown = split && touchSidebarOpen;
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
-  // The stored width, as far as the window leaves room beside the chat and the rail.
-  const drawnDockWidth = shownDockWidth(dockWidth, windowWidth, drawnSidebar);
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   const chatMin = split ? TABLET_CHAT_MIN_WIDTH : CHAT_MIN_WIDTH;
-  // The dock takes room only for a list beside open documents; a wide tool sits in the centre itself.
-  // A phone draws no stage (profile-compact.css), so its chat never becomes a tab.
-  const { dockYields, tabs, canSplit, keepDock } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: (stageShown || wideShown) && !phone, maximized, chatMin,
-    tabCount: stage.tabs.length, dockAsks, clearMaximized: clearStageMaximized,
-    ...(dockPanels.length > 0 ? { dock: { open: Boolean(listPanel) && stageShown, width: drawnDockWidth } } : {}),
+  // A phone draws no stage (profile-compact.css): its panels are sheets.
+  const { stageShown, tabs, canSplit } = useCenterLayout({
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized, chatMin,
+    tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
   });
-  const stacked = stageShown && tabs;
+  // Only one of the two fits, or the stage is maximized: the one not in front is folded to its spine.
+  const stacked = tabs;
   compactRef.current.stacked = stacked;
-  // A list with nothing open beside it floats over the chat's edge instead of taking room.
-  const listOverlay = Boolean(listPanel) && !stageShown;
-  const listDocked = Boolean(listPanel) && stageShown && !dockYields;
-  const listShown = listOverlay || listDocked;
-  const sideOpen = (stageShown || wideShown) && !tabs;
-  const centerWidth = windowWidth - drawnSidebar - (dockPanels.length > 0 ? DOCK_RAIL_WIDTH : 0) - (listDocked && windowWidth > DOCK_PANEL_MIN_WINDOW ? drawnDockWidth : 0);
-  const chatWidth = shownChatWidth(chatWidthPreference, centerWidth, chatMin);
-  // A tablet with no room beside the chat shows the tool as a tab, the chat the first one, instead of two slivers.
-  const toolCrowded = split && wideShown && tabs && Boolean(activeDockPanel?.maximizable);
-  useEffect(() => {
-    if (toolCrowded && activeDockPanel) panelLayout?.maximize(activeDockPanel.id);
-  }, [toolCrowded, activeDockPanel, panelLayout]);
+  const conversationFolded = stacked && !chatFocused;
+  const stageExpanded = stageShown && !(stacked && chatFocused);
+  const sideOpen = stageShown && !stacked;
+  const centerWidth = windowWidth - drawnSidebar;
+  const chatWidth = shownChatWidth(chatWidthPreference, centerWidth, chatMin, windowWidth);
   // Opening another thread (from a panel, say) puts the thread in front again.
   useEffect(() => { setPanelSheet(undefined); }, [compact, snapshot?.sessionId]);
 
-  const setDockWidth = (width: number) => {
-    const bounded = clampDockWidth(width);
-    setDockWidthState(bounded);
-    clientStorage.set(DOCK_WIDTH_KEY, String(bounded));
-    onDockWidthChange(bounded);
-  };
-
   const setChatWidth = (width: number) => {
-    // Dragged well past the chat's minimum: the tool takes the whole centre.
+    // Dragged well past the chat's minimum: the stage takes the whole centre.
     if (width <= chatMin - CHAT_MAXIMIZE_OVERDRAG) {
-      if (wideShown && activeDockPanel?.maximizable) panelLayout?.maximize(activeDockPanel.id);
-      else if (stageShown) panelLayout?.maximizeStage();
+      panelLayout?.maximizeStage();
       return;
     }
     const bounded = Math.max(chatMin, width);
     setChatWidthPreference(bounded);
     clientStorage.set(STORAGE_KEYS.chatWidth, String(bounded));
   };
+  // The header's toggle hides the stage or brings it back; an empty one opens the tool last picked in the project, else the first.
+  const firstTool = panels.find((panel) => panel.id === activePanel && panel.placement !== "drawer") ?? panels.find((panel) => panel.stageButton) ?? panels[0];
+  const toggleStage = () => {
+    if (stage.tabs.length === 0) { if (firstTool) openPanel(firstTool.id); return; }
+    if (stageExpanded) { setStageFolded(true); return; }
+    setStageFolded(false);
+    setChatFocused(false);
+  };
+  // The tools' buttons read as pressed while their tab is in front of a shown stage, or their drawer is open.
+  const frontTab = stage.tabs.find((tab) => tab.id === stage.activeId);
+  const shownTools = useMemo(() => new Set([
+    ...(stageExpanded && frontTab?.kind === "panel" ? [frontTab.panelId] : []),
+    ...(drawerPanel ? [drawerPanel.id] : []),
+  ]), [drawerPanel, frontTab, stageExpanded]);
+  const openTool = (id: string) => (drawerPanel?.id === id ? actions.closePanel?.(id) : openPanel(id));
+  const stageTools = <>
+    <StageTools panels={panels} shown={shownTools} onOpen={openTool} />
+    <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
+  </>;
 
+  // macOS draws its traffic lights over the window's top left; elsewhere the OS frames the window itself.
+  const macInset = useHostClient()?.platform === "darwin" && !compact;
   const centerClassName = [
     "workbench-center",
-    stageShown ? "stage-open" : "",
-    wideShown ? "wide-open" : "",
-    tabs ? "compact" : "",
-    stacked && chatFocused ? "chat-focused" : "",
+    sideOpen ? "stage-open" : "",
+    stageExpanded && stacked ? "stage-full" : "",
+    conversationFolded ? "conversation-folded" : "",
   ].filter(Boolean).join(" ");
   const shellClassName = [
     "app-shell",
     split ? "touch-split" : "",
     sidebarContributions.length === 0 && !split ? "no-sidebar" : "",
     (split ? touchSidebarOpen : sidebarOpen) ? "" : "sidebar-closed",
-    dockPanels.length === 0 ? "no-dock" : "",
-    listDocked ? "" : "dock-closed",
-    listOverlay ? "dock-overlay" : "",
+    macInset ? "window-inset" : "",
   ].filter(Boolean).join(" ");
 
   const openSupervisedThread = (row: { path: string }) => { void actions.switchSession(row.path); };
@@ -663,17 +635,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>);
 
   const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
-  return providers(<>
-    {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--dock-width": listDocked ? `${drawnDockWidth}px` : "0px", "--list-width": `${drawnDockWidth}px`, "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
-      <TitleBar
-        cwd={workspaceCwd}
-        dockOpen={wideShown || listShown}
-        hasDock={dockPanels.length > 0}
-        registry={registry}
-        snapshot={snapshot}
-        actions={actions}
-        thread={showStartScreen ? <span className="title-draft">New thread</span> : <>
+  const threadTitle = showStartScreen ? <span className="title-draft">New thread</span> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
             title={conversationSnapshot?.sessionTitle || "Untitled thread"}
@@ -693,16 +655,29 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             onCopy={(kind) => void copyThreadValue(kind)}
             canCopyPath={hostCapabilities.localFiles}
           />
-        </>}
-        drawers={drawerPanels.map((panel) => ({
-          id: panel.id,
-          label: panel.label,
-          open: drawer === panel.id,
-          onToggle: () => (drawer === panel.id ? actions.closePanel?.(panel.id) : openPanel(panel.id)),
-        }))}
-        onToggleDock={() => (dockYields ? keepDock() : wideShown || listShown ? setDockOpen(false) : activeDockPanel?.width === "wide" ? openPanel(activePanel) : setDockOpen(true))}
-        {...(split ? { onOpenThreads: () => setTouchSidebarOpen((open) => !open) } : phone ? { onBack: phoneNav.showList } : {})}
-        foldSheets={compact && !split}
+        </>;
+  // The conversation's head replaces the window-wide bar everywhere but on a phone, whose bar is its own.
+  const conversationHeader = phone ? null : <ThreadHeader
+    lead={<>
+      {sidebarShown && !split ? null : <WindowControlsInset />}
+      {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
+    </>}
+    title={threadTitle}
+    details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} />}
+    actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
+    {...(panels.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+  />;
+  return providers(<>
+    {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
+    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
+      {phone ? <TitleBar
+        registry={registry}
+        snapshot={snapshot}
+        actions={actions}
+        thread={threadTitle}
+        details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} />}
+        onBack={phoneNav.showList}
+        foldSheets
         sheets={sheetPanels.map((panel) => ({
           id: panel.id,
           label: panel.label,
@@ -710,7 +685,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           open: panelSheet === panel.id,
           onToggle: () => setPanelSheet((open) => (open === panel.id ? undefined : panel.id)),
         }))}
-      />
+      /> : null}
+      {macInset && sidebarShown ? <div className="sidebar-top" aria-hidden /> : null}
       {split ? <div className="sidebar-slot">
         <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
       </div> : null}
@@ -731,16 +707,21 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         grows="right"
         value={shownSidebar}
         min={SIDEBAR_MIN_WIDTH}
-        max={sidebarMaxWidth(windowWidth, sidebarReserve)}
+        max={sidebarMaxWidth(windowWidth)}
         defaultValue={SIDEBAR_DEFAULT_WIDTH}
         onChange={setSidebarWidth}
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
-      <div className={centerClassName} style={{ "--chat-width": tabs ? "50%" : `${chatWidth}px` } as CSSProperties}>
+      <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px` } as CSSProperties}>
+        {conversationFolded ? <ConversationSpine
+          title={showStartScreen ? "New thread" : conversationSnapshot?.sessionTitle || "Untitled thread"}
+          streaming={visibleStreaming}
+          waiting={composer.prompts.length > 0}
+          onShow={() => { setChatFocused(true); if (maximized) panelLayout?.restore(); }}
+        /> : null}
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
           data-keybinding-context="chat"
-          onPointerDown={listOverlay ? () => setDockOpen(false) : undefined}
           onDragEnter={dropController.onDragEnter}
           onDragOver={dropController.onDragOver}
           onDragLeave={dropController.onDragLeave}
@@ -753,6 +734,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             </div>
           </div> : null}
           {/* Before the composer in the DOM: the dock paints over the transcript by tree order. */}
+          {conversationHeader}
           <div className="conversation-thread">
             {!showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
@@ -802,14 +784,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           value={chatWidth}
           min={chatMin - CHAT_MAXIMIZE_OVERDRAG}
           max={chatMaxWidth(centerWidth, chatMin)}
-          defaultValue={defaultChatWidth(centerWidth, chatMin)}
+          defaultValue={defaultChatWidth(centerWidth, chatMin, windowWidth)}
           onChange={setChatWidth}
         /> : null}
-        {widePanels.some((panel) => openedPanels.has(panel.id) && !staged.has(panel.id)) ? <section className="side-panel" aria-label={wideShown ? activeDockPanel?.label : undefined} hidden={!wideShown}>
-          {widePanels.map((panel) => openedPanels.has(panel.id) && !staged.has(panel.id) ? <PanelSlot key={panel.id} host={hostFor(panel.id)} /> : null)}
-          {wideShown && activeDockPanel?.maximizable && panelLayout ? <PanelMaximizeButton label={activeDockPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout.maximize(activeDockPanel.id)} /> : null}
-        </section> : null}
-        {stage.tabs.length > 0 ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>
+        {stageExpanded ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>
           <Suspense fallback={stageFrame(<LazyFeatureFallback label="stage" />)}>
             <LazyStage
               focusRef={stageRef}
@@ -818,13 +796,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               workspace={stageWorkspace}
               changes={documentState.changes}
               editor={documentState.editor}
-              chatTab={stacked ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
               maximize={panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
                 setChatFocused(false);
-                if (!maximized) { panelLayout.maximizeStage(); return; }
-                const front = stage.tabs.find((tab) => tab.id === stage.activeId);
-                panelLayout.restore(front?.kind === "panel" ? front.panelId : undefined);
+                if (maximized) panelLayout.restore();
+                else panelLayout.maximizeStage();
               } } : undefined}
+              tools={stageTools}
               registry={registry}
               stageTabs={stageTabs}
               actions={actions}
@@ -864,38 +841,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         {drawerPanel.maximizable ? <PanelMaximizeButton label={drawerPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout?.maximize(drawerPanel.id)} /> : null}
       </section> : null}
       </div>
-      {dockPanels.length > 0 ? <aside className="instrument-dock" inert={Boolean(openPage) && !pageScreen}>
-        {listShown && listPanel ? <div className="panel-stage">
-          <ResizeHandle
-            className="dock-resizer"
-            label="Resize right sidebar"
-            orientation="vertical"
-            grows="left"
-            value={drawnDockWidth}
-            min={DOCK_MIN_WIDTH}
-            max={dockMaxWidth(windowWidth, drawnSidebar)}
-            defaultValue={DEFAULT_DOCK_WIDTH}
-            onChange={setDockWidth}
-          />
-          {listPanels.map((panel) => openedPanels.has(panel.id) && !staged.has(panel.id) ? <PanelSlot key={panel.id} host={hostFor(panel.id)} /> : null)}
-          {listPanel.maximizable && panelLayout ? <PanelMaximizeButton label={listPanel.label} shortcut={maximizeShortcut} onMaximize={() => panelLayout.maximize(listPanel.id)} /> : null}
-        </div> : null}
-        <nav className="panel-rail">
-          {dockPanels.map((panel) => {
-            const onStage = staged.has(panel.id);
-            const shown = activePanel === panel.id && (wideShown || listShown);
-            return <button
-              key={panel.id}
-              {...tooltipProps(onStage ? `${panel.label} (open as a tab)` : panel.label, { side: "left" })}
-              aria-label={panel.label}
-              className={[shown ? "active" : "", onStage ? "on-stage" : ""].filter(Boolean).join(" ")}
-              aria-pressed={shown}
-              onClick={() => shown ? setDockOpen(false) : openPanel(panel.id)}
-            ><PanelIcon Icon={panel.Icon} /></button>;
-          })}
-          <span className="spacer" />
-        </nav>
-      </aside> : null}
+      {conversationFolded ? <div className="title-actions-parked"><PanelSlot host={titleActionsHost} /></div> : null}
       {openPage && !pageScreen ? appPage : null}
     </div>
     {overlays}
@@ -911,16 +857,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       actions={actions}
       onNotify={actions.notify}
     />, hostFor(sheetPanel.id), sheetPanel.id) : null}
+    {!phone ? createPortal(<Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />, titleActionsHost) : null}
     {panels.map((panel) => {
       const onStage = staged.has(panel.id);
-      const inDrawer = panel.placement === "drawer";
-      // A wide tool stays mounted while a document has its place, so it comes back as it was.
-      const kept = panel.width === "wide" ? openedPanels.has(panel.id) : dockOpen && openedPanels.has(panel.id);
-      if (!(onStage || (inDrawer ? drawer === panel.id : kept))) return null;
-      const placement = onStage ? "stage" : inDrawer ? "drawer" : "dock";
-      const active = onStage
-        ? stage.activeId === panelTabId(panel.id) && !(stacked && chatFocused)
-        : inDrawer || (activePanel === panel.id && (wideShown || listShown));
+      // A panel lives as long as its tab or its drawer; a folded stage keeps it mounted, only hidden.
+      if (!onStage && drawerPanel?.id !== panel.id) return null;
+      const placement = onStage ? "stage" : "drawer";
+      const active = onStage ? stage.activeId === panelTabId(panel.id) && stageExpanded : true;
       return createPortal(<MountedPanel
         Component={panel.Component}
         active={active}

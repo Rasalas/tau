@@ -12,7 +12,7 @@ import { RendererServicesProvider } from "../renderer-services-context";
 import { ObservatoryContext, WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
 import { useAppKeybindings as useWindowKeybindings } from "../use-app-keybindings";
 
-export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "thread-title", "composer-above", "composer-controls", "composer-below", "transcript-header", "transcript-footer"];
+export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "thread-title", "stage-bar", "composer-above", "composer-controls", "composer-below", "transcript-header", "transcript-footer"];
 
 const KIT_SNAPSHOT = {
   sessionId: "s1", cwd: "/project", isStreaming: false, models: [], thinkingLevel: "medium",

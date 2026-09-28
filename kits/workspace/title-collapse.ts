@@ -1,31 +1,28 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
 
 /**
- * How the title-bar actions give way when the bar runs out of room. Labels go
- * before functions leave the bar, and the least used leave first:
+ * How the thread header's actions give way when the header runs out of room.
+ * Labels go before functions leave the header, and the least used leave first:
  *
- * 1. "Open" drops its label; the editor's logo says what it opens.
- * 2. The project actions drop theirs (Add action, the first action's name).
- * 3. The project actions move into the overflow menu: set up once, run rarely.
- * 4. "Open in" moves there too.
- * 5. The Git action drops its label last: it is the one whose label says what
+ * 1. The project actions drop their label (Add action, the first action's name).
+ * 2. The project actions move into the overflow menu: set up once, run rarely.
+ * 3. The Git action drops its label last: it is the one whose label says what
  *    the next click does (Commit, Push, Pull, Up to date).
+ *
+ * "Open in" is no longer here: it sits in the stage's tab strip and the thread's menu.
  */
 export type TitleItemShape = "label" | "icon" | "overflow";
 
 export interface TitleCollapse {
   actions: TitleItemShape;
-  editor: TitleItemShape;
   git: Exclude<TitleItemShape, "overflow">;
 }
 
 export const TITLE_COLLAPSE_STEPS: readonly TitleCollapse[] = [
-  { editor: "label", actions: "label", git: "label" },
-  { editor: "icon", actions: "label", git: "label" },
-  { editor: "icon", actions: "icon", git: "label" },
-  { editor: "icon", actions: "overflow", git: "label" },
-  { editor: "overflow", actions: "overflow", git: "label" },
-  { editor: "overflow", actions: "overflow", git: "icon" },
+  { actions: "label", git: "label" },
+  { actions: "icon", git: "label" },
+  { actions: "overflow", git: "label" },
+  { actions: "overflow", git: "icon" },
 ];
 
 export const MAX_TITLE_COLLAPSE = TITLE_COLLAPSE_STEPS.length - 1;

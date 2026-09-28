@@ -294,9 +294,13 @@ export interface TranscriptRowsHandle {
  * content: above or below the composer (Pi's widgets), at the head or foot of
  * the transcript, before the thread's title, or as the status line at the
  * bottom, Pi's footer. `look-in` sits under the header of a tab that shows a
- * thread of another machine (API 1.15.0); its props carry `lookIn`.
+ * thread of another machine (API 1.15.0); its props carry `lookIn`. `title-bar`
+ * is the thread header's end, beside the stage toggle, and stays mounted while
+ * the conversation is folded (API 1.26.0: the window-wide bar is gone);
+ * `stage-bar` sits at the right of the stage's tab strip, before its maximize
+ * (API 1.26.0).
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
+export type RegionPlacement = "title-bar" | "thread-title" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
 export interface LookInRegionContext {
@@ -569,9 +573,11 @@ export interface PanelProps {
 }
 
 /**
- * `stage` is where a maximized panel is drawn; a contribution asks for `dock`
- * or `drawer`. `sheet` is a phone's sheet over the thread (API 1.20.0): no
- * stage is drawn there, so a document the panel opens must show in the panel.
+ * Where a panel is drawn now. On desktop, web and a tablet every panel is a
+ * stage tab (`stage`, API 1.26.0) unless it asked for the `drawer`; `dock` is
+ * what a contribution asks for by default and is no longer drawn there.
+ * `sheet` is a phone's sheet over the thread (API 1.20.0): no stage is drawn
+ * there, so a document the panel opens must show in the panel.
  */
 export type PanelPlacement = "dock" | "drawer" | "stage" | "sheet";
 
@@ -580,29 +586,36 @@ export interface PanelContribution extends ProfileScoped {
   label: string;
   /**
    * `drawer` draws the panel below the conversation and the stage, full width,
-   * instead of in the dock; one drawer panel shows at a time (API 1.11.0).
+   * instead of as a stage tab; one drawer panel shows at a time (API 1.11.0).
    */
   placement?: "dock" | "drawer";
   /**
-   * `wide` fills the space beside the chat as soon as it opens; `narrow`, the
-   * default, floats over the chat's edge until a document opens beside it
-   * (API 1.16.0). Ignored in the drawer.
+   * Ignored since API 1.26.0: every panel opens as a stage tab. It told the
+   * dock whether the panel filled the space beside the chat (API 1.16.0).
    */
   width?: "narrow" | "wide";
   /**
-   * The panel can be maximized into a stage tab (API 1.11.0). Core moves the
-   * mounted panel, so its state goes with it, and it is never drawn twice.
+   * A drawer panel may move onto the stage, maximized (API 1.11.0). Core moves
+   * the mounted panel, so its state goes with it, and it is never drawn twice.
+   * A dock panel is a stage tab anyway.
    */
   maximizable?: boolean;
   /**
    * Shows the tool somewhere else instead of this panel (a page, an overlay);
-   * true when it did. Every way in asks first — the rail button, `openPanel`,
+   * true when it did. Every way in asks first — its button, `openPanel`,
    * a command — and false opens the panel as usual.
    */
   redirect?(actions: WorkbenchActions): boolean;
-  /** The rail glyph; `lucide-react` is shared, so pass one of its icons. Missing draws core's fallback. */
+  /** The tab's and the button's glyph; `lucide-react` is shared, so pass one of its icons. Missing draws core's fallback. */
   Icon?: PanelIconComponent;
   order?: number;
+  /**
+   * A button of its own at the right of the stage's tab strip and on its spine
+   * (API 1.26.0); every other panel is under the strip's "More tools" menu.
+   */
+  stageButton?: boolean;
+  /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.26.0). */
+  useBadge?(): number | undefined;
   Component: ComponentType<PanelProps>;
 }
 

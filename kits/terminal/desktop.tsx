@@ -109,7 +109,7 @@ export const terminalExtension: DesktopExtension = {
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));
     let placement = placementNow();
-    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, width: "wide", maximizable: true, Component: TerminalPanel });
+    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, width: "wide", maximizable: true, stageButton: true, Component: TerminalPanel });
     let panel = registerPanel();
     // Touch clients draw the same shells with a key bar: a phone as a sheet, a tablet beside the chat.
     const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], width: "wide", maximizable: true, Component: CompactTerminalPanel });

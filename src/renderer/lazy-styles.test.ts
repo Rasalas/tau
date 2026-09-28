@@ -14,6 +14,7 @@ const LAZY = [
   { sheet: "./components/ui/toasts.css", module: "./components/ui/Toasts.tsx", owns: [".toast-stack", ".toast-item"] },
   { sheet: "./touch/touch.css", module: "./touch/TouchLayer.tsx", owns: [".touch-browser", ".touch-thread-row", ".swipe-row", ".action-sheet-list", ".touch-fab", ".touch-panel-sheet"] },
   { sheet: "./touch/sheet.css", module: "./touch/Sheet.tsx", owns: [".touch-sheet", ".touch-sheet-content"] },
+  { sheet: "./components/stage-panels.css", module: "./components/Stage.tsx", owns: [".stage-strip", ".stage-tabs", ".stage-tab", ".stage-strip-actions"] },
   { sheet: "./renderer-benchmark.css", module: "./RendererBenchmark.tsx", owns: [".renderer-benchmark", ".benchmark-list-row"] },
 ];
 

@@ -13,7 +13,7 @@ import {
 } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
-import { TitleActionsRow, WorkspaceTitleActions } from "./title.js";
+import { TitleActionsRow, WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
 import { MAX_TITLE_COLLAPSE, titleCollapse, TITLE_COLLAPSE_STEPS } from "./title-collapse.js";
 import { WorkspaceStore } from "./store.js";
 
@@ -30,9 +30,12 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
 function setup(info = workspace(), draftPending = false, localFiles = true, level?: number) {
   const preferences = new PreferencesStore();
   const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(async () => undefined));
-  const TitleActions = level === undefined
+  const Header = level === undefined
     ? withWorkspaceStore(workspaceStore, WorkspaceTitleActions)
     : withWorkspaceStore(workspaceStore, (props: { actions: WorkbenchActions }) => <TitleActionsRow {...props} collapse={titleCollapse(level)} />);
+  const Editor = withWorkspaceStore(workspaceStore, WorkspaceEditorButton);
+  // The header's row and the stage strip's editor button, side by side as the workbench draws them.
+  const TitleActions = (props: { actions: WorkbenchActions }) => <><Header {...props} /><Editor {...props} /></>;
   workspaceStore.update({
     cwd: "/project",
     draftPending,
@@ -45,6 +48,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
   const openInEditor = vi.spyOn(workspaceStore, "openInEditor").mockResolvedValue(undefined);
   const openTerminal = vi.spyOn(workspaceStore, "openTerminal").mockResolvedValue(undefined);
   const openReview = vi.spyOn(workspaceStore, "openReview").mockImplementation(() => undefined);
+  const openChangesView = vi.spyOn(workspaceStore, "openChangesView").mockReturnValue(true);
   const pull = vi.spyOn(workspaceStore, "pull").mockResolvedValue(undefined);
   const runShellAction = vi.spyOn(workspaceStore, "runShellAction").mockResolvedValue(undefined);
   const client = createFakeHostClient({ hasCapability: (capability) => capability !== HOST_CAPABILITY.localFiles || localFiles });
@@ -57,7 +61,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
       </ClientStorageProvider>
     </HostClientProvider>,
   );
-  return { openInEditor, openTerminal, openReview, pull, runShellAction };
+  return { openInEditor, openTerminal, openReview, openChangesView, pull, runShellAction };
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -99,40 +103,30 @@ describe("Workspace Kit title actions", () => {
     expect(within(screen.getByRole("menu", { name: "Open in" })).queryByRole("menuitem", { name: "Ghostty" })).toBeNull();
   });
 
-  it("folds labels first, then the least used actions into More, and the Git action's label last", () => {
-    expect(TITLE_COLLAPSE_STEPS[0]).toEqual({ editor: "label", actions: "label", git: "label" });
+  it("folds labels first, then the project actions into More, and the Git action's label last", () => {
+    expect(TITLE_COLLAPSE_STEPS[0]).toEqual({ actions: "label", git: "label" });
     // Each step takes one more thing away and gives nothing back.
     const rank = { label: 0, icon: 1, overflow: 2 } as const;
     for (let level = 1; level <= MAX_TITLE_COLLAPSE; level += 1) {
       const before = titleCollapse(level - 1);
       const after = titleCollapse(level);
-      const moved = (["editor", "actions", "git"] as const).filter((item) => rank[after[item]] !== rank[before[item]]);
+      const moved = (["actions", "git"] as const).filter((item) => rank[after[item]] !== rank[before[item]]);
       expect(moved).toHaveLength(1);
       expect(rank[after[moved[0]!]]).toBeGreaterThan(rank[before[moved[0]!]]);
     }
-    // The Git action keeps its words longest and never leaves the bar.
+    // The Git action keeps its words longest and never leaves the header.
     expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.git === "icon")).toBe(MAX_TITLE_COLLAPSE);
-    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.actions === "overflow")).toBeLessThan(TITLE_COLLAPSE_STEPS.findIndex((step) => step.editor === "overflow"));
     expect(titleCollapse(99)).toEqual(titleCollapse(MAX_TITLE_COLLAPSE));
   });
 
   it("keeps every action reachable at the tightest fold, through More", () => {
-    const { openInEditor, openReview } = setup(workspace(), false, true, MAX_TITLE_COLLAPSE);
+    const { openReview } = setup(workspace(), false, true, MAX_TITLE_COLLAPSE);
     expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
     // The Git action is an icon now; its name stays its accessible name.
     const commit = screen.getByRole("button", { name: "Commit" });
     expect(commit.textContent).toBe("");
     fireEvent.click(commit);
     expect(openReview).toHaveBeenCalledWith(undefined, false);
-
-    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-    const menu = screen.getByRole("menu", { name: "More actions" });
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(expect.arrayContaining([
-      expect.stringContaining("Add action"), expect.stringContaining("VS Code"), expect.stringContaining("Zed"),
-    ]));
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Zed" }));
-    expect(openInEditor).toHaveBeenCalledWith(undefined, "zed");
 
     // Adding an action from More opens the same form.
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
@@ -140,27 +134,35 @@ describe("Workspace Kit title actions", () => {
     expect(screen.getByPlaceholderText("!! npm test")).toBeTruthy();
   });
 
-  it("folds one step at a time until its row fits the room the title bar gives it", () => {
-    // jsdom lays nothing out: every control is 120 px wide and the row gets 300.
+  it("folds one step at a time until its row fits the room the header gives it", () => {
+    // jsdom lays nothing out: every control is 120 px wide, More 30, and the row gets 200 (jsdom has no gap).
     vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("workspace-changes-link")) return 0;
+      return this.querySelector(".title-more") ? 30 : 120;
+    });
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
-      return this.classList.contains("workspace-title-actions") ? 300 : 0;
+      return this.classList.contains("workspace-title-actions") ? 200 : 0;
     });
     setup();
-    // Three controls (376 px with gaps) do not fit until "Open in" joins the actions under More: two do (248 px).
-    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    // Actions and Commit (240 px) do not fit; More and Commit (150 px) do, and the Git action keeps its word.
     expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
     expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Commit" }).textContent).toBe("Commit");
   });
 
-  it("drops the labels of Open and the project actions before anything leaves the bar", () => {
-    setup(workspace(), false, true, 2);
-    expect(screen.getByRole("button", { name: "Open" }).textContent).toBe("");
+  it("drops the project actions' labels before anything leaves the header", () => {
+    setup(workspace(), false, true, 1);
     expect(screen.getByRole("button", { name: "Add action" }).textContent).toBe("");
     expect(screen.getByRole("button", { name: "Commit" }).textContent).toBe("Commit");
     expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+  });
+
+  it("names the changed files and opens the review from them, as the design's \"N files changed ›\"", () => {
+    const { openChangesView } = setup();
+    const link = screen.getByRole("button", { name: /1 file changed/u });
+    fireEvent.click(link);
+    expect(openChangesView).toHaveBeenCalledOnce();
   });
 
   it("chooses commit versus commit and push from upstream state", () => {

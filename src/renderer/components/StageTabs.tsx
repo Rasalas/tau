@@ -1,26 +1,17 @@
-import { Bot, MessageSquare, Server, SquareDashed, X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ChevronDown, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { StageTab } from "../../workbench/stage";
-import type { ExtensionRegistry } from "../extension-system";
+import type { ExtensionRegistry, PanelContribution } from "../extension-system";
 import { usePlatform } from "../platform-context";
 import { useEnvironmentThread } from "../use-environment-thread";
 import { useThreadShell } from "../use-thread-shell";
-import { FileKindIcon } from "./FileKindIcon";
 import { Menu, type MenuItem } from "./Menu";
+import { stageTabGlyph } from "./StageSpine";
 import { tooltipProps } from "./ui/Tooltip";
-
-function fileName(path: string): string {
-  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
-}
-
-export interface ChatTab {
-  active: boolean;
-  streaming: boolean;
-  onSelect(active: boolean): void;
-}
 
 /** What every tab of the strip does, whatever it holds. */
 interface TabChrome {
+  id: string;
   active: boolean;
   preview: boolean;
   activate(): void;
@@ -40,6 +31,7 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
     role="tab"
     tabIndex={0}
     aria-selected={chrome.active}
+    data-tab-id={chrome.id}
     {...tooltipProps(title, { side: "bottom" })}
     className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}`}
     onClick={chrome.activate}
@@ -65,16 +57,22 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
 }
 
 /** A thread tab is named by the index, so a thread titled later renames its tab. */
-function ThreadStageTab({ sessionId, chrome }: { sessionId: string; chrome: TabChrome }) {
+function ThreadStageTab({ sessionId, chrome, icon }: { sessionId: string; chrome: TabChrome; icon: ReactNode }) {
   const label = useThreadShell(sessionId)?.title || "Agent";
-  return <StageTabButton chrome={chrome} title={label} label={label} icon={<Bot size={13} />} />;
+  return <StageTabButton chrome={chrome} title={label} label={label} icon={icon} />;
 }
 
 /** Another machine's thread: its title as that machine lists it, and the machine's glyph. */
-function RemoteThreadStageTab({ machine, sessionId, chrome }: { machine: string; sessionId: string; chrome: TabChrome }) {
+function RemoteThreadStageTab({ machine, sessionId, chrome, icon }: { machine: string; sessionId: string; chrome: TabChrome; icon: ReactNode }) {
   const view = useEnvironmentThread(usePlatform().environments, machine, sessionId);
   const label = view?.thread?.title || "Thread";
-  return <StageTabButton chrome={chrome} title={`${label} · on ${view?.machineName ?? machine}`} label={label} icon={<Server size={13} />} />;
+  return <StageTabButton chrome={chrome} title={`${label} · on ${view?.machineName ?? machine}`} label={label} icon={icon} />;
+}
+
+/** A panel's count, which its kit reads with a hook of its own. */
+function PanelBadge({ useBadge }: { useBadge: NonNullable<PanelContribution["useBadge"]> }) {
+  const count = useBadge();
+  return count ? <span className="stage-tab-badge">{count}</span> : null;
 }
 
 /** Where the tab strip's context menu is open, and what it may do there. */
@@ -86,16 +84,31 @@ interface TabMenu {
   y: number;
 }
 
+/** True while the strip's tabs are wider than the strip, so some are scrolled out of view. */
+function useOverflow(strip: React.RefObject<HTMLElement | null>, count: number): boolean {
+  const [over, setOver] = useState(false);
+  useLayoutEffect(() => {
+    const element = strip.current;
+    if (!element) return undefined;
+    const measure = () => setOver(element.scrollWidth > element.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [strip, count]);
+  return over;
+}
+
 export function StageTabs({
-  tabs, activeId, changedPaths, chatTab, registry,
+  tabs, activeId, changedPaths, registry,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight,
 }: {
   tabs: StageTab[];
   activeId?: string;
   /** Absolute paths with uncommitted changes. */
-  changedPaths: Set<string>;
-  chatTab?: ChatTab;
-  /** Where an extension tab's glyph comes from. */
+  changedPaths: ReadonlySet<string>;
+  /** Where an extension tab's or a panel's glyph comes from. */
   registry?: ExtensionRegistry;
   onActivate(id: string): void;
   onClose(id: string): void;
@@ -105,6 +118,14 @@ export function StageTabs({
   onCloseToRight(id: string): void;
 }) {
   const [menu, setMenu] = useState<TabMenu>();
+  const [listOpen, setListOpen] = useState(false);
+  const strip = useRef<HTMLDivElement>(null);
+  const overflow = useOverflow(strip, tabs.length);
+  // The tab in front is always in view, however it came there.
+  useEffect(() => {
+    const active = activeId ? [...strip.current?.children ?? []].find((tab) => (tab as HTMLElement).dataset.tabId === activeId) : undefined;
+    active?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeId]);
   const menuItems: MenuItem[] = menu ? [
     { id: "close", label: "Close" },
     { id: "close-others", label: "Close others", disabled: tabs.length < 2 },
@@ -119,63 +140,72 @@ export function StageTabs({
     else if (action === "pin") (menu.preview ? onPin : onUnpin)(menu.id);
   };
 
-  return <div className="stage-tabs" role="tablist">
-    {chatTab ? (
-      <div
-        role="tab"
-        tabIndex={0}
-        aria-selected={chatTab.active}
-        className={`stage-tab chat ${chatTab.active ? "active" : ""}`}
-        onClick={() => chatTab.onSelect(true)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatTab.onSelect(true); }
-        }}
-      >
-        <span className="stage-tab-icon"><MessageSquare size={13} /></span>
-        <span className="stage-tab-label">Chat</span>
-        {chatTab.streaming ? <span className="spinner small" aria-label="Agent is working" /> : null}
-      </div>
-    ) : null}
-    {tabs.map((tab) => {
-      const chrome: TabChrome = {
-        active: tab.id === activeId && !chatTab?.active,
-        preview: tab.preview,
-        activate: () => { chatTab?.onSelect(false); onActivate(tab.id); },
-        close: () => onClose(tab.id),
-        pin: () => onPin(tab.id),
-        openMenu: (event, label) => setMenu({ id: tab.id, label, preview: tab.preview, x: event.clientX, y: event.clientY }),
-      };
-      if (tab.kind === "thread" && tab.machine) return <RemoteThreadStageTab key={tab.id} machine={tab.machine} sessionId={tab.sessionId} chrome={chrome} />;
-      if (tab.kind === "thread") return <ThreadStageTab key={tab.id} sessionId={tab.sessionId} chrome={chrome} />;
-      if (tab.kind === "panel") {
-        const panel = registry?.getPanels().find((entry) => entry.id === tab.panelId);
-        const Icon = panel?.Icon ?? SquareDashed;
-        const label = panel?.label ?? tab.panelId;
-        return <StageTabButton key={tab.id} chrome={chrome} title={`${label} · closing puts it back`} label={label} icon={<Icon size={13} />} />;
-      }
-      if (tab.kind === "extension") {
-        const Icon = registry?.getStageTabKind(tab.tabKind)?.Icon ?? SquareDashed;
+  return <div className="stage-tabs-frame">
+    <div ref={strip} className="stage-tabs" role="tablist">
+      {tabs.map((tab) => {
+        const chrome: TabChrome = {
+          id: tab.id,
+          active: tab.id === activeId,
+          preview: tab.preview,
+          activate: () => onActivate(tab.id),
+          close: () => onClose(tab.id),
+          pin: () => onPin(tab.id),
+          openMenu: (event, label) => setMenu({ id: tab.id, label, preview: tab.preview, x: event.clientX, y: event.clientY }),
+        };
+        const { icon, label } = stageTabGlyph(tab, registry);
+        if (tab.kind === "thread" && tab.machine) return <RemoteThreadStageTab key={tab.id} machine={tab.machine} sessionId={tab.sessionId} chrome={chrome} icon={icon} />;
+        if (tab.kind === "thread") return <ThreadStageTab key={tab.id} sessionId={tab.sessionId} chrome={chrome} icon={icon} />;
+        if (tab.kind === "panel") {
+          const panel = registry?.getPanels().find((entry) => entry.id === tab.panelId);
+          return <StageTabButton
+            key={tab.id}
+            chrome={chrome}
+            title={label}
+            label={label}
+            icon={icon}
+            marker={panel?.useBadge ? <PanelBadge useBadge={panel.useBadge} /> : null}
+          />;
+        }
+        if (tab.kind === "extension") {
+          return <StageTabButton
+            key={tab.id}
+            chrome={chrome}
+            title={tab.title}
+            label={label}
+            icon={icon}
+            marker={tab.dirty ? <em className="stage-tab-dirty" {...tooltipProps("Unsaved work")} aria-label="Unsaved work">●</em> : null}
+          />;
+        }
+        const changed = changedPaths.has(tab.path);
+        // A diff tab whose file is clean again renders as source, so name it that way.
         return <StageTabButton
           key={tab.id}
           chrome={chrome}
-          title={tab.title}
-          label={tab.title}
-          icon={<Icon size={13} />}
-          marker={tab.dirty ? <em {...tooltipProps("Unsaved work")}>●</em> : null}
+          title={tab.path}
+          label={tab.view === "diff" && changed ? `${label} (diff)` : label}
+          icon={icon}
+          marker={changed ? <em className="stage-tab-changed" {...tooltipProps("Changed")} aria-label="Changed">M</em> : null}
         />;
-      }
-      const name = fileName(tab.path);
-      const changed = changedPaths.has(tab.path);
-      // A diff tab whose file is clean again renders as source, so name it that way.
-      return <StageTabButton
-        key={tab.id}
-        chrome={chrome}
-        title={tab.path}
-        label={tab.view === "diff" && changed ? `${name} (diff)` : name}
-        icon={<FileKindIcon name={name} size={13} />}
-        marker={changed ? <em>M</em> : null}
-      />;
-    })}
+      })}
+    </div>
+    {overflow ? <span className="menu-anchor stage-tabs-overflow">
+      <button
+        type="button"
+        className="stage-tool"
+        aria-label="All tabs"
+        aria-haspopup="menu"
+        aria-expanded={listOpen}
+        {...tooltipProps("All tabs", { side: "bottom" })}
+        onClick={() => setListOpen((open) => !open)}
+      ><ChevronDown size={15} /></button>
+      {listOpen ? <Menu
+        align="right"
+        label="All tabs"
+        items={tabs.map((tab) => ({ id: tab.id, label: stageTabGlyph(tab, registry).label, icon: stageTabGlyph(tab, registry).icon, selected: tab.id === activeId }))}
+        onSelect={(id) => { setListOpen(false); onActivate(id); }}
+        onClose={() => setListOpen(false)}
+      /> : null}
+    </span> : null}
     {menu ? <div className="stage-tab-menu" style={{ left: menu.x, top: menu.y }}>
       <Menu
         align="left"

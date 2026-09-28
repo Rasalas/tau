@@ -6,7 +6,7 @@ import { activeTab, type StageExtensionTab, type StageState, type StageView } fr
 import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
-import { StageTabs, type ChatTab } from "./StageTabs";
+import { StageTabs } from "./StageTabs";
 import { lookInMachine } from "../../workbench/look-in";
 import { usePlatform } from "../platform-context";
 import { RemoteThreadDocument } from "./RemoteThreadDocument";
@@ -46,7 +46,7 @@ function ExtensionPane({ tab, registry, stageTabs, actions, from }: {
 }
 
 export function Stage({
-  stage, cwd, workspace, changes, editor, chatTab, maximize, focusRef, registry, stageTabs, actions,
+  stage, cwd, workspace, changes, editor, maximize, tools, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel,
 }: {
@@ -57,10 +57,10 @@ export function Stage({
   workspace?: string;
   changes: UiWorkspaceChanges;
   editor?: UiEditor;
-  /** Present while the chat shares the tab strip because the centre is too narrow for both. */
-  chatTab?: ChatTab;
-  /** Present where chat and stage fit side by side: the stage can take the whole centre, the chat its first tab. */
+  /** Present where chat and stage fit side by side: the stage can take the whole centre, the chat folded to its spine. */
   maximize?: { maximized: boolean; onToggle(): void };
+  /** The strip's own buttons before the maximize: the tools, and what kits place in `stage-bar`. */
+  tools?: ReactNode;
   /** Who offers the stage tab kinds, and who holds their handles. */
   registry?: ExtensionRegistry;
   stageTabs?: StageTabController;
@@ -96,7 +96,7 @@ export function Stage({
   // Escape closes the tab under focus; it must not bubble to the window
   // listener that aborts a streaming run.
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Escape" || !current || chatTab?.active || isEditable(event.target)) return;
+    if (event.key !== "Escape" || !current || isEditable(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     onClose(current.id);
@@ -108,7 +108,6 @@ export function Stage({
         tabs={stage.tabs}
         activeId={stage.activeId}
         changedPaths={changedAbsolute}
-        chatTab={chatTab}
         {...(registry ? { registry } : {})}
         onActivate={onActivate}
         onClose={onClose}
@@ -117,18 +116,22 @@ export function Stage({
         onCloseOthers={onCloseOthers}
         onCloseToRight={onCloseToRight}
       />
-      {maximize ? <div className="stage-strip-actions">
-        <button
-          type="button"
-          className="icon-button"
-          aria-pressed={maximize.maximized}
-          aria-label={maximize.maximized ? "Show chat beside the stage" : "Maximize stage"}
-          {...tooltipProps(maximize.maximized ? "Show chat beside the stage" : "Maximize stage", { side: "bottom" })}
-          onClick={maximize.onToggle}
-        >{maximize.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
-      </div> : null}
+      <div className="stage-strip-actions">
+        {tools}
+        {maximize ? <>
+          <span className="stage-strip-separator" aria-hidden />
+          <button
+            type="button"
+            className="stage-tool"
+            aria-pressed={maximize.maximized}
+            aria-label={maximize.maximized ? "Show chat beside the stage" : "Maximize stage"}
+            {...tooltipProps(maximize.maximized ? "Show chat beside the stage" : "Maximize stage", { side: "bottom" })}
+            onClick={maximize.onToggle}
+          >{maximize.maximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
+        </> : null}
+      </div>
     </div>
-    {!current || chatTab?.active ? null : current.kind === "panel" ? (
+    {!current ? null : current.kind === "panel" ? (
       <section key={current.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === current.panelId)?.label ?? current.panelId}>
         {renderPanel?.(current.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}
       </section>
