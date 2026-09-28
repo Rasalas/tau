@@ -1,37 +1,60 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Bot, Server } from "lucide-react";
 import { tooltipProps, useHostCapabilities, useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
-import type { AgentThreadStatus } from "./protocol.js";
 import { agentsHost, agentsStore, definitionsStore, siblingsSource } from "./store.js";
 import { DefinitionsSection } from "./definitions-panel.js";
 import {
-  activityLine,
   agentsPanelModel,
   canSettleWorktree,
+  doneLabel,
   formatCost,
   formatElapsed,
   machineTitle,
-  worktreeLine,
+  questionLine,
+  rowStand,
+  shortModel,
+  viewRows,
   type AgentGroup,
   type AgentRow,
   type AgentRowMachine,
   type AgentsPanelModel,
+  type AgentsView,
 } from "./model.js";
 
 /** Rows are one fixed height, which is what lets the list virtualize cleanly. */
-const ROW_HEIGHT = 58;
+const ROW_HEIGHT = 48;
 const GROUP_HEIGHT = 24;
+const SECTION_HEIGHT = 32;
 
 type PanelRow =
   | { kind: "group"; key: string; group: AgentGroup }
+  | { kind: "section"; key: string; label: string }
   | { kind: "agent"; key: string; row: AgentRow };
 
-export function panelRows(model: AgentsPanelModel): PanelRow[] {
-  return model.groups.flatMap((group) => [
-    ...(model.groups.length > 1 ? [{ kind: "group" as const, key: `group:${group.parentThreadId}`, group }] : []),
-    ...group.rows.map((row) => ({ kind: "agent" as const, key: row.id, row })),
-  ]);
+/** What one view lists: per parent, its questions and work, then its finished agents by turn. */
+export function panelRows(model: AgentsPanelModel, view: AgentsView = "running"): PanelRow[] {
+  return model.groups.flatMap((group) => {
+    const { open, done } = viewRows(group.rows, view);
+    if (open.length === 0 && done.length === 0) return [];
+    return [
+      ...(model.groups.length > 1 ? [{ kind: "group" as const, key: `group:${group.parentThreadId}`, group }] : []),
+      ...open.map((row) => ({ kind: "agent" as const, key: row.id, row })),
+      ...done.flatMap((section) => [
+        { kind: "section" as const, key: `done:${group.parentThreadId}:${section.turn ?? "-"}`, label: doneLabel(section) },
+        ...section.rows.map((row) => ({ kind: "agent" as const, key: row.id, row })),
+      ]),
+    ];
+  });
+}
+
+/** The counts on the three view tabs. */
+export function viewCounts(model: AgentsPanelModel): Record<AgentsView, number> {
+  return {
+    running: model.running + model.pending,
+    asks: model.waiting,
+    done: model.completed + model.failed + model.cancelled,
+  };
 }
 
 /**
@@ -42,7 +65,7 @@ function Elapsed({ row }: { row: AgentRow }) {
   const ref = useRef<HTMLTimeElement>(null);
   const live = row.status === "running" || row.status === "waiting";
   const text = useCallback(() => {
-    if (!row.startedAt) return "—";
+    if (!row.startedAt) return "";
     return formatElapsed((live ? Date.now() : row.endedAt ?? Date.now()) - row.startedAt);
   }, [live, row.endedAt, row.startedAt]);
   useEffect(() => {
@@ -51,7 +74,7 @@ function Elapsed({ row }: { row: AgentRow }) {
     const timer = window.setInterval(() => { if (ref.current) ref.current.textContent = text(); }, 1_000);
     return () => window.clearInterval(timer);
   }, [live, text]);
-  return <time ref={ref} />;
+  return row.startedAt ? <time ref={ref} /> : null;
 }
 
 /** The machine a row runs on: its name as a chip, why and whether it answers in the tooltip. */
@@ -72,66 +95,83 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
 }) {
   // A row on another machine has no thread here; the tooltip says where it runs.
   const disabled = !row.path && !row.machine;
-  const worktree = worktreeLine(row);
   // A Read-only device may look at an agent's work, not take or drop it (ADR 0024).
   const { readOnly } = useHostCapabilities();
+  const asks = row.status === "waiting";
+  const model = shortModel(row.model);
+  const cost = row.costUsd === undefined ? undefined : formatCost(row.costUsd);
   return (
     <button
       type="button"
       className={`agent-row status-${row.status}`}
       disabled={disabled}
-      aria-label={`${row.title}, ${row.status}`}
+      aria-label={`${row.title}, ${asks ? "question" : row.status}`}
+      {...(row.result && !asks ? { title: row.result } : {})}
       onClick={() => onOpen(row)}
     >
       <span className="agent-row-head">
-        <i className={`agent-dot status-${row.status}`} aria-hidden="true" />
         <strong>{row.title}</strong>
         {row.agent ? <span className="agent-row-definition" title={`Started from the agent definition ${row.agent}`}>{row.agent}</span> : null}
         {row.machine ? <MachineChip machine={row.machine} /> : null}
-        <Elapsed row={row} />
       </span>
-      <span className="agent-row-activity">{activityLine(row)}</span>
-      <span className="agent-row-meta">
-        <span className="agent-row-meta-text">{[row.model, formatCost(row.costUsd), worktree].filter(Boolean).join(" · ")}</span>
-        {canSettleWorktree(row) && !readOnly ? (
-          <span className="agent-row-actions">
-            <span role="button" tabIndex={-1} aria-label={`Apply changes of ${row.title}`}
-              onClick={(event) => { event.stopPropagation(); onSettle(row, "apply"); }}
-            >Apply changes</span>
-            <span role="button" tabIndex={-1} aria-label={`Discard changes of ${row.title}`}
-              onClick={(event) => { event.stopPropagation(); onSettle(row, "discard"); }}
-            >Discard</span>
+      {asks ? <span className="agent-row-sub question">{questionLine(row)}</span> : (
+        <span className="agent-row-sub">
+          <span className="agent-row-sub-text">
+            {model ? <span title={row.model}>{model}</span> : null}
+            <Elapsed row={row} />
+            {cost ? <span>{cost}</span> : null}
+            <span className="agent-row-stand">{rowStand(row)}</span>
           </span>
-        ) : null}
-      </span>
+          {canSettleWorktree(row) && !readOnly ? (
+            <span className="agent-row-actions">
+              <span role="button" tabIndex={-1} aria-label={`Apply changes of ${row.title}`}
+                onClick={(event) => { event.stopPropagation(); onSettle(row, "apply"); }}
+              >Apply</span>
+              <span role="button" tabIndex={-1} aria-label={`Discard changes of ${row.title}`}
+                onClick={(event) => { event.stopPropagation(); onSettle(row, "discard"); }}
+              >Discard</span>
+            </span>
+          ) : null}
+        </span>
+      )}
     </button>
   );
 });
 
-function PanelHeader({ model }: { model: AgentsPanelModel }) {
-  const counts: Array<[AgentThreadStatus | "pending", number]> = [
-    ["running", model.running],
-    ["waiting", model.waiting],
-    ["pending", model.pending],
-    ["completed", model.completed],
-    ["failed", model.failed],
-    ["cancelled", model.cancelled],
-  ];
+const VIEWS: ReadonlyArray<[AgentsView, string]> = [["running", "Running"], ["asks", "Asks"], ["done", "Done"]];
+
+/** Running / Asks / Done, as in the workbench design; the arrows move between them. */
+function PanelHeader({ model, view, onView }: { model: AgentsPanelModel; view: AgentsView; onView(view: AgentsView): void }) {
+  const counts = viewCounts(model);
+  const move = (event: KeyboardEvent) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const index = (VIEWS.findIndex(([id]) => id === view) + step + VIEWS.length) % VIEWS.length;
+    onView(VIEWS[index]![0]);
+    (event.currentTarget.children[index] as HTMLElement | undefined)?.focus();
+  };
   return (
-    <header className="panel-header">
+    <header className="panel-header agents-header">
       <h2>Agents</h2>
-      <span className="spacer" />
-      <span className="agent-counts">
-        {counts.filter(([, count]) => count > 0).map(([status, count]) => (
-          <span key={status} className={`agent-count status-${status}`}>
-            <i aria-hidden="true" />{count} {status}
-          </span>
+      <div className="agents-views" role="tablist" aria-label="Agents" onKeyDown={move}>
+        {VIEWS.map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={view === id} tabIndex={view === id ? 0 : -1}
+            className={`agents-view view-${id}`} onClick={() => onView(id)}
+          >{label} <span>{counts[id]}</span></button>
         ))}
-        <span className="agent-total-cost" aria-label="Total cost">{formatCost(model.totalCostUsd)}</span>
-      </span>
+      </div>
+      <span className="spacer" />
+      <span className="agent-total-cost" aria-label="Total cost">{formatCost(model.totalCostUsd)}</span>
     </header>
   );
 }
+
+const EMPTY_VIEW: Record<AgentsView, [string, string]> = {
+  running: ["No agents yet", "When this thread hands work to agents, each one shows up here with what it is doing."],
+  asks: ["No questions", "An agent that needs your answer shows up here."],
+  done: ["Nothing finished yet", "Agents that are done stay here with what they changed."],
+};
 
 export function AgentsPanel({ actions, canLookIn }: PanelProps & {
   /** Whether this client reads another machine's thread in a stage tab (API 1.15.0). */
@@ -154,7 +194,8 @@ export function AgentsPanel({ actions, canLookIn }: PanelProps & {
     () => agentsPanelModel(state, activeThreadId, navigation.threads, { ids: siblingIds, running: activity.runningThreadIds }),
     [state, activeThreadId, navigation.threads, siblingIds, activity.runningThreadIds],
   );
-  const rows = useMemo(() => panelRows(model), [model]);
+  const [view, setView] = useState<AgentsView>("running");
+  const rows = useMemo(() => panelRows(model, view), [model, view]);
 
   // The definitions of the checkout the thread on screen works in.
   useEffect(() => {
@@ -165,7 +206,10 @@ export function AgentsPanel({ actions, canLookIn }: PanelProps & {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => listRef.current,
-    estimateSize: (index) => rows[index]?.kind === "group" ? GROUP_HEIGHT : ROW_HEIGHT,
+    estimateSize: (index) => {
+      const kind = rows[index]?.kind;
+      return kind === "group" ? GROUP_HEIGHT : kind === "section" ? SECTION_HEIGHT : ROW_HEIGHT;
+    },
     getItemKey: (index) => rows[index]?.key ?? index,
     overscan: 6,
   });
@@ -188,15 +232,16 @@ export function AgentsPanel({ actions, canLookIn }: PanelProps & {
       .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
   }, [actions]);
 
+  const empty = EMPTY_VIEW[model.groups.length > 0 ? view : "running"];
   return (
     <section className="panel-body agents-panel">
-      <PanelHeader model={model} />
+      {model.groups.length > 0 ? <PanelHeader model={model} view={view} onView={setView} /> : null}
       <DefinitionsSection state={state} activeThreadId={activeThreadId} actions={actions} />
       {rows.length === 0 ? (
         <div className="agents-empty">
           <Bot size={22} aria-hidden="true" />
-          <p>No agents yet</p>
-          <small>When this thread spawns sub-agents with tau_spawn_thread, or you start one from a definition in .tau/agents/, they appear here with live status and their answer.</small>
+          <p>{empty[0]}</p>
+          <small>{empty[1]}</small>
         </div>
       ) : (
         <div className="agent-list" ref={listRef}>
@@ -209,8 +254,8 @@ export function AgentsPanel({ actions, canLookIn }: PanelProps & {
                   key={row.key}
                   style={{ position: "absolute", top: 0, left: 0, width: "100%", height: item.size, transform: `translateY(${item.start}px)` }}
                 >
-                  {row.kind === "group"
-                    ? <div className="agent-group-label">{row.group.active ? "This thread" : row.group.parentTitle}</div>
+                  {row.kind === "group" ? <div className="agent-group-label">{row.group.active ? "This thread" : row.group.parentTitle}</div>
+                    : row.kind === "section" ? <div className="agent-section-label">{row.label}</div>
                     : <AgentPanelRow row={row.row} onOpen={open} onSettle={settle} />}
                 </div>
               );

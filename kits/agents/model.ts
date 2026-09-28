@@ -1,4 +1,4 @@
-import { formatCost as formatMoney, type UiSession, type UiThreadUsage, type UiToolRun } from "tau";
+import { formatCost as formatMoney, THREAD_QUESTION_LABEL, type UiSession, type UiThreadUsage, type UiToolRun } from "tau";
 import {
   isBusyStatus,
   isOpenStatus,
@@ -21,6 +21,8 @@ export interface AgentRow {
   /** The agent definition it was started from. */
   agent?: string;
   model?: string;
+  /** The parent's turn that spawned it. */
+  turn?: number;
   startedAt?: number;
   endedAt?: number;
   lastTool?: string;
@@ -92,6 +94,7 @@ function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>):
     status: link.status,
     ...(link.agent ? { agent: link.agent } : {}),
     ...(link.model ? { model: link.model } : {}),
+    ...(link.turn ? { turn: link.turn } : {}),
     ...(link.startedAt ? { startedAt: link.startedAt } : {}),
     ...(link.endedAt ? { endedAt: link.endedAt } : {}),
     ...(link.lastTool ? { lastTool: link.lastTool } : {}),
@@ -220,13 +223,13 @@ export function agentsPanelModel(
   };
 }
 
-/** `1.2s`, `3m 04s`, `1h 02m` — the same shape at every scale, so rows do not jump. */
+/** `0:04`, `3:04`, `1:02:05`: the rail's `Working m:ss` clock. */
 export function formatElapsed(milliseconds: number): string {
-  const seconds = Math.max(0, Math.round(milliseconds / 1_000));
-  if (seconds < 60) return `${seconds}s`;
+  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const two = (value: number) => String(value).padStart(2, "0");
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+  if (minutes < 60) return `${minutes}:${two(seconds % 60)}`;
+  return `${Math.floor(minutes / 60)}:${two(minutes % 60)}:${two(seconds % 60)}`;
 }
 
 /** The composer's own money format, so a row never says `$0.00` for a fraction of a cent. */
@@ -234,21 +237,21 @@ export function formatCost(costUsd: number | undefined): string {
   return (costUsd === undefined ? undefined : formatMoney(costUsd)) ?? "–";
 }
 
-/** The one line under a row's title: what it is doing, or what it said. */
 /**
- * The branch of an agent that worked in its own worktree, with what it changed
- * there. Empty for one that shared the parent's checkout.
+ * What an agent changed in its own worktree, then the branch: `+48 −0 · 1 file ·
+ * tau/agent-1`, as the design's done row. Empty for one that shared the parent's checkout.
  */
 export function worktreeLine(row: AgentRow): string {
   const workspace = row.workspace;
   if (!workspace || workspace.mode !== "worktree" || !workspace.branch) return "";
-  if (workspace.settled) return `${workspace.branch} · ${workspace.settled}`;
+  if (workspace.settled) return `${workspace.settled} · ${workspace.branch}`;
   const changes = workspace.changes;
   if (!changes) return workspace.branch;
-  if (changes.files === 0) return `${workspace.branch} · no changes`;
+  if (changes.files === 0) return `no changes · ${workspace.branch}`;
   const files = `${changes.files} file${changes.files === 1 ? "" : "s"}`;
   // Work that came back from another machine counts files, not lines.
-  return changes.added === 0 && changes.removed === 0 ? `${workspace.branch} · ${files}` : `${workspace.branch} · ${files} +${changes.added} −${changes.removed}`;
+  const lines = changes.added === 0 && changes.removed === 0 ? "" : `+${changes.added} −${changes.removed} · `;
+  return `${lines}${files} · ${workspace.branch}`;
 }
 
 /** Whether the parent can still take or drop what this agent did. */
@@ -258,14 +261,64 @@ export function canSettleWorktree(row: AgentRow): boolean {
     && row.status !== "running" && row.status !== "waiting" && row.status !== "pending";
 }
 
-export function activityLine(row: AgentRow): string {
-  if (row.machine?.offline && (row.status === "running" || row.status === "waiting")) return `${row.machine.name} offline · may still be running`;
-  if (row.status === "failed") return row.error ?? "Failed";
-  if (row.status === "pending") return "Queued for a free slot";
-  if (row.status === "cancelled") return "Cancelled by its parent";
-  if (row.status === "waiting") return row.pendingToolPrompt ? `Needs you: ${row.pendingToolPrompt}` : "Waiting for you";
-  if (row.status === "running") return row.lastTool ? `▸ ${row.lastTool}` : "Working";
-  return row.result ?? row.lastTool ?? "Finished";
+/** The amber line of an agent holding on a question, in the rail's word for it. */
+export function questionLine(row: Pick<AgentRow, "pendingToolPrompt">): string {
+  return row.pendingToolPrompt ? `${THREAD_QUESTION_LABEL}: ${row.pendingToolPrompt}` : THREAD_QUESTION_LABEL;
+}
+
+/** Where a row stands, the last part of its mono line: its tool now, or what it left behind. */
+export function rowStand(row: AgentRow): string {
+  if (row.machine?.offline && isBusyStatus(row.status)) return `${row.machine.name} offline · may still be running`;
+  if (row.status === "failed") return row.error ?? "failed";
+  if (row.status === "pending") return "queued";
+  if (row.status === "cancelled") return "cancelled";
+  if (row.status === "waiting") return questionLine(row);
+  if (row.status === "running") return row.lastTool ?? "working";
+  return worktreeLine(row) || row.result?.split("\n")[0] || "done";
+}
+
+/** `openai/gpt-5.6-luna` reads as `gpt-5.6-luna`; the tooltip keeps the provider. */
+export function shortModel(model: string | undefined): string | undefined {
+  return model?.slice(model.indexOf("/") + 1) || undefined;
+}
+
+/** The three views of the Agents tab. */
+export type AgentsView = "running" | "asks" | "done";
+
+export function viewOf(status: AgentThreadStatus): AgentsView {
+  if (status === "waiting") return "asks";
+  return status === "running" || status === "pending" ? "running" : "done";
+}
+
+/** A question first, then work, then the queue: what needs the user leads. */
+const OPEN_ORDER: Partial<Record<AgentThreadStatus, number>> = { waiting: 0, running: 1, pending: 2 };
+
+export interface DoneSection {
+  turn?: number;
+  rows: AgentRow[];
+}
+
+/** Finished agents by the parent's turn that spawned them, newest turn first. */
+export function doneSections(rows: readonly AgentRow[]): DoneSection[] {
+  const byTurn = new Map<number | undefined, AgentRow[]>();
+  for (const row of rows) {
+    if (viewOf(row.status) !== "done") continue;
+    byTurn.set(row.turn, [...byTurn.get(row.turn) ?? [], row]);
+  }
+  return [...byTurn].map(([turn, list]) => ({ ...(turn === undefined ? {} : { turn }), rows: list }))
+    .sort((left, right) => (right.turn ?? -1) - (left.turn ?? -1));
+}
+
+export function doneLabel(section: DoneSection): string {
+  return `Done · ${section.rows.length}${section.turn === undefined ? "" : ` — from turn ${section.turn}`}`;
+}
+
+/** The rows one view shows of a group: questions and work first; the finished ones under it by turn. */
+export function viewRows(rows: readonly AgentRow[], view: AgentsView): { open: AgentRow[]; done: DoneSection[] } {
+  const open = view === "done" ? [] : rows
+    .filter((row) => view === "asks" ? row.status === "waiting" : viewOf(row.status) !== "done")
+    .sort((left, right) => (OPEN_ORDER[left.status] ?? 3) - (OPEN_ORDER[right.status] ?? 3));
+  return { open, done: view === "asks" ? [] : doneSections(rows) };
 }
 
 
@@ -288,10 +341,20 @@ export interface SpawnCardRow {
   machine?: string;
 }
 
+/** One count the card shows after its headline. */
+export interface SpawnCardPart {
+  kind: "running" | "question" | "queued" | "failed" | "done";
+  text: string;
+}
+
 export interface SpawnCardModel {
   rows: SpawnCardRow[];
-  /** "Started 3 agents · 2 working". */
+  /** "Started 3 agents". */
   headline: string;
+  /** "2 running", "1 question": what the batch is doing, most urgent first after the work. */
+  parts: SpawnCardPart[];
+  /** Headline and parts in one line, for the card's accessible name. */
+  summary: string;
   /** The batch as a whole, for the card's status dot. */
   status: AgentThreadStatus;
   totalCostUsd?: number;
@@ -375,16 +438,25 @@ export function spawnCardModel(
     };
   });
 
+  const count = (status: AgentThreadStatus) => rows.filter((row) => row.status === status).length;
   const working = rows.filter((row) => isBusyStatus(row.status)).length;
-  const failed = rows.filter((row) => row.status === "failed").length;
-  const pending = rows.filter((row) => row.status === "pending").length;
+  const failed = count("failed");
+  const pending = count("pending");
   const costs = rows.flatMap((row) => row.costUsd === undefined ? [] : [row.costUsd]);
-  const tail = working > 0
-    ? `${working} working`
-    : failed > 0 ? `${failed} failed` : pending > 0 ? `${pending} queued` : "all done";
+  const finished = working + pending === 0 ? rows.length - failed : 0;
+  const parts: SpawnCardPart[] = ([
+    ["running", count("running"), `${count("running")} running`],
+    ["question", count("waiting"), plural(count("waiting"), "question", "questions")],
+    ["queued", pending, `${pending} queued`],
+    ["failed", failed, `${failed} failed`],
+    ["done", finished, failed > 0 ? `${finished} done` : "all done"],
+  ] as const).flatMap(([kind, amount, text]) => amount > 0 ? [{ kind, text }] : []);
+  const headline = `Started ${plural(rows.length, "agent", "agents")}`;
   return {
     rows,
-    headline: `Started ${plural(rows.length, "agent", "agents")} · ${tail}`,
+    headline,
+    parts,
+    summary: [headline, ...parts.map((part) => part.text)].join(" · "),
     status: working > 0 ? "running" : failed > 0 ? "failed" : pending > 0 ? "pending" : "completed",
     ...(costs.length > 0 ? { totalCostUsd: costs.reduce((sum, value) => sum + value, 0) } : {}),
   };

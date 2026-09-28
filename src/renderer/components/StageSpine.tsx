@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Bot, CircleHelp, Ellipsis, MessageSquare, PanelLeftOpen, Server, SquareDashed } from "lucide-react";
 import type { StageTab } from "../../workbench/stage";
+import { THREAD_QUESTION_LABEL } from "../../workbench/thread-row-status";
 import type { ExtensionRegistry, PanelContribution } from "../extension-system";
 import { Menu } from "../deferred-surfaces";
 import { FileKindIcon } from "./FileKindIcon";
@@ -78,7 +79,7 @@ export function ConversationSpine({ title, streaming, waiting, onShow }: {
   waiting: boolean;
   onShow(): void;
 }) {
-  const state = waiting ? "Needs your answer" : streaming ? "Working" : undefined;
+  const state = waiting ? THREAD_QUESTION_LABEL : streaming ? "Working" : undefined;
   return <nav className="conversation-spine" aria-label="Conversation">
     <button type="button" className="stage-tool" aria-label="Show chat" {...tooltipProps("Show chat", { side: "right" })} onClick={onShow}>
       <PanelLeftOpen size={16} />

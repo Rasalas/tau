@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, useWorkbenchShell, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
-import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
+import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, isBusyStatus, tauToolName, type ThreadSiblingsService } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
 import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
@@ -33,8 +33,7 @@ export function SpawnedBy({ snapshot, actions }: RegionProps) {
 }
 
 /**
- * Agents Kit's desktop half. The spawned threads live in their own dock panel
- * beside the conversation; the navigator only learns which threads are agents,
+ * Agents Kit's desktop half. The spawned threads live in the Agents stage tab; the navigator only learns which threads are agents,
  * so it can keep them out of the rail and count the working ones (ADR 0013).
  */
 export const agentsExtension: DesktopExtension = {
@@ -68,11 +67,12 @@ export const agentsExtension: DesktopExtension = {
     const canLookIn = () => Boolean(context.environments?.watchThread);
     context.registerPanel({
       id: "agents", label: "Agents", Icon: Bot, order: 40, width: "wide", maximizable: true, profiles: ["desktop", "web", "compact"],
-      // The tab says how many agents the thread on screen started, as in the workbench design.
+      // "Agents 6": the thread on screen's agents that still run or ask, as in the workbench design.
       useBadge: function useAgentCount() {
         const threadId = useWorkbenchShell().snapshot?.sessionId;
         const state = useSyncExternalStore(agentsStore.subscribe, agentsStore.getSnapshot);
-        return threadId ? state?.links.filter((link) => link.parentThreadId === threadId).length : undefined;
+        const open = threadId ? state?.links.filter((link) => link.parentThreadId === threadId && (isBusyStatus(link.status) || link.status === "pending")).length : 0;
+        return open || undefined;
       },
       Component: function Agents(props: PanelProps) { return <AgentsPanel {...props} canLookIn={canLookIn} />; },
     });

@@ -7,6 +7,7 @@ import {
   providerStackLabel,
   threadCostLabel,
   threadCostOrigin,
+  THREAD_QUESTION_LABEL,
   useModelName,
   type ThreadActivity,
   type UiSession,
@@ -310,7 +311,7 @@ function statusRow(activity: ThreadActivity, label: string | undefined, hint: st
   switch (activity) {
     case "working":
     case "tool": return { icon: <LoaderCircle size={12} />, text: text || "Working", tone: "working" };
-    case "waiting": return { icon: <MessageCircleQuestion size={12} />, text: hint ? text : "Waiting for your answer", tone: "warning" };
+    case "waiting": return { icon: <MessageCircleQuestion size={12} />, text: text || THREAD_QUESTION_LABEL, tone: "warning" };
     case "failed": return { icon: <CircleAlert size={12} />, text, tone: "danger" };
     case "limited": return { icon: <Hourglass size={12} />, text, tone: "warning" };
     case "interrupted":
