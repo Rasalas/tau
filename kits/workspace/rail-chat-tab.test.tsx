@@ -131,7 +131,7 @@ describe("picking a thread in the rail while the centre shows tabs", () => {
     const { pick, center } = await renderRail();
     const stage = await openTerminal();
     expect(center()).not.toContain("compact");
-    pick("b");
+    pick("a");
     expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
     expect(selected(stage, /Terminal/)).toBe("true");
 
@@ -221,11 +221,15 @@ describe("starting a new thread while the centre shows tabs", () => {
     expect(screen.queryByRole("region", { name: "Stage" })).toBeNull();
     expect(startScreenShown()).toBe(true);
     expect(composerFocused()).toBe(true);
+    // A tab opened beside the draft's chat puts documents in front.
+    await openTerminal();
 
     pick("a");
     const stage = await screen.findByRole("region", { name: "Stage" });
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /Diffs/ })).toBeTruthy());
     expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+    // Picked from a draft with its documents in front: the thread's chat comes to the front, not the tool.
+    expect(selected(stage, "Chat")).toBe("true");
   });
 });
 

@@ -172,13 +172,14 @@ export default function App() {
   const panels = registry.getPanels();
   const panelIds = useMemo(() => panels.filter((panel) => panel.placement !== "drawer").map((panel) => panel.id), [panels]);
   // The stage and the dock belong to the thread or draft on screen, and outlive the window.
+  const shownOwner = stageOwner(snapshot?.sessionId, pendingNewThread);
   const {
     stage, setStage, stageWorkspace, stageMaximized, setStageMaximized, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
     openedPanels, dockWidth, setDockWidth, drawer, setDrawer,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
     stages: workbenchSession.stages,
-    owner: stageOwner(snapshot?.sessionId, pendingNewThread),
+    owner: shownOwner,
     // A host that mints workspace ids names the workspace that way; one that
     // does not leaves its path, which is what the review state falls back to too.
     workspaceKey: activeWorkspaceId ?? workspaceCwd,
@@ -193,6 +194,8 @@ export default function App() {
   const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
   // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
   const [chatFocused, setChatFocused] = useState(false);
+  // Another thread's stage may come back maximized; its chat is what was asked for.
+  useEffect(() => { setChatFocused(true); }, [shownOwner]);
   // Documents maximized on their own; a list's tab on the stage came by maximizing, a wide tool's by opening.
   const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel" && !isWidePanel(panels, tab.panelId));
   const [composerHolds, setComposerHolds] = useState(0);
