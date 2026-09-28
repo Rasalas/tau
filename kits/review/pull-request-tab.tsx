@@ -1,9 +1,11 @@
 import { lazy, Suspense, useSyncExternalStore } from "react";
 import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
-import { Spinner, type DesktopExtensionContext } from "tau";
+import { Spinner, type DesktopExtensionContext, type HostExtensionClient } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
 import { linkPullRequestMenu } from "./link-menu.js";
-import { PULL_REQUEST_TAB, PULL_REQUESTS_PAGE, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
+import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
+import { needsYou, REVIEWS_PAGE } from "./local-reviews.js";
+import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
@@ -13,14 +15,14 @@ import type { RequestClient, RowRequests } from "./requests.js";
 
 // The list and the page are opened on demand; their code stays out of the kit's first evaluation.
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
-const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
+const ReviewsPage = lazy(() => import("./reviews-page.js"));
 
 export { openPullRequest, openPullRequests } from "./pull-request-open.js";
 
 /**
  * The pull-request view and a project's list as stage-tab kinds of a thread,
- * the Pull Requests page across projects, the link dialog, and the commands
- * that open them.
+ * the Reviews page (local merge requests, and every project's remote ones
+ * under Remote), the link dialog, and the commands that open them.
  */
 export function registerPullRequestTab(
   plugin: DesktopExtensionContext,
@@ -29,6 +31,7 @@ export function registerPullRequestTab(
   chips: () => ComposerContextChips | undefined,
   client: PullRequestClient,
   shared: PullRequestViewShared & { dialogs: LinkDialogs },
+  reviews: { store: LocalReviewsStore; host: HostExtensionClient },
 ): () => void {
   const disposers = [
     plugin.registerStageTab<PullRequestTabParams>({
@@ -64,22 +67,35 @@ export function registerPullRequestTab(
       restore: (params) => params.scope !== "all",
     }),
     plugin.registerPage({
-      id: PULL_REQUESTS_PAGE,
-      label: "Pull requests",
-      description: "Every project's pull and merge requests, with their checks and reviews. Open one to read, review or merge it.",
+      id: REVIEWS_PAGE,
+      label: "Reviews",
+      description: "A thread that finished work on a branch of its own lands here with its diff and the checks it ran. Merge it, or send it back with a note.",
       // A phone's bottom navigation has it too, as a screen of its own.
       profiles: ["desktop", "compact"],
       Icon: GitPullRequest,
       order: 10,
+      // The sidebar's foot leads with "Reviews N", as the design draws it.
+      prominent: true,
       layout: "fill",
-      keywords: ["merge requests", "reviews"],
-      // The count on its entry: open requests of the threads the rail knows.
-      useBadge: () => useSyncExternalStore(rows.subscribe, rows.openCount) || undefined,
+      keywords: ["merge requests", "pull requests", "local merge", "worktree branches", "rebase"],
+      // What waits for the user: branches ready to merge or in conflict, and open remote requests of the rail's threads.
+      useBadge: () => {
+        const { counts } = useLocalReviews(reviews.store);
+        const remote = useSyncExternalStore(rows.subscribe, rows.openCount);
+        return needsYou(counts) + remote || undefined;
+      },
       Component: (props) => (
-        <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
-          <PullRequestsPage {...props} parts={{ client, chips, rows, shared }} />
+        <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading reviews" /></div>}>
+          <ReviewsPage {...props} parts={{ store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared } }} />
         </Suspense>
       ),
+    }),
+    plugin.registerCommand({
+      id: "review.reviews.open",
+      label: "Reviews",
+      group: "Project",
+      access: "read",
+      run: (actions) => actions.openPage?.(REVIEWS_PAGE),
     }),
     plugin.registerCommand({
       id: "review.pull-request.open",
@@ -111,7 +127,7 @@ export function registerPullRequestTab(
       group: "Project",
       access: "read",
       run: (actions) => {
-        if (actions.openPage) actions.openPage(PULL_REQUESTS_PAGE);
+        if (actions.openPage) actions.openPage(REVIEWS_PAGE, { tab: "remote" });
         else openPullRequests(actions, "all");
       },
     }),
