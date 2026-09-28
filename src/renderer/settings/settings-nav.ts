@@ -6,14 +6,14 @@
 /** The groups of the navigation, in order; a page names its group, a page without one is an extension's. */
 export type SettingsNavGroup = "general" | "threads" | "projects" | "remote" | "extensions" | "diagnostics";
 
-export const SETTINGS_NAV_GROUPS: ReadonlyArray<{ id: SettingsNavGroup; label?: string }> = [
-  // The first group has no heading: the pages most people come for.
-  { id: "general" },
-  { id: "threads", label: "Threads" },
-  { id: "projects", label: "Projects" },
-  { id: "remote", label: "Remote" },
-  { id: "extensions", label: "Extensions" },
-  { id: "diagnostics", label: "Diagnostics" },
+export const SETTINGS_NAV_GROUPS: ReadonlyArray<{ id: SettingsNavGroup; label: string; folds?: boolean }> = [
+  // The pages most people come for stay open; the rest fold (design 1j lists eight).
+  { id: "general", label: "Settings" },
+  { id: "threads", label: "Threads", folds: true },
+  { id: "projects", label: "Projects", folds: true },
+  { id: "remote", label: "Remote", folds: true },
+  { id: "extensions", label: "Extensions", folds: true },
+  { id: "diagnostics", label: "Diagnostics", folds: true },
 ];
 
 export function isSettingsNavGroup(value: unknown): value is SettingsNavGroup {
@@ -23,11 +23,12 @@ export function isSettingsNavGroup(value: unknown): value is SettingsNavGroup {
 /** Core's own pages: their place among the pages kits add to the same groups. */
 export const CORE_SETTINGS_PAGES = [
   { id: "general", label: "General", group: "general", order: 0 },
+  { id: "models", label: "Models", group: "general", order: 10 },
+  { id: "providers", label: "Providers", group: "general", order: 20 },
+  { id: "runtimes", label: "Runtimes", group: "general", order: 30 },
   { id: "keybindings", label: "Keybindings", group: "general", order: 80 },
-  { id: "models", label: "Models", group: "threads", order: 0 },
-  { id: "providers", label: "Providers", group: "threads", order: 10 },
+  { id: "connections", label: "Connections", group: "general", order: 90 },
   { id: "pi", label: "Pi", group: "threads", order: 20 },
-  { id: "connections", label: "Connections", group: "remote", order: 0 },
   { id: "extensions", label: "All extensions", group: "extensions", order: 0 },
   { id: "inspector", label: "Inspector", group: "diagnostics", order: 50 },
 ] as const satisfies ReadonlyArray<{ id: string; label: string; group: SettingsNavGroup; order: number }>;
@@ -40,6 +41,7 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
   keybindings: "Keybindings",
   models: "Models",
   providers: "Providers",
+  runtimes: "Runtimes",
   pi: "Pi",
   connections: "Connections",
   extensions: "Extensions",
@@ -51,8 +53,9 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
 export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
   general: "How the transcript and the composer behave, and how Tau runs in the background, quits and updates.",
   keybindings: "The keys for the workbench's commands and Pi's actions, and where each of them applies.",
-  models: "What a new thread starts with: its model, how hard it thinks and the runtime that runs it.",
-  providers: "The programs that run threads and the providers they reach: whether each is installed and current, and who is signed in.",
+  models: "What a new thread starts with: its model and how hard it thinks, and what Pi samples with.",
+  providers: "Who each runtime is signed in as and the providers it reaches, where its program lives, and the models it offers.",
+  runtimes: "A runtime is the program that runs a thread, with its own tools, approvals and sessions; providers are what it talks to. The composer picks one per thread.",
   pi: "Pi's own settings, shared with the Pi CLI. A change applies to the next thread Tau starts; a running one keeps what it began with.",
   connections: "How other devices reach this machine's Tau: its addresses, the devices you paired and links to pair another.",
   extensions: "Everything that adds to Tau, bundled or installed. Turn one on or off, approve what it asks for, or open its page.",
@@ -68,7 +71,7 @@ export interface SettingsNavItem {
 }
 
 /** The navigation's groups with their pages, each group in `order` and then as given; empty groups are left out. */
-export function settingsNavGroups<T extends SettingsNavItem>(items: readonly T[]): Array<{ id: SettingsNavGroup; label?: string; items: T[] }> {
+export function settingsNavGroups<T extends SettingsNavItem>(items: readonly T[]): Array<{ id: SettingsNavGroup; label: string; folds?: boolean; items: T[] }> {
   return SETTINGS_NAV_GROUPS.flatMap((group) => {
     const members = items
       .map((item, index) => ({ item, index }))
@@ -77,6 +80,15 @@ export function settingsNavGroups<T extends SettingsNavItem>(items: readonly T[]
       .map(({ item }) => item);
     return members.length ? [{ ...group, items: members }] : [];
   });
+}
+
+/**
+ * Whether a group shows its pages: one that does not fold always; one that
+ * folds as the user left it, else open while it holds the page on screen.
+ */
+export function settingsNavGroupOpen(group: { id: SettingsNavGroup; folds?: boolean; items: readonly { id: string }[] }, active: string, toggled: Readonly<Partial<Record<SettingsNavGroup, boolean>>>): boolean {
+  if (!group.folds) return true;
+  return toggled[group.id] ?? group.items.some((item) => item.id === active);
 }
 
 /** An extension's own page: `extensions/<id>`. */

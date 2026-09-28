@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ArrowLeft, Blocks, ChevronLeft, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
+import { useAppPageStore } from "../app-page-context";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { PiSettingsPage } from "../components/PiSettingsPage";
 import { WindowControlsInset } from "../components/WindowControlsInset";
@@ -12,7 +13,7 @@ import { isMacPlatform } from "../keybindings";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
-import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroups, settingsTarget, type SettingsNavGroup } from "./settings-nav";
+import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget, type SettingsNavGroup } from "./settings-nav";
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
@@ -26,6 +27,7 @@ import { ExtensionsPage } from "./ExtensionsPage";
 import { InspectorPage } from "./InspectorPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { ProvidersPage, providerCardId } from "./ProvidersPage";
+import { RuntimesPage } from "./RuntimesPage";
 import { inRuntimeOrder } from "../runtime-order";
 import "./settings.css";
 
@@ -46,6 +48,7 @@ const CORE_ICONS: Readonly<Record<string, LucideIcon>> = {
   keybindings: Command,
   models: Sparkles,
   providers: Server,
+  runtimes: Bot,
   pi: Cpu,
   connections: MonitorSmartphone,
   extensions: Blocks,
@@ -67,7 +70,7 @@ interface NavItem {
  * pages in groups; a top bar with the page and the level a change is written
  * to; the page below at a readable width. `page` is a place in Settings
  * (`settings-nav.ts`): a page, an extension's page, and a row to scroll to.
- * Escape, Back and ⌘, return to the workbench.
+ * Escape and ⌘, return to where Settings was opened from; Back to thread to the thread.
  */
 export function SettingsScreen({
   page: target,
@@ -104,6 +107,9 @@ export function SettingsScreen({
   const preferences = usePreferences();
   const client = useHostClient();
   const { readOnly } = useHostCapabilities();
+  const appPages = useAppPageStore();
+  // Past an app page Settings was opened over, too.
+  const onBackToThread = () => { onClose(); appPages?.close(); };
   const { disabledExtensions } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
@@ -176,7 +182,7 @@ export function SettingsScreen({
   const found = search.trim() ? searchSettings(settingsSearchEntries({
     // A runtime's card is found like a page: its id opens Providers at the card.
     pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
-    sections: (["connections", "extensions"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
+    sections: (["connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
       commandId: binding.commandId,
@@ -288,6 +294,8 @@ export function SettingsScreen({
   const attention = catalog.filter((entry) => entry.state === "waiting" || entry.state === "failed" || entry.state === "incompatible").length;
   const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : pages.find((entry) => entry.id === id)?.Icon);
   const activeNav = onProviders ? "providers" : parent ?? page;
+  // A folding group as the user left it; unset, it follows the page on screen.
+  const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>({});
   const navButton = (item: NavItem) => (
     <button
       key={item.id}
@@ -334,6 +342,7 @@ export function SettingsScreen({
             <h1>Settings</h1>
             {showingPage || nav ? null : <button type="button" className="settings-sections-back" aria-label="Close settings" onClick={onClose}><X size={18} /></button>}
           </> : <WindowControlsInset />}</div>
+          {stacked ? null : <button type="button" className="settings-back settings-back-top" onClick={onBackToThread}><ChevronLeft size={15} /><span>Back to thread</span></button>}
           <label className="settings-nav-search">
             <Search size={14} />
             <input
@@ -377,19 +386,30 @@ export function SettingsScreen({
                   </button>
                 ))}
               </div> : <p className="settings-search-empty" role="status">No setting matches “{search.trim()}”.</p>}
-            </> : settingsNavGroups(navItems).map((group) => (
-              <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label ?? "General"}>
-                {group.label ? <h2 className="settings-nav-heading">{group.label}</h2> : null}
-                {group.items.map(navButton)}
-              </div>
-            ))}
+            </> : settingsNavGroups(navItems).map((group) => {
+              const open = settingsNavGroupOpen(group, activeNav, toggledGroups);
+              const waiting = group.id === "extensions" && !open && attention > 0;
+              return (
+                <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
+                  {group.folds ? (
+                    <h2 className="settings-nav-heading">
+                      <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => setToggledGroups((current) => ({ ...current, [group.id]: !open }))}>
+                        <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
+                        {waiting ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
+                      </button>
+                    </h2>
+                  ) : <h2 className="settings-nav-heading">{group.label}</h2>}
+                  {open ? group.items.map(navButton) : null}
+                </div>
+              );
+            })}
           </div>
           <div className="settings-nav-footer">
             <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
               <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}
             </button>
-            <button type="button" className="settings-back" onClick={onClose} title={`Back (Esc, ${isMacPlatform() ? "⌘," : "Ctrl+,"})`}>
-              <ArrowLeft size={15} /><span>Back</span>
+            <button type="button" className="settings-back" onClick={onBackToThread}>
+              <ChevronLeft size={15} /><span>Back to thread</span>
             </button>
           </div>
           {stacked && !showingPage ? nav : null}
@@ -418,6 +438,8 @@ export function SettingsScreen({
                   <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} />
                 ) : page === "models" ? (
                   <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
+                ) : page === "runtimes" ? (
+                  <RuntimesPage snapshot={snapshot} cards={providers} sections={registry.getSettingsSections("runtimes")} onOpen={openPage} onNotify={onNotify} />
                 ) : page === "keybindings" ? (
                   <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
                 ) : page === "pi" ? (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroups, settingsTarget } from "./settings-nav";
+import { extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget } from "./settings-nav";
 
 describe("settings links", () => {
   it("names a page, an extension's page and a row on a page", () => {
@@ -33,9 +33,18 @@ describe("the section column's groups", () => {
       { id: "i", label: "I", group: "diagnostics" },
     ]);
     expect(groups.map((group) => [group.id, group.label, group.items.map((item) => item.id)])).toEqual([
-      ["general", undefined, ["a", "b"]],
+      ["general", "Settings", ["a", "b"]],
       ["extensions", "Extensions", ["x"]],
       ["diagnostics", "Diagnostics", ["i"]],
     ]);
+  });
+
+  it("keeps the main group open and folds the others until they hold the page or the user opens them", () => {
+    const [main, extensions] = settingsNavGroups([{ id: "a", label: "A", group: "general" }, { id: "x", label: "X" }]);
+    expect(settingsNavGroupOpen(main!, "x", {})).toBe(true);
+    expect(settingsNavGroupOpen(extensions!, "a", {})).toBe(false);
+    expect(settingsNavGroupOpen(extensions!, "x", {})).toBe(true);
+    expect(settingsNavGroupOpen(extensions!, "a", { extensions: true })).toBe(true);
+    expect(settingsNavGroupOpen(extensions!, "x", { extensions: false })).toBe(false);
   });
 });

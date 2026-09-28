@@ -955,11 +955,20 @@ receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, 
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
 version and update, the login and a path override there, one card per
-instance (below). `inspectPackages(cwd)`
+instance (below). Such a card's `runtimeRows` (new in API 1.27.0) name the
+rows Settings → Runtimes opens: `program`, where the program is installed and
+updated (its Update and Install buttons), and `addInstance`, on the default
+instance's card, where another setup is added ("Add a custom runtime").
+Without them the buttons open the card. Runtimes is core's: a table of every
+backend in `runtimeBackends` with its state, version, the model providers its
+catalog names and Make default, Update, Install, Config and Permissions. Its
+buttons only open places in Settings and set the client's runtime for new
+threads; installing, updating and signing in stay on the kit's card.
+`inspectPackages(cwd)`
 answers core's own scan of the package folders and the shipped kits
 (`ExtensionInspection`) without loading any code — including `distribution`,
 the name and version of the set the `bundled` entries came in, absent in safe
-mode, which loads none. Core keeps General, Models, Pi, Keybindings,
+mode, which loads none. Core keeps General, Models, Runtimes, Pi, Keybindings,
 Connections, Extensions and the Inspector; every other page is a contribution
 and is gone with its extension. The search field at the top of the Settings
 column finds core's own rows (and scrolls to the row), a page by its label,
@@ -1055,15 +1064,18 @@ to the one action the page is for; an action on a group of rows belongs in
 that `SettingsSection`'s `headerAction`.
 
 **Where a page sits (new in API 1.18.0).** `group` on `registerSettingsPage`
-places a page in the section column: `general` (the first group, without a
-heading: General, Appearance, Notifications, Keybindings), `threads` (Models,
-Providers, Pi and what shapes threads), `projects` (what works on a project:
-source control, review, terminal, preview), `remote` (Connections, Machines,
-servers, other devices), `extensions` (the list of extensions, Packages, and
-the default for a page that names no group) or `diagnostics` (Inspector,
-Signals). Within a group pages follow `order`; core's own pages take 0 to 80
-(General 0, Keybindings 80, Models 0, Providers 10, Pi 20, Connections 0,
-Extensions 0, Inspector 50). A page that lists `rows: [{ id, label,
+places a page in the section column: `general` (the main pages, always open
+under "Settings": General, Appearance, Models, Providers, Runtimes,
+Notifications, Keybindings, Connections; keep it short), `threads` (Pi and
+what shapes threads), `projects` (what works on a project: source control,
+review, terminal, preview), `remote` (Machines, servers, other devices),
+`extensions` (the list of extensions, Packages, and the default for a page
+that names no group) or `diagnostics` (Inspector, Signals). Every group but
+`general` folds under its heading (since API 1.27.0): it opens on a click, or
+by itself while it holds the page on screen. Within a group pages follow
+`order`; core's own pages take 0 to 90 (General 0, Models 10, Providers 20,
+Runtimes 30, Keybindings 80, Connections 90, Pi 20, Extensions 0, Inspector
+50). A page that lists `rows: [{ id, label,
 keywords? }]` has each row found by the search, which scrolls to the element
 with that id — give the `SettingRow` the same `id`.
 
@@ -1984,12 +1996,12 @@ model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 — so a thread whose draft named none still gives the hint.
 
 A registered backend's `label` is what the workbench calls it where a new
-thread's runtime is chosen (the composer's runtime chip, Settings → Models);
+thread's runtime is chosen (the composer's runtime chip, Settings → Runtimes);
 it defaults to the kind. The host publishes every installed backend as
 `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none. The list is in the one order
 every runtime list uses — the model picker's rail, the composer's runtime
-menu, Settings → Models and Providers, onboarding: Pi, then backends by the
+menu, Settings → Runtimes and Providers, onboarding: Pi, then backends by the
 provider's `order` (new in API 1.11.0; lower first, unset last, ties in
 registration order). The bundled kits take 10 (the Agent SDK runtime), 20
 (Codex), 30 (Antigravity), 40 (OpenCode), 50 (Cursor) and 60 (Grok); every instance of a program shares its order.
@@ -2013,7 +2025,7 @@ is: `version()` on the provider answers `{ tool, installed?, latest?,
 updateCommand? }` (`RuntimeToolVersion`), or `undefined` when it cannot tell.
 The host asks each backend once a day, never while a snapshot waits for it,
 and publishes the answer as `version` on that backend's `runtimeBackends` entry;
-the picker's runtime tab and Settings → Models then say that an update is
+the picker's runtime tab and Settings → Runtimes then say that an update is
 out, with `updateCommand`, whenever `installed` is older than `latest`
 (`compareVersions`). `updateCommand` is what the user runs — a shell command,
 or where in Tau to click. For a CLI that npm publishes, `tau/host-extension`
@@ -2122,7 +2134,7 @@ instance's way to fake a range, or a fix that cannot wait for a release) and
 the bundled one otherwise. `packageInstallCommand(realPath, packageName,
 version)` names the npm, pnpm or bun command that installs exactly that
 release; Homebrew cannot pin one, so it answers `undefined` and the update
-command stands. The picker's runtime tab and Settings → Models put an unsafe
+command stands. The picker's runtime tab and Settings → Runtimes put an unsafe
 or broken version before an available update. Tau never runs either command on its own:
 the shipped kits draw `RuntimeVersionBanner` above the composer of the thread
 and on the card, and its button types the command into a new Terminal Kit
@@ -2710,8 +2722,11 @@ it beside the client in Connections — never as a login.
 
 On the desktop side, `registerSettingsSection({ id, page, order?, rows?, Component })`
 (new in API 1.13.0) adds a section to one of core's Settings pages, below
-core's own sections: `"connections"`; `"extensions"`, above the list of
-extensions; or `"extension"`, on every extension's own page after its
+core's own sections: `"connections"`; `"runtimes"`, below the table of
+runtimes (new in API 1.27.0; a section whose `rows` name `runtime-permissions`
+is what Pi's Permissions button there opens, as Access Kit's cards do);
+`"extensions"`, above the list of extensions; or `"extension"`, on every
+extension's own page after its
 settings, where the component also gets `extensionId` and `cwd` and draws
 nothing for an extension it has nothing to say about (both new in API 1.18.0;
 Packages Kit's Update and Remove for an installed package are one). The

@@ -276,6 +276,7 @@ export const antigravityExtension: DesktopExtension = {
         runtime: ANTIGRAVITY_BACKEND_KIND,
         order: 27,
         rows: SEARCH_ROWS,
+        runtimeRows: { program: ROWS.runtime },
         Component: (props: SettingsPageProps) => <AntigravityProviderCard {...props} host={plugin.host} />,
       }),
       plugin.host.onEvent(ANTIGRAVITY_SIGN_IN_EVENT, (payload) => {
