@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronUp, Layers, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
@@ -9,18 +9,19 @@ import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeInstanceId } from "../../shared/runtime-instances";
 import { runtimeUpdate } from "../runtime-update";
-import { DEFAULT_THINKING, thinkingLabel } from "../thinking-levels";
+import { DEFAULT_THINKING, THINKING_LABELS } from "../thinking-levels";
 import {
   RUNTIME_STATUS_LABELS, pickerViews, runtimeView, type RuntimeStatus, type ViewEntry,
 } from "./model-picker-rail";
 import {
-  NO_FILTERS, filterCount, modelFacts, modelKey, offeringKey, orderedPositions, passesFilters, searchOfferings, sortOfferings,
+  NO_FILTERS, filterCount, modelKey, offeringKey, orderedPositions, passesFilters, searchOfferings, sortOfferings,
   type BillingFilter, type CapabilityFilter, type Offering, type OfferingFilters, type OfferingSort,
 } from "./model-offerings";
-import { OfferingMarks, OfferingRow, wears, type RowCell } from "./ModelPickerRow";
+import { OfferingMarks, OfferingRow, modelFacts, wears, type RowCell } from "./ModelPickerRow";
 import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
 import { useFocusTrap } from "./ui/focus";
+import { WorkbenchShellContext } from "../workbench-context";
 import { tooltipProps } from "./ui/Tooltip";
 import { VirtualList } from "./VirtualList";
 import { useSheetDrag } from "../touch/sheet-drag";
@@ -100,6 +101,10 @@ function runtimeName(kind: string | undefined, backends: readonly UiRuntimeBacke
   return backends?.find((backend) => backend.kind === runtime)?.label ?? (runtime === DEFAULT_RUNTIME ? "Pi" : runtime);
 }
 
+function thinkingLabel(level: string): string {
+  return THINKING_LABELS[level] ?? (level ? level[0]!.toUpperCase() + level.slice(1) : level);
+}
+
 function countLabel(count: number): string {
   return `${count} ${count === 1 ? "model" : "models"}`;
 }
@@ -165,7 +170,7 @@ export function ModelPicker({
   badges = NO_BADGES,
   multiSelect,
   thinking,
-  onOpenSettings,
+  onOpenSettings: openSettings,
   anchor,
   side = "top",
 }: {
@@ -195,7 +200,10 @@ export function ModelPicker({
   multiSelect?: ModelSelectionContribution;
   /** The third column; without it the picker has none. */
   thinking?: ThinkingChoice;
-  /** Settings for a runtime: its card, to install or sign in ("runtime"), or its models, to pin them ("models"). */
+  /**
+   * Settings for a runtime: its card, to install or sign in ("runtime"), or its models, to pin them ("models").
+   * By default the workbench's own Settings: the runtime's card under Providers, and its models there.
+   */
   onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
   /** The control the picker opens beside, as T3 Code's picker at its chip. */
   anchor: RefObject<HTMLElement | null>;
@@ -204,6 +212,11 @@ export function ModelPicker({
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const shell = useContext(WorkbenchShellContext);
+  const onOpenSettings = openSettings ?? (shell?.actions ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
+    const card = shell.registry.getSettingsPages().find((page) => page.runtime === kind)?.id;
+    shell.actions!.openSettings(part === "models" ? `providers#runtime-models-${kind}` : card ?? "providers");
+  } : undefined);
   const onHand = catalogRuntime ?? DEFAULT_RUNTIME;
   const threadRuntime = runtime ?? onHand;
   const draft = onSelectRuntime !== undefined;
@@ -801,7 +814,9 @@ export function ModelPicker({
                 ))}
               </div>
             ) : pending && levels.length === 0 ? null : (
-              <p className="model-thinking-note">{thinking.note ?? (thinkingModel ? `${thinkingModel.name} has no thinking levels.` : "Choose a model first.")}</p>
+              <p className="model-thinking-note">{thinking.note ?? (!thinking.onSelect
+                ? threadRuntime !== onHand ? `${threadRuntimeName} sets thinking once this thread exists.` : "This runtime sets thinking itself."
+                : thinkingModel ? `${thinkingModel.name} has no thinking levels.` : "Choose a model first.")}</p>
             )}
           </section>
         ) : null}

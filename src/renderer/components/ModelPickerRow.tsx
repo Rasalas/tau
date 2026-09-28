@@ -2,7 +2,7 @@ import { Check, Eye, EyeOff, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel } from "../../shared/contracts";
 import type { ModelBadgeContribution } from "../extension-system";
 import { modelOnPlan } from "../runtime-marks";
-import { billingBadge, type Offering } from "./model-offerings";
+import { billingBadge, formatPrice, formatTokens, type Offering } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 
 /** What every row of one list shares: marks, the model in use, the chosen set and the row actions. */
@@ -112,4 +112,21 @@ export function OfferingRow({ id, offering, grouped, cross, selected, cells, onP
       <span className="model-check" aria-hidden>{current ? <Check size={14} /> : null}</span>
     </div>
   );
+}
+
+/**
+ * What a model reads and costs, for the picker's detail line:
+ * its context, how it is paid, and its price per million tokens (over the API
+ * for a plan, which includes it).
+ */
+export function modelFacts(model: UiModel, customPrice = false): string[] {
+  const facts: string[] = [];
+  if (model.contextWindow) facts.push(`${formatTokens(model.contextWindow)} context`);
+  const billing = model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
+  const price = model.price ? `${formatPrice(model.price)} per MTok${customPrice ? " (your price)" : ""}` : undefined;
+  if (billing === "subscription") facts.push("in the plan", ...(price ? [`API ≈ ${price}`] : []));
+  else if (price) facts.push(price);
+  else if (billing === "free" || billing === "local") facts.push(billing);
+  else if (billing === "api-key") facts.push("API key");
+  return facts;
 }

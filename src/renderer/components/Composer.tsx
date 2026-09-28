@@ -589,17 +589,11 @@ export function Composer({
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
   // The picker's third column: the reasoning of the model in use, where this thread can set it.
-  const pickerThinking: ThinkingChoice = runtimeOwnsModel || draftOnOtherRuntime
-    ? { levels: [], note: draftOnOtherRuntime ? `${runtimeLabel} sets thinking once this thread exists.` : "This runtime sets thinking itself." }
-    : {
-      levels: snapshot?.thinkingLevels ?? [],
-      ...(snapshot?.thinkingLevel ? { level: snapshot.thinkingLevel } : {}),
-      onSelect: (level) => { onSetThinking(level); modelChosenRef.current = true; },
-    };
-  const openRuntimeSettings = shellContext?.actions ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
-    const card = registry?.getSettingsPages().find((page) => page.runtime === kind)?.id;
-    shellContext.actions!.openSettings(part === "models" ? `providers#runtime-models-${kind}` : card ?? "providers");
-  } : undefined;
+  const pickerThinking: ThinkingChoice = runtimeOwnsModel || draftOnOtherRuntime ? { levels: [] } : {
+    levels: snapshot?.thinkingLevels ?? [],
+    level: snapshot?.thinkingLevel,
+    onSelect: (level) => { onSetThinking(level); modelChosenRef.current = true; },
+  };
   const { preview, setPreviewId, clearPreviewForScope, addFiles } = useComposerAttachments({
     scopeStore,
     scope: attachmentScope,
@@ -1197,7 +1191,6 @@ export function Composer({
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
             thinking={pickerThinking}
-            onOpenSettings={openRuntimeSettings}
             anchor={modelChipRef}
           />
         </Suspense>

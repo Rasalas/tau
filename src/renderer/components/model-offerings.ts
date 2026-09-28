@@ -252,20 +252,3 @@ export function billingBadge(model: UiModel): { label: string; title: string } |
     default: return undefined;
   }
 }
-
-/**
- * What a model reads and costs, for the picker's detail line and the palette:
- * its context, how it is paid, and its price per million tokens (over the API
- * for a plan, which includes it).
- */
-export function modelFacts(model: UiModel, customPrice = false): string[] {
-  const facts: string[] = [];
-  if (model.contextWindow) facts.push(`${formatTokens(model.contextWindow)} context`);
-  const billing = model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
-  const price = model.price ? `${formatPrice(model.price)} per MTok${customPrice ? " (your price)" : ""}` : undefined;
-  if (billing === "subscription") facts.push("in the plan", ...(price ? [`API ≈ ${price}`] : []));
-  else if (price) facts.push(price);
-  else if (billing === "free" || billing === "local") facts.push(billing);
-  else if (billing === "api-key") facts.push("API key");
-  return facts;
-}
