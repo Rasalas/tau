@@ -95,6 +95,8 @@ export interface UsageLimitAccount {
   unavailable?: { reason: "unsupported" | "failed" | "signed-out"; message?: string };
   /** Who is signed in, so two runtimes on one account show once. */
   identity?: UsageAccountIdentity;
+  /** Set by the page on another machine's accounts (its host id); a host never sends it. */
+  machine?: string;
 }
 
 /**
@@ -261,4 +263,6 @@ export interface UsageEntry extends UsageTokens {
   billing?: UsageBilling;
   requests: number;
   apiValueUsd: number;
+  /** Set by the page on another machine's entries (its host id); a host never sends it. */
+  machine?: string;
 }

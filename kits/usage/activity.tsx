@@ -1,140 +1,138 @@
-import { useMemo, useState } from "react";
-import { formatCost, tooltipProps } from "tau";
+import type { CSSProperties } from "react";
+import { tooltipProps } from "tau";
 import type { UsageEntry, UsageLimitsSummary } from "./protocol.js";
-import { providerOf, providerTone } from "./quota.js";
-import { formatTokens } from "./view-model.js";
+import { toneOf, type UsageTone } from "./tones.js";
+import { toneOfEntry } from "./dashboard.js";
 
-/** Calendar arithmetic rather than millisecond stepping, including daylight-saving days. */
-export function calendarDays(now: Date, count: number): string[] {
-  return Array.from({ length: count }, (_, index) => {
-    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - count + 1 + index);
-    return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+const DAY_MS = 86_400_000;
+const toned = (name: string | undefined): CSSProperties => ({ "--usage-tone": `var(--provider-${toneOf(name)})` }) as CSSProperties;
+const WEEKDAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
+
+function dayLabel(start: number): string {
+  return new Date(start).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+/** 0 for no turns, else 1–4 on a log scale against the busiest day. */
+export function activityLevel(turns: number, busiest: number): number {
+  if (turns <= 0) return 0;
+  return Math.max(1, Math.min(4, Math.ceil((4 * Math.log1p(turns)) / Math.log1p(Math.max(1, busiest)))));
+}
+
+/**
+ * The days as a calendar: a column per week, Monday on top, the shade by
+ * turns and the colour by the provider that answered most that day. It shows the
+ * rhythm; the chart beside it the amounts. A cell names
+ * its day on hover; the table under the chart has every day for touch and
+ * screen readers.
+ */
+export function ActivityCalendar({ days, entries, labels }: { days: readonly number[]; entries: readonly UsageEntry[]; labels: Record<string, string> }) {
+  const perDay = days.map(() => new Map<string, number>());
+  const tones = days.map(() => new Map<UsageTone, number>());
+  for (const entry of entries) {
+    const day = perDay[entry.day];
+    if (!day) continue;
+    day.set(entry.backend, (day.get(entry.backend) ?? 0) + entry.requests);
+    const tone = toneOfEntry(entry);
+    tones[entry.day]!.set(tone, (tones[entry.day]!.get(tone) ?? 0) + entry.requests);
+  }
+  const totals = perDay.map((day) => [...day.values()].reduce((sum, value) => sum + value, 0));
+  const busiest = Math.max(0, ...totals);
+  const active = totals.filter((turns) => turns > 0).length;
+  const lead = days.length > 0 ? (new Date(days[0]!).getDay() + 6) % 7 : 0;
+  const weeks = Math.ceil((lead + days.length) / 7);
+  const months = Array.from({ length: weeks }, (_, week) => {
+    const first = days[Math.max(0, week * 7 - lead)];
+    const previous = week > 0 ? days[Math.max(0, (week - 1) * 7 - lead)] : undefined;
+    if (first === undefined) return "";
+    const month = new Date(first).getMonth();
+    return previous === undefined || new Date(previous).getMonth() !== month ? new Date(first).toLocaleDateString(undefined, { month: "short" }) : "";
   });
-}
-const dateOf = (day: string) => new Date(`${day}T12:00:00`);
-const dayLabel = (day: string) => dateOf(day).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-const requests = (rows: readonly UsageEntry[]) => rows.reduce((total, row) => total + row.requests, 0);
-
-type Metric = "requests" | "totalTokens" | "costUsd" | "apiValueUsd";
-const METRICS: { id: Metric; label: string }[] = [{ id: "requests", label: "Responses" }, { id: "totalTokens", label: "Tokens" }, { id: "costUsd", label: "API billed" }, { id: "apiValueUsd", label: "Plan value" }];
-const metricValue = (value: number, metric: Metric) => metric === "requests" ? `${value} responses` : metric === "totalTokens" ? `${formatTokens(value)} tokens` : formatCost(value) ?? "$0.00";
-
-export function UsageActivity({ entries, labels, loaded, error, rangeDays, now }: { entries: readonly UsageEntry[]; labels: Record<string, string>; loaded: boolean; error?: string; rangeDays: number; now: number }) {
-  const [source, setSource] = useState("all");
-  const [metric, setMetric] = useState<Metric>("requests");
-  const [selected, setSelected] = useState<string>();
-  const dates = useMemo(() => calendarDays(new Date(now), 90), [now]);
-  const sources = useMemo(() => [...new Set(entries.map((row) => row.backend))].map((backend) => [backend, labels[backend] ?? backend] as const), [entries, labels]);
-  const byDay = useMemo(() => {
-    const days = new Map<string, UsageEntry[]>();
-    for (const row of entries) {
-      const day = dates[row.day];
-      if (!day || (source !== "all" && row.backend !== source)) continue;
-      const values = days.get(day) ?? []; values.push(row); days.set(day, values);
-    }
-    return days;
-  }, [entries, source, dates]);
-  const maximum = Math.max(1, ...dates.map((date) => requests(byDay.get(date) ?? [])));
-  const detail = (date: string) => {
-    const rows = byDay.get(date) ?? [];
-    const breakdown = [...new Set(rows.map((row) => row.backend))].map((backend) => {
-      const values = rows.filter((row) => row.backend === backend);
-      return `${labels[backend] ?? backend}: ${requests(values)}`;
-    }).join(" · ");
-    return `${dayLabel(date)}: ${requests(rows)} responses${breakdown ? ` · ${breakdown}` : " · no recorded activity"}`;
+  const hint = (index: number) => {
+    const turns = totals[index]!;
+    if (!turns) return `${dayLabel(days[index]!)}: nothing recorded`;
+    const parts = [...perDay[index]!].sort((left, right) => right[1] - left[1]).map(([backend, count]) => `${labels[backend] ?? backend} ${count}`);
+    return `${dayLabel(days[index]!)}: ${turns} ${turns === 1 ? "turn" : "turns"}${parts.length > 1 ? ` (${parts.join(", ")})` : ""}`;
   };
-  const firstDay = (dateOf(dates[0]!).getDay() + 6) % 7;
-  const chartDates = dates.slice(-rangeDays);
-  const chartMax = Math.max(1, ...chartDates.map((date) => (byDay.get(date) ?? []).reduce((total, row) => total + row[metric], 0)));
-  const active = dates.filter((day) => requests(byDay.get(day) ?? []) > 0).length;
-
-  return <section className="usage-activity" aria-label="Activity">
-    <div className="usage-section-heading"><div><h4>Your activity</h4><p>Recorded responses across your Tau threads.</p></div>
-      <div className="usage-source-filter" role="group" aria-label="Activity runtime">
-        {[["all", "All runtimes"], ...sources].map(([id, label]) => <button type="button" key={id} aria-pressed={source === id} onClick={() => setSource(id!)}>{label}</button>)}
+  return (
+    <figure className="usage-calendar">
+      <figcaption>
+        <span>Last {days.length} days</span>
+        <b>{active} active {active === 1 ? "day" : "days"}</b>
+      </figcaption>
+      <div className="usage-calendar-grid" role="img" aria-label={`${active} of the last ${days.length} days with turns`} style={{ gridTemplateColumns: `auto repeat(${weeks}, var(--usage-cell))` }}>
+        <span className="usage-calendar-corner" />
+        {months.map((month, week) => <span key={`m${week}`} className="usage-calendar-month" style={{ gridColumn: week + 2, gridRow: 1 }}>{month}</span>)}
+        {WEEKDAYS.map((name, row) => <span key={`w${row}`} className="usage-calendar-weekday" style={{ gridColumn: 1, gridRow: row + 2 }}>{name}</span>)}
+        {days.map((start, index) => {
+          const slot = lead + index;
+          const main = [...tones[index]!].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "other";
+          return (
+            <i
+              key={start}
+              data-level={activityLevel(totals[index]!, busiest)}
+              style={{ "--usage-tone": `var(--provider-${main})`, gridColumn: Math.floor(slot / 7) + 2, gridRow: (slot % 7) + 2 } as CSSProperties}
+              {...tooltipProps(hint(index), { side: "top" })}
+            />
+          );
+        })}
       </div>
-    </div>
-    {error ? <p className="settings-note" data-level="error">{error}</p> : null}
-    {!loaded ? <p className="settings-note">Reading activity…</p> : <>
-      <div className="usage-chart-card">
-        <header><div><h4>Activity calendar</h4><span>Last 90 days</span></div><span>{active} active {active === 1 ? "day" : "days"}</span></header>
-        <div className="usage-calendar-months" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${Math.ceil((dates.length + firstDay) / 7)}, minmax(0, 1fr))` }}>
-          {Array.from({ length: Math.ceil((dates.length + firstDay) / 7) }, (_, week) => {
-            const date = dateOf(dates[Math.max(0, week * 7 - firstDay)]!);
-            return <span key={week}>{week === 0 || date.getDate() <= 7 ? date.toLocaleDateString(undefined, { month: "short" }) : ""}</span>;
-          })}
-        </div>
-        <div className="usage-calendar-layout">
-          <div className="usage-weekdays" aria-hidden="true"><span>Mon</span><span>Wed</span><span>Fri</span></div>
-          <div className="usage-calendar" style={{ gridTemplateColumns: `repeat(${Math.ceil((dates.length + firstDay) / 7)}, minmax(0, 1fr))` }}>
-            {Array.from({ length: firstDay }, (_, i) => <span key={`pad-${i}`} />)}
-            {dates.map((date) => {
-              const count = requests(byDay.get(date) ?? []);
-              const level = count ? Math.max(1, Math.ceil(4 * Math.log1p(count) / Math.log1p(maximum))) : 0;
-              return <button key={date} type="button" data-level={level} aria-label={detail(date)} aria-pressed={selected === date} {...tooltipProps(detail(date))} onClick={() => setSelected(date)} />;
-            })}
-          </div>
-        </div>
-        <footer><span aria-live="polite">{selected ? detail(selected) : "Select a day to see its breakdown."}</span><span className="usage-calendar-key" aria-hidden="true">Less {[0, 1, 2, 3, 4].map((level) => <i key={level} data-level={level} />)} More</span></footer>
-      </div>
-      <div className="usage-chart-card">
-        <header><div><h4>Day by day</h4><span>{chartDates[0] ? `${dayLabel(chartDates[0])} – ${dayLabel(chartDates.at(-1)!)}` : "No days in this period"}</span></div>
-          <div className="segmented" role="group" aria-label="Activity metric">{METRICS.map((entry) => <button type="button" key={entry.id} className={metric === entry.id ? "active" : ""} aria-pressed={metric === entry.id} onClick={() => setMetric(entry.id)}>{entry.label}</button>)}</div>
-        </header>
-        <div className="usage-daily-chart" role="group" aria-label="Daily activity">
-          <span className="usage-chart-ceiling">{metricValue(chartMax, metric)}</span>
-          <div className="usage-daily-bars">{chartDates.map((date) => {
-            const rows = byDay.get(date) ?? [];
-            const total = rows.reduce((sum, row) => sum + row[metric], 0);
-            const label = `${dayLabel(date)}: ${metricValue(total, metric)}`;
-            return <button type="button" className="usage-day-column" key={date} aria-label={label} {...tooltipProps(label)} onClick={() => setSelected(date)} aria-pressed={selected === date}>
-              <span className="usage-day-stack" style={{ height: `${100 * total / chartMax}%` }}>{sources.map(([id]) => {
-                const value = rows.filter((row) => row.backend === id).reduce((sum, row) => sum + row[metric], 0);
-                return value > 0 ? <span key={id} data-provider={providerTone(id)} style={{ height: `${100 * value / total}%` }} /> : null;
-              })}</span>
-            </button>;
-          })}</div>
-        </div>
-        <div className="usage-chart-axis"><span>{chartDates[0] && dayLabel(chartDates[0])}</span><span>{chartDates.at(-1) && dayLabel(chartDates.at(-1)!)}</span></div>
-        <div className="usage-chart-legend">{sources.filter(([id]) => source === "all" || source === id).map(([id, label]) => <span key={id} data-provider={providerTone(id)}><i aria-hidden="true" />{label}</span>)}</div>
-        {active === 0 ? <p className="settings-note">No recorded activity for this selection.</p> : null}
-        <p className="usage-chart-note">{metric === "apiValueUsd" ? "What subscription tokens would have cost via the API, not a subscription bill. Unpriced usage is excluded." : metric === "costUsd" ? "Per-token costs reported by runtimes or calculated from your model prices. Subscription value is kept separate." : "Tokens include cache. Older threads without dated turns are counted on their last activity date."} </p>
-      </div>
-    </>}
-  </section>;
+      <div className="usage-calendar-key" aria-hidden="true">Less{[0, 1, 2, 3, 4].map((level) => <i key={level} data-level={level} />)}More</div>
+    </figure>
+  );
 }
 
-/** Step charts never join separate resets or gaps longer than ten minutes. */
-export function QuotaHistory({ limits, now }: { limits?: UsageLimitsSummary; now: number }) {
-  const series = new Map<string, { label: string; provider: string; points: { at: number; value: number; reset?: number }[] }>();
-  for (const { source, account } of limits?.history ?? []) {
-    if (account.checkedAt < now - 86_400_000 || account.checkedAt > now) continue;
+/** Where a reading's point sits: 24 hours across, 0–100 % up. */
+const X = (at: number, now: number) => 4 + (592 * (at - (now - DAY_MS))) / DAY_MS;
+const Y = (value: number) => 96 - value * 0.88;
+
+/**
+ * Each window's readings of the last day as a step line. A reset, a drop or
+ * a gap of more than ten minutes starts a new line: what happened in between
+ * was not read.
+ */
+export function ReadingHistory({ limits, now }: { limits: UsageLimitsSummary | undefined; now: number }) {
+  const series = new Map<string, { label: string; tone: CSSProperties; points: { at: number; value: number; reset?: number }[] }>();
+  for (const { account } of limits?.history ?? []) {
+    if (account.checkedAt < now - DAY_MS || account.checkedAt > now) continue;
+    // One line per source: two runtimes read one account at different moments.
     for (const window of account.windows) {
-      const key = `${source}:${account.runtime}:${account.id}:${window.id}`;
+      const key = `${account.machine ?? ""}\u0000${account.runtime}\u0000${account.id}\u0000${window.id}`;
       let entry = series.get(key);
-      if (!entry) { entry = { label: `${account.label} · ${window.label}`, provider: providerTone(providerOf(account)), points: [] }; series.set(key, entry); }
-      entry.points.push({ at: account.checkedAt, value: window.usedPercent, reset: window.resetsAt });
+      if (!entry) {
+        entry = { label: `${account.label} · ${window.label}`, tone: toned(account.runtime === "pi" ? account.id.replace(/^pi:/u, "") : account.identity?.provider ?? account.runtime), points: [] };
+        series.set(key, entry);
+      }
+      entry.points.push({ at: account.checkedAt, value: window.usedPercent, ...(window.resetsAt ? { reset: window.resetsAt } : {}) });
     }
   }
-  return <details className="usage-disclosure usage-quota-history"><summary>Quota history <span>Last 24 hours</span></summary>
-    <p className="usage-chart-note">Provider readings collected when Usage is open, retained for 24 hours. Token counts cannot reconstruct subscription percentages. Gaps mean there was no fresh reading.</p>
-    {series.size === 0 ? <p className="settings-note">Further readings will build the history here.</p> : <div className="usage-history-grid">{[...series].map(([key, entry]) => {
-      entry.points.sort((a, b) => a.at - b.at);
-      const x = (at: number) => 4 + 592 * (at - (now - 86_400_000)) / 86_400_000;
-      const y = (value: number) => 96 - value * .88;
-      let path = "";
-      entry.points.forEach((point, i) => {
-        const previous = entry.points[i - 1];
-        path += !previous || point.reset !== previous.reset || point.at - previous.at > 600_000 || point.value < previous.value
-          ? ` M ${x(point.at)} ${y(point.value)}` : ` H ${x(point.at)} V ${y(point.value)}`;
-      });
-      return <div className="usage-history-series" key={key} data-provider={entry.provider}><h5>{entry.label}</h5>
-        <svg viewBox="0 0 600 104" role="img" aria-label={`${entry.label}, ${entry.points.length} readings in the last 24 hours`}>
-          <path d="M 4 8 H 596 M 4 52 H 596 M 4 96 H 596" className="usage-chart-grid" />
-          <path d={path} className="usage-history-line" />
-          {entry.points.map((point, i) => <circle key={i} cx={x(point.at)} cy={y(point.value)} r="2"><title>{new Date(point.at).toLocaleTimeString()}: {Math.round(point.value)}% used</title></circle>)}
-        </svg><div className="usage-chart-axis"><span>24h ago</span><span>Now</span></div>
-      </div>;
-    })}</div>}
-  </details>;
+  const drawn = [...series].filter(([, entry]) => entry.points.length > 0);
+  return (
+    <details className="usage-readings">
+      <summary>Readings of the last 24 hours</summary>
+      {drawn.length === 0 ? <p className="usage-note">Each read of the limits adds a point here; none were kept yet.</p> : (
+        <div className="usage-readings-grid">
+          {drawn.map(([key, entry]) => {
+            const points = [...entry.points].sort((left, right) => left.at - right.at);
+            let path = "";
+            points.forEach((point, index) => {
+              const previous = points[index - 1];
+              const jump = !previous || Math.abs((point.reset ?? 0) - (previous.reset ?? 0)) > 60_000 || point.at - previous.at > 600_000 || point.value < previous.value;
+              path += jump ? ` M ${X(point.at, now).toFixed(1)} ${Y(point.value).toFixed(1)}` : ` H ${X(point.at, now).toFixed(1)} V ${Y(point.value).toFixed(1)}`;
+            });
+            return (
+              <figure key={key} className="usage-readings-series" style={entry.tone}>
+                <figcaption>{entry.label}</figcaption>
+                <svg viewBox="0 0 600 104" role="img" aria-label={`${entry.label}: ${points.length} ${points.length === 1 ? "reading" : "readings"}, last ${Math.round(points.at(-1)!.value)}% used`}>
+                  <path d="M 4 8 H 596 M 4 52 H 596 M 4 96 H 596" className="usage-readings-grid-lines" />
+                  <path d={path.trim()} className="usage-readings-line" />
+                  {points.map((point) => <circle key={point.at} cx={X(point.at, now).toFixed(1)} cy={Y(point.value).toFixed(1)} r="2.5" className="usage-readings-point" />)}
+                </svg>
+                <div className="usage-readings-axis"><span>24 h ago</span><span>Now</span></div>
+              </figure>
+            );
+          })}
+        </div>
+      )}
+    </details>
+  );
 }

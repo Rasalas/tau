@@ -12,16 +12,18 @@ export interface LimitGroup {
   members: UsageLimitAccount[];
 }
 
-/** A runtime's name within a shared account: Pi's accounts are named per provider. */
+/** A runtime's name within a shared account: Pi's accounts are named per provider; another machine's say where. */
 export function memberName(account: UsageLimitAccount): string {
-  return account.runtime === PI_BACKEND ? "Pi" : account.label;
+  if (account.runtime !== PI_BACKEND) return account.label;
+  const where = account.machine ? / on (.+)$/u.exec(account.label)?.[1] : undefined;
+  return where ? `Pi on ${where}` : "Pi";
 }
 
 /** Accounts with the same identity become one; one without an identity stays on its own. */
 export function groupAccounts(accounts: readonly UsageLimitAccount[]): LimitGroup[] {
   const groups = new Map<string, UsageLimitAccount[]>();
   for (const account of accounts) {
-    const key = account.identity ? `${account.identity.provider}:${account.identity.key}` : `${account.runtime}\u0000${account.id}`;
+    const key = account.identity ? `${account.identity.provider}:${account.identity.key}` : `${account.machine ?? ""}\u0000${account.runtime}\u0000${account.id}`;
     groups.set(key, [...(groups.get(key) ?? []), account]);
   }
   return [...groups].map(([key, members]): LimitGroup => {
@@ -48,6 +50,7 @@ function family(runtime: string): string {
 }
 
 function matches(account: UsageLimitAccount, entry: UsageEntry): boolean {
+  if ((account.machine ?? "") !== (entry.machine ?? "")) return false;
   if (account.runtime === PI_BACKEND) return entry.backend === PI_BACKEND && account.id === `pi:${entry.provider ?? ""}`;
   return entry.backend === family(account.runtime);
 }
@@ -65,7 +68,7 @@ export interface MemberCost {
  */
 export function memberCosts(group: LimitGroup, accounts: readonly UsageLimitAccount[], entries: readonly UsageEntry[], fromDay: number): MemberCost[] | undefined {
   const ambiguous = group.members.some((member) => member.runtime !== PI_BACKEND
-    && accounts.some((other) => other !== member && other.runtime !== PI_BACKEND && family(other.runtime) === family(member.runtime)));
+    && accounts.some((other) => other !== member && other.runtime !== PI_BACKEND && (other.machine ?? "") === (member.machine ?? "") && family(other.runtime) === family(member.runtime)));
   if (ambiguous) return undefined;
   return group.members.map((member) => {
     const cost: MemberCost = { name: memberName(member), costUsd: 0, apiValueUsd: 0 };
