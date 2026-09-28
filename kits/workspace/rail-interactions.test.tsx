@@ -211,6 +211,13 @@ describe("navigationRowsFor", () => {
     expect(navigationRowsFor(threads, order, [], new Set(["repository:project"])).filter((row) => row.kind === "thread")).toHaveLength(4);
   });
 
+  it("names each group's project, for its new-thread button", () => {
+    const projects = [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 1 }];
+    const groups = navigationRowsFor([shell("a", 0), shell("b", 1, { projectPath: "/other", projectName: "other" })], order, projects, new Set())
+      .flatMap((row) => row.kind === "group" ? [`${row.label}:${row.project?.path}`] : []);
+    expect(groups).toEqual(["project:/project", "other:/other"]);
+  });
+
   it("is flat without grouping", () => {
     expect(navigationRowsFor(threads, { ...order, grouping: "none" }, [], new Set()).map((row) => row.id)).toEqual(["a", "b", "c", "d"]);
   });
