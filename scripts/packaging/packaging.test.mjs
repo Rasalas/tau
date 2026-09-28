@@ -1,8 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isNightlyVersion } from "../../src/shared/app-version.js";
+import { foreignMachOFiles, machOArchitectures, macPackagesFor } from "./mac-architectures.mjs";
 import { nightlyVersion, parseArgs as parseNightlyArgs } from "./nightly-version.mjs";
 import { ROOT, parseArgs, releaseAssets, versionOfTag } from "./release.mjs";
 import { AUR_DIR } from "./update-aur.mjs";
@@ -122,5 +126,102 @@ describe("the nightly version", () => {
     expect(options.date.toISOString()).toBe("2026-09-22T00:00:00.000Z");
     expect(() => parseNightlyArgs([])).toThrow("--run <n> is required");
     expect(() => parseNightlyArgs(["--date", "tomorrow", "--run", "1"])).toThrow("YYYY-MM-DD");
+  });
+});
+
+describe("each Mac app's architecture", () => {
+  const lock = JSON.parse(read("package-lock.json"));
+  // The matcher electron-builder applies to `files`, with the macros expanded as it does.
+  const { Minimatch } = createRequire(createRequire(import.meta.url).resolve("app-builder-lib"))("minimatch");
+  const patterns = [...read("electron-builder.yml").matchAll(/^ {2}- "(!\*\*\/node_modules\/[^"]*)"$/gmu)].map((match) => match[1]);
+  const shipped = (path, platform, arch) =>
+    patterns.every((pattern) => new Minimatch(pattern.replaceAll("${platform}", platform).replaceAll("${arch}", arch), { dot: true }).match(path));
+
+  it("comes from the lockfile's production packages built for exactly one macOS architecture", () => {
+    const fixture = {
+      packages: {
+        "": { name: "tau" },
+        "node_modules/@esbuild/darwin-x64": { version: "0.25.12", integrity: "sha512-a", os: ["darwin"], cpu: ["x64"], optional: true },
+        "node_modules/pi/node_modules/@esbuild/darwin-x64": { version: "0.28.1", integrity: "sha512-b", os: ["darwin"], cpu: ["x64"], optional: true },
+        "node_modules/@esbuild/darwin-arm64": { version: "0.25.12", os: ["darwin"], cpu: ["arm64"], optional: true },
+        "node_modules/@esbuild/linux-x64": { version: "0.25.12", os: ["linux"], cpu: ["x64"], optional: true },
+        "node_modules/@x/tool-darwin-universal": { version: "1.0.0", os: ["darwin"], optional: true },
+        "node_modules/@rollup/rollup-darwin-x64": { version: "4.0.0", os: ["darwin"], cpu: ["x64"], dev: true, optional: true },
+        "node_modules/@anthropic-ai/claude-agent-sdk-darwin-x64": { version: "0.3.0", os: ["darwin"], cpu: ["x64"], optional: true },
+      },
+    };
+    expect(macPackagesFor(fixture, "x64")).toEqual([
+      { path: "node_modules/@esbuild/darwin-x64", name: "@esbuild/darwin-x64", version: "0.25.12", integrity: "sha512-a" },
+      { path: "node_modules/pi/node_modules/@esbuild/darwin-x64", name: "@esbuild/darwin-x64", version: "0.28.1", integrity: "sha512-b" },
+    ]);
+    expect(macPackagesFor(lock, "x64").map((pkg) => pkg.name)).toContain("@esbuild/darwin-x64");
+  });
+
+  it("keeps a platform package out of the other architecture's app", () => {
+    for (const [arch, other] of [["x64", "arm64"], ["arm64", "x64"]]) {
+      for (const pkg of macPackagesFor(lock, arch)) {
+        expect(shipped(`${pkg.path}/package.json`, "darwin", arch), `${pkg.path} in the ${arch} app`).toBe(true);
+        expect(shipped(pkg.path, "darwin", other), `${pkg.path} in the ${other} app`).toBe(false);
+        expect(shipped(`${pkg.path}/package.json`, "darwin", other), `${pkg.path} in the ${other} app`).toBe(false);
+      }
+    }
+    expect(shipped("node_modules/@mariozechner/clipboard-darwin-universal/package.json", "darwin", "x64")).toBe(true);
+  });
+
+  it("keeps only the prebuilds for the app's own platform and architecture", () => {
+    const prebuilt = (dir) => `node_modules/node-pty/prebuilds/${dir}/pty.node`;
+    expect(shipped(prebuilt("darwin-x64"), "darwin", "x64")).toBe(true);
+    expect(shipped(prebuilt("darwin-arm64"), "darwin", "x64")).toBe(false);
+    expect(shipped(prebuilt("darwin-arm64"), "darwin", "arm64")).toBe(true);
+    expect(shipped(prebuilt("darwin-x64"), "darwin", "arm64")).toBe(false);
+    expect(shipped(prebuilt("win32-x64"), "darwin", "x64")).toBe(false);
+    expect(shipped(prebuilt("win32-x64"), "win32", "x64")).toBe(true);
+    expect(shipped(prebuilt("darwin-x64+arm64"), "darwin", "arm64")).toBe(true);
+    expect(shipped("node_modules/@earendil-works/pi-tui/native/darwin/prebuilds/darwin-x64/darwin-modifiers.node", "darwin", "arm64")).toBe(false);
+    expect(shipped("node_modules/@earendil-works/pi-tui/native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node", "darwin", "arm64")).toBe(true);
+  });
+});
+
+describe("the native file check", () => {
+  const thin = (magic, cpu) => {
+    const header = Buffer.alloc(32);
+    header.writeUInt32LE(magic, 0);
+    header.writeUInt32LE(cpu, 4);
+    return header;
+  };
+  const fat = (...cpus) => {
+    const header = Buffer.alloc(8 + cpus.length * 20);
+    header.writeUInt32BE(0xcafebabe, 0);
+    header.writeUInt32BE(cpus.length, 4);
+    cpus.forEach((cpu, index) => header.writeUInt32BE(cpu, 8 + index * 20));
+    return header;
+  };
+  const X64 = 0x0100_0007;
+  const ARM64 = 0x0100_000c;
+
+  it("reads the architectures of thin and universal Mach-O files", () => {
+    expect(machOArchitectures(thin(0xfeedfacf, X64))).toEqual(["x64"]);
+    expect(machOArchitectures(thin(0xfeedfacf, ARM64))).toEqual(["arm64"]);
+    expect(machOArchitectures(fat(X64, ARM64))).toEqual(["x64", "arm64"]);
+  });
+
+  it("does not take a Java class file or text for a Mach-O file", () => {
+    const javaClass = Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x34]);
+    expect(machOArchitectures(javaClass)).toBeUndefined();
+    expect(machOArchitectures(Buffer.from("#!/bin/sh\necho hi\n"))).toBeUndefined();
+  });
+
+  it("lists the files an app's architecture cannot run", async () => {
+    const app = await mkdtemp(join(tmpdir(), "tau-arch-"));
+    const put = async (path, content) => {
+      await mkdir(join(app, path, ".."), { recursive: true });
+      await writeFile(join(app, path), content);
+    };
+    await put("prebuilds/darwin-arm64/pty.node", thin(0xfeedfacf, ARM64));
+    await put("prebuilds/darwin-x64/pty.node", thin(0xfeedfacf, X64));
+    await put("bin/universal", fat(X64, ARM64));
+    await put("lib/main.js", "module.exports = 1;");
+    expect(foreignMachOFiles(app, "x64")).toEqual([{ file: join("prebuilds", "darwin-arm64", "pty.node"), architectures: ["arm64"] }]);
+    expect(foreignMachOFiles(app, "arm64")).toEqual([{ file: join("prebuilds", "darwin-x64", "pty.node"), architectures: ["x64"] }]);
   });
 });

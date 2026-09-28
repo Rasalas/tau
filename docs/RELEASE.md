@@ -111,10 +111,28 @@ Each runs `npm run build` first and writes to `release/`, which is not in Git.
 Stop a running `npm run dev:instance` of the same worktree first: while it
 runs, its `.tau-dev/userdata` holds dangling `Singleton*` symlinks and
 electron-builder aborts on the first one it cannot `stat`.
+`npm run dist:mac -- --arm64 --x64` builds both Mac apps, as the release does.
 macOS produces a `.dmg` and a `.zip`, Linux an `.AppImage` and a `.deb`,
 Windows an NSIS `.exe`. Cross-building macOS from another platform is not possible; Linux and
 Windows builds need their own runners for the same reason Tau ships a native
 esbuild binary.
+
+### Two Mac architectures from one `node_modules`
+
+The arm64 runner's `npm ci` installs the optional platform packages for arm64
+only: esbuild's binary, rollup's and xa11y's. Before each Mac architecture is
+packed, electron-builder's `beforeBuild` hook
+(`scripts/packaging/mac-architectures.mjs`) unpacks the ones npm skipped, at
+the version and integrity `package-lock.json` pins, fetched through `npm pack`.
+`files` in `electron-builder.yml` then drops the other architecture's platform
+packages and every `prebuilds/<platform>-<arch>` folder that is not the app's
+own, and the `afterPack` hook fails the build when a Mach-O file in the app
+cannot run on its architecture. The x64 app therefore holds only x64 or
+universal native files, and the arm64 app only arm64 or universal ones.
+
+On Apple silicon the x64 app runs only under Rosetta, and macOS 27 warns on
+launch that macOS 28 will not open it. The x64 build is for Intel Macs, which
+stop at macOS 27.
 
 ## How an update reaches a user
 
