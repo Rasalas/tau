@@ -5,16 +5,18 @@
 // preview hands back a frame. Stopped, the window starts again on the next
 // call; uninstalled, nothing is left running. The manager carries a Wayland
 // desktop session's environment, as on a machine with a desktop: neither the
-// window nor a shell of the host may see it.
+// window nor a shell of the host may see it. Whatever ends it (pass, failure,
+// guard, signal), everything the fake started is stopped by pid and the
+// display's own lock and socket go; nothing it did not start is touched.
 // Linux with Xvfb only; elsewhere it says why and passes.
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { describeCleanup, readStarted, stopStarted, xLockPath } from "./smoke-processes.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MAIN = join(ROOT, "dist-electron", "main");
@@ -145,10 +147,31 @@ const electronPath = createRequire(import.meta.url)("electron");
 
 const { HostServiceManager } = await import(pathToFileURL(join(MAIN, "host-service.js")).href);
 const { readHostDescriptor } = await import(pathToFileURL(join(MAIN, "host-process-supervisor.js")).href);
+const { displayInUse, firstFreeDisplay, linuxDisplayProbe } = await import(pathToFileURL(join(MAIN, "display-number.js")).href);
 
 const home = mkdtempSync(join(tmpdir(), "tau-display-smoke-home-"));
 const userData = mkdtempSync(join(tmpdir(), "tau-display-smoke-userdata-"));
 const units = join(home, "units");
+/** The display the units name, once installed; its lock and socket are the smoke's to remove. */
+let displayNumber;
+let cleanedUp = false;
+/** Synchronous, so the exit and signal handlers can run it too. */
+function cleanUp() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  const report = stopStarted({ started: readStarted(units), display: displayNumber });
+  console.log(`cleanup:\n${describeCleanup(report).map((line) => `  ${line}`).join("\n")}`);
+  if (process.env.TAU_SMOKE_KEEP === "1") console.log(`kept ${userData} and ${home}`);
+  else for (const directory of [userData, home]) rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
+process.on("exit", cleanUp);
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) {
+  process.on(signal, () => {
+    console.error(`✗ stopped by ${signal}`);
+    cleanUp();
+    process.exit(code);
+  });
+}
 // Chromium's sandbox needs namespaces a container does not grant; on a real machine the window keeps it.
 if (existsSync("/.dockerenv") || existsSync("/run/.containerenv")) {
   mkdirSync(units, { recursive: true });
@@ -194,20 +217,32 @@ const pageUrl = `http://127.0.0.1:${page.address().port}/`;
 let client;
 let passed = false;
 try {
+  const probe = linuxDisplayProbe();
+  const pick = firstFreeDisplay((candidate) => displayInUse(candidate, probe));
+  const why = [
+    pick.skipped.length === 0 ? "the first number tried" : `first free number; skipped ${pick.skipped.map(({ number, reason }) => `:${number} (${reason})`).join(", ")}`,
+  ];
   await manager.install({ display: true });
   const status = await manager.status();
   if (!status.display?.installed) fail(`the display is not installed: ${JSON.stringify(status.display)}`);
   const number = Number(status.display.display.slice(1));
-  step("installed with --display", `${status.display.display}, units ${manager.names.unit}, ${xvfbUnit}, ${windowUnit}`);
+  displayNumber = number;
+  if (number !== pick.number) why.push(`expected :${pick.number ?? "none"}; something claimed it meanwhile`);
+  step("installed with --display", `${status.display.display}: ${why.join("; ")}; units ${manager.names.unit}, ${xvfbUnit}, ${windowUnit}`);
 
   await waitFor(() => existsSync(`/tmp/.X11-unix/X${number}`), `Xvfb's socket for ${status.display.display}`);
+  // The display must be this Xvfb's, not a leftover's that happened to hold the number.
+  const lockOwner = Number.parseInt(readFileSync(xLockPath(number), "utf8").trim(), 10);
+  if (lockOwner !== unitPid(xvfbUnit)) fail(`${xLockPath(number)} names pid ${lockOwner}, not the smoke's Xvfb (pid ${unitPid(xvfbUnit)})`);
+  const xvfbArgs = readFileSync(`/proc/${lockOwner}/cmdline`, "utf8").split("\0");
+  if (xvfbArgs[xvfbArgs.indexOf("-nolisten") + 1] !== "tcp") fail(`Xvfb listens on TCP: ${xvfbArgs.join(" ")}`);
   await waitFor(async () => (await readHostDescriptor(userData))?.service === "systemd", "the service host to write host.json", 60_000);
   const descriptor = await readHostDescriptor(userData);
   const hostEnv = readFileSync(`/proc/${descriptor.pid}/environ`, "utf8").split("\0");
   if (!hostEnv.includes(`DISPLAY=:${number}`) || !hostEnv.some((entry) => entry.startsWith("XAUTHORITY="))) fail(`the host has no DISPLAY: ${hostEnv.filter((entry) => /DISPLAY|XAUTH/u.test(entry)).join(" ")}`);
   if (desktopIn(descriptor.pid).length > 0) fail(`the host has the desktop's Wayland: ${desktopIn(descriptor.pid).join(" ")}`);
   if (alive(unitPid(windowUnit))) fail("the window started before anything needed it");
-  step("Xvfb and the host run, the window does not", `host pid ${descriptor.pid} has DISPLAY=:${number} and no WAYLAND_DISPLAY`);
+  step("Xvfb and the host run, the window does not", `Xvfb pid ${lockOwner} holds ${xLockPath(number)} without TCP; host pid ${descriptor.pid} has DISPLAY=:${number} and no WAYLAND_DISPLAY`);
 
   const token = readFileSync(descriptor.tokenPath, "utf8").trim();
   client = createClient(descriptor.url, token);
@@ -263,6 +298,10 @@ try {
   if (!alive(secondWindow) || secondWindow === firstWindow) fail("the next call did not start the window again");
   step("stopped, the window starts again on the next frame, with the page", `pid ${firstWindow} → ${secondWindow}, ${again.width}×${again.height}`);
 
+  const starts = (unit) => readStarted(units).filter((entry) => entry.unit === unit).length;
+  if (starts(xvfbUnit) !== 1 || starts(manager.names.unit) !== 1) fail(`Xvfb started ${starts(xvfbUnit)} times and the host ${starts(manager.names.unit)} times`);
+  step("Xvfb and the host started once each, the window twice", `${starts(windowUnit)} window starts`);
+
   client.close();
   client = undefined;
   const pids = [descriptor.pid, unitPid(xvfbUnit), secondWindow];
@@ -276,19 +315,14 @@ try {
 } catch (error) {
   console.error(`✗ ${error instanceof SmokeFailure ? error.message : error?.stack ?? error}`);
   try { console.error(`--- fake service manager calls\n${readFileSync(join(units, ".fake-calls.log"), "utf8")}`); } catch { /* none */ }
+  console.error(`--- processes the fake started\n${readStarted(units).map(({ unit, pid }) => `${unit} pid ${pid}${alive(pid) ? "" : " (exited)"}`).join("\n")}`);
+  try { console.error(`--- fake state\n${readFileSync(join(units, ".fake-state.json"), "utf8")}`); } catch { /* none */ }
   for (const log of ["display-window.log", "display-xvfb.log", "host-service.log"]) {
     try { console.error(`--- ${log}\n${readFileSync(join(userData, "logs", log), "utf8").split("\n").slice(-25).join("\n")}`); } catch { /* none */ }
   }
 } finally {
   client?.close();
   page.close();
-  // Anything the fake started and nobody stopped, by pid.
-  for (const entry of Object.values(fakeState())) if (entry?.pid && alive(entry.pid)) process.kill(entry.pid, "SIGTERM");
-  const gone = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
-  if (process.env.TAU_SMOKE_KEEP === "1") console.log(`kept ${userData} and ${home}`);
-  else {
-    await rm(userData, gone);
-    await rm(home, gone);
-  }
+  cleanUp();
   process.exit(passed ? 0 : 1);
 }

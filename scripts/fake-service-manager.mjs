@@ -8,12 +8,14 @@
 // there. A systemd unit's `Wants=`/`BindsTo=` start with it, and a unit bound
 // to one that stops stops too (the display's Xvfb and window). Like systemd's
 // user manager it has an environment of its own (`set-environment`), which
-// every unit inherits unless it says `UnsetEnvironment=`. Task Scheduler is not
-// faked. Never used by the app.
+// every unit inherits unless it says `UnsetEnvironment=`. Every process it
+// starts is appended to `.fake-started.jsonl` with its start time, so a smoke
+// can stop exactly those. Task Scheduler is not faked. Never used by the app.
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { STARTED_LOG, procStat } from "./smoke-processes.mjs";
 
 const xmlText = (value) => value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", "\"").replaceAll("&amp;", "&");
 
@@ -70,9 +72,11 @@ export function systemdDependencies(text) {
   return { pulls: [...list("Wants"), ...bindsTo], bindsTo };
 }
 
+/** A zombie is dead to systemd too; a container's init that never reaps keeps one around. */
 function alive(pid) {
   if (!pid) return false;
-  try { process.kill(pid, 0); return true; } catch (error) { return error?.code === "EPERM"; }
+  try { process.kill(pid, 0); } catch (error) { return error?.code === "EPERM"; }
+  return procStat(pid)?.state !== "Z";
 }
 
 function unitDirectory() {
@@ -86,8 +90,41 @@ function readState(directory) {
   try { return JSON.parse(readFileSync(join(directory, ".fake-state.json"), "utf8")); } catch { return {}; }
 }
 
+/** Renamed into place: a smoke reads the state without the lock and must never see it half written. */
 function writeState(directory, state) {
-  writeFileSync(join(directory, ".fake-state.json"), `${JSON.stringify(state, null, 2)}\n`);
+  const temporary = join(directory, `.fake-state.json.${process.pid}.tmp`);
+  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`);
+  renameSync(temporary, join(directory, ".fake-state.json"));
+}
+
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * One call at a time: two concurrent calls lost every pid, so the next `start` ran a second Xvfb and host (K48).
+ * A lock whose owner is gone, or that never got one, is taken over.
+ */
+export function lockState(directory, options = {}) {
+  const { timeoutMs = 120_000, isAlive = alive, sleep = sleepSync, now = Date.now } = options;
+  const path = join(directory, ".fake-state.lock");
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    try {
+      mkdirSync(path);
+      writeFileSync(join(path, "pid"), String(process.pid));
+      return () => rmSync(path, { recursive: true, force: true });
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    let owner = Number.NaN;
+    try { owner = Number.parseInt(readFileSync(join(path, "pid"), "utf8"), 10); } catch { /* not written yet, or released */ }
+    const ownerless = Number.isNaN(owner) && now() - (statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? now()) > 5_000;
+    if (ownerless || (!Number.isNaN(owner) && !isAlive(owner))) {
+      rmSync(path, { recursive: true, force: true });
+      continue;
+    }
+    if (now() > deadline) throw new Error(`fake service manager: ${path} is held by pid ${Number.isNaN(owner) ? "?" : owner}`);
+    sleep(20);
+  }
 }
 
 function readManagerEnv(directory) {
@@ -101,7 +138,7 @@ function managerEnvironment(directory) {
   return { ...base, ...readManagerEnv(directory) };
 }
 
-function start(unit, directory) {
+function start(name, unit, directory) {
   mkdirSync(dirname(unit.log), { recursive: true });
   const log = openSync(unit.log, "a");
   const child = spawn(unit.program[0], unit.program.slice(1), {
@@ -111,6 +148,7 @@ function start(unit, directory) {
     detached: true,
   });
   child.unref();
+  appendFileSync(join(directory, STARTED_LOG), `${JSON.stringify({ unit: name, pid: child.pid, startTime: procStat(child.pid)?.startTime })}\n`);
   return child.pid;
 }
 
@@ -132,7 +170,7 @@ async function launchctl(args, directory, state) {
       const plist = rest.at(-1);
       const unit = parseLaunchAgent(readFileSync(plist, "utf8"));
       if (state[unit.label]?.loaded) { console.error("Bootstrap failed: 5: Input/output error"); return 5; }
-      state[unit.label] = { loaded: true, unitPath: plist, pid: start(unit, directory) };
+      state[unit.label] = { loaded: true, unitPath: plist, pid: start(unit.label, unit, directory) };
       return 0;
     }
     case "bootout":
@@ -145,7 +183,7 @@ async function launchctl(args, directory, state) {
     case "kickstart": {
       if (!entry?.loaded) { console.error("Could not find service"); return 113; }
       if (rest.includes("-k")) await stop(entry.pid);
-      if (!alive(entry.pid)) entry.pid = start(parseLaunchAgent(readFileSync(entry.unitPath, "utf8")), directory);
+      if (!alive(entry.pid)) entry.pid = start(label, parseLaunchAgent(readFileSync(entry.unitPath, "utf8")), directory);
       return 0;
     }
     case "print":
@@ -178,7 +216,7 @@ function startUnit(directory, state, name) {
   }
   // A container cannot give Chromium's sandbox its namespaces; the smoke tests the units, not the sandbox.
   if (name.startsWith("tau-window") && existsSync(join(directory, ".no-sandbox"))) unit.program.push("--no-sandbox");
-  entry.pid = start(unit, directory);
+  entry.pid = start(name, unit, directory);
   return 0;
 }
 
@@ -246,15 +284,20 @@ export async function main(argv) {
   const [tool, ...args] = argv;
   const directory = unitDirectory();
   appendFileSync(join(directory, ".fake-calls.log"), `${[tool, ...args].join(" ")}\n`);
-  const state = readState(directory);
-  let code;
-  if (tool === "launchctl") code = await launchctl(args, directory, state);
-  else if (tool === "systemctl") code = await systemctl(args, directory, state);
-  else if (tool === "loginctl") code = loginctl(args);
-  else if (tool === "pkexec" || tool === "sudo") code = elevate(directory);
-  else { console.error(`fake service manager: ${tool} is not faked`); code = 64; }
-  writeState(directory, state);
-  return code;
+  const unlock = lockState(directory);
+  try {
+    const state = readState(directory);
+    let code;
+    if (tool === "launchctl") code = await launchctl(args, directory, state);
+    else if (tool === "systemctl") code = await systemctl(args, directory, state);
+    else if (tool === "loginctl") code = loginctl(args);
+    else if (tool === "pkexec" || tool === "sudo") code = elevate(directory);
+    else { console.error(`fake service manager: ${tool} is not faked`); code = 64; }
+    writeState(directory, state);
+    return code;
+  } finally {
+    unlock();
+  }
 }
 
 const invokedDirectly = (() => {
