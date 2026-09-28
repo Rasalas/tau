@@ -17,6 +17,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  ".webmanifest": "application/manifest+json",
   ".map": "application/json; charset=utf-8",
 };
 
@@ -63,11 +64,13 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     const content = await readFile(file).catch(() => undefined);
     if (!content) { send(response, 404, "text/plain; charset=utf-8", "not found"); return; }
     const type = CONTENT_TYPES[extname(file).toLowerCase()] ?? "application/octet-stream";
-    // The client is served from the host's own tree and changes with it: an
-    // asset carries a content hash, index.html must never be a stale one.
+    // The client is served from the host's own tree and changes with it: what the
+    // build hashed under assets/ is immutable; index.html, the favicon and the
+    // manifest keep their names, so the browser asks again.
+    const hashed = file.startsWith(join(root, "assets") + sep);
     response.writeHead(200, {
       "content-type": type,
-      "cache-control": file.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
+      "cache-control": file.endsWith("index.html") ? "no-store" : hashed ? "public, max-age=31536000, immutable" : "no-cache",
       "content-length": content.byteLength,
       // The page talks to its own origin and nowhere else.
       "x-content-type-options": "nosniff",

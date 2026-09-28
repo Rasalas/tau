@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), stripIconKeys(), dedupeLegalComments(), thirdPartyLicenses(repository)],
     resolve: rendererBuild.resolve,
     base: "./",
+    // The browser client's favicon and manifest.
+    publicDir: fileURLToPath(new URL("../src/web/public", import.meta.url)),
     define: {
       TAU_AUTOMATION_PORT: JSON.stringify(mode === "development" ? env.TAU_AUTOMATION_PORT ?? "9477" : ""),
       TAU_BONJOUR_TYPE: JSON.stringify(env.TAU_BONJOUR_TYPE ?? (mode === "development" ? "_tau-test._tcp" : "_tau._tcp")),
