@@ -144,8 +144,9 @@ export function deriveStatus(facts: AgentThreadFacts): AgentThreadStatus {
   if (facts.error) return "failed";
   if (facts.cancelled && !facts.live?.streaming) return "cancelled";
   if (facts.queued) return "pending";
-  if (facts.live?.streaming) return "running";
+  // An approval holds a turn that still streams; the question outranks the work, as in the rail.
   if (facts.pendingToolPrompt) return "waiting";
+  if (facts.live?.streaming) return "running";
   // Not streaming and not idle means the runtime is holding something open:
   // a question, an approval, or work an extension still owes the thread.
   if (facts.live && !facts.live.idle) return "waiting";

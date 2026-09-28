@@ -33,6 +33,7 @@ import {
   readAgentLinksWithMigration,
   readAgentsSettings,
   titleFromPrompt,
+  toolLine,
   writeAgentLinks,
 } from "./host.js";
 import { captureWorktreeTree, runAgentGit, type AgentGitRunner } from "../workspace/agent-worktrees.js";
@@ -316,6 +317,7 @@ describe("Agents Kit status", () => {
     expect(deriveStatus({ ...facts, live: { streaming: true, idle: false } })).toBe("running");
     expect(deriveStatus({ ...facts, turns: 1, pendingToolPrompt: "Allow?", live: { streaming: false, idle: false } })).toBe("waiting");
     expect(deriveStatus({ ...facts, live: { streaming: false, idle: false } })).toBe("waiting");
+    expect(deriveStatus({ ...facts, pendingToolPrompt: "Approve write?", live: { streaming: true, idle: false } })).toBe("waiting");
     expect(deriveStatus({ ...facts, turns: 1, lastOutcome: "completed", live: { streaming: false, idle: true } })).toBe("completed");
     expect(deriveStatus({ ...facts, turns: 1, lastOutcome: "failed" })).toBe("failed");
     expect(deriveStatus({ ...facts, error: "gone" })).toBe("failed");
@@ -490,6 +492,8 @@ describe("Agents Kit", () => {
 
     bench.threads.get(spawned.threadId)!.streaming = false;
     await bench.notify("ended", spawned.threadId);
+    // The panel learns what it changed when it ends, before anyone asks.
+    await vi.waitFor(async () => expect((await bench.state()).links[0]?.workspace?.changes).toMatchObject({ files: 1, added: 3, removed: 1 }));
     const status = await parent.call("tau_get_thread_status", { threadId: spawned.threadId }) as {
       workspace?: { branch: string; changes?: { files: number; added: number } };
     };
@@ -702,6 +706,32 @@ describe("Agents Kit", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it("records the parent's turn a spawn came from, in the links file and both session files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agents-turn-"));
+    const linksPath = join(directory, "agents-links.json");
+    try {
+      const bench = await activated({ linksPath });
+      const prompt = (text: string) => ({ type: "message", message: { role: "user", content: text } });
+      // The fake journal holds custom entries only; a real one holds the prompts too.
+      (bench.threads.get("parent")!.entries as unknown[]).push(prompt("Split it"), { type: "message", message: { role: "assistant" } }, prompt("And the rest"));
+      const handle = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" }));
+
+      expect((await bench.state()).links[0]).toMatchObject({ threadId: handle, turn: 2 });
+      expect(bench.threads.get("parent")!.entries.at(-1)).toMatchObject({ customType: AGENT_CHILD_ENTRY, data: expect.objectContaining({ turn: 2 }) });
+      expect(linksFromEntries("parent", [bench.threads.get("parent")!.entries.at(-1)])[0]).toMatchObject({ turn: 2 });
+      await vi.waitFor(async () => expect((await readAgentLinks(linksPath))[0]).toMatchObject({ threadId: handle, turn: 2 }));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("names a tool with what it worked on, for the panel's progress line", () => {
+    expect(toolLine({ name: "edit", args: { path: "src/routes/products.ts" } })).toBe("edit src/routes/products.ts");
+    expect(toolLine({ name: "bash", args: { command: "vitest   run\ncustomers" } })).toBe("bash vitest run customers");
+    expect(toolLine({ name: "mcp__tau__tau_list_threads", args: {} })).toBe("tau_list_threads");
+    expect(toolLine({ name: "bash", args: { command: "x".repeat(200) } })).toHaveLength(80);
   });
 
   it("reports status from the host's own view of the thread", async () => {

@@ -165,6 +165,8 @@ export interface AgentThreadLink {
   /** The tool that created it. */
   spawnedBy: string;
   spawnedAt: number;
+  /** The parent's prompt count when it spawned this one; absent where the parent keeps no journal. */
+  turn?: number;
   startedAt?: number;
   endedAt?: number;
   projectPath: string;
@@ -180,7 +182,7 @@ export interface AgentThreadLink {
   /** Set for an agent that runs on another machine; it then has no `threadId` here. */
   machine?: AgentMachineRef;
   status: AgentThreadStatus;
-  /** Last tool the agent ran, for the panel's progress line. */
+  /** Last tool the agent ran with its target (`edit src/a.ts`), for the panel's progress line. */
   lastTool?: string;
   /** Question the agent is holding on; the user answers it in the agent's thread. */
   pendingToolPrompt?: string;
