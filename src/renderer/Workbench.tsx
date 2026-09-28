@@ -290,7 +290,7 @@ export interface WorkbenchModel {
 export const Workbench = memo(function Workbench({ model }: { model: WorkbenchModel }) {
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
-    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
     openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
@@ -430,12 +430,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   const chatMin = split ? TABLET_CHAT_MIN_WIDTH : CHAT_MIN_WIDTH;
-  // An empty stage shows only when asked for: its strip holds the tools. It closes with the thread.
-  const [emptyStage, setEmptyStage] = useState(false);
-  useEffect(() => { setEmptyStage(false); }, [snapshot?.sessionId, activeDraftKey]);
   // A phone draws no stage (profile-compact.css): its panels are sheets.
   const { stageShown, tabs, canSplit } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: (stage.tabs.length > 0 || emptyStage) && !phone, folded: stageFolded, maximized, chatMin,
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized, chatMin,
     tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
   });
   // Only one of the two fits, or the stage is maximized: the one not in front is folded to its spine.
@@ -459,9 +456,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setChatWidthPreference(bounded);
     clientStorage.set(STORAGE_KEYS.chatWidth, String(bounded));
   };
-  // The header's toggle hides the stage or brings it back; with no tab it shows the strip and its tools.
+  // The header's toggle hides the stage or brings it back; an empty one opens the tool last picked in the project, else Files.
+  const firstTool = panels.find((panel) => panel.id === activePanel && panel.placement !== "drawer")
+    ?? panels.find((panel) => panel.stageButton && panel.placement !== "drawer") ?? panels.find((panel) => panel.placement !== "drawer");
   const toggleStage = () => {
-    if (stage.tabs.length === 0) { setEmptyStage(!stageExpanded); setStageFolded(false); setChatFocused(false); return; }
+    if (stage.tabs.length === 0) { if (firstTool) openPanel(firstTool.id); return; }
     if (stageExpanded) { setStageFolded(true); return; }
     setStageFolded(false);
     setChatFocused(false);
@@ -667,7 +666,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     title={threadTitle}
     details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
-    {...(panels.length > 0 || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
+    {...(firstTool || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}

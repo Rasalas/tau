@@ -83,7 +83,7 @@ export function ConversationSpine({ title, streaming, waiting, onShow }: {
     <button type="button" className="stage-tool" aria-label="Show chat" {...tooltipProps("Show chat", { side: "right" })} onClick={onShow}>
       <PanelLeftOpen size={16} />
     </button>
-    <button type="button" className="conversation-spine-title" aria-label={state ? `${title}, ${state}` : title} {...tooltipProps(title, { side: "right" })} onClick={onShow}>
+    <button type="button" className="conversation-spine-title" aria-label={`Show chat: ${title}${state ? `, ${state}` : ""}`} {...tooltipProps(title, { side: "right" })} onClick={onShow}>
       {waiting ? <CircleHelp size={14} className="spine-waiting" /> : streaming ? <span className="spinner info spinner-sm" aria-hidden /> : <MessageSquare size={14} />}
       <span>{title}</span>
     </button>

@@ -133,7 +133,7 @@ export function Stage({
       </div>
     </div>
     {!current ? (
-      <div className="stage-empty stage-empty-start" role="status">Nothing open here yet. Files, Terminal and the other tools are at the right of the strip; a file in the conversation opens here too.</div>
+      <div className="stage-empty" role="status">Nothing is open here.</div>
     ) : current.kind === "panel" ? (
       <section key={current.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === current.panelId)?.label ?? current.panelId}>
         {renderPanel?.(current.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}

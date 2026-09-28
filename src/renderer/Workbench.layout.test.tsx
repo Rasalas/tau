@@ -94,7 +94,7 @@ describe("workbench layout", () => {
     expect(view.storage.get("tau:sidebar-width")).toBe("900");
   });
 
-  /** The header's toggle: shows the stage, or its strip and tools when nothing is open. */
+  /** The header's toggle: shows the stage, or opens it on the first tool when nothing is open. */
   async function showStage(): Promise<HTMLElement> {
     fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
     return screen.findByRole("region", { name: "Stage" });
@@ -128,20 +128,22 @@ describe("workbench layout", () => {
     await waitFor(() => expect(within(stage).queryByRole("tab", { name: /Counter/ })).toBeNull());
   });
 
-  it("gives a panel that asks for it a button of its own, pressed while its tab is in front", async () => {
+  it("gives a panel that asks for it a button of its own, pressed while its tab is in front, and opens the stage on it", async () => {
     const buttons: DesktopExtension = { id: "test.buttons", name: "Buttons", activate(plugin) {
       plugin.registerPanel({ id: "shell-tab", label: "Shell tab", order: 1, stageButton: true, Component: () => <div>shell tab body</div> });
+      plugin.registerPanel({ id: "other", label: "Other", order: 2, stageButton: true, Component: () => <div>other body</div> });
     } };
     renderApp(undefined, { extensions: [buttons] });
     const stage = await showStage();
-    // With one panel and no others, there is no More tools menu.
-    expect(within(stage).queryByRole("button", { name: "More tools" })).toBeNull();
-    const tool = within(stage).getByRole("button", { name: "Shell tab" });
-    expect(tool.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(tool);
+    // The empty stage opened on the first tool that has a button.
     expect(await within(stage).findByText("shell tab body")).toBeTruthy();
+    expect(within(stage).queryByRole("button", { name: "More tools" })).toBeNull();
     expect(within(stage).getByRole("button", { name: "Shell tab" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(stage).getByRole("button", { name: "Other" }));
+    expect(await within(stage).findByText("other body")).toBeTruthy();
+    expect(within(stage).getByRole("button", { name: "Shell tab" }).getAttribute("aria-pressed")).toBe("false");
     // Opening it again focuses its tab, never a second one.
+    fireEvent.click(within(stage).getByRole("button", { name: "Shell tab" }));
     fireEvent.click(within(stage).getByRole("button", { name: "Shell tab" }));
     expect(within(stage).getAllByRole("tab", { name: /Shell tab/ })).toHaveLength(1);
   });
@@ -163,16 +165,15 @@ describe("workbench layout", () => {
   it("follows a panel's redirect from the strip instead of opening the panel", async () => {
     let redirected = 0;
     const elsewhere: DesktopExtension = { id: "test.elsewhere", name: "Elsewhere", activate(plugin) {
-      plugin.registerPanel({ id: "away", label: "Away", order: 1, stageButton: true, redirect: () => { redirected += 1; return true; }, Component: () => <div>away panel</div> });
-      plugin.registerPanel({ id: "here", label: "Here", order: 2, stageButton: true, redirect: () => false, Component: () => <div>here panel</div> });
+      plugin.registerPanel({ id: "here", label: "Here", order: 1, stageButton: true, redirect: () => false, Component: () => <div>here panel</div> });
+      plugin.registerPanel({ id: "away", label: "Away", order: 2, stageButton: true, redirect: () => { redirected += 1; return true; }, Component: () => <div>away panel</div> });
     } };
     renderApp(undefined, { extensions: [elsewhere] });
     const stage = await showStage();
+    expect(await screen.findByText("here panel")).toBeTruthy();
     fireEvent.click(within(stage).getByRole("button", { name: "Away" }));
     expect(redirected).toBe(1);
     expect(screen.queryByText("away panel")).toBeNull();
-    fireEvent.click(within(stage).getByRole("button", { name: "Here" }));
-    expect(await screen.findByText("here panel")).toBeTruthy();
   });
 
   it("opens a document beside a tool as another tab, and a tool opened later in front", async () => {
@@ -182,7 +183,8 @@ describe("workbench layout", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Tree/ }));
     fireEvent.click(await within(stage).findByRole("button", { name: "Pick a.ts" }));
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /a\.ts/ }).getAttribute("aria-selected")).toBe("true"));
-    expect(within(stage).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Tree", "a.ts"]);
+    // The toggle opened the first tool; Tree and the file joined it.
+    expect(within(stage).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Browser", "Tree", "a.ts"]);
   });
 
   it("gives the stage about half the window by default, the chat what is left, and keeps a dragged width", async () => {
@@ -310,6 +312,12 @@ describe("workbench layout", () => {
       await waitFor(() => expect(center()).toContain("stage-open"));
       expect(center()).not.toContain("conversation-folded");
       expect(screen.queryByRole("navigation", { name: "Conversation" })).toBeNull();
+
+      // The keyboard's maximize does the same, both ways.
+      pressMod("b", { altKey: true, shiftKey: true });
+      await waitFor(() => expect(center()).toContain("conversation-folded"));
+      pressMod("b", { altKey: true, shiftKey: true });
+      await waitFor(() => expect(center()).not.toContain("conversation-folded"));
     });
 
     it("folds the conversation in a window too narrow for both, with nothing to restore", async () => {

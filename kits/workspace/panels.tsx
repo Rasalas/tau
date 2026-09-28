@@ -7,11 +7,12 @@ import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
 
-function FileTree({ nodes, changedPaths, activePath, rowHeight, loadFiles, openFile, editFile }: {
+function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, openFile, editFile }: {
   nodes: FileNode[];
   rowHeight: number;
   changedPaths: Set<string>;
-  activePath?: string;
+  /** The file on screen, as the stage names it (relative or absolute). */
+  activePaths: readonly string[];
   loadFiles(path: string): Promise<FileNode[]>;
   openFile(path: string, options?: { pin?: boolean }): void;
   /** A kit that edits files takes the double-click; false leaves it to the stage. */
@@ -59,7 +60,7 @@ function FileTree({ nodes, changedPaths, activePath, rowHeight, loadFiles, openF
       const changed = changedPaths.has(node.path);
       const pending = loading.has(node.path);
       const open = node.kind === "directory" && expanded.has(node.path);
-      const active = node.kind === "file" && node.path === activePath;
+      const active = node.kind === "file" && activePaths.includes(node.path);
       return <div key={node.path}>
         <button
           className={`file-row ${node.kind} ${changed ? "selected" : ""} ${active ? "active" : ""}`}
@@ -205,7 +206,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const tree = <FileTree
     nodes={fileTree}
     changedPaths={changedPaths}
-    activePath={onStage ? reading : relativeHostPath(activePath, cwd)}
+    activePaths={(onStage ? [reading] : [activePath, relativeHostPath(activePath, cwd)]).filter((path): path is string => Boolean(path))}
     rowHeight={touch ? 44 : 30}
     loadFiles={loadFiles}
     openFile={open}
