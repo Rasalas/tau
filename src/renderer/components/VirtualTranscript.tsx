@@ -13,6 +13,7 @@ import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
 import { useLeadingRowAnchor } from "./useLeadingRowAnchor";
 import { TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
 import { LazyFeatureBoundary } from "./LazyFeature";
+import { composerReserve } from "./ComposerReserve";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
@@ -189,8 +190,11 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     });
   };
 
+  // Kept across renders: the virtualizer's retries after a reveal read it again.
+  const revealPaddingEnd = useRef(0);
   const virtualizer = useVirtualizer({
     count: messages.length,
+    scrollPaddingEnd: revealPaddingEnd.current,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => {
       const message = messages[index];
@@ -266,6 +270,17 @@ export const VirtualTranscript = memo(function VirtualTranscript({
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null;
+    // A row stops above the dock over the transcript's end; the last one goes to the true end.
+    const revealRow = (index: number) => {
+      const node = scrollRef.current;
+      if (node && index === messages.length - 1) {
+        node.scrollTop = node.scrollHeight;
+        return;
+      }
+      revealPaddingEnd.current = composerReserve(node);
+      virtualizer.options.scrollPaddingEnd = revealPaddingEnd.current;
+      virtualizer.scrollToIndex(index, { align: "auto" });
+    };
     const isInput = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
     if (isInput && event.key !== "Escape") return;
     const container = transcriptRef.current;
@@ -310,7 +325,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
         const next = current === undefined
           ? Math.max(0, virtualizer.range?.startIndex ?? 0)
           : Math.min(messages.length - 1, current + 1);
-        virtualizer.scrollToIndex(next, { align: "auto" });
+        revealRow(next);
         return next;
       });
       return;
@@ -323,7 +338,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
         const prev = current === undefined
           ? Math.min(messages.length - 1, virtualizer.range?.endIndex ?? (messages.length - 1))
           : Math.max(0, current - 1);
-        virtualizer.scrollToIndex(prev, { align: "auto" });
+        revealRow(prev);
         return prev;
       });
       return;
@@ -333,7 +348,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       event.preventDefault();
       if (messages.length === 0) return;
       setFocusedIndex(0);
-      virtualizer.scrollToIndex(0, { align: "auto" });
+      revealRow(0);
       return;
     }
 
@@ -342,7 +357,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       if (messages.length === 0) return;
       const targetIndex = messages.length - 1;
       setFocusedIndex(targetIndex);
-      virtualizer.scrollToIndex(targetIndex, { align: "auto" });
+      revealRow(targetIndex);
       return;
     }
 
@@ -419,7 +434,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           }
         }
         if (targetIndex >= 0) {
-          virtualizer.scrollToIndex(targetIndex, { align: "auto" });
+          revealRow(targetIndex);
           return targetIndex;
         }
         return current;
@@ -446,7 +461,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       }
       return;
     }
-  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, updateExpandedMessage, virtualizer]);
+  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, scrollRef, updateExpandedMessage, virtualizer]);
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0

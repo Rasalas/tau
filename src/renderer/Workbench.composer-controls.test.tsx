@@ -52,6 +52,10 @@ describe("the controls row over the composer", () => {
     expect(row.parentElement?.classList.contains("conversation-thread")).toBe(true);
     expect(row.previousElementSibling?.classList.contains("transcript-viewport")).toBe(true);
     expect(row.nextElementSibling?.classList.contains("region-transcript-footer")).toBe(true);
+    // The dock lies over the transcript and paints over it by tree order (K51), so the thread comes first.
+    const host = view.container.querySelector(".conversation-composer-host")!;
+    expect(row.parentElement!.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row.parentElement!.querySelector(":scope > .composer-reserve-probe")).toBeTruthy();
     // At the tail there is nothing to jump to.
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
     expect(view.container.querySelector(".transcript-viewport .jump-to-latest")).toBeNull();

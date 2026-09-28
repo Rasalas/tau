@@ -32,6 +32,8 @@ const RUNTIME_PROPERTIES = [
   "--menu-shift-x",
   "--menu-shift-y",
   "--composer-inset",
+  // The unfolded dock's height, kept free at the transcript's end (components/ComposerReserve.tsx).
+  "--composer-reserve",
   "--font-family-override",
   "--font-size-override",
   // Typography a client sets on <html> beside the two above (Appearance Kit).

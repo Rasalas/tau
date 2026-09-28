@@ -19,6 +19,7 @@ import {
 } from "./transcript-turn-navigation";
 import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscript";
 import type { JumpToLatestStore } from "./JumpToLatest";
+import { composerReserve } from "./ComposerReserve";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -27,6 +28,11 @@ const TRANSCRIPT_ID = "thread-transcript";
 const VISIBLE_TURN_LEAD = 96;
 /** Older turns load while the reader is still this many viewports from the start. */
 const HISTORY_REACH_VIEWPORTS = 2;
+
+/** The part of the transcript the dock over its end never covers. */
+function visibleHeight(node: HTMLElement): number {
+  return Math.max(0, node.clientHeight - composerReserve(node));
+}
 
 interface MutableTranscriptMessageLookup {
   byId: Map<string, UiMessage>;
@@ -387,13 +393,13 @@ export const TranscriptViewport = memo(function TranscriptViewport({
 
     if (event.key === "PageDown" || (event.ctrlKey && event.key === "d") || (!event.ctrlKey && !event.metaKey && event.key === "d")) {
       event.preventDefault();
-      scrollByAmount(node.clientHeight * 0.7);
+      scrollByAmount(visibleHeight(node) * 0.7);
       return;
     }
 
     if (event.key === "PageUp" || (event.ctrlKey && event.key === "u") || (!event.ctrlKey && !event.metaKey && event.key === "u")) {
       event.preventDefault();
-      scrollByAmount(-node.clientHeight * 0.7);
+      scrollByAmount(-visibleHeight(node) * 0.7);
       return;
     }
 
