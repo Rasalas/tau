@@ -71,19 +71,25 @@ function parseNumstat(output: string): ThreadBranch["paths"] {
   return paths;
 }
 
+const totals = (paths: ThreadBranch["paths"]) => ({
+  files: paths.length,
+  added: paths.reduce((sum, entry) => sum + entry.added, 0),
+  removed: paths.reduce((sum, entry) => sum + entry.removed, 0),
+  paths: paths.slice(0, THREAD_BRANCH_PATHS),
+});
+
 const real = (path: string) => realpath(path).catch(() => resolve(path));
 
 /**
- * Whether the branch had work of its own before the target took it in: its
- * oldest reflog entry is where it was created, and a tip still there means a
- * branch that never moved, not a merged one. An agent's branch records that
- * commit as its base as well.
+ * Where the branch started, when it has moved since: its oldest reflog entry
+ * is where it was created, and a tip still there is a branch that never did
+ * anything, not a merged one. An agent's branch records that commit as its
+ * base as well.
  */
-async function hadOwnWork(root: string, branch: string, tip: string, runGit: AgentGitRunner): Promise<boolean> {
+async function ownStart(root: string, branch: string, tip: string, runGit: AgentGitRunner): Promise<string | undefined> {
   const created = (await runGit(root, ["reflog", "show", "--format=%H", `refs/heads/${branch}`, "--"]).catch(() => "")).trim().split("\n").filter(Boolean).at(-1);
-  if (created) return created !== tip;
-  const base = await readBranchBase(root, branch, runGit);
-  return Boolean(base && /^[0-9a-f]{40,64}$/u.test(base) && base !== tip);
+  const base = created ?? await readBranchBase(root, branch, runGit);
+  return base && /^[0-9a-f]{40,64}$/u.test(base) && base !== tip ? base : undefined;
 }
 
 /** Whether `path` is inside a linked worktree: its git dir is not the repository's common one. */
@@ -115,9 +121,11 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   const counts = (await runGit(root, ["rev-list", "--left-right", "--count", `${head}...${tip}`])).trim().split(/\s+/u).map(Number);
   const [behind = 0, ahead = 0] = counts;
   if (ahead === 0) {
-    // Nothing the target lacks: either merged, or a branch that never did anything.
-    const merged = await hadOwnWork(root, branch, tip, runGit);
-    return { ...base, target, ...empty, behind, merged };
+    // Nothing the target lacks: either merged, with what it carried from where it started, or a branch that never did anything.
+    const start = await ownStart(root, branch, tip, runGit);
+    if (!start) return { ...base, target, ...empty, behind };
+    const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", start, tip]).catch(() => ""));
+    return { ...base, target, ...empty, behind, merged: true, ...totals(paths) };
   }
   const forkPoint = (await runGit(root, ["merge-base", head, tip])).trim();
   const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", forkPoint, tip]));
@@ -127,10 +135,7 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
     target,
     ahead,
     behind,
-    files: paths.length,
-    added: paths.reduce((sum, entry) => sum + entry.added, 0),
-    removed: paths.reduce((sum, entry) => sum + entry.removed, 0),
-    paths: paths.slice(0, THREAD_BRANCH_PATHS),
+    ...totals(paths),
     merged: preview.merged,
     conflicts: preview.conflicts,
   };

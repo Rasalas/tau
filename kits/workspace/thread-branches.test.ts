@@ -69,7 +69,7 @@ describe("a thread's worktree branch", () => {
     await repo.commit(done, "c.txt", "see\n");
     repo.run(repo.cwd, "merge", "--no-ff", "-q", "-m", "merge", "tau/done");
     expect(await readThreadBranch(idle)).toMatchObject({ ahead: 0, merged: false });
-    expect(await readThreadBranch(done)).toMatchObject({ ahead: 0, merged: true });
+    expect(await readThreadBranch(done)).toMatchObject({ ahead: 0, merged: true, files: 1, added: 1, removed: 0 });
   });
 
   it("counts uncommitted work and leaves out the main checkout", async () => {
