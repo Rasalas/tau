@@ -19,6 +19,7 @@ import { ProviderIconStack } from "../components/ProviderIconStack";
 import { projectHue, projectInitial } from "../components/ThreadRow";
 import { MiddleTruncate } from "../components/ui/MiddleTruncate";
 import { threadCostLabel } from "../cost-format";
+import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { useClientStorage } from "../client-storage-context";
 import { useHostClient } from "../host-client-context";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
@@ -312,7 +313,7 @@ function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; show
     <span className="thread-meta-line">
       <span className="thread-meta-end">
         {cost ? <span className="thread-cost-meta">{cost}</span> : null}
-        <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
+        <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(row.usage)} className="touch-thread-provider" hint={{ side: "left" }} />
       </span>
       {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}
       {branch ? <MiddleTruncate className="thread-branch" value={branch} /> : null}

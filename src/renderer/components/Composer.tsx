@@ -21,6 +21,7 @@ import { ExtensionPrompt, Menu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
+import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
@@ -1007,7 +1008,7 @@ export function Composer({
                 onClick={() => { if (modelPickerAvailable) setModelPickerOpen((open) => !open); }}
               >
                 {snapshot?.model && !draftOnOtherRuntime
-                  ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind} className="chip-icon" />
+                  ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(snapshot.model)} className="chip-icon" />
                   : runtimeChoice
                     ? <ProviderIconStack runtimeProvider={runtimeChoice.kind} className="chip-icon" />
                     : <Sparkles size={13} className="accent" />}

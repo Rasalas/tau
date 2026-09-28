@@ -1,9 +1,9 @@
 import { Brain, Eye, EyeOff, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel } from "../../shared/contracts";
 import type { ModelBadgeContribution } from "../extension-system";
-import { DEFAULT_RUNTIME } from "../runtime-marks";
+import { DEFAULT_RUNTIME, modelOnPlan, providerMarks } from "../runtime-marks";
 import { billingBadge, formatPrice, formatTokens, type Offering } from "./model-offerings";
-import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
+import { ProviderIconStack } from "./ProviderIconStack";
 
 /** What every row of one list shares: marks, the model in use, the chosen set and the row actions. */
 export interface RowCell {
@@ -42,18 +42,26 @@ function PriceCell({ model, custom }: { model: UiModel; custom?: boolean }) {
 
 const HINT = { side: "top" } as const;
 
-/** The runtime's mark, then the model provider's where the runtime has several; each named in its tooltip. */
+/** The runtime's mark, then the model provider's unless it is the runtime's home; each named in its tooltip. */
 function OfferingMarks({ offering, provider }: { offering: Offering; provider: boolean }) {
   const { runtime, runtimeLabel, model } = offering;
-  const pi = runtime === DEFAULT_RUNTIME;
+  const plan = modelOnPlan(model);
   return (
     <span className="model-marks">
-      <ProviderIconStack runtimeProvider={pi ? "pi" : runtime} name={runtimeLabel} className="sub-icon" hint={HINT} />
-      {provider && (pi || providerLabel(model.provider) !== providerLabel(runtime))
-        ? <ProviderIconStack modelProvider={model.provider} className="sub-icon" hint={HINT} />
+      <ProviderIconStack runtimeProvider={runtime} name={runtimeLabel} className="sub-icon" hint={HINT} />
+      {provider && providerMarks(model.provider, runtime).model
+        ? <ProviderIconStack modelProvider={model.provider} plan={plan} className="sub-icon" hint={HINT} />
         : null}
     </span>
   );
+}
+
+/** In one runtime's list, which the rail names: what the model adds, else the runtime's own mark. */
+function ListMarks({ offering }: { offering: Offering }) {
+  const { runtime, model } = offering;
+  return providerMarks(model.provider, runtime).model
+    ? <ProviderIconStack modelProvider={model.provider} plan={modelOnPlan(model)} className="sub-icon" hint={HINT} />
+    : <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" hint={HINT} />;
 }
 
 /** One offering: a model as one runtime reaches it. */
@@ -105,7 +113,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
           <small className="model-sub">
             {cross
               ? <OfferingMarks offering={offering} provider />
-              : cells.showProvider ? <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" hint={HINT} /> : null}
+              : cells.showProvider ? <ListMarks offering={offering} /> : null}
             <span className="model-id">{model.id}</span>
             {levels.length ? <span className="model-levels" title={`Reasoning: ${levels.join(", ")}`}><Brain size={10} />{levels.length}</span> : null}
           </small>

@@ -6,6 +6,7 @@ import { effectiveNewThreadRuntime } from "../new-thread-runtime";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
 import { AddModelProviderModal } from "../components/AddModelProviderModal";
 import { ProviderIconStack } from "../components/ProviderIconStack";
+import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { runtimeUpdate } from "../runtime-update";
 import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
@@ -60,7 +61,7 @@ export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking,
             <button ref={pickerAnchor} type="button" className="settings-model-button" aria-haspopup="dialog" aria-expanded={pickerOpen} onClick={() => setPickerOpen((open) => !open)}
               {...tooltipProps(snapshot?.model ? `${snapshot.model.name} · ${snapshot.model.provider}` : undefined, { when: "truncated" })}>
               {snapshot?.model
-                ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" hint={false} />
+                ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(snapshot.model)} className="chip-icon" hint={false} />
                 : <Sparkles size={14} className="accent" />}
               <span>{snapshot?.model?.name ?? "No model selected"}</span>
               <ChevronDown size={14} aria-hidden />

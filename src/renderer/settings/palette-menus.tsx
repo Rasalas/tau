@@ -5,7 +5,7 @@ import { ProviderIconStack, providerLabel } from "../components/ProviderIconStac
 import { billingBadge, modelKey, offeringKey } from "../components/model-offerings";
 import type { PaletteItem, RuntimeModels, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
-import { DEFAULT_RUNTIME } from "../runtime-marks";
+import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { THEME_PREFERENCES, listUserThemes, type ThemePreference } from "../theme";
 
 /**
@@ -105,7 +105,7 @@ export async function modelItems(preferences: PreferencesStore, actions: Workben
           id: offeringKey(backend.kind, model),
           label: model.name,
           ...(badge ? { detail: badge.label } : {}),
-          icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} />,
+          icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} plan={modelOnPlan(model)} />,
           keywords: [model.id, model.provider, providerLabel(model.provider), backend.label, backend.kind],
           current: current(model),
           access: "write",

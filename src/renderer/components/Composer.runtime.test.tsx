@@ -54,12 +54,12 @@ const piThread: HostSnapshot = {
 afterEach(cleanup);
 
 describe("composer runtime choice", () => {
-  it("shows a Pi thread's model without Pi's mark, and offers other runtimes as new threads", async () => {
+  it("shows a Pi thread's plan beside Pi's mark, and offers other runtimes as new threads", async () => {
     const onNewThreadOnRuntime = vi.fn();
     renderComposer(undefined, piThread, vi.fn(), onNewThreadOnRuntime);
     const chip = screen.getByLabelText("Select model: GPT-5.6 Luna");
-    expect(chip.querySelector(".provider-family-openai")).toBeTruthy();
-    expect(chip.querySelector(".provider-family-pi")).toBeNull();
+    expect(chip.querySelector(".provider-family-codex")).toBeTruthy();
+    expect(chip.querySelector(".provider-family-pi")).toBeTruthy();
     fireEvent.click(chip);
     fireEvent.click(await screen.findByRole("button", { name: /^Claude Code,/u }));
     fireEvent.click(screen.getByRole("button", { name: "New thread on Claude Code" }));
