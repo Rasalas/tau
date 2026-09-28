@@ -89,6 +89,7 @@ export function parseArgs(argv) {
     else if (arg === "--real-agent-dir") options.realAgentDir = true;
     else if (arg === "--as-installed") options.asInstalled = true;
     else if (arg === "--onboarding") options.onboarding = true;
+    else if (arg === "--mock-keychain") options.mockKeychain = true;
     else if (arg === "--port") {
       const value = argv[++index];
       if (!value || Number.isNaN(Number(value))) throw new Error(`--port needs a number, got ${JSON.stringify(value)}`);
@@ -102,7 +103,7 @@ export function parseArgs(argv) {
       if (!value) throw new Error("--agent-dir needs a path");
       options.agentDir = value;
     } else {
-      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --as-installed, --onboarding, --port <n>, --workspace <path>, --agent-dir <path>)`);
+      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --as-installed, --onboarding, --mock-keychain, --port <n>, --workspace <path>, --agent-dir <path>)`);
     }
   }
   if (options.asInstalled && options.workspace) throw new Error("--as-installed names no workspace; drop --workspace");
@@ -327,7 +328,8 @@ async function main() {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SSH_AGENT_PID;
 
-  const child = spawn(electronBin, [options.asInstalled ? ROOT : ".", `--remote-debugging-port=${port}`], {
+  // --mock-keychain: the window keeps another machine's key without the macOS keychain (pairing tests).
+  const child = spawn(electronBin, [options.asInstalled ? ROOT : ".", `--remote-debugging-port=${port}`, ...(options.mockKeychain ? ["--use-mock-keychain"] : [])], {
     cwd: options.asInstalled ? sep : ROOT,
     env,
     stdio: ["ignore", logFd, logFd],

@@ -17,7 +17,8 @@ export const usageExtension: DesktopExtension = {
       order: 20,
       layout: "wide",
       keywords: ["cost", "tokens", "limits", "billing"],
-      Component: (props) => <UsagePage {...props} host={plugin.host} />,
+      // The window's other machines, read through it; a browser or a phone has none.
+      Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} />,
     });
 
     plugin.registerCommand({

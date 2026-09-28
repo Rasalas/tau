@@ -1,14 +1,14 @@
 /*
  * Usage Kit's page: the period figures, the plan limits, the days and the
- * rankings. Spacing separates the parts; there are no cards. Billed money is
- * the accent, a plan's value a lighter step of the same hue, tokens neutral.
+ * rankings. Data takes its provider's colour (`--provider-*`, set per element
+ * as `--usage-tone`); a plan's value is a lighter step of it. The accent is
+ * left to Tau's own controls, the warn and fail colours to states.
  */
 .usage-page { display: flex; flex-direction: column; gap: 36px; transition: opacity var(--panel-motion, 0ms) var(--ease); }
 .usage-page.refreshing .usage-kpis, .usage-page.refreshing .usage-history, .usage-page.refreshing .usage-ranks { opacity: .55; }
 .usage-page .spacer { flex: 1; }
-/* A plan's value: the accent's lighter step, readable on either theme's surface. */
 .usage-page {
-  --usage-plan: color-mix(in srgb, var(--acid) 42%, var(--shell));
+  --usage-tone: var(--provider-other);
 }
 .usage-page .provider-icon-stack { margin-left: 0; }
 /* One slot for a single mark or a pair, so the names line up. */
@@ -43,36 +43,110 @@
 .usage-segmented > button { flex: none; padding: 5px 12px; font-size: 12px; }
 .usage-segmented > button.active { background: var(--raised); color: var(--ink); font-weight: 600; }
 
-/* Plan limits: one block per account, a line per window. */
-.usage-limits { display: flex; flex-direction: column; gap: 18px; }
-.usage-account { display: flex; flex-direction: column; gap: 6px; }
-.usage-account > header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.usage-account > header > strong { color: var(--ink); font-size: 13px; font-weight: 600; }
-.usage-account > header > small { margin-left: auto; color: var(--faint); font-size: 11px; }
-.usage-plan {
-  padding: 1px 6px; border-radius: var(--radius-xs); background: var(--chip); color: var(--muted);
-  font: 600 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+/*
+ * Plan limits, as Juicebar draws them: a block per account, a figure and a
+ * bar per window, and a diamond where even use would be now, its middle on
+ * the bar's top edge. Colour says state only: the accent for use, the fail
+ * colour for a spent window, muted for a reading that is old.
+ */
+.usage-limits { display: flex; flex-direction: column; gap: 16px; }
+/* Two columns at most, as Juicebar's overview; one on a narrow page. */
+.usage-accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(320px, calc((100% - 16px) / 2)), 1fr)); gap: 16px; align-items: start; }
+.usage-account {
+  display: flex; flex-direction: column; gap: 18px; min-width: 0;
+  padding: 18px 20px; border: 1px solid var(--line-card); border-radius: var(--radius-lg); background: var(--inset);
 }
-.usage-window { display: grid; grid-template-columns: 7rem minmax(0, 1fr) 5.5rem 11rem; gap: 14px; align-items: center; padding-left: 28px; }
-.usage-window-label { color: var(--ink-3); font-size: 12.5px; }
-.usage-meter { position: relative; height: 16px; outline: none; cursor: default; }
-.usage-meter::before { content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 6px; border-radius: 999px; background: var(--acid-bg); }
-.usage-meter:focus-visible { box-shadow: 0 0 0 2px var(--acid-line); border-radius: var(--radius-sm); }
-.usage-meter-fill { position: absolute; left: 0; top: 5px; height: 6px; border-radius: 999px; background: var(--acid); }
-.usage-window[data-level="warn"] .usage-meter-fill { background: var(--warn); }
-.usage-window[data-level="critical"] .usage-meter-fill { background: var(--fail); }
-.usage-meter-pace { position: absolute; top: 1px; bottom: 1px; width: 2px; transform: translateX(-50%); border-radius: 1px; background: var(--ink-3); }
-.usage-window-used { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
-.usage-window[data-level] .usage-window-used { color: var(--warn); font-weight: 600; }
-.usage-window-reset { display: flex; flex-direction: column; color: var(--muted); font-size: 12px; line-height: 1.3; }
-.usage-window-reset small { color: var(--faint); font-size: 11px; }
-.usage-account-cost { margin: 2px 0 0; padding-left: 28px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.usage-account > header { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.usage-account-mark {
+  width: 36px; height: 36px; flex: none; display: grid; place-items: center;
+  border-radius: 10px; background: color-mix(in srgb, var(--usage-tone) 16%, transparent);
+}
+.usage-account-mark > .provider-icon-stack, .usage-silent-mark > .provider-icon-stack, .usage-runtimes .provider-icon-stack, .usage-account-runtimes > .provider-icon-stack { margin: 0; }
+.usage-account-mark .provider-icon { filter: none; }
+.usage-account-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.usage-account-name > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 13.5px; font-weight: 600; }
+.usage-account-name > small { color: var(--muted); font-size: 12px; text-transform: capitalize; }
+.usage-account-runtimes { flex: none; display: flex; align-items: center; gap: 6px; }
+.usage-account-stale {
+  flex: none; padding: 2px 7px; border-radius: var(--radius-xs); background: var(--warn-chip); color: var(--warn);
+  font-size: 11px; font-weight: 500; white-space: nowrap; cursor: default; outline: none;
+}
+.usage-account-stale:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+
+.usage-window { display: flex; flex-direction: column; gap: 6px; }
+.usage-window-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.usage-window-label { color: var(--ink-2); font-size: 12.5px; font-weight: 500; }
+.usage-window-value { display: inline-flex; align-items: baseline; gap: 2px; font-variant-numeric: tabular-nums; }
+.usage-window-value > b { color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1; }
+.usage-window-value > small { color: var(--muted); font-size: 11.5px; }
+/* 18 px: a 6 px bar from 9 px down, and a 10 px diamond from 4 px, its middle on the bar's top edge. */
+.usage-meter { position: relative; height: 18px; outline: none; cursor: default; border-radius: var(--radius-xs); }
+.usage-meter::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 6px; border-radius: var(--radius-pill); background: var(--track); }
+.usage-meter:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+.usage-meter-fill { position: absolute; left: 0; top: 9px; height: 6px; border-radius: var(--radius-pill); background: var(--usage-tone); }
+/* Where even use would be now; at either end it stays whole inside the bar. */
+.usage-meter-pace {
+  --usage-pace: 0%;
+  position: absolute; top: 4px; left: clamp(5px, var(--usage-pace), calc(100% - 5px)); width: 10px; height: 10px; margin-left: -5px;
+  background: var(--ink); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.usage-window[data-state="exhausted"] .usage-meter-fill { background: var(--fail); }
+.usage-account[data-fresh="false"] .usage-meter-fill { background: var(--faint); }
+.usage-window[data-state="expired"] .usage-window-value > b { color: var(--faint); }
+.usage-window-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; min-height: 18px; font-size: 12px; }
+.usage-window-reset { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.usage-window-reset > svg { flex: none; color: var(--faint); }
+.usage-window-state { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; cursor: default; }
+.usage-window-state > svg { flex: none; }
+.usage-window-state[data-level="warn"] { color: var(--warn); }
+.usage-window-state[data-level="fail"] { color: var(--fail-ink); }
+.usage-window-state[data-level="note"] { color: var(--muted); font-weight: 400; }
+.usage-account-cost { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .usage-account-cost b { color: var(--ink-2); font-weight: 600; }
 .usage-account-cost span { color: var(--faint); }
-.usage-silent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
-.usage-silent > li { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.usage-silent > li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usage-silent strong { color: var(--ink-3); font-weight: 500; }
+.usage-account-updated { margin-top: -4px; color: var(--faint); font-size: 11px; }
+.usage-pace-legend { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 12px; }
+.usage-pace-legend > i { width: 10px; height: 10px; flex: none; background: var(--ink); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.usage-silent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 12px; }
+.usage-silent > li { display: grid; grid-template-columns: 18px auto minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+.usage-silent-mark { display: grid; place-items: center; }
+.usage-silent strong { color: var(--ink-3); font-weight: 500; white-space: nowrap; }
+.usage-silent > li > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The last day's readings, folded away: a step line per window. */
+.usage-readings > summary { width: max-content; color: var(--muted); font-size: 12px; cursor: pointer; }
+.usage-readings > summary:hover { color: var(--ink-2); }
+.usage-readings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px 32px; margin-top: 12px; }
+.usage-readings-series { margin: 0; min-width: 0; }
+.usage-readings-series > figcaption { margin-bottom: 6px; color: var(--ink-3); font-size: 12px; }
+.usage-readings-series > svg { display: block; width: 100%; height: auto; }
+.usage-readings-grid-lines { fill: none; stroke: var(--line-soft); stroke-width: 1; }
+.usage-readings-line { fill: none; stroke: var(--usage-tone); stroke-width: 2; }
+.usage-readings-point { fill: var(--usage-tone); }
+.usage-readings-axis { display: flex; justify-content: space-between; margin-top: 4px; color: var(--faint); font-size: 10.5px; }
+
+/* The days: the calendar beside the chart. */
+.usage-days { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 32px; align-items: start; }
+.usage-calendar {
+  --usage-cell: 12px;
+  margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.usage-calendar > figcaption { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+.usage-calendar > figcaption > b { color: var(--ink-2); font-weight: 600; }
+.usage-calendar-grid { display: grid; grid-template-rows: auto repeat(7, var(--usage-cell)); justify-content: start; gap: 3px; }
+.usage-calendar-month, .usage-calendar-weekday { color: var(--faint); font-size: 10px; line-height: 1; white-space: nowrap; }
+.usage-calendar-month { overflow: visible; padding-bottom: 3px; }
+.usage-calendar-weekday { display: flex; align-items: center; padding-right: 6px; }
+.usage-calendar-grid > i, .usage-calendar-key > i { display: block; width: var(--usage-cell); height: var(--usage-cell); border-radius: 3px; background: var(--chip); }
+.usage-calendar i[data-level="1"] { background: color-mix(in srgb, var(--usage-tone) 30%, var(--chip)); }
+.usage-calendar i[data-level="2"] { background: color-mix(in srgb, var(--usage-tone) 55%, var(--chip)); }
+.usage-calendar i[data-level="3"] { background: color-mix(in srgb, var(--usage-tone) 78%, var(--chip)); }
+.usage-calendar i[data-level="4"] { background: var(--usage-tone); }
+.usage-calendar-key {
+  --usage-cell: 10px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: var(--faint); font-size: 10px; }
+.usage-calendar-key > i:first-child { margin-left: 3px; }
+.usage-calendar-key > i:last-child { margin-right: 3px; }
+.usage-runtimes > button { display: grid; place-items: center; min-width: 34px; }
 
 /* The days: columns on a baseline, three hairlines, dates under some. */
 .usage-history { margin: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -85,16 +159,17 @@
 .usage-chart-day { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; outline: none; cursor: default; border-radius: 3px; }
 .usage-chart-day:hover, .usage-chart-day:focus-visible { background: var(--hover); }
 .usage-chart-day:focus-visible { box-shadow: 0 0 0 1px var(--line-focus); }
-.usage-bar { flex: none; width: min(100%, 24px); min-height: 2px; background: var(--acid); }
-.usage-bar:last-of-type { border-radius: 4px 4px 0 0; }
-.usage-bar.plan { background: var(--usage-plan); }
-.usage-bar.tokens { background: var(--ink-3); }
+.usage-chart-stack { display: flex; flex-direction: column-reverse; align-items: center; width: 100%; height: 100%; }
+.usage-bar { flex: none; width: min(100%, 24px); min-height: 2px; background: var(--usage-tone); }
+.usage-bar:last-child { border-radius: 4px 4px 0 0; }
+.usage-bar.plan { background: color-mix(in srgb, var(--usage-tone) 42%, var(--shell)); }
 .usage-chart-date { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); color: var(--faint); font-size: 10.5px; white-space: nowrap; }
 .usage-chart-day:last-child .usage-chart-date { left: auto; right: 0; transform: none; }
-.usage-legend { display: flex; gap: 18px; color: var(--muted); font-size: 11.5px; }
+.usage-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; color: var(--muted); font-size: 11.5px; }
 .usage-legend > span { display: inline-flex; align-items: center; gap: 6px; }
-.usage-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--acid); }
-.usage-legend i.plan { background: var(--usage-plan); }
+.usage-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--usage-tone); }
+.usage-legend-other { color: var(--muted); }
+.usage-legend i.plan { background: color-mix(in srgb, var(--ink-3) 42%, var(--shell)); }
 .usage-table-view > summary { width: max-content; color: var(--muted); font-size: 11.5px; cursor: pointer; }
 .usage-table-view > summary:hover { color: var(--ink-2); }
 .usage-day-table { margin-top: 8px; }
@@ -113,12 +188,11 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-rank-name > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 12.5px; font-weight: 500; }
 .usage-rank-name > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11px; }
 .usage-rank-bar { display: flex; gap: 2px; height: 6px; }
-.usage-rank-bar > i { height: 100%; min-width: 2px; background: var(--acid); }
+.usage-rank-bar > i { height: 100%; min-width: 2px; background: var(--usage-tone); }
 .usage-rank-bar > i:first-child { border-radius: 3px 0 0 3px; }
 .usage-rank-bar > i:last-child { border-radius: 0 3px 3px 0; }
 .usage-rank-bar > i:only-child { border-radius: 3px; }
-.usage-rank-bar > i.plan { background: var(--usage-plan); }
-.usage-rank-bar > i.tokens { background: var(--ink-3); }
+.usage-rank-bar > i.plan { background: color-mix(in srgb, var(--usage-tone) 42%, var(--shell)); }
 .usage-rank-value { display: flex; flex-direction: column; align-items: flex-end; min-width: 64px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-rank-value b { color: var(--ink); font-weight: 600; }
 .usage-rank-value em { color: var(--muted); font-style: normal; }
@@ -139,7 +213,7 @@ button.usage-rank-label:hover { background: var(--hover); }
   font: 600 10px var(--label-font); font-style: normal; letter-spacing: var(--label-tracking); text-transform: var(--label-case);
   background: var(--chip); color: var(--muted);
 }
-.usage-sources > li[data-status="ok"] .usage-status { background: var(--acid-chip); color: var(--acid-text); }
+.usage-sources > li[data-status="ok"] .usage-status { color: var(--ready); }
 .usage-sources > li[data-status="unavailable"] .usage-status { background: var(--warn-chip); color: var(--warn); }
 
 /* Model prices: a table of the user's own, and a row that adds one. */
@@ -160,9 +234,21 @@ button.usage-rank-label:hover { background: var(--hover); }
   .usage-kpi > h3 { margin-bottom: 6px; }
   .usage-kpi-figures b { font-size: 22px; }
   .usage-kpi-detail { margin-top: 6px; }
-  .usage-window { grid-template-columns: minmax(0, 1fr) auto; padding-left: 0; }
-  .usage-account-cost { padding-left: 0; }
-  .usage-window .usage-meter { grid-column: 1 / -1; grid-row: 2; }
-  .usage-window-reset { grid-column: 1 / -1; flex-direction: row; gap: 6px; }
   .usage-toolbar { margin: 0; }
+  .usage-accounts { grid-template-columns: minmax(0, 1fr); }
+  .usage-account { padding: 16px; }
+  .usage-days { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .usage-calendar {
+    --usage-cell: 17px;
+  }
+  .usage-section-head > .spacer { display: none; }
+}
+
+/* Touch: every control a finger reaches is 44 px tall. */
+@media (pointer: coarse) {
+  .usage-icon-button { width: 44px; height: 44px; }
+  .usage-segmented > button { min-height: 44px; min-width: 44px; }
+  .usage-link { min-height: 44px; }
+  .usage-table-view > summary, .usage-readings > summary { box-sizing: border-box; min-height: 44px; padding-block: 12px; }
+  button.usage-rank-label { min-height: 44px; }
 }

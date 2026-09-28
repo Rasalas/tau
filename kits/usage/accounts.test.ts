@@ -57,4 +57,14 @@ describe("Usage accounts", () => {
     const [group] = groupAccounts([codex, pi, work]);
     expect(memberCosts(group!, [codex, pi, work], [entry({})], 0)).toBeUndefined();
   });
+
+  it("joins one account across machines, keeps same-named accounts of two machines apart, and splits costs by machine", () => {
+    const rexCodex = account({ ...codex, machine: "rex-id", label: "Codex on rex", checkedAt: 3_000 });
+    const rexGrok = account({ id: "grok:account", runtime: "grok", label: "Grok on rex", machine: "rex-id" });
+    const groups = groupAccounts([codex, rexCodex, account({ id: "grok:account", runtime: "grok", label: "Grok" }), rexGrok]);
+    expect(groups.map((group) => group.label)).toEqual(["ChatGPT · Codex, Codex on rex", "Grok", "Grok on rex"]);
+    expect(groups[0]!.shown.machine).toBe("rex-id");
+    const costs = memberCosts(groups[0]!, [codex, rexCodex], [entry({}), entry({ machine: "rex-id", apiValueUsd: 3 })], 0);
+    expect(costs).toEqual([{ name: "Codex", costUsd: 0, apiValueUsd: 1 }, { name: "Codex on rex", costUsd: 0, apiValueUsd: 3 }]);
+  });
 });

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TauConfig, WorkbenchActions } from "tau";
+import type { PlatformEnvironments, TauConfig, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { HostClientProvider, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
@@ -146,11 +146,14 @@ describe("Usage page", () => {
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["Codex limits", "Pi · openai-codex limits"]);
     const codex = within(limitsList).getByRole("region", { name: "Codex limits" });
     expect(within(codex).getByText("pro")).toBeTruthy();
-    expect(within(codex).getByText("34% used")).toBeTruthy();
-    expect(within(codex).getByText("resets in 1h 30m")).toBeTruthy();
+    const session = within(codex).getByRole("meter", { name: "5-hour used" });
+    expect(session.getAttribute("aria-valuenow")).toBe("34");
+    expect(within(codex).getByText(/^resets in 1h 30m · /u)).toBeTruthy();
+    // 3d before the weekly reset, 57 % of the week has passed: the diamond sits there.
     const weekly = within(codex).getByRole("meter", { name: "Weekly used" });
-    expect(weekly.getAttribute("aria-valuenow")).toBe("95");
-    expect(weekly.closest(".usage-window")?.getAttribute("data-level")).toBe("critical");
+    expect(weekly.getAttribute("aria-valuetext")).toBe("95% used, steady pace 57%, Above steady pace");
+    expect((weekly.querySelector(".usage-meter-pace") as HTMLElement).style.getPropertyValue("--usage-pace")).toMatch(/^57\.\d+%$/u);
+    expect(within(screen.getByRole("region", { name: "Pi · openai-codex limits" })).getByText("Reset time unavailable")).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText(/An API key or a cloud provider has no plan limits/u)).toBeTruthy();
   });
 
@@ -163,7 +166,8 @@ describe("Usage page", () => {
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["ChatGPT · Codex, Pi limits"]);
     const account = within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Pi limits" });
     expect(within(account).getAllByRole("meter")).toHaveLength(1);
-    expect(within(account).getByText("10% used")).toBeTruthy();
+    expect(within(account).getByRole("meter").getAttribute("aria-valuenow")).toBe("10");
+    expect(within(account).getByText("ChatGPT")).toBeTruthy();
     expect(within(account).getByText(/via Pi/u)).toBeTruthy();
     expect(within(account).getByText("pro")).toBeTruthy();
     await waitFor(() => expect(account.querySelector(".usage-account-cost")?.textContent).toBe("Last 30 days: ≈ $1.60 plan value (Codex ≈ $1.40, Pi ≈ $0.20)"));
@@ -252,6 +256,42 @@ describe("Usage page", () => {
     expect(priceFromDraft({ input: "1", output: "x" })).toBe("Output must be a number of dollars, 0 or more.");
     expect(priceFromDraft({ output: "2" }, { input: 1, output: 4 })).toEqual({ input: 1, output: 2 });
     expect(priceFromDraft({ input: "1" })).toBe("Enter an input and an output price.");
+  });
+});
+
+describe("Usage across machines", () => {
+  it("adds the connected machines' usage and limits, one account once, and filters by machine", async () => {
+    const identity = { provider: "openai", key: "d".repeat(64) };
+    const local: UsageLimitsSummary = { ...limits, accounts: [{ ...limits.accounts[0]!, identity }] };
+    const rexLimits: UsageLimitsSummary = { checkedAt: NOW.getTime(), sources: [{ extensionId: "tau.codex", label: "Codex", status: "ok", detail: "1 account, 1 window." }], accounts: [
+      { id: "codex:account", runtime: "codex", label: "Codex", checkedAt: NOW.getTime(), identity, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 40, windowMinutes: 300, resetsAt: NOW.getTime() + 90 * 60_000 }] },
+      { id: "grok:account", runtime: "grok", label: "Grok", checkedAt: NOW.getTime(), windows: [{ id: "credits", kind: "monthly", label: "Monthly", usedPercent: 20 }] },
+    ] };
+    const rexEntries = [entry({ backend: "codex", threadId: "t-rex", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", costUsd: 2, requests: 5 })];
+    const reads: Array<[string, string]> = [];
+    const environments = {
+      getSnapshot: () => ({ shown: "here", secureStorage: true, environments: [
+        { id: "here", name: "This Mac", local: true, status: "connected", threads: [], threadCount: 0 },
+        { id: "rex-id", name: "rex", local: false, status: "connected", threads: [], threadCount: 0 },
+        { id: "gone-id", name: "old", local: false, status: "offline", threads: [], threadCount: 0 },
+      ] }),
+      subscribe: () => () => undefined,
+      readExtension: vi.fn(async (machine: string, extensionId: string, command: string) => {
+        reads.push([machine, `${extensionId} ${command}`]);
+        return command === "limits" ? rexLimits : summary({ entries: rexEntries });
+      }),
+    } as unknown as PlatformEnvironments;
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(vi.fn(async (command: string) => command === "limits" ? local : summary()))} environments={environments} now={() => NOW} navigate={vi.fn()} /></HostClientProvider></TestProviders>);
+    const today = await screen.findByRole("region", { name: "Today" });
+    await waitFor(() => expect(within(today).getByText("$2.01")).toBeTruthy());
+    expect(reads).toEqual(expect.arrayContaining([["rex-id", "tau.usage summary"], ["rex-id", "tau.usage limits"]]));
+    expect(reads.some(([machine]) => machine !== "rex-id")).toBe(false);
+    const limitsList = screen.getByLabelText("Limits");
+    await waitFor(() => expect(within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Codex on rex limits" })).toBeTruthy());
+    expect(within(limitsList).getByRole("region", { name: "Grok on rex limits" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toMatch(/this computer and rex$/u);
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Machine" })).getByText("rex"));
+    expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringContaining("rex")]);
   });
 });
 

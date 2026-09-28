@@ -44,4 +44,11 @@ describe("usage dashboard", () => {
   it("rounds an axis up to 1, 2 or 5 of a power of ten", () => {
     expect([0, 0.3, 1.2, 4, 7, 12_345].map(niceCeiling)).toEqual([1, 0.5, 2, 5, 10, 20_000]);
   });
+
+  it("splits each day and each ranked row by provider colour, in one order", () => {
+    const days = dayStarts(7, new Date(2026, 8, 27));
+    const series = dailyFigures([...entries, entry({ day: 6, backend: "pi", provider: "google", totalTokens: 5 })], days, 4);
+    expect(series[2]!.parts.map((part) => [part.tone, part.totalTokens])).toEqual([["openai", 9_000], ["anthropic", 250], ["google", 5]]);
+    expect(rankUsage(entries, 0, "project", "cost", 5)[0]!.parts.map((part) => part.tone)).toEqual(["openai", "anthropic"]);
+  });
 });

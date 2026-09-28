@@ -1512,6 +1512,26 @@ names one; `anthropic` hashes `org:<organization id>` for a personal plan and ad
 `:user:<account id>` for a team or enterprise plan, which Pi cannot tell, so those stay
 apart. Pi Limits keeps only the hash in its state file.
 
+Usage's `limits` answer also carries `history`: the readings of the last 24 hours
+(at most 12,000), kept in the kit's own `limit-history.json`. A reading is an
+account at its `checkedAt`, which is when the provider was asked, never when a
+cached answer was handed on; a cached answer adds nothing. A source whose read
+fails keeps its last windows, marked `unavailable: { reason: "failed" }`; a
+signed-out or unsupported account drops its readings.
+The page reads again every five minutes while it is open and seen, asking the
+kits for fresh limits, since a forecast needs readings a few minutes apart: a
+window runs out, or passes the steady line, within two hours at the pace of
+the last run of rising readings of the same source (three or more, five
+minutes apart at least, no gap over ten). A reading older than ten minutes is
+shown as the last known one and forecasts nothing.
+
+In a desktop window the page also runs `summary` and `limits` on every other
+machine the window is connected to (`context.environments.readExtension`; both
+are `access: "read"`). It marks those entries and accounts with the machine's
+host id (`machine`, set by the page, never sent by a host) and names them
+"Codex on rex"; an account with the same `identity` still shows once. A
+browser or a phone has no machine list and shows its own host only.
+
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
 conversations their CLIs ran outside Tau. A backend that can import them
 registers two commands granted to `tau.onboarding`:

@@ -1,5 +1,7 @@
-import { formatCost, tooltipProps } from "tau";
-import { measure, niceCeiling, type DayFigures, type UsageMetric } from "./dashboard.js";
+import type { CSSProperties } from "react";
+import { formatCost, ProviderIconStack, tooltipProps } from "tau";
+import { measure, niceCeiling, TONE_ORDER, type DayFigures, type UsageMetric } from "./dashboard.js";
+import type { UsageTone } from "./tones.js";
 import { formatTokens } from "./view-model.js";
 
 const money = (value: number) => formatCost(value) ?? "$0";
@@ -10,6 +12,7 @@ function dayLabel(start: number, long = false): string {
 
 function tick(value: number, metric: UsageMetric): string {
   if (metric === "tokens") return formatTokens(value);
+  if (metric === "turns") return String(Math.round(value));
   return value >= 10 || value === 0 ? `$${Math.round(value)}` : `$${value.toFixed(value < 1 ? 2 : 1)}`;
 }
 
@@ -24,15 +27,25 @@ export function daySummary(day: DayFigures): string {
   return parts.join(" · ");
 }
 
+const tone = (name: UsageTone) => ({ "--usage-tone": `var(--provider-${name})` }) as CSSProperties;
+
+/** A colour's name in the legend: its provider's mark, the name on hover. */
+export function ToneMark({ tone: name }: { tone: UsageTone }) {
+  if (name === "other") return <span className="usage-legend-other">Other</span>;
+  return <ProviderIconStack {...(name === "pi" ? { runtimeProvider: "pi" } : { modelProvider: name })} hint={{ side: "top" }} />;
+}
+
 /**
- * Columns per day. In money, the billed part sits on the baseline and a
- * plan's value above it in a lighter step of the same hue: two parts of one
- * bar, never one figure. In tokens, one column.
+ * Columns per day, a part per provider in its colour (a model's provider,
+ * else its runtime's). In money a provider's billed part is solid and its
+ * plan value a lighter step of the same colour above it: never one figure.
  */
 export function UsageHistory({ series, metric }: { series: readonly DayFigures[]; metric: UsageMetric }) {
   const top = niceCeiling(Math.max(0, ...series.map((day) => measure(day, metric))));
   const share = (value: number) => `${Math.max(0, Math.min(100, (value / top) * 100))}%`;
   const labelEvery = series.length > 31 ? 14 : series.length > 8 ? 7 : 1;
+  const tones = TONE_ORDER.filter((name) => series.some((day) => day.parts.some((part) => part.tone === name)));
+  const planShown = metric === "cost" && series.some((day) => day.apiValueUsd > 0);
   return (
     <figure className="usage-history" data-metric={metric}>
       <div className="usage-chart">
@@ -41,19 +54,19 @@ export function UsageHistory({ series, metric }: { series: readonly DayFigures[]
         </div>
         <div className="usage-chart-plot">
           <div className="usage-chart-grid" aria-hidden="true"><i /><i /><i /></div>
-          <ol className="usage-chart-bars" aria-label={metric === "tokens" ? "Tokens per day" : "Cost per day"}>
+          <ol className="usage-chart-bars" aria-label={metric === "tokens" ? "Tokens per day" : metric === "turns" ? "Turns per day" : "Cost per day"}>
             {series.map((day, index) => {
               const summary = daySummary(day);
               return (
                 <li key={day.start} className="usage-chart-day" tabIndex={0} aria-label={summary} {...tooltipProps(summary, { side: "top" })}>
-                  {metric === "tokens" ? (
-                    day.totalTokens > 0 ? <span className="usage-bar tokens" style={{ height: share(day.totalTokens) }} /> : null
-                  ) : (
-                    <>
-                      {day.costUsd > 0 ? <span className="usage-bar billed" style={{ height: share(day.costUsd) }} /> : null}
-                      {day.apiValueUsd > 0 ? <span className="usage-bar plan" style={{ height: share(day.apiValueUsd) }} /> : null}
-                    </>
-                  )}
+                  <span className="usage-chart-stack">
+                    {day.parts.flatMap((part) => metric === "cost"
+                      ? [
+                        part.costUsd > 0 ? <span key={`${part.tone}-billed`} className="usage-bar" style={{ ...tone(part.tone), height: share(part.costUsd) }} /> : null,
+                        part.apiValueUsd > 0 ? <span key={`${part.tone}-plan`} className="usage-bar plan" style={{ ...tone(part.tone), height: share(part.apiValueUsd) }} /> : null,
+                      ]
+                      : measure(part, metric) > 0 ? [<span key={part.tone} className="usage-bar" style={{ ...tone(part.tone), height: share(measure(part, metric)) }} />] : [])}
+                  </span>
                   {(series.length - 1 - index) % labelEvery === 0 ? <small className="usage-chart-date">{index === series.length - 1 ? "Today" : dayLabel(day.start)}</small> : null}
                 </li>
               );
@@ -61,10 +74,12 @@ export function UsageHistory({ series, metric }: { series: readonly DayFigures[]
           </ol>
         </div>
       </div>
-      {metric === "cost" ? (
+      {tones.length > 0 ? (
         <figcaption className="usage-legend">
-          <span><i className="billed" />Billed per token</span>
-          <span><i className="plan" />Plan value, at API prices</span>
+          {tones.map((name) => (
+            <span key={name} style={tone(name)}><i /><ToneMark tone={name} /></span>
+          ))}
+          {planShown ? <span className="usage-legend-plan"><i className="plan" />Lighter: plan value, at API prices</span> : null}
         </figcaption>
       ) : null}
       <details className="usage-table-view">
