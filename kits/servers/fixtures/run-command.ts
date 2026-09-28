@@ -15,6 +15,8 @@ export function runCommand(command: string, args: string[], options: { env?: Nod
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", reject);
+    // A child that exits before reading its input closes the pipe; its exit code still answers.
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => { if (error.code !== "EPIPE") reject(error); });
     child.once("close", (code) => resolve({ code, stdout, stderr }));
     child.stdin.end(options.input ?? "");
   });
