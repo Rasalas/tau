@@ -109,6 +109,8 @@ export function useConversationActivities(input: ConversationActivityInput) {
     viewStore.resolvePendingAnchors(extensionRows.flatMap((row) => row.afterMessageId === undefined ? [] : [row.afterMessageId]));
   }, [extensionRows, viewStore]);
 
+  // A yes-or-no question is an approval; the live line then says what it waits to do.
+  const waitingFor = prompts[0] ? (prompts[0].kind === "confirm" ? "approval" : "question") : undefined;
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
     ...historicalActivityRows,
     ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
@@ -132,6 +134,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
         status={conversationSnapshot?.isStreaming ? "running" : "completed"}
         streaming={conversationSnapshot?.isStreaming}
         waiting={prompts.length > 0}
+        {...(waitingFor ? { waitingFor } : {})}
         {...(actions ? { actions } : {})}
         onRecover={() => void recoverThread()}
         onStop={() => abort(abortSessionId)}
@@ -139,7 +142,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onLoadOutput={loadToolOutput}
       />,
     }] : []),
-  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId]);
+  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId]);
 
   return { conversationActivityTools, liveStatusLabel, transcriptActivities };
 }

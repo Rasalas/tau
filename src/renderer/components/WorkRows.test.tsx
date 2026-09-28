@@ -151,9 +151,34 @@ describe("a running turn", () => {
       waiting
     />);
     expect(screen.getByText("Waiting for your answer")).toBeTruthy();
-    // A question is amber, not a spinner: the rail's triplet.
-    expect(document.querySelector(".work-live-line > .work-live-question")).toBeTruthy();
-    expect(document.querySelector(".work-live-line > .spinner")).toBeNull();
+    // As the design draws it: a quiet spinner and what is asked, no clock.
+    expect(document.querySelector(".work-live.waiting .work-live-line > .spinner")).toBeTruthy();
+    expect(document.querySelector(".work-live-clock")).toBeNull();
+  });
+
+  it("names what an approval waits to do", () => {
+    const { rerender } = render(<WorkGroup
+      id="turn"
+      tools={[{ id: "w", name: "write", args: { path: "src/a.ts", content: "x" }, status: "running", startedAt: 1_000 }]}
+      registry={registryWith()}
+      detail="focused"
+      status="running"
+      streaming
+      waiting
+      waitingFor="approval"
+    />);
+    expect(screen.getByText("Waiting for permission to edit")).toBeTruthy();
+    rerender(<WorkGroup
+      id="turn"
+      tools={[run("b", "rm -rf build", { status: "running", endedAt: undefined })]}
+      registry={registryWith()}
+      detail="focused"
+      status="running"
+      streaming
+      waiting
+      waitingFor="approval"
+    />);
+    expect(screen.getByText("Waiting for permission to run a command")).toBeTruthy();
   });
 
   it("reports a turn whose runtime is gone as stopped", () => {

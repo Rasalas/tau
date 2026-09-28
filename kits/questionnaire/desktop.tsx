@@ -117,7 +117,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
    * One question of several: the header pages through them, earlier pages show
    * what was answered, later ones take a pick ahead of time.
    */
-  return function QuestionnairePrompt({ prompt, pending, onAnswer, onCancel }: PromptRendererProps) {
+  return function QuestionnairePrompt({ prompt, pending, asker, onAnswer, onCancel }: PromptRendererProps) {
     const choices = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const questionnaire = questionnaireOf(prompt)!;
     const total = questionnaire.questions.length;
@@ -138,30 +138,27 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
     const acceptsFreeText = Boolean(freeTextOption(prompt.options)) || multi;
     const folded = prompt.kind === "select" ? splitPromptTitle(prompt.title) : { question: prompt.title, previews: [] };
     const input = prompt.kind === "input" ? splitInputTitle(prompt.title) : undefined;
-    const title = viewing ? `${viewing.header ? `[${viewing.header}] ` : ""}${viewing.question}` : input?.question ?? folded.question;
+    const title = viewing?.question ?? input?.question ?? folded.question;
+    // The question's topic names it better than the agent does, as T3 Code heads its card with it.
+    const from = viewing?.header || asker;
     const message = onCurrent ? (prompt.message ?? (input && !multi ? input.detail : undefined)) : undefined;
     const pick = choices[key(prompt.sessionId, page)];
     const preselect = (index: number, labels: string[]) => store.set(prompt.sessionId, index, { labels, answered: false });
     const submitPicked = useCallback(() => {
       if (multi && asked && picked.length > 0) onAnswer(multiSelectValue(asked, picked));
     }, [asked, multi, onAnswer, picked]);
-    usePromptSubmit(
-      onCurrent && multi ? `Send${picked.length > 0 ? ` ${picked.length}` : ""}` : undefined,
-      picked.length === 0,
-      submitPicked,
-    );
+    const sendLabel = onCurrent && multi ? `Send${picked.length > 0 ? ` ${picked.length}` : ""}` : undefined;
+    usePromptSubmit(sendLabel, picked.length === 0, submitPicked);
 
     return (
       <ExtensionPromptFrame
         title={title}
         pending={pending}
         message={message}
+        {...(from ? { from } : {})}
+        {...(viewing && viewing.options.length > 0 ? { pick: viewing.multiSelect ? "any" as const : "one" as const } : {})}
+        {...(sendLabel ? { submit: { label: sendLabel, disabled: picked.length === 0, enter: true, onSubmit: submitPicked } } : {})}
         header={<>
-          <span className="questionnaire-mode-badge">
-            {viewing?.multiSelect
-              ? (onCurrent && picked.length > 0 ? `Multiple choice · ${picked.length} selected` : "Multiple choice")
-              : viewing && viewing.options.length === 0 ? "Free text" : "Single choice"}
-          </span>
           {total > 1 ? (
             <nav className="extension-pager" aria-label="Questions">
               <button type="button" aria-label="Previous question" disabled={page === 0} onClick={() => setPage(page - 1)}>
@@ -175,27 +172,24 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
           ) : null}
         </>}
         hint={!onCurrent && page < current
-          ? (pick ? `answered: ${choiceSummary(pick)}` : "answered")
+          ? (pick ? `Answered: ${choiceSummary(pick)}` : "Answered")
           : !onCurrent
             ? (pick && pick.labels.length > 0
               ? `“${choiceSummary(pick)}” is sent when the extension gets here`
               : viewing && viewing.options.length === 0
-                ? "answered below when the extension gets here"
-                : `pick ${viewing?.multiSelect ? "any" : "one"} now — it is sent when the extension gets here`)
-            : multi
-              ? "pick any that apply, or type your own answer below"
-              : hasChoices
-                ? (acceptsFreeText ? "or type your own answer below" : "or answer below")
-                : "answer below"}
+                ? "Answered below when the extension gets here"
+                : "Pick now; it is sent when the extension gets here")
+            : hasChoices
+              ? (acceptsFreeText ? "Or type an answer below" : "Or answer below")
+              : "Type your answer below"}
         footer={<button onClick={onCancel}>Skip</button>}
       >
         {onCurrent && hasChoices ? (
           <div className="extension-prompt-options">
             {multi && asked ? (
-              asked.options.map((option, at) => (
+              asked.options.map((option) => (
                 <OptionRow
                   key={option.label}
-                  index={String(at + 1)}
                   label={option.label}
                   detail={option.description}
                   mode="checkbox"
@@ -214,10 +208,9 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
         ) : null}
         {!onCurrent && viewing ? (
           <div className="extension-prompt-options">
-            {viewing.options.map((option, at) => (
+            {viewing.options.map((option) => (
               <OptionRow
                 key={option.label}
-                index={String(at + 1)}
                 label={option.label}
                 detail={option.description}
                 mode={viewing.multiSelect ? "checkbox" : "radio"}

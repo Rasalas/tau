@@ -1,9 +1,10 @@
-import { ChevronRight, CircleAlert, CircleHelp, CircleStop, Clock, Hammer } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleStop, Clock, Hammer } from "lucide-react";
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import {
   deriveWorkRows,
   formatLiveClock,
+  waitingActivityLabel,
   type TranscriptDetail,
   type WorkRow,
 } from "../../workbench/transcript-folding";
@@ -38,6 +39,8 @@ export interface WorkRowActions {
   /** The turn's first call, which names the turn in `disclosures`. */
   turn?: string;
   waiting?: boolean;
+  /** What the turn waits for while `waiting`: leave to use a tool, or an answer. */
+  waitingFor?: "approval" | "question";
   stalled?: boolean;
   onRecover?(): void;
   onStop?(): void;
@@ -112,12 +115,21 @@ function FoldRow({ row, context }: { row: Extract<WorkRow, { kind: "fold" }>; co
 function LiveRow({ row, context }: { row: Extract<WorkRow, { kind: "live" }>; context: WorkRowActions }) {
   const [open, setOpen] = useDisclosure(context.disclosures, row.id, false, context.turn);
   const running = row.tools.some((tool) => tool.status === "running");
+  // Waiting on the person reads as the design's quiet line: a spinner and what is asked, no clock.
+  if (context.waiting) {
+    return <section className={`work-live waiting${open ? " expanded" : ""}`}>
+      <button type="button" className="work-live-line" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="spinner tone-current small" aria-hidden="true" />
+        <span className="work-live-label">{waitingActivityLabel(row.action, context.waitingFor ?? "question")}</span>
+        <ChevronRight className="activity-chevron" size={13} />
+      </button>
+      {open ? <ToolRunList tools={row.tools} context={context} /> : null}
+    </section>;
+  }
   return <section className={`work-live${open ? " expanded" : ""}${running && !context.stalled ? " running" : ""}`}>
     <button type="button" className="work-live-line" aria-expanded={open} onClick={() => setOpen(!open)}>
-      {context.waiting
-        ? <CircleHelp className="work-live-question" size={14} aria-hidden="true" />
-        : running && !context.stalled ? <span className="spinner info small" /> : <Hammer size={15} strokeWidth={1.7} />}
-      <span className="work-live-label">{context.waiting ? "Waiting for your answer" : row.label}</span>
+      {running && !context.stalled ? <span className="spinner info small" /> : <Hammer size={15} strokeWidth={1.7} />}
+      <span className="work-live-label">{row.label}</span>
       <WorkingTimer startedAt={row.startedAt} />
       <ChevronRight className="activity-chevron" size={13} />
     </button>
@@ -168,6 +180,7 @@ export const WorkGroup = memo(function WorkGroup({
   detail,
   disclosures,
   waiting,
+  waitingFor,
   onRecover,
   onStop,
   onCopyOutput,
@@ -208,6 +221,7 @@ export const WorkGroup = memo(function WorkGroup({
     ...(turn === undefined ? {} : { turn }),
     ...(actions ? { actions } : {}),
     ...(waiting === undefined ? {} : { waiting }),
+    ...(waitingFor === undefined ? {} : { waitingFor }),
     ...(onRecover ? { onRecover } : {}),
     ...(onStop ? { onStop } : {}),
     ...(onCopyOutput ? { onCopyOutput } : {}),

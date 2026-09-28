@@ -61,14 +61,18 @@ describe("Questionnaire Kit", () => {
       </PromptSubmitContext.Provider>,
     );
 
-    expect(screen.getByText("Multiple choice")).toBeTruthy();
+    expect(screen.getByText("pick any")).toBeTruthy();
     expect(screen.getByText("S").closest("button")?.classList.contains("mode-checkbox")).toBe(true);
+    const send = screen.getByRole("button", { name: /^Send/u }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
     fireEvent.click(screen.getByText("S"));
-    expect(screen.getByText("Multiple choice · 1 selected")).toBeTruthy();
+    expect(send.textContent).toContain("Send 1");
     expect(action?.label).toBe("Send 1");
     expect(action?.disabled).toBe(false);
     action?.submit();
     expect(onAnswer).toHaveBeenCalledWith("1");
+    fireEvent.click(send);
+    expect(onAnswer).toHaveBeenCalledTimes(2);
   });
 
   it("keeps typed free text as the page summary and leaves prompts without a questionnaire to core", () => {
@@ -92,8 +96,8 @@ describe("Questionnaire Kit", () => {
     const renderer = registry.getPromptRenderer(prompt)!;
     render(<renderer.Component prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
     fireEvent.click(screen.getByLabelText("Next question"));
-    expect(screen.getByText("Free text")).toBeTruthy();
-    expect(screen.getByText("answered below when the extension gets here")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Question from deploy" }).textContent).not.toContain("pick");
+    expect(screen.getByText("Answered below when the extension gets here")).toBeTruthy();
   });
 });
 

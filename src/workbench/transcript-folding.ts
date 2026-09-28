@@ -199,6 +199,19 @@ export function liveActivityLabel(fact: ToolFact, present: boolean): string {
   return `${verb} ${subject}`;
 }
 
+const PERMISSION_VERBS: Record<ToolActionClass, string> = {
+  read: "read",
+  write: "edit",
+  command: "run a command",
+  search: "search",
+  other: "go on",
+};
+
+/** The live line while the turn waits on the person: for leave to act, or for an answer. */
+export function waitingActivityLabel(action: ToolActionClass, waitingFor: "approval" | "question"): string {
+  return waitingFor === "approval" ? `Waiting for permission to ${PERMISSION_VERBS[action]}` : "Waiting for your answer";
+}
+
 export function formatWorkDuration(ms: number): string {
   const total = Math.max(1, Math.round(ms / 1000));
   if (total < 60) return `${total}s`;
@@ -223,7 +236,7 @@ export type WorkRow =
   /** The settled turn as one line; its rows come back in place when it is opened. */
   | { kind: "fold"; id: string; label: string; rows: readonly WorkRow[]; open: boolean; failed: boolean }
   /** The one self-replacing line of a turn in flight. */
-  | { kind: "live"; id: string; label: string; startedAt: number; tools: readonly UiToolRun[] }
+  | { kind: "live"; id: string; label: string; action: ToolActionClass; startedAt: number; tools: readonly UiToolRun[] }
   | {
       kind: "group";
       id: string;
@@ -322,6 +335,7 @@ function liveRow(tools: readonly UiToolRun[], input: WorkGroupInput): { row: Wor
       kind: "live",
       id: `${input.id}:live`,
       label: liveActivityLabel(fact, newest.status === "running"),
+      action: fact.action,
       startedAt: Math.min(...live.map((tool) => tool.startedAt)),
       tools: live,
     },
