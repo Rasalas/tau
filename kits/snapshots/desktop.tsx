@@ -237,6 +237,7 @@ const snapshots: DesktopExtension = {
     context.registerSettingsPage({
       id: "snapshots.settings",
       label: "SnapShots",
+      description: "Capture the window in front from any app with a shortcut: its picture, title and, if you allow it, what it says. It lands as a chip in the composer.",
       group: "projects",
       Icon: Camera,
       order: 46,

@@ -277,10 +277,6 @@ function createSettingsPage(context: DesktopExtensionContext) {
     return (
       <div className="settings-page notifications-settings">
         <h3>Notifications</h3>
-        <p className="lede">
-          When a thread finishes, fails or asks you something and you are not looking at it. One window hears of it — the
-          one you used last — and the app icon counts the threads you have not opened since.
-        </p>
         <SettingsSection title="When a thread needs you" headerAction={<Button variant="ghost" onClick={test}>Send a test notification</Button>}>
           <SettingRow
             id="setting-notifications-mode"
@@ -335,7 +331,9 @@ const notifications: DesktopExtension = {
   activate(context) {
     const coordinator = coordinate(context);
     context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createToastRegion(coordinator) });
-    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"],
+    context.registerSettingsPage({ id: "notifications.settings", label: "Notifications",
+      description: "How Tau tells you that a thread finished, failed or asks you something while you look elsewhere. The window you used last hears of it.",
+      Icon: Bell, group: "general", order: 45, profiles: ["desktop", "web", "compact"],
       rows: NOTIFICATION_ROWS,
       Component: createSettingsPage(context),
     });

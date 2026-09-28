@@ -117,6 +117,16 @@ describe("client profiles", () => {
     });
   }
 
+  // Each page's head says what it governs (K73); a runtime's card on Providers has no head of its own.
+  it("gives every Settings page of the kits Tau ships a short description", () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    for (const extension of kits) registry.activate(extension);
+    const pages = registry.getSettingsPages().filter((page) => !page.runtime);
+    expect(pages.length).toBeGreaterThan(15);
+    expect(pages.filter((page) => !page.description || page.description.length > 220).map((page) => page.id)).toEqual([]);
+    for (const extension of kits) registry.deactivate(extension.id);
+  });
+
   // A Read-only device offers a command only when it says it just looks, so an
   // undeclared one of ours would be disabled there for no reason, or a write shown.
   it("says for every command of core and the kits Tau ships whether it writes to the host", async () => {
