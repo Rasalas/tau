@@ -56,7 +56,11 @@ One open document in the stage. A preview tab comes from a single click and is r
 
 ## App page
 
-A page of the app beside the sidebar, like Settings: Usage and Pull Requests. It takes the place of the thread and the stage while it is open, and the sidebar's foot leads with Back; on a phone it is a screen of its own. Opening a thread leaves it.
+A page of the app beside the sidebar, like Settings: Usage and Reviews. It takes the place of the thread and the stage while it is open, and the sidebar's foot leads with Back; on a phone it is a screen of its own. Opening a thread leaves it.
+
+## Review
+
+A thread's finished work as a local merge request: the branch a thread worked on in a worktree of its own (or that came back from another machine), once no thread there works any more, against the branch its main checkout has out. It is ready, in conflict, waiting on changes the user asked the thread for, or merged; the Reviews page lists them across projects, and remote pull requests under Remote.
 
 ## Extension
 
