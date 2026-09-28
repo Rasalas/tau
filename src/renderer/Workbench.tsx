@@ -815,6 +815,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               focusRef={stageRef}
               stage={stage}
               cwd={workspaceCwd}
+              workspace={stageWorkspace}
               changes={documentState.changes}
               editor={documentState.editor}
               chatTab={stacked ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}

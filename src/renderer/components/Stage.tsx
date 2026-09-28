@@ -3,7 +3,7 @@ import { Maximize2, Minimize2 } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
-import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
+import type { DocumentOrigin, ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";
@@ -27,11 +27,12 @@ function isEditable(target: EventTarget | null): boolean {
  * params and its handle; a kind that went away leaves the frame with a note,
  * because the tab itself is closed by the controller, not by this render.
  */
-function ExtensionPane({ tab, registry, stageTabs, actions }: {
+function ExtensionPane({ tab, registry, stageTabs, actions, from }: {
   tab: StageExtensionTab;
   registry?: ExtensionRegistry;
   stageTabs?: StageTabController;
   actions: WorkbenchActions;
+  from: DocumentOrigin;
 }) {
   const contribution = registry?.getStageTabKind(tab.tabKind);
   if (!contribution || !stageTabs) {
@@ -40,18 +41,20 @@ function ExtensionPane({ tab, registry, stageTabs, actions }: {
     </section>;
   }
   return <section className="stage-pane" aria-label={tab.title}>
-    {contribution.render(tab.params, stageTabs.handle(tab.id), actions)}
+    {contribution.render(tab.params, stageTabs.handle(tab.id), actions, from)}
   </section>;
 }
 
 export function Stage({
-  stage, cwd, changes, editor, chatTab, maximize, focusRef, registry, stageTabs, actions,
+  stage, cwd, workspace, changes, editor, chatTab, maximize, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel,
 }: {
   stage: StageState;
   focusRef?: RefObject<HTMLElement | null>;
   cwd?: string;
+  /** The project this stage is stored for: its workspace id, or its path where the host mints none. */
+  workspace?: string;
   changes: UiWorkspaceChanges;
   editor?: UiEditor;
   /** Present while the chat shares the tab strip because the centre is too narrow for both. */
@@ -83,6 +86,7 @@ export function Stage({
   const current = activeTab(stage);
   const environments = usePlatform().environments;
   const lookIn = current?.kind === "thread" ? lookInMachine(current.machine, environments) : undefined;
+  const from = useMemo<DocumentOrigin>(() => workspace ? { workspace } : {}, [workspace]);
   const changedRelative = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
   const changedAbsolute = useMemo(
     () => new Set(cwd ? changes.files.map((file) => `${cwd}/${file.path}`) : []),
@@ -135,6 +139,7 @@ export function Stage({
         {...(registry ? { registry } : {})}
         {...(stageTabs ? { stageTabs } : {})}
         actions={actions}
+        from={from}
       />
     ) : current.kind === "thread" && lookIn ? (
       <RemoteThreadDocument key={current.id} machine={lookIn} sessionId={current.sessionId} actions={actions} {...(registry ? { registry } : {})} />

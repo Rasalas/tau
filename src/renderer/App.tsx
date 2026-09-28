@@ -168,13 +168,14 @@ export default function App() {
   // only trustworthy workspace identity while it is on screen. In
   // particular, do not expose the last real thread's worktree in the chrome.
   const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
-  const activeWorkspaceId = pendingNewThread?.workspaceId ?? snapshot?.workspaceId;
+  // A draft without an id is keyed by its path, never by the host's project.
+  const activeWorkspaceId = pendingNewThread ? pendingNewThread.workspaceId : snapshot?.workspaceId;
   const knownThreadIds = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getThreadIds);
   const panels = registry.getPanels();
   const panelIds = useMemo(() => panels.filter((panel) => panel.placement !== "drawer").map((panel) => panel.id), [panels]);
   // The stage and the dock belong to the workspace, and outlive the window.
   const {
-    stage, setStage, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
+    stage, setStage, stageWorkspace, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
     openedPanels, dockWidth, setDockWidth, drawer, setDrawer, resetStage,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
@@ -620,7 +621,7 @@ export default function App() {
   const startProjectName = pendingNewThread?.projectName ?? projects.find((project) => project.path === startProjectPath)?.name ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
-    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace: activeWorkspaceId ?? workspaceCwd, sidebarContributions, panels, activePanel,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions, panels, activePanel,
     openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth, onDockWidthChange: setDockWidth,
     chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
@@ -628,13 +629,13 @@ export default function App() {
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
   }), [
-    activePanel, activeOverlayId, activeWorkspaceId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
+    activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, dockAsks, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,
-    sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
+    sidebarContributions, stage, stageWorkspace, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({
