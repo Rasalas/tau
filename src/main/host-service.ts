@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,6 +10,7 @@ import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { processAlive, readHostDescriptor } from "./host-process-supervisor.js";
 import { DISPLAY_WINDOW_IDLE_MS } from "./display-window.js";
+import { LAST_DISPLAY_NUMBER, displayInUse, firstFreeDisplay, linuxDisplayProbe } from "./display-number.js";
 import { chromeSandboxProblem, elevationFailure, sandboxProfileCommand, type ElevationTool } from "./linux-sandbox.js";
 import {
   FIRST_DISPLAY_NUMBER,
@@ -77,7 +78,7 @@ export interface HostServiceOptions {
   retireHost?: () => Promise<void>;
   /** Where Xvfb is; searched on the unit's PATH when absent. */
   locateXvfb?: () => string | undefined;
-  /** Whether display `:N` is in use on this machine; its X lock and socket when absent. */
+  /** Whether display `:N` is in use on this machine; `displayInUse` on this machine when absent. */
   displayTaken?: (number: number) => boolean;
   /** What stops the window on the display from starting; `chrome-sandbox` next to Electron when absent. */
   sandboxProblem?: () => UiHostServiceProblem | undefined;
@@ -96,8 +97,6 @@ const DISPLAY_UNSUPPORTED: Partial<Record<NodeJS.Platform, string>> = {
   win32: "Windows has no invisible display Tau can start a window on. The preview runs hidden in a Tau window you open instead.",
 };
 const NO_XVFB = "Xvfb is not installed. The .deb brings it along; otherwise install your distribution's xvfb package (Debian and Ubuntu: sudo apt install xvfb), then add the display again.";
-/** Past this, something else owns every display number Tau would try. */
-const LAST_DISPLAY_NUMBER = FIRST_DISPLAY_NUMBER + 100;
 
 interface ServiceFile {
   path: string;
@@ -281,12 +280,24 @@ export class HostServiceManager {
     return undefined;
   }
 
-  private freeDisplayNumber(): number {
-    const listening = abstractX11Displays(procNetUnix());
-    const taken = this.options.displayTaken
-      ?? ((number: number) => listening.has(number) || existsSync(`/tmp/.X${number}-lock`) || existsSync(`/tmp/.X11-unix/X${number}`));
-    for (let number = FIRST_DISPLAY_NUMBER; number <= LAST_DISPLAY_NUMBER; number++) if (!taken(number)) return number;
-    throw new HostServiceError(`Every display from :${FIRST_DISPLAY_NUMBER} to :${LAST_DISPLAY_NUMBER} is in use.`);
+  private displayTaken(): (number: number) => boolean {
+    if (this.options.displayTaken) return this.options.displayTaken;
+    const probe = linuxDisplayProbe();
+    return (number) => displayInUse(number, probe) !== undefined;
+  }
+
+  private freeDisplayNumber(taken = this.displayTaken()): number {
+    const { number } = firstFreeDisplay(taken);
+    if (number === undefined) throw new HostServiceError(`Every display from :${FIRST_DISPLAY_NUMBER} to :${LAST_DISPLAY_NUMBER} is in use.`);
+    return number;
+  }
+
+  /** The installed number, unless Tau's Xvfb is down and something else (`xvfb-run` on :99) holds it now. */
+  private async displayNumber(current: { number: number } | undefined): Promise<number> {
+    if (!current) return this.freeDisplayNumber();
+    const taken = this.displayTaken();
+    if (!taken(current.number) || await this.active(this.displayPaths.xvfbUnit)) return current.number;
+    return this.freeDisplayNumber(taken);
   }
 
   /** Kept across installs, so a running Xvfb and the windows on it keep matching. */
@@ -383,7 +394,7 @@ export class HostServiceManager {
       const xvfb = this.locateXvfb();
       if (!xvfb) throw new HostServiceError(NO_XVFB);
       await this.allowSandbox();
-      display = this.displaySpec(current?.number ?? this.freeDisplayNumber(), xvfb);
+      display = this.displaySpec(await this.displayNumber(current), xvfb);
     }
     if (backend.kind === "systemd") await this.prepareSystemd();
     await mkdir(dirname(this.logPath), { recursive: true, mode: 0o700 });
@@ -394,6 +405,8 @@ export class HostServiceManager {
       await this.steps([{ ...systemctlUser("stop", paths.xvfbUnit), optional: true }]);
       await this.removeDisplayFiles();
     }
+    // A cookie names its display number; clients of the new number would find none.
+    if (current && display && display.number !== current.number) await rm(paths.authPath, { force: true });
     if (display) await this.writeCookie(display);
     for (const file of backend.files(this.spec(display), display)) await writeAtomically(file);
     const activate = display ? [...backend.activate.slice(0, -1), systemctlUser("restart", paths.xvfbUnit), ...backend.activate.slice(-1)] : backend.activate;
@@ -650,20 +663,4 @@ export function createHostServiceMethods(manager: () => HostServiceManager | und
       return service.status(self);
     }),
   };
-}
-
-/**
- * Displays with an abstract X socket. A container that shares the network
- * namespace has its own `/tmp` but the same abstract sockets, so the files alone miss them.
- */
-export function abstractX11Displays(socketTable: string): Set<number> {
-  return new Set([...socketTable.matchAll(/ @\/tmp\/\.X11-unix\/X(\d+)$/gmu)].map((match) => Number(match[1])));
-}
-
-function procNetUnix(): string {
-  try {
-    return readFileSync("/proc/net/unix", "utf8");
-  } catch {
-    return "";
-  }
 }

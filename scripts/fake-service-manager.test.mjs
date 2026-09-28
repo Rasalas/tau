@@ -1,9 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderLaunchAgent, renderSystemdUnit, renderWindowUnit, renderXvfbUnit } from "../src/main/host-service-units.ts";
-import { main, parseLaunchAgent, parseSystemdUnit, systemdDependencies, unitEnvironment } from "./fake-service-manager.mjs";
+import { lockState, main, parseLaunchAgent, parseSystemdUnit, systemdDependencies, unitEnvironment } from "./fake-service-manager.mjs";
+import { readStarted } from "./smoke-processes.mjs";
 
 // The fake starts exactly what a unit says, or a smoke that passes against it proves nothing.
 describe("the fake service manager reads the units Tau writes", () => {
@@ -83,6 +86,25 @@ describe("the fake systemctl", () => {
 
     expect(await main(["systemctl", "--user", "stop", "host.service"])).toBe(0);
     expect([running("host.service"), running("xvfb.service"), running("window.service")]).toEqual([false, true, false]);
+    // Every start is on record, for a smoke to stop what the state no longer names.
+    expect(readStarted(directory).map((entry) => entry.unit)).toEqual(["xvfb.service", "host.service", "window.service"]);
+    expect(readStarted(directory)[1].pid).toBeGreaterThan(0);
+  });
+
+  it("keeps every pid when calls come at once (K48: a lost pid meant a second Xvfb and host)", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "tau-fake-systemctl-"));
+    directories.push(directory);
+    const pids = { "host.service": { enabled: true, pid: process.pid }, "xvfb.service": { pid: process.pid } };
+    writeFileSync(join(directory, ".fake-state.json"), `${JSON.stringify(pids)}\n`);
+    const fake = fileURLToPath(new URL("./fake-service-manager.mjs", import.meta.url));
+    const call = (unit) => new Promise((resolve) => {
+      spawn(process.execPath, [fake, "systemctl", "--user", "is-active", unit], { env: { ...process.env, TAU_SERVICE_UNIT_DIR: directory }, stdio: "ignore" }).on("exit", resolve);
+    });
+    await Promise.all(Array.from({ length: 8 }, (_, index) => call(index % 2 ? "window.service" : "xvfb.service")));
+    const state = JSON.parse(readFileSync(join(directory, ".fake-state.json"), "utf8"));
+    expect([state["host.service"].pid, state["xvfb.service"].pid]).toEqual([process.pid, process.pid]);
+    // The shared state stays: the afterEach must not kill this test's own process.
+    writeFileSync(join(directory, ".fake-state.json"), "{}\n");
   });
 
   it("hands its own environment to a unit, less what the unit unsets", async () => {
@@ -109,5 +131,47 @@ describe("the fake systemctl", () => {
     expect([unset.WAYLAND_DISPLAY, unset.XDG_SESSION_TYPE]).toEqual([undefined, undefined]);
     expect(await main(["systemctl", "--user", "unset-environment", "WAYLAND_DISPLAY"])).toBe(0);
     expect((await run()).WAYLAND_DISPLAY).toBeUndefined();
+  });
+});
+
+describe("the fake's state lock", () => {
+  const directories = [];
+  afterEach(() => {
+    for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  });
+  const directory = () => {
+    const created = mkdtempSync(join(tmpdir(), "tau-fake-lock-"));
+    directories.push(created);
+    return created;
+  };
+  const held = (dir, pid) => {
+    mkdirSync(join(dir, ".fake-state.lock"));
+    writeFileSync(join(dir, ".fake-state.lock", "pid"), String(pid));
+  };
+
+  it("is taken and given back", () => {
+    const dir = directory();
+    const unlock = lockState(dir);
+    expect(readFileSync(join(dir, ".fake-state.lock", "pid"), "utf8")).toBe(String(process.pid));
+    unlock();
+    expect(existsSync(join(dir, ".fake-state.lock"))).toBe(false);
+  });
+
+  it("waits for a live owner and names it when it gives up", () => {
+    const dir = directory();
+    held(dir, 4242);
+    let clock = 0;
+    let waits = 0;
+    expect(() => lockState(dir, { timeoutMs: 100, isAlive: () => true, sleep: () => { waits += 1; clock += 20; }, now: () => clock }))
+      .toThrow(/held by pid 4242/u);
+    expect(waits).toBeGreaterThan(0);
+  });
+
+  it("takes over from an owner that is gone", () => {
+    const dir = directory();
+    held(dir, 4242);
+    const unlock = lockState(dir, { isAlive: (pid) => pid !== 4242, sleep: () => { throw new Error("waited"); } });
+    expect(readFileSync(join(dir, ".fake-state.lock", "pid"), "utf8")).toBe(String(process.pid));
+    unlock();
   });
 });
