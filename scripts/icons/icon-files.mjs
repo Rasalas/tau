@@ -8,11 +8,12 @@ export const COLOURS = {
   plateBottom: "#4670c0",
   paper: "#fbfaf8",
   blueDark: "#6b93e0",
-  nightTop: "#232322",
-  nightBottom: "#11110f",
-  // K69's document surfaces; the splash screens sit on them.
+  // The dark plate: the sidebar's near-black at the top, the window's at the bottom.
+  nightTop: "#171a1f",
+  nightBottom: "#0f1116",
+  // The document surfaces (K69, dark from K77); the splash screens sit on them.
   lightSurface: "#fbfaf8",
-  darkSurface: "#1a1a19",
+  darkSurface: "#0f1116",
 };
 
 /** The τ's strokes in an SVG: every path with a stroke width. */

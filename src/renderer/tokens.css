@@ -103,7 +103,7 @@
   --user-bubble-ink: light-dark(#182747, #e2eafa);    /* its text */
   /* Tau's mark (assets/icon/mark-*.svg): the app icon, the reload curtain, onboarding; never a control. */
   --brand: light-dark(#4f79c9, #6b93e0);              /* the Tau mark's plate */
-  --brand-on: light-dark(#fbfaf8, #11110f);           /* the τ on the plate */
+  --brand-on: light-dark(#fbfaf8, #0f1116);           /* the τ on the plate */
   --brand-ink: light-dark(#3d63b0, #6b93e0);          /* the mark's blue as text on a surface */
 
   /* -------------------------------------------------------------- status */
@@ -153,9 +153,9 @@
   --syntax-fn: light-dark(#5c6b13, #d9e88f);         /* highlight.js function and class names */
 
   /* The reload curtain: a full-screen boundary of its own, in the mark's blue. */
-  --reload-core: light-dark(#dfe7f6, #1b2436);       /* the centre of the reload curtain */
-  --reload-halo: light-dark(#eef2f9, #181b21);       /* its falloff */
-  --reload-panel: light-dark(#f2f5fa, #191c23);      /* the panel inside it */
+  --reload-core: light-dark(#dfe7f6, #172136);       /* the centre of the reload curtain */
+  --reload-halo: light-dark(#eef2f9, #11141b);       /* its falloff */
+  --reload-panel: light-dark(#f2f5fa, #13171e);      /* the panel inside it */
 
   /* ------------------------------------------------------------- shadows */
   /* Light and short: the design's sm, md and lg. */

@@ -3613,7 +3613,7 @@ Blue, and only for Tau's own actions and selection (send, a primary button, focu
 | `--user-bubble` | the user's own message: the accent's tint | `#e9effa` | `#121d36` |
 | `--user-bubble-ink` | its text | `#182747` | `#e2eafa` |
 | `--brand` | the Tau mark's plate | `#4f79c9` | `#6b93e0` |
-| `--brand-on` | the τ on the plate | `#fbfaf8` | `#11110f` |
+| `--brand-on` | the τ on the plate | `#fbfaf8` | `#0f1116` |
 | `--brand-ink` | the mark's blue as text on a surface | `#3d63b0` | `#6b93e0` |
 
 **Status**
@@ -3681,9 +3681,9 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 |---|---|---|---|
 | `--project-tint` | a project's mark (declared on `.thread-project-icon`) | `hsl(var(--project-hue) 46% 88%)` | `hsl(var(--project-hue) 34% 15%)` |
 | `--project-ink` | its letters | `hsl(var(--project-hue) 55% 27%)` | `hsl(var(--project-hue) 70% 66%)` |
-| `--reload-core` | the centre of the reload curtain | `#dfe7f6` | `#1b2436` |
-| `--reload-halo` | its falloff | `#eef2f9` | `#181b21` |
-| `--reload-panel` | the panel inside it | `#f2f5fa` | `#191c23` |
+| `--reload-core` | the centre of the reload curtain | `#dfe7f6` | `#172136` |
+| `--reload-halo` | its falloff | `#eef2f9` | `#11141b` |
+| `--reload-panel` | the panel inside it | `#f2f5fa` | `#13171e` |
 
 **Shadows**
 
