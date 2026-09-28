@@ -125,7 +125,8 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
                 icon: <MachineIcon environment={machine} />,
                 selected: !automatic && machine.id === current.id,
                 ...(machine.local ? { badge: "This computer" } : {}),
-                description: machine.id === current.id ? runOnDetail(machine, now) : cannotStartReason(machine, now) ?? runOnDetail(machine, now),
+                // Offline reads as a state, as in the design; Read only and refused say why.
+                description: machine.readOnly || machine.status === "refused" ? cannotStartReason(machine, now) : runOnDetail(machine, now),
                 disabled: machine.id !== current.id && cannotStartReason(machine, now) !== undefined,
               })),
             ]}
