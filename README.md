@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/icon/icon-dark.svg" />
+    <img src="assets/icon/icon-light.svg" alt="Tau" width="112" height="112" />
+  </picture>
+</p>
+
 # Tau: throwaway Pi desktop prototype
 
 > **PROTOTYPE, not production.** This repository answers one design question: can Pi remain the agent runtime while a desktop shell becomes independently extensible like Neovim?

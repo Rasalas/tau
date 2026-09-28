@@ -3580,7 +3580,7 @@ The design's divider is the ink at a low alpha, so one hairline reads on either 
 
 **Accent**
 
-Blue, and only for Tau's own actions and selection (send, a primary button, focus, the picked row) and the user's own message. The Tau mark keeps its lime (`--brand`): the app icon and the reload curtain, never a control.
+Blue, and only for Tau's own actions and selection (send, a primary button, focus, the picked row) and the user's own message. The Tau mark is the same family of blue, in its own tokens (`--brand`): the app icon, the reload curtain and the onboarding mark, never a control.
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
@@ -3596,8 +3596,9 @@ Blue, and only for Tau's own actions and selection (send, a primary button, focu
 | `--focus` | the focus ring | `#4f79c9` | `#6b93e0` |
 | `--user-bubble` | the user's own message: the accent's tint | `#e9effa` | `#1b2740` |
 | `--user-bubble-ink` | its text | `#182747` | `#e2eafa` |
-| `--brand` | the Tau mark's lime | `#b7e229` | `#c7ff3d` |
-| `--brand-ink` | the same, as text on a surface | `#4a6410` | `#c7ff3d` |
+| `--brand` | the Tau mark's plate | `#4f79c9` | `#6b93e0` |
+| `--brand-on` | the τ on the plate | `#fbfaf8` | `#11110f` |
+| `--brand-ink` | the mark's blue as text on a surface | `#3d63b0` | `#6b93e0` |
 
 **Status**
 
@@ -3664,9 +3665,9 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 |---|---|---|---|
 | `--project-tint` | a project's mark (declared on `.thread-project-icon`) | `hsl(var(--project-hue) 46% 88%)` | `hsl(var(--project-hue) 34% 15%)` |
 | `--project-ink` | its letters | `hsl(var(--project-hue) 55% 27%)` | `hsl(var(--project-hue) 70% 66%)` |
-| `--reload-core` | the centre of the reload curtain | `#e5f0c8` | `#25320f` |
-| `--reload-halo` | its falloff | `#f3f5e6` | `#171a10` |
-| `--reload-panel` | the panel inside it | `#f4f7e6` | `#171a11` |
+| `--reload-core` | the centre of the reload curtain | `#dfe7f6` | `#1b2436` |
+| `--reload-halo` | its falloff | `#eef2f9` | `#181b21` |
+| `--reload-panel` | the panel inside it | `#f2f5fa` | `#191c23` |
 
 **Shadows**
 

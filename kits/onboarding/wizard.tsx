@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type
 import { ArrowRight, Bot, Braces, Check, ChevronRight, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
 import { MiddleTruncate, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, groupProjects, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
+import { TauMark } from "./mark.js";
 import { WELCOME_OVERLAY, type ImportableSession, type ProjectCandidate, type ToolReport } from "./protocol.js";
 
 const STEPS = ["Agents", "Projects", "Conversations"] as const;
@@ -460,7 +461,7 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
         <section ref={dialog} tabIndex={-1} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-heading">
           <header className="onboarding-header">
             <h1 id="onboarding-heading" className="onboarding-sr">Set up Tau</h1>
-            <div className="onboarding-identity" aria-hidden="true"><span className="onboarding-mark">τ</span>Tau</div>
+            <div className="onboarding-identity" aria-hidden="true"><TauMark />Tau</div>
             <Steps current={state.step} disabled={Boolean(state.busy)} onStep={(step) => flow.goTo(step)} />
           </header>
           {state.terminal ? (
