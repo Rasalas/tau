@@ -662,6 +662,37 @@ Checked and left alone:
 - The 97 icons core imports are still in the packed set a second time (about 2.4 KB of gzip; see "Total script headroom").
 - Shared code between the settings controls, `Sheet`, the PR pages and the Usage page: the PR and Usage pages are kits, whose desktop halves have their own budget and do not count here, and the renderer's sheet chunks are small (`Sheet` 460 bytes of gzip, `PanelSheet` 375, `sheet-drag` 892).
 
+### Script headroom, 0.7.9
+
+On `fix/0.7.9` (`36b9eb93`) both script budgets failed: 801,768 bytes of initial JavaScript (budget 800,000; v0.7.8 790,941) and 501,011 bytes of total gzip (budget 500,000; v0.7.8 497,269). The growth came from the release's drafts in the rail, the composer's reserve, `LazyFeature` and `chunk-reload` (about 10 KB in the entry by source map). Ticket K53 (2026-09-28) removed code rather than moving it, since the total counts every chunk. Desktop build, from `reports/build-report.json`:
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| initial JavaScript | 801,768 (251,011 gzip) | 783,658 (244,348 gzip) | 800,000 (275,000) |
+| lazy JavaScript | 727,278 (250,000 gzip), 82 files | 727,278 (249,932 gzip), 82 files | |
+| total JavaScript | 1,529,046 (501,011 gzip) | 1,510,936 (494,280 gzip) | 1,900,000 (500,000) |
+| initial CSS | 133,993 (25,092 gzip) | unchanged | 140,000 (30,000) |
+
+That leaves 16,342 bytes under the initial budget and 5,720 bytes of gzip under the total. The browser client went from 807,163 to 789,053 bytes of initial JavaScript (253,624 → 247,044 gzip) and from 503,673 to 497,155 bytes of total gzip.
+
+| package in the entry, by source map | bytes |
+| --- | ---: |
+| `property-information` | −8,420 |
+| `hast-util-to-jsx-runtime` | −5,943 |
+| `inline-style-parser`, `style-to-object`, `style-to-js` | −2,889 |
+| `vfile-message` | −1,368 |
+| `estree-util-is-identifier-name`, `hast-util-whitespace`, `comma-separated-tokens`, `space-separated-tokens` | −547 |
+| `markdown-pipeline.ts` | +1,053 |
+
+- **Markdown to React without `hast-util-to-jsx-runtime`.** The package handles any hast: MDX expressions, SVG, `style` strings, and every HTML attribute through `property-information`'s tables. Tau hands it only what `toHast` builds from GFM Markdown, with raw HTML already turned into text. `toReact` (`markdown-pipeline.ts`) turns that into elements the same way: `aria*` and `data*` properties become `aria-*` and `data-*` attributes, other names pass through, arrays are joined with spaces, a table cell's `align` becomes `textAlign`, whitespace between table rows is dropped, keys are `<tag>-<n>` and components get `node`. It keeps no list of attributes.
+- **Checks.** `markdown-pipeline.test.tsx` builds every Markdown fixture's hast (raw HTML left in) through `toReact` and through `toJsxRuntime` with the options Tau used and compares the element trees, type, key, props and `node` included, besides the markup comparison with `react-markdown`. Changing the key format or dropping `node` fails those comparisons. The test that Markdown never draws an SVG element moved there from `vite.markdown-schema.test.ts`; that plugin, which dropped `property-information`'s SVG table, is gone with the package.
+
+`npm run start:budget` passes: first paint 80 ms under a load average of 6, the same 14 files. In an isolated instance a reply from GPT-5.6 Luna drew an aligned table (`text-align: left` and `right` on its cells), a task list with one box ticked, a footnote reference with its Footnotes section, a highlighted TypeScript fence, strikethrough and an autolink. A new thread's draft row appeared once in the rail and kept its place while its title followed the typing (a mutation log saw it added once, never removed), and all 28 Settings pages, Usage and Pull requests opened.
+
+Checked and left alone:
+
+- Making `DraftRow` or `draft-threads.ts` lazy would move about 4 KB out of the entry but not lower the total. The rail draws the active draft at first paint, so a stand-in would draw it a moment late.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
