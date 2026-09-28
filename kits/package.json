@@ -6,7 +6,7 @@
   "type": "module",
   "description": "The extension distribution Tau ships: every kit under this folder, built into dist-kits/.",
   "engines": {
-    "api": "^1.24.0"
+    "api": "^1.25.0"
   },
   "files": [
     "manifest.json",
