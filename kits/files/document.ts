@@ -53,8 +53,11 @@ export class FileDocument {
   constructor(
     readonly relPath: string,
     private readonly ports: DocumentPorts,
-    private readonly options: { autosaveMs?: () => number | undefined } = {},
+    private readonly options: { autosaveMs?: () => number | undefined; workspace?: string } = {},
   ) {}
+
+  /** The project the ports read and write. */
+  get workspace(): string | undefined { return this.options.workspace; }
 
   getState = (): DocumentState => this.state;
 

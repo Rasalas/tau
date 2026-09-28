@@ -16,24 +16,31 @@ export interface FileEditorParams extends Record<string, unknown> {
   line?: number;
 }
 
+/** Why a file whose project nobody named is neither read nor written. */
+export const UNKNOWN_PROJECT = "Tau does not know which project this file belongs to.";
+
+/** Every command names the project the file belongs to; none falls back to the one the host has open. */
 export interface FilesHostCommands {
-  read: { input: { relPath: string }; output: UiFileContent };
-  stat: { input: { relPath: string }; output: UiFileStat };
-  write: { input: { relPath: string; text: string; expectedMtimeMs?: number | null }; output: UiFileWriteResult };
+  read: { input: { workspace: string; relPath: string }; output: UiFileContent };
+  stat: { input: { workspace: string; relPath: string }; output: UiFileStat };
+  write: { input: { workspace: string; relPath: string; text: string; expectedMtimeMs?: number | null }; output: UiFileWriteResult };
 }
 
+/** `workspace` is the project's id where the host mints one, its path otherwise. */
 export interface FilesHost {
-  read(relPath: string): Promise<UiFileContent>;
-  stat(relPath: string): Promise<UiFileStat>;
-  write(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
+  read(workspace: string, relPath: string): Promise<UiFileContent>;
+  stat(workspace: string, relPath: string): Promise<UiFileStat>;
+  write(workspace: string, relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
 }
 
 export function createFilesHost(invoke: (command: string, input?: unknown) => Promise<unknown>): FilesHost {
   const call = <K extends keyof FilesHostCommands>(command: K, input: FilesHostCommands[K]["input"]) =>
     invoke(command, input) as Promise<FilesHostCommands[K]["output"]>;
   return {
-    read: (relPath) => call("read", { relPath }),
-    stat: (relPath) => call("stat", { relPath }),
-    write: (relPath, text, expectedMtimeMs) => call("write", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
+    read: (workspace, relPath) => call("read", { workspace, relPath }),
+    stat: (workspace, relPath) => call("stat", { workspace, relPath }),
+    write: (workspace, relPath, text, expectedMtimeMs) => call("write", expectedMtimeMs === undefined
+      ? { workspace, relPath, text }
+      : { workspace, relPath, text, expectedMtimeMs }),
   };
 }

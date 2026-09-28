@@ -210,18 +210,18 @@ export interface WorkspaceHostCommands {
   "clone-jobs": { input: undefined; output: CloneSnapshot[] };
   /** Drops a settled clone from the list. */
   "clone-forget": { input: { id: string }; output: void };
-  /** `workspace` names the project to read when it is not the host's own (a draft's, say). */
+  /** `workspace`, here and below, names the project when it is not the host's own (a draft's, say). */
   "file-tree": { input: { relPath?: string; workspace?: string } | undefined; output: FileNode[] };
-  "changes": { input: { query?: WorkspaceChangesQuery } | undefined; output: UiWorkspaceChanges };
+  "changes": { input: { query?: WorkspaceChangesQuery; workspace?: string } | undefined; output: UiWorkspaceChanges };
   "file-diff": { input: { relPath: string; options?: DiffLoadOptions; workspace?: string }; output: UiFileDiff };
   "stage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "unstage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "stage-all": { input: undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
-  "file-stat": { input: { relPath: string }; output: UiFileStat };
+  "file-stat": { input: { relPath: string; workspace?: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
-  "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null }; output: UiFileWriteResult };
+  "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null; workspace?: string }; output: UiFileWriteResult };
   "commit": { input: { message: string; push: boolean }; output: CommitResult };
   "pull": { input: undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
@@ -292,7 +292,7 @@ export interface WorkspaceHostClient {
   listClones(): Promise<CloneSnapshot[]>;
   forgetClone(id: string): Promise<void>;
   getFileTree(relPath?: string, workspace?: string): Promise<FileNode[]>;
-  getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
+  getChanges(query?: WorkspaceChangesQuery, workspace?: string): Promise<UiWorkspaceChanges>;
   getFileDiff(relPath: string, options?: DiffLoadOptions, workspace?: string): Promise<UiFileDiff>;
   stageFile(relPath: string): Promise<UiWorkspaceChanges>;
   unstageFile(relPath: string): Promise<UiWorkspaceChanges>;
@@ -341,7 +341,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     listClones: () => call("clone-jobs", undefined),
     forgetClone: (id) => call("clone-forget", { id }),
     getFileTree: (relPath, workspace) => call("file-tree", relPath === undefined && workspace === undefined ? undefined : { ...(relPath === undefined ? {} : { relPath }), ...(workspace ? { workspace } : {}) }),
-    getChanges: (query) => call("changes", query === undefined ? undefined : { query }),
+    getChanges: (query, workspace) => call("changes", query === undefined && workspace === undefined ? undefined : { ...(query === undefined ? {} : { query }), ...(workspace ? { workspace } : {}) }),
     getFileDiff: (relPath, options, workspace) => call("file-diff", workspace ? { relPath, options, workspace } : { relPath, options }),
     stageFile: (relPath) => call("stage-file", { relPath }),
     unstageFile: (relPath) => call("unstage-file", { relPath }),

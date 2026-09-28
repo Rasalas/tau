@@ -470,6 +470,14 @@ the argument it reads the project it follows. A file or project that is gone
 shows "File not found" with the path and Close; a raw `ENOENT` or "not a known
 Tau project" from the source is enough for core to tell.
 
+A kind's `render` gets the same project as a fourth argument,
+`render(params, handle, actions, from)` with `from: DocumentOrigin` (new in API
+1.26.0), so a tab that reads or writes files does so in the project whose stage
+it is on. Handles are per tab id, and two projects' stages may hold a tab of
+the same id, so key what you keep by `from.workspace` too. `from.workspace` is
+absent when the window has no project on screen; Files Kit then opens nothing
+and saves nothing.
+
 #### Context in the composer
 
 `registerComposerInline` lets a package put typed context into the composer's
@@ -1450,7 +1458,11 @@ default.
 Workspace Kit's host reads and writes the project's files for the kits built
 on it, and checks every path against the workspace (symlinks included):
 `read-file` (with the file's `mtimeMs`), `file-stat` and `write-file`
-(`{ relPath, text, expectedMtimeMs? }`) name `tau.files` as a caller. A write
+(`{ relPath, text, expectedMtimeMs?, workspace? }`) name `tau.files` as a
+caller. `workspace` (new in API 1.26.0, also on `changes`) names a project the
+host knows, by id or path; without it they use the project the host has open.
+Files Kit always names the project of the editor tab and refuses a call that
+does not, so a save never lands in another project. A write
 that names the mtime the editor last saw is refused as
 `{ status: "conflict" }` when the file changed since, `null` expects no file,
 and no `expectedMtimeMs` writes regardless — that is "keep my version".

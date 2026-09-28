@@ -105,6 +105,8 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
 
   return {
     stage, setStage,
+    /** The workspace the stage on screen was restored for; it lags `workspaceKey` until the restore runs. */
+    stageWorkspace: restoredFor,
     dockOpen: dock.open, setDockOpen, dockAsks,
     activePanel, setActivePanel,
     openedPanels,

@@ -209,6 +209,20 @@ describe("Workspace Kit files of the followed project", () => {
   });
 });
 
+describe("Workspace Kit changes of the project on screen", () => {
+  it("lists a draft's project's changes, not those of the project the host has open", async () => {
+    const changed = (path: string) => ({ files: [{ path, status: "modified", staged: false, added: 1, removed: 1 }], added: 1, removed: 1 });
+    const getChanges = vi.fn(async (_query?: unknown, workspace?: string) => changed(workspace === "ws1_project-b" ? "src/b.ts" : "src/a.ts"));
+    const workspaceStore = storeOver({ getChanges });
+    workspaceStore.follow({ cwd: "/project-a", workspaceId: "ws1_project-a", sessionId: "thread-a", draftPending: false });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().changes.files.map((file) => file.path)).toEqual(["src/a.ts"]));
+
+    workspaceStore.follow({ cwd: "/project-b", workspaceId: "ws1_project-b", draftPending: true });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().changes.files.map((file) => file.path)).toEqual(["src/b.ts"]));
+    expect(getChanges).toHaveBeenLastCalledWith(undefined, "ws1_project-b");
+  });
+});
+
 describe("Workspace Kit changes after a turn", () => {
   it("rereads the changes when another thread's turn ends, whose tools this client is not sent", async () => {
     const getChanges = vi.fn(async () => ({ files: [], additions: 0, deletions: 0 }));

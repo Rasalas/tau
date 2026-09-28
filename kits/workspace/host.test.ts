@@ -134,6 +134,37 @@ describe("Workspace Kit host extension", () => {
     await expect(kit.readFile("src/only-in-b.ts", "ws1_gone")).rejects.toThrow("Workspace is not a known Tau project.");
   });
 
+  it("lists changes, stats and writes in the project a caller names, leaving the host's own alone", async () => {
+    const repo = async (text: string) => {
+      const cwd = await workspace();
+      const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", "-c", "commit.gpgSign=false", ...args], { stdio: "ignore" });
+      git("init", "-q", "-b", "main");
+      await mkdir(join(cwd, "src"));
+      await writeFile(join(cwd, "src", "same.ts"), text);
+      git("add", ".");
+      git("commit", "-q", "-m", "fixture");
+      return cwd;
+    };
+    const hostProject = await repo("export const a = 1;\n");
+    const draftProject = await repo("export const b = 1;\n");
+    const registry = await activated(hostProject, {
+      knownWorkspacePath: async (named) => {
+        if (named === `ws1_${draftProject}`) return draftProject;
+        throw new Error("Workspace is not a known Tau project.");
+      },
+    });
+    const invoke = (command: string, input: unknown) => registry.invoke("tau.workspace", command, input);
+    const kit = createWorkspaceHostClient(invoke);
+
+    const stat = await invoke("file-stat", { relPath: "src/same.ts", workspace: `ws1_${draftProject}` }) as { mtimeMs: number };
+    await expect(invoke("write-file", { relPath: "src/same.ts", text: "export const b = 2;\n", expectedMtimeMs: stat.mtimeMs, workspace: `ws1_${draftProject}` }))
+      .resolves.toMatchObject({ status: "written" });
+
+    await expect(kit.getChanges(undefined, `ws1_${draftProject}`)).resolves.toMatchObject({ files: [expect.objectContaining({ path: "src/same.ts" })] });
+    await expect(kit.getChanges()).resolves.toMatchObject({ files: [] });
+    await expect(kit.getChanges(undefined, "ws1_gone")).rejects.toThrow("Workspace is not a known Tau project.");
+  });
+
   it("refuses to browse a tree outside the workspace", async () => {
     const cwd = await workspace();
     const kit = await client(cwd);

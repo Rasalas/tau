@@ -232,7 +232,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         return {
           ...covered,
           cwd: options.workspaceCwd,
-          workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
+          ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}),
           ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
           backendKind,
           mode: pending.mode ?? "default",
