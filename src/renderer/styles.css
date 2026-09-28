@@ -119,8 +119,8 @@ button > svg { pointer-events: none; }
   -webkit-app-region: drag;
 }
 .thread-header :is(button, input, form, .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
-/* The actions take their width first and fold below it (Workspace Kit's row measures what it gets); the title keeps 200 px. */
-.thread-heading { flex: 1 1 0; min-width: 180px; display: flex; flex-direction: column; gap: 1px; }
+/* The title takes up to 45 % and wraps, as the design's does; the kits' region the rest, which Workspace Kit's row measures to fold its actions. */
+.thread-heading { flex: 0 1 auto; min-width: 160px; max-width: 45%; display: flex; flex-direction: column; gap: 1px; }
 .thread-heading-title { display: flex; align-items: center; min-width: 0; }
 .thread-header :is(.thread-title-trigger, .title-draft) { font: 600 var(--text-title) var(--sans); letter-spacing: -.01em; }
 .thread-header .thread-title-trigger { padding: 2px 6px; margin-left: -6px; }
@@ -130,8 +130,8 @@ button > svg { pointer-events: none; }
 .thread-detail + .thread-detail::before { content: "·"; margin-right: 3px; color: var(--faint); }
 .thread-detail > span { overflow: hidden; text-overflow: ellipsis; }
 .thread-detail-cost { font-family: var(--mono); }
-.thread-header-actions { flex: 0 1 auto; display: flex; justify-content: flex-end; min-width: 0; overflow: hidden; }
-.thread-header-actions .region-title-bar { flex: 0 1 auto; min-width: 0; }
+.thread-header-actions { flex: 1 1 0; display: flex; justify-content: flex-end; min-width: 0; overflow: hidden; }
+.thread-header-actions .region-title-bar { flex: 1 1 auto; min-width: 0; }
 /* Room for the native macOS traffic lights where the sidebar is hidden; they ignore page zoom. */
 .window-controls-inset { width: calc(64px / var(--page-zoom, 1)); flex: none; }
 .title-draft { color: var(--ink); white-space: nowrap; }

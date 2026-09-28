@@ -67,7 +67,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
           <button className={view === "source" ? "active" : ""} onClick={() => onChangeView("source")}>Source</button>
         </div>
       ) : null}
-      {changed && stat ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
+      {changed && stat && Number.isFinite(stat.added) && Number.isFinite(stat.removed) ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
       {view === "diff" ? (
         <div className="toggle-group" aria-label="Diff layout">
           <button className={mode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
