@@ -1,4 +1,4 @@
-import { extensionPage } from "./settings-nav";
+import { CORE_PAGE_DESCRIPTIONS, extensionPage, type CoreSettingsPage } from "./settings-nav";
 
 /**
  * What the Settings search finds: core's own rows with the words people use
@@ -14,6 +14,8 @@ export interface SettingsSearchEntry {
   /** The page it lives on, shown beside the label. */
   section: string;
   keywords: readonly string[];
+  /** A page's description: found like a keyword, and shown in place of the section. */
+  description?: string;
   /** For a keybinding: what the Keybindings page is filtered to. */
   filter?: string;
   /** Ranks after every other match: a keybinding mirrors a row somewhere else. */
@@ -29,7 +31,7 @@ export function settingAnchor(label: string): string {
 
 type CoreRow = readonly [label: string, keywords: readonly string[]];
 
-const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonly string[]; rows: readonly CoreRow[] }> = [
+const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keywords: readonly string[]; rows: readonly CoreRow[] }> = [
   {
     page: "general",
     label: "General",
@@ -141,7 +143,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
 
 export interface SettingsSearchSources {
   /** Pages extensions contributed, with the rows they named for the search. */
-  pages: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
+  pages: ReadonlyArray<{ id: string; label: string; description?: string | undefined; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Sections extensions added to a core page, with the rows they named. */
   sections?: ReadonlyArray<{ page: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Every extension with a page of its own in the nav. */
@@ -153,7 +155,7 @@ export interface SettingsSearchSources {
 export function settingsSearchEntries(sources: SettingsSearchSources): SettingsSearchEntry[] {
   const entries: SettingsSearchEntry[] = [];
   for (const core of CORE_PAGES) {
-    entries.push({ id: `page:${core.page}`, page: core.page, label: core.label, section: "Settings", keywords: core.keywords });
+    entries.push({ id: `page:${core.page}`, page: core.page, label: core.label, section: "Settings", keywords: core.keywords, description: CORE_PAGE_DESCRIPTIONS[core.page] });
     for (const [label, keywords] of core.rows) {
       entries.push({
         id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords,
@@ -169,6 +171,7 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
       label: page.label,
       section: "Settings",
       keywords: [...(page.keywords ?? []), ...(page.extensionName ? [page.extensionName] : [])],
+      ...(page.description ? { description: page.description } : {}),
     });
     for (const row of page.rows ?? []) {
       entries.push({ id: `${page.id}:${row.id}`, page: page.id, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
@@ -234,7 +237,7 @@ export function searchSettings(entries: readonly SettingsSearchEntry[], query: s
   return entries
     .flatMap((entry, index) => {
       const label = normalizeSearchText(entry.label);
-      const haystack = normalizeSearchText([entry.label, entry.section, ...entry.keywords].join(" "));
+      const haystack = normalizeSearchText([entry.label, entry.section, ...entry.keywords, entry.description ?? ""].join(" "));
       if (!tokens.every((token) => haystack.includes(token))) return [];
       return [{ entry, index, rank: labelRank(label, needle) }];
     })

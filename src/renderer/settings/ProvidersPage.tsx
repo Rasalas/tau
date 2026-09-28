@@ -54,7 +54,6 @@ function ProviderCard({ card, cwd, onNotify }: { card: SettingsPageContribution;
 export function ProvidersPage({ cards, backends = [], cwd, onNotify }: { cards: readonly SettingsPageContribution[]; backends?: readonly UiRuntimeBackend[]; cwd?: string; onNotify(message: string): void }) {
   return (
     <div className="settings-page providers-page">
-      <p className="lede">The programs that run threads and the providers Pi reaches: whether each is installed and current, who it is signed in as, and signing in or out.</p>
       {cards.map((card) => <ProviderCard key={card.id} card={card} cwd={cwd} onNotify={onNotify} />)}
       {backends.length ? (
         <SettingsSection title="Models" id="runtime-models">

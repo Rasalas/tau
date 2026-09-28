@@ -912,9 +912,11 @@ is an esbuild alias onto Tau's own compiled module, which is why
 
 `DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
 of Settings with its own nav entry, typed `SettingsPageContribution` (`id`,
-`label`, an optional `Icon` the way panels pass theirs, an optional `order`,
-optional `keywords` — the words the Settings search field and the palette find
-the page by besides its label — an optional `scope` (below) and a `Component`
+`label`, an optional `description` — a sentence or two on what the page
+governs, shown under the title in the page's head and found by the search (new
+in API 1.26.0) — an optional `Icon` the way panels pass theirs, an optional
+`order`, optional `keywords` — the words the Settings search field and the
+palette find the page by besides its label — an optional `scope` (below) and a `Component`
 receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.19.0). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
@@ -927,8 +929,8 @@ the name and version of the set the `bundled` entries came in, absent in safe
 mode, which loads none. Core keeps General, Models, Pi, Keybindings,
 Connections, Extensions and the Inspector; every other page is a contribution
 and is gone with its extension. The search field at the top of the Settings
-column finds core's own rows (and scrolls to the row), a contributed page by
-its label and `keywords` and the `rows` it names, an extension's page by its
+column finds core's own rows (and scrolls to the row), a page by its label,
+its description and `keywords` and the `rows` it names, an extension's page by its
 name and its options, and every live keybinding — which opens the Keybindings
 page filtered to its command.
 
@@ -997,9 +999,22 @@ favour of `registerPage`.
 
 Settings is a page of its own that covers the whole window (T3 Code's layout):
 the section column on the left with the search, the pages in groups and About
-with the version and Back at its foot, a bar with the breadcrumb `Settings /
-<page> / <scope>`, and the page below at a readable width. Escape, Back and
-`mod+,` return to the workbench, which stays mounted underneath (`inert`).
+with the version and Back at its foot, and the page at a readable width under
+its head (new in API 1.26.0): the page's title, its `description`, where a
+change applies (below) and, at the right, the page's action. Core draws the
+head for every page, a kit's too, so a page need not name itself; an older
+page's first `h3` is hidden. A nested page — an extension's own — has the
+pages above it as a breadcrumb over its title (`Settings / Extensions`). On a
+phone the title sits in the bar beside the way back, and the rest of the head
+tops the page. Escape, Back and `mod+,` return to the workbench, which stays
+mounted underneath (`inert`).
+
+A page puts its action in the head with `SettingsPageAction` from `tau`
+(new in API 1.26.0): `<SettingsPageAction><Button …>Install…</Button></SettingsPageAction>`
+anywhere in the page draws its children at the right of the head, while the
+page keeps the state behind them; outside Settings they draw in place. Keep it
+to the one action the page is for; an action on a group of rows belongs in
+that `SettingsSection`'s `headerAction`.
 
 **Where a page sits (new in API 1.18.0).** `group` on `registerSettingsPage`
 places a page in the section column: `general` (the first group, without a
@@ -1048,6 +1063,7 @@ A page is built from the same pieces core builds its own with, all on `tau`:
 | Export | What it is |
 |---|---|
 | `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
+| `SettingsPageAction({ children })` | The page's own action, drawn at the right of its head (new in API 1.26.0). |
 | `SettingRow({ id?, title, description?, help?, status?, control?, setting?, disabledReason?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. `help` (new in API 1.18.0) is the text a description should not carry, behind an info glyph beside the title. `disabledReason` (new in API 1.13.0) turns the control of a row without a `setting` inert, with the reason as its tooltip — `READ_ONLY_REASON` on a Read-only device. |
 | `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
 | `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |
@@ -1115,8 +1131,8 @@ the reason as its title) where the edited level cannot hold a key of that
 `scope`.
 
 Which level is edited is the page's: a page whose `scope` is `"project"` or
-`"both"` gets the scope menu as the breadcrumb's last crumb — "This machine" or
-a project from the project list — and a page without one always edits this
+`"both"` gets the scope menu in its head, under the description ("Applies to
+This machine" or a project from the project list), and a page without one always edits this
 machine. Pi's own keys (the startup model, compaction, retry, delivery modes,
 tools, shell, trust) are Pi's: they have Pi's global and project files, the Pi
 page writes them there, and they take no part in these levels. The host methods

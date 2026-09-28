@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ArrowLeft, Blocks, ChevronDown, ChevronLeft, Command, Cpu, Folder, Info, Monitor, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { ArrowLeft, Blocks, ChevronLeft, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
-import { Menu } from "../components/Menu";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { PiSettingsPage } from "../components/PiSettingsPage";
 import { WindowControlsInset } from "../components/WindowControlsInset";
@@ -13,8 +12,10 @@ import { isMacPlatform } from "../keybindings";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
-import { CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroups, settingsTarget, type SettingsNavGroup } from "./settings-nav";
-import { SettingsLevelsProvider, useSettingsLevels } from "./settings-layout";
+import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroups, settingsTarget, type SettingsNavGroup } from "./settings-nav";
+import { SettingsLevelsProvider } from "./settings-layout";
+import { SettingsPageActionSlot } from "./page-action";
+import { SettingsPageHead, type SettingsCrumb } from "./page-head";
 import { extensionCatalog } from "./extension-catalog";
 import { AboutPage } from "./AboutPage";
 import { ConnectionsPage } from "./ConnectionsPage";
@@ -38,60 +39,6 @@ function currentProject(snapshot: HostSnapshot | undefined, projects: readonly U
   if (!workspaceId) return undefined;
   const listed = projects.find((project) => project.workspaceId === workspaceId || project.path === snapshot?.cwd);
   return { workspaceId, label: listed?.name || projectName(snapshot?.cwd), ...(snapshot?.cwd ? { path: snapshot.cwd } : {}) };
-}
-
-/** The last crumb: the level a change on this page is written to. */
-function ScopeCrumb({ projects, current }: { projects: readonly UiProject[]; current?: SettingsProject }) {
-  const { store, snapshot } = useSettingsLevels();
-  const [open, setOpen] = useState(false);
-  const choices = useMemo(() => {
-    const list: SettingsProject[] = current ? [current] : [];
-    for (const project of projects) {
-      const workspaceId = project.workspaceId ?? project.path;
-      if (current && (project.workspaceId === current.workspaceId || project.path === current.workspaceId || project.path === current.path)) continue;
-      if (!list.some((entry) => entry.workspaceId === workspaceId)) list.push({ workspaceId, label: project.name || projectName(project.path) });
-    }
-    return list;
-  }, [current, projects]);
-  const editingProject = snapshot.editing === "project" ? snapshot.project : undefined;
-  return (
-    <li className="settings-crumb settings-scope">
-      <button
-        type="button"
-        className={editingProject ? "narrowed" : ""}
-        aria-label={`Settings apply to ${editingProject ? editingProject.label : "this machine"}. Change where they apply`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        {editingProject ? <Folder size={13} /> : <Monitor size={13} />}
-        <span>{editingProject ? editingProject.label : "This machine"}</span>
-        <ChevronDown size={12} />
-      </button>
-      {open ? (
-        <Menu
-          align="left"
-          sections={[
-            { items: [{ id: "host", label: "This machine", description: "Every project without its own value", selected: !editingProject, icon: <Monitor size={13} /> }] },
-            {
-              heading: "Override for a project",
-              items: choices.map((project) => ({
-                id: `project:${project.workspaceId}`,
-                label: project.label,
-                icon: <Folder size={13} />,
-                selected: editingProject?.workspaceId === project.workspaceId,
-              })),
-            },
-          ]}
-          onSelect={(id) => {
-            if (id === "host") store.edit("host");
-            else store.edit("project", choices.find((project) => `project:${project.workspaceId}` === id));
-          }}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </li>
-  );
 }
 
 const CORE_ICONS: Readonly<Record<string, LucideIcon>> = {
@@ -200,6 +147,17 @@ export function SettingsScreen({
   // Pages that write settings a project may override.
   const pageScope = page === "general" || page === "models" || onProviders ? "both" : contributed?.scope ?? "host";
   const showScope = pageScope !== "host";
+  const pageDescription = onProviders ? CORE_PAGE_DESCRIPTIONS.providers
+    : extensionId ? undefined
+      : CORE_PAGE_DESCRIPTIONS[page as keyof typeof CORE_PAGE_DESCRIPTIONS] ?? contributed?.description;
+  const parentLabel = parent ? CORE_PAGE_TITLES[parent as keyof typeof CORE_PAGE_TITLES] ?? parent : undefined;
+  const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
+  // An extension's page draws its own title beside its mark.
+  const ownTitle = Boolean(extensionId && extension);
+  const crumbs: SettingsCrumb[] = parent ? [
+    { label: "Settings", open: () => onSetPage("general") },
+    { label: parentLabel!, open: () => onSetPage(parent) },
+  ] : [];
   // A page without project rows edits this machine; leaving one puts the scope back.
   useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
 
@@ -217,7 +175,7 @@ export function SettingsScreen({
   const commands = registry.getCommands();
   const found = search.trim() ? searchSettings(settingsSearchEntries({
     // A runtime's card is found like a page: its id opens Providers at the card.
-    pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
+    pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
     sections: (["connections", "extensions"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
@@ -415,7 +373,7 @@ export function SettingsScreen({
                     onClick={() => openFound(entry)}
                   >
                     <PanelIcon Icon={iconOf(entry.page)} size={14} />
-                    <span><span>{entry.label}</span><small>{entry.section}</small></span>
+                    <span><span>{entry.label}</span><small>{entry.description ?? entry.section}</small></span>
                   </button>
                 ))}
               </div> : <p className="settings-search-empty" role="status">No setting matches “{search.trim()}”.</p>}
@@ -439,77 +397,74 @@ export function SettingsScreen({
 
         <main className="settings-main">
           <header className="settings-topbar">
-            {stacked ? <button type="button" className="settings-sections-back" aria-label={parent ? `Back to ${CORE_PAGE_TITLES[parent as keyof typeof CORE_PAGE_TITLES] ?? parent}` : "All settings"} onClick={() => (parent ? onSetPage(parent) : setShowingPage(false))}><ChevronLeft size={18} /></button> : null}
-            <nav aria-label="Settings breadcrumb">
-              <ol>
-                <li className="settings-crumb"><button type="button" onClick={() => (stacked ? setShowingPage(false) : onSetPage("general"))}>Settings</button></li>
-                {parent ? <>
-                  <li className="settings-crumb-separator" aria-hidden>/</li>
-                  <li className="settings-crumb"><button type="button" onClick={() => onSetPage(parent)}>{CORE_PAGE_TITLES[parent as keyof typeof CORE_PAGE_TITLES] ?? parent}</button></li>
-                </> : null}
-                <li className="settings-crumb-separator" aria-hidden>/</li>
-                <li className="settings-crumb current" aria-current="page"><h1>{pageLabel}</h1></li>
-                {showScope ? <>
-                  <li className="settings-crumb-separator" aria-hidden>/</li>
-                  <ScopeCrumb projects={projects} current={project} />
-                </> : null}
-              </ol>
-            </nav>
+            {stacked ? <>
+              <button type="button" className="settings-sections-back" aria-label={parentLabel ? `Back to ${parentLabel}` : "All settings"} onClick={() => (parent ? onSetPage(parent) : setShowingPage(false))}><ChevronLeft size={18} /></button>
+              {ownTitle ? <span className="settings-topbar-title">{pageLabel}</span> : <h1 className="settings-topbar-title">{pageLabel}</h1>}
+            </> : null}
             {stacked && showingPage && !nav ? <button type="button" className="settings-sections-back settings-close" aria-label="Close settings" onClick={onClose}><X size={18} /></button> : null}
           </header>
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
+              <SettingsPageHead
+                title={stacked || ownTitle ? undefined : pageLabel}
+                description={pageDescription}
+                crumbs={stacked ? [] : crumbs}
+                scope={showScope ? { projects, current: project } : undefined}
+                actionSlot={setActionSlot}
+              />
               {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
-              {page === "general" ? (
-                <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} />
-              ) : page === "models" ? (
-                <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
-              ) : page === "keybindings" ? (
-                <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
-              ) : page === "pi" ? (
-                <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
-              ) : onProviders ? (
-                <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
-              ) : contributed ? (
-                <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
-              ) : page === "extensions" ? (
-                <ExtensionsPage
-                  entries={sources.loading && !sources.inspection && snapshot?.cwd ? [] : catalog}
-                  registry={registry}
-                  loading={sources.loading}
-                  error={sources.error}
-                  sections={registry.getSettingsSections("extensions")}
-                  installPage={installer?.id}
-                  onOpen={openPage}
-                  onRetry={sources.refresh}
-                  onNotify={onNotify}
-                  onHostHalves={sources.setHostHalves}
-                  onChanged={() => setAnswered((count) => count + 1)}
-                />
-              ) : extensionId ? (
-                extension ? (
-                  <ExtensionPage
-                    entry={extension}
+              <SettingsPageActionSlot.Provider value={actionSlot}>
+                {page === "general" ? (
+                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} />
+                ) : page === "models" ? (
+                  <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
+                ) : page === "keybindings" ? (
+                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
+                ) : page === "pi" ? (
+                  <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
+                ) : onProviders ? (
+                  <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
+                ) : contributed ? (
+                  <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
+                ) : page === "extensions" ? (
+                  <ExtensionsPage
+                    entries={sources.loading && !sources.inspection && snapshot?.cwd ? [] : catalog}
                     registry={registry}
-                    models={snapshot?.completionModels ?? snapshot?.models ?? []}
-                    cwd={snapshot?.cwd}
-                    distribution={sources.inspection?.distribution}
-                    sections={extensionSections}
+                    loading={sources.loading}
+                    error={sources.error}
+                    sections={registry.getSettingsSections("extensions")}
+                    installPage={installer?.id}
                     onOpen={openPage}
-                    onChanged={() => setAnswered((count) => count + 1)}
+                    onRetry={sources.refresh}
                     onNotify={onNotify}
                     onHostHalves={sources.setHostHalves}
+                    onChanged={() => setAnswered((count) => count + 1)}
                   />
-                ) : <ExtensionPageFallback loading={sources.loading} onBack={() => onSetPage("extensions")} />
-              ) : page === "inspector" ? (
-                <InspectorPage registry={registry} cwd={snapshot?.cwd} />
-              ) : page === "connections" ? (
-                <ConnectionsPage onNotify={onNotify} sections={registry.getSettingsSections("connections")} />
-              ) : page === "about" ? (
-                <AboutPage />
-              ) : (
-                <div className="settings-page"><p className="lede">This page is gone; its extension may have been turned off.</p></div>
-              )}
+                ) : extensionId ? (
+                  extension ? (
+                    <ExtensionPage
+                      entry={extension}
+                      registry={registry}
+                      models={snapshot?.completionModels ?? snapshot?.models ?? []}
+                      cwd={snapshot?.cwd}
+                      distribution={sources.inspection?.distribution}
+                      sections={extensionSections}
+                      onOpen={openPage}
+                      onChanged={() => setAnswered((count) => count + 1)}
+                      onNotify={onNotify}
+                      onHostHalves={sources.setHostHalves}
+                    />
+                  ) : <ExtensionPageFallback loading={sources.loading} onBack={() => onSetPage("extensions")} />
+                ) : page === "inspector" ? (
+                  <InspectorPage registry={registry} cwd={snapshot?.cwd} />
+                ) : page === "connections" ? (
+                  <ConnectionsPage onNotify={onNotify} sections={registry.getSettingsSections("connections")} />
+                ) : page === "about" ? (
+                  <AboutPage />
+                ) : (
+                  <div className="settings-page"><p className="lede">This page is gone; its extension may have been turned off.</p></div>
+                )}
+              </SettingsPageActionSlot.Provider>
             </div>
           </div>
         </main>

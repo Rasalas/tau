@@ -292,7 +292,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
       <header className="extension-hero">
         <ExtensionGlyph name={entry.name} mark={mark} size="lg" />
         <div className="extension-hero-text">
-          <h2>{entry.name}</h2>
+          <h1>{entry.name}</h1>
           <p>{extensionBlurb(entry)}</p>
           <div className="extension-hero-badges">
             <StateBadge entry={entry} />
