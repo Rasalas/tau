@@ -94,6 +94,7 @@ describe("a running turn", () => {
     />);
     const line = view.container.querySelector(".work-live");
     expect(screen.getByText("Reading b.ts")).toBeTruthy();
+    expect(line?.querySelector(".spinner.info")).toBeTruthy();
 
     view.rerender(<WorkGroup
       id="turn"
@@ -150,6 +151,9 @@ describe("a running turn", () => {
       waiting
     />);
     expect(screen.getByText("Waiting for your answer")).toBeTruthy();
+    // A question is amber, not a spinner: the rail's triplet.
+    expect(document.querySelector(".work-live-line > .work-live-question")).toBeTruthy();
+    expect(document.querySelector(".work-live-line > .spinner")).toBeNull();
   });
 
   it("reports a turn whose runtime is gone as stopped", () => {

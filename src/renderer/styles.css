@@ -39,6 +39,8 @@ button > svg { pointer-events: none; }
   border-radius: 50%; animation: spin .9s linear infinite;
 }
 .spinner.acid { border-color: var(--acid-text); border-top-color: transparent; }
+/* A run in flight: the blue of the rail's Working. */
+.spinner.info { border-color: var(--info); border-top-color: transparent; }
 .spinner.small { width: 9px; height: 9px; }
 .spinner-sm { width: 12px; height: 12px; }
 .spinner-md { width: 14px; height: 14px; border-width: 2px; }
@@ -1051,6 +1053,7 @@ body.resizing-col .app-shell { transition: none; }
   color: inherit; font: inherit; text-align: left;
 }
 .work-live-line:hover { color: var(--ink-2); }
+.work-live-question { flex: none; color: var(--warn); }
 .work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-live.running .work-live-label {
   background: linear-gradient(90deg, var(--muted) 30%, var(--ink-2) 50%, var(--muted) 70%) 0 0 / 300% 100%;
@@ -1585,9 +1588,10 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
+/* A question is amber wherever it shows: the rail, the live line, the card on the composer. */
 .extension-prompt-mark {
   width: 20px; height: 20px; flex: none; display: grid; place-items: center;
-  border-radius: 6px; background: var(--acid-chip); color: var(--acid-text);
+  border-radius: 6px; background: var(--warn-chip); color: var(--warn);
 }
 .extension-prompt-message {
   margin: 6px 4px 2px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap;
