@@ -148,5 +148,7 @@ describe("a new thread in the project on screen", () => {
     await screen.findByRole("dialog", { name: "Settings" });
     press("n");
     expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project beta");
+    // The draft is not left behind Settings.
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
   });
 });

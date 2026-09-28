@@ -128,7 +128,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
       openCommandPalette: options.openPalette,
       openSettings: (page) => options.setSettingsPage(page ?? "general"),
-      newSession: (request) => newSession(request),
+      // Read what is on screen first: Settings covers the thread until the next render.
+      newSession: (request) => { newSession(request); options.setSettingsPage(undefined); },
       switchSession,
       ...(options.openDraft ? { openDraft: options.openDraft } : {}),
       ...(options.discardDraft ? { discardDraft: options.discardDraft } : {}),
