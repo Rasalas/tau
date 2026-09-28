@@ -111,6 +111,34 @@ describe("Usage page", () => {
     expect(within(within(totals).getByRole("region", { name: "Last 30 days" })).getByText("$0.51")).toBeTruthy();
   });
 
+  it("marks work outside Tau, names its sessions and projects, and filters by where it ran", async () => {
+    const outside = [
+      entry({ day: LAST - 1, backend: "codex", threadId: "019a-cli-session", cwd: "/work/side-project", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", costUsd: 3, outside: true }),
+    ];
+    const reads: string[] = [];
+    const invoke = vi.fn(async (command: string) => { reads.push(command); return command === "limits" ? limits : summary({ entries: [...entries, ...outside] }); });
+    renderPage(invoke);
+    const threads = await screen.findByRole("region", { name: "Threads" });
+    await waitFor(() => expect(within(threads).getByText("Codex session 019a-cli")).toBeTruthy());
+    expect(within(threads).getByText("Outside Tau · side-project")).toBeTruthy();
+    const projects = screen.getByRole("region", { name: "Projects" });
+    expect(within(projects).getByText("side-project")).toBeTruthy();
+    expect(within(projects).getByText("Outside Tau")).toBeTruthy();
+
+    const where = screen.getByRole("radiogroup", { name: "Where the work ran" });
+    fireEvent.click(within(where).getByRole("radio", { name: "In Tau" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).queryByText("Codex session 019a-cli")).toBeNull());
+    fireEvent.click(within(where).getByRole("radio", { name: "Outside Tau" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Threads" })).getAllByRole("listitem")).toHaveLength(1));
+  });
+
+  it("shows no origin filter when nothing ran outside Tau, and says when the logs are still being read", async () => {
+    renderPage(answers(() => summary({ reading: true })));
+    await screen.findByRole("region", { name: "Threads" });
+    expect(screen.queryByRole("radiogroup", { name: "Where the work ran" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("still reading the CLIs' logs"));
+  });
+
   it("draws the days of the range and ranks projects, models and threads by the measure chosen", async () => {
     renderPage(answers());
     const days = await screen.findByRole("list", { name: "Cost per day" });

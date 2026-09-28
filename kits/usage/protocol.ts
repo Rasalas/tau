@@ -1,7 +1,8 @@
 /**
  * What the Usage kit's two halves agree on, and what it asks of the backend
- * kits. Usage is what a runtime wrote down while Tau ran it; limits are what
- * a runtime's login reports about its plan. Money billed per token and the
+ * kits. Usage is what a runtime wrote down while Tau ran it, and what the
+ * agent CLIs logged on their own outside Tau; limits are what a runtime's
+ * login reports about its plan. Money billed per token and the
  * API value of what a subscription covered are never summed into one figure.
  */
 export const USAGE_EXTENSION_ID = "tau.usage";
@@ -59,6 +60,8 @@ export interface BackendUsageAnswer {
 
 export interface BackendUsageThread {
   threadId: string;
+  /** The runtime's own session id, as its CLI logs it; work logged under it is this thread's. */
+  sessionId?: string;
   cwd: string;
   /** What the thread last ran on, as the backend names it. */
   model?: string;
@@ -69,6 +72,46 @@ export interface BackendUsageThread {
   /** Each turn on its own; a thread from before its kit kept turns has only `usage`. */
   turns?: BackendUsageTurn[];
 }
+
+/**
+ * The command a runtime kit registers for this kit (`callers: ["tau.usage"]`)
+ * when its CLI logs usage on its own: `{}` → `BackendLogsAnswer`. It names
+ * each instance's folders from that instance's configuration and reads
+ * nothing itself; this kit reads them in its worker, counts only, and skips
+ * the sessions the kit's `usage` answer names as Tau's.
+ */
+export const BACKEND_LOGS_COMMAND = "usage-logs";
+
+/** How a log folder is laid out: Codex rollouts, the Agent SDK CLI's projects, OpenCode's data folder. */
+export type OutsideFormat = "codex" | "claude" | "opencode";
+
+export interface BackendLogFolder {
+  format: OutsideFormat;
+  /** Absolute. */
+  path: string;
+  /** The instance it belongs to (`codex`, `codex@work`). */
+  instance: string;
+  /** How the instance's login bills now, when the kit knows; an older log may have run on another. */
+  billing?: UsageBilling;
+}
+
+export interface BackendLogsAnswer {
+  folders: BackendLogFolder[];
+}
+
+/** A runtime kit whose CLI logs its own sessions. */
+export interface OutsideLogSource {
+  extensionId: string;
+  backend: string;
+  label: string;
+}
+
+/** Asked for log folders. */
+export const OUTSIDE_LOG_SOURCES: readonly OutsideLogSource[] = [
+  { extensionId: "tau.codex", backend: "codex", label: "Codex" },
+  { extensionId: "tau.claude-code", backend: "claude-code", label: "Claude Code" },
+  { extensionId: "tau.opencode", backend: "opencode", label: "OpenCode" },
+];
 
 /** One quota window of a plan. */
 export interface UsageLimitWindow {
@@ -212,6 +255,8 @@ export interface UsageRow extends UsageTokens {
   apiValueUsd: number;
   /** Where the figure came from: the user's price, the runtime's, the API list, none. */
   priceSource?: "custom" | "runtime" | "api" | "none";
+  /** Work the CLI logged outside Tau. */
+  outside?: boolean;
 }
 
 /**
@@ -222,7 +267,8 @@ export interface UsageRow extends UsageTokens {
 export interface UsageSourceReport {
   backend: string;
   label: string;
-  status: "ok" | "empty" | "unavailable";
+  /** `reading`: a first read of a large log history is still under way. */
+  status: "ok" | "empty" | "unavailable" | "reading";
   detail: string;
   dating: "message" | "turn" | "thread";
 }
@@ -237,6 +283,8 @@ export interface UsageSummary {
   sources: UsageSourceReport[];
   /** With `days` asked for: the period split by day and thread. */
   entries?: UsageEntry[];
+  /** The CLIs' logs are still being read; asking again soon gives more. */
+  reading?: boolean;
 }
 
 export interface UsageSummaryInput {
@@ -263,6 +311,8 @@ export interface UsageEntry extends UsageTokens {
   billing?: UsageBilling;
   requests: number;
   apiValueUsd: number;
+  /** Work the CLI logged outside Tau; `threadId` is then its own session id. */
+  outside?: boolean;
   /** Set by the page on another machine's entries (its host id); a host never sends it. */
   machine?: string;
 }

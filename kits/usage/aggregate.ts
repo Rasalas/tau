@@ -1,6 +1,9 @@
+import type { OutsideScan } from "./outside-cache.js";
 import type { PiScan } from "./pi-sessions.js";
 import {
+  OUTSIDE_LOG_SOURCES,
   PI_BACKEND,
+  type OutsideLogSource,
   type BackendUsageAnswer,
   type BackendUsageSource,
   type BackendUsageTurn,
@@ -20,11 +23,19 @@ export interface BackendScan {
   error?: string;
 }
 
+/** What the CLIs logged on their own, and the kits that could not say where. */
+export interface OutsideLogs {
+  scan: OutsideScan;
+  /** A kit's error when it named no folders. */
+  errors: Array<{ source: OutsideLogSource; error: string }>;
+}
+
 export interface UsageScan {
   scannedAt: number;
   sessionsDir: string;
   pi: PiScan;
   backends: BackendScan[];
+  outside?: OutsideLogs;
 }
 
 export interface SummarizeOptions {
@@ -57,7 +68,7 @@ export function splitModel(model: string): { provider?: string; modelId: string 
   return slash > 0 ? { provider: model.slice(0, slash), modelId: model.slice(slash + 1) } : { modelId: model };
 }
 
-type RowKey = { backend: string; backendLabel: string; cwd: string; model: string; provider?: string; modelId?: string; billing?: UsageBilling };
+type RowKey = { backend: string; backendLabel: string; cwd: string; model: string; provider?: string; modelId?: string; billing?: UsageBilling; outside?: boolean };
 
 class Rows {
   private readonly rows = new Map<string, UsageRow & { threadIds: Set<string> }>();
@@ -65,7 +76,7 @@ class Rows {
   constructor(private readonly nameOf: (cwd: string) => string | undefined) {}
 
   row(key: RowKey) {
-    const id = `${key.backend}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}`;
+    const id = `${key.backend}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}\u0000${key.outside ? "outside" : ""}`;
     let row = this.rows.get(id);
     if (!row) {
       row = {
@@ -77,6 +88,7 @@ class Rows {
         ...(key.provider ? { provider: key.provider } : {}),
         ...(key.modelId ? { modelId: key.modelId } : {}),
         ...(key.billing ? { billing: key.billing } : {}),
+        ...(key.outside ? { outside: true } : {}),
         requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, apiValueUsd: 0, threads: 0,
         threadIds: new Set(),
       };
@@ -116,7 +128,7 @@ class Entries {
   private readonly entries = new Map<string, UsageEntry>();
 
   add(day: number, key: RowKey, threadId: string, tally: Tally): void {
-    const id = `${day}\u0000${key.backend}\u0000${threadId}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}`;
+    const id = `${day}\u0000${key.backend}\u0000${threadId}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}\u0000${key.outside ? "outside" : ""}`;
     let entry = this.entries.get(id);
     if (!entry) {
       entry = {
@@ -124,6 +136,7 @@ class Entries {
         ...(key.provider ? { provider: key.provider } : {}),
         ...(key.modelId ? { modelId: key.modelId } : {}),
         ...(key.billing ? { billing: key.billing } : {}),
+        ...(key.outside ? { outside: true } : {}),
         requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, apiValueUsd: 0,
       };
       this.entries.set(id, entry);
@@ -312,6 +325,8 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
     reports.push(backendReport(backend, counted));
   }
 
+  const outside = scan.outside ? countOutside(scan, rows, inPeriod, split) : [];
+
   const { rows: list, threads } = rows.finish();
   const priced = list.map(runtimePrice);
   const summary = applyPrices({
@@ -319,7 +334,95 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
     scannedAt: scan.scannedAt,
     totals: { ...emptyTotals(), threads },
     rows: list,
-    sources: [piReport(scan, piThreads.size), ...reports],
+    sources: [piReport(scan, piThreads.size), ...reports, ...outside],
   }, priced);
-  return entries ? { ...summary, entries: priceEntries(entries.list(), []) } : summary;
+  const reading = scan.outside?.scan.reading ? { reading: true } : {};
+  return entries ? { ...summary, ...reading, entries: priceEntries(entries.list(), []) } : { ...summary, ...reading };
+}
+
+type Split = (at: number | undefined, key: RowKey, threadId: string, tally: Tally) => void;
+
+/**
+ * Adds what the CLIs logged on their own. A session a Tau thread ran as, or
+ * one it forked or spawned, is that thread's: where the kit kept its usage
+ * the log is skipped, since Tau's figure is the one it shows; where it kept
+ * none (an imported session), the log's count goes to the thread. The rest
+ * is work outside Tau. A response copied into a resumed or archived session
+ * counts once.
+ */
+function countOutside(scan: UsageScan, rows: Rows, inPeriod: (at: number | undefined) => boolean, split: Split): UsageSourceReport[] {
+  const logs = scan.outside!;
+  const tau = new Map<string, { threadId: string; cwd: string; kept: boolean }>();
+  for (const backend of scan.backends) {
+    for (const thread of backend.answer?.threads ?? []) {
+      if (thread.sessionId) tau.set(thread.sessionId, { threadId: thread.threadId, cwd: thread.cwd, kept: Boolean(thread.usage || thread.turns?.length) });
+    }
+  }
+  const seen = new Set<string>();
+  const stats = new Map<string, { sessions: Set<string>; tau: Set<string>; skipped: number }>();
+  const units = [...logs.scan.units].sort((left, right) => left.unit.path.localeCompare(right.unit.path));
+  for (const { root, unit } of units) {
+    let stat = stats.get(root.backend);
+    if (!stat) stats.set(root.backend, stat = { sessions: new Set(), tau: new Set(), skipped: 0 });
+    stat.skipped += unit.skipped;
+    for (const session of unit.sessions) {
+      const own = tau.get(session.sessionId) ?? (session.parentId ? tau.get(session.parentId) : undefined);
+      if (own) stat.tau.add(session.sessionId);
+      if (own?.kept) continue;
+      let any = false;
+      for (const record of session.records) {
+        if (seen.has(record.key)) continue;
+        seen.add(record.key);
+        if (!inPeriod(record.at)) continue;
+        const key: RowKey = {
+          backend: root.backend,
+          backendLabel: root.label,
+          cwd: own?.cwd ?? session.cwd,
+          model: record.model,
+          ...(record.provider ? { provider: record.provider } : {}),
+          modelId: record.model,
+          ...(root.billing ? { billing: root.billing } : {}),
+          ...(own ? {} : { outside: true }),
+        };
+        const threadId = own?.threadId ?? session.sessionId;
+        const row = rows.row(key);
+        split(record.at, key, threadId, {
+          requests: 1, inputTokens: record.input, outputTokens: record.output, cacheReadTokens: record.cacheRead,
+          cacheWriteTokens: record.cacheWrite, totalTokens: record.total, costUsd: record.cost,
+        });
+        row.requests += 1;
+        row.inputTokens += record.input;
+        row.outputTokens += record.output;
+        row.cacheReadTokens += record.cacheRead;
+        row.cacheWriteTokens += record.cacheWrite;
+        row.totalTokens += record.total;
+        row.costUsd += record.cost;
+        row.threadIds.add(threadId);
+        any = true;
+      }
+      if (any && !own) stat.sessions.add(session.sessionId);
+    }
+  }
+  return OUTSIDE_LOG_SOURCES.flatMap((source): UsageSourceReport[] => {
+    const base = { backend: `${source.backend}-outside`, label: `${source.label} outside Tau`, dating: "message" as const };
+    const error = logs.errors.find((item) => item.source.extensionId === source.extensionId)?.error;
+    const roots = logs.scan.roots.filter((report) => report.root.backend === source.backend);
+    if (error && roots.length === 0) return [{ ...base, status: "unavailable" as const, detail: `Not available: ${error}.` }];
+    if (roots.length === 0) return [];
+    const where = roots.map((report) => report.root.path).join(", ");
+    const found = roots.filter((report) => report.found);
+    if (found.length === 0) return [{ ...base, status: "empty" as const, detail: `No logs at ${where}.` }];
+    const stat = stats.get(source.backend);
+    const files = found.reduce((sum, report) => sum + report.files, 0);
+    const failed = found.reduce((sum, report) => sum + report.failed, 0);
+    const parts = [
+      `Read ${plural(files, source.backend === "opencode" ? "database" : "log file")} of the last 12 months in ${where}`,
+      `${plural(stat?.sessions.size ?? 0, "session")} outside Tau in this period`,
+    ];
+    if (stat?.tau.size) parts.push(`${plural(stat.tau.size, "session")} ${stat.tau.size === 1 ? "was" : "were"} Tau's own and count${stat.tau.size === 1 ? "s" : ""} with ${stat.tau.size === 1 ? "its thread" : "their threads"}`);
+    if (failed > 0) parts.push(`${plural(failed, "file")} could not be read`);
+    if (stat?.skipped) parts.push(`${plural(stat.skipped, "unreadable line")} skipped`);
+    const status = logs.scan.reading ? "reading" as const : files === 0 ? "empty" as const : "ok" as const;
+    return [{ ...base, status, detail: `${logs.scan.reading ? "Still reading. " : ""}${parts.join("; ")}.` }];
+  });
 }
