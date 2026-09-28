@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
+import { runPaletteCommand } from "../../src/renderer/test-support/palette.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
@@ -77,12 +78,7 @@ async function renderRail() {
 }
 
 async function openTerminal(): Promise<HTMLElement> {
-  const mac = /mac|iphone|ipad/iu.test(navigator.platform);
-  fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
-  const palette = await screen.findByRole("dialog", { name: "Command palette" });
-  const input = within(palette).getByRole("textbox", { name: "Command" });
-  fireEvent.change(input, { target: { value: "Open the test terminal" } });
-  fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+  await runPaletteCommand("Open the test terminal");
   return screen.findByRole("region", { name: "Stage" });
 }
 
@@ -182,15 +178,7 @@ describe("starting a new thread while the centre shows tabs", () => {
     const starts: Array<() => Promise<void>> = [
       async () => { pressNewThreadShortcut(); await pickProjectWithEnter(); },
       async () => { fireEvent.click(screen.getByRole("button", { name: "New thread" })); await pickProjectWithEnter(); },
-      async () => {
-        const mac = /mac|iphone|ipad/iu.test(navigator.platform);
-        fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
-        const palette = await screen.findByRole("dialog", { name: "Command palette" });
-        const input = within(palette).getByRole("textbox", { name: "Command" });
-        fireEvent.change(input, { target: { value: "Create new thread" } });
-        fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
-        await pickProjectWithEnter();
-      },
+      async () => { await runPaletteCommand("Create new thread"); await pickProjectWithEnter(); },
       async () => { fireEvent.click(await screen.findByRole("button", { name: "New thread in project" })); },
     ];
     for (const start of starts) {

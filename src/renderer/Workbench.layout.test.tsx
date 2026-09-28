@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
 import type { DesktopExtension, PanelProps } from "./extension-system";
+import { runPaletteCommand } from "./test-support/palette";
 import { renderApp } from "./test-support/render-app";
 
 /** jsdom's window is 1024 wide unless a test says otherwise. */
@@ -274,10 +275,7 @@ describe("workbench layout", () => {
     } };
     const view = renderApp(undefined, { extensions: [panels, opener] });
     await screen.findByRole("button", { name: "Toggle Shell drawer" });
-    pressMod("k");
-    const palette = await screen.findByRole("dialog", { name: "Command palette" });
-    fireEvent.change(within(palette).getByRole("textbox", { name: "Command" }), { target: { value: "Open shell" } });
-    fireEvent.keyDown(within(palette).getByRole("textbox", { name: "Command" }), { key: "Enter", bubbles: true, cancelable: true });
+    await runPaletteCommand("Open shell");
     const drawer = await screen.findByRole("region", { name: "Shell" });
     fireEvent.click(within(drawer).getByRole("button", { name: "Maximize Shell" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
@@ -294,11 +292,7 @@ describe("workbench layout", () => {
       plugin.registerCommand({ id: "test.open-other", label: "Open the other fixture", group: "Test", run: (actions) => actions.openFile("/project/other.txt", { pin: true }) });
     } };
     async function openFile(label = "Open the fixture file"): Promise<HTMLElement> {
-      pressMod("k");
-      const palette = await screen.findByRole("dialog", { name: "Command palette" });
-      const input = within(palette).getByRole("textbox", { name: "Command" });
-      fireEvent.change(input, { target: { value: label } });
-      fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+      await runPaletteCommand(label);
       return screen.findByRole("region", { name: "Stage" });
     }
 

@@ -6,6 +6,7 @@ import { settingsSearchEntries } from "../settings/settings-search";
 import { setHostClient } from "../host-client-context";
 import { setClientStorage } from "../../workbench/client-storage";
 import { createFakeHostClient } from "../test-support/fake-host-client";
+import { runPaletteCommand } from "../test-support/palette";
 import { renderApp } from "../test-support/render-app";
 import { workspaceHostStub } from "../test-support/workspace-host-stub";
 
@@ -51,12 +52,7 @@ function createSettingsClient(initial: TauConfig, { failing = false, completionM
 }
 
 async function openPiPage(ready = "Write Pi settings to"): Promise<HTMLElement> {
-  const mac = /mac|iphone|ipad/iu.test(navigator.platform);
-  fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
-  const palette = await screen.findByRole("dialog", { name: "Command palette" });
-  const input = within(palette).getByRole("textbox", { name: "Command" });
-  fireEvent.change(input, { target: { value: "Open Settings" } });
-  fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+  await runPaletteCommand("Open Settings");
   const modal = await screen.findByRole("dialog", { name: "Settings" });
   fireEvent.click(within(modal).getByRole("button", { name: "Pi" }));
   // The page reads Pi's file over the host, so its fields arrive a tick later.
