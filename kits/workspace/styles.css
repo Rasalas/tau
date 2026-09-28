@@ -222,24 +222,19 @@
   padding: 0 8px; margin-right: 4px; color: var(--ink-3); font: 500 13px var(--sans);
 }
 
-/* A turn's changes: one pill centred over the composer, or in the transcript for an earlier turn. */
+/* A turn's changes: one pill centred over the composer (core's `.control-pill`), or in the transcript for an earlier turn. */
 .turn-changes-bar { display: flex; }
 .turn-checkpoint-row { display: flex; padding: 2px 0; }
-.turn-changes-pill {
+.turn-changes-pill:not(.control-pill) {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px 0 10px;
   border: 1px solid var(--line-control); border-radius: var(--radius-pill);
   background: var(--chrome); color: var(--ink-3); font: 500 12px var(--sans);
   white-space: nowrap; cursor: pointer;
 }
-.turn-changes-bar > .turn-changes-pill {
-  height: 32px; padding: 0 11px 0 12px; gap: 7px; color: var(--ink-2); font-size: 13px; box-shadow: var(--elevation-1);
-}
-.turn-changes-bar > .turn-changes-pill .stat-add, .turn-changes-bar > .turn-changes-pill .stat-del { font-size: 12.5px; }
-.turn-changes-pill .stat-add, .turn-changes-pill .stat-del { font-variant-numeric: tabular-nums; }
-.turn-changes-pill:hover, .turn-changes-pill.open { border-color: var(--line-strong); color: var(--ink); }
-.turn-changes-pill > svg { flex: none; color: var(--faint); }
-.turn-changes-pill > .turn-changes-partial { color: var(--working); }
-.turn-changes-pill .stat-add, .turn-changes-pill .stat-del { font-size: 11.5px; }
+.turn-changes-pill:not(.control-pill) .stat-add, .turn-changes-pill:not(.control-pill) .stat-del { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.turn-changes-pill:not(.control-pill):is(:hover, .open) { border-color: var(--line-strong); color: var(--ink); }
+.turn-changes-pill:not(.control-pill) > svg { flex: none; color: var(--faint); }
+.turn-changes-pill > svg.turn-changes-partial { color: var(--working); }
 .turn-changes-live {
   flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--working);
   animation: turn-changes-live 1.2s ease-in-out infinite;

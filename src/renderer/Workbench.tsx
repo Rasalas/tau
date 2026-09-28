@@ -33,6 +33,7 @@ import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest";
+import { TaskPill } from "./components/TaskProgress";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
@@ -749,7 +750,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               /> : null}
               <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
               {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
-              <Region registry={registry} placement="composer-controls" snapshot={snapshot} actions={actions}>
+              <Region
+                registry={registry}
+                placement="composer-controls"
+                snapshot={snapshot}
+                actions={actions}
+                lead={conversationSnapshot?.taskProgress ? <TaskPill progress={conversationSnapshot.taskProgress} /> : undefined}
+              >
                 <JumpToLatestButton store={jumpToLatest} onKeyboardJump={() => actions.focusComposer()} />
               </Region>
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />

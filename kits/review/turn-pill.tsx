@@ -54,7 +54,7 @@ export function createCompactTurnPill({ workspace, store }: { workspace: HostExt
       <div className="review-turn-pill-bar">
         <button
           type="button"
-          className="review-turn-pill"
+          className="control-pill review-turn-pill"
           aria-haspopup="dialog"
           aria-label={`Turn changes: ${filesLabel(turn)}, ${turn.added} lines added, ${turn.removed} removed`}
           onClick={() => {
@@ -62,12 +62,12 @@ export function createCompactTurnPill({ workspace, store }: { workspace: HostExt
             actions.openPanel(REVIEW_COMPACT_PANEL);
           }}
         >
-          <FileDiff size={14} aria-hidden="true" />
+          <FileDiff aria-hidden="true" />
           <span>{filesLabel(turn)}</span>
-          {partial ? <TriangleAlert size={13} className="review-turn-pill-partial" aria-hidden="true" /> : null}
+          {partial ? <TriangleAlert className="review-turn-pill-partial" aria-hidden="true" /> : null}
           <span className="stat-add">+{turn.added}</span>
           <span className="stat-del">−{turn.removed}</span>
-          <ChevronUp size={14} aria-hidden="true" />
+          <ChevronUp aria-hidden="true" />
         </button>
       </div>
     );

@@ -30,7 +30,7 @@ export class JumpToLatestStore {
 }
 
 /**
- * A round arrow beside the turn's pill, or alone over the transcript's bottom edge; nothing at the latest message.
+ * A round arrow beside the row's pills, or alone over the transcript's bottom edge; nothing at the latest message.
  * It floats in a slot that takes no room, so showing it never moves the transcript or the row.
  */
 export function JumpToLatestButton({ store, onKeyboardJump }: {
@@ -44,7 +44,7 @@ export function JumpToLatestButton({ store, onKeyboardJump }: {
     <span className="jump-to-latest-float">
       <button
         type="button"
-        className="jump-to-latest"
+        className="control-pill icon-only jump-to-latest"
         aria-label="Jump to latest"
         {...tooltipProps("Jump to latest", { side: "top" })}
         // A click leaves the focus where it was, usually in the composer.
@@ -54,7 +54,7 @@ export function JumpToLatestButton({ store, onKeyboardJump }: {
           if (event.detail === 0) onKeyboardJump?.();
         }}
       >
-        <ArrowDown size={16} aria-hidden="true" />
+        <ArrowDown aria-hidden="true" />
       </button>
     </span>
   );

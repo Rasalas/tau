@@ -97,7 +97,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
   // One element per progress value, so a tool flush leaves the row list's inputs alone.
   const taskProgress = conversationSnapshot?.isStreaming ? conversationSnapshot.taskProgress : undefined;
   const liveTaskProgress = useMemo(
-    () => taskProgress ? <TaskProgress progress={taskProgress} placement="transcript" /> : undefined,
+    () => taskProgress ? <TaskProgress progress={taskProgress} /> : undefined,
     [taskProgress],
   );
   const extensionRows = registry.getTranscriptRows(conversationSnapshot?.sessionId);
@@ -114,7 +114,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
     ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
       id: entry.id,
       afterMessageId: entry.anchorMessageId,
-      content: <TaskProgress progress={entry.progress} placement="transcript" />,
+      content: <TaskProgress progress={entry.progress} />,
     }))),
     ...(liveTaskProgress ? [{ id: "live-task-progress", afterMessageId: visibleToolAnchorId, fallbackToTail: true, content: liveTaskProgress }] : []),
     ...extensionRows,
