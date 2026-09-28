@@ -298,6 +298,18 @@ This is about not restarting between passes of the same task, not about leaving 
 - The instance copies the user's Pi `settings.json`, so a new draft starts on the user's default model, which may be expensive. Pick the cheap model in the picker by its option's aria-label (`GPT-5.6 Luna, Pi, …`), and check the chip's label before sending.
 - Proof that the turn ran on it is the session file under `.tau-dev/pi-sessions/`: a `model_change` to the cheap model before the user message, and the assistant message's `"model"`.
 
+## Component tests: wait for the data, not the frame
+
+Most of this page is about the real app; this section is about the Vitest DOM tests beside the code. A component often draws its frame first (a region, a list, a button) and fills it when a host answer arrives, in a later render. On a busy runner that render comes after the test's next line, and the test fails there, one run in a few hundred. Four release verifies failed this way (K47). So:
+
+- Wait for what you read: `await within(today).findByText("$0.01")`, not `await findByRole("region", …)` followed by `getByText("$0.01")`. A `getBy…` after an `await` is only safe when both come from the same render.
+- A button that waits for something (disabled until a status or a draft arrives, or while a step runs) is clicked once it is enabled: `await waitFor(() => expect(button.disabled).toBe(false))`. A click on a disabled button does nothing, and the test fails later with a message that does not point at it.
+- A spy that was called says nothing about the DOM: after `waitFor(() => expect(notify).toHaveBeenCalled…)` the render that follows the call may still be pending. Wait for the DOM as well, and put a `queryBy… toBeNull()` that follows an action inside `waitFor` too.
+- The command palette clears its field in the effect that focuses it, and on its first opening that effect can run after the dialog is found. Type into it through `openCommandPalette` or `runPaletteCommand` from `src/renderer/test-support/palette.ts`, which wait for the focus.
+- No sleeps and no longer timeouts.
+
+`TAU_TEST_SLOW_RENDERS=<ms>` delays every render React schedules outside `act()` by that many milliseconds (`src/test-setup.ts`). It turns these races into failures on every run, so check a new test that awaits a host answer with it: `TAU_TEST_SLOW_RENDERS=30 npx vitest run kits/usage`, then 5 and 120. The DOM suite passes at all three; from about 200 a delayed render outlives a file's teardown and reports `window is not defined`. It does not delay real timers, subprocesses or dynamic imports; for those, run the file many times in parallel under load.
+
 ## Known traps
 
 `npm run cdp` without a port only drives an instance started from this worktree: a port read from `.tau-dev/instance.json` whose process runs from another worktree is refused, because a dead instance's port can be reused by someone else's. `dev-instance` also sets `TAU_NO_RUNTIME_UPDATES=1`, so a test instance shows no update toast at all, and `TAU_RUNTIME_UPDATE_COMMAND` to `{"*": "echo …"}`, so one it shows anyway (`TAU_NO_RUNTIME_UPDATES=0`) never runs a real `brew upgrade`, `npm install -g` or `claude update`. On the phone, toasts sit at the bottom above the composer and under every sheet; swipe one sideways or tap its × before tapping near it.

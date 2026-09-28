@@ -29,6 +29,14 @@ beforeAll((suite) => {
 // importing Testing Library and React costs every one of them on a slow runner.
 const dom = typeof document !== "undefined";
 
+// TAU_TEST_SLOW_RENDERS=<ms> delays every render React schedules outside act(): React's scheduler
+// takes setImmediate when it loads. See "Component tests" in docs/agents/testing-the-app.md.
+const slowRenders = Number(process.env.TAU_TEST_SLOW_RENDERS ?? 0);
+if (dom && slowRenders > 0) {
+  const later = globalThis.setTimeout;
+  globalThis.setImmediate = ((callback: (...args: unknown[]) => void, ...args: unknown[]) => later(callback, slowRenders, ...args)) as unknown as typeof setImmediate;
+}
+
 // The app loads deferred components (src/renderer/deferred-surfaces.ts) when idle;
 // a test file's are loaded before its tests run, so they draw synchronously there too.
 beforeAll(async () => {
