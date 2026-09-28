@@ -748,6 +748,16 @@ before the stage toggle (API 1.27.0: the window-wide title bar is gone): Workspa
 Kit's project actions, "N files changed ›" and the Git action sit there. It stays
 mounted while the conversation is folded to its spine, only out of sight, so a
 kit may keep a dialog layer there; on a phone it is the end of the phone's bar.
+`thread-details` and `thread-branch` (API 1.27.0) are the thread header's
+sub-line: `thread-details` adds items before the branch (Machines Kit names a
+new thread's machine there, the design's project · machine · branch), and
+`thread-branch` draws the branch itself; while any kit registers for it,
+core's plain branch label steps aside. Both are drawn bare in the sub-line,
+so draw each item as a `span.thread-detail` (core puts the "·" between
+them) and render nothing when there is nothing to say. Workspace Kit's
+branch there opens a menu over the thread's checkout (switch or create a
+branch, open, add or remove a worktree) and, for a new thread, its Branch
+section. A phone's bar draws neither; an older core draws neither.
 `stage-bar` (API 1.27.0) is the right end of the stage's tab strip, after the
 tools and before the maximize, for a control about the stage as a whole, such as
 Workspace Kit's "Open in". The other placements are
@@ -1615,7 +1625,17 @@ worktree a new thread of the followed project runs in, the way the new-thread
 gate does and named by the same naming kit; `force` makes one although the
 draft runs in the current checkout, and `branchSuffix` keeps several worktrees
 for one prompt apart. It answers `{}` (with a notice) for a project that is no
-repository or a worktree that could not be made.
+repository or a worktree that could not be made. A new thread's own choice in
+its Branch section, `draftBranch` and `draftBase` in the store's state (set with
+`setDraftBranch({ name?, base? })`), wins over the naming kit and the default
+base; both are forgotten with the draft.
+
+Workspace Kit also publishes `tau.workspace/branch-section`
+(`BranchSectionService`, `{ Section }`): a new thread's Branch section — its
+own worktree or the checkout, the `tau/…` branch named when the prompt is sent
+(or typed), "from" its base — for another kit's popover. Machines Kit draws it
+under the machines of its "Run on"; the same section opens from the branch in
+the draft's header.
 
 A host half reaches another kit's host half with `context.invokeHostExtension(id,
 command, input)`, and only for a command the target registered with
@@ -1817,6 +1837,11 @@ command clicks to open such a control; the menu's trigger answers to them, so
 package chips first lose their labels and then move into the menu, then
 attach, then the context dial; the model and the reasoning level stay
 longest. A host older than 1.27.0 draws a `menu` control in the row.
+`placement: "lead"` (API 1.27.0) puts a control before the model chip, where
+a new thread's design has its machine: Machines Kit's "Run on" chip. Core's
+own project chip follows the kits' lead controls on a new thread (a click
+moves the draft to another project), then a thin rule, then the model. A
+`lead` control never folds into the menu. An older core draws it in the row.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
