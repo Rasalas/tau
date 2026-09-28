@@ -3,6 +3,7 @@ import { ChevronDown, Lock, LockOpen } from "lucide-react";
 import { HostUnavailableError, hostIsReadOnly, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
+import { createPermissionsSection, PERMISSIONS_ROW } from "./permissions.js";
 
 function storedLevel(preferences: PreferencesStore): AccessLevel {
   const value = preferences.value(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY);
@@ -71,6 +72,13 @@ export const accessKitExtension: DesktopExtension = {
   activate(plugin) {
     const choose = chooser(plugin.host, plugin.preferences);
     plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
+    plugin.registerSettingsSection({
+      id: "access.permissions",
+      page: "runtimes",
+      profiles: ["desktop", "web", "compact"],
+      rows: [{ id: PERMISSIONS_ROW, label: "Before a runtime may…", keywords: ["access level", "permissions", "approvals", "read only", "ask before edits", "full access"] }],
+      Component: createPermissionsSection(plugin.preferences, choose),
+    });
     // T3 Code's `composer.mode` opens the access menu, its runtime mode.
     plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", access: "write", run: (app) => {
       const control = document.querySelector<HTMLElement>('[data-composer-shortcut~="composer.mode"]');

@@ -54,6 +54,8 @@ function createSettingsClient(initial: TauConfig, { failing = false, completionM
 async function openPiPage(ready = "Write Pi settings to"): Promise<HTMLElement> {
   await runPaletteCommand("Open Settings");
   const modal = await screen.findByRole("dialog", { name: "Settings" });
+  // Pi's page sits in the folded Threads group.
+  fireEvent.click(within(modal).getByRole("button", { name: "Threads" }));
   fireEvent.click(within(modal).getByRole("button", { name: "Pi" }));
   // The page reads Pi's file over the host, so its fields arrive a tick later.
   await within(modal).findByText(ready);

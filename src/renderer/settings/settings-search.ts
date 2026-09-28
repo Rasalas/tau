@@ -54,13 +54,20 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
   {
     page: "models",
     label: "Models",
-    keywords: ["defaults", "new threads", "model", "runtime"],
+    keywords: ["defaults", "new threads", "model"],
     rows: [
       ["Default model", ["model", "provider", "add provider", "custom model"]],
       ["Thinking level", ["thinking", "reasoning", "effort"]],
-      ["Runtime for new threads", ["runtime", "backend", "program"]],
       ["Temperature", ["temperature", "sampling", "model parameters"]],
       ["Max tokens", ["max tokens", "answer length", "model parameters"]],
+    ],
+  },
+  {
+    page: "runtimes",
+    label: "Runtimes",
+    keywords: ["harness", "backend", "program", "cli", "version", "update", "install", "instance", "permissions"],
+    rows: [
+      ["Runtime for new threads", ["default runtime", "runtime", "backend", "program", "make default"]],
     ],
   },
   {

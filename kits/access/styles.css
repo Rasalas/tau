@@ -1,0 +1,10 @@
+/* Settings → Runtimes: four cards on what a runtime may do before it asks (design 1j). */
+.access-permissions {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4);
+  margin: 0; padding: 0; list-style: none;
+}
+.access-permissions > li { padding: var(--space-5) var(--space-6); border-radius: var(--radius-md); background: var(--inset); }
+.access-permissions > li > h3 { display: flex; align-items: center; gap: var(--space-3); margin: 0; font: 500 var(--text-md) var(--sans); color: var(--ink); }
+.access-permissions > li > h3 > svg { flex: none; color: var(--muted); }
+.access-permissions > li > p { margin: var(--space-2) 0 0; font: var(--text-md)/1.45 var(--sans); color: var(--ink-3); }
+.access-permissions-note { margin: 0; font: var(--text-sm)/1.5 var(--sans); color: var(--muted); }

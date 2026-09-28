@@ -761,6 +761,13 @@ export interface SettingsPageContribution extends ProfileScoped {
    */
   runtime?: ThreadBackendKind;
   /**
+   * On a runtime's card, the ids of its rows the Runtimes page's buttons open
+   * (API 1.27.0): `program`, where the program is installed and updated, and
+   * `addInstance`, where another setup of it is added. Without them the
+   * buttons open the card.
+   */
+  runtimeRows?: { program?: string; addInstance?: string };
+  /**
    * The levels this page's settings may be written to. With "project" or
    * "both" the Settings bar offers the project a change applies to, and a row
    * built with `useSetting` follows it; "host", the default, edits this machine.
@@ -771,10 +778,10 @@ export interface SettingsPageContribution extends ProfileScoped {
 
 /**
  * Core's own Settings pages a package may add a section to (API 1.13.0):
- * Connections; the list of extensions, above it; and each extension's own
- * page, after its settings (both API 1.18.0).
+ * Connections; the list of extensions, above it; each extension's own page,
+ * after its settings (both API 1.18.0); and Runtimes, below its table (API 1.27.0).
  */
-export type SettingsSectionPage = "connections" | "extensions" | "extension";
+export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes";
 
 export interface SettingsSectionProps {
   onNotify(message: string): void;

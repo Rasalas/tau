@@ -8,9 +8,8 @@ import { AddModelProviderModal } from "../components/AddModelProviderModal";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
 import { tooltipProps } from "../components/ui/Tooltip";
-import { runtimeUpdate } from "../runtime-update";
 import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
-import { Badge, Button, NumberField, SegmentedControl, Select } from "./controls";
+import { Button, NumberField, Select } from "./controls";
 import { SettingRow, SettingsSection, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
 
@@ -19,8 +18,8 @@ const THINKING_LABELS: Record<string, string> = { off: "Off", minimal: "Minimal"
 
 /**
  * Settings → Models: what a new thread starts with — its model, how much it
- * thinks, the program that runs it and the sampling Pi sends. Core's, so safe
- * mode still has a model picker.
+ * thinks and the sampling Pi sends. Core's, so safe mode still has a model
+ * picker. The runtime a new thread starts on is chosen on Runtimes.
  */
 export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking, onOpen }: {
   snapshot?: HostSnapshot;
@@ -42,12 +41,8 @@ export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking,
   const threadDefaults = readOnly ? READ_ONLY_REASON : undefined;
   const temperature = useSetting<number | undefined>("temperature", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
   const maxTokens = useSetting<number | undefined>("maxTokens", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
-  const backends = snapshot?.runtimeBackends ?? [];
   const levels = snapshot?.thinkingLevels ?? [];
-  const updates = backends.flatMap((backend) => {
-    const update = runtimeUpdate(backend);
-    return update ? [{ kind: backend.kind, text: update.text, tag: update.tag }] : [];
-  });
+  const newThreadLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === newThreadRuntime)?.label ?? "Pi";
 
   return (
     <div className="settings-page">
@@ -80,26 +75,6 @@ export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking,
             ? <Select label="Thinking" value={snapshot?.thinkingLevel} options={levels.map((level) => ({ value: level, label: THINKING_LABELS[level] ?? level }))} onChange={onSetThinking} />
             : <span className="settings-row-empty">This model does not think in levels</span>}
         />
-        {backends.length > 1 ? (
-          <SettingRow
-            id={settingAnchor("Runtime for new threads")}
-            title="Runtime"
-            description="Which program runs a new thread. Threads keep theirs; the composer offers the same choice before the first message."
-            disabledReason={threadDefaults}
-            status={updates.length > 0 ? (
-              <div className="settings-runtime-updates" role="status">
-                {updates.map((update) => <p key={update.kind}><Badge tone="warn" dot>{update.tag}</Badge><span>{update.text}</span></p>)}
-                {providersHere ? <Button variant="ghost" onClick={() => onOpen("providers")}>Update on Providers</Button> : null}
-              </div>
-            ) : undefined}
-            control={<SegmentedControl
-              label="Runtime for new threads"
-              value={newThreadRuntime}
-              options={backends.map((backend) => ({ value: backend.kind, label: backend.label, icon: <ProviderIconStack runtimeProvider={backend.kind} hint={false} name={backend.label} /> }))}
-              onChange={(kind) => preferences.setNewThreadRuntime(kind)}
-            />}
-          />
-        ) : null}
       </SettingsSection>
 
       <SettingsSection title="Sampling">
@@ -121,15 +96,20 @@ export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking,
         />
       </SettingsSection>
 
-      {providersHere ? (
-        <SettingsSection title="Where models come from">
+      <SettingsSection title="Where models come from">
+        <SettingRow
+          title="Runtimes"
+          description={`The programs that run threads: new ones start on ${newThreadLabel}. Their versions, updates and permissions.`}
+          control={<Button onClick={() => onOpen("runtimes")}>Open Runtimes</Button>}
+        />
+        {providersHere ? (
           <SettingRow
             title="Providers and sign-ins"
-            description="Each runtime's program, its version and sign-in, and the models it offers."
+            description="Who each runtime is signed in as, and the models it offers."
             control={<Button onClick={() => onOpen("providers")}>Open Providers</Button>}
           />
-        </SettingsSection>
-      ) : null}
+        ) : null}
+      </SettingsSection>
 
       {pickerOpen ? (
         <ModelPicker
