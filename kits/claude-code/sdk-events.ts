@@ -19,6 +19,8 @@ export interface TurnOutcome {
   /** The same, one tally per model the turn called (sub-agents may run another). */
   tallies: UsageTally[];
   contextUsage?: UiContextUsage;
+  /** The CLI compacted the conversation and no reply measured it since; `contextUsage` is the size it left, when known. */
+  compacted?: boolean;
   error?: string;
   /** The turn was stopped, by the user or by the host; nothing went wrong. */
   interrupted?: boolean;
@@ -144,6 +146,14 @@ function resultContextUsage(message: ResultMessage): UiContextUsage | undefined 
   return { tokens, contextWindow, percent: Math.min(100, Math.round((tokens / contextWindow) * 1000) / 10) };
 }
 
+/** The context a compaction left: its boundary's token count against the model's window. */
+function compactedContextUsage(message: ResultMessage, postTokens: number | undefined): UiContextUsage | undefined {
+  const windows = Object.values((message as { modelUsage?: Record<string, { contextWindow?: number }> }).modelUsage ?? {}).map((model) => model.contextWindow ?? 0);
+  const contextWindow = Math.max(0, ...windows);
+  if (postTokens === undefined || !contextWindow) return undefined;
+  return { tokens: postTokens, contextWindow, percent: Math.min(100, Math.round((postTokens / contextWindow) * 1000) / 10) };
+}
+
 function resultErrorText(message: ResultMessage): string {
   const candidate = message as { subtype: string; result?: unknown; errors?: unknown };
   const parts = [
@@ -179,8 +189,16 @@ export class SdkTurnTranslator {
   private readonly noticed = new Set<string>();
   /** A limit the CLI rejected this turn with; the error result that follows is that limit. */
   private rejected?: { resetsAt?: number };
+  /** The tokens a compaction left, from its boundary; cleared once a reply measures the context again. */
+  private compaction?: { postTokens?: number };
+  private compactionError?: string;
 
-  constructor(private readonly now: () => number = Date.now, private readonly nextId: () => string = () => `claude-assistant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly nextId: () => string = () => `claude-assistant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    /** The turn is a `/compact` Tau sent: its result has no reply of its own. */
+    private readonly compacting = false,
+  ) {}
 
   push(message: SDKMessage): ThreadRuntimeEvent[] {
     switch (message.type) {
@@ -232,6 +250,7 @@ export class SdkTurnTranslator {
     }
     if (message.parent_tool_use_id) return events;
     this.sawAssistant = true;
+    this.compaction = undefined;
     const text = content.filter((block) => block.type === "text").map((block) => (block as { text: string }).text).join("\n\n").trim();
     const thinking = content.filter((block) => block.type === "thinking").map((block) => (block as { thinking: string }).thinking).join("\n\n").trim();
     const id = this.assistantId ?? this.nextId();
@@ -272,20 +291,29 @@ export class SdkTurnTranslator {
   }
 
   private result(message: ResultMessage): ThreadRuntimeEvent[] {
-    if (message.subtype !== "success" || message.is_error) {
+    if (message.subtype !== "success" || message.is_error || (this.compacting && this.compactionError)) {
       const blocked = (message as { terminal_reason?: string }).terminal_reason === "blocking_limit" ? {} : undefined;
       const limit = this.rejected ?? blocked;
       const tallies = resultTallies(message, this.facts.model);
       this.outcome = interruptedResult(message)
         ? { texts: this.texts, usage: resultUsage(message), tallies, interrupted: true }
-        : { texts: this.texts, usage: resultUsage(message), tallies, error: resultErrorText(message), ...(limit ? { limit } : {}) };
+        : { texts: this.texts, usage: resultUsage(message), tallies, error: this.compactionError ?? resultErrorText(message), ...(limit ? { limit } : {}) };
       return [];
     }
-    // A resumed session answers with an empty result before the turn.
-    if (message.num_turns === 0 && !this.sawAssistant) return [];
-    const contextUsage = resultContextUsage(message);
-    const texts = this.texts.length > 0 ? this.texts : message.result ? [message.result] : [];
-    this.outcome = { texts, usage: resultUsage(message), tallies: resultTallies(message, this.facts.model), ...(contextUsage ? { contextUsage } : {}) };
+    // A resumed session answers with an empty result before the turn. A compaction's result has no reply
+    // either: it ends the turn after the boundary, or with the CLI's reason when there was nothing to compact.
+    if (message.num_turns === 0 && !this.sawAssistant && !(this.compacting && (this.compaction || message.result))) return [];
+    const compaction = this.compaction;
+    // The result of a compaction still counts the tokens it summarised.
+    const contextUsage = compaction ? compactedContextUsage(message, compaction.postTokens) : resultContextUsage(message);
+    const texts = this.compacting && compaction ? [] : this.texts.length > 0 ? this.texts : message.result ? [message.result] : [];
+    this.outcome = {
+      texts,
+      usage: resultUsage(message),
+      tallies: resultTallies(message, this.facts.model),
+      ...(contextUsage ? { contextUsage } : {}),
+      ...(compaction ? { compacted: true } : {}),
+    };
     return [];
   }
 
@@ -301,8 +329,14 @@ export class SdkTurnTranslator {
     }
     if (subtype === "compact_boundary") {
       const metadata = (message as { compact_metadata?: { pre_tokens?: number; post_tokens?: number } }).compact_metadata;
+      this.compaction = { ...(typeof metadata?.post_tokens === "number" ? { postTokens: metadata.post_tokens } : {}) };
       const detail = metadata?.pre_tokens ? ` (${metadata.pre_tokens.toLocaleString("en-US")} → ${(metadata.post_tokens ?? 0).toLocaleString("en-US")} tokens)` : "";
       return [{ type: "notice", message: `Claude compacted the conversation${detail}.`, level: "info" }];
+    }
+    if (subtype === "status") {
+      const status = message as { compact_result?: string; compact_error?: string };
+      if (status.compact_result === "failed") this.compactionError = `Compaction failed${status.compact_error ? `: ${status.compact_error}` : "."}`;
+      return [];
     }
     if (subtype === "permission_denied") {
       const denied = message as { tool_name?: string; reason?: string };

@@ -39,10 +39,12 @@ import {
   CLAUDE_HOME_VARIABLE,
   INSTANCES_EVENT,
   ONBOARDING_KIT_ID,
+  RESUME_QUESTION_OFF_EVENT,
   SEARCH_KIT_ID,
   USAGE_KIT_ID,
   type ClaudeInstancesReport,
   type ClaudeStatusReport,
+  type ResumeQuestionOffEvent,
 } from "./protocol.js";
 import { mergeWindows, rateLimitEventWindow, usageReadWindows, type LimitAccount, type LimitWindow } from "./limits.js";
 import { authBilling, claudeAuthAccount, describeAccount, probeBilling, probeNewThreadCatalog, readClaudeAuth, readClaudeVersion, type ClaudeAuthStatus, type ClaudeProbe } from "./probe.js";
@@ -282,6 +284,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
               ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
               billing: () => limits.get(id)?.billing,
               onRateLimits: (infos) => noteRateLimits(id, infos),
+              onResumeQuestionOff: () => context.emit(RESUME_QUESTION_OFF_EVENT, { runtime: adapter.id } satisfies ResumeQuestionOffEvent),
             });
             await backend.start(resume ? "resume" : "create");
             return backend;

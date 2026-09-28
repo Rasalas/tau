@@ -390,11 +390,15 @@ export interface UiProject {
 }
 
 
-/** Context window usage for the active thread, as reported by the Pi session. */
+/** Context window usage for the active thread, as its runtime reports it. */
 export interface UiContextUsage {
   tokens: number;
   contextWindow: number;
   percent: number;
+  /** When the runtime measured it, in ms since the epoch: the end of the turn it describes. */
+  updatedAt?: number;
+  /** How long the provider keeps this context in its prompt cache; absent when the runtime does not say. */
+  promptCacheTtlMs?: number;
 }
 
 export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor" | "custom";

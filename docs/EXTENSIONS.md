@@ -1712,6 +1712,27 @@ Codex, Antigravity, OpenCode, Cursor and Grok keep theirs beside their session s
 (`codex-activity/`, `antigravity-activity/`, `opencode-activity/`, `cursor-activity/`,
 `grok-activity/`).
 
+`catalogView().contextUsage` is how full the thread's context window is. Since
+API 1.21.0 it may also say when it was measured, `updatedAt` (ms since the
+epoch, the end of the turn it describes), and `promptCacheTtlMs`, how long the
+provider keeps that context in its prompt cache. A runtime that names the cache
+takes part in Resume Compaction (`kits/resume-compaction/`): once the context
+holds 100k tokens and has been idle for 70 minutes, a banner above the composer
+offers to compact the thread before the next turn writes all of it into the
+cache again. It calls `actions.compactContext()`, so a runtime that names the
+cache also offers the `compaction` capability group (`compact()`). Pi names it
+for a Claude model (five minutes, an hour with `PI_CACHE_RETENTION=long`) and
+dates the context by its last reply; the Agent SDK runtime names the CLI's one
+hour, keeps the measurement in its session store so a thread opened after a
+restart still has it, and compacts by sending `/compact` as a turn of its own,
+whose `compact_boundary` gives the size it left. Resume Compaction's desktop
+half publishes `tau.resume-compaction/opt-out` (`turnOff(runtime)`, a backend
+kind with its instance): the Agent SDK runtime's desktop half calls it when
+the user answers the CLI's own resume question with "Don't ask again", and
+Settings → Resume compaction turns it back on. Both that list and "Keep full
+history" live in Tau's config (`values.tau.resume-compaction.off` and
+`.kept`), so they hold on every device.
+
 An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
 text, number, integer, boolean, single- and multiple-choice fields — the same
 shape in MCP, Codex's app-server and ACP). `elicitationFields(schema)` from

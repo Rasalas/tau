@@ -1,0 +1,31 @@
+/* Tucked onto the composer's frame like the other notices above it, after T3 Code's composer banner. */
+.resume-compaction {
+  position: relative; z-index: 1; width: min(752px, calc(100% - 92px)); box-sizing: border-box; margin: 0 auto -14px;
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 12px;
+  border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0;
+  background: var(--sunken); color: var(--muted); font: 12px var(--sans);
+}
+.resume-compaction > svg { flex: none; color: var(--faint); }
+.resume-compaction-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
+.resume-compaction-text > strong { flex: none; font-weight: 500; color: var(--ink); }
+.resume-compaction-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.resume-compaction-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+.resume-compaction-action { display: inline-flex; }
+.resume-compaction-actions button {
+  height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--ink); font: 500 12px var(--sans); cursor: pointer;
+}
+.resume-compaction-actions button:hover:not(:disabled) { background: var(--raised); }
+.resume-compaction-actions button:disabled { opacity: .5; cursor: default; }
+.resume-compaction-actions .resume-compaction-close { width: 24px; padding: 0; display: grid; place-items: center; color: var(--muted); }
+
+/* The composer zone pads 12 px instead of 32 px in a narrow window; the notice stays 14 px inside the frame. */
+@media (max-width: 700px) { .resume-compaction { width: calc(100% - 52px); } }
+/* A phone or a tablet: 44 px to touch. */
+body[data-profile="compact"] .resume-compaction { padding: 2px 2px 2px 12px; font-size: 13px; }
+body[data-profile="compact"] .resume-compaction-actions button { height: 44px; min-width: 44px; padding: 0 12px; font-size: 13px; }
+body[data-profile="compact"] .resume-compaction-actions .resume-compaction-close { width: 44px; padding: 0; }
+@media (pointer: coarse) {
+  .resume-compaction-actions button { height: 44px; min-width: 44px; }
+  .resume-compaction-actions .resume-compaction-close { width: 44px; }
+}

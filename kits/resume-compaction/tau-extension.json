@@ -1,0 +1,14 @@
+{
+  "id": "tau.resume-compaction",
+  "name": "Resume Compaction",
+  "description": "Offers to compact a long thread before it resumes with a cold prompt cache.",
+  "icon": "Minimize2",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.20.0"
+  },
+  "permissions": [],
+  "isolation": "worker",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css"
+}

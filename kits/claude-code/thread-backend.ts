@@ -86,6 +86,9 @@ function effortLevel(value: string | undefined): EffortLevel | undefined {
   return (EFFORT_LEVELS as readonly string[]).includes(value ?? "") ? value as EffortLevel : undefined;
 }
 const INTERRUPT_GRACE_MS = 3_000;
+/** The CLI keeps a conversation in Anthropic's one-hour prompt cache. */
+const PROMPT_CACHE_TTL_MS = 60 * 60_000;
+const COMPACT_COMMAND = "/compact";
 const STDERR_TAIL_BYTES = 8 * 1024;
 
 export interface ClaudeThreadBackendOptions {
@@ -120,6 +123,8 @@ export interface ClaudeThreadBackendOptions {
   billing?(): UiModelBilling | undefined;
   /** A turn carried the plan's windows (`rate_limit_event`). */
   onRateLimits?(infos: ReadonlyArray<Record<string, unknown>>): void;
+  /** The user told the CLI's resume question never to ask again. */
+  onResumeQuestionOff?(): void;
 }
 
 interface LiveSession {
@@ -137,6 +142,8 @@ interface LiveSession {
 interface Turn {
   translator: SdkTurnTranslator;
   text: string;
+  /** A `/compact` Tau sent; the composer's queue never lists it. */
+  compaction?: boolean;
   /** Set once its result arrived and the turn was settled. */
   status?: "completed" | "interrupted" | "error";
 }
@@ -208,6 +215,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         hiddenPrompt: false,
         notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
       },
+      compaction: { compact: () => this.compact() },
     };
   }
 
@@ -254,6 +262,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.mode = record.mode ?? DEFAULT_MODE;
     this.model = this.chosenModel ?? record.observedModel;
     this.tools = record.tools;
+    this.contextUsage = record.contextUsage ? { ...record.contextUsage } : undefined;
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
@@ -564,7 +573,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.usageTurns = appendUsageTurn(this.usageTurns, dated);
         this.unsavedTurns.push(dated);
       }
-      if (outcome.contextUsage) this.contextUsage = outcome.contextUsage;
+      if (outcome.contextUsage || outcome.compacted) this.noteContext(outcome.contextUsage, at);
       this.report({ type: "usage" });
       if (outcome.error) this.report({ type: "notice", message: `Claude Code reported an error: ${outcome.error}`, level: "error" });
     }
@@ -574,6 +583,33 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(status === "error" && outcome?.error ? { error: outcome.error } : {}),
       ...(status === "error" && outcome?.limit ? { limit: outcome.limit } : {}),
     });
+  }
+
+  /** The context a turn left, dated, and kept for a thread opened after a restart. */
+  private noteContext(usage: UiContextUsage | undefined, at: number): void {
+    this.contextUsage = usage ? { ...usage, updatedAt: at, promptCacheTtlMs: PROMPT_CACHE_TTL_MS } : undefined;
+    void this.store.setContextUsage(this.threadId, this.cwd, this.contextUsage).catch(() => undefined);
+  }
+
+  /**
+   * Sends `/compact` as a turn of its own, between turns: the CLI summarises
+   * the conversation and reports the size it left. Nothing joins the
+   * transcript; the boundary's notice says what happened.
+   */
+  private async compact(): Promise<void> {
+    if (this.turns.length > 0) throw new Error("Claude Code is still working on this thread. Compact it once the turn ends.");
+    if (!this.record?.started) throw new Error("This thread has nothing to compact yet.");
+    const permissionLevel = this.options.permissionLevel?.() ?? "full";
+    const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
+    const live = await this.ensureSession(permissionLevel, mode, false, await this.networkLimit());
+    const turn: Turn = { translator: new SdkTurnTranslator(this.now, undefined, true), text: COMPACT_COMMAND, compaction: true };
+    this.turns.push(turn);
+    this.beginTurn(turn);
+    await live.session.send(COMPACT_COMMAND, "next");
+    await this.persistUsage();
+    const outcome = turn.translator.outcome;
+    if (outcome?.error) throw new Error(`Claude Code could not compact the conversation: ${outcome.error}`);
+    if (!outcome?.compacted) throw new Error(outcome?.texts.join("\n").trim() || "Claude Code did not compact the conversation.");
   }
 
   /** What the session says about itself, once per init frame. */
@@ -595,7 +631,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private reportQueue(): void {
-    this.report({ type: "queue", steering: [...this.steering], followUp: this.turns.slice(1).map((turn) => turn.text) });
+    this.report({ type: "queue", steering: [...this.steering], followUp: this.turns.slice(1).filter((turn) => !turn.compaction).map((turn) => turn.text) });
   }
 
   private async persistUsage(): Promise<void> {
@@ -655,8 +691,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async onUserDialog(request: UserDialogRequest, signal: AbortSignal): Promise<UserDialogResult> {
     const ask = this.options.ask;
     if (!ask || request.dialogKind !== "resume_return" || signal.aborted) return { behavior: "cancelled" };
+    // The user already chose to compact; asking again would compact twice.
+    if (this.turns[0]?.compaction) return { behavior: "completed", result: "continue" };
     const answer = await ask(resumeDialogPrompt());
-    return signal.aborted ? { behavior: "cancelled" } : resumeDialogResult(answer);
+    if (signal.aborted) return { behavior: "cancelled" };
+    const result = resumeDialogResult(answer);
+    if (result.behavior === "completed" && result.result === "never") this.options.onResumeQuestionOff?.();
+    return result;
   }
 
   private handleEvent(event: ThreadRuntimeEvent): void {

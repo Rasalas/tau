@@ -81,6 +81,7 @@ function treeNodeOf(entry: SessionTreeEntry, label: string | undefined): Omit<Ui
 
 import { modelAttribution } from "./model-attribution.js";
 import { modelLogin, type ProviderLoginSource } from "./model-login.js";
+import { lastReplyAt, piPromptCacheTtlMs } from "./prompt-cache.js";
 import { sessionTalliesFromEntries } from "./session-usage.js";
 import type { UsageTally } from "./usage-pricing.js";
 
@@ -485,9 +486,16 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private contextUsage(): UiContextUsage | undefined {
     const usage = this.session.getContextUsage();
-    return usage && usage.tokens !== null && usage.percent !== null
-      ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
-      : undefined;
+    if (!usage || usage.tokens === null || usage.percent === null) return undefined;
+    const updatedAt = lastReplyAt(this.session.messages);
+    const promptCacheTtlMs = piPromptCacheTtlMs(this.session.model as { api?: string; id?: string } | undefined);
+    return {
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+      ...(updatedAt !== undefined ? { updatedAt } : {}),
+      ...(promptCacheTtlMs !== undefined ? { promptCacheTtlMs } : {}),
+    };
   }
 
   async dispose(): Promise<void> {

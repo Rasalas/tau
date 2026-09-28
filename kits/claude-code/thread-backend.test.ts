@@ -177,7 +177,7 @@ describe("thread runtime backends", () => {
     // Beside the model and effort pickers, the plan mode and the word it uses
     // to say a turn was cut short, Claude offers no Pi-shaped capability;
     // every such operation is refused in one place.
-    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume"]);
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume", "compaction"]);
     expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();
@@ -193,6 +193,78 @@ describe("thread runtime backends", () => {
     // A resumed thread opens its session with `started` so the CLI resumes the Claude session.
     await restored.prompt({ text: "third", delivery: "prompt" });
     expect(opened[1]).toMatchObject({ started: true, claudeSessionId: opened[0]!.claudeSessionId });
+  });
+
+  it("compacts between turns with /compact, and keeps the context's size and age across a restart", async () => {
+    const { filePath, store } = await scratchStore();
+    const boundary = frame({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 153_000, post_tokens: 4_000 } });
+    const big = result("long", { usage: { input_tokens: 3_000, output_tokens: 10, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 0 } });
+    const { adapter, sessions } = scriptedAdapter(filePath, (content) => String(content) === "/compact"
+      // The compaction's own result still counts the tokens it summarised.
+      ? [boundary, result("", { num_turns: 0, usage: { input_tokens: 153_000, output_tokens: 900, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } })]
+      : [...turn("long").slice(0, -1), big]);
+    const events: ThreadRuntimeEvent[] = [];
+    let clock = 1_000;
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", now: () => clock, onEvent: (event) => events.push(event) });
+    await backend.start("create");
+    await expect(backend.capabilities.compaction!.compact()).rejects.toThrow("nothing to compact");
+
+    await backend.prompt({ text: "read everything", delivery: "prompt" });
+    // Dated and marked as held in the one-hour prompt cache, which is what the resume offer reads.
+    expect(backend.catalogView().contextUsage).toEqual({ tokens: 153_000, contextWindow: 200_000, percent: 76.5, updatedAt: 1_000, promptCacheTtlMs: 3_600_000 });
+    await vi.waitFor(async () => expect((await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread"))?.contextUsage?.tokens).toBe(153_000));
+    const reopened = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
+    await reopened.start("resume");
+    expect(reopened.catalogView().contextUsage).toMatchObject({ tokens: 153_000, updatedAt: 1_000 });
+
+    clock = 5_000_000;
+    events.length = 0;
+    const transcript = await backend.transcript();
+    await backend.capabilities.compaction!.compact();
+    expect(sessions[0]?.send).toHaveBeenLastCalledWith("/compact", "next");
+    expect(backend.catalogView().contextUsage).toEqual({ tokens: 4_000, contextWindow: 200_000, percent: 2, updatedAt: 5_000_000, promptCacheTtlMs: 3_600_000 });
+    expect(await backend.transcript()).toEqual(transcript);
+    expect(events.map((event) => event.type)).toEqual(["turn-started", "queue", "notice", "usage", "turn-settled", "queue"]);
+    expect(events.filter((event) => event.type === "queue")).toEqual([
+      { type: "queue", steering: [], followUp: [] },
+      { type: "queue", steering: [], followUp: [] },
+    ]);
+    await vi.waitFor(async () => expect((await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread"))?.contextUsage).toMatchObject({ tokens: 4_000, updatedAt: 5_000_000 }));
+  });
+
+  it("says why when the CLI had nothing to compact", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter } = scriptedAdapter(filePath, (content) => String(content) === "/compact"
+      ? [result("Not enough messages to compact.", { num_turns: 0 })]
+      : turn("ok"));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+    await backend.start("create");
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    await expect(backend.capabilities.compaction!.compact()).rejects.toThrow("Not enough messages to compact.");
+    expect(backend.state().streaming).toBe(false);
+    expect((await backend.transcript()).map((message) => message.text)).toEqual(["hi", "ok"]);
+  });
+
+  it("passes on \"Don't ask again\" from the resume question, and never asks it while compacting", async () => {
+    const { filePath, store } = await scratchStore();
+    const ask = vi.fn(async (): Promise<ExtensionUiAnswer> => ({ value: "Don't ask again" }));
+    const dialogs: unknown[] = [];
+    const { adapter } = scriptedAdapter(filePath, async (content, _priority, input) => {
+      dialogs.push(await input.hooks!.onUserDialog!({ dialogKind: "resume_return", payload: {} }, { signal: new AbortController().signal, requestId: String(dialogs.length) }));
+      return String(content) === "/compact"
+        ? [frame({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 9, post_tokens: 1 } }), result("", { num_turns: 0 })]
+        : turn("ok");
+    });
+    const onResumeQuestionOff = vi.fn();
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", ask, onEvent: () => undefined, onResumeQuestionOff });
+    await backend.start("create");
+    await backend.prompt({ text: "go", delivery: "prompt" });
+    expect(dialogs).toEqual([{ behavior: "completed", result: "never" }]);
+    expect(onResumeQuestionOff).toHaveBeenCalledTimes(1);
+
+    await backend.capabilities.compaction!.compact();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(dialogs[1]).toEqual({ behavior: "completed", result: "continue" });
   });
 
   it("steers the running turn, queues a follow-up behind it, and reports the queue", async () => {
