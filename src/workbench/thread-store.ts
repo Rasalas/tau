@@ -15,7 +15,7 @@ export interface ThreadActivitySnapshot {
   interruptedThreadIds: readonly string[];
   /** Threads a provider's usage or rate limit stopped, as the index reports them. */
   limitedThreadIds: readonly string[];
-  /** Local start times for live sidebar timers, keyed by Tau thread id. */
+  /** When each run started, keyed by Tau thread id: the host's time where it said, else this client's. */
   runningStartedAt: Readonly<Record<string, number>>;
 }
 
@@ -200,7 +200,21 @@ export class ThreadStore {
       ...this.snapshot,
       projects: stabilizeProjects(this.snapshot.projects, threadIndex.projects),
       threads: stabilizeThreads(this.snapshot.threads, threadIndex.sessions),
+      ...(threadIndex.runs ? this.runsFromHost(threadIndex.runs) : {}),
     });
+  }
+
+  /** A bootstrap's runs replace this client's: it may have missed a start or an end while away. */
+  private runsFromHost(runs: Readonly<Record<string, number>>): Pick<ThreadStoreSnapshot, "runningThreadIds" | "runningStartedAt"> {
+    const ids = Object.keys(runs);
+    const { runningThreadIds, runningStartedAt } = this.snapshot;
+    const sameRuns = ids.length === runningThreadIds.length && ids.every((id) => runningThreadIds.includes(id));
+    const sameStarts = sameRuns && ids.every((id) => runningStartedAt[id] === runs[id]);
+    this.refusedThreadIds = this.refusedThreadIds.filter((id) => runs[id] === undefined);
+    return {
+      runningThreadIds: sameRuns ? runningThreadIds : ids,
+      runningStartedAt: sameStarts && Object.keys(runningStartedAt).length === ids.length ? runningStartedAt : { ...runs },
+    };
   }
 
   setThreadModelProvider(sessionId: string, modelProvider: string | undefined, model?: string): void {
@@ -230,15 +244,19 @@ export class ThreadStore {
     if (threads !== current) this.publish({ ...this.snapshot, threads });
   }
 
-  /** Run state belongs to the thread, not to whichever thread is on screen. */
-  setThreadRunning(threadId: string, running: boolean): void {
+  /**
+   * Run state belongs to the thread, not to whichever thread is on screen.
+   * `startedAt` is the host's start of the run and wins over this client's clock.
+   */
+  setThreadRunning(threadId: string, running: boolean, startedAt?: number): void {
     if (!threadId) return;
     const current = this.snapshot.runningThreadIds;
     const alreadyRunning = current.includes(threadId);
-    const hasStartedAt = this.snapshot.runningStartedAt[threadId] !== undefined;
-    if (running === alreadyRunning && running === hasStartedAt) return;
+    const knownStart = this.snapshot.runningStartedAt[threadId];
+    const hasStartedAt = knownStart !== undefined;
+    if (running === alreadyRunning && running === hasStartedAt && (!running || startedAt === undefined || startedAt === knownStart)) return;
     const runningStartedAt = { ...this.snapshot.runningStartedAt };
-    if (running) runningStartedAt[threadId] ??= Date.now();
+    if (running) runningStartedAt[threadId] = startedAt ?? knownStart ?? Date.now();
     else delete runningStartedAt[threadId];
     // A thread that runs again is no longer the thread that failed.
     if (running) this.refusedThreadIds = this.refusedThreadIds.filter((id) => id !== threadId);

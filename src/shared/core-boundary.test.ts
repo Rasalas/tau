@@ -125,6 +125,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./background-mode.js",
   // What a worker package's heap cap leaves out: its buffers, and the host process's memory limit.
   "./worker-memory-cap.js",
+  // The host's start of each run, which every client times a thread's work from (API 1.27.0).
+  "./thread-run-clock.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

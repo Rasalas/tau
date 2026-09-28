@@ -181,4 +181,9 @@ describe("HostPublication", () => {
 
     expect((await pub.bootstrap()).project).toMatchObject({ cwd: "/test/dir", label: "main" });
   });
+
+  it("hands a client that connects mid-run the running threads and when each run began", async () => {
+    const { pub } = makePublication({ runs: () => ({ "thread-a": 1_000 }) });
+    expect((await pub.bootstrap()).threadIndex).toEqual({ projects: [], sessions: [], runs: { "thread-a": 1_000 } });
+  });
 });

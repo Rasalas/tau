@@ -188,7 +188,7 @@ function applyAgentStatus(event: Extract<HostEvent, { type: "agent-status" }>, t
   const { threadStore, view } = targets;
   // The one writer of run state. isStreaming, the live timer and the rail all
   // read it back through ThreadStore's activity selector.
-  threadStore.setThreadRunning(event.sessionId, event.running);
+  threadStore.setThreadRunning(event.sessionId, event.running, event.startedAt);
   if (event.running || event.sessionId !== threadStore.getSnapshot().activeThreadId) return;
   const finished = view.getState().runningThreadId;
   const viewed = threadStore.getSnapshot().activeThreadId;
