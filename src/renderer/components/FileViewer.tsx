@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, FileWarning } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
 import type { StageFileTab, StageView } from "../../workbench/stage";
 import type { CommandContribution, WorkbenchActions } from "../extension-system";
@@ -9,8 +9,15 @@ import { DiffPane } from "./DiffPane";
 import { formatBytes } from "../format-bytes";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { tooltipProps } from "./ui/Tooltip";
+import { Empty } from "./ui/Feedback";
 
-export function FileViewer({ tab, relativePath, changed, editor, commands = [], actions, loadFile, loadDiff, onChangeView, onOpenInEditor }: {
+/** What a load error says about the file: gone with its project, gone itself, or something else. */
+export function missingReason(message: string): "project" | "file" | undefined {
+  if (/not a known Tau project/u.test(message)) return "project";
+  return /\bENOENT\b/u.test(message) ? "file" : undefined;
+}
+
+export function FileViewer({ tab, relativePath, changed, editor, commands = [], actions, loadFile, loadDiff, onChangeView, onOpenInEditor, onClose }: {
   tab: StageFileTab;
   relativePath: string;
   /** The working tree differs from HEAD for this file, so a diff exists. */
@@ -23,6 +30,7 @@ export function FileViewer({ tab, relativePath, changed, editor, commands = [], 
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   onChangeView(view: StageView): void;
   onOpenInEditor(path: string): void;
+  onClose?(): void;
 }) {
   const [content, setContent] = useState<UiFileContent>();
   const [error, setError] = useState<string>();
@@ -34,12 +42,13 @@ export function FileViewer({ tab, relativePath, changed, editor, commands = [], 
     let cancelled = false;
     setContent(undefined);
     setError(undefined);
-    loadFile(tab.path).then(
+    // The source reads paths inside the project; a tab opened by its absolute path is one too.
+    loadFile(relativePath).then(
       (next) => { if (!cancelled) setContent(next); },
       (reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); },
     );
     return () => { cancelled = true; };
-  }, [loadFile, tab.path]);
+  }, [loadFile, relativePath]);
 
   const meta = content?.kind === "text"
     ? `${formatBytes(content.size)} · ${lineCount(content.text ?? "")} ${lineCount(content.text ?? "") === 1 ? "line" : "lines"}`
@@ -81,7 +90,13 @@ export function FileViewer({ tab, relativePath, changed, editor, commands = [], 
     {view === "diff"
       ? <DiffPane path={relativePath} mode={mode} loadDiff={loadDiff} />
       : error
-        ? <div className="stage-empty">{error}</div>
+        ? <Empty
+          icon={<FileWarning size={20} />}
+          title={missingReason(error) ? "File not found" : "Could not open this file"}
+          description={<><code>{relativePath}</code><br />{missingReason(error) === "file"
+            ? "It is not in this project any more."
+            : missingReason(error) === "project" ? "Its project is not open in Tau any more." : error}</>}
+        >{onClose ? <button type="button" className="text-button" onClick={onClose}>Close</button> : null}</Empty>
         : !content
           ? <div className="stage-empty">Loading…</div>
           : content.kind === "image"

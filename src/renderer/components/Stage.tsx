@@ -158,6 +158,7 @@ export function Stage({
         loadDiff={loadDiff}
         onChangeView={(view) => onChangeView(current.id, view)}
         onOpenInEditor={onOpenInEditor}
+        onClose={() => onClose(current.id)}
       />
     )}
   </section>;

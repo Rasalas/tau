@@ -460,6 +460,16 @@ is the whole of the above as one file; Terminal Kit's "open as tab" is the
 shipped caller, and Review Kit's pull-request view (`review.pull-request`,
 params `{ url, number, service, workspace? }`) the second.
 
+Core's file tabs are loaded by the document source a kit registers
+(`registerDocumentSource`; Workspace Kit's in Tau). The stage is kept per
+project, and the project a draft shows need not be the one the host has open,
+so core calls `loadFile(path, { workspace })` and `loadDiff(path, options,
+{ workspace })` with the stage's project: its workspace id, or its path where
+the host mints none (new in API 1.26.0). A source reads that project; without
+the argument it reads the project it follows. A file or project that is gone
+shows "File not found" with the path and Close; a raw `ENOENT` or "not a known
+Tau project" from the source is enough for core to tell.
+
 #### Context in the composer
 
 `registerComposerInline` lets a package put typed context into the composer's
