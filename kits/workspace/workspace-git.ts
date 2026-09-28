@@ -2877,6 +2877,14 @@ export async function ensureWorktree(
  * Resolves a ref to a workspace path. A ref already held by a worktree is opened
  * there; otherwise it is checked out in place, which requires a clean tree.
  */
+/** A new branch at HEAD, checked out in place; uncommitted work comes along. */
+export async function createBranch(cwd: string, branch: string, runGit: GitRunner = git): Promise<void> {
+  const name = branch.trim();
+  if (!name) throw new Error("A branch name is required.");
+  await assertValidBranchName(cwd, name, runGit);
+  await runGit(cwd, ["switch", "-c", name]);
+}
+
 export async function resolveRefTarget(
   cwd: string,
   ref: string,

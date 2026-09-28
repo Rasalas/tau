@@ -589,6 +589,17 @@ export function createWorkspaceHostExtension(): HostExtension {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         return readProjectDefaults(project);
       }, { access: "read" });
+      context.registerCommand("create-branch", async (input) => {
+        const project = cwd();
+        const branch = requiredString(input, "branch");
+        try {
+          await workspaceGit.createBranch(project, branch);
+          services.log("git.branch.created", branch);
+          return services.openWorkspace(project);
+        } finally {
+          git.invalidate(project, ["branch", "status", "workspace"]);
+        }
+      });
       context.registerCommand("switch-ref", async (input) => {
         const project = cwd();
         const ref = requiredString(input, "ref");

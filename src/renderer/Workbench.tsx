@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Folder, ListTree } from "lucide-react";
+import { ListTree, MessageSquare } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
@@ -38,7 +38,8 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
-import { ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
+import { DraftDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
+import { projectHue, projectInitial } from "./components/ThreadRow";
 import { ConversationSpine, StageTools } from "./components/StageSpine";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
@@ -515,6 +516,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     <LazyPhoneNav registry={registry} current={phoneTab(phoneNav.route)} onSelect={phoneNav.openTab} />
   </Suspense> : undefined;
 
+  const detailSlots = useMemo(() => ({ registry, actions }), [registry, actions]);
   const conversationComposer = <ConversationComposer
     view={view}
     composer={composer}
@@ -525,6 +527,16 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
     actions={actions}
+    {...(showStartScreen ? { lead: <button
+      type="button"
+      className="runtime-chip composer-project-chip"
+      aria-label={`Change project, current project ${startProjectName}`}
+      {...tooltipProps(displayPath(startProjectPath), { variant: "code" })}
+      onClick={() => { pickerCarries.current = true; openNewThreadPicker(); }}
+    >
+      <i className="thread-project-icon" style={{ "--project-hue": projectHue(startProjectPath) } as CSSProperties}>{projectInitial(startProjectName)}</i>
+      <span className="runtime-chip-label">{startProjectName}</span>
+    </button> } : {})}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -663,7 +675,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
     title={threadTitle}
-    details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} />}
+    details={showStartScreen
+      ? <DraftDetails project={startProjectName} projectPath={startProjectPath} snapshot={conversationSnapshot} slots={detailSlots} />
+      : <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     {...(firstTool || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
   />;
@@ -761,14 +775,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           </div>
           <section className="conversation-start-screen" aria-labelledby={showStartScreen ? "start-screen-title" : undefined}>
             <div className="conversation-start-content">
-              {showStartScreen ? <>
-                <h1 id="start-screen-title">What do you want to build?</h1>
-                <button type="button" className="conversation-start-project" aria-label={`Change project, current project ${startProjectName}`} onClick={() => { pickerCarries.current = true; openNewThreadPicker(); }}>
-                  <i><Folder size={17} /></i>
-                  <span><small>Current project</small><strong>{startProjectName}</strong><code {...tooltipProps(startProjectPath, { variant: "code", side: "bottom" })}>{displayPath(startProjectPath)}</code></span>
-                  <b>Change</b><ChevronDown size={15} />
-                </button>
-              </> : null}
+              {showStartScreen ? <div className="conversation-empty">
+                <i aria-hidden><MessageSquare size={18} /></i>
+                <h1 id="start-screen-title">What should {startProjectName} do next?</h1>
+                <p>Just chat, or hand it work. Files and the terminal open from the header.</p>
+              </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
@@ -1011,8 +1022,9 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead }: {
   view: ThreadViewStore;
+  lead?: React.ReactNode;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
   conversationSnapshot?: HostSnapshot;
@@ -1066,6 +1078,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
       actions.newSession(workspace ? { workspace } : undefined);
     } : undefined}
     newThread={pendingNewThread}
+    lead={lead}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed, attachments) => {

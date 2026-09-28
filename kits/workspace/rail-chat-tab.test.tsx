@@ -170,7 +170,7 @@ describe("picking a thread on a phone", () => {
 });
 
 const composerFocused = () => document.activeElement === document.querySelector(".conversation-column textarea");
-const startScreenShown = () => screen.queryByRole("heading", { name: "What do you want to build?" }) !== null;
+const startScreenShown = () => screen.queryByRole("heading", { name: /do next\?$/ }) !== null;
 
 async function pickProjectWithEnter(): Promise<void> {
   const picker = await screen.findByRole("dialog", { name: "Search projects" });

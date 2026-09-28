@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
-import { Region, StatusLine } from "./Regions";
+import { Region, RegionOr, StatusLine } from "./Regions";
 
 afterEach(cleanup);
 const actions = {} as WorkbenchActions;
@@ -37,5 +37,19 @@ describe("Region and StatusLine", () => {
     } });
     await screen.findByText("pill");
     expect(row.textContent).toBe("pillcore");
+  });
+
+  it("hands a placement to kits while one is registered, bare in the container, else draws core's fallback", async () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    const view = render(<div className="line">
+      <RegionOr bare registry={registry} placement="thread-branch" actions={actions} fallback={<span>main</span>} />
+    </div>);
+    expect(view.container.querySelector(".line")!.innerHTML).toBe("<span>main</span>");
+
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerRegion({ id: "branch", placement: "thread-branch", Component: () => <button type="button">main ▾</button> });
+    } });
+    await screen.findByText("main ▾");
+    expect(view.container.querySelector(".line")!.innerHTML).toBe('<button type="button">main ▾</button>');
   });
 });

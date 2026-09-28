@@ -207,6 +207,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       draftPending: next.draftPending,
       ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
+      ...(projectChanged || threadChanged || next.draftPending !== this.state.draftPending ? { draftBranch: undefined, draftBase: undefined } : {}),
     });
     if (next.cwd && (projectChanged || threadChanged)) {
       void this.refreshChanges();
@@ -253,6 +254,14 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ workspaceMode: mode });
   }
 
+  /** The draft's branch name and base; empty values go back to automatic. */
+  setDraftBranch(branch: { name?: string; base?: string }): void {
+    this.update({
+      ...("name" in branch ? { draftBranch: branch.name?.trim() || undefined } : {}),
+      ...("base" in branch ? { draftBase: branch.base || undefined } : {}),
+    });
+  }
+
   /** Whether a new worktree starts from the freshly fetched remote commit. */
   startFromOrigin(): boolean {
     return this.preferences.optionValue(WORKSPACE_KIT_ID, START_FROM_ORIGIN_OPTION, true);
@@ -285,7 +294,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!hostAvailable() || !this.state.workspace?.isRepo) return;
     const cwd = this.state.cwd;
     try {
-      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin: this.startFromOrigin() });
+      // The checkout's branch, as a worktree made without a base starts from it.
+      const branch = this.state.workspace.branch;
+      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin: this.startFromOrigin(), ...(branch ? { baseRef: branch } : {}) });
       if (cwd === this.state.cwd) this.update({ worktreeBase: base });
     } catch (error) {
       if (cwd === this.state.cwd) this.notify(errorMessage(error));
@@ -515,6 +526,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ workspaceBusy: true });
     try {
       this.actions.applyHostResult(await action());
+      // A switch in place keeps the project, so nothing else rereads the branch.
+      void this.refreshWorkspace();
       return true;
     } catch (error) {
       this.notify(errorMessage(error));
@@ -557,9 +570,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ preparingWorktree: true });
     try {
       event.preparing("Setting up worktree…");
-      const named = await this.threadBranchName(event.prompt);
+      const named = this.state.draftBranch ?? await this.threadBranchName(event.prompt);
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
-      const created = await this.host.createWorktree(branch, this.worktreeOptions(), this.workspace());
+      const base = this.state.draftBase;
+      const created = await this.host.createWorktree(branch, { ...(base ? { baseRef: base } : {}), ...this.worktreeOptions() }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
     } catch (error) {
       this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
@@ -732,6 +746,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref)); }
+  createBranch(branch: string): Promise<boolean> { return this.workspaceAction(() => this.host.createBranch(branch)); }
   /** A worktree whose folder vanished is recreated rather than refused. */
   async openWorktree(path: string): Promise<boolean> {
     if (path === this.state.cwd) return true;

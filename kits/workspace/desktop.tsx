@@ -16,10 +16,13 @@ import {
   WORKSPACE_FILES_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_STORE_SERVICE,
+  BRANCH_SECTION_SERVICE,
+  type BranchSectionService,
 } from "./protocol.js";
 import { addProjectMenu } from "./add-project-menu.js";
 import { registerCheckpoints } from "./checkpoints.js";
-import { WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
+import { WorkspaceFollower } from "./dock.js";
+import { DraftBranchSection, ThreadBranch } from "./branch-menu.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
@@ -109,7 +112,9 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
     // The design's Editor button at the stage strip's right end.
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
-    context.registerComposerControl({ id: "workspace.bar", placement: "footer", order: 10, profiles: ["desktop"], Component: bind(WorkspaceBarControl) });
+    // The branch in the thread header: a menu over the checkout, or a new thread's Branch section.
+    context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(ThreadBranch) });
+    context.provideService<BranchSectionService>(BRANCH_SECTION_SERVICE, { Section: bind(DraftBranchSection) });
     const documents = documentStates(store);
     context.registerDocumentSource({
       profiles: ["desktop", "compact"],

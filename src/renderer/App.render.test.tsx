@@ -264,7 +264,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
+    const heading = await screen.findByRole("heading", { name: /do next\?$/ });
     expect(heading.closest(".conversation-start-screen")).toBeTruthy();
     expect(screen.queryByText("NEW THREAD")).toBeNull();
     expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
@@ -282,7 +282,7 @@ describe("App render isolation", () => {
       expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
       undefined,
     ));
-    expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Untitled thread" })).toBeTruthy();
     expect(screen.getAllByText("Build the first screen").find((element) => element.tagName === "DIV")).toBeTruthy();
     const prompt = screen.getByText("Build the first screen");
@@ -363,7 +363,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "Render this once" } });
     fireEvent.keyDown(composer, { key: "Enter" });
@@ -392,14 +392,14 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     composer.focus();
     fireEvent.change(composer, { target: { value: "dock this prompt\nwith a second line" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
     await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
     expect(screen.getByPlaceholderText(/Direct the agent/u)).toBe(composer);
     expect(document.activeElement).toBe(composer);
     expect(composer.closest(".conversation-composer-host")?.classList.contains("docked")).toBe(true);
@@ -444,7 +444,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const oldComposer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(oldComposer, { target: { value: "old in-flight prompt" } });
     fireEvent.keyDown(oldComposer, { key: "Enter" });
@@ -569,7 +569,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "carry this draft" } });
     const attachment = new File([new Uint8Array([137, 80, 78, 71])], "carry.png", { type: "image/png" });
@@ -633,7 +633,7 @@ describe("App render isolation", () => {
     const storage = createMemoryStorage();
     writeNewThreadDraft(storage, { kind: "draft", draftId: "model-draft", projectPath: "/project", projectName: "project" });
     renderApp(client, { storage });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: /Select model: GPT-5.6 Sol/u }));
     const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
     fireEvent.click((await within(modelPicker).findByText("GPT-6 Astra")).closest("[role=option]")!);
@@ -761,7 +761,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option", { name: /project/u }));
@@ -790,7 +790,7 @@ describe("App render isolation", () => {
         },
       },
     });
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
   });
 
   it("shows a whole-column drop target and clears it on leave and drop", async () => {
@@ -811,7 +811,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
+    const heading = await screen.findByRole("heading", { name: /do next\?$/ });
     const column = heading.closest("main");
     expect(column).toBeTruthy();
     if (!column) throw new Error("conversation column not rendered");
@@ -894,7 +894,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    const heading = await screen.findByRole("heading", { name: "What do you want to build?" });
+    const heading = await screen.findByRole("heading", { name: /do next\?$/ });
     const attach = screen.getByRole("button", { name: "Attach files" });
     expect(attach.hasAttribute("disabled")).toBe(false);
     client.emit({
@@ -1052,7 +1052,7 @@ describe("App render isolation", () => {
       getPreparedThreadCapability,
     });
     const view = renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
@@ -1130,7 +1130,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1185,7 +1185,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client, { extensions: [promptHook] });
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1206,7 +1206,7 @@ describe("App render isolation", () => {
     client.emit({ type: "user-message-failed", sessionId: "allocated", clientMessageId, message: "the runtime refused the prompt" });
 
     await waitFor(() => expect(composer.value).toBe("delivery is refused"));
-    expect(screen.getByRole("heading", { name: "What do you want to build?" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /do next\?$/ })).toBeTruthy();
     // The prompt never reached the runtime, so no afterPrompt hook may run.
     expect(afterPrompt).not.toHaveBeenCalled();
     // A retry reuses the allocated runtime rather than leaking another one.
@@ -1238,7 +1238,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1252,7 +1252,7 @@ describe("App render isolation", () => {
       sessionId: "bridge-created",
       message: { id: "persisted", clientMessageId, role: "user", text: "start the bridge thread", timestamp: Date.now() },
     });
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "What do you want to build?" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
 
     resolveNewSession({
       version: 1,
@@ -1297,7 +1297,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
@@ -1362,7 +1362,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "bridge prompt" } });
     fireEvent.keyDown(composer, { key: "Enter" });
@@ -1404,7 +1404,7 @@ describe("App render isolation", () => {
     });
 
     renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option", { name: /other/u }));
@@ -1492,7 +1492,7 @@ describe("App render isolation", () => {
       newSession,
     });
     const view = renderApp(client);
-    await screen.findByRole("heading", { name: "What do you want to build?" });
+    await screen.findByRole("heading", { name: /do next\?$/ });
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     await waitFor(() => expect(document.activeElement).toBe(composer));
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
