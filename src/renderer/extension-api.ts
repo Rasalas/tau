@@ -52,7 +52,7 @@ export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASO
 export { hostAvailable } from "./host-client-context";
 export { useKeepClear } from "./reserved-region";
 export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../workbench/turn-activity";
-export { formatCost } from "./cost-format";
+export { formatCost, threadCostLabel, threadCostOrigin } from "./cost-format";
 // Presentation core owns and an extension may reuse: the list primitives, the
 // menu, the file glyphs, the thread row (it draws provider icons from core's
 // asset pipeline, which an esbuild-bundled package has no loader for) and the
@@ -76,7 +76,9 @@ export { FileKindIcon } from "./components/FileKindIcon";
 export { ThreadRow } from "./components/ThreadRow";
 export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
-export { ProviderIconStack } from "./components/ProviderIconStack";
+export { ProviderIconStack, providerStackLabel } from "./components/ProviderIconStack";
+// A thread's model by name, from its runtime's catalog (API 1.23.0).
+export { useModelName } from "./use-runtime-catalog";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
 // Core's own Markdown renderer, and the highlighter behind its code blocks; highlight.js loads on first use.
 export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";

@@ -32,7 +32,7 @@ import {
 import { hostCursorAtBridgeValue, providerCursorValue } from "./transcript-cursor.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
-import { readSessionModelProvider } from "./session-model-provider.js";
+import { readSessionModel, type SessionModel } from "./session-model-provider.js";
 import { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-text.js";
 
 /**
@@ -499,7 +499,7 @@ export async function mapSessions(
   fallbackCwd: string,
   resolveLabel: (cwd: string) => Promise<string | undefined>,
   resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
-  knownModelProviders: ReadonlyMap<string, string> = new Map(),
+  knownModels: ReadonlyMap<string, SessionModel> = new Map(),
   /** Already-known cost for a session file; the index never reads one itself. */
   usageFor: (session: SessionInfo) => UiThreadUsage | undefined = () => undefined,
   /** The thread that spawned this one, already resolved from the session file. */
@@ -513,20 +513,20 @@ export async function mapSessions(
   const labels = new Map(
     await Promise.all(projectPaths.map(async (path) => [path, await resolveLabel(path)] as const)),
   );
-  const modelProviders = new Map(knownModelProviders);
-  const unresolved = recent.filter((session) => !modelProviders.has(session.id));
+  const models = new Map(knownModels);
+  const unresolved = recent.filter((session) => !models.has(session.id));
   const concurrency = Math.min(10, unresolved.length);
   async function readProviders(index: number): Promise<void> {
     const session = unresolved[index];
     if (!session) return;
-    const provider = await readSessionModelProvider(session.path);
-    if (provider) modelProviders.set(session.id, provider);
+    const model = await readSessionModel(session.path);
+    if (model) models.set(session.id, model);
     await readProviders(index + concurrency);
   }
   await Promise.all(Array.from({ length: concurrency }, (_, index) => readProviders(index)));
   return recent.map((session) => {
     const projectPath = session.cwd || fallbackCwd;
-    const modelProvider = modelProviders.get(session.id);
+    const model = models.get(session.id);
     const shell: UiSession = {
       id: session.id,
       path: session.path,
@@ -540,7 +540,8 @@ export async function mapSessions(
       messageCount: session.messageCount,
       backendKind: "pi",
     };
-    if (modelProvider) shell.modelProvider = modelProvider;
+    if (model) shell.modelProvider = model.provider;
+    if (model?.id) shell.model = model.id;
     const usage = usageFor(session);
     if (usage) shell.usage = usage;
     const parentThreadId = parentOf(session);
@@ -565,7 +566,7 @@ export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
     left.modifiedAt === right.modifiedAt && left.projectPath === right.projectPath &&
     left.projectName === right.projectName && left.projectLabel === right.projectLabel &&
     left.messageCount === right.messageCount && left.backendKind === right.backendKind &&
-    left.modelProvider === right.modelProvider && left.parentThreadId === right.parentThreadId &&
+    left.modelProvider === right.modelProvider && left.model === right.model && left.parentThreadId === right.parentThreadId &&
     left.origin?.hostId === right.origin?.hostId && left.origin?.threadId === right.origin?.threadId &&
     threadUsageEqual(left.usage, right.usage);
 }
@@ -600,6 +601,8 @@ export interface ActiveThreadShellInput {
   messageCount: number;
   backendKind?: ThreadBackendKind;
   modelProvider?: string;
+  /** The model's id, where the runtime names it. */
+  model?: string;
   usage?: UiThreadUsage;
   /** The thread that spawned this one; a shell never loses a link it already had. */
   parentThreadId?: string;
@@ -622,6 +625,7 @@ export function reconcileActiveThreadShell(
     messageCount: input.messageCount,
     ...(input.backendKind ? { backendKind: input.backendKind } : {}),
     ...(input.modelProvider ?? existing?.modelProvider ? { modelProvider: input.modelProvider ?? existing?.modelProvider } : {}),
+    ...(input.model ?? existing?.model ? { model: input.model ?? existing?.model } : {}),
     ...(input.usage ?? existing?.usage ? { usage: input.usage ?? existing?.usage } : {}),
     ...(input.parentThreadId ?? existing?.parentThreadId
       ? { parentThreadId: input.parentThreadId ?? existing?.parentThreadId }

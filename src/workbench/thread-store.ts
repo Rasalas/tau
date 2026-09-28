@@ -70,6 +70,7 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.turnError === right.turnError &&
     left.runtimeError === right.runtimeError &&
     left.modelProvider === right.modelProvider &&
+    left.model === right.model &&
     left.queueHeld === right.queueHeld &&
     sameJson(left.limit, right.limit) &&
     sameJson(left.queued, right.queued) &&
@@ -83,7 +84,7 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 function preserveObservedModelProvider(incoming: UiSession, existing: UiSession | undefined): UiSession {
   return incoming.modelProvider === undefined && existing?.modelProvider !== undefined
-    ? { ...incoming, modelProvider: existing.modelProvider }
+    ? { ...incoming, modelProvider: existing.modelProvider, ...(existing.model !== undefined ? { model: existing.model } : {}) }
     : incoming;
 }
 
@@ -202,9 +203,10 @@ export class ThreadStore {
     });
   }
 
-  setThreadModelProvider(sessionId: string, modelProvider: string | undefined): void {
+  setThreadModelProvider(sessionId: string, modelProvider: string | undefined, model?: string): void {
     const shell = this.getThread(sessionId);
-    if (shell && shell.modelProvider !== modelProvider) this.applyThreadShell(sessionId, { ...shell, modelProvider });
+    if (!shell || (shell.modelProvider === modelProvider && (model ?? shell.model) === shell.model)) return;
+    this.applyThreadShell(sessionId, { ...shell, modelProvider, ...(model ? { model } : {}) });
   }
 
   applyThreadShell(sessionId: string, shell?: UiSession, removed = false): void {

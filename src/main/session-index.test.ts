@@ -50,6 +50,9 @@ describe("session index reconciliation", () => {
       }], "/fallback", async () => "main");
 
       expect(mapped?.modelProvider).toBe("openai-codex");
+      expect(mapped?.model).toBe("gpt-5");
+      // A model change alone republishes the shell.
+      expect(sessionShellEqual(mapped!, { ...mapped!, model: "gpt-5.6-luna" })).toBe(false);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -37,3 +37,14 @@ export function useRuntimeCatalogs(open: boolean): ReadonlyMap<ThreadBackendKind
   useEffect(() => { void store?.refresh(); }, [store]);
   return useSyncExternalStore(store?.subscribe ?? idle, () => store?.all() ?? NONE);
 }
+
+/**
+ * A model's name as its runtime's catalog lists it (API 1.23.0): asks for that
+ * catalog once, and answers nothing until it is in or where it has no such model.
+ */
+export function useModelName(kind: ThreadBackendKind | undefined, model: string | undefined, provider?: string): string | undefined {
+  const entry = useRuntimeCatalog(model ? kind : undefined);
+  const models = entry && entry.status !== "loading" ? entry.catalog?.models : undefined;
+  if (!model || !models) return undefined;
+  return (models.find((item) => item.id === model && (!provider || item.provider === provider)) ?? models.find((item) => item.id === model))?.name;
+}
