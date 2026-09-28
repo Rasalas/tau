@@ -1654,8 +1654,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-color: var(--acid-line); }
 
-/* Rail marker for a thread that cannot continue without you. */
-.thread-row.activity-waiting { border-color: var(--acid-line); }
+/* Rail marker for a thread that cannot continue without you: the question's amber, not the accent a selection uses. */
+.thread-row.activity-waiting { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
 /* Rail marker for a thread whose turn a restart cut short. */
 .thread-row.activity-interrupted { border-color: var(--warn-chip); }

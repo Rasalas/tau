@@ -160,6 +160,7 @@ describe("ThreadRow state and type", () => {
     expect(rule(".thread-status-age > i")).toMatch(/var\(--info\)/u);
     expect(rule(".thread-status-age.status-waiting")).toMatch(/color: var\(--warn\)/u);
     expect(rule(".thread-status-age.status-ready")).toMatch(/color: var\(--ready\)/u);
+    expect(rule(".thread-row.activity-waiting")).toMatch(/var\(--warn\)/u);
   });
 
   it("sets titles in regular type and only the open thread's in semibold", () => {
