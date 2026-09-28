@@ -75,7 +75,7 @@ Workbench
 - **the order of runtimes**: Pi, then backends by the provider's `order`; the host's `runtimeBackends` list is the one every picker, Providers and onboarding follow
 - **which token set the window paints with**: `system`, `dark` or `light`, applied as `data-theme` on `<html>`; a theme package may replace the values, never the mechanism
 - the **client profile** the window draws for (`desktop`, `web`, `compact`): a contribution declares which clients render it, and the workbench leaves out what this one cannot draw ([ADR 0016](adr/0016-client-profiles.md))
-- the stage: the document area beside the conversation, whose tabs hold files, threads, maximized panels and the surfaces kits register kinds for. The chat stays beside it: where the stage would be narrower than its reading width (560 px) or the window is too narrow for both, the dock first folds to its icon rail for as long as the stage is open (a view decision; the dock's stored state is untouched, and opening the dock or picking a panel keeps it open), and where even that does not fit, or the user maximizes the stage (the button at the right end of its tab strip), the chat becomes the stage's first tab, pinned at the strip's start. `src/workbench/center-layout.ts` decides it from the window width, and it holds the one rule for where a wide tool (Terminal, Preview, Agents) opens: as a stage tab in front whenever the centre shows tabs, beside the chat only while the stage is empty (`toolPlace`). Picking a thread (the rail, the palette, a thread shortcut, a phone's thread list), the one on screen included, brings the chat tab to the front and leaves the other tabs and the maximize as they are; a compact client closes its panel sheet instead. A new thread (⌘N, the rail's button, the palette, the title bar, the start card, a phone's list) does the same for its draft and puts the caret in its composer once the chat is in view
+- the stage: the document area beside the conversation, whose tabs hold files, threads, maximized panels and the surfaces kits register kinds for. The chat stays beside it: where the stage would be narrower than its reading width (560 px) or the window is too narrow for both, the dock first folds to its icon rail for as long as the stage is open (a view decision; the dock's stored state is untouched, and opening the dock or picking a panel keeps it open), and where even that does not fit, or the user maximizes the stage (the button at the right end of its tab strip), the chat becomes the stage's first tab, pinned at the strip's start. `src/workbench/center-layout.ts` decides it from the window width, and it holds the one rule for where a wide tool (Terminal, Preview, Agents) opens: as a stage tab in front whenever the centre shows tabs, beside the chat only while the stage is empty (`toolPlace`). Each thread and each draft has a stage of its own (K72, "The stage" below): picking a thread (the rail, the palette, a thread shortcut, a phone's thread list) shows the stage it was left with, and picking the one on screen brings the chat tab to the front and leaves the other tabs and the maximize as they are; a compact client closes its panel sheet instead. A new thread (⌘N, the rail's button, the palette, the title bar, the start card, a phone's list) starts with an empty stage, as in T3 Code, and puts the caret in its composer once the chat is in view
 - **the UI primitives everything else draws with** (`src/renderer/components/ui/`, on `tau` since API 1.11.0): `Menu` with arrows, Home/End, typeahead, submenus and focus back to its trigger; one `TooltipLayer` for every `data-tooltip` element (600 ms rest, instant within a 400 ms group, keyboard focus); the toast stack (`ToastStore` in `src/workbench/toast-store.ts`: top right, three visible, five seconds of being seen, held while the pointer or focus is on it or the window is hidden, type icons, actions, copy; F6 moves focus into it), which every notice and the update restart use; `Dialog`, `ConfirmDialog` and `Popover` with focus trap and return; `Skeleton`, `Empty` and `Spinner` sizes; `MiddleTruncate` for branches and paths; and `useContextMenu`, the OS's menu where the platform has one. They are Tau's own code rather than `@base-ui/react` for size ([PERFORMANCE.md](PERFORMANCE.md#ui-primitives-in-core)); the palette, the model picker and the project picker give focus back when they close, the palette to the composer when nothing had it
 - **the window's title**: what a Pi extension sets with `ctx.ui.setTitle` is a `window-title` push to every client, the host keeps the last one for a client that attaches later, and each client puts it on its page — Electron shows the page's title as the window's, a browser as the tab's. The host may run in another process than the window (ADR 0021), so nothing sets a native title directly
 - **the app around the workbench**, owned by the window's process and spoken to its page over `window-shell` pushes and the client-side `window-action` method (`src/shared/window-shell.ts`, `src/main/app-shell.ts`, `src/renderer/use-window-shell.tsx`): the app menu after T3 Code's (`src/main/app-menu.ts`: About, Check for Updates, Settings, Paste as Text, and zoom that always zooms the workbench's own page); ⌘Q held or pressed twice (`src/main/quit-shortcut.ts`, `confirm.quit`) and a question before a quit stops working threads (`confirm.quitWhileRunning`, not asked when the host keeps running); the updater's hourly check; on Linux, an AppImage without Chromium's sandbox offering the `.deb` of its release and restarting from `/opt/Tau` (`src/main/appimage-install.ts`, see docs/RELEASE.md); and the release notes of the version that just started, shown once (`src/main/release-notes.ts`). Settings → About shows the version and the licences of every package Tau ships, from the `third-party-licenses.json` the build writes beside the page (`vite.third-party-licenses.ts`)
@@ -100,13 +100,20 @@ Workbench
 - **what a project's commands may reach** (`src/main/host-execution-policy.ts`, new in API 1.14.0): extensions provide a rule per folder (`any`, or `loopback` with the hosts still allowed and a reason), core merges them to the strictest — a provider that fails counts as `loopback` — and hands the result to extensions (`services.executionPolicy.for`) and to each runtime backend with its thread (`HostBackendOpenContext.executionPolicy()`). Core enforces nothing and knows no reason for a limit: the runtime kits apply it to their own sandboxes or refuse, and the kit that provides a limit holds Pi's `bash` to it
 - the login shell's environment for everything the host spawns (on Windows the registry's PATH instead, [docs/windows.md](windows.md)), and `findCommand` on the seam for extensions that need a tool from the machine
 - **watching the files the host itself reads** — the package folders, the theme folders, `keybindings.json`, `config.json` — and reloading only what changed: the one package that was edited, the themes, the config. Core re-reads nothing on anyone else's behalf: `observeConfigChanges` on the seam and a `config-changed` push say what moved, and whoever owns those files decides. Tau's own `update-config` and `clear-config` writes reach `observeConfigChanges` even while watching is off, so a kit that reads its settings on the host follows them. Watching is off under `extensions.watch: false` (Settings → General → Reload files when they change, which applies at once), `TAU_NO_WATCH=1` and safe mode (`src/main/config-watcher.ts`, `src/main/workspace-watch.ts`)
-- enough persisted state to restore the workbench: the window puts the stage
-  and the dock back the way the workspace was left (`tau.stage.v1:<workspace>`
-  and `tau.dock.v1:<workspace>` in `src/workbench/storage-keys.ts`, written
-  through `src/workbench/workbench-layout-state.ts`). Tabs are stored as they
-  are held, so a tab kind a kit adds round-trips and one that cannot be read
-  is dropped; a file of another project and a thread the index has forgotten
-  are dropped silently
+- enough persisted state to restore the workbench: the window puts each
+  thread's and each draft's stage back the way it was left — its tabs, the
+  active one, their order, the maximize, whether the dock was open, which panel
+  it showed and the drawer (`tau.stage.v2:thread:<id>` and
+  `tau.stage.v2:draft:<draftId>`, kept by `src/workbench/thread-stages.ts`) —
+  and each project's dock width and mounted panels (`tau.dock.v1:<workspace>`,
+  `src/workbench/workbench-layout-state.ts`); the chat's width stays per
+  client. Tabs are stored as they are held, so a tab kind a kit adds
+  round-trips and one that cannot be read is dropped; a file of another
+  project and a thread the index has forgotten are dropped silently. The
+  stage of a deleted thread goes with it, a settled thread's once it has not
+  been opened for 30 days, a draft's once the draft is gone, and beyond 200
+  stages the ones opened longest ago; a page showing another machine keeps
+  that machine's stages apart
 - **applying a rebuild**: `reloadExtensions()` loads kits and packages again
   and the client reloads its page, without touching a single runtime and
   without waiting for anything, while `reloadRuntime()` is the heavier path
@@ -337,6 +344,23 @@ it survives being written to storage; the content talks back through a handle
 any kind — it asks about unsaved work, runs that tab's listeners and forgets
 its handle. A kit that goes away takes its tabs with it. Terminal Kit's "open
 as tab" is the shipped caller; `docs/EXTENSIONS.md` is the guide.
+
+**The stage belongs to the thread** (K72). Switching threads writes the stage
+being left at once and shows the next one's (`useWorkbenchLayoutState` over
+`ThreadStages`); a draft has its own, which becomes its thread's when the first
+message makes the thread (the draft's composer scope moving to the thread's is
+the signal), and a draft moved to another project starts empty. A new thread
+starts with an empty stage, the dock closed on the panel last picked in the
+project. Hiding a thread's stage unmounts its tabs' content but closes nothing:
+no `onClose` runs, handles stay, and what a tab shows lives on — a terminal's
+shells keep running in the host (they end with their thread), the Preview page
+is the window's one browser and is neither closed nor reloaded, and a Files Kit
+buffer with unsaved work stays with its document. Each tab still reads and
+writes in its own project: the project is the one its thread or draft belongs
+to (`stageWorkspace`), as in K68 and K71. The first thread shown after the
+update to per-thread stages, and otherwise a project's most recent thread,
+takes the stage its project kept before (`tau.stage.v1:<workspace>`), with the
+dock's open state and drawer; no other thread does.
 
 ## Not in core
 
