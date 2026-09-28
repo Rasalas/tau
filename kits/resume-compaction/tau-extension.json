@@ -5,7 +5,7 @@
   "icon": "Minimize2",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.20.0"
+    "api": "^1.21.0"
   },
   "permissions": [],
   "isolation": "worker",
