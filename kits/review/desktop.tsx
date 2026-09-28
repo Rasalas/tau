@@ -18,7 +18,7 @@ import {
   type WorkspaceStoreApi,
 } from "./protocol.js";
 import { workspaceChangesReader } from "./workspace.js";
-import { createRequestBadge } from "./request-badge.js";
+import { createRequestBadge, createRequestCardSection } from "./request-badge.js";
 import { createRequestSection } from "./request-section.js";
 import { LinkDialogs } from "./link-dialog.js";
 import { PendingReviewStore } from "./pending-review.js";
@@ -158,6 +158,7 @@ export const reviewExtension: DesktopExtension = {
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
+        store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });

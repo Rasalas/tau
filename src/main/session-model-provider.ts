@@ -4,6 +4,13 @@ import { createInterface } from "node:readline";
 interface ProviderEntry {
   parentId: string | null;
   provider?: string;
+  model?: string;
+}
+
+/** The model a session's selected branch used last: its provider and, where the file names it, its id. */
+export interface SessionModel {
+  provider: string;
+  id?: string;
 }
 
 function record(value: unknown): { id: string; entry: ProviderEntry } | undefined {
@@ -12,19 +19,19 @@ function record(value: unknown): { id: string; entry: ProviderEntry } | undefine
   if (typeof candidate.id !== "string") return undefined;
   const parentId = typeof candidate.parentId === "string" ? candidate.parentId : null;
   if (candidate.type === "model_change" && typeof candidate.provider === "string") {
-    return { id: candidate.id, entry: { parentId, provider: candidate.provider } };
+    return { id: candidate.id, entry: { parentId, provider: candidate.provider, ...(typeof candidate.modelId === "string" ? { model: candidate.modelId } : {}) } };
   }
   if (candidate.type === "message" && candidate.message && typeof candidate.message === "object") {
     const message = candidate.message as Record<string, unknown>;
     if (message.role === "assistant" && typeof message.provider === "string") {
-      return { id: candidate.id, entry: { parentId, provider: message.provider } };
+      return { id: candidate.id, entry: { parentId, provider: message.provider, ...(typeof message.model === "string" ? { model: message.model } : {}) } };
     }
   }
   return { id: candidate.id, entry: { parentId } };
 }
 
-/** Reads only the entry ancestry needed to resolve the selected branch's latest model provider. */
-export async function readSessionModelProvider(path: string): Promise<string | undefined> {
+/** Reads only the entry ancestry needed to resolve the selected branch's latest model. */
+export async function readSessionModel(path: string): Promise<SessionModel | undefined> {
   const entries = new Map<string, ProviderEntry>();
   let leafId: string | undefined;
   try {
@@ -46,7 +53,7 @@ export async function readSessionModelProvider(path: string): Promise<string | u
     seen.add(leafId);
     const entry = entries.get(leafId);
     if (!entry) return undefined;
-    if (entry.provider) return entry.provider;
+    if (entry.provider) return { provider: entry.provider, ...(entry.model ? { id: entry.model } : {}) };
     leafId = entry.parentId ?? undefined;
   }
   return undefined;

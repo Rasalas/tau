@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { readSessionModelProvider } from "./session-model-provider.js";
+import { readSessionModel } from "./session-model-provider.js";
 
 async function withSession(entries: unknown[], inspect: (path: string) => Promise<void>): Promise<void> {
   const directory = await mkdtemp(`${tmpdir()}/tau-model-provider-`);
@@ -23,7 +23,7 @@ describe("persisted session model provider", () => {
       { type: "model_change", id: "claude", parentId: "openai", provider: "anthropic", modelId: "claude" },
       { type: "message", id: "active-leaf", parentId: "claude", message: { role: "user", content: "active branch" } },
     ], async (path) => {
-      expect(await readSessionModelProvider(path)).toBe("anthropic");
+      expect(await readSessionModel(path)).toEqual({ provider: "anthropic", id: "claude" });
     });
   });
 
@@ -32,7 +32,7 @@ describe("persisted session model provider", () => {
       { type: "session", id: "thread", timestamp: "2026-09-01T12:00:00.000Z", cwd: "/project" },
       { type: "message", id: "assistant", parentId: null, message: { role: "assistant", provider: "google", model: "gemini", content: [] } },
     ], async (path) => {
-      expect(await readSessionModelProvider(path)).toBe("google");
+      expect(await readSessionModel(path)).toEqual({ provider: "google", id: "gemini" });
     });
   });
 });

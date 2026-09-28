@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiSession } from "tau";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import type { ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
-import { aggregateState, createRequestBadge } from "./request-badge.js";
+import { aggregateState, createRequestBadge, createRequestCardSection, newestFirst } from "./request-badge.js";
+import { PULL_REQUEST_TAB } from "./protocol.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 
@@ -71,5 +73,53 @@ describe("a thread's requests on its rail row", () => {
     expect(aggregateState(["closed", "draft", "merged"])).toBe("draft");
     expect(aggregateState(["merged", "open"])).toBe("open");
     expect(aggregateState(["closed"])).toBe("closed");
+  });
+});
+
+describe("a thread's requests on its hover card", () => {
+  function Row({ icon, children, label, onClick }: { icon: ReactNode; children: ReactNode; label?: string; onClick?(): void }) {
+    return <button type="button" aria-label={label} onClick={onClick}>{icon}{children}</button>;
+  }
+
+  function drawCard(session: UiSession, threads: UiSession[], links: Record<string, ThreadPullRequestLink[]>, external = false) {
+    const rows = new RowRequests(async () => REQUEST);
+    rows.set("/project", REQUEST);
+    const linkRows = new ThreadLinkRows({ links: async (id) => links[id] ?? [], onLinksChanged: () => () => undefined });
+    for (const [id, list] of Object.entries(links)) linkRows.set(id, list);
+    const Section = createRequestCardSection(rows, linkRows);
+    const openStageTab = vi.fn(() => "tab");
+    const actions = { openStageTab } as never;
+    render(<TestThreadStore threads={threads}><Section session={session} external={external} actions={actions} Row={Row} /></TestThreadStore>);
+    return { openStageTab };
+  }
+
+  it("lists the branch's request and the linked ones newest first, each with its state", () => {
+    const newest = thread("newest", 30);
+    drawCard(newest, [newest], { newest: [link(12, { state: "merged", title: "Older fix" }), link(41, { state: "closed", title: "Dropped" }), link(40, { draft: true, title: "Draft work" })] });
+    const lines = screen.getAllByRole("listitem");
+    expect(lines.map((line) => line.textContent)).toEqual(["#41 Dropped", "#40 Draft work", "#35 Rail badges", "#12 Older fix"]);
+    expect(lines.map((line) => line.className.replace("request-card-line ", ""))).toEqual(["state-closed", "state-draft", "state-open", "state-merged"]);
+    expect(screen.getByRole("button", { name: "PR #12, merged: Older fix" })).toBeTruthy();
+  });
+
+  it("opens a request's view on the stage", () => {
+    const newest = thread("newest", 30);
+    const { openStageTab } = drawCard(newest, [newest], {});
+    fireEvent.click(screen.getByRole("button", { name: "PR #35, open: Rail badges" }));
+    expect(openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, expect.objectContaining({ url: REQUEST.url, number: 35, service: "github", workspace: "/project" }), { key: REQUEST.url });
+  });
+
+  it("draws nothing for a thread without requests or another machine's thread", () => {
+    const older = thread("older", 10);
+    drawCard(older, [older, thread("newest", 30)], {});
+    expect(screen.queryByRole("list")).toBeNull();
+    cleanup();
+    const newest = thread("newest", 30);
+    drawCard(newest, [newest], {}, true);
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("orders by number, highest first", () => {
+    expect(newestFirst([{ number: 3 }, { number: 17 }, { number: 9 }]).map((entry) => entry.number)).toEqual([17, 9, 3]);
   });
 });

@@ -74,6 +74,16 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getThread("two")?.modelProvider).toBe("openai-codex");
   });
 
+  it("takes a model change within one provider, and keeps the model when a later index shell omits it", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one")] });
+    store.setThreadModelProvider("one", "openai-codex", "gpt-5.6-luna");
+    store.setThreadModelProvider("one", "openai-codex", "gpt-5.6-sol");
+    expect(store.getThread("one")).toMatchObject({ modelProvider: "openai-codex", model: "gpt-5.6-sol" });
+    store.applyThreadIndex({ projects: [], sessions: [shell("one")] });
+    expect(store.getThread("one")?.model).toBe("gpt-5.6-sol");
+  });
+
   it("updates a thread's observed model provider without replacing other shells", () => {
     const store = new ThreadStore();
     store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")] });

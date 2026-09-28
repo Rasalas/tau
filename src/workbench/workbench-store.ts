@@ -99,7 +99,7 @@ export class WorkbenchStore {
     // applyHostSnapshot and setActiveThread both report the thread's run state
     // to the one writer, so nothing else has to repeat it.
     threads.applyHostSnapshot(next);
-    if (next.model?.provider) threads.setThreadModelProvider(next.sessionId, next.model.provider);
+    if (next.model?.provider) threads.setThreadModelProvider(next.sessionId, next.model.provider, next.model.id);
     const cachedActivity = readCachedTurnActivity(storage, next.sessionId);
     view.setSnapshot(next);
     view.setMessages(next.messages);
@@ -200,7 +200,7 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "catalog") {
-      if (update.catalog.model?.provider) threads.setThreadModelProvider(threads.getSnapshot().activeThreadId, update.catalog.model.provider);
+      if (update.catalog.model?.provider) threads.setThreadModelProvider(threads.getSnapshot().activeThreadId, update.catalog.model.provider, update.catalog.model.id);
       // The history cache is the base a later thread detail merges onto, so it
       // has to take the catalog too; otherwise the next detail restores the
       // model the thread had before this change.

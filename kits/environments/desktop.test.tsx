@@ -7,7 +7,7 @@ import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServ
 import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
-import { agentThreadsSource, createMachineThreads, createShownMachine } from "./rail.js";
+import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
@@ -74,15 +74,30 @@ describe("Machines Kit", () => {
     const { registry } = createKitHarness(undefined, undefined, { environments });
     const registered = vi.fn(() => () => undefined);
     const listed = vi.fn(() => () => undefined);
-    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed }); } });
+    const card = vi.fn(() => () => undefined);
+    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card }); } });
     registry.activate(environmentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
     expect(registry.getComposerControls().map((control) => control.id)).toEqual(["environments.run-on"]);
     expect(registry.getCommands().some((command) => command.id === "environments.add")).toBe(true);
     expect(registered).toHaveBeenCalledTimes(1);
     expect(listed).toHaveBeenCalledTimes(1);
+    expect(card).toHaveBeenCalledWith(expect.objectContaining({ place: "row", order: 20 }));
     registry.deactivate(environmentsExtension.id);
     expect(registry.getSettingsPages()).toEqual([]);
+  });
+});
+
+describe("the machine on a rail row's hover card", () => {
+  const Row = ({ children }: { icon: unknown; children: ReactElement | string }) => <p>{children}</p>;
+
+  it("names the machine the window shows for its own threads, and leaves another machine's row to name its own", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const MachineCardRow = createMachineCardRow(environments);
+    const view = render(<MachineCardRow external={false} Row={Row as never} />);
+    expect(view.container.textContent).toBe("laptop");
+    cleanup();
+    expect(render(<MachineCardRow external Row={Row as never} />).container.textContent).toBe("");
   });
 });
 

@@ -419,6 +419,8 @@ export interface WorkspaceKitState {
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
+  /** Rows and sections other kits add to a rail row's hover card. */
+  threadCardSections: readonly ThreadCardSection[];
   /** Another kit's say over the rail's sections, menus and drops. */
   threadRailOrganizer?: ThreadRailOrganizer;
   /** Sections other kits draw at the foot of the rail, above its footer. */
@@ -487,6 +489,38 @@ export interface RailThreadSource {
 /** A small mark another kit draws on a thread's rail row, e.g. its request status. */
 export interface ThreadRowAccessoryProps {
   session: UiSession;
+}
+
+/**
+ * What another kit adds to a rail row's hover card (API 1.23.0). A `row` is
+ * drawn among the card's own icon rows, which sit at `order` project 10,
+ * machine 20, branch 30, model 40, status 50, agents 60, cost 70; a `section`
+ * is a block of its own below a divider, sections in `order`. A component that
+ * draws nothing leaves no gap and no divider.
+ */
+export interface ThreadCardSection {
+  place: "row" | "section";
+  order?: number;
+  Component: ComponentType<ThreadCardSectionProps>;
+}
+
+export interface ThreadCardSectionProps {
+  session: UiSession;
+  /** Another machine's thread the rail lists; the card names that machine itself. */
+  external: boolean;
+  actions: WorkbenchActions;
+  /** The card's own row: an icon, then text that is cut short on one line; `tone` colours both. */
+  Row: ComponentType<ThreadCardRowProps>;
+}
+
+export interface ThreadCardRowProps {
+  icon: ReactNode;
+  children: ReactNode;
+  tone?: "warning" | "danger" | "working";
+  /** Makes the row a button; the card closes before it runs. */
+  onClick?(): void;
+  /** The whole row's accessible name, where its text alone does not say it. */
+  label?: string;
 }
 
 /** One run of the rail: a heading and its threads, in the order they are drawn. */
@@ -608,6 +642,8 @@ export interface WorkspaceStoreApi {
   revertFile(path: string): Promise<void>;
   /** A mark drawn on every thread row of the rail. */
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
+  /** A row or section on every rail row's hover card: a terminal count, the thread's pull requests (API 1.23.0). */
+  registerThreadCardSection?(section: ThreadCardSection): () => void;
   /** Sections, row menus and drops of the rail. */
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void;
   /** A section at the foot of the rail, above its footer: another machine's threads, say (API 1.13.0). */

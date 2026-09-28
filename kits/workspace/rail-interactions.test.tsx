@@ -160,13 +160,17 @@ describe("the rest of the rail", () => {
     expect(screen.getByText("Thread a")).toBeTruthy();
   });
 
-  it("puts the last turn's changes and the details on the row", async () => {
+  it("puts the last turn's changes on the row and the details on its hover card", async () => {
     const { workspace, row } = await renderRail([shell("a", 0, { projectLabel: "feature/very-long-branch-name-20260923" })]);
     act(() => workspace.recordTurnStat("a", { added: 12, removed: 3, files: 2, at: 5 }));
     expect(row("a").querySelector(".thread-diff-stat")?.textContent).toBe("+12 −3");
-    const details = row("a").querySelector(".thread-main")!.getAttribute("data-tooltip");
-    expect(details).toContain("Thread a\nproject\nOn feature/very-long-branch-name-20260923");
-    expect(details).toContain("Last turn +12 −3 in 2 files");
+    const main = row("a").querySelector<HTMLElement>(".thread-main")!;
+    expect(main.getAttribute("data-tooltip")).toBeNull();
+    act(() => { fireEvent.keyDown(document.body, { key: "Tab" }); main.focus(); });
+    const card = await screen.findByRole("dialog", { name: "Thread details" });
+    expect(card.textContent).toContain("Thread a");
+    expect(card.querySelector(".thread-card-rows")!.textContent).toContain("project");
+    expect(card.textContent).toContain("Last turn +12 −3 in 2 files");
     // The branch keeps its end: the head ellipsizes, the tail stays.
     const branch = row("a").querySelector(".thread-branch")!;
     expect(branch.children).toHaveLength(2);

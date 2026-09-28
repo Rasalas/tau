@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TerminalRowStatus, busyShells, runningShells, shellLabel, watchForegrounds } from "./row-status.js";
+import { TerminalCardRow, TerminalRowStatus, busyShells, runningShells, shellLabel, watchForegrounds } from "./row-status.js";
 import { terminalStore } from "./store.js";
 
 afterEach(() => { cleanup(); terminalStore.forgetSessions(); busyShells.set(new Set()); vi.useRealTimers(); });
@@ -33,5 +34,13 @@ describe("the terminal mark on a rail row", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(view.queryByRole("img")).toBeNull();
     stop();
+  });
+
+  it("says the same count as a line of the row's hover card, and nothing while no program runs", () => {
+    const Row = ({ icon, children }: { icon: ReactNode; children: ReactNode }) => <p>{icon}{children}</p>;
+    const view = render(<TerminalCardRow session={{ id: "a" }} Row={Row as never} />);
+    expect(view.container.textContent).toBe("");
+    act(() => { terminalStore.setSessions([shell("1", "a"), shell("2", "a")]); busyShells.set(new Set(["1", "2"])); });
+    expect(view.container.textContent).toBe("2 terminal processes running");
   });
 });

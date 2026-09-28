@@ -345,6 +345,8 @@ export interface UiSession {
   backendKind?: ThreadBackendKind;
   /** Provider of the thread's selected model, when the host has observed it. */
   modelProvider?: string;
+  /** Id of that model, where the runtime or its session file names it (API 1.23.0). */
+  model?: string;
   /** Tokens and money the thread has used; absent until the host knows them. */
   usage?: UiThreadUsage;
   /** A turn of this thread was cut short by a restart and was not continued. */

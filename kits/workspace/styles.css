@@ -554,3 +554,35 @@ body[data-profile="compact"] .files-panel-search { width: 44px; height: 44px; bo
 .project-settings-dialog footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 12.5px var(--sans); cursor: pointer; }
 .project-settings-dialog footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
 .project-settings-dialog footer > button.primary:disabled { opacity: .45; cursor: default; }
+
+/* A rail row's hover card (T3 Code's thread tooltip): the title, a line per fact with its icon, then other kits' sections. */
+.thread-card {
+  position: fixed; z-index: 130; left: 0; top: 0; width: max-content; min-width: 220px; max-width: 320px;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-md);
+  background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-2);
+  font: 12px/16px var(--sans);
+}
+.thread-card-title { color: var(--ink); font-weight: 500; font-size: 12.5px; line-height: 17px; overflow-wrap: anywhere; }
+.thread-card-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding-left: 1px; }
+.thread-card-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 0;
+  border: 0; background: none; color: var(--ink-3); font: inherit; text-align: left;
+}
+button.thread-card-row { width: 100%; cursor: pointer; border-radius: var(--radius-xs); }
+button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(--ink); background: var(--wash-2); outline: none; }
+.thread-card-icon { flex: none; width: 14px; height: 14px; display: grid; place-items: center; color: var(--muted-2); }
+.thread-card-icon > .thread-project-icon { width: 14px; height: 14px; border-radius: 4px; font-size: 9px; }
+/* The model's stack keeps its resting shape here: fanned out it would run into the text. */
+.thread-card-icon:has(> .provider-icon-stack.stacked) { width: 24px; }
+.thread-card-icon > .provider-icon-stack.stacked { width: 24px; }
+.thread-card-icon > .provider-icon-stack.stacked:hover > .provider-icon-model { transform: translate(8px, 2px); }
+.thread-card-icon > .provider-icon-stack.stacked:hover > .provider-icon-runtime { transform: translate(0, 0); mask-position: 0 0, 6.5px 0.5px; -webkit-mask-position: 0 0, 6.5px 0.5px; }
+.thread-card-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-card-muted { color: var(--faint); }
+.thread-card-row.tone-working, .thread-card-row.tone-working .thread-card-icon { color: var(--working); }
+.thread-card-row.tone-warning, .thread-card-row.tone-warning .thread-card-icon { color: var(--warn); }
+.thread-card-row.tone-danger, .thread-card-row.tone-danger .thread-card-icon { color: var(--fail-ink); }
+.thread-card-row.tone-warning .thread-card-text, .thread-card-row.tone-danger .thread-card-text { white-space: normal; overflow-wrap: anywhere; }
+.thread-card-section { padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.thread-card-section:empty { display: none; }

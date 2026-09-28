@@ -210,10 +210,18 @@ export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
 }
 
+/** What Workspace Kit hands a hover card's line; the part of `ThreadCardSectionProps` this kit reads. */
+export interface ThreadCardRowSlotProps {
+  session: { id: string };
+  Row: (props: { icon: unknown; children: unknown; tone?: "working" }) => unknown;
+}
+
 /** Workspace Kit's store (`kits/workspace/protocol.ts`); the row mark this kit draws, and its "Open in". */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceStoreMirror {
   registerThreadRowAccessory(accessory: (props: { session: { id: string } }) => unknown): () => void;
+  /** A line on a rail row's hover card (Workspace Kit, API 1.23.0); absent from an older Workspace Kit. */
+  registerThreadCardSection?(section: { place: "row"; order?: number; Component: (props: ThreadCardRowSlotProps) => unknown }): () => void;
   /** The project the store follows; `openInEditor` paths are relative to it. */
   getSnapshot?(): { cwd?: string };
   subscribe?(listener: () => void): () => void;

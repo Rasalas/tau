@@ -44,6 +44,8 @@ interface ThreadRowProps {
   showLabel?: boolean;
   /** A few lines about the thread, shown beside the row on hover in place of the title's own tooltip. */
   details?: string;
+  /** A navigator's hover card describes the row (API 1.23.0): the row draws neither `details` nor the title's tooltip. */
+  hoverCard?: boolean;
   onSelect(path: string): void;
   /** Absent for a thread this rail cannot settle (another machine's): the row has no Settle button. */
   onToggleSettled?(id: string): void;
@@ -105,6 +107,7 @@ export const ThreadRow = memo(function ThreadRow({
   actions,
   showLabel = true,
   details,
+  hoverCard = false,
   onSelect,
   onToggleSettled,
 }: ThreadRowProps) {
@@ -126,8 +129,8 @@ export const ThreadRow = memo(function ThreadRow({
     )
     : null;
   const cost = showCost ? threadCostLabel(session.usage) : undefined;
-  const hover = details ? tooltipProps(details, { side: "right", variant: "lines" }) : undefined;
-  const titleTip = hover ? undefined : tooltipProps(session.title, { when: "truncated", side: "right" });
+  const hover = details && !hoverCard ? tooltipProps(details, { side: "right", variant: "lines" }) : undefined;
+  const titleTip = hover || hoverCard ? undefined : tooltipProps(session.title, { when: "truncated", side: "right" });
 
   if (settled || compact) {
     return (

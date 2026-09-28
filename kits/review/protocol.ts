@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { UiEditor, UiFileDiff, UiReviewRequest, UiSession, UiWorkspaceChanges, WorkbenchActions } from "tau";
 
 export const REVIEW_HOST_EXTENSION_ID = "tau.review";
@@ -55,6 +55,16 @@ export interface WorkspaceStoreApi {
   stageAll?(): Promise<void>;
   revertFile?(path: string): Promise<void>;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
+  /** A section on a rail row's hover card (API 1.23.0); absent from an older Workspace Kit. */
+  registerThreadCardSection?(section: { place: "section"; order?: number; Component: ComponentType<ThreadCardSectionProps> }): () => void;
+}
+
+/** What Workspace Kit hands a hover card's section (`ThreadCardSectionProps` in `kits/workspace/protocol.ts`). */
+export interface ThreadCardSectionProps {
+  session: UiSession;
+  external: boolean;
+  actions: WorkbenchActions;
+  Row: ComponentType<{ icon: ReactNode; children: ReactNode; label?: string; onClick?(): void }>;
 }
 
 /** What Workspace Kit's Changes panel hands the section Review adds to it. */

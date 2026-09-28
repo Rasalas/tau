@@ -117,6 +117,25 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
   );
 }
 
+function stackIdentities(modelProvider: string | undefined, runtimeProvider: string | undefined, plan: boolean | undefined, runtimeName?: string) {
+  const marks = providerMarks(modelProvider, runtimeProvider, { plan: plan === true });
+  const model = marks.plan ? planIdentity(marks.model) : providerIdentity(marks.model);
+  const runtime = providerIdentity(marks.runtime);
+  const home = providerIdentity(marks.home);
+  const runtimeLabel = runtimeName ?? runtime?.label;
+  const route = model && runtimeLabel
+    ? `${runtimeLabel} via ${model.label}`
+    : runtimeLabel && home && home.label !== runtimeLabel
+      ? `${runtimeLabel} (${home.label})`
+      : model?.label ?? runtimeLabel ?? "Unknown provider";
+  return { model, runtime, route };
+}
+
+/** What `ProviderIconStack` names its marks without a model name: "Pi via OpenAI", "Codex (OpenAI)". */
+export function providerStackLabel(modelProvider: string | undefined, runtimeProvider: string | undefined, options: { plan?: boolean } = {}): string {
+  return stackIdentities(modelProvider, runtimeProvider, options.plan).route;
+}
+
 /**
  * The marks `providerMarks` gives a model provider and the runtime that runs it: the provider's (or plan's) mark,
  * with the runtime's stacked behind it (fanned out on hover), or one mark alone. `hint` names them on hover: a native title
@@ -136,17 +155,8 @@ export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtim
   hint?: TooltipOptions | false;
   name?: string;
 }) {
-  const marks = providerMarks(modelProvider, runtimeProvider, { plan: plan === true });
-  const model = marks.plan ? planIdentity(marks.model) : providerIdentity(marks.model);
-  const runtime = providerIdentity(marks.runtime);
-  const home = providerIdentity(marks.home);
+  const { model, runtime, route } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName);
   if (!model && !runtime) return null;
-  const runtimeLabel = runtimeName ?? runtime?.label;
-  const route = model && runtimeLabel
-    ? `${runtimeLabel} via ${model.label}`
-    : runtimeLabel && home && home.label !== runtimeLabel
-      ? `${runtimeLabel} (${home.label})`
-      : model?.label ?? runtimeLabel ?? "Unknown provider";
   const label = name ?? (modelName ? `${modelName} · ${route}` : route);
   const stacked = Boolean(runtimeMark && model && runtime);
   return (

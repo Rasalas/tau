@@ -217,7 +217,7 @@ export class ThreadIndex {
       this.port.cwd(),
       async (cwd) => this.port.projects.label(cwd),
       (cwd) => this.port.projects.name(cwd),
-      new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
+      new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, { provider: session.modelProvider, ...(session.model ? { id: session.model } : {}) }]] : [])),
       (info) => this.liveUsage(info.id) ?? this.cachedUsage(info.path, stamps.get(info.path)),
       (info) => parents.get(info.path) ?? this.parents.get(info.id),
       (info) => this.lineage.originOf(info.path),
@@ -299,6 +299,7 @@ export class ThreadIndex {
     const usage = this.rememberUsage(thread);
     const existing = this.byId(thread.threadId);
     const visibleMessages = await thread.backend.transcript();
+    const model = thread.backend.catalogView().model;
     const shell = reconcileActiveThreadShell({
       id: thread.threadId,
       path: this.shellPath(thread),
@@ -310,7 +311,8 @@ export class ThreadIndex {
       projectLabel: this.port.projects.label(projectPath),
       messageCount: visibleMessages.length,
       backendKind: threadBackendKind(thread),
-      modelProvider: thread.backend.catalogView().model?.provider ?? this.port.backends().get(threadBackendKind(thread))?.modelProvider,
+      modelProvider: model?.provider ?? this.port.backends().get(threadBackendKind(thread))?.modelProvider,
+      ...(model?.id ? { model: model.id } : {}),
       ...(usage ? { usage } : {}),
       ...(this.parentOf(thread.threadId) ? { parentThreadId: this.parentOf(thread.threadId)! } : {}),
     }, existing, touch);
@@ -319,15 +321,16 @@ export class ThreadIndex {
   }
 
   /**
-   * A model change moves only the shell's provider. The transcript is not read
+   * A model change moves only the shell's provider and model. The transcript is not read
    * again, so the change costs the same in a thread of any length.
    */
   async publishModelProvider(thread: ThreadRuntime): Promise<void> {
     const shell = this.byId(thread.threadId);
     if (!shell) return this.refreshShell(thread, false);
-    const modelProvider = thread.backend.catalogView().model?.provider ?? this.port.backends().get(threadBackendKind(thread))?.modelProvider;
-    if (!modelProvider || modelProvider === shell.modelProvider) return;
-    const updated = { ...shell, modelProvider };
+    const model = thread.backend.catalogView().model;
+    const modelProvider = model?.provider ?? this.port.backends().get(threadBackendKind(thread))?.modelProvider;
+    if (!modelProvider || (modelProvider === shell.modelProvider && (model?.id ?? shell.model) === shell.model)) return;
+    const updated = { ...shell, modelProvider, ...(model?.id ? { model: model.id } : {}) };
     this.sessions = this.sessions.map((entry) => entry.id === shell.id ? updated : entry);
     this.publishShellSoon(updated);
   }
