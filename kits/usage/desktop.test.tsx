@@ -103,7 +103,8 @@ describe("Usage page", () => {
     const days = dayStarts(HISTORY_DAYS, NOW);
     expect(invoke).toHaveBeenCalledWith("summary", { since: days[0], days });
     const today = within(totals).getByRole("region", { name: "Today" });
-    expect(within(today).getByText("$0.01")).toBeTruthy();
+    // The totals draw empty before the summary arrives.
+    expect(await within(today).findByText("$0.01")).toBeTruthy();
     expect(within(today).getByText("—")).toBeTruthy();
     const week = within(totals).getByRole("region", { name: "Last 7 days" });
     expect(within(week).getByText("≈ $1.40")).toBeTruthy();
