@@ -945,7 +945,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activityHint={hint}
       compact={(compact || compactRows) && status !== "settled"}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
-      modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
+      modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       rowActions={rowActions}
       onRowAction={runRowAction}

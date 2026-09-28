@@ -42,7 +42,7 @@ describe("the model rows", () => {
     // The runtime is an icon named for assistive technology, and a word the search finds.
     expect(items[1]!.keywords).toContain("Codex");
     const { container } = render(<>{items[1]!.icon}</>);
-    expect(container.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("OpenAI via Codex");
+    expect(container.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("Codex (OpenAI)");
   });
 
   it("sets a model of the thread's runtime and starts a thread for another runtime's", async () => {

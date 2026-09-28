@@ -36,7 +36,8 @@ function providerIdentity(value: string | undefined): ProviderIdentity | undefin
   if (key === "claude-code") return { family: "claude-code", label: "Claude Code", source: claudeCodeIcon, fallback: "C" };
   if (key === "antigravity") return { family: "antigravity", label: "Antigravity", source: antigravityIcon, color: true, fallback: "A" };
   if (key === "codex") return { family: "codex", label: "Codex", source: codexIcon, color: true, fallback: "C" };
-  if (["openai", "openai-codex", "gpt"].includes(key)) return { family: "openai", label: "OpenAI", source: openAiIcon, fallback: "O" };
+  if (key === "openai-codex") return PLANS.codex;
+  if (["openai", "gpt"].includes(key)) return { family: "openai", label: "OpenAI", source: openAiIcon, fallback: "O" };
   if (["google", "google-gemini", "gemini"].includes(key)) return { family: "gemini", label: "Google Gemini", source: geminiIcon, color: true, fallback: "G" };
   if (["vertex-ai", "vertexai", "google-vertex"].includes(key)) return { family: "vertex-ai", label: "Vertex AI", source: vertexAiIcon, color: true, fallback: "V" };
   if (["opencode", "opencode-go"].includes(key)) return { family: "opencode", label: key === "opencode-go" ? "OpenCode Go" : "OpenCode", source: openCodeIcon, fallback: "O" };
@@ -49,6 +50,20 @@ function providerIdentity(value: string | undefined): ProviderIdentity | undefin
     return { family: keys[0]!, label: keys.includes(key) ? label : value, styled: true, fallback: monogram(label) };
   }
   return { family: key, label: value, fallback: monogram(value) };
+}
+
+/** A subscription plan wears its product's mark, as a ChatGPT plan wears Codex's. */
+const PLANS = {
+  codex: { family: "codex", label: "ChatGPT plan", source: codexIcon, color: true, fallback: "C" },
+  claude: { family: "claude-code", label: "Claude plan", source: claudeCodeIcon, fallback: "C" },
+  grok: { family: "grok", label: "Grok plan", styled: true, fallback: "G" },
+} satisfies Record<string, ProviderIdentity>;
+
+function planIdentity(value: string | undefined): ProviderIdentity | undefined {
+  const identity = providerIdentity(value);
+  if (identity?.family === "anthropic") return PLANS.claude;
+  if (identity?.family === "xai") return PLANS.grok;
+  return identity;
 }
 
 /** Providers whose mark `provider-marks.css` draws, keyed by their family (the first key); a key also matches `<key>-…`. */
@@ -103,24 +118,41 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
 }
 
 /**
- * A model provider's mark, with the runtime's beside it where `providerMarks` says it tells something apart.
- * `hint` names it on hover: a native title by default, the tooltip layer's with options, nothing with `false`
- * (inside a control that names itself). `name` replaces the name the marks know, e.g. an instance's.
+ * The marks `providerMarks` gives a model provider and the runtime that runs it: the provider's (or plan's) mark,
+ * with the runtime's stacked behind it (fanned out on hover), or one mark alone. `hint` names them on hover: a native title
+ * by default, the tooltip layer's with options, nothing with `false` (inside a control that names itself). `name`
+ * replaces the whole name; `runtimeName` only the runtime's (an instance's), and `modelName` leads it. `plan` says
+ * the provider is reached through a subscription plan, where its id alone does not tell. `runtimeMark: false` leaves
+ * the runtime's mark out where the surrounding UI already names the runtime; the name keeps it.
  */
-export function ProviderIconStack({ modelProvider, runtimeProvider, className, hint, name }: { modelProvider?: string; runtimeProvider?: string; className?: string; hint?: TooltipOptions | false; name?: string }) {
-  const marks = providerMarks(modelProvider, runtimeProvider);
-  const model = providerIdentity(marks.model);
+export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtimeMark = true, modelName, runtimeName, className, hint, name }: {
+  modelProvider?: string;
+  runtimeProvider?: string;
+  plan?: boolean;
+  runtimeMark?: boolean;
+  modelName?: string;
+  runtimeName?: string;
+  className?: string;
+  hint?: TooltipOptions | false;
+  name?: string;
+}) {
+  const marks = providerMarks(modelProvider, runtimeProvider, { plan: plan === true });
+  const model = marks.plan ? planIdentity(marks.model) : providerIdentity(marks.model);
   const runtime = providerIdentity(marks.runtime);
-  // Keep the runtime and model provider as a pair unless both identify the same program.
-  const distinctRuntime = model && runtime && (runtime.family !== model.family || runtime.label !== model.label) ? runtime : undefined;
+  const home = providerIdentity(marks.home);
   if (!model && !runtime) return null;
-  const label = name ?? (model && distinctRuntime
-    ? `${model.label} via ${distinctRuntime.label}`
-    : model?.label ?? runtime?.label ?? "Unknown provider");
+  const runtimeLabel = runtimeName ?? runtime?.label;
+  const route = model && runtimeLabel
+    ? `${runtimeLabel} via ${model.label}`
+    : runtimeLabel && home && home.label !== runtimeLabel
+      ? `${runtimeLabel} (${home.label})`
+      : model?.label ?? runtimeLabel ?? "Unknown provider";
+  const label = name ?? (modelName ? `${modelName} · ${route}` : route);
+  const stacked = Boolean(runtimeMark && model && runtime);
   return (
-    <span className={`provider-icon-stack ${distinctRuntime ? "stacked" : "single"}${className ? ` ${className}` : ""}`} role="img" aria-label={label} {...(hint === undefined ? { title: label } : hint ? tooltipProps(label, hint) : {})}>
-      {distinctRuntime ? <ProviderIcon identity={distinctRuntime} layer="runtime" /> : null}
+    <span className={`provider-icon-stack ${stacked ? "stacked" : "single"}${className ? ` ${className}` : ""}`} role="img" aria-label={label} {...(hint === undefined ? { title: label } : hint ? tooltipProps(label, hint) : {})}>
       {model ? <ProviderIcon identity={model} layer="model" /> : runtime ? <ProviderIcon identity={runtime} layer="model" /> : null}
+      {stacked && runtime ? <ProviderIcon identity={runtime} layer="runtime" /> : null}
     </span>
   );
 }

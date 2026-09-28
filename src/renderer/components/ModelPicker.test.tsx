@@ -92,8 +92,8 @@ describe("ModelPicker", () => {
   it("shows a provider column only for a runtime with several providers", () => {
     renderPicker({ runtime: "pi", runtimeBackends: codexBackends, catalogs: cached([codexReady()]) });
     const providers = screen.getByRole("navigation", { name: "Pi providers" });
-    expect(within(providers).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["All providers (5)", "Anthropic (4)", "OpenAI (1)"]);
-    fireEvent.click(within(providers).getByRole("button", { name: "OpenAI (1)" }));
+    expect(within(providers).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["All providers (5)", "Anthropic (4)", "ChatGPT plan (1)"]);
+    fireEvent.click(within(providers).getByRole("button", { name: "ChatGPT plan (1)" }));
     expect(optionNames()).toEqual(["GPT-5.6 Sol, Pi"]);
     fireEvent.click(runtimeButton("Codex"));
     expect(screen.queryByRole("navigation", { name: /providers/u })).toBeNull();
@@ -168,7 +168,7 @@ describe("ModelPicker", () => {
     const rail = screen.getByRole("navigation", { name: "Runtimes" });
     const providers = screen.getByRole("navigation", { name: "Pi providers" });
     for (const column of [rail, providers]) {
-      expect(column.textContent).not.toMatch(/Favourites|Pi|Claude|Codex|Antigravity|providers|Anthropic|OpenAI|radius|\d/u);
+      expect(column.textContent).not.toMatch(/Favourites|Pi|Claude|Codex|Antigravity|providers|Anthropic|OpenAI|ChatGPT|radius|\d/u);
     }
     const tips = (column: HTMLElement) => within(column).getAllByRole("button").map((button) => button.getAttribute("data-tooltip"));
     expect(tips(rail)).toEqual([
@@ -176,13 +176,13 @@ describe("ModelPicker", () => {
     ]);
     // A second instance wears its initials on the program's mark.
     expect(within(rail).getByRole("button", { name: /^Codex · work,/u }).querySelector(".rail-instance")?.textContent).toBe("W");
-    expect(tips(providers)).toEqual(["All providers · 6 models", "Anthropic · 4 models", "OpenAI · 1 model", "radius · 1 model"]);
+    expect(tips(providers)).toEqual(["All providers · 6 models", "Anthropic · 4 models", "ChatGPT plan · 1 model", "radius · 1 model"]);
     // A provider without a mark gets its monogram.
     expect(within(providers).getByRole("button", { name: "radius (1)" }).querySelector(".provider-icon-fallback")?.textContent).toBe("R");
     // A row names its provider by its mark, not in text.
     const row = screen.getByRole("option", { name: /^Claude Opus 5, Pi/u });
     expect(row.textContent).not.toContain("Anthropic");
-    expect(row.querySelector("[data-tooltip='Anthropic']")).toBeTruthy();
+    expect(row.querySelector("[data-tooltip='Claude Opus 5 · Pi via Anthropic']")).toBeTruthy();
   });
 
   it("marks the runtime and provider of an offering in search instead of naming them", () => {
@@ -203,14 +203,14 @@ describe("ModelPicker", () => {
       expect(row.textContent).not.toMatch(/Pi|Codex|OpenAI/u);
     }
     const marks = (row: HTMLElement) => [...row.querySelectorAll("[data-tooltip]")].map((mark) => mark.getAttribute("data-tooltip"));
-    expect(marks(pi)).toEqual(["Pi", "OpenAI"]);
-    expect(marks(codex)).toEqual(["Codex"]);
-    // A list across runtimes: the runtime's mark, then the provider's.
+    expect(marks(pi)).toEqual(["GPT-5.6 Luna · Pi via ChatGPT plan"]);
+    expect(marks(codex)).toEqual(["GPT-5.6 Luna · Codex (OpenAI)"]);
+    // A list across runtimes: the access mark with the runtime's badge, or the runtime's own mark at home.
     fireEvent.change(search(), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
     const favourite = screen.getByRole("option", { name: /^GPT-5.6 Luna, Codex/u });
     expect(favourite.textContent).not.toMatch(/Codex|OpenAI/u);
-    expect(marks(favourite)).toEqual(["Codex", "OpenAI"]);
+    expect(marks(favourite)).toEqual(["GPT-5.6 Luna · Codex (OpenAI)"]);
   });
 
   it("says each thing once: no billing badge beside the price, no counts, a dot only for a runtime that is not ready", () => {
@@ -228,10 +228,10 @@ describe("ModelPicker", () => {
     const fable = screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" });
     expect(fable.textContent).not.toContain("Plan");
     expect(fable.textContent).toContain("incl.");
-    // Across providers a row wears its provider's mark; within one provider it needs none.
-    expect(fable.querySelector("[data-tooltip='Anthropic']")).toBeTruthy();
+    // Across providers a row wears its provider's mark, a plan's for a plan; within one provider it needs none.
+    expect(fable.querySelector("[data-tooltip='Claude Fable 5.1 · Pi via Claude plan']")).toBeTruthy();
     fireEvent.click(within(screen.getByRole("navigation", { name: "Pi providers" })).getByRole("button", { name: "Anthropic (4)" }));
-    expect(screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" }).querySelector("[data-tooltip='Anthropic']")).toBeNull();
+    expect(screen.getByRole("option", { name: "Claude Fable 5.1, Pi, Plan" }).querySelector(".model-sub [data-tooltip]")).toBeNull();
     fireEvent.click(within(rail).getByRole("button", { name: /^Codex,/u }));
     expect(screen.getByRole("option", { name: "GPT-5.6 Luna, Codex, Plan" }).querySelector(".model-sub [data-tooltip]")).toBeNull();
   });
