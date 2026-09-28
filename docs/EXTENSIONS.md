@@ -324,7 +324,7 @@ then a separator and the maximize. Every other panel is under the strip's
 button of a drawer panel opens and closes the drawer. The thread header's stage
 toggle opens an empty stage on the tool last picked in the project, else the
 first with a button. `useBadge` (API 1.27.0) is a hook for a count beside the
-panel's tab title — Agents Kit counts the thread's agents; nothing is drawn for
+panel's tab title — Agents Kit counts the thread's agents that still run or ask; nothing is drawn for
 `undefined` or 0. On the stage the tab names the panel, so the panel's own
 `h2` in its `.panel-header` is left out there; keep controls in the header,
 as icons, and no kit name.

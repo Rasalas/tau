@@ -25,6 +25,7 @@ import {
   MACHINE_SETTING,
   MAX_AGENT_DEPTH,
   isBusyStatus,
+  tauToolName,
   type AgentMachinesView,
   type AgentSendMode,
   type AgentThreadLink,
@@ -155,7 +156,7 @@ export interface StoredRemoteLink {
  * an older Tau, which needs a `threadId`, skips it.
  */
 export type StoredAgentLink =
-  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt" | "agent">
+  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt" | "agent" | "turn">
   & ({ threadId: string; remote?: undefined } | { threadId?: undefined; remote: StoredRemoteLink });
 
 function decodeRemote(value: unknown): StoredRemoteLink | undefined {
@@ -185,6 +186,7 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
       ...(typeof item.startedAt === "number" ? { startedAt: item.startedAt } : {}),
       ...(typeof item.endedAt === "number" ? { endedAt: item.endedAt } : {}),
       ...(typeof item.agent === "string" ? { agent: item.agent } : {}),
+      ...(typeof item.turn === "number" ? { turn: item.turn } : {}),
     }];
   });
 }
@@ -254,7 +256,11 @@ export function linksFromEntries(sessionId: string, entries: readonly unknown[])
     const spawnedAt = typeof data.spawnedAt === "number" ? data.spawnedAt : 0;
     const projectPath = typeof data.projectPath === "string" ? data.projectPath : "";
     const title = typeof data.title === "string" ? data.title : "Sub-agent";
-    const common = { spawnedBy, spawnedAt, projectPath, depth, title, ...(typeof data.agent === "string" ? { agent: data.agent } : {}) };
+    const common = {
+      spawnedBy, spawnedAt, projectPath, depth, title,
+      ...(typeof data.agent === "string" ? { agent: data.agent } : {}),
+      ...(typeof data.turn === "number" ? { turn: data.turn } : {}),
+    };
     if (item.customType === PARENT_LINK_ENTRY && typeof data.parentThreadId === "string") {
       links.push({ ...common, id: sessionId, threadId: sessionId, parentThreadId: data.parentThreadId });
     } else if (item.customType === AGENT_CHILD_ENTRY && typeof data.threadId === "string") {
@@ -262,6 +268,21 @@ export function linksFromEntries(sessionId: string, entries: readonly unknown[])
     }
   }
   return links;
+}
+
+function isUserPrompt(entry: unknown): boolean {
+  const item = record(entry);
+  return item.type === "message" && record(item.message).role === "user";
+}
+
+/** `edit src/a.ts`, `bash npm test`: a tool and what it worked on, for the panel's progress line. */
+export function toolLine(tool: { name: string; args?: unknown }): string {
+  const name = tauToolName(tool.name);
+  const args = record(tool.args);
+  const target = [args.path, args.file_path, args.command, args.pattern, args.query, args.url]
+    .find((value): value is string => typeof value === "string" && value.trim() !== "");
+  const line = target ? `${name} ${target.replace(/\s+/gu, " ").trim()}` : name;
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
 }
 
 function toolResult(value: unknown): AgentToolResult<unknown> {
@@ -344,6 +365,7 @@ export function createAgentsHostExtension(options: {
             ...(link.startedAt ? { startedAt: link.startedAt } : {}),
             ...(link.endedAt ? { endedAt: link.endedAt } : {}),
             ...(link.agent ? { agent: link.agent } : {}),
+            ...(link.turn ? { turn: link.turn } : {}),
           }] : []);
           void writeAgentLinks(links, linksPath)
             .catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
@@ -432,6 +454,15 @@ export function createAgentsHostExtension(options: {
         return requested;
       };
 
+      /** The parent's prompts so far, which is the turn the thread header shows. */
+      const promptCount = (threadId: string): number | undefined => {
+        try {
+          return services.thread(threadId)?.entries().filter(isUserPrompt).length;
+        } catch {
+          return undefined;
+        }
+      };
+
       /** What both session files record about a link, minus who is who. */
       const linkData = (link: Omit<AgentThreadLink, "status">) => ({
         version: 1,
@@ -441,6 +472,7 @@ export function createAgentsHostExtension(options: {
         depth: link.depth,
         title: link.title,
         ...(link.agent ? { agent: link.agent } : {}),
+        ...(link.turn ? { turn: link.turn } : {}),
       });
 
       const remember = (link: AgentThreadLink) => {
@@ -697,11 +729,13 @@ export function createAgentsHostExtension(options: {
         wanted.set(id, mode);
         // Only a tool's spawn wakes its parent; one the user started from the panel does not.
         if (spawnedBy === "tau_spawn_thread") expect(id);
+        const turn = promptCount(parent.sessionId);
         book.add({
           id,
           parentThreadId: parent.sessionId,
           spawnedBy,
           spawnedAt: Date.now(),
+          ...(turn ? { turn } : {}),
           projectPath,
           depth: depth + 1,
           title: request.title ?? titleFromPrompt(request.prompt),
@@ -1174,6 +1208,9 @@ export function createAgentsHostExtension(options: {
         if (!link.machine) {
           const answer = await lastAssistantMessage(link.threadId);
           if (answer) changed(link.id, book.noteResult(link.id, truncate(answer, PANEL_RESULT_LIMIT)));
+          // The panel's done row says what its worktree changed ("+48 −0 · 1 file").
+          const workspace = await readChanges(link);
+          if (workspace && JSON.stringify(workspace) !== JSON.stringify(link.workspace)) changed(link.id, book.noteWorkspace(link.id, workspace));
         }
         // The last turn a tool gave it, or one that failed, and nobody waited: its parent hears.
         const left = (expecting.get(link.id) ?? 0) - 1;
@@ -1198,7 +1235,7 @@ export function createAgentsHostExtension(options: {
         services.mcp.registerTools(agentTools),
         services.registerTurnObserver({
           accepted: (sessionId) => { changed(sessionId, book.noteAccepted(sessionId)); },
-          toolEnded: (sessionId, tool) => { changed(sessionId, book.noteTool(sessionId, tool.name)); },
+          toolEnded: (sessionId, tool) => { changed(sessionId, book.noteTool(sessionId, toolLine(tool))); },
           ended: async (sessionId, _turnId, outcome) => {
             // A parent whose turn ended hears what finished meanwhile.
             if (unreported.has(sessionId)) void flushWakes(sessionId, true);

@@ -6,9 +6,9 @@ import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import { agentsExtension } from "./desktop.js";
 import { createAgentsStore, createDefinitionsStore, definitionsStore, lineageOf, remoteAgentThreads } from "./store.js";
-import { activityLine, agentsPanelModel, definitionRows, formatCost, formatElapsed, machineTitle, spawnCardModel, spawnedThreadId, worktreeLine } from "./model.js";
+import { agentsPanelModel, definitionRows, doneLabel, formatCost, formatElapsed, machineTitle, questionLine, rowStand, shortModel, spawnCardModel, spawnedThreadId, viewRows, worktreeLine } from "./model.js";
 import { machineChoiceText } from "./settings.js";
-import { panelRows } from "./panel.js";
+import { panelRows, viewCounts } from "./panel.js";
 import type { AgentThreadLink, AgentThreadStatus, AgentsState } from "./protocol.js";
 
 function session(id: string, title: string, modifiedAt: number, costUsd?: number, parentThreadId?: string): UiSession {
@@ -110,7 +110,8 @@ describe("the Agents panel model", () => {
     };
     const model = agentsPanelModel(deep, "parent", [...threads, session("gamma", "Gamma", 0)]);
     expect(model.groups.map((group) => [group.parentThreadId, group.active])).toEqual([["parent", true], ["alpha", false]]);
-    expect(panelRows(model).map((row) => row.kind)).toEqual(["group", "agent", "agent", "group", "agent"]);
+    // The finished agent sits under its "Done" line, inside its parent's group.
+    expect(panelRows(model).map((row) => row.kind)).toEqual(["group", "agent", "section", "agent", "group", "agent"]);
   });
 
   it("lists the children the thread index names when the kit has no links at all", () => {
@@ -138,18 +139,56 @@ describe("the Agents panel model", () => {
     expect(model.groups[0]!.rows.map((row) => [row.threadId, row.status])).toEqual([["alpha", "running"], ["beta", "idle"]]);
   });
 
-  it("says what a row is doing in one line", () => {
-    expect(activityLine({ id: "a", title: "A", status: "running", lastTool: "bash" })).toBe("▸ bash");
-    expect(activityLine({ id: "a", title: "A", status: "pending" })).toBe("Queued for a free slot");
-    expect(activityLine({ id: "a", title: "A", status: "waiting", pendingToolPrompt: "Run rm?" })).toBe("Needs you: Run rm?");
-    expect(activityLine({ id: "a", title: "A", status: "failed", error: "boom" })).toBe("boom");
-    expect(activityLine({ id: "a", title: "A", status: "completed", result: "done" })).toBe("done");
+  it("says where a row stands at the end of its mono line", () => {
+    expect(rowStand({ id: "a", title: "A", status: "running", lastTool: "edit src/a.ts" })).toBe("edit src/a.ts");
+    expect(rowStand({ id: "a", title: "A", status: "running" })).toBe("working");
+    expect(rowStand({ id: "a", title: "A", status: "pending" })).toBe("queued");
+    expect(rowStand({ id: "a", title: "A", status: "failed", error: "boom" })).toBe("boom");
+    expect(rowStand({ id: "a", title: "A", status: "completed", result: "first\nsecond" })).toBe("first");
+    expect(rowStand({ id: "a", title: "A", status: "completed" })).toBe("done");
+    expect(shortModel("openai/gpt-5.6-luna")).toBe("gpt-5.6-luna");
+    expect(shortModel(undefined)).toBeUndefined();
   });
 
-  it("keeps elapsed time the same shape at every scale", () => {
-    expect(formatElapsed(4_400)).toBe("4s");
-    expect(formatElapsed(184_000)).toBe("3m 04s");
-    expect(formatElapsed(3_720_000)).toBe("1h 02m");
+  it("calls a held question what the rail calls it", () => {
+    expect(questionLine({ pendingToolPrompt: "Run rm?" })).toBe("Question: Run rm?");
+    expect(questionLine({})).toBe("Question");
+    expect(rowStand({ id: "a", title: "A", status: "waiting" })).toBe("Question");
+  });
+
+  it("keeps elapsed time the rail's m:ss clock", () => {
+    expect(formatElapsed(4_400)).toBe("0:04");
+    expect(formatElapsed(184_000)).toBe("3:04");
+    expect(formatElapsed(3_725_000)).toBe("1:02:05");
+  });
+
+  it("puts questions first, then work, and the finished agents under it by turn", () => {
+    const agents: AgentsState = {
+      maxRunning: 8,
+      links: [
+        link("done-1", "parent", "completed", 1, { turn: 1 }),
+        link("queued", "parent", "pending", 2, { turn: 2 }),
+        link("run", "parent", "running", 3, { turn: 2 }),
+        link("ask", "parent", "waiting", 4, { turn: 2, pendingToolPrompt: "Index or id?" }),
+        link("done-2", "parent", "failed", 5, { turn: 2 }),
+        link("done-3", "parent", "completed", 6, { turn: 1 }),
+        link("old", "parent", "completed", 7),
+      ],
+    };
+    const model = agentsPanelModel(agents, "parent", []);
+    expect(viewCounts(model)).toEqual({ running: 2, asks: 1, done: 4 });
+    const rows = model.groups[0]!.rows;
+    const running = viewRows(rows, "running");
+    expect(running.open.map((row) => row.id)).toEqual(["ask", "run", "queued"]);
+    expect(running.done.map((section) => [doneLabel(section), section.rows.map((row) => row.id)])).toEqual([
+      ["Done · 1 — from turn 2", ["done-2"]],
+      ["Done · 2 — from turn 1", ["done-1", "done-3"]],
+      ["Done · 1", ["old"]],
+    ]);
+    expect(viewRows(rows, "asks")).toEqual({ open: [expect.objectContaining({ id: "ask" })], done: [] });
+    expect(viewRows(rows, "done").open).toEqual([]);
+    expect(panelRows(model, "done").map((row) => row.kind)).toEqual(["section", "agent", "section", "agent", "agent", "section", "agent"]);
+    expect(panelRows(model, "asks").map((row) => row.key)).toEqual(["ask"]);
   });
 });
 
@@ -164,9 +203,9 @@ describe("agents on another machine", () => {
     const row = agentsPanelModel({ maxRunning: 8, links: [remote] }, "parent", [session("parent", "P", 1)]).groups[0]!.rows[0]!;
     expect(row).toMatchObject({ machine: { id: "rex-id", name: "rex", thread: "rex-t1", reason: "rex has room" }, costUsd: 0.5 });
     expect(machineTitle(row.machine!)).toBe("Runs on rex. rex has room");
-    expect(activityLine({ ...row, machine: { ...row.machine!, offline: true } })).toBe("rex offline · may still be running");
+    expect(rowStand({ ...row, machine: { ...row.machine!, offline: true } })).toBe("rex offline · may still be running");
     expect(machineTitle({ ...row.machine!, offline: true, reason: undefined })).toBe("rex is offline; the thread may still be running there.");
-    expect(worktreeLine({ ...row, workspace: { mode: "worktree", path: "/x", branch: "tau/rex/word", changes: { files: 2, added: 0, removed: 0, commits: 1, uncommitted: 0 } } })).toBe("tau/rex/word · 2 files");
+    expect(worktreeLine({ ...row, workspace: { mode: "worktree", path: "/x", branch: "tau/rex/word", changes: { files: 2, added: 0, removed: 0, commits: 1, uncommitted: 0 } } })).toBe("2 files · tau/rex/word");
   });
 
   it("names the machine on the spawn card and opens nothing here", () => {
@@ -254,7 +293,7 @@ describe("the spawn card", () => {
       state,
       [session("alpha", "Index the code", 1, 0.25), session("beta", "Write the docs", 2, 0.5)],
     );
-    expect(model.headline).toBe("Started 2 agents · 1 working");
+    expect(model.summary).toBe("Started 2 agents · 1 running");
     expect(model.status).toBe("running");
     expect(model.totalCostUsd).toBe(0.75);
     expect(model.rows.map((row) => [row.title, row.status, row.threadId])).toEqual([
@@ -277,18 +316,32 @@ describe("the spawn card", () => {
     const model = spawnCardModel([spawn("call-1", { args: { prompt: "Read the code\nand report" } })], undefined, []);
     expect(model.rows[0]).toMatchObject({ title: "Read the code", status: "completed" });
     expect(model.rows[0].threadId).toBeUndefined();
-    expect(model.headline).toBe("Started 1 agent · all done");
+    expect(model.summary).toBe("Started 1 agent · all done");
   });
 
   it("reads a failed call as a failed agent", () => {
     const model = spawnCardModel([spawn("call-1", { status: "error" })], undefined, []);
-    expect(model.headline).toBe("Started 1 agent · 1 failed");
+    expect(model.summary).toBe("Started 1 agent · 1 failed");
     expect(model.status).toBe("failed");
   });
 
   it("reads a call still in flight as an agent that has not started", () => {
     const model = spawnCardModel([spawn("call-1", { status: "running", endedAt: undefined })], undefined, []);
-    expect(model.headline).toBe("Started 1 agent · 1 queued");
+    expect(model.summary).toBe("Started 1 agent · 1 queued");
+  });
+
+  it("counts a batch as the design says it: running, questions, then what is done", () => {
+    const tools = ["a", "b", "c", "d"].map((id) => spawn(`call-${id}`, { output: JSON.stringify({ threadId: id }) }));
+    const batch: AgentsState = {
+      maxRunning: 8,
+      links: [link("a", "p", "running", 1), link("b", "p", "running", 1), link("c", "p", "waiting", 1), link("d", "p", "completed", 1)],
+    };
+    const model = spawnCardModel(tools, batch, []);
+    expect(model.headline).toBe("Started 4 agents");
+    expect(model.parts.map((part) => part.kind)).toEqual(["running", "question"]);
+    expect(model.summary).toBe("Started 4 agents · 2 running · 1 question");
+    const settled = spawnCardModel(tools, { maxRunning: 8, links: batch.links.map((entry) => ({ ...entry, status: entry.id === "a" ? "failed" as const : "completed" as const })) }, []);
+    expect(settled.summary).toBe("Started 4 agents · 1 failed · 3 done");
   });
 
   it("reads the thread out of a result that is not JSON without throwing", () => {

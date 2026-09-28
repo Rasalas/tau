@@ -190,7 +190,10 @@ describe("what a thread's card says", () => {
     expect(rowTexts()).toContain("2 agents running");
     cleanup();
     drawCard({ activity: "waiting", activityLabel: "Question" });
-    expect(rowTexts()).toContain("Waiting for your answer");
+    expect(rowTexts()).toContain("Question");
+    cleanup();
+    drawCard({ activity: "waiting" });
+    expect(rowTexts()).toContain("Question");
   });
 
   it("names another machine and why its thread cannot open", () => {

@@ -6,50 +6,49 @@
 
 /* Agents panel: one fixed-height row per agent so the list virtualizes. */
 .agents-panel { display: flex; flex-direction: column; min-height: 0; }
-.agent-counts { display: flex; align-items: center; gap: 10px; font: 500 10px var(--mono); color: var(--faint); }
-.agent-count { display: inline-flex; align-items: center; gap: 4px; }
-.agent-count > i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
-.agent-count.status-running > i { background: var(--info); }
-.agent-count.status-waiting > i { background: var(--warn); }
-.agent-count.status-completed > i { background: var(--ready); }
-.agent-count.status-failed > i { background: var(--fail); }
-.agent-total-cost { color: var(--muted-2); font: 500 10px var(--mono); }
-.agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px; }
+/* Running / Asks / Done under the stage tab, as in the workbench design. */
+.agents-header { height: 40px; gap: 4px; padding: 0 var(--space-4) 0 calc(var(--space-6) - 8px); }
+.agents-views { display: flex; align-items: center; gap: 2px; }
+.agents-view {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px;
+  border: 0; border-radius: var(--radius-sm); background: none; cursor: pointer;
+  font: 500 12.5px var(--sans); color: var(--muted-2);
+}
+.agents-view > span { font-variant-numeric: tabular-nums; }
+.agents-view:hover { color: var(--ink-2); }
+.agents-view[aria-selected="true"] { color: var(--ink); font-weight: 600; }
+.agents-view.view-asks:not([aria-selected="true"]) > span:not(:empty) { color: var(--warn); }
+.agent-total-cost { color: var(--faint); font: 500 10px var(--mono); }
+.agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
 .agent-group-label {
-  height: 24px; display: flex; align-items: center;
+  height: 24px; display: flex; align-items: center; padding: 0 var(--space-6);
   font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint);
 }
+.agent-section-label { height: 32px; display: flex; align-items: flex-end; padding: 0 var(--space-6) 6px; font-size: 11.5px; color: var(--faint); }
 .agent-row {
-  display: grid; width: 100%; height: 54px; align-content: center; gap: 2px;
-  padding: 6px 8px; border: 1px solid transparent; border-radius: 6px;
+  display: grid; width: 100%; height: 48px; align-content: center; gap: 2px;
+  padding: 0 var(--space-6); border: 0; border-radius: 0;
   background: none; text-align: left; cursor: pointer;
 }
-.agent-row:hover:not(:disabled) { background: var(--hover); border-color: var(--line); }
+.agent-row:hover:not(:disabled) { background: var(--hover); }
 .agent-row:disabled { cursor: default; opacity: .7; }
 .agent-row-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .agent-row-head > strong {
-  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.agent-row-head > time { flex: none; font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint); }
-.agent-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); font-style: normal; }
-.agent-dot.status-running { background: var(--info); }
-.agent-dot.status-waiting { background: var(--warn); }
-.agent-dot.status-pending, .agent-dot.status-cancelled { background: transparent; border: 1px solid var(--faint); }
-.agent-dot.status-completed { background: var(--ready); }
-.agent-dot.status-failed { background: var(--fail); }
-.agent-row-activity {
-  font-size: 11.5px; color: var(--muted-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.agent-row.status-failed .agent-row-activity { color: var(--fail-ink); }
-.agent-row-meta {
+.agent-row:is(.status-completed, .status-idle, .status-cancelled) .agent-row-head > strong { color: var(--ink-3); }
+.agent-row-sub {
   display: flex; align-items: baseline; gap: 8px; min-width: 0;
-  font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);
+  font: 11px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);
   overflow: hidden; white-space: nowrap;
 }
-/* The actions keep their room; only the metadata before them is truncated. */
-.agent-row-meta-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A question reads as prose, in the rail's amber. */
+.agent-row-sub.question { display: block; font: 500 11.5px var(--sans); color: var(--warn); text-overflow: ellipsis; }
+.agent-row.status-failed .agent-row-stand { color: var(--fail-ink); }
+/* The actions keep their room; only the line before them is truncated. */
+.agent-row-sub-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agent-row-sub-text > :not(:first-child)::before { content: " · "; }
 .agent-row-actions { display: inline-flex; flex: none; gap: 8px; margin-left: auto; }
 .agent-row-actions > [role="button"] { color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; }
 .agent-row-actions > [role="button"]:hover { color: var(--ink); }
@@ -69,32 +68,26 @@
 
 /* ------------------------------------------------------ spawn card */
 
-/* One card per spawn batch in the transcript, never folded away with the turn. */
+/* One line per spawn batch in the transcript, never folded away with the turn; it opens the Agents tab. */
 .agent-spawn-card {
-  margin: 6px 0; padding: 8px 10px;
-  border: 1px solid var(--line-card); border-radius: 10px; background: var(--chrome);
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; margin: 6px 0; padding: 7px 10px;
+  border: 0; border-radius: var(--radius-md); background: var(--wash); cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--ink-2); text-align: left;
 }
-.agent-spawn-card > header {
-  display: flex; align-items: center; gap: 7px; min-width: 0;
-  font-size: 12.5px; color: var(--ink-2);
-}
-.agent-spawn-card > header > strong { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-spawn-card > header > small { font: 10px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
-.agent-spawn-card > ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.agent-spawn-link {
-  display: flex; align-items: center; gap: 7px; width: 100%;
-  padding: 4px 2px; background: none; border: 0; border-radius: 6px; cursor: pointer;
-  color: var(--muted); font: inherit; font-size: 12px; text-align: left;
-}
-.agent-spawn-link:hover:not(:disabled) { background: var(--raised); color: var(--ink-2); }
-.agent-spawn-link:disabled { cursor: default; opacity: .6; }
-.agent-spawn-link > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-spawn-link > small { font: 10px var(--mono); color: var(--faint); }
+.agent-spawn-card:hover { background: var(--wash-2); }
+.agent-spawn-card > svg { flex: none; color: var(--muted); }
+.agent-spawn-card > strong { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-spawn-part { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.agent-spawn-part.part-running { color: var(--info-ink); }
+.agent-spawn-part.part-question { color: var(--warn); }
+.agent-spawn-part.part-failed { color: var(--fail-ink); }
+.agent-spawn-cost { flex: none; font: 10px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------ definitions */
 
 /* The project's .tau/agents definitions, above the list: each one a starting point. */
 .agent-definitions { flex: none; max-height: 45%; overflow-y: auto; padding: 4px 8px 6px; border-bottom: 1px solid var(--line); }
+.agent-definitions > .agent-group-label { padding: 0 8px; }
 .agent-definitions > ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .agent-definition { display: grid; gap: 2px; padding: 5px 8px; border-radius: 6px; }
 .agent-definition:hover { background: var(--hover); }
@@ -114,11 +107,11 @@
 }
 .agent-definition-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .agent-definitions-problems { display: block; padding: 4px 8px 0; font-size: 11px; color: var(--fail-ink); }
-.agent-row-definition, .agent-spawn-definition {
+.agent-row-definition {
   flex: none; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px;
   font: 10px var(--mono); color: var(--muted-2);
 }
-.agent-row-machine, .agent-spawn-machine {
+.agent-row-machine {
   flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 0 5px;
   border: 1px solid var(--line); border-radius: 4px; font: 10px var(--mono); color: var(--muted);
 }

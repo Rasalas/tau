@@ -126,9 +126,48 @@ describe("the Agents panel", () => {
     await waitFor(() => expect(panel.querySelectorAll(".agent-row").length).toBeGreaterThan(0));
 
     expect(panel.querySelectorAll(".agent-row")).toHaveLength(VIRTUAL_WINDOW);
-    expect(panel.textContent).toContain("8 running");
-    expect(panel.textContent).toContain("52 pending");
+    // Queued agents count as running work until they are done.
+    expect(within(panel).getByRole("tab", { name: "Running 60", selected: true })).toBeTruthy();
+    expect(within(panel).getByRole("tab", { name: "Asks 0" })).toBeTruthy();
+    expect(within(panel).getByRole("tab", { name: "Done 0" })).toBeTruthy();
     expect(panel.querySelector(".agent-total-cost")!.textContent).toBe("–");
+    // The stage tab counts the open ones: "Agents 60".
+    expect(screen.getByRole("tab", { name: /Agents/u }).textContent).toContain("60");
+  });
+
+  it("shows running, asks and done as in the design, with the question in the rail's word", async () => {
+    const agents: AgentsState = {
+      maxRunning: 8,
+      links: [
+        link("envelope", "parent", "completed", 1, { turn: 1, startedAt: 1_000, endedAt: 185_000, workspace: { mode: "worktree", path: "/w", branch: "tau/envelope", changes: { files: 1, added: 48, removed: 0, commits: 1, uncommitted: 0 } } }),
+        link("products", "parent", "running", 2, { turn: 2, startedAt: Date.now() - 5_000, model: "openai/gpt-5.6-luna", lastTool: "edit src/routes/products.ts" }),
+        link("orders", "parent", "waiting", 3, { turn: 2, pendingToolPrompt: "add the index, or paginate by id?" }),
+      ],
+    };
+    const sessions = [session("parent", "Parent thread", 9), session("envelope", "Shared response envelope", 1), session("products", "GET /products", 2), session("orders", "GET /orders", 3)];
+    renderApp(appWith(agents, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
+    await openAgentsTab();
+
+    const running = await screen.findByRole("tab", { name: "Running 1", selected: true });
+    const panel = running.closest(".agents-panel") as HTMLElement;
+    const rows = () => [...panel.querySelectorAll(".agent-row, .agent-section-label")].map((row) => row.textContent);
+    await waitFor(() => expect(rows()).toHaveLength(4));
+    const [orders, products, section, envelope] = rows();
+    expect(orders).toBe("GET /ordersQuestion: add the index, or paginate by id?");
+    expect(panel.querySelector(".agent-row-sub.question")).toBeTruthy();
+    expect(products).toMatch(/^GET \/productsgpt-5\.6-luna\d+:\d\dedit src\/routes\/products\.ts$/u);
+    expect(section).toBe("Done · 1 — from turn 1");
+    expect(envelope).toContain("+48 −0 · 1 file · tau/envelope");
+    expect(envelope).toContain("3:04");
+    // The stage tab counts what still runs or asks.
+    expect(screen.getByRole("tab", { name: /Agents/u }).textContent).toContain("2");
+
+    fireEvent.click(within(panel).getByRole("tab", { name: "Asks 1" }));
+    await waitFor(() => expect(rows()).toEqual(["GET /ordersQuestion: add the index, or paginate by id?"]));
+    fireEvent.keyDown(within(panel).getByRole("tab", { name: "Asks 1" }), { key: "ArrowRight" });
+    await waitFor(() => expect(rows()).toEqual(["Done · 1 — from turn 1", expect.stringContaining("Shared response envelope")]));
+    expect(within(panel).getByRole("tab", { name: "Done 1", selected: true })).toBeTruthy();
+    expect(screen.queryByText(/Needs you/u)).toBeNull();
   });
 
   it("does not advertise agents running in other threads in the panel footer", async () => {
@@ -141,7 +180,8 @@ describe("the Agents panel", () => {
     renderApp(appWith(state, sessions, "unrelated"), { extensions: [workspaceExtension, agentsExtension] });
 
     await openAgentsTab();
-    await screen.findByRole("heading", { name: "Agents" });
+    expect(await screen.findByText("No agents yet")).toBeTruthy();
+    expect(screen.queryByText(/tau_spawn_thread|\.tau\/agents/u)).toBeNull();
     expect(screen.queryByText(/agents? in other threads/u)).toBeNull();
     expect(screen.queryByRole("button", { name: /Go to Parent thread/u })).toBeNull();
   });
@@ -252,7 +292,7 @@ describe("a spawned thread's worktree", () => {
     );
 
     await openAgentsTab();
-    expect(await screen.findByText(/tau\/agent-alpha · 2 files \+7 −1/u)).toBeTruthy();
+    expect(await screen.findByText(/\+7 −1 · 2 files · tau\/agent-alpha/u)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Apply changes of Alpha reply" }));
     await waitFor(() => expect(commands).toEqual([{ command: "apply-changes", input: { threadId: "alpha" } }]));
@@ -329,7 +369,7 @@ describe("the navigator with agent threads", () => {
   });
 
   // Pi names the tool itself; every other runtime reaches it over MCP.
-  it.each(["tau_spawn_thread", "mcp__tau__tau_spawn_thread"])("draws one card for a %s batch and opens each agent from it", async (name) => {
+  it.each(["tau_spawn_thread", "mcp__tau__tau_spawn_thread"])("draws one card for a %s batch that opens the Agents tab", async (name) => {
     const spawn = (id: string, threadId: string) => ({
       id,
       name,
@@ -360,14 +400,14 @@ describe("the navigator with agent threads", () => {
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
 
     // The card names the batch and stays out of the turn's fold.
-    expect(await screen.findByText("Started 2 agents · 1 working")).toBeTruthy();
+    const card = await screen.findByRole("button", { name: "Started 2 agents · 1 running. Show agents" });
+    expect(card.textContent).toBe("Started 2 agents1 running");
     expect(screen.getByRole("button", { name: /Worked for/u })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Alpha reply, running" }));
+    fireEvent.click(card);
+    expect(await screen.findByRole("tab", { name: "Running 1", selected: true })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
     expect(await screen.findByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
     expect(await screen.findByText("Alpha finished the job.")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open Agents" }));
-    expect(await screen.findByRole("heading", { name: "Agents" })).toBeTruthy();
   });
 });
