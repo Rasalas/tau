@@ -58,7 +58,7 @@ const AA_ACCENT = [
   "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge",
 ];
 /** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */
-const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder"];
+const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder", "provider-openai", "provider-anthropic", "provider-google", "provider-pi", "provider-other"];
 /** Ink that sits on a fill rather than on a surface. */
 const ON_FILL: ReadonlyArray<[string, string]> = [
   ["acid-ink", "acid"], ["acid-ink", "acid-strong"],

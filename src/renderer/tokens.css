@@ -111,6 +111,12 @@
   --done: light-dark(#0d7f5f, #13c99a);              /* a step that finished */
   --stale: light-dark(#8a5a3f, #c9a18b);             /* how long ago something ran */
   --folder: light-dark(#6f6118, #a59d68);            /* a directory */
+  /* A provider's own colour, for its share in a chart or a limit bar; never a state. */
+  --provider-openai: light-dark(#2a62c4, #6ea6f7);    /* OpenAI, ChatGPT, Codex */
+  --provider-anthropic: light-dark(#b3572f, #e5936a); /* Anthropic, Claude */
+  --provider-google: light-dark(#237a52, #5fc28f);    /* Google, Gemini, Antigravity */
+  --provider-pi: light-dark(#7a4fc4, #ae93f0);        /* Pi, across its providers */
+  --provider-other: light-dark(#6f6a5c, #a8a393);     /* any other provider or runtime */
 
   /* ---------------------------------------------------------------- diff */
   --diff-add-bg: light-dark(#e6f3da, #1e2a17);       /* an added line */
