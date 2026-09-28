@@ -64,6 +64,8 @@ import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
+import { DEFAULT_THINKING, THINKING_LABELS } from "../thinking-levels";
+import type { ThinkingChoice } from "./ModelPicker";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
@@ -106,20 +108,7 @@ interface OpenGate {
   cancel?(): void;
 }
 
-/** Pi's out-of-the-box reasoning level; shown as the Default badge. */
-const DEFAULT_THINKING = "medium";
 const MAX_COMPOSER_HEIGHT = 220;
-
-/** Pi's level ids are identifiers; these are how they read in the menu. */
-const THINKING_LABELS: Record<string, string> = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Max",
-};
 
 export type SubmitResult = SubmissionResult;
 
@@ -448,6 +437,7 @@ export function Composer({
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen);
   const modelChipRef = useRef<HTMLButtonElement>(null);
+  const modelChosenRef = useRef(false);
   const preferences = usePreferences();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
   const gatesRef = useRef(gates);
@@ -493,15 +483,25 @@ export function Composer({
       onNewThreadOnRuntime?.(from, model);
       return;
     }
+    let passed = false;
     passGates(
       { action: "model", model, ...(runtime ? { runtime } : {}), ...(newThread ? { newThread: true } : {}), ...(snapshot ? { snapshot } : {}) },
       () => {
+        passed = true;
         applyModel(model, runtime);
-        // The popover hands focus back to its chip; with a model chosen, the prompt is next.
-        requestAnimationFrame(() => textareaRef.current?.focus());
+        // The popover hands focus back to its chip; with a model chosen, the prompt is next once it closes.
+        modelChosenRef.current = true;
       },
       () => setModelPickerOpen(true),
     );
+    // A gate that asks takes the picker's place.
+    if (!passed) setModelPickerOpen(false);
+  };
+  const closeModelPicker = () => {
+    setModelPickerOpen(false);
+    if (!modelChosenRef.current) return;
+    modelChosenRef.current = false;
+    requestAnimationFrame(() => textareaRef.current?.focus());
   };
   // Kits' actions with another runtime than an existing thread's ("Continue in…").
   const switchCommands = modelPickerOpen && !runtimeChoice ? registry?.getCommandsFor?.("runtime-switch") : undefined;
@@ -588,6 +588,12 @@ export function Composer({
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
+  // The picker's third column: the reasoning of the model in use, where this thread can set it.
+  const pickerThinking: ThinkingChoice = runtimeOwnsModel || draftOnOtherRuntime ? { levels: [] } : {
+    levels: snapshot?.thinkingLevels ?? [],
+    level: snapshot?.thinkingLevel,
+    onSelect: (level) => { onSetThinking(level); modelChosenRef.current = true; },
+  };
   const { preview, setPreviewId, clearPreviewForScope, addFiles } = useComposerAttachments({
     scopeStore,
     scope: attachmentScope,
@@ -1174,7 +1180,7 @@ export function Composer({
             models={runtimeOwnsModel ? [] : snapshot?.models ?? []}
             activeKey={snapshot?.model && !draftOnOtherRuntime ? modelKey(snapshot.model) : undefined}
             onSelect={chooseModel}
-            onClose={() => setModelPickerOpen(false)}
+            onClose={closeModelPicker}
             runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
             catalogRuntime={snapshot?.backendKind}
             runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
@@ -1184,6 +1190,7 @@ export function Composer({
             runtimeActions={runtimeActions}
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
+            thinking={pickerThinking}
             anchor={modelChipRef}
           />
         </Suspense>

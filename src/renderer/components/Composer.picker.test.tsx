@@ -21,8 +21,9 @@ const snapshot: HostSnapshot = {
   messages: [], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
 };
 
-function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewThreadOnRuntime?: (kind: string) => void } = {}) {
+function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewThreadOnRuntime?: (kind: string) => void; snapshot?: HostSnapshot } = {}) {
   const onSetModel = vi.fn();
+  const onSetThinking = vi.fn();
   const textareaRef = createRef<HTMLTextAreaElement>();
   // The host's cache holds Codex's catalog; no Codex thread has ever run.
   const client = createFakeHostClient({
@@ -33,7 +34,7 @@ function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewT
       runtimeChoice={options.runtimeChoice}
       onNewThreadOnRuntime={options.onNewThreadOnRuntime}
       scopeStore={new ComposerScopeStore()}
-      snapshot={snapshot}
+      snapshot={options.snapshot ?? snapshot}
       queue={[]}
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={textareaRef}
@@ -42,12 +43,12 @@ function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewT
       onCancelQueued={() => {}}
       onSteerQueued={() => {}}
       onSetModel={onSetModel}
-      onSetThinking={() => {}}
+      onSetThinking={onSetThinking}
       onCompactContext={() => {}}
     />
   </HostClientProvider></TestProviders>);
   const chip = screen.getByLabelText(/^Select (runtime and )?model:/u);
-  return { onSetModel, chip, textareaRef };
+  return { onSetModel, onSetThinking, chip, textareaRef };
 }
 
 async function openPicker(chip: HTMLElement) {
@@ -78,6 +79,18 @@ describe("model picker at the model chip", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-sol");
+    expect(screen.queryByRole("dialog", { name: "Select model" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(textareaRef.current));
+  });
+
+  it("keeps the picker open for the thinking level, sets it in one click and hands focus to the prompt", async () => {
+    const { chip, onSetModel, onSetThinking, textareaRef } = renderComposer({ snapshot: { ...snapshot, thinkingLevels: ["low", "medium", "high"] } });
+    await openPicker(chip);
+    fireEvent.click(screen.getByRole("option", { name: /^GPT-5.6 Luna, Pi/u }));
+    expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-luna");
+    expect(screen.getByRole("dialog", { name: "Select model" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "High" }));
+    expect(onSetThinking).toHaveBeenCalledWith("high");
     expect(screen.queryByRole("dialog", { name: "Select model" })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(textareaRef.current));
   });
