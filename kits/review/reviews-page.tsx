@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import {
   ChevronRight,
   CircleCheck,
@@ -19,6 +19,7 @@ import {
   FileKindIcon,
   formatCost,
   Markdown,
+  projectHue,
   ProviderIconStack,
   READ_ONLY_REASON,
   SettingsPageAction,
@@ -84,7 +85,7 @@ const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "
 
 function ProjectTile({ project }: { project: LocalReview["project"] }) {
   return (
-    <span className="rv-tile" aria-hidden="true">
+    <span className={`thread-project-icon rv-tile${project.icon ? " has-image" : ""}`} aria-hidden="true" style={{ "--project-hue": projectHue(project.root) } as CSSProperties}>
       {project.icon ? <img src={project.icon} alt="" /> : project.name.slice(0, 1).toUpperCase()}
     </span>
   );
@@ -497,7 +498,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts }: PagePro
           {compact ? null : (
             <div className="rv-columns" aria-hidden="true">
               <span />
-              <span>Thread</span><span>Changes</span><span>Checks</span><span>Model · cost</span><span>Age</span><span />
+              <span>Thread</span><span>Changes</span><span>Checks</span><span>Model · cost</span><span>Age</span>
             </div>
           )}
           {sections.map((section) => (
@@ -523,7 +524,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts }: PagePro
         </SettingsPageAction>
       ) : null}
       <div className={`rv-main${tab === "remote" ? " remote" : ""}`}>
-        {compact && inDetail ? null : (
+        {inDetail ? null : (
           <div className="rv-tabs-row">
             <Tabs tab={tab} count={count} select={(next) => select(next, next === "remote" ? undefined : project)} />
             {compact || tab === "remote" ? null : <ProjectFilter {...(project ? { project } : {})} counts={counts} select={(next) => select(tab, next)} />}

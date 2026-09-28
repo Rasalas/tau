@@ -118,12 +118,12 @@ describe("the page's counts and footer", () => {
         branches: [branch("a"), branch("b", { conflicts: ["x"] }), branch("c", { root: "/repo/tau", rootWorkspace: "ws-tau" }), branch("d", { ahead: 0, merged: true })],
         asks: { [reviewKey("/repo/tau", "tau/c")]: { kind: "rebase", text: "", at: 1, tip: "c-tip" } },
       }),
-      threads: [thread("a", "ws-a"), thread("b", "ws-b"), thread("c", "ws-c", { projectName: "tau" }), thread("d", "ws-d")],
+      threads: [thread("a", "ws-a"), thread("b", "ws-b"), thread("c", "ws-c"), thread("d", "ws-d")],
       busy: new Set(),
     });
     const counts = countReviews(reviews);
     expect(counts).toMatchObject({ ready: 1, requested: 1, conflicts: 1, merged: 1 });
-    expect(counts.projects).toEqual([{ key: "ws-shop", name: "shop-api", open: 2 }, { key: "ws-tau", name: "tau", open: 1 }]);
+    expect(counts.projects).toEqual([{ key: "ws-shop", name: "shop-api", root: "/repo/shop-api", open: 2 }, { key: "ws-tau", name: "tau", root: "/repo/tau", open: 1 }]);
     expect(needsYou(counts)).toBe(2);
   });
 

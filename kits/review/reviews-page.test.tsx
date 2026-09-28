@@ -168,7 +168,7 @@ describe("the Reviews entry", () => {
     const { registry } = createKitHarness(invoke, "compact");
     registry.activate(reviewExtension);
     const pages = registry.getPages();
-    expect(pages.map((page) => [page.id, page.label, page.order])).toEqual([["review.reviews", "Reviews", 10]]);
+    expect(pages.map((page) => [page.id, page.label, page.order, page.prominent])).toEqual([["review.reviews", "Reviews", 10, true]]);
     function Badge() {
       const count = pages[0]!.useBadge?.();
       return <output>{count ?? "none"}</output>;

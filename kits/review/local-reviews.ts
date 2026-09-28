@@ -134,7 +134,7 @@ export interface LocalReview {
   /** The worktree; absent for a merge whose worktree is gone. */
   path?: string;
   workspace?: string;
-  project: { key: string; name: string; icon?: string };
+  project: { key: string; name: string; root: string; icon?: string };
   /** The thread that did the work: the latest of those in the worktree. */
   threadId?: string;
   threads: number;
@@ -173,11 +173,13 @@ export interface ReviewInputs {
 
 const baseName = (path: string) => path.replace(/[\\/]+$/u, "").split(/[\\/]/u).at(-1) ?? path;
 
-function projectOf(rootWorkspace: string | undefined, root: string, thread: UiSession | undefined, projects: readonly UiProject[] | undefined): LocalReview["project"] {
+function projectOf(rootWorkspace: string | undefined, root: string, projects: readonly UiProject[] | undefined): LocalReview["project"] {
   const found = projects?.find((project) => (rootWorkspace && project.workspaceId === rootWorkspace) || project.path === root);
   return {
     key: rootWorkspace ?? root,
-    name: found?.name ?? thread?.projectName ?? baseName(root),
+    root,
+    // The main checkout's folder, not the thread's project: a worktree's thread may carry the worktree's name.
+    name: found?.name ?? baseName(root),
     ...(found?.icon ? { icon: found.icon } : {}),
   };
 }
@@ -219,7 +221,7 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       root: branch.root,
       path: branch.path,
       workspace: branch.workspace,
-      project: projectOf(branch.rootWorkspace, branch.root, latest, projects),
+      project: projectOf(branch.rootWorkspace, branch.root, projects),
       threadId: latest.id,
       threads: own.length,
       tip: branch.tip,
@@ -255,7 +257,7 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       branch: remote.branch,
       target: remote.target ?? "",
       root: remote.root,
-      project: projectOf(remote.rootWorkspace, remote.root, thread, projects),
+      project: projectOf(remote.rootWorkspace, remote.root, projects),
       threads: 1,
       tip: remote.tip,
       files: remote.files,
@@ -288,7 +290,7 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       target: record.target,
       root: record.root,
       ...(record.workspace ? { workspace: record.workspace } : {}),
-      project: projectOf(record.rootWorkspace, record.root, thread, projects),
+      project: projectOf(record.rootWorkspace, record.root, projects),
       ...(thread ? { threadId: thread.id } : {}),
       threads: thread ? 1 : 0,
       files: record.files,
@@ -315,7 +317,7 @@ export interface ReviewCounts {
   conflicts: number;
   merged: number;
   /** Open reviews per project key: ready, requested and conflicts. */
-  projects: Array<{ key: string; name: string; icon?: string; open: number }>;
+  projects: Array<{ key: string; name: string; root: string; icon?: string; open: number }>;
 }
 
 export function countReviews(reviews: readonly LocalReview[]): ReviewCounts {

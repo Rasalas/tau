@@ -74,6 +74,8 @@ export function registerPullRequestTab(
       profiles: ["desktop", "compact"],
       Icon: GitPullRequest,
       order: 10,
+      // The sidebar's foot leads with "Reviews N", as the design draws it.
+      prominent: true,
       layout: "fill",
       keywords: ["merge requests", "pull requests", "local merge", "worktree branches", "rebase"],
       // What waits for the user: branches ready to merge or in conflict, and open remote requests of the rail's threads.

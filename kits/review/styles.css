@@ -746,10 +746,8 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 .rv-nav-group > button > svg { flex: none; color: var(--faint); }
 .rv-nav-group > button > span:not(.rv-tile) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-nav-group > button > small { font: 12px var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
-.rv-tile {
-  flex: none; width: 16px; height: 16px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 4px;
-  background: var(--project-tint); color: var(--project-ink); font: 700 9.5px var(--sans);
-}
+/* Core's project mark (`.thread-project-icon`, tinted by `projectHue`), a little larger. */
+.rv-tile { width: 16px; height: 16px; overflow: hidden; font-size: 9.5px; }
 .rv-tile > img { width: 100%; height: 100%; object-fit: cover; }
 .rv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .rv-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) var(--space-7) var(--space-6) var(--space-4); }
@@ -766,7 +764,7 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 /* The table: one grid for the column heads and every row. */
 .rv-columns, .rv-row-open { display: grid; grid-template-columns: 20px minmax(180px, 1fr) 136px 108px 172px 44px; column-gap: var(--space-5); align-items: center; }
 .rv-columns { padding: var(--space-3) calc(var(--space-4) + 172px) var(--space-3) var(--space-4); font: 12.5px var(--sans); color: var(--muted); }
-.rv-columns > span:last-of-type { text-align: right; }
+.rv-columns > span:last-child { text-align: right; }
 .rv-section { margin-top: var(--space-5); }
 .rv-section:first-of-type { margin-top: 0; }
 .rv-section > h3 { margin: 0; padding: var(--space-5) var(--space-4) var(--space-3); font: 500 12.5px var(--sans); color: var(--muted); }
@@ -790,6 +788,7 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 .rv-checks.none { color: var(--muted); }
 .rv-cost-cell { min-width: 0; display: flex; align-items: center; gap: var(--space-3); }
 .rv-model { min-width: 0; flex: 1; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.rv-model > .provider-icon-stack { margin-left: 0; }
 .rv-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-cost { flex: none; color: var(--ink-3); font: 12.5px var(--mono); }
 .rv-age { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
@@ -799,13 +798,13 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
   border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: var(--raised); color: var(--ink-2); font: 600 12.5px var(--sans); cursor: pointer; white-space: nowrap;
 }
 .rv-ask { border-color: transparent; background: transparent; }
-.rv-merge { border-color: transparent; background: var(--brand); color: var(--brand-on); }
+.rv-merge, .rv-detail-actions > .rv-merge { border-color: transparent; background: var(--brand); color: var(--brand-on); }
 /* On the list, Merge shows on the row under the pointer or the keyboard. */
 .rv-row .rv-merge { opacity: 0; }
 .rv-row:hover .rv-merge, .rv-row:focus-within .rv-merge, .rv-row .rv-merge:disabled { opacity: 1; }
 .rv-row .rv-merge:disabled { background: transparent; border-color: var(--line-control); color: var(--muted); }
 :is(.rv-merge, .rv-ask, .rv-detail-actions > button, .rv-note button):hover:not(:disabled) { filter: brightness(1.05); background-color: var(--raised-hover); }
-.rv-merge:hover:not(:disabled) { background: var(--brand); }
+.rv-merge:hover:not(:disabled), .rv-detail-actions > .rv-merge:hover:not(:disabled) { background: var(--brand); }
 :is(.rv-merge, .rv-ask, .rv-detail-actions > button, .rv-note button):disabled { cursor: default; opacity: 0.6; }
 .rv-loading { display: flex; flex-direction: column; gap: 6px; padding: var(--space-4); }
 .rv-row-skeleton { height: 52px; border-radius: var(--radius-md); }
