@@ -19,11 +19,11 @@ afterEach(async () => {
 
 const offline = (async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof globalThis.fetch;
 
-async function harness(findCommand: (name: string) => string | undefined, fetch: typeof globalThis.fetch = offline) {
+async function harness(findCommand: (name: string) => string | undefined, fetch: typeof globalThis.fetch = offline, env: (agentDir: string) => NodeJS.ProcessEnv = () => ({})) {
   const agentDir = await mkdtemp(join(tmpdir(), "tau-claude-host-"));
   directories.push(agentDir);
   const backends: HostRuntimeBackendProvider[] = [];
-  const registry = await activateHostKit(createClaudeCodeHostExtension({ fetch, env: {} }), {
+  const registry = await activateHostKit(createClaudeCodeHostExtension({ fetch, env: env(agentDir) }), {
     stateDir: join(agentDir, "state"),
     findCommand,
     noteSubprocess: () => undefined,
@@ -129,7 +129,7 @@ describe("Claude Code host half", () => {
     const store = new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(join(agentDir, "sessions")) });
     await store.recordUsage("thread-1", "/repo", { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.3, turns: 1 });
     await store.setObservedModel("thread-1", "/repo", "claude-haiku-4-5");
-    await store.ensure("thread-2", "/repo");
+    const started = await store.ensure("thread-2", "/repo");
     const reader = (id: string): HostExtension & { read?: () => Promise<unknown> } => {
       const extension: HostExtension & { read?: () => Promise<unknown> } = {
         id,
@@ -146,8 +146,20 @@ describe("Claude Code host half", () => {
     expect(answer.threads.find((thread) => thread.threadId === "thread-1")).toMatchObject({
       cwd: "/repo", model: "claude-haiku-4-5", usage: { totalTokens: 12, costUsd: 0.3, turns: 1 },
     });
+    expect(answer.threads.find((thread) => thread.threadId === "thread-2")).toMatchObject({ sessionId: started.claudeSessionId });
     expect(answer.threads.find((thread) => thread.threadId === "thread-2")?.usage).toBeUndefined();
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.claude-code/usage.");
+  });
+
+  it("names each instance's projects folder for the Usage kit, from the instance's own config folder", async () => {
+    const { registry, agentDir } = await harness(() => "/usr/local/bin/claude", offline, (dir) => ({ CLAUDE_CONFIG_DIR: join(dir, "claude-home") }));
+    await registry.invoke("tau.claude-code", "save-instance", { instance: { id: "work", home: join(agentDir, "work-home") } });
+    let read: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(context) { read = () => context.invokeHostExtension("tau.claude-code", "usage-logs"); } });
+    await expect(read!()).resolves.toEqual({ folders: [
+      { format: "claude", path: join(agentDir, "claude-home", "projects"), instance: "claude-code" },
+      { format: "claude", path: join(agentDir, "work-home", "projects"), instance: "claude-code@work" },
+    ] });
   });
 
   it("names a plan login's account for the Usage kit by a hash of its organization, read from the instance's config directory", async () => {

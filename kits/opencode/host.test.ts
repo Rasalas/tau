@@ -156,12 +156,27 @@ describe("OpenCode host half", () => {
     const store = new OpenCodeSessionStore({ filePath: OpenCodeSessionStore.defaultPath(join(root, "agent", "sessions")) });
     await store.recordUsage("thread-1", "/repo", { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 0, totalTokens: 17, costUsd: 0.01, turns: 1 });
     await store.setObservedModel("thread-1", "/repo", { provider: "opencode", id: "big-pickle" });
+    await store.setSession("thread-1", "/repo", "ses-1");
     const usage = caller("tau.usage");
     const stranger = caller("acme.stranger");
     await registry.activate(usage);
     await registry.activate(stranger);
-    await expect(usage.call!("usage")).resolves.toMatchObject({ threads: [{ threadId: "thread-1", model: "big-pickle", usage: { costUsd: 0.01 } }] });
+    await expect(usage.call!("usage")).resolves.toMatchObject({ threads: [{ threadId: "thread-1", sessionId: "ses-1", model: "big-pickle", usage: { costUsd: 0.01 } }] });
     await expect(stranger.call!("usage")).rejects.toThrow(/not allowed/u);
+  });
+
+  it("names each local instance's data folder for the Usage kit, from the instance's own home, and no remote server's", async () => {
+    const { registry, root, external } = await harness({ env: (dir) => ({ PATH: process.env.PATH, HOME: join(dir, "home") }) });
+    await registry.invoke("tau.opencode", "save-instance", { instance: { id: "work", home: join(root, "work") } });
+    // A server the user runs keeps its data wherever it runs.
+    await registry.invoke("tau.opencode", "save-instance", { instance: { id: "remote" } });
+    await registry.invoke("tau.opencode", "set-server", { instance: "remote", url: external.url, password: "pw" });
+    const usage = caller("tau.usage");
+    await registry.activate(usage);
+    await expect(usage.call!("usage-logs")).resolves.toEqual({ folders: [
+      { format: "opencode", path: join(root, "home", ".local", "share", "opencode"), instance: "opencode" },
+      { format: "opencode", path: join(root, "work", "data", "opencode"), instance: "opencode@work" },
+    ] });
   });
 
   it("lists OpenCode's own sessions for Onboarding and imports them as threads that resume them", async () => {
