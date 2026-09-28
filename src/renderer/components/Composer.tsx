@@ -1187,7 +1187,7 @@ export function Composer({
             );
           })() : null}
           {streaming ? (
-            <button className="send-button stop" {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
+            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
           ) : !answerable ? (
             <button
               className="send-button"

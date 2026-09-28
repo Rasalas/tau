@@ -81,6 +81,8 @@ body[data-profile="compact"] .conversation-start-content > h1 { font-size: 21px;
 /* Touch sizes: a finger needs 40 px or so, and iOS zooms into any field under 16 px. */
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: 16px; }
 body[data-profile="compact"] :is(.send-button, .attach-button) { width: 44px; height: 44px; }
+/* A phone keeps model and reasoning in view while it answers (design 1n); the card's Skip or Decline ends the wait, and stop comes back. */
+body[data-profile="compact"] .send-button.stop.answering { display: none; }
 /* The rest of the composer's footer and the thread title: 44 px to tap, drawn as small as before. */
 body[data-profile="compact"] :is(.composer-toolbar, .composer-chips) { gap: 0; }
 body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) .runtime-chip, body[data-profile="compact"] .composer-menu-item { min-height: 44px; border-radius: 10px; }

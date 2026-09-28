@@ -1596,7 +1596,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 /* A question that arrived mid-typing stays dimmed and untouchable until the typing stops. */
 .prompt-arrival { display: contents; }
 .prompt-arrival.waiting > * { opacity: .55; transition: opacity .2s var(--ease); }
-.prompt-arrival-note { margin: 0; padding: 6px 12px 0; color: var(--muted); font: 11.5px/1.4 var(--sans); }
+/* Part of the card: the composer's frame tucks 9 px under whatever sits above it. */
+.prompt-arrival-note { max-width: 780px; margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
 /* The question and the composer under it read as one filled card, a hairline between them (design 1n). */
 .extension-prompt {
   max-width: 780px; margin: 0 auto; padding: 12px 14px 10px;
@@ -1625,7 +1626,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
   padding: 7px 6px; cursor: pointer; color: var(--ink);
   transition: background 0.12s ease;
 }
-.extension-option:hover { background: var(--raised); }
+@media (hover: hover) { .extension-option:hover { background: var(--raised); } }
 .extension-option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .extension-option-indicator {
   width: 16px; height: 16px; flex: none; margin-top: 2px; display: grid; place-items: center;

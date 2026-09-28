@@ -51,7 +51,8 @@ describe("prompt controls in the composer", () => {
 
     const send = screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Stop the run" })).toBeTruthy();
+    // Marked, so a phone can leave it out while it answers (profile-compact.css).
+    expect(screen.getByRole("button", { name: "Stop the run" }).classList.contains("answering")).toBe(true);
 
     fireEvent.change(screen.getByPlaceholderText(/Answer in text/u), { target: { value: "Continue" } });
     expect(send.disabled).toBe(false);
