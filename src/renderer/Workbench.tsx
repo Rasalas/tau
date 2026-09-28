@@ -2,7 +2,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useM
 import { createPortal } from "react-dom";
 import { ChevronDown, Folder } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
-import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
+import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { StageState } from "../workbench/stage";
 import type { StageTabController } from "./stage-tab-controller";
@@ -155,6 +155,8 @@ export interface WorkbenchLayout {
   /** How wide the client is now, not what it claims to draw (ADR 0016). */
   layoutProfile: ClientProfile;
   workspaceCwd?: string;
+  /** The project the stage is stored for: its workspace id, or its path where the host mints none. */
+  stageWorkspace?: string;
   sidebarContributions: ReturnType<ExtensionRegistry["getSidebarContributions"]>;
   panels: ReturnType<ExtensionRegistry["getPanels"]>;
   activePanel: string;
@@ -303,7 +305,7 @@ export interface WorkbenchModel {
 export const Workbench = memo(function Workbench({ model }: { model: WorkbenchModel }) {
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
-    registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
+    registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
     openedPanels, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth: restoredDockWidth, onDockWidthChange,
     chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
@@ -323,6 +325,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
+  // A draft's stage reads its own project, not the one the host has open.
+  const loadStageFile = useCallback(
+    (path: string) => documentSource ? documentSource.loadFile(path, { workspace: stageWorkspace }) : loadFileUnavailable(path),
+    [documentSource, stageWorkspace],
+  );
+  const loadStageDiff = useCallback(
+    (path: string, options?: DiffLoadOptions) => documentSource ? documentSource.loadDiff(path, options, { workspace: stageWorkspace }) : loadDiffUnavailable(path),
+    [documentSource, stageWorkspace],
+  );
   const platform = usePlatform();
   // Sidebar width and drawer height belong to this client, not to a workspace.
   const windowWidth = useSyncExternalStore(subscribeToViewport, viewportWidth);
@@ -803,7 +814,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             <LazyStage
               focusRef={stageRef}
               stage={stage}
-              cwd={snapshot?.cwd}
+              cwd={workspaceCwd}
               changes={documentState.changes}
               editor={documentState.editor}
               chatTab={stacked ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
@@ -816,8 +827,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               registry={registry}
               stageTabs={stageTabs}
               actions={actions}
-              loadFile={documentSource?.loadFile ?? loadFileUnavailable}
-              loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
+              loadFile={loadStageFile}
+              loadDiff={loadStageDiff}
               loadThread={loadThread}
               onActivate={activateStageTab}
               onClose={stageTabs.close}

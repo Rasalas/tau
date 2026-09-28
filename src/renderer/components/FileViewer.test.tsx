@@ -38,3 +38,47 @@ describe("FileViewer on a Read-only device", () => {
     expect(edit.run).not.toHaveBeenCalled();
   });
 });
+
+describe("FileViewer loading", () => {
+  const viewer = (loadFile: (path: string) => Promise<never>, onClose = vi.fn()) => render(
+    <HostClientProvider client={createFakeHostClient()}>
+      <FileViewer
+        tab={{ id: "file:/repo/src/a.ts", kind: "file", path: "/repo/src/a.ts", view: "source", preview: false }}
+        relativePath="src/a.ts"
+        changed={false}
+        loadFile={loadFile}
+        loadDiff={() => new Promise(() => undefined)}
+        onChangeView={() => undefined}
+        onOpenInEditor={() => undefined}
+        onClose={onClose}
+      />
+    </HostClientProvider>,
+  );
+
+  it("asks for a tab opened by its absolute path by the path inside its project", () => {
+    const loadFile = vi.fn(() => new Promise<never>(() => undefined));
+    viewer(loadFile);
+    expect(loadFile).toHaveBeenCalledWith("src/a.ts");
+  });
+
+  it("names a file that is gone instead of showing the raw error, and closes its tab", async () => {
+    const onClose = vi.fn();
+    viewer(async () => { throw new Error("ENOENT: no such file or directory, stat '/repo/src/a.ts'"); }, onClose);
+    await screen.findByText("File not found");
+    expect(screen.queryByText(/ENOENT/u)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the project is gone when the host no longer knows it", async () => {
+    viewer(async () => { throw new Error("Workspace is not a known Tau project."); });
+    await screen.findByText("File not found");
+    expect(screen.getByText(/Its project is not open in Tau any more/u)).toBeTruthy();
+  });
+
+  it("keeps another failure's own words", async () => {
+    viewer(async () => { throw new Error("Not a file."); });
+    await screen.findByText("Could not open this file");
+    expect(screen.getByText(/Not a file\./u)).toBeTruthy();
+  });
+});

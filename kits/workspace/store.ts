@@ -355,14 +355,18 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     }
   }
 
+  /** The followed project's tree: a draft's project, not the one the host has open. */
   async refreshFiles(): Promise<void> {
     if (!hostAvailable()) return;
-    try { this.update({ fileTree: (await this.host.getFileTree()) ?? [] }); }
-    catch (error) { this.notify(errorMessage(error)); }
+    const cwd = this.state.cwd;
+    try {
+      const tree = (await this.host.getFileTree(undefined, this.workspace())) ?? [];
+      if (cwd === this.state.cwd) this.update({ fileTree: tree });
+    } catch (error) { this.notify(errorMessage(error)); }
   }
 
   async loadFiles(path: string): Promise<FileNode[]> {
-    const children = hostAvailable() ? ((await this.host.getFileTree(path)) ?? []) : [];
+    const children = hostAvailable() ? ((await this.host.getFileTree(path, this.workspace())) ?? []) : [];
     const attach = (nodes: FileNode[]): FileNode[] => nodes.map((node) => node.path === path
       ? { ...node, children }
       : node.children ? { ...node, children: attach(node.children) } : node);

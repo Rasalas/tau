@@ -180,6 +180,7 @@ export type {
   PromptRendererContribution,
   PromptRendererProps,
   PromptSubmittedEvent,
+  DocumentOrigin,
   DocumentSourceContribution,
   ToolPresentation,
   ToolCardContribution,

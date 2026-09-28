@@ -1102,11 +1102,18 @@ export interface ModelSelectionContribution {
   reset(): void;
 }
 
+/** Which project a document belongs to; absent, the source reads the project it follows. */
+export interface DocumentOrigin {
+  /** The workspace's id where the host mints one, its path otherwise (API 1.26.0). */
+  workspace?: string;
+}
+
 /** Who loads the stage's documents and knows which are changed. One at a time. */
 export interface DocumentSourceContribution extends ProfileScoped {
   id: string;
-  loadFile(path: string): Promise<UiFileContent>;
-  loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  /** The stage names the project its tabs were stored for, which a draft's may be. */
+  loadFile(path: string, from?: DocumentOrigin): Promise<UiFileContent>;
+  loadDiff(path: string, options?: DiffLoadOptions, from?: DocumentOrigin): Promise<UiFileDiff>;
   openInEditor(relPath: string): void;
   getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };
   subscribe(listener: () => void): () => void;

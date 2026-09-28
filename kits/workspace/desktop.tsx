@@ -112,8 +112,9 @@ export const workspaceExtension: DesktopExtension = {
     context.registerDocumentSource({
       profiles: ["desktop", "compact"],
       id: "workspace.documents",
-      loadFile: (relPath) => host.readFile(relPath),
-      loadDiff: (relPath, options) => host.getFileDiff(relPath, options),
+      // The stage names the project its tabs belong to; a caller that does not means the followed one.
+      loadFile: (relPath, from) => host.readFile(relPath, from?.workspace ?? store.workspace()),
+      loadDiff: (relPath, options, from) => host.getFileDiff(relPath, options, from?.workspace ?? store.workspace()),
       openInEditor: (relPath) => void store.openInEditor(relPath),
       getState: documents,
       subscribe: store.subscribe,
@@ -130,7 +131,7 @@ export const workspaceExtension: DesktopExtension = {
           walk(state.fileTree);
         } else {
           try {
-            const tree = await host.getFileTree();
+            const tree = await host.getFileTree(undefined, store.workspace());
             if (tree) walk(tree);
           } catch {
             // ignore

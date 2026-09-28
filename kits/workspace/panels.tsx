@@ -131,7 +131,7 @@ export function FilesPanel({ active, placement, extensionName, search }: PanelPr
   const [reading, setReading] = useState<string>();
   const refreshFiles = () => workspaceStore.refreshFiles();
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
-  const readFile = useCallback((path: string) => workspaceStore.host.readFile(path), [workspaceStore]);
+  const readFile = useCallback((path: string) => workspaceStore.host.readFile(path, workspaceStore.workspace()), [workspaceStore]);
   useEffect(() => { if (active) void workspaceStore.refreshFiles(); }, [active, cwd, workspaceStore]);
   // Another project's paths name other files.
   useEffect(() => setReading(undefined), [cwd]);
