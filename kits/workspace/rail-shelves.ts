@@ -1,7 +1,7 @@
 import type { ClientStorage, UiSession } from "tau";
 import type { ThreadRailSection } from "./protocol.js";
 
-/** Which shelves this client has open; folded is the default, as in T3 Code. */
+/** Which shelves this client has open or folded; the section's `collapsed` is the default. */
 export const SHELVES_OPEN_KEY = "tau.workspace.rail-shelves-open.v1";
 /** T3 Code's settled tail: ten rows, then 25 a page. */
 export const SETTLED_FIRST_PAGE = 10;
@@ -42,7 +42,7 @@ export function shelfRows(section: ThreadRailSection, open: boolean, limit: numb
   return kept ? [...rows, kept] : rows;
 }
 
-/** An open shelf names itself; a folded one adds how many it holds. */
-export function shelfHeading(section: ThreadRailSection, open: boolean): string {
-  return open ? section.label ?? "" : `${section.label} · ${section.threads.length}`;
+/** A shelf names itself and how many it holds, open or folded ("Settled · 41", the design's). */
+export function shelfHeading(section: ThreadRailSection): string {
+  return `${section.label} · ${section.threads.length}`;
 }

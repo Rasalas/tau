@@ -705,7 +705,21 @@ export interface PageContribution extends ProfileScoped {
    * navigation), say open pull requests; nothing is drawn for `undefined` or 0 (API 1.26.0).
    */
   useBadge?(): number | undefined;
+  /** The sidebar's foot leads with the entry and writes its label and count beside the icon (API 1.27.0). */
+  prominent?: boolean;
+  /**
+   * A hook for a short figure the sidebar's foot shows at its end in place of
+   * the icon, say this month's usage; `undefined` draws the icon (API 1.27.0).
+   */
+  useSummary?(): PageSummary | undefined;
   Component: ComponentType<PageProps>;
+}
+
+/** A page's figure in the sidebar's foot: `short` stands in where `text` does not fit, `hint` is the tooltip. */
+export interface PageSummary {
+  text: string;
+  short?: string;
+  hint?: string;
 }
 
 /**

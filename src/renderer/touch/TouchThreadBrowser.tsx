@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Check, ChevronDown, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { Check, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
+import { projectHue, projectInitial } from "../components/ThreadRow";
 import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { useHostCapabilities } from "../use-host-capabilities";
@@ -18,8 +19,8 @@ const SEARCH_RESULTS = 20;
 
 /**
  * The thread list with its own header, after the user's mobile rules: search
- * and an overflow menu at the top right as popovers at their buttons, a
- * project filter at the head of the list, and a new thread as the floating
+ * and an overflow menu at the top right as popovers at their buttons, the
+ * project filter as an icon between them (the desktop rail's), and a new thread as the floating
  * button at the bottom right. `home` is a phone's start page, with the bottom
  * navigation under it; `sidebar` is the list beside the thread on a tablet,
  * where the new thread stays in the header as on a desktop.
@@ -42,10 +43,12 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   // A Read-only device could never send a new thread's first message.
   const { readOnly } = useHostCapabilities();
 
+  const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
   const header = <header className="touch-browser-header">
     <strong>Threads</strong>
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
+    {filter}
     <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>
     {screen || readOnly ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
   </header>;
@@ -66,10 +69,8 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
     </Popover> : null}
   </>;
 
-  const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
   if (screen) return <section ref={surface} className={`touch-browser screen home${nav ? " with-nav" : ""}`} aria-label="Threads">
     {header}
-    {filter}
     <div className="touch-browser-body">
       <TouchThreadList {...list} />
       {/* The floating button is the empty list's next step too. */}
@@ -80,15 +81,15 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   </section>;
   return <nav ref={surface} className="touch-browser sidebar" aria-label="Thread list">
     {header}
-    {filter}
     <TouchThreadList {...list} onNewThread={onNewThread} />
     {popovers}
   </nav>;
 }
 
 /**
- * Which project's threads the list shows: a button at the list's head that
- * opens a sheet, and a clear button while one is chosen. One project needs no filter.
+ * Which project's threads the list shows: an icon in the header that opens a
+ * sheet, a folder for all of them and the project's tile while one is chosen.
+ * The sheet's first row shows every project again. One project needs no filter.
  */
 function ProjectFilter({ projects, project, onChange }: {
   projects: readonly UiProject[];
@@ -98,13 +99,13 @@ function ProjectFilter({ projects, project, onChange }: {
   const [open, setOpen] = useState(false);
   if (projects.length < 2 && !project) return null;
   const same = (candidate: UiProject) => candidate.path === project?.path;
-  return <div className="touch-project-filter">
-    <button type="button" className="touch-project-filter-button" aria-haspopup="dialog" aria-label={project ? `Project: ${project.name}. Change` : "Project: all projects. Change"} onClick={() => setOpen(true)}>
-      <Folder size={15} aria-hidden="true" />
-      <span>{project ? project.name : "All projects"}</span>
-      <ChevronDown size={15} aria-hidden="true" />
+  const label = project ? `Filter threads by project: ${project.name}` : "Filter threads by project";
+  return <>
+    <button type="button" className="touch-icon-button touch-project-filter" aria-haspopup="dialog" aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => setOpen(true)}>
+      {project
+        ? <i className={`thread-project-icon touch-project-tile${project.icon ? " has-image" : ""}`} style={{ "--project-hue": projectHue(project.path) } as CSSProperties} aria-hidden="true">{project.icon ? <img src={project.icon} alt="" /> : projectInitial(project.name)}</i>
+        : <Folder size={19} aria-hidden="true" />}
     </button>
-    {project ? <button type="button" className="touch-icon-button" aria-label="Show all projects" onClick={() => onChange(undefined)}><X size={17} /></button> : null}
     {open ? <ActionSheet
       title="Show threads of"
       actions={[
@@ -113,7 +114,7 @@ function ProjectFilter({ projects, project, onChange }: {
       ]}
       onClose={() => setOpen(false)}
     /> : null}
-  </div>;
+  </>;
 }
 
 /** The search popover: a field with the focus, and the threads it finds by title, project or label. */

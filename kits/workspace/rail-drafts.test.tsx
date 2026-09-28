@@ -69,7 +69,9 @@ describe("draft rows in the rail", () => {
     expect(row.getAttribute("aria-current")).toBe("true");
     // The thread the host holds behind the draft is not the active row.
     expect(rail().querySelectorAll(".thread-row.active:not(.thread-draft-row)")).toHaveLength(0);
-    expect(within(row).getByText("Draft")).toBeTruthy();
+    // The design's quiet "draft" where a thread shows its state; no branch line yet.
+    expect(within(row).getByText("draft").className).toBe("thread-draft-mark");
+    expect(row.querySelector(".thread-meta-line")).toBeNull();
     expect(within(row).getByText("project")).toBeTruthy();
     // At the top of the active threads.
     const cards = rail().querySelectorAll(".thread-row");
@@ -103,7 +105,7 @@ describe("draft rows in the rail", () => {
     expect(draftRows()).toHaveLength(1);
   });
 
-  it("starts a fresh draft beside one with text, and discards a draft with its button", async () => {
+  it("starts a fresh draft beside one with text, and discards a draft from its menu", async () => {
     start();
     await screen.findByText("Existing answer");
     const composer = await newThread();
@@ -112,10 +114,13 @@ describe("draft rows in the rail", () => {
     await waitFor(() => expect(draftRows().map((row) => row.getAttribute("aria-label"))).toEqual(["Open draft New thread", "Open draft First idea"]));
     expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe("");
 
-    fireEvent.click(within(rail()).getByRole("button", { name: "Discard draft First idea" }));
+    expect(within(rail()).queryByRole("button", { name: /^Discard draft/u })).toBeNull();
+    fireEvent.contextMenu(within(rail()).getByRole("button", { name: "Open draft First idea" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Discard draft" }));
     await waitFor(() => expect(draftRows().map((row) => row.getAttribute("aria-label"))).toEqual(["Open draft New thread"]));
     // Discarding the draft on screen closes it onto the host's thread.
-    fireEvent.click(within(rail()).getByRole("button", { name: "Discard draft New thread" }));
+    fireEvent.contextMenu(within(rail()).getByRole("button", { name: "Open draft New thread" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Discard draft" }));
     await waitFor(() => expect(draftRows()).toHaveLength(0));
     expect(await screen.findByText("Existing answer")).toBeTruthy();
   });
