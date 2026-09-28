@@ -213,7 +213,10 @@ export function ModelPicker({
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const shell = useContext(WorkbenchShellContext);
-  const onOpenSettings = openSettings ?? (shell?.actions ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
+  // On a compact layout (phone, iPad) the picker is a bottom sheet (touch/touch.css): a close button and a pull down.
+  const [asSheet] = useState(() => typeof document !== "undefined" && document.body.dataset.profile === "compact");
+  // A phone's Settings has no runtime cards to sign in on; there the reason stands alone.
+  const onOpenSettings = openSettings ?? (shell?.actions && !asSheet ? (kind: ThreadBackendKind, part: "runtime" | "models") => {
     const card = shell.registry.getSettingsPages().find((page) => page.runtime === kind)?.id;
     shell.actions!.openSettings(part === "models" ? `providers#runtime-models-${kind}` : card ?? "providers");
   } : undefined);
@@ -235,8 +238,6 @@ export function ModelPicker({
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
-  // On a compact layout (phone, iPad) the picker is a bottom sheet (touch/touch.css): a close button and a pull down.
-  const [asSheet] = useState(() => typeof document !== "undefined" && document.body.dataset.profile === "compact");
   const stacked = useStacked(asSheet);
   const sheetRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => { sheetRef.current = asSheet ? surfaceRef.current?.closest<HTMLElement>(".model-picker") ?? null : null; }, [asSheet]);
