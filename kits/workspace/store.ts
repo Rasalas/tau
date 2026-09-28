@@ -35,6 +35,7 @@ import {
   type WorkspaceKitState,
   type WorkspaceMode,
   type ThreadRailOrganizer,
+  type ThreadCardSection,
   type ThreadRowAccessoryProps,
   type RailThreadSource,
   type ThreadWorktreeRequest,
@@ -66,6 +67,7 @@ const INITIAL: WorkspaceKitState = {
   preparingWorktree: false,
   changesSections: [],
   threadRowAccessories: [],
+  threadCardSections: [],
   railSections: [],
   railThreadSources: [],
   defaultBranches: {},
@@ -639,6 +641,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {
     this.update({ threadRowAccessories: [...this.state.threadRowAccessories, accessory] });
     return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
+  }
+
+  registerThreadCardSection(section: ThreadCardSection): () => void {
+    this.update({ threadCardSections: [...this.state.threadCardSections, section] });
+    return () => this.update({ threadCardSections: this.state.threadCardSections.filter((entry) => entry !== section) });
   }
 
   registerRailSection(section: ComponentType<{ actions: WorkbenchActions }>): () => void {

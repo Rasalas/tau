@@ -28,7 +28,7 @@ import {
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
-import { threadDetails } from "./rail-details.js";
+import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
 import { groupThreads, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
 import { projectIconKey, readProjectIcon, writeProjectIcon } from "./project-icons.js";
@@ -572,7 +572,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   if (!session) return null;
   const offered = activity === "settled" ? [] : rowActions?.(session) ?? [];
   const age = sessionAge(session.modifiedAt);
-  const showStatus = activity !== "idle" && activity !== "settled";
   const diff = stat && !compact && activity !== "settled"
     ? <span key="diff" className="thread-diff-stat" aria-label={`Last turn: ${stat.added} lines added, ${stat.removed} removed`}><b>+{stat.added}</b> <i>−{stat.removed}</i></span>
     : null;
@@ -592,7 +591,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       activity={activity}
       activityLabel={activityLabel}
       activityHint={activityHint}
-      details={threadDetails({ session, age, ...(showStatus && activityLabel ? { status: activityLabel } : {}), ...(activityHint ? { hint: activityHint } : {}), ...(stat ? { stat } : {}) })}
+      hoverCard
       compact={compact}
       workingChildren={workingChildren}
       modelProvider={modelProvider}
@@ -670,13 +669,84 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         age={age}
         activity={activity}
         {...(label ? { activityLabel: label } : {})}
-        details={unavailable ?? threadDetails({ session, age, machine: machine.name, ...(label ? { status: label } : {}) })}
+        hoverCard
         actions={lookIn}
         onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
       />
     </div>
   );
 });
+
+/** What the rail knows of a row besides its thread, for its hover card. */
+interface RailCardFacts {
+  activity: ThreadActivity;
+  activityLabel?: string;
+  activityHint?: string;
+  agents: { total: number; working: number };
+}
+
+/** A row's hover card for one of this machine's threads; it follows the thread while open. */
+function RailThreadCard({ id, facts, actions, onClose }: { id: string; facts: RailCardFacts; actions: WorkbenchActions; onClose(): void }) {
+  const store = useThreadStore();
+  const preferences = usePreferences();
+  const workspace = useWorkspaceStore();
+  const session = useSyncExternalStore(
+    useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
+    useCallback(() => store.getThread(id), [id, store]),
+  );
+  const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
+  const showCosts = useSyncExternalStore(preferences.subscribe, () => preferences.getSnapshot().showCosts);
+  const stat = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().turnStats[id]);
+  const sections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadCardSections);
+  const icon = useProjectIcon(useMemo(() => session ? findProjectForSession(projects, session) : undefined, [projects, session]));
+  if (!session) return null;
+  return (
+    <ThreadCard
+      session={session}
+      activity={facts.activity}
+      {...(facts.activityLabel ? { activityLabel: facts.activityLabel } : {})}
+      {...(facts.activityHint ? { activityHint: facts.activityHint } : {})}
+      age={sessionAge(session.modifiedAt)}
+      {...(icon ? { projectIcon: icon } : {})}
+      agents={facts.agents}
+      {...(stat && facts.activity !== "settled" ? { stat } : {})}
+      showCost={showCosts}
+      sections={sections}
+      actions={actions}
+      onClose={onClose}
+    />
+  );
+}
+
+/** The hover card of another machine's row: what that machine's index says, and why it cannot open now. */
+function ExternalThreadCard({ thread, actions, onClose }: { thread: RailExternalThread; actions: WorkbenchActions; onClose(): void }) {
+  const preferences = usePreferences();
+  const workspace = useWorkspaceStore();
+  const showCosts = useSyncExternalStore(preferences.subscribe, () => preferences.getSnapshot().showCosts);
+  const sections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadCardSections);
+  const { session, machine, unavailable, opening, running } = thread;
+  return (
+    <ThreadCard
+      session={session}
+      activity={opening ? "ready" : running ? "working" : "idle"}
+      {...(opening ? { activityLabel: "Opening…" } : running ? { activityLabel: "Working" } : {})}
+      age={sessionAge(session.modifiedAt)}
+      machine={machine}
+      {...(unavailable ? { unavailable } : {})}
+      showCost={showCosts}
+      sections={sections}
+      actions={actions}
+      onClose={onClose}
+    />
+  );
+}
+
+/** How many threads `id` spawned, as the index and the published lineage say, and how many work now. */
+export function agentCounts(id: string, threads: readonly UiSession[], parents: Readonly<Record<string, string>>, working: number): { total: number; working: number } {
+  const children = new Set(Object.keys(parents).filter((child) => parents[child] === id));
+  for (const thread of threads) if (thread.parentThreadId === id) children.add(thread.id);
+  return { total: Math.max(children.size, working), working };
+}
 
 /**
  * A row's hover button and the list it drops (T3 Code's snooze clock). The
@@ -934,6 +1004,21 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   const openExternal = useCallback((thread: RailExternalThread) => thread.open(actions), [actions]);
   const lookInExternal = useCallback((thread: RailExternalThread) => thread.lookIn?.(actions), [actions]);
+
+  const renderCard = ({ key, section }: ThreadCardTarget, close: () => void): ReactNode => {
+    const external = outside.get(key);
+    if (external) return <ExternalThreadCard thread={external} actions={actions} onClose={close} />;
+    if (!threadStore.getThread(key)) return null;
+    const settled = sections.find((entry) => entry.id === section)?.settled;
+    const status = settled ? { activity: "settled" as const } : activityFor(key);
+    const facts: RailCardFacts = {
+      activity: status.activity,
+      ...(status.label ? { activityLabel: status.label } : {}),
+      ...(status.hint ? { activityHint: status.hint } : {}),
+      agents: agentCounts(key, threads, lineage.parents, lineage.workingChildren[key] ?? 0),
+    };
+    return <RailThreadCard id={key} facts={facts} actions={actions} onClose={close} />;
+  };
 
   const renderRow = (session: UiSession, status: ThreadActivity, label?: string, hint?: string, compact = false) => (
     <ConnectedThreadRow
@@ -1208,6 +1293,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         </div>
       </nav>
 
+      {drag ? null : <ThreadCardLayer root={listRef} render={renderCard} />}
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
       {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
       {projectSettings ? (
