@@ -24,7 +24,7 @@
   white-space: nowrap;
 }
 
-.remote-work-step.running { color: var(--working); }
+.remote-work-step.running { color: var(--info-ink); }
 .remote-work-step.done { color: var(--ink-2); }
 .remote-work-step.done svg { color: var(--done); }
 .remote-work-step.failed { color: var(--danger); }

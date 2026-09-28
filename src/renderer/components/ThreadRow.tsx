@@ -2,7 +2,6 @@ import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "r
 import { ArchiveRestore, Check, CircleAlert, CircleHelp, GitBranch, Hourglass, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
-import { threadCostLabel, threadCostOrigin } from "../cost-format";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
@@ -31,12 +30,12 @@ interface ThreadRowProps {
   projectIcon?: string;
   modelProvider?: string;
   session: UiSession;
-  /** Off when the user hid costs; the meta line stays as it was. */
+  /** @deprecated The row shows no cost since API 1.26.0; the rail's hover card does. Ignored. */
   showCost?: boolean;
   startedAt?: number;
   /** A kit's own marks for this thread (a request status, say), drawn beside the branch. */
   accessory?: ReactNode;
-  /** The machine a thread of another machine runs on: its icon just before the cost, its name as tooltip. */
+  /** The machine a thread of another machine runs on: its icon before the marks, its name as tooltip. */
   machine?: ThreadRowMachine;
   /** Buttons drawn beside Settle while the row is hovered or focused (a snooze clock, say). */
   actions?: ReactNode;
@@ -102,7 +101,6 @@ export const ThreadRow = memo(function ThreadRow({
   projectIcon,
   modelProvider,
   session,
-  showCost,
   startedAt,
   accessory,
   machine,
@@ -130,7 +128,6 @@ export const ThreadRow = memo(function ThreadRow({
       </span>
     )
     : null;
-  const cost = showCost ? threadCostLabel(session.usage) : undefined;
   const hover = details && !hoverCard ? tooltipProps(details, { side: "right", variant: "lines" }) : undefined;
   const titleTip = hover || hoverCard ? undefined : tooltipProps(session.title, { when: "truncated", side: "right" });
 
@@ -175,7 +172,6 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="thread-meta-line">
           <span className="thread-meta-end">
             {machine ? <MachineMark machine={machine} /> : null}
-            {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadCostOrigin(session.usage))}>{cost}</span> : null}
             <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(session.usage)} />
           </span>
           {accessory ? <span className="thread-meta-marks">{accessory}</span> : null}

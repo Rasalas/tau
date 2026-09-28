@@ -166,7 +166,6 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     // A Read-only device may not stop a run; the row's sheet says why.
     ...(readOnly ? {} : { onStop }),
     onSheet: setSheetFor,
-    showCosts,
   };
   const more = (group: ThreadListGroup) => () => setShown((value) => group.id === "settled"
     ? { ...value, settled: value.settled + 25 }
@@ -198,7 +197,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         </div> : null}
       </div>
     </div>
-    {sheetFor ? <ActionSheet title={sheetFor.title} actions={sheetActions(sheetFor)} onClose={() => setSheetFor(undefined)} /> : null}
+    {sheetFor ? <ActionSheet title={sheetFor.title} summary={sheetCost(sheetFor, showCosts)} actions={sheetActions(sheetFor)} onClose={() => setSheetFor(undefined)} /> : null}
     {draftSheet ? <ActionSheet title={draftTitle(draftSheet)} actions={draftSheetActions(draftSheet)} onClose={() => setDraftSheet(undefined)} /> : null}
   </>;
 }
@@ -230,7 +229,7 @@ function shortLabel(label: string): string {
   return label.replace(/…$/u, "").replace(/\s+thread$/iu, "");
 }
 
-function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onStop, onSheet, onMore, showCosts }: {
+function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onStop, onSheet, onMore }: {
   group: ThreadListGroup;
   activeId: string;
   openRow?: string | undefined;
@@ -240,7 +239,6 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
   onStop?(row: ThreadSupervisionRow): void;
   onSheet(row: ThreadSupervisionRow): void;
   onMore(): void;
-  showCosts: boolean;
 }) {
   return <>
     {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}</span></li> : null}
@@ -254,7 +252,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
           onLongPress={() => { setOpenRow(undefined); onSheet(row); }}
         >
           <div className={`thread-row${row.settled ? " compact" : ""}${active ? " active" : ""}`}>
-            <ThreadCard row={row} showCost={showCosts} onOpen={() => onOpen(row)} />
+            <ThreadCard row={row} onOpen={() => onOpen(row)} />
             {row.status === "running" && onStop ? <button
               type="button"
               className="touch-thread-stop"
@@ -288,12 +286,18 @@ function DraftListRow({ draft, onOpen, onSheet }: { draft: DraftThread; onOpen(d
   </li>;
 }
 
+/** The cost, which the row leaves to the rail's hover card; a phone has no hover, so its sheet says it. */
+function sheetCost(row: ThreadSupervisionRow, showCosts: boolean): string | undefined {
+  const cost = showCosts ? threadCostLabel(row.usage) : undefined;
+  return cost ? `Cost ${cost}` : undefined;
+}
+
 /**
  * A thread as the desktop rail's card draws it: the project line with the
- * state or age, the title, and the branch, cost and runtime; a settled one
+ * state or age, the title, and the branch and runtime; a settled one
  * as the rail's slim row.
  */
-function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; showCost: boolean; onOpen(): void }) {
+function ThreadCard({ row, onOpen }: { row: ThreadSupervisionRow; onOpen(): void }) {
   const mark = <i className="thread-project-icon" style={{ "--project-hue": projectHue(row.projectPath ?? row.projectName) } as CSSProperties}>{projectInitial(row.projectName)}</i>;
   const label = { "aria-label": `Open thread ${row.title}`, "aria-description": THREAD_SUPERVISION_LABELS[row.status] };
   if (row.settled) {
@@ -303,7 +307,6 @@ function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; show
       <RowTime row={row} />
     </button>;
   }
-  const cost = showCost ? threadCostLabel(row.usage) : undefined;
   const branch = row.projectLabel && !DEFAULT_BRANCHES.has(row.projectLabel) ? row.projectLabel : undefined;
   return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
     <span className="thread-project-line">
@@ -315,7 +318,6 @@ function ThreadCard({ row, showCost, onOpen }: { row: ThreadSupervisionRow; show
     {/* Right to left, as the rail's card: the branch yields first, the runtime mark last. */}
     <span className="thread-meta-line">
       <span className="thread-meta-end">
-        {cost ? <span className="thread-cost-meta">{cost}</span> : null}
         <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(row.usage)} className="touch-thread-provider" hint={{ side: "left" }} />
       </span>
       {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}

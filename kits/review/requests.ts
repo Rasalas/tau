@@ -91,4 +91,11 @@ export class RowRequests {
     this.entries.set(workspace, { at: this.now(), ...(request ? { request } : {}) });
     this.listeners.forEach((listener) => listener());
   }
+
+  /** Open requests among the ones the rows know, each once however many threads share its branch. */
+  openCount = (): number => {
+    const open = new Set<string>();
+    for (const { request } of this.entries.values()) if (request?.state === "open") open.add(request.url);
+    return open.size;
+  };
 }

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useSyncExternalStore } from "react";
 import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
 import { Spinner, type DesktopExtensionContext } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
@@ -72,6 +72,8 @@ export function registerPullRequestTab(
       order: 10,
       layout: "fill",
       keywords: ["merge requests", "reviews"],
+      // The count on its entry: open requests of the threads the rail knows.
+      useBadge: () => useSyncExternalStore(rows.subscribe, rows.openCount) || undefined,
       Component: (props) => (
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
           <PullRequestsPage {...props} parts={{ client, chips, rows, shared }} />

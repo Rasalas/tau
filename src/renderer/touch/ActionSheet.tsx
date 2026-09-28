@@ -21,13 +21,16 @@ export interface SheetAction {
  * come last, apart from the rest. It closes with its X, Escape, the scrim or a
  * pull down on anything but a button.
  */
-export function ActionSheet({ title, actions, onClose }: {
+export function ActionSheet({ title, summary, actions, onClose }: {
   title: string;
+  /** A line about the subject above the actions (a thread's cost). */
+  summary?: string | undefined;
   actions: readonly SheetAction[];
   onClose(): void;
 }) {
   const ordered = [...actions.filter((action) => !action.destructive), ...actions.filter((action) => action.destructive)];
   return <Sheet title={title} className="action-sheet" onClose={onClose}>
+    {summary ? <p className="action-sheet-summary">{summary}</p> : null}
     <div className="action-sheet-list">
       {ordered.map((action) => <button
         key={action.id}

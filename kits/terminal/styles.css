@@ -109,7 +109,7 @@
 
 
 /* A rail row whose thread runs a program in one of its shells (T3 Code's pulsing terminal). */
-.terminal-row-status { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--working); font: 10px var(--mono); animation: terminal-row-pulse 1.6s ease-in-out infinite; }
+.terminal-row-status { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--info-ink); font: 10px var(--mono); animation: terminal-row-pulse 1.6s ease-in-out infinite; }
 @keyframes terminal-row-pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .terminal-row-status { animation: none; } }
 

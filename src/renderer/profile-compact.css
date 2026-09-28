@@ -60,6 +60,7 @@ body[data-profile="compact"] .stage-pane-header :is(.text-button, .toggle-group 
 body[data-profile="compact"] .keyboard-hint { display: none; }
 
 body[data-profile="compact"] .title-bar {
+  background: var(--stage); box-shadow: inset 0 -1px var(--line);
   gap: 4px; height: calc(52px + var(--safe-top));
   padding: var(--safe-top) max(6px, var(--safe-right)) 0 max(6px, var(--safe-left));
 }

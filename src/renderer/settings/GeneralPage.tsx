@@ -86,7 +86,7 @@ export function GeneralPage({ themeHere }: {
         <SettingRow
           id={settingAnchor("Show costs")}
           title="Show costs"
-          description="What each thread has spent, in the composer and the thread list."
+          description="What each thread has spent, in the composer and the thread list's hover card."
           setting={showCosts}
           control={<Switch label="Show costs" checked={showCosts.value} onChange={showCosts.set} />}
         />

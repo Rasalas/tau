@@ -22,6 +22,17 @@ describe("rail request cache", () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  it("counts open requests once, however many checkouts share one", () => {
+    const rows = new RowRequests(async () => undefined, () => 0);
+    expect(rows.openCount()).toBe(0);
+    rows.set("/a", REQUEST);
+    rows.set("/a-worktree", REQUEST);
+    rows.set("/b", { ...REQUEST, number: 4, url: "https://example.com/4" });
+    rows.set("/c", { ...REQUEST, number: 5, url: "https://example.com/5", state: "merged" });
+    rows.set("/d", undefined);
+    expect(rows.openCount()).toBe(2);
+  });
+
   it("remembers a failed lookup as no request until the minute is over", async () => {
     const load = vi.fn(async () => { throw new Error("gh failed"); });
     const rows = new RowRequests(load, () => 0);

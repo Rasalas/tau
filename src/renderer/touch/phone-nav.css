@@ -18,7 +18,15 @@ body[data-keyboard] .phone-nav { display: none; }
   width: 56px; height: 30px; display: grid; place-items: center; border-radius: 15px;
   transition: background-color var(--motion-fast, 160ms) var(--ease);
 }
+.phone-nav-icon { position: relative; }
 .phone-nav-icon > svg { display: block; }
+/* A page's count, on the icon's corner. */
+.phone-nav-icon > .page-badge {
+  position: absolute; top: 0; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink);
+  font: 600 10px/16px var(--sans); font-variant-numeric: tabular-nums; text-align: center;
+  box-shadow: 0 0 0 2px var(--rail);
+}
 .phone-nav-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-nav-item[aria-current="page"] { color: var(--ink); font-weight: 650; }
 .phone-nav-item[aria-current="page"] .phone-nav-icon { background: var(--acid-chip); color: var(--acid-text); }

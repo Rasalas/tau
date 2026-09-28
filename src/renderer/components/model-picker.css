@@ -95,7 +95,7 @@
 .model-menu {
   position: absolute; right: 0; top: 32px; z-index: 2; min-width: 170px; padding: 4px;
   display: flex; flex-direction: column; border: 1px solid var(--line-float); border-radius: 9px;
-  background: var(--overlay); box-shadow: 0 8px 24px var(--shadow-soft);
+  background: var(--overlay); box-shadow: var(--elevation-1);
 }
 .model-menu > hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .model-menu-heading { padding: 6px 8px 2px; font: 10px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }

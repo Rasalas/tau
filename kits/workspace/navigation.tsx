@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   DraftRow,
   draftTitle,
@@ -555,13 +555,11 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   onToggleSettled(session: UiSession): void;
 }) {
   const store = useThreadStore();
-  const preferences = usePreferences();
   const session = useSyncExternalStore(
     useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
     useCallback(() => store.getThread(id), [id, store]),
   );
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
-  const showCosts = useSyncExternalStore(preferences.subscribe, () => preferences.getSnapshot().showCosts);
   const workspace = useWorkspaceStore();
   const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
   const stat = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().turnStats[id]);
@@ -585,7 +583,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
         ? offered.map((action) => <RailRowAction key={action.id} action={action} onPick={(itemId) => onRowAction(session, itemId)} />)
         : undefined}
       accessory={diff || marks.length > 0 ? <>{diff}{marks}</> : undefined}
-      showCost={showCosts}
       projectIcon={icon}
       active={active}
       age={age}
@@ -643,15 +640,13 @@ const RailDrafts = memo(function RailDrafts({ actions, project, query, listed }:
 
 /**
  * Another machine's thread among this machine's: the same card, with that
- * machine's mark before the cost. It opens there; it cannot be settled here.
+ * machine's mark before the provider marks. It opens there; it cannot be settled here.
  */
 const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLookIn }: {
   thread: RailExternalThread;
   onOpen(thread: RailExternalThread): void;
   onLookIn(thread: RailExternalThread): void;
 }) {
-  const preferences = usePreferences();
-  const showCosts = useSyncExternalStore(preferences.subscribe, () => preferences.getSnapshot().showCosts);
   const { session, machine, unavailable, opening, running } = thread;
   const age = sessionAge(session.modifiedAt);
   const activity: ThreadActivity = opening ? "ready" : running ? "working" : "idle";
@@ -665,7 +660,6 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         session={session}
         machine={machine}
         showLabel={!isDefaultBranch(session.projectLabel)}
-        showCost={showCosts}
         active={false}
         age={age}
         activity={activity}
@@ -1156,12 +1150,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       <div className="sidebar-controls">
         <div className="thread-search-row">
           <label className="thread-search">
-            <Search size={15} />
+            <Search size={13} />
             <input
               ref={searchRef}
               value={threadQuery}
               onChange={(event) => setThreadQuery(event.target.value)}
-              placeholder="Search"
+              placeholder="Search threads"
               aria-label="Search threads"
             />
             {threadQuery ? (
@@ -1169,13 +1163,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             ) : <kbd className="keyboard-hint">/</kbd>}
           </label>
           <button
-            className="sidebar-action"
+            className="sidebar-action new-thread"
             {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
             aria-label="New thread"
             disabled={readOnlyDevice}
             onClick={() => actions.newSession()}
           >
-            <SquarePen size={16} />
+            <Plus size={15} />
           </button>
         </div>
         <ProjectScope actions={actions} />

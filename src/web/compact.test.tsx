@@ -42,7 +42,8 @@ function thread(id: string, title: string, modifiedAt: number): UiSession {
   return { id, path: `/sessions/${id}.json`, title, modifiedAt, projectPath: "/project", projectName: "project", messageCount: 2 };
 }
 
-const THREADS = [thread("t-a", "Rename the store", 30), thread("t-b", "Ship the web client", 20), thread("t-c", "Fix the flaky test", 10)];
+const SPENT = { inputTokens: 1_000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_200, costUsd: 0.42, turns: 1 };
+const THREADS = [thread("t-a", "Rename the store", 30), { ...thread("t-b", "Ship the web client", 20), usage: SPENT }, thread("t-c", "Fix the flaky test", 10)];
 /** The session a host opens at start: in the index, with nothing written in it yet. */
 const BLANK: UiSession = { ...thread("t-new", "", 40), projectPath: "/", projectName: "/", messageCount: 0 };
 type ProjectEntry = { path: string; name: string; lastOpenedAt: number };
@@ -211,6 +212,9 @@ describe("the web client at 400 px", () => {
     const sheet = await screen.findByRole("dialog", { name: "Ship the web client" });
     const labels = within(sheet).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent);
     expect(labels).toEqual(["Close", "Settle", "Pin", "Mark as unread", "Archive thread"]);
+    // The row leaves the cost out, as the desktop rail does; a phone has no hover card, so the sheet says it.
+    expect(sheet.querySelector(".action-sheet-summary")?.textContent).toBe("Cost $0.42");
+    expect(rowNamed("Ship the web client").textContent).not.toContain("$0.42");
     fireEvent.click(within(sheet).getByRole("button", { name: "Archive thread" }));
     await waitFor(() => expect(archived).toEqual(["t-b"]));
     expect(screen.queryByRole("dialog", { name: "Ship the web client" })).toBeNull();

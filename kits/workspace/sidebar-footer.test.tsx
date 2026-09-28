@@ -41,6 +41,24 @@ describe("sidebar footer pages", () => {
     expect(screen.queryByRole("dialog", { name: "Usage" })).toBeNull();
   });
 
+  it("draws a page's count on its icon and reads it out with the label", async () => {
+    let count: number | undefined = 3;
+    const pages: DesktopExtension = {
+      id: "badge-test", name: "Badge test", activate(plugin) {
+        plugin.registerPage({ id: "requests", label: "Pull requests", Icon: GitPullRequest, useBadge: () => count, Component: () => null });
+        plugin.registerPage({ id: "quiet", label: "Usage", Icon: ChartColumn, useBadge: () => 0, Component: () => null });
+      },
+    };
+    const view = renderApp(undefined, { extensions: [workspaceExtension, pages] });
+    const requests = await screen.findByRole("button", { name: "Pull requests, 3" });
+    expect(requests.querySelector(".page-badge")?.textContent).toBe("3");
+    const footer = view.container.querySelector(".sidebar-footer") as HTMLElement;
+    expect(within(footer).getByRole("button", { name: "Usage" }).querySelector(".page-badge")).toBeNull();
+    count = 120;
+    fireEvent.click(within(footer).getByRole("button", { name: "Usage" }));
+    expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
+  });
+
   it("does not show entries from absent kits", async () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension] });
     await screen.findByRole("button", { name: "Settings" });
