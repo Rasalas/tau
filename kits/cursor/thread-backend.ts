@@ -10,7 +10,7 @@ import { answerElicitation, autoApproval, permissionDialog } from "../_acp/appro
 import { AcpTurnTranslator, addUsage, type AcpSessionUpdate, type AcpTurnOutcome } from "../_acp/events.js";
 import { configOptionValues, type AcpAgentSession, type AcpElicitationAnswer, type AcpElicitationRequest, type AcpPermissionRequest, type AcpPermissionResponse, type AcpSelectOption } from "../_acp/session.js";
 import { AcpThreadBackend, type AcpThreadBackendOptions, type AcpTurn, type AcpTurnVerdict } from "../_acp/thread-backend.js";
-import { DEFAULT_EFFORT, MODEL_PROVIDER, effortOption, thinkingLevels } from "./catalog.js";
+import { DEFAULT_EFFORT, cursorModelProvider, effortOption, thinkingLevels } from "./catalog.js";
 import { askQuestionDialogs, extensionCard, planReply, transportFailure, type CursorAskAnswer, type CursorAskQuestion, type CursorCreatePlan } from "./extensions.js";
 import type { CursorRuntimeAdapter } from "./runtime-adapter.js";
 import type { CursorSessionStore, CursorStoredModel } from "./session-store.js";
@@ -126,7 +126,7 @@ export class CursorThreadRuntimeBackend extends AcpThreadBackend<CursorSessionLi
     const name = this.liveSession()?.modelOptions().find((option) => option.value === current)?.name ?? this.modelList.find((model) => model.id === current)?.name;
     const usage = this.usage.turns > 0 ? { ...this.usage, ...(this.sessionCostUsd !== undefined ? { costUsd: this.sessionCostUsd } : {}) } : undefined;
     return {
-      ...(current ? { model: { provider: MODEL_PROVIDER, id: current, name: name ?? current } } : {}),
+      ...(current ? { model: { provider: cursorModelProvider({ id: current, ...(name ? { name } : {}) }), id: current, name: name ?? current } } : {}),
       thinkingLevel: this.chosenEffort ?? DEFAULT_EFFORT,
       thinkingLevels: thinkingLevels(this.efforts()),
       allTools: [],
@@ -138,7 +138,7 @@ export class CursorThreadRuntimeBackend extends AcpThreadBackend<CursorSessionLi
   async models(): Promise<UiModel[]> {
     const live = this.liveSession();
     const options = live ? live.modelOptions().map((option) => ({ id: option.value, name: option.name })) : this.modelList;
-    return options.map((option) => ({ provider: MODEL_PROVIDER, id: option.id, name: option.name.trim() || option.id }));
+    return options.map((option) => ({ provider: cursorModelProvider(option), id: option.id, name: option.name.trim() || option.id }));
   }
 
   private async setModel(id: string): Promise<void> {

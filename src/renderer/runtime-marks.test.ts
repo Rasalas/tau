@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { modelOnPlan, providerMarks, threadOnPlan } from "./runtime-marks";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { declareRuntimeMarks, modelOnPlan, providerMarks, threadOnPlan } from "./runtime-marks";
+import { BUNDLED_RUNTIME_MARKS } from "./test-support/runtime-marks";
 
 describe("providerMarks", () => {
+  beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
+  afterAll(() => declareRuntimeMarks([]));
+
   it.each([
     // A runtime with its home provider: its own mark, the provider named in the tooltip.
     ["codex", "openai", false, { runtime: "codex", home: "openai" }],
@@ -16,6 +20,10 @@ describe("providerMarks", () => {
     ["antigravity", "anthropic", false, { model: "anthropic", runtime: "antigravity" }],
     ["opencode", "anthropic", false, { model: "anthropic", runtime: "opencode" }],
     ["cursor", "openai", false, { model: "openai", runtime: "cursor" }],
+    // A runtime whose plans are its own: the provider keeps its mark.
+    ["cursor", "anthropic", true, { model: "anthropic", runtime: "cursor" }],
+    ["antigravity", "anthropic", true, { model: "anthropic", runtime: "antigravity" }],
+    ["opencode", "anthropic", true, { model: "anthropic", runtime: "opencode", plan: true }],
     // Pi shows its mark beside every provider, a plan's included.
     ["pi", "openai", false, { model: "openai", runtime: "pi" }],
     ["pi", "anthropic", false, { model: "anthropic", runtime: "pi" }],
@@ -40,6 +48,32 @@ describe("providerMarks", () => {
   it("treats an instance like its program", () => {
     expect(providerMarks("openai", "codex@work")).toEqual({ runtime: "codex@work", home: "openai" });
     expect(providerMarks("anthropic", "opencode@second")).toEqual({ model: "anthropic", runtime: "opencode@second" });
+    expect(providerMarks("anthropic", "cursor@work", { plan: true })).toEqual({ model: "anthropic", runtime: "cursor@work" });
+  });
+});
+
+describe("declared marks", () => {
+  afterAll(() => declareRuntimeMarks([]));
+
+  it("comes from the runtimes, with only the own name built in", () => {
+    declareRuntimeMarks([]);
+    expect(providerMarks("openai", "codex")).toEqual({ model: "openai", runtime: "codex" });
+    expect(providerMarks("cursor", "cursor")).toEqual({ runtime: "cursor", home: "cursor" });
+    declareRuntimeMarks([{ kind: "acme", homeProviders: ["Acme_Cloud"] }]);
+    expect(providerMarks("acme-cloud", "acme@eu")).toEqual({ runtime: "acme@eu", home: "acme-cloud" });
+    expect(providerMarks("openai", "acme")).toEqual({ model: "openai", runtime: "acme" });
+  });
+
+  it("keeps what it knew when the host names no runtimes", () => {
+    declareRuntimeMarks([{ kind: "codex", homeProviders: ["openai"] }]);
+    declareRuntimeMarks(undefined);
+    expect(providerMarks("openai", "codex")).toEqual({ runtime: "codex", home: "openai" });
+  });
+
+  it("takes an explicit set over the declared one", () => {
+    declareRuntimeMarks([]);
+    const runtimes = new Map([["codex", { homes: new Set(["openai"]), ownPlan: false }]]);
+    expect(providerMarks("openai", "codex", { runtimes })).toEqual({ runtime: "codex", home: "openai" });
   });
 });
 

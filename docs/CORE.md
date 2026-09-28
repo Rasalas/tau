@@ -269,10 +269,15 @@ thread starts on its default. One rule picks the marks everywhere
 (`providerMarks` in `src/renderer/runtime-marks.ts`), at most two, and never
 the model's maker: a runtime with a provider it owns shows its own mark alone
 (Codex with OpenAI, the Agent SDK runtime with Anthropic, Grok with xAI,
-Antigravity with Google; `HOME_PROVIDERS`); any other pair, Pi included, shows
+Antigravity with Google). The runtime says which providers those are
+(`homeProviders` on its backend, published on `runtimeBackends`); core knows
+only that a runtime owns the provider of its own name (Cursor's `cursor`). Any
+other pair, Pi included, shows
 the access mark in front and the runtime's behind it, fanned out on hover or
 focus (`ProviderIconStack`); a subscription plan wears its product's mark (Pi's
-`openai-codex` is Codex's; an Anthropic plan login the Agent SDK runtime's).
+`openai-codex` is Codex's; an Anthropic plan login the Agent SDK runtime's),
+unless the runtime says its plans are its own (`ownPlan`: Cursor, Antigravity),
+where Claude on the Cursor plan stays "Cursor via Anthropic".
 The tooltip names both. A list that is one runtime's (Pi's settings, the
 Pi-providers list, a runtime's own list in the picker) leaves the runtime's
 mark out. What the

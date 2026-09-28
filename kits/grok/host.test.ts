@@ -52,7 +52,7 @@ function caller(id: string): HostExtension & { call?: (command: string, input?: 
 describe("Grok host half", () => {
   it("registers a Grok backend that asks for approvals, takes files and plans", async () => {
     const { provider } = await harness();
-    expect(provider).toMatchObject({ kind: "grok", label: "Grok", order: 60 });
+    expect(provider).toMatchObject({ kind: "grok", label: "Grok", order: 60, homeProviders: ["xai"] });
     expect(provider.adapter.capabilities).toMatchObject({ interactiveApprovals: true, fileAttachments: true, modes: ["plan"], ownsModelSelection: false });
   });
 

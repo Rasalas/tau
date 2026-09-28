@@ -103,7 +103,7 @@ describe("CursorThreadRuntimeBackend", () => {
     expect(events.filter((event) => event.type === "tool-end")).toHaveLength(1);
     expect(events.at(-2)).toMatchObject({ type: "turn-settled", status: "completed" });
     expect(backend.composerCommands()).toEqual([{ name: "compress", description: "Summarize", source: "prompt" }]);
-    expect(backend.catalogView()).toMatchObject({ model: { provider: "cursor", id: "gpt-5.4", name: "GPT-5.4" }, thinkingLevel: "high", thinkingLevels: ["default", "low", "high"], usage: { inputTokens: 10, turns: 1 }, contextUsage: { tokens: 50, contextWindow: 1_000 } });
+    expect(backend.catalogView()).toMatchObject({ model: { provider: "openai", id: "gpt-5.4", name: "GPT-5.4" }, thinkingLevel: "high", thinkingLevels: ["default", "low", "high"], usage: { inputTokens: 10, turns: 1 }, contextUsage: { tokens: 50, contextWindow: 1_000 } });
     const initialize = agent.received.find((message) => message.method === "initialize")!;
     expect(initialize.params).toMatchObject({ clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, _meta: { parameterizedModelPicker: true } } });
     const record = await store.get("thread");

@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import type { UiModel } from "../../shared/contracts";
 import type { PaletteItem, RuntimeModels, WorkbenchActions } from "../extension-system";
 import { PreferencesStore } from "../preferences";
 import { modelItems, runtimeItems, themeItems } from "./palette-menus";
+import { declareRuntimeMarks } from "../runtime-marks";
+import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
+
+beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
+afterAll(() => declareRuntimeMarks([]));
 
 const luna: UiModel = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" };
 const sol: UiModel = { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };

@@ -38,7 +38,7 @@ class FakeSession implements AntigravitySessionLike {
     this.sessionId = sessionId;
     return { sessionId };
   }
-  modelOptions(): AcpSelectOption[] { return [{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }]; }
+  modelOptions(): AcpSelectOption[] { return [{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { value: "m-claude", name: "Claude Sonnet 4.5 (Thinking)" }]; }
   modeOptions(): AcpSelectOption[] { return [{ value: "default", name: "Default" }, { value: "yolo", name: "Turbo" }]; }
   private model = "gemini-3.8-flash-high";
   currentModel(): string | undefined { return this.model; }
@@ -55,7 +55,7 @@ class FakeSession implements AntigravitySessionLike {
   async close(): Promise<void> { this.closed = true; this.input.onExit(undefined); }
 }
 
-function harness(store: AntigravitySessionStore, script: Script, options: { activity?: TurnActivityStore; ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[] } = {}) {
+function harness(store: AntigravitySessionStore, script: Script, options: { activity?: TurnActivityStore; ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[]; billing?: "subscription" | "api-key" } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const sessions: FakeSession[] = [];
   const reportedModels: AcpSelectOption[][] = [];
@@ -65,6 +65,7 @@ function harness(store: AntigravitySessionStore, script: Script, options: { acti
     openSession: async (input) => { const session = new FakeSession(input, script, options.resumeFails); sessions.push(session); return session; },
     onEvent: (event) => events.push(event),
     ...(options.cachedModels ? { cachedModels: async () => options.cachedModels! } : {}),
+    ...(options.billing ? { billing: () => options.billing } : {}),
     onModels: (models) => reportedModels.push([...models]),
     ask: options.ask as never,
     ...(options.activity ? { activity: options.activity } : {}),
@@ -123,7 +124,17 @@ describe("AntigravityThreadRuntimeBackend", () => {
     expect(events.find((event) => event.type === "notice")).toMatchObject({ level: "warning" });
     expect((await store.get("thread"))?.acpSessionId).toBe("acp-1");
     expect((await store.get("thread"))?.model).toBe("gemini-3.8-flash-low");
-    expect((await backend.models()).map((model) => model.id)).toEqual(["gemini-3.8-flash-low", "gemini-3.8-flash-high"]);
+    expect((await backend.models()).map((model) => `${model.provider}/${model.id}`)).toEqual(["google/gemini-3.8-flash-low", "google/gemini-3.8-flash-high", "anthropic/m-claude"]);
+  });
+
+  it("names another maker's model as that provider's, and stamps each turn with the sign-in's billing", async () => {
+    const store = await scratchStore();
+    const { backend } = harness(store, reply("ok"), { billing: "subscription" });
+    await backend.start("create");
+    await backend.capabilities.catalogWrite!.setModel("anthropic", "m-claude");
+    await backend.prompt({ text: "go", delivery: "prompt" });
+    expect(backend.catalogView().model).toEqual({ provider: "anthropic", id: "m-claude", name: "Claude Sonnet 4.5 (Thinking)" });
+    expect((await store.get("thread"))?.usageTurns).toEqual([expect.objectContaining({ provider: "anthropic", model: "m-claude", billing: "subscription" })]);
   });
 
   it("routes the agent's permission request to the dialog surface and answers with the chosen option", async () => {
@@ -186,8 +197,8 @@ describe("AntigravityThreadRuntimeBackend", () => {
     expect((await backend.models()).map((model) => model.id)).toEqual(["gemini-3.8-flash-low"]);
     expect(reportedModels).toEqual([]);
     await backend.prompt({ text: "hi", delivery: "prompt" });
-    expect(reportedModels).toEqual([[{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }]]);
-    expect((await backend.models()).map((model) => model.id)).toEqual(["gemini-3.8-flash-low", "gemini-3.8-flash-high"]);
+    expect(reportedModels).toEqual([[{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { value: "m-claude", name: "Claude Sonnet 4.5 (Thinking)" }]]);
+    expect((await backend.models()).map((model) => model.id)).toEqual(["gemini-3.8-flash-low", "gemini-3.8-flash-high", "m-claude"]);
   });
 
   it("puts text before images in the prompt and reports a stopped agent as an error notice", async () => {

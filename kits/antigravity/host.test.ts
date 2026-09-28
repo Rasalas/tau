@@ -81,13 +81,13 @@ describe("Antigravity host half", () => {
   it("registers its backend with a label and Google as the model provider, and opens threads through the seam", async () => {
     const { backends, openSession, registry } = await harness(true);
     const [provider] = backends;
-    expect(provider).toMatchObject({ kind: "antigravity", label: "Antigravity", modelProvider: "google" });
+    expect(provider).toMatchObject({ kind: "antigravity", label: "Antigravity", modelProvider: "google", homeProviders: ["google"], ownPlan: true });
     expect(provider?.adapter.capabilities).toEqual({ skillInvocationDialect: "antigravity", ownsModelSelection: false, interactiveApprovals: true, fileAttachments: true });
     const backend = await provider!.open("thread-1", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) });
     await backend.prompt({ text: "hi", delivery: "prompt" });
     expect(openSession).toHaveBeenCalledTimes(1);
     expect((openSession.mock.calls as unknown as Array<[unknown]>)[0]![0]).toMatchObject({ threadId: "thread-1", cwd: "/repo", executable: { source: "override" } });
-    expect((await provider!.listThreads()).map((thread) => thread.threadId)).toEqual(["thread-1"]);
+    expect((await provider!.listThreads()).map((thread) => [thread.threadId, thread.model])).toEqual([["thread-1", { provider: "google", id: "gemini-3.8-flash-low" }]]);
     expect(await registry.invoke("tau.antigravity", "status")).toMatchObject({ installed: true, source: "override", signedIn: false });
   });
 

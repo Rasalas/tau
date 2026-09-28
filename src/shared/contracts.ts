@@ -200,6 +200,10 @@ export interface UiRuntimeBackend {
   label: string;
   /** Interaction modes besides `default` a new thread of this backend offers. */
   modes?: string[];
+  /** Model providers the runtime owns; beside one of them its mark stands alone (API 1.24.0). */
+  homeProviders?: string[];
+  /** A subscription on this runtime is its own plan, not the model provider's (API 1.24.0). */
+  ownPlan?: boolean;
   /** The program the backend drives, once the host asked it; see `RuntimeToolVersion`. */
   version?: RuntimeToolVersion;
 }

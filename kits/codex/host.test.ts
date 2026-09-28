@@ -78,7 +78,7 @@ const context = { projectName: "repo", permissionLevel: () => "full", onMessage:
 describe("Codex host half", () => {
   it("registers a Codex backend that asks for approvals and takes files", async () => {
     const { provider } = await harness();
-    expect(provider).toMatchObject({ kind: "codex", label: "Codex", modelProvider: "openai" });
+    expect(provider).toMatchObject({ kind: "codex", label: "Codex", modelProvider: "openai", homeProviders: ["openai"] });
     expect(provider.adapter.capabilities).toMatchObject({ skillInvocationDialect: "codex", interactiveApprovals: true, fileAttachments: true });
     expect(provider.composerCommands("/repo")).toEqual([]);
   });

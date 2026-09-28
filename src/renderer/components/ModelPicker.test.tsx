@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { ModelPicker, type RuntimeAction } from "./ModelPicker";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
+import { declareRuntimeMarks } from "../runtime-marks";
+import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
+
+beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
+afterAll(() => declareRuntimeMarks([]));
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 
 const models: UiModel[] = [

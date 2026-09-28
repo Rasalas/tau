@@ -6,12 +6,14 @@ import {
   type RuntimePermissionLevel,
   type ThreadCatalogView,
   type UiModel,
+  type UiModelBilling,
   type UiThreadUsage,
   type UsageTally,
   type UsageTurn,
 } from "tau/host-extension";
 import { AcpTurnTranslator, addUsage, type AcpPromptResponse, type AcpSessionUpdate, type AcpTurnOutcome } from "../_acp/events.js";
 import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "../_acp/session.js";
+import { modelProvider } from "../_acp/model-provider.js";
 import { promptBlocks } from "../_acp/thread.js";
 import { AcpThreadBackend, type AcpThreadBackendOptions, type AcpTurn } from "../_acp/thread-backend.js";
 import { answerElicitation, modeForLevel, permissionDialog } from "./approvals.js";
@@ -69,9 +71,17 @@ export interface AntigravityThreadBackendOptions extends AcpThreadBackendOptions
   branch?: string;
   /** Prices the thread's turns the way core prices every thread (API 1.12.0). */
   priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
+  /** How the sign-in in use pays, stamped on each turn so no other runtime's login decides it. */
+  billing?(): UiModelBilling | undefined;
 }
 
+/** Google serves every model on Antigravity; one of Google's is this provider's. */
 export const MODEL_PROVIDER = "google";
+
+/** A model's provider: its maker's where the name tells (Claude on Antigravity is Anthropic's), else Google's. */
+export function antigravityModelProvider(model: { id: string; name?: string }): string {
+  return modelProvider(model, MODEL_PROVIDER);
+}
 const RESUME_MISSING = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid|expired)|(?:no|cannot|could not)\s+(?:find\s+|load\s+|resume\s+)?(?:the\s+)?(?:session|conversation)/iu;
 
 export { promptBlocks };
@@ -122,7 +132,7 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
     if (record.usage) this.usage = { ...record.usage };
     const model = record.observedModel ?? record.model;
     this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
-      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: MODEL_PROVIDER, ...(model ? { model } : {}) })] : []);
+      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: model ? antigravityModelProvider({ id: model }) : MODEL_PROVIDER, ...(model ? { model } : {}) })] : []);
     this.chosenModel = record.model;
     this.observedModel = record.observedModel;
     this.rememberModels(await this.options.cachedModels?.() ?? []);
@@ -139,7 +149,7 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
     const tallies = mergeTallies(this.usageTurns);
     const usage = this.options.priceUsage ? this.options.priceUsage(tallies) : unpricedUsage(tallies);
     return {
-      ...(current ? { model: { provider: MODEL_PROVIDER, id: current, name: named?.name ?? current } } : {}),
+      ...(current ? { model: { provider: this.providerOf(current, named?.name), id: current, name: named?.name ?? current } } : {}),
       thinkingLevel: "default",
       thinkingLevels: [],
       allTools: [],
@@ -151,7 +161,11 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
   async models(): Promise<UiModel[]> {
     const live = this.liveSession();
     const options = live ? live.modelOptions() : await this.options.cachedModels?.() ?? [];
-    return options.map((option) => ({ provider: MODEL_PROVIDER, id: option.value, name: option.name.trim() || option.value }));
+    return options.map((option) => ({ provider: antigravityModelProvider({ id: option.value, name: option.name }), id: option.value, name: option.name.trim() || option.value }));
+  }
+
+  private providerOf(id: string, name = this.liveSession()?.modelOptions().find((option) => option.value === id)?.name ?? this.modelNames.get(id)): string {
+    return antigravityModelProvider({ id, ...(name ? { name } : {}) });
   }
 
   private async setModel(id: string): Promise<void> {
@@ -172,7 +186,8 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
     const before = this.sessionCostUsd ?? 0;
     const cost = reported === undefined ? 0 : reported >= before ? reported - before : reported;
     const model = (live.closed ? undefined : live.currentModel()) ?? this.chosenModel ?? this.observedModel;
-    const finished: UsageTurn = { provider: MODEL_PROVIDER, ...(model ? { model } : {}), ...outcome.usage, costUsd: cost, turns: 1, at: this.now() };
+    const billing = this.options.billing?.();
+    const finished: UsageTurn = { provider: model ? this.providerOf(model) : MODEL_PROVIDER, ...(model ? { model } : {}), ...(billing ? { billing } : {}), ...outcome.usage, costUsd: cost, turns: 1, at: this.now() };
     this.usageTurns = appendUsageTurn(this.usageTurns, finished);
     await this.agyStore.recordUsage(this.threadId, this.cwd, this.usage, finished);
   }

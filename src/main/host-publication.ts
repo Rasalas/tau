@@ -23,7 +23,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { localTranscriptCursorPolicy, localTranscriptPage } from "./host-transcript.js";
 import { clientTranscript } from "./client-tool-output.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
-import { sortByRuntimeOrder, type HostRuntimeBackendProvider } from "./host-extensions.js";
+import { runtimeBackendMarks, sortByRuntimeOrder, type HostRuntimeBackendProvider } from "./host-extensions.js";
 import type { HostCompletions } from "./host-completion.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import { RuntimeResourceCache } from "./runtime-resource-cache.js";
@@ -267,7 +267,7 @@ export class HostPublication {
     const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
     const registered = sortByRuntimeOrder([...this.deps.backends()]).map((provider) => {
       const version = this.runtimeVersions.get(provider.kind);
-      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}), ...withModes(provider.adapter.capabilities.modes) };
+      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}), ...withModes(provider.adapter.capabilities.modes), ...runtimeBackendMarks(provider) };
     });
     return [{ kind: "pi", label: "Pi", ...withModes(this.deps.piModes()) }, ...registered];
   }
