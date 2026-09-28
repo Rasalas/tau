@@ -25,8 +25,10 @@
 }
 
 .onboarding-header { display: grid; gap: 14px; padding: 20px 24px 16px; }
-.onboarding-identity { display: flex; align-items: baseline; gap: 6px; font: 600 20px/1 var(--sans); letter-spacing: -.01em; color: var(--ink); }
-.onboarding-mark { color: var(--acid-text); font-size: 22px; }
+.onboarding-identity { display: flex; align-items: center; gap: 8px; font: 600 20px/1 var(--sans); letter-spacing: -.01em; color: var(--ink); }
+.onboarding-mark { flex: none; width: 24px; height: 24px; }
+.onboarding-mark rect { fill: var(--brand); }
+.onboarding-mark path { fill: none; stroke: var(--brand-on); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
 .onboarding-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .onboarding-steps {

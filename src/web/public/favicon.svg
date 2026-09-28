@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Tau">
+  <title>Tau</title>
+  <rect width="32" height="32" rx="7" fill="#4f79c9"/>
+  <path d="M8.7 10L22.52 10" fill="none" stroke="#fbfaf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 10L15 19.15C15 21.29 16.74 23.03 18.88 23.03C20.33 23.03 21.04 22.63 22.03 21.94" fill="none" stroke="#fbfaf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

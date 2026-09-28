@@ -2239,7 +2239,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 .folder-browser-results > button:hover, .folder-browser-results > button.selected { background: var(--raised); }
 
 /* Reload is a full lifecycle boundary, so the curtain hides stale UI until the new bundle owns the window.
-   It is Tau's splash, so it wears the mark's lime (`--brand`), not the accent. */
+   It is Tau's splash, so it wears the mark (`--brand`, the τ of assets/icon/tau-glyph.svg), not the accent. */
 .reload-curtain {
   position: fixed; inset: 0; z-index: 1000;
   display: grid; place-content: center; justify-items: center;
@@ -2273,7 +2273,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
   border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); background: var(--reload-panel);
   box-shadow: inset 0 0 24px color-mix(in srgb, var(--brand) 4%, transparent), 0 12px 45px var(--shadow-strong);
 }
-.reload-constant strong { color: var(--brand-ink); font: 300 43px/38px Georgia, serif; }
+.reload-glyph { width: 34px; height: 34px; color: var(--brand-ink); }
 .reload-constant small { margin-top: 5px; color: var(--muted); font: 500 9px var(--mono); letter-spacing: .16em; }
 .reload-curtain p { position: relative; margin: 0 0 8px; color: var(--brand-ink); font-weight: 600; }
 .reload-curtain h2 { position: relative; margin: 0; color: var(--ink-2); font: 400 15px var(--sans); }

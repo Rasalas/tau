@@ -10,7 +10,8 @@ function namedProject(input: unknown): boolean {
  * Files Kit's host half. Workspace Kit reads and writes the project's files
  * and checks every path; this half reaches those commands with its own host
  * context, which Workspace grants by name, so renderer input cannot widen it.
- * A call must name its project: without one Workspace would use the host's.
+ * A write must name its project: without one Workspace would use the host's.
+ * Reads without one keep the host's project, as older and remote callers expect.
  */
 export function createFilesHostExtension(): WorkerHostExtension {
   return {
@@ -19,7 +20,7 @@ export function createFilesHostExtension(): WorkerHostExtension {
     activate(context: WorkerHostExtensionContext) {
       const forward = (command: string, target: string, refusal: string, access?: "read") =>
         context.registerCommand(command, async (input) => {
-          if (!namedProject(input)) throw new Error(`${refusal}${UNKNOWN_PROJECT}`);
+          if (!access && !namedProject(input)) throw new Error(`${refusal}${UNKNOWN_PROJECT}`);
           try {
             return await context.invokeHostExtension(WORKSPACE_KIT_ID, target, input);
           } catch (error) {

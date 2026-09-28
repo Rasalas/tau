@@ -63,26 +63,54 @@ export function webAttention(): PlatformAttention {
   };
 }
 
-/** A round count as the tab's icon; the page has no icon of its own to draw over. */
+let pageIcon: HTMLImageElement | undefined;
+let badgeCount = 0;
+// The page's own icon links step aside while a badge shows: browsers differ in which icon they pick.
+let pageIconLinks: HTMLLinkElement[] = [];
+
+/** The page's own favicon, loaded once; the count is drawn again when it arrives. */
+function loadPageIcon(): HTMLImageElement | undefined {
+  if (pageIcon) return pageIcon;
+  const href = document.head.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]')?.href;
+  if (!href) return undefined;
+  pageIcon = new Image();
+  pageIcon.onload = () => { if (badgeCount > 0) drawIconBadge(badgeCount); };
+  pageIcon.src = href;
+  return pageIcon;
+}
+
+/** The count in a red dot on Tau's favicon, or on its own until the favicon has loaded. */
 function drawIconBadge(count: number): void {
+  badgeCount = count;
   let link = document.head.querySelector<HTMLLinkElement>("link[data-tau-badge]");
-  if (count <= 0) { link?.remove(); return; }
+  if (count <= 0) {
+    link?.remove();
+    document.head.append(...pageIconLinks);
+    pageIconLinks = [];
+    return;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 64;
   const context = canvas.getContext("2d");
   if (!context) return;
+  const icon = loadPageIcon();
+  const onIcon = Boolean(icon?.complete && icon.naturalWidth);
+  if (onIcon) context.drawImage(icon!, 0, 0, 64, 64);
+  const [x, y, radius] = onIcon ? [42, 22, 22] : [32, 32, 30];
   context.fillStyle = "#d9433a";
   context.beginPath();
-  context.arc(32, 32, 30, 0, Math.PI * 2);
+  context.arc(x, y, radius, 0, Math.PI * 2);
   context.fill();
   context.fillStyle = "#fff";
-  context.font = `600 ${count > 9 ? 30 : 40}px system-ui, sans-serif`;
+  context.font = `600 ${Math.round(radius * (count > 9 ? 1 : 1.33))}px system-ui, sans-serif`;
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(count > 9 ? "9+" : String(count), 32, 35);
+  context.fillText(count > 9 ? "9+" : String(count), x, y + radius / 10);
   if (!link) {
     link = Object.assign(document.createElement("link"), { rel: "icon", type: "image/png" });
     link.dataset.tauBadge = "";
+    pageIconLinks = [...document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"]')];
+    for (const own of pageIconLinks) own.remove();
     document.head.append(link);
   }
   link.href = canvas.toDataURL("image/png");

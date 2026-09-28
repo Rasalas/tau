@@ -82,14 +82,15 @@ describe("Files Kit host", () => {
     await expect(readFile(join(a, "notes.md"), "utf8")).resolves.toBe("# A\n");
   });
 
-  it("refuses a call that names no project, or one the host does not know, and writes nothing", async () => {
+  it("refuses a write that names no project, or one the host does not know, and writes nothing", async () => {
     const a = await project("# A\n");
     const forgotten = await project("# Forgotten\n");
     const registry = await kits(a);
     const invoke = (command: string, input: unknown) => registry.invoke(FILES_KIT_ID, command, input);
 
     await expect(invoke("write", { relPath: "notes.md", text: "x" })).rejects.toThrow("Not saved: Tau does not know which project this file belongs to.");
-    await expect(invoke("read", { relPath: "notes.md" })).rejects.toThrow("Tau does not know which project this file belongs to.");
+    // Older and remote callers read without a project; they keep the host's.
+    await expect(invoke("read", { relPath: "notes.md" })).resolves.toMatchObject({ text: "# A\n" });
     await expect(invoke("write", { workspace: forgotten, relPath: "notes.md", text: "x" })).rejects.toThrow("Not saved: This file's project is not open in Tau any more.");
 
     await expect(readFile(join(a, "notes.md"), "utf8")).resolves.toBe("# A\n");
