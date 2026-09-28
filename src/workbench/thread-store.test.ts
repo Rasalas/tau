@@ -119,3 +119,22 @@ describe("ThreadStore interrupted threads", () => {
     expect(store.getActivity().interruptedThreadIds).toBe(list);
   });
 });
+
+describe("a new thread's message count", () => {
+  it("counts the prompt of a run the host's shell has not counted yet, and never goes back to 0", () => {
+    const store = new ThreadStore();
+    const created = { id: "created", path: "/created.jsonl", title: "", modifiedAt: 1, projectPath: "/p", projectName: "p", messageCount: 0 };
+    store.applyThreadShell("created", created);
+    store.setThreadRunning("created", true);
+    expect(store.getThread("created")?.messageCount).toBe(1);
+    // A shell read before the prompt was written arrives late; the run ends before the counted one.
+    store.applyThreadShell("created", { ...created, title: "Count slowly" });
+    store.setThreadRunning("created", false);
+    expect(store.getThread("created")).toMatchObject({ title: "Count slowly", messageCount: 1 });
+    store.applyThreadShell("created", { ...created, messageCount: 2 });
+    expect(store.getThread("created")?.messageCount).toBe(2);
+    // A session nobody ran stays at 0.
+    store.applyThreadShell("blank", { ...created, id: "blank" });
+    expect(store.getThread("blank")?.messageCount).toBe(0);
+  });
+});

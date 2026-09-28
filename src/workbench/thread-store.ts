@@ -199,7 +199,10 @@ export class ThreadStore {
     if (removed) {
       if (existingIndex >= 0) threads = current.filter((thread) => thread.id !== sessionId);
     } else if (shell) {
-      const mergedShell = preserveObservedModelProvider(shell, current[existingIndex]);
+      const existing = current[existingIndex];
+      // A shell read before the first prompt was written says 0; one the thread outgrew never takes it back.
+      const counted = shell.messageCount === 0 && (existing?.messageCount ?? 0) > 0 ? { ...shell, messageCount: existing!.messageCount } : shell;
+      const mergedShell = preserveObservedModelProvider(counted, existing);
       if (existingIndex < 0) threads = [mergedShell, ...current];
       else if (!threadEqual(current[existingIndex], mergedShell)) {
         const next = [...current];
@@ -222,8 +225,13 @@ export class ThreadStore {
     else delete runningStartedAt[threadId];
     // A thread that runs again is no longer the thread that failed.
     if (running) this.refusedThreadIds = this.refusedThreadIds.filter((id) => id !== threadId);
+    // A run starts from a prompt: the list keeps a new thread when its run ends before the host's shell counts it.
+    const threads = running && this.getThread(threadId)?.messageCount === 0
+      ? this.snapshot.threads.map((thread) => thread.id === threadId ? { ...thread, messageCount: 1 } : thread)
+      : this.snapshot.threads;
     this.publish({
       ...this.snapshot,
+      threads,
       runningThreadIds: running ? (alreadyRunning ? current : [...current, threadId]) : current.filter((id) => id !== threadId),
       runningStartedAt,
     });
