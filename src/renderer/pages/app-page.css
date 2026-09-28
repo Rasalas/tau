@@ -1,8 +1,7 @@
 /* An app page in Settings' frame (settings.css); only what differs from Settings is here. */
 .app-page > .settings-main { flex: 1; outline: none; }
-/* The bar lines up with the title bar over the sidebar. */
-.app-page-bar { height: 52px; }
-.app-page-bar nav { min-width: 0; }
+/* Empty, the bar is Settings' drag strip; with Back or a title it lines up with the title bar over the sidebar. */
+.app-page-bar:has(> *) { height: 52px; }
 .app-page-back {
   flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
   border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted);
@@ -10,19 +9,18 @@
 }
 .app-page-back:hover { background: var(--hover-strong); color: var(--ink); }
 .app-page-content.wide { max-width: 1240px; }
-/* A page that scrolls itself fills the area below the bar. */
+/* A page that scrolls itself fills the area below the bar; its head sits over it, in line with the page's own padding. */
 .app-page-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.app-page-head { flex: none; padding: var(--space-2) var(--space-7) var(--space-2); }
+.app-page-head:has(> .settings-page-head > .settings-page-action:first-child:empty) { display: none; }
 
 .app-page.stacked > .settings-main { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
 .app-page.stacked .app-page-bar { padding: 0 12px 0 4px; gap: 4px; }
-.app-page.stacked .app-page-bar ol { font-size: 15px; }
 .app-page.stacked .app-page-back { width: 44px; height: 44px; justify-content: center; padding: 0; color: var(--ink-2); }
 .app-page.stacked .settings-content { padding: 16px 12px calc(32px + env(safe-area-inset-bottom, 0px)); }
+.app-page.stacked .app-page-head { padding: var(--space-4) 12px 0; }
 /* A main page of a phone: the bottom navigation under it keeps the home indicator's room. */
 .app-page.stacked.with-nav { flex-direction: column; }
 .app-page.stacked.with-nav .settings-content { padding-bottom: 32px; }
-.app-page.stacked .app-page-bar:not(:has(> .app-page-back)) { padding-left: 16px; }
-/* A phone's bar names the view on screen only; Back names the page. */
-.app-page.stacked .app-page-bar li:not(.current) { display: none; }
-.app-page.stacked .app-page-bar li.current { min-width: 0; }
-.app-page.stacked .app-page-bar li.current > h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Without Back the title lines up with the page below it. */
+.app-page.stacked .app-page-bar:not(:has(> .app-page-back)) { padding-left: 12px; }
