@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, sep } from "node:path";
 
@@ -41,32 +41,19 @@ export function insideArchive(moduleUrl = import.meta.url): boolean {
 /**
  * esbuild's native binary, as a path that can be spawned. esbuild finds it with
  * `require.resolve`, which answers with the archive path even for a file that
- * ships unpacked, and spawning that fails with ENOTDIR. Its platform package is
- * the only entry under `@esbuild`, so the layout does not have to be repeated
- * here — only the two names esbuild gives the binary.
+ * ships unpacked, and spawning that fails with ENOTDIR. This resolves the same
+ * platform package from esbuild's own folder: the packaged tree can also hold
+ * another esbuild's binary (a dependency's) under a top-level `@esbuild`.
  */
-export function esbuildBinaryPath(resolveFrom: (specifier: string) => string = createRequire(import.meta.url).resolve): string | undefined {
-  let scoped: string;
+export function esbuildBinaryPath(from: string = import.meta.url, target = `${process.platform}-${process.arch}`): string | undefined {
+  const subpath = target.startsWith("win32-") ? "esbuild.exe" : "bin/esbuild";
   try {
-    // <node_modules>/esbuild/lib/main.js -> <node_modules>/@esbuild
-    scoped = join(dirname(dirname(dirname(resolveFrom("esbuild")))), "@esbuild");
+    const esbuild = createRequire(from).resolve("esbuild");
+    const file = unpackedPath(createRequire(esbuild).resolve(`@esbuild/${target}/${subpath}`));
+    return existsSync(file) ? file : undefined;
   } catch {
     return undefined;
   }
-  const directory = unpackedPath(scoped);
-  let platforms: string[];
-  try {
-    platforms = readdirSync(directory);
-  } catch {
-    return undefined;
-  }
-  for (const platform of platforms.sort()) {
-    for (const subpath of [join("bin", "esbuild"), "esbuild.exe"]) {
-      const file = join(directory, platform, subpath);
-      if (existsSync(file)) return file;
-    }
-  }
-  return undefined;
 }
 
 /**

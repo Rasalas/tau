@@ -55,8 +55,8 @@ files:
   - "!**/*.test.js"
   - "!**/*.test.js.map"
   # esbuild's npm command line, a second 10 MB copy of the binary the library
-  # itself never runs.
-  - "!node_modules/esbuild/bin"
+  # itself never runs. Dependencies bring their own esbuild, built for the build machine.
+  - "!**/node_modules/esbuild/bin{,/**}"
   # Pi ships its handbook and example extensions for the CLI; Tau reads neither,
   # and the examples alone carry a 4 MB WebAssembly demo.
   - "!node_modules/@earendil-works/pi-coding-agent/docs"
@@ -72,6 +72,19 @@ files:
   # race on every file only one of them excludes, which is a hard-to-reproduce
   # `EEXIST` on whichever file loses the race, not necessarily this one.
   - "!node_modules/@amaster.ai/pi-computer-use/bin/!(${platform}*)/**"
+  # Each app carries only native files for its own OS and architecture
+  # (scripts/packaging/mac-architectures.mjs). Both Mac apps pack from one
+  # node_modules holding both architectures' platform packages...
+  - "!**/node_modules/@*/*darwin-!(${arch}|universal)"
+  - "!**/node_modules/@*/*darwin-!(${arch}|universal)/**"
+  # ...and packages ship prebuilds for every platform in the one package.
+  - "!**/node_modules/**/prebuilds/!(${platform}-*${arch}*|${platform}-universal)"
+  - "!**/node_modules/**/prebuilds/!(${platform}-*${arch}*|${platform}-universal)/**"
+
+# Unpacks the Mac platform packages npm skipped for the architecture being packed.
+beforeBuild: ./scripts/packaging/mac-architectures.mjs
+# Fails a Mac build that still holds a native file for another architecture.
+afterPack: ./scripts/packaging/mac-architectures.mjs
 
 # Files a real path on disk must reach, so an archive entry will not do.
 asarUnpack:

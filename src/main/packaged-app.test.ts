@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,34 +52,45 @@ describe("appPackageVersion", () => {
 });
 
 describe("esbuildBinaryPath", () => {
-  async function scopedPackage(subpath: string): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "tau-esbuild-"));
-    const modules = join(root, "node_modules");
-    const binary = join(modules, "@esbuild", "some-platform", subpath);
-    await mkdir(join(binary, ".."), { recursive: true });
-    await writeFile(binary, "");
-    return modules;
+  // `<root>/app/main.js` resolves esbuild from `<root>/node_modules`, as dist-electron does in the app.
+  async function tree(files: string[]): Promise<{ root: string; from: string }> {
+    // Resolution answers with real paths, and macOS's tmpdir is behind a symlink.
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tau-esbuild-")));
+    const esbuild = join(root, "node_modules", "esbuild");
+    await mkdir(join(esbuild, "lib"), { recursive: true });
+    await writeFile(join(esbuild, "package.json"), JSON.stringify({ name: "esbuild", main: "lib/main.js" }));
+    await writeFile(join(esbuild, "lib", "main.js"), "");
+    for (const file of files) {
+      await mkdir(join(root, file, ".."), { recursive: true });
+      await writeFile(join(root, file), "");
+    }
+    return { root, from: join(root, "app", "main.js") };
   }
 
-  it("finds the unix binary of the one installed platform package", async () => {
-    const modules = await scopedPackage(join("bin", "esbuild"));
-    expect(esbuildBinaryPath(() => join(modules, "esbuild", "lib", "main.js")))
-      .toBe(join(modules, "@esbuild", "some-platform", "bin", "esbuild"));
+  it("finds the binary for this platform where npm hoists it", async () => {
+    const { root, from } = await tree(["node_modules/@esbuild/darwin-x64/bin/esbuild"]);
+    expect(esbuildBinaryPath(from, "darwin-x64")).toBe(join(root, "node_modules", "@esbuild", "darwin-x64", "bin", "esbuild"));
+  });
+
+  it("prefers esbuild's own copy over another esbuild's binary at the top level", async () => {
+    // The packaged layout: electron-builder nests esbuild's platform package and hoists a dependency's newer one.
+    const { root, from } = await tree(["node_modules/@esbuild/darwin-arm64/bin/esbuild", "node_modules/@esbuild/darwin-x64/bin/esbuild", "node_modules/esbuild/node_modules/@esbuild/darwin-x64/bin/esbuild"]);
+    expect(esbuildBinaryPath(from, "darwin-x64")).toBe(join(root, "node_modules", "esbuild", "node_modules", "@esbuild", "darwin-x64", "bin", "esbuild"));
+  });
+
+  it("never takes another architecture's binary", async () => {
+    const { from } = await tree(["node_modules/@esbuild/darwin-arm64/bin/esbuild"]);
+    expect(esbuildBinaryPath(from, "darwin-x64")).toBeUndefined();
   });
 
   it("finds the Windows binary, which sits at the package root", async () => {
-    const modules = await scopedPackage("esbuild.exe");
-    expect(esbuildBinaryPath(() => join(modules, "esbuild", "lib", "main.js")))
-      .toBe(join(modules, "@esbuild", "some-platform", "esbuild.exe"));
+    const { root, from } = await tree(["node_modules/@esbuild/win32-x64/esbuild.exe"]);
+    expect(esbuildBinaryPath(from, "win32-x64")).toBe(join(root, "node_modules", "@esbuild", "win32-x64", "esbuild.exe"));
   });
 
-  it("answers with nothing when esbuild cannot be resolved", () => {
-    expect(esbuildBinaryPath(() => { throw new Error("not installed"); })).toBeUndefined();
-  });
-
-  it("answers with nothing when no platform package is installed", async () => {
+  it("answers with nothing when esbuild cannot be resolved", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-esbuild-"));
-    expect(esbuildBinaryPath(() => join(root, "node_modules", "esbuild", "lib", "main.js"))).toBeUndefined();
+    expect(esbuildBinaryPath(join(root, "main.js"), "darwin-x64")).toBeUndefined();
   });
 });
 
