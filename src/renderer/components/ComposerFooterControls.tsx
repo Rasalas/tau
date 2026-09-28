@@ -1,8 +1,6 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Ellipsis } from "lucide-react";
-import { Popover } from "../deferred-surfaces";
-import { focusableElements, openedByKeyboard } from "./ui/focus";
-import { ComposerMenuContext } from "./ComposerMenu";
+import { ComposerMenuPopover } from "../deferred-surfaces";
 import { fitFooterControls, type FooterBlockWidths, type FooterLayout } from "./composer-footer-layout";
 
 export interface FooterBlock {
@@ -174,33 +172,5 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
       ) : null}
       {blocks.filter((block) => block.end && !hidden.has(block.id)).map(drawn)}
     </div>
-  );
-}
-
-function ComposerMenuPopover({ anchor, children, onClose }: { anchor: RefObject<HTMLButtonElement | null>; children: ReactNode; onClose(): void }) {
-  const list = useRef<HTMLDivElement>(null);
-  const [byKeyboard] = useState(openedByKeyboard);
-  const context = useMemo(() => ({ close: onClose }), [onClose]);
-  useLayoutEffect(() => {
-    if (byKeyboard && list.current) focusableElements(list.current)[0]?.focus({ preventScroll: true });
-  }, [byKeyboard]);
-  // Arrows walk the entries, as in every other menu.
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const entries = list.current ? focusableElements(list.current) : [];
-    if (entries.length === 0) return;
-    event.preventDefault();
-    const at = entries.indexOf(document.activeElement as HTMLElement);
-    const step = event.key === "ArrowDown" ? 1 : -1;
-    entries[(at + step + entries.length) % entries.length]?.focus({ preventScroll: true });
-  };
-  return (
-    <Popover anchor={anchor} side="top" align="start" label="More composer controls" className="composer-overflow" onClose={onClose}>
-      <ComposerMenuContext.Provider value={context}>
-        <div ref={list} className="composer-menu" onKeyDown={onKeyDown}>
-          {children}
-        </div>
-      </ComposerMenuContext.Provider>
-    </Popover>
   );
 }

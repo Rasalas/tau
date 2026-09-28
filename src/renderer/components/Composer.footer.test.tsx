@@ -108,4 +108,29 @@ describe("the composer's slim footer", () => {
     fireEvent.click(screen.getByLabelText("Reasoning: Medium"));
     expect(screen.getByRole("menuitem", { name: /High/u })).toBeTruthy();
   });
+
+  it("shows no reasoning level for a model that has none", () => {
+    const { registry } = createKitHarness();
+    render(
+      <TestProviders>
+        <WorkbenchShellContext.Provider value={{ registry }}>
+          <Composer
+            scopeStore={new ComposerScopeStore()}
+            snapshot={{ ...snapshot, thinkingLevel: "off", thinkingLevels: ["off"] }}
+            queue={[]}
+            contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+            textareaRef={createRef<HTMLTextAreaElement>()}
+            onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+            onAbort={() => {}}
+            onCancelQueued={() => {}}
+            onSteerQueued={() => {}}
+            onSetModel={() => {}}
+            onSetThinking={() => {}}
+            onCompactContext={() => {}}
+          />
+        </WorkbenchShellContext.Provider>
+      </TestProviders>,
+    );
+    expect(screen.queryByLabelText(/^Reasoning/u)).toBeNull();
+  });
 });

@@ -15,7 +15,7 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { ExtensionPrompt, Menu } from "../deferred-surfaces";
+import { ComposerMenuItem, ExtensionPrompt, Menu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -59,7 +59,6 @@ import {
 import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
-import { ComposerMenuItem } from "./ComposerMenu";
 import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
@@ -757,7 +756,8 @@ export function Composer({
   });
 
   const attachAvailable = supportsImageInput || inlineTakesFiles;
-  const thinkingLevel = draftOnOtherRuntime ? undefined : snapshot?.thinkingLevel;
+  // A model without reasoning levels shows none; a runtime that picks its own still says which.
+  const thinkingLevel = thinkingSelectionAvailable || (runtimeOwnsModel && !draftOnOtherRuntime) ? snapshot?.thinkingLevel : undefined;
   const menuControls = composerControls.filter((control) => control.placement === "menu");
   const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
   // The row keeps model and reasoning longest, then the context dial, then attach; kits' chips fold first.
@@ -1051,7 +1051,8 @@ export function Composer({
           }}
           placeholder={
             answerable && prompt
-              ? prompt.placeholder ?? "Answer in text…"
+              // A plain input's own hint; a renderer that draws the choices says it with them.
+              ? (prompt.kind === "input" && !registry?.getPromptRenderer(prompt) ? prompt.placeholder : undefined) ?? "Answer in text…"
               : isVimEnabled && vim.vimMode === "normal"
                 ? "Vim NORMAL mode — press 'i' to insert, ↵ to send"
                 : text.trimStart().startsWith("!")

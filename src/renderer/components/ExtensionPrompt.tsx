@@ -36,7 +36,7 @@ export function OptionRow({
       onClick={onPick}
     >
       {mode ? (
-        <span className={`extension-option-indicator ${mode}`} aria-hidden="true">
+        <span className={`extension-option-indicator is-${mode}`} aria-hidden="true">
           {chosen && mode === "checkbox" ? <Check size={11} strokeWidth={3} /> : null}
         </span>
       ) : null}
@@ -92,7 +92,7 @@ export function ExtensionPromptFrame({
 }) {
   const kindLabel = kind === "approval" ? "Approval" : "Question";
   return (
-    <section className={`extension-prompt ${kind}`} aria-label={from ? `${kindLabel} from ${from}` : kindLabel}>
+    <section className={`extension-prompt is-${kind}`} aria-label={from ? `${kindLabel} from ${from}` : kindLabel}>
       <header>
         <span className="extension-prompt-kind"><CircleHelp size={13} aria-hidden="true" />{kindLabel}</span>
         {from ? <span className="extension-prompt-from" title={from}>{from}</span> : null}

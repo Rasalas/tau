@@ -4,7 +4,6 @@ import {
   ExtensionPromptFrame,
   OptionRow,
   choiceOptions,
-  freeTextOption,
   optionForLabel,
   splitInputTitle,
   splitOption,
@@ -135,7 +134,6 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
     const multi = Boolean(asked?.multiSelect && prompt.kind === "input");
     const hasChoices = prompt.kind === "select" || multi;
     const currentChoices = choiceOptions(prompt.options);
-    const acceptsFreeText = Boolean(freeTextOption(prompt.options)) || multi;
     const folded = prompt.kind === "select" ? splitPromptTitle(prompt.title) : { question: prompt.title, previews: [] };
     const input = prompt.kind === "input" ? splitInputTitle(prompt.title) : undefined;
     const title = viewing?.question ?? input?.question ?? folded.question;
@@ -180,7 +178,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
                 ? "Answered below when the extension gets here"
                 : "Pick now; it is sent when the extension gets here")
             : hasChoices
-              ? (acceptsFreeText ? "Or type an answer below" : "Or answer below")
+              ? "Or type an answer below"
               : "Type your answer below"}
         footer={<button onClick={onCancel}>Skip</button>}
       >

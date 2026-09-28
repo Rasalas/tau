@@ -20,7 +20,7 @@ describe("ExtensionPrompt", () => {
     const button = screen.getByRole("button", { name: /Option A/u });
     expect(button.classList.contains("mode-radio")).toBe(true);
     expect(button.getAttribute("aria-pressed")).toBe("false");
-    expect(button.querySelector(".extension-option-indicator.radio")).toBeTruthy();
+    expect(button.querySelector(".extension-option-indicator.is-radio")).toBeTruthy();
     // The number the extension wrote is not drawn, and no loose chevron either.
     expect(button.textContent).toBe("Option A");
 
@@ -39,11 +39,11 @@ describe("ExtensionPrompt", () => {
     );
     const button = screen.getByRole("button", { name: /Feature B/u });
     expect(button.classList.contains("mode-checkbox")).toBe(true);
-    expect(button.querySelector(".extension-option-indicator.checkbox svg")).toBeNull();
+    expect(button.querySelector(".extension-option-indicator.is-checkbox svg")).toBeNull();
 
     rerender(<OptionRow label="Feature B" index="2" mode="checkbox" chosen={true} onPick={onPick} />);
     expect(button.classList.contains("chosen")).toBe(true);
-    expect(button.querySelector(".extension-option-indicator.checkbox svg")).toBeTruthy();
+    expect(button.querySelector(".extension-option-indicator.is-checkbox svg")).toBeTruthy();
   });
 
   it("renders select prompt with radio options", () => {
