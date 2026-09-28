@@ -11,7 +11,7 @@ import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
 beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
 afterAll(() => declareRuntimeMarks([]));
 
-const luna: UiModel = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" };
+const luna: UiModel = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription", contextWindow: 400_000 };
 const sol: UiModel = { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
 const haiku: UiModel = { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku 4.5", billing: "api-key" };
 
@@ -43,7 +43,7 @@ describe("the model rows", () => {
     const items = await modelItems(preferences, actions);
     expect(ids(items)).toEqual(["codex:openai/gpt-5.6-sol", "codex:openai/gpt-5.6-luna", "openai/gpt-5.6-luna"]);
     expect(items.find((item) => item.current)?.id).toBe("codex:openai/gpt-5.6-luna");
-    expect(items[1]!.detail).toBe("Plan");
+    expect(items[1]!.detail).toBe("Plan · 400k");
     // The runtime is an icon named for assistive technology, and a word the search finds.
     expect(items[1]!.keywords).toContain("Codex");
     const { container } = render(<>{items[1]!.icon}</>);

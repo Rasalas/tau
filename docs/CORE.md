@@ -228,34 +228,51 @@ the bootstrap cache of one never show up for another.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) opens as a popover
 at the control that opened it (the composer's model chip, a settings field),
-as T3 Code's does, without a scrim; Escape gives focus back to that control,
-and choosing a model from the composer hands it to the prompt. It keys everything on
-what the catalog says, in three columns: on the left Favourites, Recent and
-every runtime the host offers — each instance of one included — with a dot for
-its state (ready, update, sign-in needed, not installed; `model-picker-rail.ts`);
-in the middle a runtime's providers, only when it has several (Pi), which a
-narrow window turns into a row of filters above the list. Both columns show
-marks only (`ProviderIconStack`; a provider without one gets its monogram, a
-second instance its initials) and name each entry, its state and model count in
-a tooltip (a dot on a mark only for a runtime that is not ready); a row across
-runtimes (search, Favourites, Recent) wears its route's mark, a runtime's own
-list only the access mark, and only where it mixes providers. On the right the
-models, each an offering of one runtime (`model-offerings.ts`) with its context,
-price per million tokens and reasoning levels; the price column says how it is
-paid, with no badge beside the name: a plan shows "incl." and still the price the same model has over its
-API, free and local models say so, an API key without a known price says "API". A price the user set (`modelPrices`, edited on the Usage page) replaces
-the catalog's in the column and in the sort. The search runs across every runtime and groups a model's offerings under
-it; the sorts are relevance, price (every plan before every API offering, each
-group by its API price), context and newest (`releasedAt`, models.dev's release
-date the host keeps from the catalog it fetches anyway); the filters are billing
-and what a model can do. Favourites of any runtime are reachable with ⌘1–9,
-arrows move between the columns and typing anywhere goes to the search, and
-each runtime keeps one fold for legacy generations. A row hides its model (with a pointer; a phone shows only the star); the
-footer shows the hidden ones again. What a runtime hides and the order it lists
-its models in is `modelPreferences.<runtime>` in Tau's config, a record of the
-config levels that Settings → Providers → Models edits per runtime and project;
-favourites stay one list across runtimes (`offeringKey`: `provider/id` for Pi,
-`<runtime>:provider/id` otherwise), Recent is the client's own. The host
+as T3 Code's does, without a scrim; on a phone or an iPad it is a bottom sheet
+with the same logic. Escape gives focus back to that control, and a choice made
+from the composer hands it to the prompt. It keys everything on what the
+catalog says, in three columns under one search field:
+
+- **Runtimes**, as marks only (`ProviderIconStack`; a second instance wears its
+  initials): Favourites, then every runtime the host offers, each instance of
+  one included, with a dot for a state other than ready
+  (`model-picker-rail.ts`). A tooltip names each and says its state and model
+  count. A runtime that cannot run a thread (not installed, sign-in needed,
+  unavailable) is dimmed, not hidden; choosing it says why and offers
+  "Install…" or "Sign in…", which opens its card under Settings → Providers.
+  For a new thread's draft one click on a runtime that can run it is the
+  choice: the draft moves there with what it last chose there.
+- **Models** of that runtime, one line each (`model-offerings.ts`): pinned
+  first (the favourites, the model in use and the one last chosen on that
+  runtime, which the cursor starts on), the rest behind "Show all N" once
+  something is pinned or the runtime lists more than eight; each runtime keeps
+  one fold for legacy generations. A runtime with several providers (Pi) shows
+  their marks as filters above the list. A row across runtimes (search,
+  Favourites, Recent) wears its route's mark, a runtime's own list only the
+  access mark, and only where it mixes providers. Context, how a model is paid
+  and its price per million tokens (a plan's shows what the same model costs
+  over its API; a price the user set in `modelPrices` replaces the catalog's)
+  are no columns: a quiet detail line under the list says them for the row
+  under the cursor.
+- **Thinking**: the levels of the model in use (or the one just chosen, from
+  the catalog, until the thread reports it), Pi's default marked. Choosing a
+  model keeps the picker open only while a level is still to choose; choosing
+  a level closes it. A runtime that sets thinking itself says so here.
+
+"Recent" (the client's own list) sits at the bottom, one click each, beside a
+link to pin models in Settings. The search runs across every runtime and groups a
+model's offerings under it. One menu in the search field holds the sorts
+(relevance; price, every plan before every API offering, each group by its API
+price; context; newest, by models.dev's `releasedAt`), the filters (billing,
+what a model can do), "Show hidden models" and adding a provider. Keys: ↑↓ move
+in a column, ← and → move between the columns (from the search field at its
+start and end), ↵ chooses, ⌥↵ pins, ⌘1–9 reach the first nine favourites of any
+runtime, ⌘⇧↑↓ step through the runtimes, and typing anywhere goes to the search.
+A row hides its model (with a pointer; a phone shows only the star). What a
+runtime hides and the order it lists its models in is `modelPreferences.<runtime>`
+in Tau's config, a record of the config levels that Settings → Providers →
+Models edits per runtime and project; favourites stay one list across runtimes
+(`offeringKey`: `provider/id` for Pi, `<runtime>:provider/id` otherwise). The host
 keeps every runtime's catalog, Pi's too, whether or not a thread of it ran
 (`src/main/runtime-catalogs.ts`, stale-while-revalidate, on disk across
 restarts, with price, context, inputs and billing filled from Pi's model

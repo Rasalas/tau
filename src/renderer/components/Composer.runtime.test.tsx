@@ -114,8 +114,8 @@ describe("composer runtime choice", () => {
     renderComposer({ kind: "acme", backends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme Agent" }], onSelect });
     expect(screen.queryByLabelText(/^Runtime:/u)).toBeNull();
     fireEvent.click(screen.getByLabelText("Select runtime and model: Acme Agent"));
+    // One click on the runtime moves the draft there.
     fireEvent.click(await screen.findByRole("button", { name: /^Pi,/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Start this thread on Pi" }));
     expect(onSelect).toHaveBeenCalledWith("pi");
   });
 });

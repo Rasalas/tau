@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Monitor, Moon, Palette, Sun } from "lucide-react";
 import type { UiModel, UiRuntimeCatalog } from "../../shared/contracts";
 import { ProviderIconStack, providerLabel } from "../components/ProviderIconStack";
-import { billingBadge, modelKey, offeringKey } from "../components/model-offerings";
+import { billingBadge, formatTokens, modelKey, offeringKey } from "../components/model-offerings";
 import type { PaletteItem, RuntimeModels, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
@@ -100,11 +100,12 @@ export async function modelItems(preferences: PreferencesStore, actions: Workben
       .map((model, index) => ({ model, index }))
       .sort((a, b) => starred(a.model) - starred(b.model) || a.index - b.index)
       .map(({ model }): PaletteItem => {
-        const badge = billingBadge(model);
+        // As the picker's detail line has it: how it is paid, and its context.
+        const detail = [billingBadge(model)?.label, model.contextWindow ? formatTokens(model.contextWindow) : undefined].filter(Boolean).join(" · ");
         return {
           id: offeringKey(backend.kind, model),
           label: model.name,
-          ...(badge ? { detail: badge.label } : {}),
+          ...(detail ? { detail } : {}),
           icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} plan={modelOnPlan(model)} runtimeName={backend.label} />,
           keywords: [model.id, model.provider, providerLabel(model.provider), backend.label, backend.kind],
           current: current(model),
