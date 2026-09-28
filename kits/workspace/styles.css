@@ -169,6 +169,8 @@
 .rail-section + .rail-section .thread-group-label, .rail-section .thread-group-label { padding-top: 6px; }
 .session-list.rail-dragging { user-select: none; cursor: grabbing; }
 .rail-row { border-radius: var(--radius-md); }
+/* Drafts lead the active threads, outside the virtual list. */
+.rail-drafts { flex: none; display: flex; flex-direction: column; }
 .rail-row.dragging { opacity: .45; }
 .rail-row.drop-before { box-shadow: inset 0 2px 0 var(--acid); }
 .rail-row.drop-after { box-shadow: inset 0 -2px 0 var(--acid); }

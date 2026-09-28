@@ -2,6 +2,8 @@ import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Search, Settings, SquarePen, X } from "lucide-react";
 import {
+  DraftRow,
+  draftTitle,
   errorMessage,
   Popover,
   READ_ONLY_REASON,
@@ -15,11 +17,13 @@ import {
   useThreadStore,
   useWorkbenchShell,
   VirtualList,
+  type DraftThread,
   type ProjectSourceProps,
   type SidebarContributionProps,
   type ThreadActivity,
   type UiProject,
   type UiSession,
+  type WorkbenchActions,
 } from "tau";
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
@@ -600,6 +604,44 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
 });
 
 /**
+ * The drafts a new thread leaves, which the rail shows at the top of the
+ * active threads (after T3 Code's draft rows): the one on screen from the
+ * moment it opens, and every one left with something in it. A draft whose
+ * thread the host already lists is that thread's row now.
+ */
+export function railDrafts(drafts: readonly DraftThread[], filter: { project?: string; query?: string; listed?: ReadonlySet<string> }): DraftThread[] {
+  const needle = filter.query?.trim().toLocaleLowerCase();
+  return drafts.filter((draft) =>
+    !(draft.sessionId && filter.listed?.has(draft.sessionId)) &&
+    (!filter.project || draft.projectName === filter.project) &&
+    (!needle || `${draft.projectName} ${draftTitle(draft)}`.toLocaleLowerCase().includes(needle)));
+}
+
+const DraftRailRow = memo(function DraftRailRow({ draft, onOpen, onDiscard }: { draft: DraftThread; onOpen(draftId: string): void; onDiscard?(draftId: string): void }) {
+  const store = useThreadStore();
+  const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
+  const icon = useProjectIcon(useMemo(() => findProjectForSession(projects, draft), [draft, projects]));
+  return <DraftRow draft={draft} {...(icon ? { projectIcon: icon } : {})} onOpen={onOpen} {...(onDiscard ? { onDiscard } : {})} />;
+});
+
+/** Subscribes to the drafts on its own, so typing in a draft repaints these rows and nothing else. */
+const RailDrafts = memo(function RailDrafts({ actions, project, query, listed }: { actions: WorkbenchActions; project?: string; query: string; listed: ReadonlySet<string> }) {
+  const store = useThreadStore();
+  const drafts = useSyncExternalStore(store.subscribeToDrafts, store.getDrafts);
+  const shown = useMemo(() => railDrafts(drafts, { ...(project ? { project } : {}), query, listed }), [drafts, listed, project, query]);
+  if (!actions.openDraft || shown.length === 0) return null;
+  return (
+    <div className="rail-drafts" role="group" aria-label="Drafts">
+      {shown.map((draft) => (
+        <div key={draft.draftId} className="rail-row rail-draft">
+          <DraftRailRow draft={draft} onOpen={actions.openDraft!} {...(actions.discardDraft ? { onDiscard: actions.discardDraft } : {})} />
+        </div>
+      ))}
+    </div>
+  );
+});
+
+/**
  * Another machine's thread among this machine's: the same card, with that
  * machine's mark before the cost. It opens there; it cannot be settled here.
  */
@@ -839,6 +881,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     () => outside.size === 0 ? ownMain : { ...ownMain, threads: mergeByTime(ownMain.threads, [...outside.values()].map((thread) => thread.session), order.threadSort) },
     [order.threadSort, outside, ownMain],
   );
+  const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
+  // A draft on screen is the active row; the thread the host holds behind it is not.
+  const draftOnScreen = useSyncExternalStore(threadStore.subscribeToDrafts, () => threadStore.getDrafts().some((draft) => draft.active));
+  const draftCount = useSyncExternalStore(threadStore.subscribeToDrafts, () => railDrafts(threadStore.getDrafts(), { ...(projectFilter ? { project: projectFilter } : {}), query: threadQuery }).length);
   const grouped = order.grouping !== "none";
   const visibleActive = grouped ? main.threads : main.threads.slice(0, threadLimit);
   const { drag, onPointerDown } = useRailDrag(organizer, sections);
@@ -893,7 +939,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
-      active={session.id === activityState.activeThreadId}
+      active={!draftOnScreen && session.id === activityState.activeThreadId}
       activity={status}
       activityLabel={label}
       activityHint={hint}
@@ -1110,6 +1156,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
+        <RailDrafts actions={actions} {...(projectFilter ? { project: projectFilter } : {})} query={threadQuery} listed={listedIds} />
         {main.label === undefined && drag && sections.length > 1 ? (
           <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
         ) : null}
@@ -1149,7 +1196,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           />
         ) : null}
 
-        {matching.length === 0 && outside.size === 0 ? (
+        {matching.length === 0 && outside.size === 0 && draftCount === 0 ? (
           <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
         ) : null}
 
