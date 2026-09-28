@@ -200,6 +200,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
       const outsideCache = new OutsideUsageCache(join(services.stateDir, "outside-usage.json"), now);
       const logSources = options.logSources ?? OUTSIDE_LOG_SOURCES;
       const outsideWait = options.outsideWaitMs ?? OUTSIDE_WAIT_MS;
+      let loggedRoots: string | undefined;
       let scan: UsageScan | undefined;
       let stale = true;
       let reading: Promise<UsageScan> | undefined;
@@ -226,6 +227,8 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
             errors.push({ source, error: reason(error) });
           }
         }));
+        const named = roots.map((root) => root.path).sort().join(", ");
+        if (named !== loggedRoots) { loggedRoots = named; services.log("usage.outside-folders", named || "none"); }
         let finished = false;
         const done = outsideCache.refresh(roots).then(
           () => { if (finished) stale = true; },
