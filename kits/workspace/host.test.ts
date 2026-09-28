@@ -115,6 +115,25 @@ describe("Workspace Kit host extension", () => {
     await expect(kit.readFile(join(cwd, "README.md"))).rejects.toThrow("Name a file by its path inside the workspace.");
   });
 
+  it("reads the project a caller names, which a draft's may be, and refuses one the host does not know", async () => {
+    const hostProject = await workspace();
+    const draftProject = await workspace();
+    await mkdir(join(draftProject, "src"));
+    await writeFile(join(draftProject, "src", "only-in-b.ts"), "export const b = 1;\n");
+    const kit = await client(hostProject, {
+      knownWorkspacePath: async (named) => {
+        if (named === `ws1_${draftProject}`) return draftProject;
+        throw new Error("Workspace is not a known Tau project.");
+      },
+    });
+
+    await expect(kit.readFile("src/only-in-b.ts")).rejects.toThrow(/ENOENT/u);
+    await expect(kit.readFile("src/only-in-b.ts", `ws1_${draftProject}`)).resolves.toMatchObject({ kind: "text", text: "export const b = 1;\n" });
+    await expect(kit.getFileTree(undefined, `ws1_${draftProject}`)).resolves.toEqual([expect.objectContaining({ name: "src", kind: "directory" })]);
+    await expect(kit.getFileTree("src", `ws1_${draftProject}`)).resolves.toEqual([expect.objectContaining({ path: "src/only-in-b.ts" })]);
+    await expect(kit.readFile("src/only-in-b.ts", "ws1_gone")).rejects.toThrow("Workspace is not a known Tau project.");
+  });
+
   it("refuses to browse a tree outside the workspace", async () => {
     const cwd = await workspace();
     const kit = await client(cwd);

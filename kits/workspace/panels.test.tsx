@@ -121,7 +121,7 @@ describe("FilesPanel", () => {
     fireEvent.click(screen.getByTitle("src"));
     fireEvent.click(await screen.findByTitle("src/a.ts"));
     expect(await screen.findByText("export const answer = 42;")).toBeTruthy();
-    expect(readFile).toHaveBeenCalledWith("src/a.ts");
+    expect(readFile).toHaveBeenCalledWith("src/a.ts", CWD);
     expect(openFile).not.toHaveBeenCalled();
     expect(screen.getByRole("note").textContent).toContain("Read only on a phone");
     expect(screen.queryByRole("button", { name: /refresh/iu })).toBeNull();

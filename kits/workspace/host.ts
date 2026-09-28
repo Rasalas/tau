@@ -180,6 +180,11 @@ export function createWorkspaceHostExtension(): HostExtension {
       const cwd = () => services.cwd();
       // A command may name another workspace by id; without one it means the host's.
       const workspaceOf = (input: unknown) => optionalString(input, "workspace") ?? optionalString(input, "cwd") ?? cwd();
+      // Reading commands follow the project the client shows: a draft's is not the host's.
+      const readRoot = async (input: unknown) => {
+        const named = optionalString(input, "workspace");
+        return named ? services.knownWorkspacePath(named) : cwd();
+      };
       const refreshedChanges = async (project: string) => {
         git.invalidate(project);
         return git.getChanges(project);
@@ -271,7 +276,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("clone-jobs", () => clones.list(), { access: "read" });
       context.registerCommand("clone-forget", (input) => { clones.forget(requiredString(input, "id")); });
       context.registerCommand("file-tree", async (input) => {
-        const project = cwd();
+        const project = await readRoot(input);
         const relative = optionalRelativePath(input);
         if (relative) await workspaceGit.assertWorkspacePath(project, relative);
         return readFileTree(relative ? resolve(project, relative) : project, relative ?? "");
@@ -290,7 +295,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         return git.getChanges(cwd());
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("file-diff", async (input) => {
-        const project = cwd();
+        const project = await readRoot(input);
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
@@ -304,7 +309,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         return refreshedChanges(project);
       });
       context.registerCommand("read-file", async (input) => {
-        const project = cwd();
+        const project = await readRoot(input);
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));

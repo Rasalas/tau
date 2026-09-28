@@ -210,14 +210,15 @@ export interface WorkspaceHostCommands {
   "clone-jobs": { input: undefined; output: CloneSnapshot[] };
   /** Drops a settled clone from the list. */
   "clone-forget": { input: { id: string }; output: void };
-  "file-tree": { input: { relPath?: string } | undefined; output: FileNode[] };
+  /** `workspace` names the project to read when it is not the host's own (a draft's, say). */
+  "file-tree": { input: { relPath?: string; workspace?: string } | undefined; output: FileNode[] };
   "changes": { input: { query?: WorkspaceChangesQuery } | undefined; output: UiWorkspaceChanges };
-  "file-diff": { input: { relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
+  "file-diff": { input: { relPath: string; options?: DiffLoadOptions; workspace?: string }; output: UiFileDiff };
   "stage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "unstage-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "stage-all": { input: undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
-  "read-file": { input: { relPath: string }; output: UiFileContent };
+  "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
   "file-stat": { input: { relPath: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
   "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null }; output: UiFileWriteResult };
@@ -290,14 +291,14 @@ export interface WorkspaceHostClient {
   cancelClone(id: string): Promise<boolean>;
   listClones(): Promise<CloneSnapshot[]>;
   forgetClone(id: string): Promise<void>;
-  getFileTree(relPath?: string): Promise<FileNode[]>;
+  getFileTree(relPath?: string, workspace?: string): Promise<FileNode[]>;
   getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
-  getFileDiff(relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
+  getFileDiff(relPath: string, options?: DiffLoadOptions, workspace?: string): Promise<UiFileDiff>;
   stageFile(relPath: string): Promise<UiWorkspaceChanges>;
   unstageFile(relPath: string): Promise<UiWorkspaceChanges>;
   stageAll(): Promise<UiWorkspaceChanges>;
   revertFile(relPath: string): Promise<UiWorkspaceChanges>;
-  readFile(relPath: string): Promise<UiFileContent>;
+  readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
   writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
   commit(message: string, push: boolean): Promise<CommitResult>;
@@ -339,14 +340,14 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     cancelClone: (id) => call("clone-cancel", { id }),
     listClones: () => call("clone-jobs", undefined),
     forgetClone: (id) => call("clone-forget", { id }),
-    getFileTree: (relPath) => call("file-tree", relPath === undefined ? undefined : { relPath }),
+    getFileTree: (relPath, workspace) => call("file-tree", relPath === undefined && workspace === undefined ? undefined : { ...(relPath === undefined ? {} : { relPath }), ...(workspace ? { workspace } : {}) }),
     getChanges: (query) => call("changes", query === undefined ? undefined : { query }),
-    getFileDiff: (relPath, options) => call("file-diff", { relPath, options }),
+    getFileDiff: (relPath, options, workspace) => call("file-diff", workspace ? { relPath, options, workspace } : { relPath, options }),
     stageFile: (relPath) => call("stage-file", { relPath }),
     unstageFile: (relPath) => call("unstage-file", { relPath }),
     stageAll: () => call("stage-all", undefined),
     revertFile: (relPath) => call("revert-file", { relPath }),
-    readFile: (relPath) => call("read-file", { relPath }),
+    readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
     statFile: (relPath) => call("file-stat", { relPath }),
     writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
     commit: (message, push) => call("commit", { message, push }),

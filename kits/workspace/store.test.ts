@@ -195,6 +195,20 @@ describe("Workspace Kit thread worktrees", () => {
   });
 });
 
+describe("Workspace Kit files of the followed project", () => {
+  it("lists a draft's project, which need not be the one the host has open", async () => {
+    const getFileTree = vi.fn(async (relPath?: string) => [{ name: "only-in-b.ts", path: relPath ? `${relPath}/only-in-b.ts` : "only-in-b.ts", kind: "file" }]);
+    const workspaceStore = storeOver({ getFileTree });
+    workspaceStore.follow({ cwd: "/project-b", workspaceId: "ws1_project-b", draftPending: false });
+
+    await workspaceStore.refreshFiles();
+    await workspaceStore.loadFiles("src");
+
+    expect(getFileTree).toHaveBeenCalledWith(undefined, "ws1_project-b");
+    expect(getFileTree).toHaveBeenCalledWith("src", "ws1_project-b");
+  });
+});
+
 describe("Workspace Kit changes after a turn", () => {
   it("rereads the changes when another thread's turn ends, whose tools this client is not sent", async () => {
     const getChanges = vi.fn(async () => ({ files: [], additions: 0, deletions: 0 }));
