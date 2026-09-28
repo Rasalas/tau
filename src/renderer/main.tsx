@@ -14,9 +14,13 @@ import { createRendererServices } from "./renderer-services";
 import { RendererServicesProvider } from "./renderer-services-context";
 import { followThemePreference } from "./theme";
 import { accessRefusal } from "../workbench/access-refusal";
+import { watchChunkLoadErrors } from "./chunk-reload";
 import "./styles.css";
 // Loaded after the desktop rules so the narrow client can narrow them.
 import "./profile-compact.css";
+
+// A window whose build was replaced under it reloads once instead of showing dead features.
+watchChunkLoadErrors();
 
 const search = new URLSearchParams(window.location.search);
 const remoteHost = search.get("host");

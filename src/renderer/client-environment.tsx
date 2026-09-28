@@ -16,6 +16,8 @@ export interface ClientEnvironment {
   /** Started without kits: a workbench with a command palette and nothing else. */
   safeMode: boolean;
   createPlatform: ClientPlatformFactory;
+  /** The page's code came from the host it talks to (a browser tab), so a host update leaves it stale. */
+  servedByHost?: boolean;
   /** What the app around the workbench adds, where there is one (the native app). */
   shell?: ClientShell;
 }

@@ -102,12 +102,27 @@ body.resizing-col .app-shell { transition: none; }
   min-height: 96px; padding: 18px; color: var(--muted);
   font: 11px var(--mono); text-align: center;
 }
-.lazy-feature-error strong { color: var(--ink-2); font-family: var(--sans); }
+.lazy-feature-error strong { color: var(--ink-2); font: 600 13px var(--sans); }
+.lazy-feature-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .lazy-feature-error button {
   border: 1px solid var(--line-control); border-radius: 6px;
   background: var(--raised); color: var(--ink-2); padding: 5px 12px; cursor: pointer;
+  font: 500 12px var(--sans);
 }
 .lazy-feature-error button:hover { color: var(--ink); border-color: var(--line-strong); }
+.lazy-feature-error button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
+@media (pointer: coarse) { .lazy-feature-error button { min-height: 44px; padding: 0 16px; } }
+.lazy-feature-error details { max-width: min(520px, 100%); color: var(--faint); }
+.lazy-feature-error summary { cursor: pointer; font-family: var(--sans); }
+.lazy-feature-error pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; user-select: text; }
+/* A feature that covers the window (a page, the stage) centres its card where the feature would be. */
+.app-page > .lazy-feature-error, .app-page > .lazy-feature-loading,
+.stage > .lazy-feature-error, .stage > .lazy-feature-loading { flex: 1; align-content: center; }
+.lazy-feature-screen { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: var(--shell); }
+.lazy-feature-dialog {
+  width: 480px; max-width: calc(100vw - 48px); border: 1px solid var(--line-float); border-radius: 12px;
+  background: var(--overlay); box-shadow: var(--elevation-3);
+}
 
 /* ------------------------------------------------------------- titlebar */
 

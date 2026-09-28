@@ -6,6 +6,8 @@ import type { HostClient } from "../workbench/host-client";
 import { useHostClient } from "./host-client-context";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { tooltipProps } from "./components/ui/Tooltip";
+import { chunkRecovery } from "./chunk-reload";
+import { useClientEnvironment } from "./client-environment";
 
 const LABEL = {
   connected: "",
@@ -92,8 +94,23 @@ export function HostConnectionStatus() {
   return <VersionSkewNotice />;
 }
 
+/** The host's version when this page first heard from it. */
+const firstHostVersion = new WeakMap<HostClient, string>();
+
+/**
+ * The page's code came from the host, and the host now runs another version:
+ * its chunks are gone, so the page offers to reload. Undefined until then.
+ */
+export function hostUpdatedTo(client: HostClient, hostVersion: string | undefined): string | undefined {
+  if (!hostVersion) return undefined;
+  const first = firstHostVersion.get(client);
+  if (first === undefined) firstHostVersion.set(client, hostVersion);
+  return first !== undefined && first !== hostVersion ? hostVersion : undefined;
+}
+
 /** The window's process and the host process report different Tau versions (ADR 0021). */
 function VersionSkewNotice() {
+  const { servedByHost } = useClientEnvironment();
   const client = useHostClient();
   const subscribe = useCallback((listener: () => void) => client?.onVersions(listener) ?? (() => undefined), [client]);
   // A string, so the snapshot is stable between reads.
@@ -103,6 +120,12 @@ function VersionSkewNotice() {
   });
   const [dismissed, setDismissed] = useState<string>();
   const [windowVersion, hostVersion] = pair.split("\n");
+  if (servedByHost && client && hostUpdatedTo(client, hostVersion)) {
+    return <div className="host-connection-status version-skew" role="status">
+      <span><strong>Tau was updated.</strong> Reload to continue.</span>
+      <button type="button" className="text-button" onClick={() => chunkRecovery.reload()}>Reload</button>
+    </div>;
+  }
   const skew = versionSkew(windowVersion, hostVersion);
   if (!skew || dismissed === pair) return null;
   return <div className="host-connection-status version-skew" role="status">
