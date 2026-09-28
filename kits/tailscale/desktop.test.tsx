@@ -98,8 +98,9 @@ describe("Tailscale on Settings → Connections", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(TAILSCALE_EXTENSION_ID, "serve-on", { httpsPort: 8443, name: NAME }));
     await waitFor(() => expect(changed).toHaveBeenCalledOnce());
     expect(notify).toHaveBeenCalledWith(`Tailscale HTTPS is on: https://${NAME}:8443/`);
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("switch", { name: "Tailscale HTTPS" }).getAttribute("aria-checked")).toBe("true");
+    // The notice goes out before the render that closes the dialog and turns the switch on.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Tailscale HTTPS" }).getAttribute("aria-checked")).toBe("true"));
   });
 
   it("asks before turning Serve off, and says when the proxy listener is not open", async () => {

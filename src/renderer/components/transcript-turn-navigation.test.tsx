@@ -153,7 +153,8 @@ describe("TranscriptViewport turn navigation", () => {
     const transcript = view.getByRole("log");
     await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
 
-    const minimap = view.getByRole("button", { name: /Jump to turn:/ });
+    // The turn list is built a frame after the transcript mounts.
+    const minimap = await view.findByRole("button", { name: /Jump to turn:/ });
     minimap.focus();
     expect(document.activeElement).toBe(minimap);
     fireEvent.keyDown(minimap, { key: "Home" });
@@ -172,7 +173,7 @@ describe("TranscriptViewport turn navigation", () => {
     const transcript = view.getByRole("log");
     await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
 
-    const minimap = view.getByRole("button", { name: /Jump to turn:/ });
+    const minimap = await view.findByRole("button", { name: /Jump to turn:/ });
     vi.spyOn(minimap, "getBoundingClientRect").mockReturnValue({
       top: 100,
       bottom: 156,
