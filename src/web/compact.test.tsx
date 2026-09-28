@@ -307,19 +307,13 @@ describe("the web client at 400 px", () => {
     };
     renderCompactClient({}, [probe, asking]);
     await openChat();
-    // Two panels or more fold into the bar's More menu on a phone.
-    const openFromMenu = async (label: string) => {
-      fireEvent.click(screen.getByRole("button", { name: "More" }));
-      fireEvent.click(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: label }));
-    };
-    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
-    await openFromMenu("Review");
+    // Two panels keep their glyphs in the bar (design 1n); a third would fold into More.
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Show agents" }));
     expect(await within(await screen.findByRole("dialog", { name: "Agents" })).findByText("agents panel body")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: "Agents" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Review" }));
-    await waitFor(() => expect(screen.queryByRole("menu", { name: "Panels" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Review" })).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review" })).toBeNull());
   });
@@ -625,17 +619,17 @@ describe("the compact client on a tablet", () => {
     }
   });
 
-  it("docks a compact panel on the rail beside the chat, where a phone opens a sheet", async () => {
+  it("opens a compact panel as a stage tab beside the chat, where a phone opens a sheet", async () => {
     renderCompactClient({}, [probe]);
     await screen.findByRole("navigation", { name: "Thread list" });
-    const rail = document.querySelector(".panel-rail");
-    expect(rail).not.toBeNull();
+    expect(document.querySelector(".panel-rail")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
     // Only what claims the compact client: a desktop-only panel is not there.
-    expect(within(rail as HTMLElement).queryByRole("button", { name: "Files" })).toBeNull();
-    fireEvent.click(within(rail as HTMLElement).getByRole("button", { name: "Agents" }));
-    expect(await screen.findByText("agents panel body")).toBeTruthy();
+    expect(within(stage).queryByRole("button", { name: "Files" })).toBeNull();
+    expect(await within(stage).findByText("agents panel body")).toBeTruthy();
+    expect(within(stage).getByRole("tab", { name: /Agents/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull();
-    expect(document.querySelector(".workbench-center .side-panel, .instrument-dock .panel-stage")?.textContent).toContain("agents panel body");
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
   });
 });

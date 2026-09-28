@@ -25,6 +25,7 @@ import {
   AUTO_PULL_OPTION,
   isWorktreeSubmodules,
   WORKSPACE_HOST_EXTENSION_ID,
+  WORKSPACE_FILES_PANEL,
   WORKSPACE_REVIEW_OVERLAY,
   type ChangesSectionProps,
   type CommitMessageSuggester,
@@ -419,6 +420,14 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   focusCommit(): void { this.update({ commitFocusToken: this.state.commitFocusToken + 1 }); }
+
+  /** The design's "N files changed ›": the Files tab in front, on its Changed view, the first file's diff. */
+  showChangedFiles(): void {
+    const token = (this.state.filesFocus?.token ?? 0) + 1;
+    const path = this.state.changes.files[0]?.path;
+    this.update({ filesFocus: { token, ...(path ? { path } : {}) } });
+    this.actions?.openPanel(WORKSPACE_FILES_PANEL);
+  }
 
   private async mutate(what: string, run: () => Promise<UiWorkspaceChanges>): Promise<void> {
     if (!this.allowed(what) || !this.requireHost(what)) return;

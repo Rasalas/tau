@@ -303,60 +303,64 @@ the workbench itself uses, and core no longer keeps a table of names it would
 have to know a kit by. A panel without one gets core's fallback glyph.
 `registerSettingsPage` takes the same `Icon`.
 
-#### Where a panel shows: dock, drawer, stage (new in API 1.11.0)
+#### Where a panel shows: a stage tab or the drawer (new in API 1.11.0, the rule since API 1.27.0)
 
-A panel shows in the dock on the right unless it asks for `placement:
-"drawer"`: then it draws below the conversation and the stage, full width,
-and the title bar gets a toggle for it instead of a rail button. One drawer
-panel shows at a time. The drawer starts at 280 px, is dragged or moved with
-the arrow keys from its top edge, and its height (180 px up to three quarters
-of the window) is kept per client. Terminal Kit's "Show the terminal in"
-setting registers its panel again with the other placement.
+There is no dock and no panel rail (API 1.27.0, the workbench design). Every
+panel opens as a tab of the stage, the column right of the conversation, and
+comes to the front; opening it again brings its tab forward, never a second
+one. A panel that asks for `placement: "drawer"` draws below the conversation
+and the stage instead, full width; one drawer panel shows at a time. The
+drawer starts at 280 px, is dragged or moved with the arrow keys from its top
+edge, and its height (180 px up to three quarters of the window) is kept per
+client. Terminal Kit's "Show the terminal in" setting registers its panel again
+with the other placement. `width` is ignored since 1.27.0.
 
-One tool at a time shares the centre with the chat, which keeps at least
-480 px and starts at about 42 % of the centre; the divider between them is
-kept per client (new in API 1.16.0). One rule places a `width: "wide"` panel
-(Preview, Terminal, Agents), `toolPlace` in `src/workbench/center-layout.ts`:
-while the centre shows tabs — something is open on the stage, or it is
-maximized — the panel opens as a stage tab and comes to the front (if it is
-`maximizable`); otherwise it takes the whole space beside the chat. Opening a
-document while a wide panel is beside the chat takes the panel into the tabs,
-behind the document; a wide panel is never drawn over the stage.
-`narrow`, the default (Files), floats over the chat's edge
-while nothing is open beside the chat; once a document, a diff or a thread
-opens on the stage, the list docks at the right of it. A click into
-the chat closes a floating list.
+Where a panel is reached from: the right end of the stage's tab strip holds a
+button for each panel with `stageButton: true` (API 1.27.0; Files and Terminal
+in Tau), what kits place in the `stage-bar` region (Workspace Kit's "Open in"),
+then a separator and the maximize. Every other panel is under the strip's
+"More tools" menu, by label and icon, and every panel stays reachable from
+`actions.openPanel(id)`, a command in the palette and its keybinding. The
+button of a drawer panel opens and closes the drawer. The thread header's stage
+toggle opens an empty stage on the tool last picked in the project, else the
+first with a button. `useBadge` (API 1.27.0) is a hook for a count beside the
+panel's tab title — Agents Kit counts the thread's agents; nothing is drawn for
+`undefined` or 0. On the stage the tab names the panel, so the panel's own
+`h2` in its `.panel-header` is left out there; keep controls in the header,
+as icons, and no kit name.
+
+The conversation keeps at least 480 px beside the stage, and the stage starts
+at about half the window; the divider between them is kept per client (API
+1.16.0). Where both do not fit, or the user maximizes the stage (the strip's
+button, `rightPanel.toggleMaximized` on `mod+alt+shift+b`, or dragging the
+divider well below the chat's minimum), the conversation folds to its spine at
+the stage's left edge: the way back, and whether the thread works or waits for
+an answer. The thread header's toggle hides the stage and brings it back as it
+was. Both the maximize and the hiding belong to the thread, as its tabs do.
 
 `redirect(actions)` (new in API 1.18.0) lets a panel's entry open a view
-of its own instead: its rail button, `actions.openPanel(id)` and every command
+of its own instead: its button, `actions.openPanel(id)` and every command
 ask it first, and it answers true when it showed something else. Workspace
 Kit's Changes entry opens Review Kit's review this way (commit bar, staging,
 the branch's pull request and the linked ones above the file list); without a
 kit that draws the review, it answers false and the Changes panel opens.
 
-`maximizable: true` lets the user move the panel into a stage tab: the
-button over the end of the panel's header, or `rightPanel.toggleMaximized`
-(`mod+alt+shift+b`), which leaves the maximized layout when it is on, else
-acts on the panel the keyboard is in, the wide panel beside the chat, the
-documents, the dock's list or the drawer's panel, in that order. A panel
-tab maximizes the stage: it fills the centre, the chat is its first tab,
-pinned and set apart, and a wide panel opened meanwhile joins the tabs.
-Dragging the divider well below the chat's minimum maximizes too; the
-button at the right end of the tab strip ("Show chat beside the stage") puts
-lists back where they were placed and keeps wide panels as tabs while documents
-are open (with none, the one in front goes back beside the chat). Core moves the *mounted* panel — its DOM
-host goes from dock to stage and back — so React state, scroll and a
-terminal's buffer go with it, and the panel is never drawn twice. The tab
-is a core kind (`StagePanelTab`, `kind: "panel"`, `panelId`) and is
-restored with the stage.
+`maximizable: true` lets the user move a drawer panel onto the stage: the
+button over the end of the panel's header, or `rightPanel.toggleMaximized`,
+which acts on the drawer panel the keyboard is in before the stage. Core moves
+the *mounted* panel — its DOM host goes from the drawer to the stage and back
+— so React state, scroll and a terminal's buffer go with it, and the panel is
+never drawn twice. The tab is a core kind (`StagePanelTab`, `kind: "panel"`,
+`panelId`) and is restored with the stage; closing it puts a drawer panel back.
 
-`PanelProps.placement` says where the panel is drawn now (`dock`, `drawer`,
-`stage`, or `sheet` on a phone, API 1.20.0); a panel that positions something outside the page, as Preview Kit's
-native view does, reports its bounds again when it changes. `active` is false
-while the panel's tab is behind another. `actions.openPanel(id)` shows a panel
-wherever it is, bringing its tab forward when it is maximized;
-`actions.closePanel(id)` hides it (the dock or drawer closes, or the tab);
-`actions.togglePanelMaximized()` is the command's action.
+`PanelProps.placement` says where the panel is drawn now (`stage`, `drawer`,
+or `sheet` on a phone, API 1.20.0; `dock` no more since 1.27.0); a panel that
+positions something outside the page, as Preview Kit's native view does,
+reports its bounds again when it changes. `active` is false while the panel's
+tab is behind another or the stage is hidden. `actions.openPanel(id)` shows a
+panel wherever it is, bringing its tab forward; `actions.closePanel(id)` hides
+it (the drawer closes, or the tab); `actions.togglePanelMaximized()` is the
+command's action, and `actions.toggleDock()` hides or shows the stage.
 
 #### Tool rows and tool cards
 
@@ -367,6 +371,11 @@ summary hoists a named source to the front of its sentence ("Used the browser
 3 times and read 2 files") instead of counting those calls as anonymous tools;
 core reads `mcp__<server>__<tool>` as a source by itself, because that spelling
 is the protocol's, not a kit's.
+`file` (API 1.27.0) names the file a call read or wrote, as the tool gave it:
+the settled row then offers to open it on the stage, or bring its tab forward.
+Workspace Kit sets it for `read`, `edit` and `write`. A file chip in a reply
+(inline code with a path) and an `@file` mention in a prompt open their file
+the same way; a relative and an absolute path inside the project are one tab.
 A call no renderer claims shows the value of its most telling argument
 (`command`, `file_path`, `path`, `pattern`, `query`, `url`, …), so a runtime
 whose tools have names of their own should still register a renderer for its
@@ -452,6 +461,11 @@ core drops the tab. A tab whose kind is not registered yet waits — a kit that
 activates late still gets its tabs — and a tab whose kind is *withdrawn* goes
 with it, without asking about unsaved work, because nobody is left to save it.
 
+The strip follows the workbench design: 40 px on the side surface, the tab in
+front on the document's ground and joined to what it shows, each tab its glyph
+and title, a file with uncommitted changes marked "M", a tab with unsaved work
+a dot (`setDirty`), a panel its count (`useBadge`). Tabs keep their width and
+the strip scrolls; once some are out of view, "All tabs" lists them.
 The tab strip's own gestures are core's: double-click pins a preview, the
 middle button and Escape close, `mod+w` closes the active tab, `ctrl+tab` and
 `ctrl+shift+tab` move through them, and the right-click menu offers close,
@@ -729,7 +743,14 @@ under the list, shown while any listed model wears the badge.
 
 `registerRegion({ placement: "thread-title", … })` draws before the thread's
 title in the conversation header — a mark about the thread on screen, which
-reads the `snapshot` it is given. The other placements are `title-bar`,
+reads the `snapshot` it is given. `title-bar` is the thread header's end,
+before the stage toggle (API 1.27.0: the window-wide title bar is gone): Workspace
+Kit's project actions, "N files changed ›" and the Git action sit there. It stays
+mounted while the conversation is folded to its spine, only out of sight, so a
+kit may keep a dialog layer there; on a phone it is the end of the phone's bar.
+`stage-bar` (API 1.27.0) is the right end of the stage's tab strip, after the
+tools and before the maximize, for a control about the stage as a whole, such as
+Workspace Kit's "Open in". The other placements are
 `composer-above`, `composer-controls`, `composer-below`, `transcript-header` and
 `transcript-footer`. `composer-controls` is one centred row on the
 transcript's bottom edge, before `transcript-footer` and everything over the
@@ -867,19 +888,19 @@ context.registerToolRenderer("git.rows", match, render, { profiles: ["desktop", 
 `"compact"` a phone or tablet: a browser that starts narrower than 720 px or on
 a touch screen, and the native app around the web client. There the thread list
 is a screen of its own and diffs do not split. On a phone a panel that claims
-`compact` is not docked: its glyph sits in the title bar and opens the panel as
+`compact` is not a stage tab: its glyph sits in the phone's bar over the chat and opens the panel as
 a sheet over the thread, with `placement` reading `sheet` (API 1.20.0; `stage`
 before). A phone draws no stage, so `openFile` and `openStageTab` show nothing
 there: a panel that opens documents shows them itself in the sheet, as Workspace
-Kit's Files panel reads a file with `FileSource`. Two or more such
-panels fold into the bar's More menu, by label and icon.
+Kit's Files panel reads a file with `FileSource`. The first two such panels keep
+their glyphs in the bar (design 1n); from three on, all but the first fold into
+the bar's More menu, by label and icon.
 `actions.openPanel(id)` and `actions.closePanel(id)` open and close that sheet
 there (API 1.13.0), so a panel can close itself after it handed something to the composer.
 A tablet (a compact client on a tablet's screen, at least 720 px wide) is laid out
-as the desktop: the same panels sit on the rail and open in the dock, so give a
-tool that should sit beside the chat `width: "wide"` and `maximizable: true`; it
-becomes a stage tab, the chat the first tab, where the tablet has no room for both.
-Terminal, Review and Preview do this for their compact panels.
+as the desktop: the same panels open as stage tabs beside the chat, from the
+strip's tools, and the chat folds to its spine where the tablet has no room for
+both. Terminal, Review and Preview do this for their compact panels.
 That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar; Review Kit registers a panel for `compact` alone, since the desktop reviews in an overlay. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
@@ -958,11 +979,10 @@ and a `Component` receiving `PageProps`. `actions.openPage(id, params?)` opens
 it and `actions.closePage()` closes it; both are optional on `WorkbenchActions`,
 absent in a client without pages.
 
-On a desktop the page takes the place of the thread, the stage and the dock,
-title bar included, in Settings' frame: Settings' page head (new in API
-1.27.0) over the page — its label as the title, its `description`, and at the
-right the action it draws with `SettingsPageAction` — under the strip the window
-is dragged by. The sidebar stays beside it, and its foot leads with Back and marks the
+On a desktop the page takes the place of the thread and the stage, in
+Settings' frame: Settings' page head (new in API 1.27.0) over the page — its
+label as the title, its `description`, and at the right the action it draws with
+`SettingsPageAction` — under the strip the window is dragged by. The sidebar stays beside it, and its foot leads with Back and marks the
 page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
 `newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
 `focusComposer`, `openWorkspace`) closes the page first, and so does another
@@ -3562,14 +3582,14 @@ on (the accent, the user's bubble, a diff line). A theme is not held to that aut
 
 **Surfaces**
 
-Two grounds carry the window: the document area (`--stage`, `--shell`) and the side surface (`--rail`, `--chrome`, `--field`, `--inset`), which in the dark scheme is the lighter of the two. The title bar takes the rail's surface over the sidebar and the dock and the document's ground between them.
+Two grounds carry the window: the document area (`--stage`, `--shell`) and the side surface (`--rail`, `--chrome`, `--field`, `--inset`), which in the dark scheme is the lighter of the two. The sidebar and the stage's tab strip lie on the side surface and run to the window's top edge; the conversation, its header and the tab in front lie on the document's ground.
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
 | `--well` | deepest: an inset control | `#e8e5e0` | `#0f1116` |
 | `--shell` | the window | `#fbfaf8` | `#0f1116` |
 | `--rail` | the sidebar | `#f0eeea` | `#171a1f` |
-| `--chrome` | title bar, panel chrome | `#f0eeea` | `#171a1f` |
+| `--chrome` | panel chrome | `#f0eeea` | `#171a1f` |
 | `--stage` | the document area and panel bodies | `#fbfaf8` | `#0f1116` |
 | `--sunken` | a well inside a surface | `#f4f2ef` | `#13161b` |
 | `--field` | an input, and the composer: filled, no edge | `#f0eeea` | `#171a1f` |
@@ -3796,7 +3816,7 @@ their pixels until a visual pass moves them.
 | `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
 | `data-density` | Appearance Kit's stylesheet, into `--density` | normal |
 | `data-timestamps` | message and tool timestamps: `12h`, `24h` or `locale` | 24-hour |
-| `--panel-motion` | how long the sidebar and the dock take to open or close, and the drawer to open; never while a divider is dragged or the system asks for reduced motion | `0ms` |
+| `--panel-motion` | how long the drawer takes to open; never while a divider is dragged or the system asks for reduced motion | `0ms` |
 
 `--project-hue` is not a token: the thread row sets it per project, and
 `--project-tint` and `--project-ink` say how deep that hue reads. Both are

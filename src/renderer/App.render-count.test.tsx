@@ -23,13 +23,14 @@ vi.mock("./Workbench", async (importOriginal) => {
   };
 });
 
-// TitleBar renders inside the workbench and outside the transcript.
+// The thread header renders inside the workbench and outside the transcript.
 const workbenchRenders = vi.hoisted(() => ({ count: 0 }));
-vi.mock("./components/TitleBar", () => ({
-  TitleBar: () => {
+vi.mock("./components/ThreadHeader", () => ({
+  ThreadHeader: () => {
     workbenchRenders.count += 1;
     return <header data-testid="title-bar" />;
   },
+  ThreadDetails: () => null,
 }));
 
 // The composer sits beside the transcript; a flush of tool output leaves it alone too.

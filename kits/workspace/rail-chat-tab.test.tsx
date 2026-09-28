@@ -83,68 +83,75 @@ async function openTerminal(): Promise<HTMLElement> {
 }
 
 const selected = (stage: HTMLElement, name: string | RegExp) => within(stage).getByRole("tab", { name }).getAttribute("aria-selected");
+/** Where only one of the two fits, the chat in front: the stage is folded away and the conversation shown. */
+const chatInFront = (center: () => string) => screen.queryByRole("region", { name: "Stage" }) === null && !center().includes("conversation-folded");
 
-describe("picking a thread in the rail while the centre shows tabs", () => {
-  it("brings the chat tab forward for another thread and for the one on screen; each thread keeps its own terminal tab", async () => {
+describe("picking a thread in the rail while only one of chat and stage fits", () => {
+  it("brings the chat forward for another thread and for the one on screen; each thread keeps its own terminal tab", async () => {
     setWindowWidth(1000);
     const { pick, center, switchSession } = await renderRail();
     const stage = await openTerminal();
-    expect(selected(stage, "Chat")).toBe("false");
+    expect(center()).toContain("conversation-folded");
     expect(selected(stage, /Terminal/)).toBe("true");
 
     pick("b");
-    expect(selected(stage, "Chat")).toBe("true");
-    expect(center()).toContain("chat-focused");
+    await waitFor(() => expect(chatInFront(center)).toBe(true));
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/b.jsonl"));
-    // Thread b has a stage of its own, and nothing on it yet.
-    await waitFor(() => expect(screen.queryByRole("tab", { name: /Terminal/ })).toBeNull());
 
+    // Thread b has a stage of its own; its terminal comes in front of the chat.
     const stageB = await openTerminal();
-    fireEvent.click(within(stageB).getByRole("tab", { name: /Terminal/ }));
-    expect(selected(stageB, "Chat")).toBe("false");
+    expect(within(stageB).getAllByRole("tab")).toHaveLength(1);
     pick("b");
-    expect(selected(stageB, "Chat")).toBe("true");
+    await waitFor(() => expect(chatInFront(center)).toBe(true));
     await waitFor(() => expect(switchSession).toHaveBeenCalledTimes(2));
 
     pick("a");
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/a.jsonl"));
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
     expect(within(await screen.findByRole("region", { name: "Stage" })).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
   });
 
-  it("keeps a maximized tool maximized and only changes the front tab", async () => {
+  it("keeps a maximized tool maximized and brings the chat forward", async () => {
     setWindowWidth(1728);
     const { pick, center } = await renderRail();
-    fireEvent.click(await screen.findByRole("button", { name: "Diffs" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Maximize Diffs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
-    expect(selected(stage, "Chat")).toBe("false");
+    fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Diffs/ }));
+    fireEvent.click(await within(stage).findByRole("button", { name: "Maximize stage" }));
+    expect(center()).toContain("conversation-folded");
 
     pick("a");
-    expect(selected(stage, "Chat")).toBe("true");
-    expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(stage).getByRole("tab", { name: /Diffs/ })).toBeTruthy();
-    expect(center()).toContain("compact");
+    await waitFor(() => expect(chatInFront(center)).toBe(true));
+    // The maximize stays with the thread: showing the stage folds the chat again.
+    fireEvent.click(screen.getByRole("button", { name: "Show stage" }));
+    const again = await screen.findByRole("region", { name: "Stage" });
+    expect(within(again).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(again).getByRole("tab", { name: /Diffs/ })).toBeTruthy();
   });
 
   it("leaves the stage alone where the chat is beside it", async () => {
     setWindowWidth(1728);
     const { pick, center } = await renderRail();
     const stage = await openTerminal();
-    expect(center()).not.toContain("compact");
+    expect(center()).toContain("stage-open");
     pick("a");
-    expect(within(stage).queryByRole("tab", { name: "Chat" })).toBeNull();
     expect(selected(stage, /Terminal/)).toBe("true");
+    expect(center()).not.toContain("conversation-folded");
 
-    // Narrowed afterwards, the stage keeps its own tab in front, not the chat.
+    // Narrowed afterwards, the stage keeps its own tab in front, the chat folded beside it.
     act(() => setWindowWidth(1000));
-    expect(center()).toContain("compact");
-    expect(selected(stage, "Chat")).toBe("false");
+    expect(center()).toContain("conversation-folded");
+    expect(selected(stage, /Terminal/)).toBe("true");
   });
 });
 
-/** Beside Workspace Kit's Files, the test's panel is one of two sheets: they fold into the title bar's More menu. */
+/** The phone's bar shows each sheet's glyph, or folds them past two into its More menu. */
 async function openSheet(label: string): Promise<void> {
-  fireEvent.click(within(document.querySelector<HTMLElement>(".title-bar")!).getByRole("button", { name: "More" }));
+  const bar = document.querySelector<HTMLElement>(".title-bar")!;
+  const direct = within(bar).queryByRole("button", { name: label });
+  if (direct) { fireEvent.click(direct); return; }
+  fireEvent.click(within(bar).getByRole("button", { name: "More" }));
   fireEvent.click(within(await screen.findByRole("menu", { name: "Panels" })).getByRole("menuitemcheckbox", { name: label }));
 }
 
@@ -155,7 +162,7 @@ describe("picking a thread on a phone", () => {
     await openSheet("Notes");
     expect(await screen.findByRole("dialog", { name: "Notes" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open thread Thread a" }));
     expect(screen.queryByRole("dialog", { name: "Notes" })).toBeNull();
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/sessions/a.jsonl"));
@@ -175,8 +182,8 @@ function pressNewThreadShortcut(key = "n", shiftKey = false): void {
   fireEvent.keyDown(window, { key, metaKey: mac, ctrlKey: !mac, shiftKey, bubbles: true, cancelable: true });
 }
 
-describe("starting a new thread while the centre shows tabs", () => {
-  it("shows the draft's chat with a stage of its own and focuses its composer from the shortcut, the rail, the palette, the title bar and the start card", async () => {
+describe("starting a new thread while only one of chat and stage fits", () => {
+  it("shows the draft's chat with a stage of its own and focuses its composer from the shortcut, the rail, the palette and the start card", async () => {
     setWindowWidth(1000);
     await renderRail();
 
@@ -187,13 +194,11 @@ describe("starting a new thread while the centre shows tabs", () => {
       async () => { await runPaletteCommand("Create new thread"); },
       async () => { pressNewThreadShortcut("O", true); await pickProjectWithEnter(); },
       async () => { await runPaletteCommand("New thread in…"); await pickProjectWithEnter(); },
-      async () => { fireEvent.click(await screen.findByRole("button", { name: "New thread in project" })); },
     ];
     for (const start of starts) {
       const stage = await openTerminal();
       fireEvent.click(within(stage).getByRole("tab", { name: /Terminal/ }));
       (document.activeElement as HTMLElement | null)?.blur();
-      expect(selected(stage, "Chat")).toBe("false");
 
       await start();
       expect(startScreenShown()).toBe(true);
@@ -212,10 +217,13 @@ describe("starting a new thread while the centre shows tabs", () => {
 
   it("starts the draft without the maximized tool, which its thread keeps", async () => {
     setWindowWidth(1728);
-    const { pick } = await renderRail();
-    fireEvent.click(await screen.findByRole("button", { name: "Diffs" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Maximize Diffs" }));
-    expect(selected(await screen.findByRole("region", { name: "Stage" }), "Chat")).toBe("false");
+    const { pick, center } = await renderRail();
+    fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Diffs/ }));
+    fireEvent.click(await within(stage).findByRole("button", { name: "Maximize stage" }));
+    expect(center()).toContain("conversation-folded");
 
     pressNewThreadShortcut();
     expect(screen.queryByRole("region", { name: "Stage" })).toBeNull();
@@ -225,11 +233,12 @@ describe("starting a new thread while the centre shows tabs", () => {
     await openTerminal();
 
     pick("a");
-    const stage = await screen.findByRole("region", { name: "Stage" });
-    await waitFor(() => expect(within(stage).getByRole("tab", { name: /Diffs/ })).toBeTruthy());
-    expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
-    // Picked from a draft with its documents in front: the thread's chat comes to the front, not the tool.
-    expect(selected(stage, "Chat")).toBe("true");
+    // Picked from a draft: the thread's chat comes to the front, its maximized tool behind.
+    await waitFor(() => expect(chatInFront(center)).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Show stage" }));
+    const again = await screen.findByRole("region", { name: "Stage" });
+    expect(within(again).getByRole("tab", { name: /Diffs/ })).toBeTruthy();
+    expect(within(again).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
   });
 });
 
@@ -239,7 +248,7 @@ describe("starting a new thread on a phone", () => {
     await renderRail();
     await openSheet("Notes");
     expect(await screen.findByRole("dialog", { name: "Notes" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
 
     const [fab] = await screen.findAllByRole("button", { name: "New thread" });
     fireEvent.click(fab!);

@@ -102,6 +102,14 @@ function appWith(
   });
 }
 
+/** Agents is a stage tab, under the strip's More tools. */
+async function openAgentsTab(): Promise<void> {
+  // The header's toggle opens the stage on Files; Agents is under the strip's More tools.
+  fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
+  fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: /Agents/ }, { timeout: 3000 }));
+}
+
 describe("the Agents panel", () => {
   it("lists sixty agents without mounting sixty rows", async () => {
     const many: AgentsState = {
@@ -112,7 +120,7 @@ describe("the Agents panel", () => {
     const sessions = [session("parent", "Parent thread", 100), ...many.links.map((entry, index) => session(entry.id, `Agent ${index}`, 60 - index))];
     renderApp(appWith(many, sessions, "parent"), { extensions: [workspaceExtension, agentsExtension] });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     const heading = await screen.findByRole("heading", { name: "Agents" });
     const panel = heading.closest(".agents-panel") as HTMLElement;
     await waitFor(() => expect(panel.querySelectorAll(".agent-row").length).toBeGreaterThan(0));
@@ -132,7 +140,7 @@ describe("the Agents panel", () => {
     ];
     renderApp(appWith(state, sessions, "unrelated"), { extensions: [workspaceExtension, agentsExtension] });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     await screen.findByRole("heading", { name: "Agents" });
     expect(screen.queryByText(/agents? in other threads/u)).toBeNull();
     expect(screen.queryByRole("button", { name: /Go to Parent thread/u })).toBeNull();
@@ -148,7 +156,7 @@ describe("the Agents panel", () => {
     });
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
 
     expect(await screen.findByRole("tab", { name: /Alpha reply/u })).toBeTruthy();
@@ -167,7 +175,7 @@ describe("the Agents panel", () => {
     const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     fireEvent.click(await screen.findByRole("button", { name: "Alpha reply, running" }));
     await screen.findByRole("tab", { name: /Alpha reply/u });
     // A preview tab is replaced, so the first has to be pinned to keep both.
@@ -203,7 +211,7 @@ describe("agent definitions in the Agents panel", () => {
       { extensions: [workspaceExtension, agentsExtension] },
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     const section = await screen.findByRole("region", { name: "Agent definitions" });
     expect(within(section).getByText("Reviews the change")).toBeTruthy();
     expect(within(section).getByText("1 open")).toBeTruthy();
@@ -243,7 +251,7 @@ describe("a spawned thread's worktree", () => {
       { extensions: [workspaceExtension, agentsExtension] },
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     expect(await screen.findByText(/tau\/agent-alpha · 2 files \+7 −1/u)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Apply changes of Alpha reply" }));
@@ -274,7 +282,7 @@ describe("an agent on another machine", () => {
       { extensions: [workspaceExtension, agentsExtension] },
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await openAgentsTab();
     const row = await screen.findByRole("button", { name: "Word on rex, completed" });
     expect(within(row).getByLabelText("Runs on rex.").textContent).toBe("rex");
     expect(within(row).getByText(/\$0\.25/u)).toBeTruthy();

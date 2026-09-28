@@ -34,7 +34,7 @@
   --well: light-dark(#e8e5e0, #0f1116);              /* deepest: an inset control */
   --shell: light-dark(#fbfaf8, #0f1116);             /* the window */
   --rail: light-dark(#f0eeea, #171a1f);              /* the sidebar */
-  --chrome: light-dark(#f0eeea, #171a1f);            /* title bar, panel chrome */
+  --chrome: light-dark(#f0eeea, #171a1f);            /* panel chrome */
   --stage: light-dark(#fbfaf8, #0f1116);             /* the document area and panel bodies */
   --sunken: light-dark(#f4f2ef, #13161b);            /* a well inside a surface */
   --field: light-dark(#f0eeea, #171a1f);             /* an input, and the composer: filled, no edge */

@@ -14,7 +14,14 @@ function formatSize(size: number): string {
  * on-screen keyboard leaves a phone a few lines of code. A tablet and the
  * desktop edit.
  */
-export function FileReader({ path, load, onBack }: { path: string; load(path: string): Promise<UiFileContent>; onBack(): void }) {
+export function FileReader({ path, load, onBack, actions }: {
+  path: string;
+  load(path: string): Promise<UiFileContent>;
+  /** A phone's sheet: back to the tree. The stage's Files tab shows the tree beside the file instead. */
+  onBack?(): void;
+  /** At the header's end, on the stage: open it as its own tab, edit it. */
+  actions?: React.ReactNode;
+}) {
   const [loaded, setLoaded] = useState<{ path: string; content?: UiFileContent; error?: string }>();
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -49,14 +56,15 @@ export function FileReader({ path, load, onBack }: { path: string; load(path: st
 
   return <div className="file-reader">
     <header className="file-reader-header">
-      <button type="button" className="file-reader-back" aria-label="Back to the files" onClick={onBack}><ChevronLeft size={20} aria-hidden="true" /></button>
+      {onBack ? <button type="button" className="file-reader-back" aria-label="Back to the files" onClick={onBack}><ChevronLeft size={20} aria-hidden="true" /></button> : null}
       <div className="file-reader-title">
         <strong>{name}</strong>
         <MiddleTruncate className="file-reader-path" value={path} />
       </div>
       {content ? <small className="file-reader-meta">{formatSize(content.size)}</small> : null}
+      {actions}
     </header>
-    <p className="file-reader-note" role="note">Read only on a phone. Edit it on a tablet or the desktop.</p>
+    {onBack ? <p className="file-reader-note" role="note">Read only on a phone. Edit it on a tablet or the desktop.</p> : null}
     <div className="file-reader-body">{body}</div>
   </div>;
 }

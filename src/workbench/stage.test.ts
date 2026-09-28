@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab,
+  activeTab, addPanelTabBehind, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab, stageFilePath,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
   openPanelTab, panelTabId, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
@@ -251,5 +251,21 @@ describe("the tab strip's own commands", () => {
     expect(tabIdsToTheRight(state, fileTabId(C))).toEqual([]);
     expect(otherTabIds(state, "nothing")).toEqual([]);
     expect(tabIdsToTheRight(state, "nothing")).toEqual([]);
+  });
+});
+
+describe("stageFilePath", () => {
+  it("names a file inside the project relative to it, so a link and the tree open one tab", () => {
+    expect(stageFilePath("/repo/src/a.ts", "/repo")).toBe("src/a.ts");
+    expect(stageFilePath("./src/a.ts", "/repo/")).toBe("src/a.ts");
+    expect(stageFilePath("src/a.ts", "/repo")).toBe("src/a.ts");
+    const once = openFileTab(openFileTab(EMPTY_STAGE, stageFilePath("src/a.ts", "/repo")), stageFilePath("/repo/src/a.ts", "/repo"));
+    expect(once.tabs).toHaveLength(1);
+  });
+
+  it("leaves a path outside the project, or one with no project, as it is", () => {
+    expect(stageFilePath("/other/a.ts", "/repo")).toBe("/other/a.ts");
+    expect(stageFilePath("/repository/a.ts", "/repo")).toBe("/repository/a.ts");
+    expect(stageFilePath("/repo/a.ts", undefined)).toBe("/repo/a.ts");
   });
 });

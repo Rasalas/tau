@@ -15,7 +15,6 @@ import type { Platform } from "../../workbench/platform";
 import type { PlatformEnvironments } from "../../workbench/environments";
 import type { UiEnvironmentThreadView, UiEnvironments } from "../../shared/environments";
 import { Stage } from "./Stage";
-import type { ChatTab } from "./StageTabs";
 
 afterEach(async () => {
   cleanup();
@@ -34,10 +33,11 @@ const CHANGED: UiWorkspaceChanges = {
 
 const NO_ACTIONS = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;
 
-function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread, registry, actions = NO_ACTIONS }: {
+function Harness({ initial, changes = NO_CHANGES, tools, maximize, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread, registry, actions = NO_ACTIONS }: {
   initial: StageState;
   changes?: UiWorkspaceChanges;
-  chatTab?: ChatTab;
+  tools?: React.ReactNode;
+  maximize?: { maximized: boolean; onToggle(): void };
   onClose?: (id: string) => void;
   threads?: ThreadStore;
   loadThread?: (sessionId: string) => Promise<UiMessage[]>;
@@ -61,7 +61,8 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
     actions={actions}
     cwd={CWD}
     changes={changes}
-    chatTab={chatTab}
+    tools={tools}
+    {...(maximize ? { maximize } : {})}
     loadFile={async (path): Promise<UiFileContent> => ({ path, name: "a.ts", size: 12, kind: "text", text: "const a = 1;\n", language: "typescript" })}
     loadDiff={async (path) => ({ path, added: 1, removed: 0, hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "added", newLine: 1, text: "const a = 1;" }] }] })}
     onActivate={(id) => setStage((current) => activateTab(current, id))}
@@ -165,28 +166,24 @@ describe("Stage", () => {
     expect(screen.queryByRole("button", { name: "Diff" })).toBeNull();
   });
 
-  it("switches from a file to chat and back in the compact tab strip", async () => {
-    function CompactHarness() {
-      const [chatActive, setChatActive] = useState(false);
-      return <Harness
-        initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)}
-        chatTab={{ active: chatActive, streaming: true, onSelect: setChatActive }}
-      />;
-    }
-
-    render(<CompactHarness />);
-    expect(await screen.findByText("const a = 1;")).toBeTruthy();
-
-    const chat = screen.getByRole("tab", { name: /Chat/u });
-    expect(chat.className).not.toContain("active");
-    expect(screen.getByLabelText("Agent is working")).toBeTruthy();
-    fireEvent.click(chat);
-    expect(chat.className).toContain("active");
-    expect(screen.queryByText("const a = 1;")).toBeNull();
-
-    fireEvent.click(screen.getByRole("tab", { name: /a\.ts/u }));
-    expect(chat.className).not.toContain("active");
-    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+  it("draws the design's strip: the changed mark, the tools, then the maximize after a separator", async () => {
+    const onToggle = vi.fn();
+    render(<Harness
+      initial={openFileTab(openFileTab(EMPTY_STAGE, `${CWD}/src/b.ts`, { pin: true }), `${CWD}/src/a.ts`)}
+      changes={CHANGED}
+      tools={<button type="button">Files tool</button>}
+      maximize={{ maximized: false, onToggle }}
+    />);
+    await screen.findByText("const a = 1;");
+    const changed = screen.getByRole("tab", { name: /a\.ts/u });
+    expect(changed.querySelector(".stage-tab-changed")?.textContent).toBe("M");
+    expect(screen.getByRole("tab", { name: /b\.ts/u }).querySelector(".stage-tab-changed")).toBeNull();
+    const actions = document.querySelector(".stage-strip-actions")!;
+    expect([...actions.children].map((child) => child.getAttribute("aria-label") ?? child.className ?? child.textContent))
+      .toEqual(["", "stage-strip-separator", "Maximize stage"]);
+    expect(actions.firstElementChild?.textContent).toBe("Files tool");
+    fireEvent.click(screen.getByRole("button", { name: "Maximize stage" }));
+    expect(onToggle).toHaveBeenCalled();
   });
 
   it("closes the focused tab on Escape without letting the key bubble", async () => {

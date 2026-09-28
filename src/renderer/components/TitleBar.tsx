@@ -1,27 +1,12 @@
 import { useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, Ellipsis, ListTree, PanelBottom, PanelBottomClose, PanelRight, PanelRightClose } from "lucide-react";
+import { ChevronLeft, Ellipsis } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "./PanelIcon";
 import { Region } from "./Regions";
-import { WindowControlsInset } from "./WindowControlsInset";
 import { HostLinkIndicator } from "../host-connection-status";
 import { tooltipProps } from "./ui/Tooltip";
-import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 import { Popover } from "../deferred-surfaces";
-
-function workspaceName(cwd?: string): string {
-  return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
-}
-
-/** A panel that draws below the conversation, and whether it is showing. */
-export interface DrawerToggle {
-  id: string;
-  label: string;
-  open: boolean;
-  shortcut?: string;
-  onToggle(): void;
-}
 
 /** A panel a compact layout opens over the thread, from its glyph in the bar. */
 export interface SheetToggle {
@@ -29,6 +14,8 @@ export interface SheetToggle {
   label: string;
   Icon?: PanelIconComponent;
   open: boolean;
+  /** Keeps its glyph in the bar when the rest fold into More (a panel with `stageButton`). */
+  pinned?: boolean;
   onToggle(): void;
 }
 
@@ -61,81 +48,59 @@ function SheetMenu({ sheets }: { sheets: readonly SheetToggle[] }) {
 }
 
 /**
- * The window's one top bar, as in T3 Code: the traffic-light corner over the
- * sidebar, then project / thread as a breadcrumb over the conversation, then
- * the kits' actions and the panel toggles.
+ * A phone's bar over its chat: back to the list, the thread's title with its
+ * details under it (the workbench design's 1n), what kits place in
+ * `title-bar`, and the panels it opens as sheets — the first as its glyph, the
+ * rest behind More, anchored at the bar's end. Everywhere else the
+ * conversation's own header takes this place.
  */
 export function TitleBar({
-  cwd,
-  dockOpen,
   registry,
   snapshot,
   actions,
   thread,
-  drawers = [],
-  onToggleDock,
-  onOpenThreads,
+  details,
   onBack,
   sheets = [],
-  hasDock = true,
   foldSheets = false,
 }: {
-  cwd?: string;
-  dockOpen: boolean;
   registry: ExtensionRegistry;
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
-  /** The thread's part of the breadcrumb: its title menu, or the draft's name. */
+  /** The thread's title menu, or the draft's name. */
   thread?: ReactNode;
-  drawers?: readonly DrawerToggle[];
-  onToggleDock(): void;
-  /** Set only on a compact layout, where the thread list is a screen or a touch sidebar. */
-  onOpenThreads?(): void;
-  /** A phone: the chat is a screen over the thread list, and this goes back to it. */
+  /** Branch, model, turn and cost under the title. */
+  details?: ReactNode;
+  /** The chat is a screen over the thread list, and this goes back to it. */
   onBack?(): void;
-  /** Panels a compact layout draws over the thread; empty elsewhere. */
+  /** Panels the phone draws over the thread. */
   sheets?: readonly SheetToggle[];
-  /** False when no extension registered a panel: there is no dock to show or hide. */
-  hasDock?: boolean;
-  /** A phone: two or more sheets fold into one More menu, so the bar keeps back, title and one button. */
+  /** Past two sheets the pinned ones keep their glyphs, the rest fold into one More menu. */
   foldSheets?: boolean;
 }) {
-  const project = workspaceName(cwd);
-  // A Read-only device could never send a new thread's first message.
-  const { readOnly } = useHostCapabilities();
+  // The pinned panels (else the first) keep their glyphs; two or more others fold into More.
+  const pinned = sheets.some((sheet) => sheet.pinned) ? sheets.filter((sheet) => sheet.pinned) : sheets.slice(0, 1);
+  const rest = sheets.filter((sheet) => !pinned.includes(sheet));
+  const folded = foldSheets && rest.length > 1;
+  const glyphs = folded ? pinned : sheets;
   return (
     <header className="title-bar">
       <div className="title-lead">
-        <WindowControlsInset />
-        {onOpenThreads ? <button
-          className="chrome-ghost glyph"
-          {...tooltipProps("Threads", { side: "bottom" })}
-          aria-label="Threads"
-          onClick={onOpenThreads}
-        ><ListTree size={15} /></button> : null}
         {onBack ? <button
           className="chrome-ghost glyph"
           aria-label="Back to threads"
           onClick={onBack}
         ><ChevronLeft size={15} /></button> : null}
       </div>
-      <nav className="title-breadcrumb" aria-label="Thread breadcrumb">
-        <button
-          type="button"
-          className="chrome-ghost title-project"
-          aria-label={`New thread in ${project}`}
-          disabled={readOnly}
-          {...tooltipProps(readOnly ? READ_ONLY_REASON : cwd ?? "starting host…", { side: "bottom", ...(readOnly ? {} : { variant: "code" as const }) })}
-          onClick={() => actions.newSession(cwd ? { workspace: cwd } : undefined)}
-        >{project}</button>
-        {thread ? <><span className="title-separator" aria-hidden>/</span>{thread}</> : null}
-      </nav>
-      <div className="title-spacer" />
+      <div className="title-heading">
+        <div className="title-heading-name">{thread}</div>
+        {details}
+      </div>
       <HostLinkIndicator />
 
       <Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />
 
-      {foldSheets && sheets.length > 1 ? <SheetMenu sheets={sheets} /> : sheets.map((sheet) => <button
+      {glyphs.map((sheet) => <button
         key={sheet.id}
         className="chrome-ghost glyph"
         aria-pressed={sheet.open}
@@ -143,22 +108,7 @@ export function TitleBar({
         {...tooltipProps(sheet.label, { side: "bottom" })}
         onClick={sheet.onToggle}
       ><PanelIcon Icon={sheet.Icon} size={16} /></button>)}
-      {drawers.map((drawer) => <button
-        key={drawer.id}
-        className="chrome-ghost glyph"
-        aria-pressed={drawer.open}
-        aria-label={`Toggle ${drawer.label} drawer`}
-        {...tooltipProps(`Toggle ${drawer.label} drawer`, { side: "bottom", shortcut: drawer.shortcut })}
-        onClick={drawer.onToggle}
-      >{drawer.open ? <PanelBottomClose size={15} /> : <PanelBottom size={15} />}</button>)}
-      {hasDock ? <button
-        className="chrome-ghost glyph"
-        {...tooltipProps(dockOpen ? "Hide panel" : "Show panel", { side: "bottom", shortcut: registry.keybindingLabel?.("workbench.toggle-dock") })}
-        aria-label={dockOpen ? "Hide panel" : "Show panel"}
-        onClick={onToggleDock}
-      >
-        {dockOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
-      </button> : null}
+      {folded ? <SheetMenu sheets={rest} /> : null}
     </header>
   );
 }

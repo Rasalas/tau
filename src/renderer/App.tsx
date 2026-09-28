@@ -34,12 +34,12 @@ import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
 import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
+import { activeTab as activeStageTab, openFileTab, openThreadTab, stageFilePath as projectFilePath, stageTabPath, type StageView } from "../workbench/stage";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { stageOwner } from "../workbench/thread-stages";
-import { isWidePanel, usePanelLayout } from "./use-panel-layout";
+import { usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
 import { followTurnActivity } from "../workbench/turn-activity";
@@ -174,8 +174,8 @@ export default function App() {
   // The stage and the dock belong to the thread or draft on screen, and outlive the window.
   const shownOwner = stageOwner(snapshot?.sessionId, pendingNewThread);
   const {
-    stage, setStage, stageWorkspace, stageMaximized, setStageMaximized, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
-    openedPanels, dockWidth, setDockWidth, drawer, setDrawer,
+    stage, setStage, stageWorkspace, stageMaximized, setStageMaximized, stageFolded, setStageFolded, setStageShown, activePanel, setActivePanel,
+    drawer, setDrawer,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
     stages: workbenchSession.stages,
@@ -187,17 +187,16 @@ export default function App() {
     knownThreadIds,
     panelIds,
   });
-  const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
   // A document opened beside the chat takes the tool that filled that space into the tabs.
   const revealDocuments = useRef(() => {});
   const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
-  // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
+  // Where the centre is too narrow for chat and stage side by side, one of them is folded to its spine.
   const [chatFocused, setChatFocused] = useState(false);
   // Another thread's stage may come back maximized; its chat is what was asked for.
   useEffect(() => { setChatFocused(true); }, [shownOwner]);
-  // Documents maximized on their own; a list's tab on the stage came by maximizing, a wide tool's by opening.
-  const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel" && !isWidePanel(panels, tab.panelId));
+  // The stage over the whole centre, the conversation folded to its spine.
+  const maximized = stageMaximized;
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
@@ -449,18 +448,22 @@ export default function App() {
     onRestart: () => { void client?.installUpdate(); }, onUpdateDismissed: () => setUpdateReady(undefined),
   });
 
-  // Dock, drawer or stage tab: where each panel shows, and the moves between them.
+  // Stage tab or drawer: where each panel shows, and the moves between them.
   const panelLayout = usePanelLayout({
-    panels, stage, setStage, stageTabs, dockOpen, setDockOpen, activePanel, setActivePanel, drawer, setDrawer,
+    panels, stage, setStage, stageTabs, activePanel, setActivePanel, drawer, setDrawer,
     maximized, setStageMaximized,
-    showStage: () => setChatFocused(false),
+    showStage: () => { setChatFocused(false); setStageFolded(false); },
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
     sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
     actions: () => actionsRef.current,
   });
-  revealDocuments.current = () => { setChatFocused(false); panelLayout.documentOpened(); };
+  revealDocuments.current = panelLayout.documentOpened;
   const openPanel = panelLayout.openPanel;
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); revealDocuments.current(); }, []);
+  // One tab per file, however a link, the tree or a kit names it.
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => {
+    setStage((current) => openFileTab(current, projectFilePath(path, workspaceCwd), options));
+    revealDocuments.current();
+  }, [workspaceCwd]);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean; machine?: string }) => {
     const machine = lookInMachine(options?.machine, platform.environments);
     setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) }));
@@ -517,7 +520,7 @@ export default function App() {
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
     composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
-    duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
+    duplicateThread, setComposerSeed, setDockOpen: setStageShown, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
@@ -623,7 +626,7 @@ export default function App() {
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions, panels, activePanel,
-    openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockAsks, dockWidth, onDockWidthChange: setDockWidth,
+    openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
@@ -632,8 +635,8 @@ export default function App() {
   }), [
     activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
-    documentSource, documentState, dockAsks, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
-    openNewThreadPicker, openPanel, openedPanelIds,
+    documentSource, documentState, drawer, panelLayout, setStageFolded, stageFolded, newThreadOpen,
+    openNewThreadPicker, openPanel,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,
     sidebarContributions, stage, stageWorkspace, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
