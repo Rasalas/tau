@@ -1,99 +1,38 @@
 /*
- * The model picker: a popover at its chip, as in T3 Code, with no scrim.
- * Runtimes on the left, a runtime's providers beside them when it has
- * several, both as marks named by their tooltips; the models on the right. Loaded with the picker's chunk when it
- * first opens; the chip keeps its rules in styles.css.
+ * The model picker: a popover at its chip with no scrim, in three columns —
+ * runtimes as marks, the runtime's models (pinned first), the thinking level —
+ * over "Recent". A phone and a narrow window stack the columns; on a compact
+ * layout it is a bottom sheet (touch/touch.css). Loaded with the picker's
+ * chunk when it first opens; the chip keeps its rules in styles.css.
  */
 .model-picker.popover {
-  width: 680px; max-width: calc(100vw - 16px); height: 460px; max-height: calc(100vh - 16px);
+  width: 600px; max-width: calc(100vw - 16px); height: 440px; max-height: calc(100vh - 16px);
   display: flex; flex-direction: column; padding: 0; overflow: hidden;
   border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
+.model-picker.popover.with-thinking { width: 680px; }
 .model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.model-picker-content > footer {
-  flex: none; display: flex; align-items: center; gap: 14px; height: 30px;
-  border-top: 1px solid var(--line); padding: 0 14px;
-  font: 10px var(--mono); color: var(--faint);
-}
-.model-picker-content > footer .spacer { flex: 1; }
-.model-footer-link {
-  display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0;
-  background: transparent; color: var(--muted); font: inherit; cursor: pointer;
-}
-.model-footer-link:hover { color: var(--ink-2); }
-.model-picker-body { flex: 1; min-height: 0; display: flex; }
-.model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-/* Left: Favourites, Recent, then every runtime with a dot for its state. */
-.model-rail {
-  width: 48px; flex: none; overflow: auto; scrollbar-width: none;
-  border-right: 1px solid var(--line); padding: 6px;
-  display: flex; flex-direction: column; gap: 2px; background: var(--wash);
+/* The search: a filled field over all three columns, as the design draws it. */
+.model-search {
+  flex: none; height: 38px; gap: 8px; margin: 8px 8px 2px; padding: 0 6px 0 12px;
+  border: 1px solid transparent; border-radius: 9px; background: var(--inset);
+  transition: border-color .12s ease;
 }
-.model-rail-slot > hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px 6px; }
-.model-rail button {
-  position: relative; width: 36px; height: 36px; display: grid; place-items: center;
-  border: 0; border-radius: 8px; padding: 0; background: transparent;
-  color: var(--ink-3); cursor: pointer;
-}
-.model-rail button:hover { background: var(--hover-strong); color: var(--ink-2); }
-.model-rail button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.model-rail button.active { background: var(--raised); color: var(--ink); }
-.model-rail button.active::before {
-  content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px; width: 3px;
-  border-radius: 0 2px 2px 0; background: var(--acid);
-}
-.model-rail .rail-icon { margin-left: 0; flex: none; }
-.model-rail .rail-glyph { flex: none; color: var(--acid-text); }
-/* A second instance of one program: its initials on the program's mark. */
-.rail-instance {
-  position: absolute; left: 3px; bottom: 3px; min-width: 11px; height: 11px; padding: 0 2px;
-  border-radius: 3px; background: var(--overlay); box-shadow: 0 0 0 1px var(--line-control);
-  font: 700 7.5px/11px var(--mono); font-style: normal; color: var(--ink-2); text-align: center;
-}
-.runtime-dot {
-  position: absolute; right: 4px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--fainter); box-shadow: 0 0 0 1.5px var(--wash);
-}
-.runtime-dot-ready { background: var(--ready); }
-.runtime-dot-update { background: var(--info); }
-.runtime-dot-sign-in, .runtime-dot-unavailable { background: var(--warn); }
-.runtime-dot-loading { background: var(--faint); animation: model-dot-pulse 1.2s ease-in-out infinite; }
-.runtime-dot-not-installed, .runtime-dot-unlisted { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
-@keyframes model-dot-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
-
-/* Middle: a runtime's providers, only when it has several; the count is in the tooltip. */
-.model-providers {
-  width: 48px; flex: none; overflow: auto; scrollbar-width: none;
-  border-right: 1px solid var(--line); padding: 6px;
-  display: flex; flex-direction: column; gap: 2px;
-}
-.model-providers button {
-  flex: none; width: 36px; height: 34px; display: grid; place-items: center; padding: 0;
-  border: 0; border-radius: 8px; background: transparent;
-  color: var(--ink-3); cursor: pointer;
-}
-.provider-all-glyph { color: var(--muted); }
-.model-providers button.active .provider-all-glyph, .model-provider-filter > button.active .provider-all-glyph { color: var(--ink); }
-.model-providers button:hover { background: var(--hover-strong); color: var(--ink-2); }
-.model-providers button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.model-providers button.active { background: var(--raised); color: var(--ink); }
-.model-providers .provider-column-icon, .model-provider-filter .provider-column-icon { margin-left: 0; flex: none; }
-
-.model-search { height: 46px; gap: 8px; padding: 0 10px 0 14px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
-.model-search:focus-within { border-bottom-color: var(--acid); }
+.model-search:focus-within { border-color: var(--line-focus); }
 .model-search > svg { color: var(--faint); flex: none; }
+.model-search > input { font-size: 13px; }
+.model-search > .model-keys { flex: none; font: 10.5px var(--mono); color: var(--faint); letter-spacing: .12em; }
 .model-tool { position: relative; flex: none; }
 .model-tool-button {
-  height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px;
-  border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
+  height: 28px; min-width: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px;
+  border: 0; border-radius: 7px; background: transparent;
   color: var(--muted); font: 11px var(--sans); cursor: pointer;
 }
 .model-tool-button:hover, .model-tool-button[aria-expanded="true"] { background: var(--hover-strong); color: var(--ink); }
-.model-tool-button.on { color: var(--acid-text); border-color: var(--acid-line); }
+.model-tool-button.on { color: var(--acid-text); }
 .model-menu {
-  position: absolute; right: 0; top: 32px; z-index: 2; min-width: 170px; padding: 4px;
+  position: absolute; right: 0; top: 32px; z-index: 2; min-width: 190px; padding: 4px;
   display: flex; flex-direction: column; border: 1px solid var(--line-float); border-radius: 9px;
   background: var(--overlay); box-shadow: var(--elevation-1);
 }
@@ -108,88 +47,88 @@
 .model-menu > button[aria-checked="true"]::before {
   content: "✓"; position: absolute; left: 8px; color: var(--acid-text); font-size: 11px;
 }
-.model-search > .model-provider-add {
-  width: 28px; height: 28px; display: grid; place-items: center; flex: none;
-  border: 1px dashed var(--line-control); border-radius: 7px;
-  background: transparent; color: var(--muted); cursor: pointer;
-}
-.model-search > .model-provider-add:hover {
-  background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
-}
 
-/* The narrow popover: the provider column as a row of marks above the list. */
-.model-provider-filter {
-  flex: none; display: flex; gap: 4px; overflow-x: auto; padding: 6px 8px;
-  border-bottom: 1px solid var(--line); scrollbar-width: none;
+.model-picker-body { flex: 1; min-height: 0; display: flex; gap: 4px; padding: 4px 8px 0; }
+
+/* Column 1: Favourites, then every runtime as its mark, with a dot for a state other than ready. */
+.model-rail {
+  width: 40px; flex: none; overflow: auto; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: 2px; padding-top: 26px;
 }
+.model-rail-slot > hr { border: 0; border-top: 1px solid var(--line); margin: 3px 4px 5px; }
+.model-rail button {
+  position: relative; width: 36px; height: 36px; display: grid; place-items: center;
+  border: 0; border-radius: 8px; padding: 0; background: transparent;
+  color: var(--ink-3); cursor: pointer;
+}
+.model-rail button:hover { background: var(--hover-strong); color: var(--ink-2); }
+.model-rail button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.model-rail button.active { background: var(--raised); color: var(--ink); }
+/* Not installed or not signed in: still there, dimmed; choosing it says why and what fixes it. */
+.model-rail button.blocked > :not(.runtime-dot) { opacity: .45; filter: grayscale(1); }
+.model-rail button.blocked.active > :not(.runtime-dot) { opacity: .7; }
+.model-rail .rail-icon { margin-left: 0; flex: none; }
+.model-rail .rail-glyph { flex: none; color: var(--acid-text); }
+/* A second instance of one program: its initials on the program's mark. */
+.rail-instance {
+  position: absolute; left: 3px; bottom: 3px; min-width: 11px; height: 11px; padding: 0 2px;
+  border-radius: 3px; background: var(--overlay); box-shadow: 0 0 0 1px var(--line-control);
+  font: 700 7.5px/11px var(--mono); font-style: normal; color: var(--ink-2); text-align: center;
+}
+.runtime-dot {
+  position: absolute; right: 4px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fainter); box-shadow: 0 0 0 1.5px var(--overlay);
+}
+.runtime-dot-ready { background: var(--ready); }
+.runtime-dot-update { background: var(--info); }
+.runtime-dot-sign-in, .runtime-dot-unavailable { background: var(--warn); }
+.runtime-dot-loading { background: var(--faint); animation: model-dot-pulse 1.2s ease-in-out infinite; }
+.runtime-dot-not-installed, .runtime-dot-unlisted { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
+@keyframes model-dot-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
+
+/* Column 2: the models, under the runtime's name; a runtime with several providers adds their marks. */
+.model-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.model-column-head {
+  flex: none; height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  font-size: 11.5px; color: var(--muted); white-space: nowrap;
+}
+.model-column-title { flex: none; }
+.model-column-head > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 11px; }
+.model-provider-filter { margin-left: auto; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
 .model-provider-filter > button {
-  flex: none; width: 30px; height: 26px; display: grid; place-items: center; padding: 0;
-  border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer;
+  flex: none; width: 26px; height: 22px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
 }
 .model-provider-filter > button:hover { background: var(--hover-strong); }
-.model-provider-filter > button.active { background: var(--raised); border-color: var(--line-float); }
+.model-provider-filter > button.active { background: var(--raised); }
+.model-provider-filter .provider-column-icon { margin-left: 0; flex: none; transform: scale(.85); }
+.provider-all-glyph { color: var(--muted); }
+.model-provider-filter > button.active .provider-all-glyph { color: var(--ink); }
 
-/* A runtime whose models are not on hand: what choosing it means, and the actions it takes. */
-.model-runtime-pane {
-  flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
-  padding: 28px 24px; color: var(--ink-2);
-}
-.model-runtime-pane > strong { font-size: 14px; color: var(--ink); }
-.model-runtime-pane > p { margin: 0; max-width: 420px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
-.model-runtime-pane .runtime-pane-icon { margin-left: 0; }
-.model-runtime-pane-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.model-runtime-pane-actions > button {
-  height: 32px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: 8px;
-  background: transparent; color: var(--ink-2); font: 600 12px var(--sans); cursor: pointer;
-}
-.model-runtime-pane-actions > button.primary { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
-.model-runtime-pane-actions > button:hover { background: var(--hover-strong); }
-.model-runtime-pane-actions > button.primary:hover { background: var(--acid-chip); }
-
-/* Right: the list, with the context and price columns a header names. */
-.model-columns {
-  flex: none; display: grid; grid-template-columns: 1fr 58px 104px 56px; gap: 8px;
-  padding: 6px 18px 4px 18px; font: 10px var(--mono); color: var(--faint);
-  text-transform: uppercase; letter-spacing: .04em;
-}
-.model-columns > span:nth-child(2), .model-columns > span:nth-child(3) { text-align: right; }
-.model-list { flex: 1; min-width: 0; overflow: auto; padding: 0 8px 8px; }
+.model-list { flex: 1; min-width: 0; overflow: auto; padding: 0 0 4px; }
 .model-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) 58px 104px 56px; align-items: center; gap: 8px;
-  border-radius: 8px; padding: 0 2px 0 10px; height: 52px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 10px;
+  border-radius: 8px; cursor: pointer; color: var(--ink-2);
 }
-.model-picker-content.narrow .model-row { grid-template-columns: minmax(0, 1fr) 96px 56px; }
-.model-row.grouped { height: 42px; padding-left: 22px; }
-.model-row.selected { background: var(--raised); }
-.model-row.hidden-model .model-cell-main { opacity: .55; }
-.model-cell-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.model-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.model-row.grouped { height: 30px; padding-left: 20px; }
+.model-row.selected { background: var(--hover-strong); }
+.model-row.current { background: var(--raised); }
+.model-row.current.selected { background: var(--raised-hover); }
+.model-row.hidden-model .model-line { opacity: .55; }
+.model-line {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  height: 18px; flex-wrap: wrap; row-gap: 0; overflow: hidden;
+}
+/* The name wins over its badges: a badge without room wraps onto a line nobody sees. */
 .model-line > strong {
-  font-size: 13px; font-weight: 500; color: var(--ink-2); min-width: 0;
+  flex: 0 1 auto; max-width: 100%; line-height: 18px;
+  font-size: 13px; font-weight: 500; color: var(--ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.model-row.selected .model-line > strong { color: var(--ink); font-weight: 600; }
-.model-sub {
-  display: flex; align-items: center; gap: 6px; min-width: 0;
-  font: 11px var(--sans); color: var(--faint); white-space: nowrap;
-}
-.model-sub .sub-icon, .model-line .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
-/* A route's mark in rows across runtimes; under a model's heading it stands in for the name, at full size. */
-.model-marks { flex: none; display: inline-flex; align-items: center; }
-.model-row.grouped .model-marks .sub-icon { transform: none; }
-.model-row.grouped .model-marks { min-width: 24px; }
-.model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.model-levels { display: inline-flex; align-items: center; gap: 2px; font: 10px var(--mono); color: var(--muted); }
-.model-context { font: 11px var(--mono); color: var(--muted); text-align: right; }
-.model-price { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; }
-.model-price > b { font-weight: 500; }
-.model-price > small { font-size: 9.5px; color: var(--faint); }
-.model-price.muted { color: var(--faint); }
-.model-group {
-  height: 26px; display: flex; align-items: flex-end; gap: 8px; padding: 0 10px 3px;
-  font: 600 12px var(--sans); color: var(--ink-2);
-}
-.model-group > small { font: 10px var(--mono); color: var(--faint); font-weight: 400; }
+.model-row.current .model-line > strong { color: var(--ink); font-weight: 600; }
+.model-marks { flex: none; display: inline-flex; align-items: center; min-width: 18px; }
+.model-marks .sub-icon { margin-left: 0; }
 .model-line > em {
   flex: none; font: 9.5px var(--mono); font-style: normal; color: var(--acid-text);
   border: 1px solid var(--acid-line); border-radius: 4px; padding: 1px 5px;
@@ -206,19 +145,8 @@
 }
 .model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); font-weight: 700; }
 .model-badge-warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-chip); }
-.model-legacy { grid-template-columns: minmax(0, 1fr) auto; height: 44px; }
-.model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
-.model-picker-note {
-  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 8px 14px;
-  border-top: 1px solid var(--line); background: var(--inset);
-  color: var(--muted); font-size: 11px; line-height: 1.5;
-}
-.model-note-action {
-  border: 1px solid var(--line-control); border-radius: 6px; padding: 1px 8px;
-  background: transparent; color: var(--ink-2); font: 600 11px var(--sans); cursor: pointer;
-}
-.model-note-action:hover { background: var(--hover-strong); color: var(--ink); }
-.model-row-actions { display: flex; justify-content: flex-end; }
+.model-check { flex: none; width: 16px; display: grid; place-items: center; color: var(--acid-text); }
+.model-row-actions { flex: none; display: flex; }
 .model-row-action {
   flex: none; width: 24px; height: 24px; display: inline-grid; place-items: center;
   border: 0; border-radius: 6px;
@@ -229,26 +157,129 @@
 .model-row-action:not(.model-star.on) { opacity: 0; }
 .model-row:hover .model-row-action, .model-row.selected .model-row-action, .model-row.hidden-model .model-hide { opacity: 1; }
 .model-star.on { color: var(--acid-text); }
-/* The name wins over its badges: a badge without room wraps onto a line nobody sees. */
-.model-line { flex-wrap: wrap; height: 18px; row-gap: 0; overflow: hidden; }
-.model-line > strong { flex: 0 1 auto; max-width: 100%; line-height: 18px; }
+/* "Show all 14", "Pinned only", "Legacy models": quiet rows that fold the list. */
+.model-fold { color: var(--muted); font-size: 12px; }
+.model-fold[aria-label^="Show all"] { color: var(--info-ink); }
+.model-fold .model-line { gap: 6px; }
+.model-fold .model-line > small { color: var(--faint); font: 10.5px var(--mono); }
+.model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
+.model-group {
+  height: 24px; display: flex; align-items: flex-end; gap: 8px; padding: 0 10px 3px;
+  font: 600 12px var(--sans); color: var(--ink-2);
+}
+.model-group > small { font: 10px var(--mono); color: var(--faint); font-weight: 400; }
+/* What the model under the cursor reads and costs: the columns the list no longer has. */
+.model-detail {
+  flex: none; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 10px;
+  border-top: 1px solid var(--line-soft); overflow: hidden; white-space: nowrap;
+  font-size: 11px; color: var(--faint);
+}
+.model-detail > span + span:not(.model-detail-end)::before { content: "·"; margin-right: 6px; color: var(--fainter); }
+.model-id { font: 10.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; max-width: 45%; }
+.model-detail > span { flex: none; }
+.model-detail-end { margin-left: auto; color: var(--muted); }
 
-/* A phone: every control a finger's size (44 px), no hover to uncover the star, and hiding is left to a pointer. */
-body[data-profile="compact"] .model-rail { width: 56px; padding: 6px; }
-body[data-profile="compact"] .model-rail button { width: 44px; height: 44px; }
-body[data-profile="compact"] .model-search { height: 56px; gap: 4px; padding-right: 4px; }
-body[data-profile="compact"] .model-search > .model-tool > .model-tool-button,
-body[data-profile="compact"] .model-search > .model-provider-add { width: 44px; height: 44px; justify-content: center; padding: 0; border: 0; border-radius: 10px; }
+/* Column 3: the thinking level of the model in use. */
+.model-thinking { width: 150px; flex: none; display: flex; flex-direction: column; min-height: 0; }
+.model-levels { display: flex; flex-direction: column; gap: 2px; overflow: auto; scrollbar-width: none; }
+.model-levels > button {
+  position: relative; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 10px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--ink-2);
+  font: 13px var(--sans); text-align: left; cursor: pointer;
+}
+.model-levels > button:hover { background: var(--hover-strong); color: var(--ink); }
+.model-levels > button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.model-levels > button.active { background: var(--raised); color: var(--ink); font-weight: 600; }
+.model-levels > button > small { color: var(--faint); font-size: 11px; font-weight: 400; }
+.model-level-check { margin-left: auto; color: var(--acid-text); flex: none; }
+.model-thinking-note { margin: 0; padding: 6px 10px; color: var(--faint); font-size: 12px; line-height: 1.5; }
+
+/* A runtime whose models are not on hand: why, and what to do. */
+.model-runtime-pane {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  padding: 14px 12px; color: var(--ink-2);
+}
+.model-runtime-pane > p { margin: 0; max-width: 400px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.model-runtime-pane .runtime-pane-icon { margin-left: 0; }
+.model-runtime-pane-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.model-runtime-pane-actions > button {
+  height: 30px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: 8px;
+  background: transparent; color: var(--ink-2); font: 600 12px var(--sans); cursor: pointer;
+}
+.model-runtime-pane-actions > button.primary { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
+.model-runtime-pane-actions > button:hover { background: var(--hover-strong); }
+.model-runtime-pane-actions > button.primary:hover { background: var(--acid-chip); }
+
+.model-picker-note {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 7px 14px;
+  border-top: 1px solid var(--line); background: var(--inset);
+  color: var(--muted); font-size: 11px; line-height: 1.5;
+}
+.model-note-action {
+  border: 1px solid var(--line-control); border-radius: 6px; padding: 1px 8px;
+  background: transparent; color: var(--ink-2); font: 600 11px var(--sans); cursor: pointer;
+}
+.model-note-action:hover { background: var(--hover-strong); color: var(--ink); }
+
+/* Bottom: the last few choices, one click each, and where pinning lives. */
+.model-recent {
+  flex: none; min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 14px;
+  border-top: 1px solid var(--line);
+}
+.model-recent .spacer { flex: 1; }
+.model-recent-label { flex: none; font-size: 11.5px; color: var(--muted); }
+.model-recent-list { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.model-recent-chip {
+  flex: none; height: 30px; max-width: 170px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 6px;
+  border: 0; border-radius: 8px; background: var(--inset); color: var(--ink-2); font: 12px var(--sans); cursor: pointer;
+}
+.model-recent-chip:hover { background: var(--hover-strong); color: var(--ink); }
+.model-recent-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-footer-link {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0;
+  background: transparent; color: var(--muted); font: 11.5px var(--sans); cursor: pointer;
+}
+.model-footer-link:hover { color: var(--ink-2); text-decoration: underline; }
+
+/* Stacked (a phone, a narrow window): runtimes in a row above the models, thinking in a row below. */
+.model-picker-content.stacked .model-picker-body { flex-direction: column; gap: 0; padding: 0; }
+.model-picker-content.stacked .model-rail {
+  width: auto; flex-direction: row; padding: 4px 8px; gap: 4px; overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--line);
+}
+.model-picker-content.stacked .model-rail-slot { display: flex; align-items: center; }
+.model-picker-content.stacked .model-rail-slot > hr { width: 1px; height: 22px; border: 0; border-left: 1px solid var(--line); margin: 0 4px 0 2px; }
+.model-picker-content.stacked .model-column { padding: 0 8px; min-height: 0; }
+.model-picker-content.stacked .model-thinking {
+  width: auto; flex-direction: row; align-items: center; gap: 8px; padding: 4px 8px 4px 14px;
+  border-top: 1px solid var(--line);
+}
+.model-picker-content.stacked .model-thinking > .model-column-head { padding: 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; height: auto; max-width: 96px; }
+.model-picker-content.stacked .model-thinking > .model-column-head > small { max-width: 96px; }
+.model-picker-content.stacked .model-levels { flex-direction: row; overflow-x: auto; }
+.model-picker-content.stacked .model-levels > button { flex: none; padding: 0 12px; }
+.model-picker-content.stacked .model-levels > button > small,
+.model-picker-content.stacked .model-level-check { display: none; }
+.model-picker-content.stacked .model-thinking-note { padding: 6px 0; }
+
+/* A phone or an iPad: every control a finger's size (44 px), no hover to uncover the star, and hiding is left to a pointer. */
+body[data-profile="compact"] .model-search { height: 44px; margin: 8px 10px 4px; padding-right: 0; }
+body[data-profile="compact"] .model-search > input { font-size: 16px; height: 44px; }
+body[data-profile="compact"] .model-tool-button { width: 44px; height: 44px; border-radius: 10px; }
 body[data-profile="compact"] .model-menu { top: 48px; }
 body[data-profile="compact"] .model-menu > button { height: 44px; font-size: 14px; }
-body[data-profile="compact"] .model-provider-filter { gap: 2px; padding: 2px 6px; }
-body[data-profile="compact"] .model-provider-filter > button { width: 44px; height: 44px; border-radius: 10px; }
-body[data-profile="compact"] .model-picker-content.narrow .model-row { grid-template-columns: minmax(0, 1fr) 96px 44px; padding-right: 0; }
-body[data-profile="compact"] .model-row.grouped { height: 48px; }
+body[data-profile="compact"] .model-rail { width: 48px; padding-top: 30px; }
+body[data-profile="compact"] .model-rail button { width: 44px; height: 44px; }
+body[data-profile="compact"] .model-picker-content.stacked .model-rail { width: auto; padding: 2px 8px; }
+body[data-profile="compact"] .model-column-head { height: 30px; font-size: 12.5px; }
+body[data-profile="compact"] .model-provider-filter > button { width: 44px; height: 30px; border-radius: 8px; }
+body[data-profile="compact"] .model-row { height: 48px; padding-right: 0; }
+body[data-profile="compact"] .model-row .model-line > strong { font-size: 15px; }
 body[data-profile="compact"] .model-row-action { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-row-action:not(.model-star.on) { opacity: 1; color: var(--faint); }
 body[data-profile="compact"] .model-hide { display: none; }
-body[data-profile="compact"] .model-footer-link { min-height: 44px; font-size: 12px; }
-body[data-profile="compact"] .model-picker-content > footer { height: auto; }
+body[data-profile="compact"] .model-levels > button { height: 44px; font-size: 15px; border-radius: 10px; }
+body[data-profile="compact"] .model-recent-chip { height: 44px; font-size: 14px; border-radius: 10px; }
+body[data-profile="compact"] .model-footer-link { min-height: 44px; font-size: 13px; }
 body[data-profile="compact"] :is(.model-note-action, .model-runtime-pane-actions > button) { min-height: 44px; padding-inline: 14px; font-size: 13px; }
-body[data-profile="compact"] .model-search > input { height: 44px; }
+body[data-profile="compact"] .model-detail { height: 30px; font-size: 12px; }
