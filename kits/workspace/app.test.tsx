@@ -175,6 +175,45 @@ describe("Workspace Kit in the workbench", () => {
     expect(limited?.getAttribute("data-tooltip")).toContain("continues by itself at");
   });
 
+  it("names a question Question, without a frame, and times a run from the host's start, as a phone does", async () => {
+    const shell = (id: string) => ({ id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 2 });
+    const organizing: DesktopExtension = {
+      id: "test.organizer",
+      name: "Organizer",
+      activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer({
+        subscribe: () => () => undefined,
+        getVersion: () => 1,
+        sections: (threads) => [{ id: "pinned", label: "Pinned", threads: [...threads] }, { id: "active", threads: [] }],
+        menu: () => [],
+        runMenu: () => undefined,
+        toggleSettled: () => undefined,
+        dropLabel: () => "Move",
+        drop: () => undefined,
+      })),
+    };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [shell("asking"), shell("busy"), shell("fine")],
+          runs: { busy: Date.now() - 134_000 },
+        },
+        detail: { sessionId: "fine", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "fine", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, { extensions: [workspaceExtension, organizing] });
+    await screen.findByText("Thread asking");
+    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "asking", prompt: { id: "q1", sessionId: "asking", kind: "confirm", title: "Write the file?" } }));
+    const asking = screen.getByText("Thread asking").closest(".thread-row") as HTMLElement;
+    await waitFor(() => expect(asking.querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question"));
+    const busy = screen.getByText("Thread busy").closest(".thread-row")?.querySelector(".thread-status-age.status-working");
+    expect(busy?.textContent).toMatch(/^Working2:1[45]$/u);
+  });
+
   it("folds settled history by default, keeps the open thread, and pages it ten then twenty-five at a time", async () => {
     const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `settled-${index}`,

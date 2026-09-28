@@ -20,7 +20,9 @@ import {
   type DraftThread,
   type ProjectSourceProps,
   type SidebarContributionProps,
+  threadRowStatus,
   type ThreadActivity,
+  type ThreadRowStatus,
   type UiProject,
   type UiSession,
   type WorkbenchActions,
@@ -498,13 +500,6 @@ function ProjectScope({ actions }: SidebarContributionProps) {
 }
 
 /** The rail's tooltip for a thread a provider limit stopped. */
-export function limitHint(limit: UiSession["limit"], now = Date.now()): string {
-  if (!limit) return "A provider limit stopped this thread.";
-  const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (limit.resumeAt !== undefined) return `A usage limit stopped this thread; it continues by itself at ${time(limit.resumeAt)}.`;
-  if (limit.resetsAt !== undefined && limit.resetsAt > now) return `A usage limit stopped this thread; it resets at ${time(limit.resetsAt)}.`;
-  return "A usage limit stopped this thread. Open it to continue.";
-}
 
 /** T3 Code's compact age: `now`, `5m`, `3h`, then days however many (`40d`), never a date. */
 export function sessionAge(timestamp: number, now = Date.now()): string {
@@ -833,7 +828,10 @@ const noVersion = () => 0;
 const hasFiles = (transfer: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes("Files"));
 const rowIdOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread : undefined;
 
-type ActivitySets = Record<"running" | "waiting" | "limited" | "failed" | "interrupted" | "unread", ReadonlySet<string>>;
+type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
+
+/** A settled row shows its age; the label is only the hover card's. */
+const SETTLED_STATUS: ThreadRowStatus = { activity: "settled", label: "Settled" };
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
@@ -900,14 +898,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Sets, so a row's state is one lookup however many threads are running.
+  // Sets, so the filter's check is one lookup however many threads are running.
   const activity = useMemo<ActivitySets>(() => ({
     running: new Set(activityState.runningThreadIds),
     waiting: new Set(activityState.waitingThreadIds),
-    limited: new Set(activityState.limitedThreadIds),
-    failed: new Set(activityState.failedThreadIds),
-    interrupted: new Set(activityState.interruptedThreadIds),
-    unread: new Set(activityState.unreadThreadIds),
   }), [activityState]);
   const liveKey = `${activityState.runningThreadIds.join()}|${activityState.waitingThreadIds.join()}`;
 
@@ -963,31 +957,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     overscan: 6,
   });
 
-  const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string; hint?: string } => {
-    // A stalled question outranks every other state: nothing moves until it is answered.
-    if (activity.waiting.has(sessionId)) return { activity: "waiting", label: "Needs you" };
-    // Run state follows the thread, not the tab you happen to be reading.
-    if (activity.running.has(sessionId)) return { activity: "working", label: "Working" };
-    // A provider limit stopped the thread; it continues now, at the reset, or with the next message.
-    if (activity.limited.has(sessionId)) {
-      return { activity: "limited", label: "Limited", hint: limitHint(threadStore.getThread(sessionId)?.limit) };
-    }
-    // The last turn failed or its message was refused; the next run clears it.
-    if (activity.failed.has(sessionId)) {
-      return { activity: "failed", label: "Failed", hint: threadStore.getThread(sessionId)?.turnError ?? "The last message did not reach the agent." };
-    }
-    // A turn the host never finished because it restarted. The next prompt clears it.
-    if (activity.interrupted.has(sessionId)) {
-      return { activity: "interrupted", label: "Interrupted", hint: "A restart cut this thread's turn short. Send a message to pick it back up." };
-    }
-    // A tool still marked running while nothing is in flight is a dead turn, not work.
-    if (sessionId === activityState.activeThreadId && activityState.runningToolName) {
-      return { activity: "stalled", label: "Interrupted" };
-    }
-    // Ready means "finished while you were elsewhere"; opening the thread clears it.
-    if (activity.unread.has(sessionId)) return { activity: "ready", label: "Ready" };
-    return { activity: "idle", label: "Idle" };
-  };
+  // The same derivation as a tablet's and a phone's list, so every client names a state alike.
+  const activityFor = (sessionId: string): ThreadRowStatus => threadRowStatus(sessionId, activityState, threadStore.getThread(sessionId));
 
   const toggleSettled = useCallback((session: UiSession) => {
     if (organizer) organizer.toggleSettled(session);
@@ -1005,7 +976,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (external) return <ExternalThreadCard thread={external} actions={actions} onClose={close} />;
     if (!threadStore.getThread(key)) return null;
     const settled = sections.find((entry) => entry.id === section)?.settled;
-    const status = settled ? { activity: "settled" as const } : activityFor(key);
+    const status = settled ? SETTLED_STATUS : activityFor(key);
     const facts: RailCardFacts = {
       activity: status.activity,
       ...(status.label ? { activityLabel: status.label } : {}),
@@ -1097,7 +1068,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           </button>
         ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
         {rows.map((session, index) => {
-          const status = section.settled ? { activity: "settled" as const } : activityFor(session.id);
+          const status = section.settled ? SETTLED_STATUS : activityFor(session.id);
           return (
             <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...rowData(section.id, session.id)}>
               {renderRow(session, status.activity, status.label, status.hint, Boolean(section.shelf))}

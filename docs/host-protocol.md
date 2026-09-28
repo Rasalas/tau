@@ -54,6 +54,14 @@ The legacy `HostSnapshot` remains a recovery shape for pre-v1 clients only. New
 bootstrap responses provide `version`, detail, catalog, project metadata, and the
 thread index separately; normal metadata actions return focused updates.
 
+A bootstrap's thread index also carries `runs`: the threads running on the host
+and when each run began, by the host's clock. A client that starts or resyncs
+takes it over its own run state, so a phone that connects mid-run, or after an
+automatic retry started the run again, shows it with the same start as the
+window that watched it begin. Live, `agent-status` with `running: true` carries
+that start as `startedAt`; a retry keeps the first one. Index pushes leave it
+out, and a client keeps its run state through them.
+
 ## Pi bridge paging negotiation
 
 The Pi socket keeps wire version `1` for compatibility. A newer Tau host may add

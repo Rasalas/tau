@@ -583,6 +583,11 @@ export interface PreparedThreadCapability {
 export interface ThreadIndexSnapshot {
   projects: UiProject[];
   sessions: UiSession[];
+  /**
+   * The threads running on the host, by id, with the host's start of each run (epoch ms). Only a
+   * bootstrap carries it, and then it replaces what a client knew (API 1.27.0).
+   */
+  runs?: Record<string, number>;
 }
 
 export interface HostBootstrapDetail extends TranscriptBundle<UiMessage, HostTranscriptCursor> {
@@ -674,7 +679,8 @@ export type GlobalHostEvent =
 
 /** Events emitted by a runtime always carry the owning session explicitly. */
 export type ThreadHostEvent =
-  | { type: "agent-status"; sessionId: string; running: boolean }
+  /** `startedAt`: when the host saw this run start (epoch ms), on every `running: true` (API 1.27.0). */
+  | { type: "agent-status"; sessionId: string; running: boolean; startedAt?: number }
   /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
   | {
       type: "assistant-anchor";

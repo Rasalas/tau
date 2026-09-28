@@ -79,6 +79,7 @@ import { createModelAuth } from "./model-auth.js";
 import { modelReleaseDate } from "./pi-model-runtime.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
 import { UsagePricing, type UsageTally } from "./usage-pricing.js";
+import { ThreadRunClock } from "./thread-run-clock.js";
 import { readModelPrices } from "../shared/model-prices.js";
 
 /** Pi's model data is read this long after the first price is asked for, clear of the start. */
@@ -216,9 +217,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   /** PI_CODING_AGENT_SESSION_DIR, resolved once; undefined keeps Pi's own default sessions layout. */
   const sessionsDirOverride = resolvePiSessionsDirOverride();
   const lifecycleMetrics = new HostLifecycleInstrumentation();
+  const runClock = new ThreadRunClock();
   const emit: Emit = (event) => {
-    lifecycleMetrics.recordIpc(event);
-    deps.emit(event);
+    const stamped = runClock.stamp(event);
+    lifecycleMetrics.recordIpc(stamped);
+    deps.emit(stamped);
   };
   const report = new HostReport({
     emit,
@@ -600,6 +603,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
     fail: (error, sessionId) => deps.fail(error, sessionId),
+    runs: () => runClock.runs(),
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
   /**

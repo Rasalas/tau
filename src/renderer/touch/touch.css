@@ -149,12 +149,6 @@
 /* Settled rows are the rail's slim, quiet ones. */
 .touch-thread-row .thread-row.compact .thread-main { padding-block: 10px; }
 .touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 400 15px/20px var(--sans); color: var(--muted); }
-.touch-thread-stop {
-  flex: none; align-self: center; width: 44px; height: 44px; margin-right: 6px; padding: 0;
-  display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
-}
-/* The visible square is smaller than the target, which stays 44 px. */
-.touch-thread-stop > svg { box-sizing: content-box; padding: 9px; border: 1px solid var(--line-control); border-radius: 10px; background: var(--raised); }
 /* Keyboard and screen-reader way to the actions a long press opens. */
 .touch-thread-more {
   position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;
