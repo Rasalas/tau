@@ -731,3 +731,172 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 .request-card-line.state-draft .thread-card-icon { color: var(--muted); }
 .request-card-line.state-merged .thread-card-icon { color: var(--merged); }
 .request-card-line.state-closed .thread-card-icon { color: var(--danger); }
+
+/* Reviews (1i, 1p, 1q): finished threads' branches as local merge requests. */
+.rv-page { flex: 1; min-height: 0; display: flex; }
+.rv-nav { flex: none; width: 216px; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-3) var(--space-3) var(--space-5) var(--space-6); overflow: auto; }
+.rv-nav-group { display: flex; flex-direction: column; gap: 1px; }
+.rv-nav-group > h2 { margin: 0; padding: var(--space-2) var(--space-3); font: 500 11.5px var(--sans); color: var(--muted-2); }
+.rv-nav-group > button {
+  display: flex; align-items: center; gap: var(--space-3); min-height: 32px; padding: var(--space-2) var(--space-3);
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-3); font: 500 13px var(--sans); text-align: left; cursor: pointer;
+}
+.rv-nav-group > button:hover { background: var(--hover-strong); color: var(--ink-2); }
+.rv-nav-group > button.active { background: var(--thread-active); color: var(--ink); font-weight: 600; }
+.rv-nav-group > button > svg { flex: none; color: var(--faint); }
+.rv-nav-group > button > span:not(.rv-tile) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-nav-group > button > small { font: 12px var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Core's project mark (`.thread-project-icon`, tinted by `projectHue`), a little larger. */
+.rv-tile { width: 16px; height: 16px; overflow: hidden; font-size: 9.5px; }
+.rv-tile > img { width: 100%; height: 100%; object-fit: cover; }
+.rv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rv-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) var(--space-7) var(--space-6) var(--space-4); }
+.rv-main.remote > .rv-scroll { padding: 0; display: flex; flex-direction: column; }
+.rv-footer { flex: none; margin: 0; padding: var(--space-4) var(--space-7) var(--space-5) var(--space-6); font: 12px var(--sans); color: var(--muted); }
+.rv-filter {
+  display: flex; align-items: center; gap: var(--space-3); width: 240px; height: 32px; padding: 0 var(--space-4);
+  border-radius: var(--radius-md); background: var(--hover); color: var(--faint);
+}
+.rv-filter:focus-within { background: var(--field); box-shadow: inset 0 0 0 1px var(--line-field); }
+.rv-filter > input { flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--ink); font: 13px var(--sans); outline: none; }
+.rv-filter > input::placeholder { color: var(--muted); }
+
+/* The table: one grid for the column heads and every row. */
+.rv-columns, .rv-row-open { display: grid; grid-template-columns: 20px minmax(180px, 1fr) 136px 108px 172px 44px; column-gap: var(--space-5); align-items: center; }
+.rv-columns { padding: var(--space-3) calc(var(--space-4) + 172px) var(--space-3) var(--space-4); font: 12.5px var(--sans); color: var(--muted); }
+.rv-columns > span:last-child { text-align: right; }
+.rv-section { margin-top: var(--space-5); }
+.rv-section:first-of-type { margin-top: 0; }
+.rv-section > h3 { margin: 0; padding: var(--space-5) var(--space-4) var(--space-3); font: 500 12.5px var(--sans); color: var(--muted); }
+.rv-section > ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.rv-row { position: relative; display: flex; align-items: center; border-radius: var(--radius-md); }
+.rv-row:hover, .rv-row:focus-within { background: var(--hover); }
+.rv-row-open { flex: 1; min-width: 0; min-height: 60px; padding: var(--space-3) var(--space-4); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-2); font: 13px var(--sans); text-align: left; cursor: pointer; }
+.rv-row-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.rv-row-action { flex: none; width: 172px; display: flex; justify-content: flex-end; padding-right: var(--space-4); }
+.rv-thread { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rv-title { color: var(--ink); font: 600 13.5px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-branch { min-width: 0; color: var(--muted); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-changes { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.rv-changes .stat-add, .rv-changes .stat-del { font: 500 12.5px var(--sans); font-variant-numeric: tabular-nums; }
+.rv-files { color: var(--ink-3); }
+.rv-checks { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--ink-3); }
+.rv-checks.passed { color: var(--ready); }
+.rv-checks.failed { color: var(--fail-ink); }
+.rv-checks.running { color: var(--working); }
+.rv-checks.running > svg { animation: lpr-spin 1s linear infinite; }
+.rv-checks.none { color: var(--muted); }
+.rv-cost-cell { min-width: 0; display: flex; align-items: center; gap: var(--space-3); }
+.rv-model { min-width: 0; flex: 1; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.rv-model > .provider-icon-stack { margin-left: 0; }
+.rv-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-cost { flex: none; color: var(--ink-3); font: 12.5px var(--mono); }
+.rv-age { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.rv-aside { min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font: 12.5px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-merge, .rv-ask, .rv-detail-actions > button, .rv-note button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 var(--space-4);
+  border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: var(--raised); color: var(--ink-2); font: 600 12.5px var(--sans); cursor: pointer; white-space: nowrap;
+}
+.rv-ask { border-color: transparent; background: transparent; }
+.rv-merge, .rv-detail-actions > .rv-merge { border-color: transparent; background: var(--brand); color: var(--brand-on); }
+/* On the list, Merge shows on the row under the pointer or the keyboard. */
+.rv-row .rv-merge { opacity: 0; }
+.rv-row:hover .rv-merge, .rv-row:focus-within .rv-merge, .rv-row .rv-merge:disabled { opacity: 1; }
+.rv-row .rv-merge:disabled { background: transparent; border-color: var(--line-control); color: var(--muted); }
+:is(.rv-merge, .rv-ask, .rv-detail-actions > button, .rv-note button):hover:not(:disabled) { filter: brightness(1.05); background-color: var(--raised-hover); }
+.rv-merge:hover:not(:disabled), .rv-detail-actions > .rv-merge:hover:not(:disabled) { background: var(--brand); }
+:is(.rv-merge, .rv-ask, .rv-detail-actions > button, .rv-note button):disabled { cursor: default; opacity: 0.6; }
+.rv-loading { display: flex; flex-direction: column; gap: 6px; padding: var(--space-4); }
+.rv-row-skeleton { height: 52px; border-radius: var(--radius-md); }
+
+/* One review: summary, files with their diffs, the actions. */
+.rv-detail { max-width: 880px; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-2) var(--space-4) var(--space-6); }
+.rv-detail-sub { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font: 12.5px var(--sans); }
+.rv-detail-sub .rv-model { flex: none; }
+.rv-summary { margin: 0; color: var(--ink-2); font: 14px/1.55 var(--sans); }
+.rv-summary.muted { color: var(--muted); }
+.rv-summary-skeleton { height: 48px; border-radius: var(--radius-md); }
+.rv-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); color: var(--ink-3); font: 13px var(--sans); }
+.rv-meta > strong { color: var(--ink); }
+.rv-meta > .warn { color: var(--warn); }
+.rv-ask-open, .rv-conflicts { margin: 0; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--well); color: var(--ink-2); font: 13px var(--sans); }
+.rv-ask-open > span { flex: 1; min-width: 0; }
+.rv-ask-open > button { flex: none; height: 28px; padding: 0 var(--space-4); border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: transparent; color: var(--ink-2); font: 500 12.5px var(--sans); cursor: pointer; }
+.rv-conflicts { color: var(--warn); }
+.rv-files-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.rv-files-list > li > button {
+  width: 100%; min-height: 36px; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4);
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); font: 13px var(--mono); text-align: left; cursor: pointer;
+}
+.rv-files-list > li > button:hover, .rv-files-list > li.open > button { background: var(--hover); }
+.rv-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.rv-chevron { flex: none; color: var(--faint); transition: transform var(--motion-fast) var(--ease); }
+.rv-files-list > li.open .rv-chevron { transform: rotate(90deg); }
+.rv-more { padding: var(--space-2) var(--space-4); color: var(--muted); font: 12.5px var(--sans); }
+.rv-diff { margin: var(--space-2) 0 var(--space-3); border: 1px solid var(--line-soft); border-radius: var(--radius-md); overflow: hidden; }
+.rv-diff-loading, .rv-diff-error { padding: var(--space-4); color: var(--muted); font: 12.5px var(--sans); }
+.rv-note { display: flex; flex-direction: column; gap: var(--space-3); }
+.rv-note > textarea { width: 100%; min-height: 72px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line-field); border-radius: var(--radius-md); background: var(--field); color: var(--ink); font: 13.5px/1.45 var(--sans); resize: vertical; }
+.rv-note > textarea:focus { outline: none; border-color: var(--line-focus); }
+.rv-note > div { display: flex; justify-content: flex-end; gap: var(--space-3); }
+.rv-note button.primary { border-color: transparent; background: var(--brand); color: var(--brand-on); }
+.rv-detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.rv-detail-actions > .rv-open-thread { margin-left: auto; border-color: transparent; background: transparent; }
+
+/*
+ * The sidebar stays beside an app page, so the column of 1i shows only on a
+ * wide page; a narrower one has the tabs of the phone and a project filter.
+ */
+.rv-page { container: rv-page / inline-size; }
+.rv-main { container: rv-main / inline-size; }
+.rv-nav { display: none; }
+.rv-tabs-row { flex: none; display: flex; align-items: center; gap: var(--space-4); padding: 0 var(--space-7) var(--space-3) var(--space-6); }
+.rv-tabs-row > .rv-tabs { flex: 1; min-width: 0; padding: 0; }
+.rv-project-filter { flex: none; height: 30px; max-width: 200px; padding: 0 var(--space-3); border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--raised); color: var(--ink-2); font: 500 12.5px var(--sans); }
+@container rv-page (min-width: 1120px) {
+  .rv-page:not(.compact) > .rv-nav { display: flex; }
+  .rv-page:not(.compact) .rv-tabs-row { display: none; }
+}
+@container rv-main (max-width: 860px) {
+  .rv-columns, .rv-row-open { grid-template-columns: 20px minmax(140px, 1fr) 112px 104px 40px; }
+  .rv-columns > span:nth-child(4), .rv-row-open > .rv-checks { display: none; }
+  .rv-model-name, .rv-files { display: none; }
+  .rv-columns { padding-right: calc(var(--space-4) + 150px); }
+  .rv-row-action { width: 150px; }
+  .rv-ask { padding: 0 var(--space-2); }
+}
+
+/* The phone (1p, 1q): tabs, rows of three lines, the actions at the foot of a review. */
+.rv-page.compact { flex-direction: column; }
+.rv-tabs { flex: none; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.rv-tabs::-webkit-scrollbar { display: none; }
+.rv-tabs > button {
+  flex: none; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px;
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-3); font: 500 13px var(--sans); cursor: pointer;
+}
+.rv-tabs > button:hover { background: var(--hover); color: var(--ink-2); }
+.rv-tabs > button.active { background: var(--hover-strong); color: var(--ink); font-weight: 600; }
+.rv-count { font-variant-numeric: tabular-nums; }
+.rv-page.compact .rv-tabs-row { padding: 0 12px var(--space-3); }
+.rv-page.compact .rv-tabs > button { min-height: 44px; padding: 0 14px; font-size: 15px; }
+.rv-page.compact .rv-scroll { padding: 0 12px calc(24px + env(safe-area-inset-bottom, 0px)); }
+.rv-page.compact .rv-footer { padding: var(--space-3) 12px var(--space-4); }
+.rv-page.compact .rv-section > h3 { padding: var(--space-5) 0 var(--space-2); font-size: 14px; }
+.rv-card > button {
+  width: 100%; display: flex; flex-direction: column; gap: 4px; padding: 12px 0; border: 0; background: transparent;
+  color: var(--ink); font: 15px var(--sans); text-align: left; cursor: pointer;
+}
+.rv-card-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rv-card-line > .rv-branch { flex: 1; font-size: 14px; }
+.rv-card .rv-title { font: 400 16px var(--sans); white-space: normal; }
+.rv-card .rv-changes .stat-add, .rv-card .rv-changes .stat-del { font: 500 14px var(--sans); }
+.rv-card .rv-checks, .rv-card .rv-aside { flex: 1; font-size: 14px; }
+.rv-card .rv-cost { font-size: 14px; }
+.rv-page.compact .rv-detail { padding: 0 0 var(--space-6); gap: var(--space-4); }
+.rv-page.compact .rv-summary { font-size: 15px; }
+.rv-page.compact .rv-files-list > li > button { min-height: 44px; font-size: 14px; }
+.rv-page.compact .rv-detail-actions {
+  position: sticky; bottom: 0; padding: var(--space-3) 0 calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); background: var(--stage);
+}
+.rv-page.compact .rv-detail-actions > button, .rv-page.compact .rv-note button { height: 44px; font-size: 14px; }
+.rv-page.compact .rv-detail-actions > .rv-open-thread { margin-left: 0; }

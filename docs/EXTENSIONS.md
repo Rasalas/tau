@@ -980,7 +980,7 @@ page filtered to its command.
 
 New in API 1.17.0.
 
-`registerPage` adds a page of the app like Settings — Usage and Pull Requests
+`registerPage` adds a page of the app like Settings — Usage and Reviews
 are two — typed `PageContribution`: `id`, `label`, an `Icon` and an `order`
 (the sidebar's foot lists every page after Settings in that order,
 `registry.getPages()`, which a phone's navigation can take as well), optional `description`, `keywords`, `profiles`, a `layout`
@@ -1033,8 +1033,8 @@ plugin.registerCommand({ id: "acme.reports.open", label: "Reports", group: "Exte
 `useBadge` (API 1.26.0) is an optional hook the page's entry calls — the
 sidebar's foot and a phone's bottom navigation — for a count drawn on the
 page's icon, and read out with its label ("Pull requests, 3"); `undefined` or
-0 draws nothing. Review Kit counts the open pull requests of the threads the
-rail knows. Being a hook, it may subscribe to a store with
+0 draws nothing. Review Kit counts the reviews waiting for the user (ready to
+merge or in conflict) and the open pull requests of the threads the rail knows. Being a hook, it may subscribe to a store with
 `useSyncExternalStore`, and it should stay cheap: it runs with the foot.
 
 The sidebar's foot is the design's (API 1.27.0): pages with `prominent: true`
@@ -2532,6 +2532,22 @@ its tools (`server_status`, `server_list`, `server_read`, `server_diff`,
 `server_exec`, `server_put_tmp`, `server_propose_upload`), for Pi as a runtime
 extension and for every other runtime over `services.mcp`. No tool uploads or
 rolls back: `server_propose_upload` draws a card whose button the user clicks.
+
+### What Reviews asks of other kits
+
+Review Kit's Reviews page (`review.reviews`) writes no Git itself. It asks the
+kits that own the branches, through commands that name `tau.review` as a
+caller (ADR 0020); no core seam is involved:
+
+| Kit | Command | What it does |
+|---|---|---|
+| Workspace (`kits/workspace/thread-branches.ts`) | `thread-branches { workspaces }` | For each workspace that is a linked worktree on a branch: the branch against the one its main checkout has out — `tip`, `ahead`, `behind`, files and lines from the fork point, `uncommitted`, `merged`, the `conflicts` `git merge-tree --write-tree` reports, and `workspace`/`rootWorkspace` ids to join threads and projects. A main checkout or a folder outside Git is left out. |
+| | `merge-thread-branch { workspace, tip? }` | Merges the worktree's branch into its main checkout the way Remote Work applies a result (`mergeBranchIntoCheckout`: `merge-tree` first, then `merge --no-ff`); answers `{ state, branch, into, root, files, detail, commit? }`, `state` being `merged`, `already-merged`, `conflict` or `blocked`, and only `merged` touched the checkout. Refused when `tip` no longer is the branch's, or the worktree holds work not committed. |
+| Remote Work (`kits/remote-work/protocol.ts`, `REVIEW_CALLERS`) | `threads`, `preview`, `thread-send`, `thread-settle` | A link whose work came back as a branch here is a review: `preview` checks the merge, `thread-settle { how: "apply" }` merges it and lets the worktree there go, `thread-send` carries a note. |
+
+The page's own host commands (`local-reviews`, `local-review-merge`,
+`local-review-ask`, `local-review-withdraw`, `local-review-summary`) are for
+its desktop half; `local-reviews-changed` tells every window to read again.
 
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 

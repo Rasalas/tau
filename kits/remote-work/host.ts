@@ -20,6 +20,7 @@ import {
   RECEIVING_COMMANDS,
   REMOTE_WORK_EXTENSION_ID,
   REMOTE_WORK_PROTOCOL,
+  REVIEW_CALLERS,
   TRANSFER_CALLERS,
   TRANSFER_EVENT,
   THREAD_LINK_EVENT,
@@ -281,6 +282,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
 
       // Here: the sending side, for this machine's clients and the kits that start work elsewhere.
       const kits = { callers: TRANSFER_CALLERS };
+      const withReviews = { callers: REVIEW_CALLERS };
       const rootOf = async (input: unknown) => {
         const cwd = text(fields(input).cwd);
         return cwd ? { root: await transfers.rootOf(cwd) } : {};
@@ -289,7 +291,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       context.registerCommand("transfers", async (input) => transfers.list(await rootOf(input)), { access: "read", ...kits });
       context.registerCommand("transfer", (input) => transfers.get(transferId(input)), { access: "read", ...kits });
       context.registerCommand("fetch-result", (input) => transfers.fetchResult(transferId(input)), { long: true, ...kits, audit: { label: "brought back work from another machine" } });
-      context.registerCommand("preview", (input) => transfers.preview(transferId(input)), { access: "read", ...kits });
+      context.registerCommand("preview", (input) => transfers.preview(transferId(input)), { access: "read", ...withReviews });
       context.registerCommand("apply", (input) => transfers.apply(transferId(input)), { long: true, ...kits, audit: { label: "merged work from another machine" } });
       context.registerCommand("discard", (input) => transfers.discard(transferId(input)), { long: true, ...kits, audit: { label: "let go of work on another machine" } });
       context.registerCommand("ignored-files", (input) => transfers.ignoredFiles(required(fields(input), "cwd")), { access: "read" });
@@ -387,12 +389,12 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
       context.registerCommand("threads", (input) => {
         const raw = fields(input);
         return threads.list({ ...(text(raw.machine) ? { machine: text(raw.machine) } : {}), ...(text(raw.parentThreadId) ? { parentThreadId: text(raw.parentThreadId) } : {}), ...(raw.active === true ? { active: true } : {}) });
-      }, { access: "read", ...kits });
+      }, { access: "read", ...withReviews });
       context.registerCommand("thread", (input) => threads.get(linkId(input)), { access: "read", ...kits });
       context.registerCommand("thread-send", (input) => {
         const raw = fields(input);
         return threads.send(linkId(input), required(raw, "text"), decodeDelivery(raw.delivery));
-      }, { long: true, ...kits, audit: { label: "sent a message to a thread on another machine" } });
+      }, { long: true, ...withReviews, audit: { label: "sent a message to a thread on another machine" } });
       context.registerCommand("thread-abort", (input) => threads.abort(linkId(input)), { long: true, ...kits, audit: { label: "stopped a thread on another machine" } });
       context.registerCommand("thread-wait", (input) => {
         const timeout = fields(input).timeoutMs;
@@ -405,7 +407,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         const raw = fields(input);
         if (raw.how !== "apply" && raw.how !== "discard") throw new HostCommandError('how is "apply" or "discard".');
         return threads.settle(linkId(input), raw.how, { removeThread: raw.removeThread === true });
-      }, { long: true, ...kits, audit: { label: "settled a thread's work from another machine" } });
+      }, { long: true, ...withReviews, audit: { label: "settled a thread's work from another machine" } });
 
       // Threads, there: what the sending side's host calls for the threads it starts here.
       context.registerCommand(HOSTED_COMMANDS.hello, () => ({ protocol: REMOTE_WORK_PROTOCOL }), { access: "read" });

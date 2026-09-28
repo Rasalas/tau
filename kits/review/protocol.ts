@@ -464,8 +464,6 @@ export const PULL_REQUEST_TAB = "review.pull-request";
 
 /** A thread's tab of its project's requests. */
 export const PULL_REQUESTS_TAB = "review.pull-requests";
-/** The app page of every project's requests (`actions.openPage`). */
-export const PULL_REQUESTS_PAGE = "review.pull-requests";
 
 export type PullRequestListState = "open" | "closed" | "merged" | "all";
 /** GitHub's summary of the reviews; absent where the host keeps none. */

@@ -17,7 +17,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, Menu, SettingsPageAction, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
-import { PULL_REQUESTS_PAGE, providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
+import { REVIEWS_PAGE } from "./local-reviews.js";
+import { providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
@@ -429,7 +430,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
               <h1>{list ? `${noun[0]!.toUpperCase()}${noun.slice(1)}s` : "Pull requests"}</h1>
               {list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
               <span className="spacer" />
-              {actions.openPage ? <button className="mini-button" title="Every project's pull requests, on a page of their own" onClick={() => actions.openPage?.(PULL_REQUESTS_PAGE)}>All projects</button> : null}
+              {actions.openPage ? <button className="mini-button" title="Every project's pull requests, on a page of their own" onClick={() => actions.openPage?.(REVIEWS_PAGE, { tab: "remote" })}>All projects</button> : null}
               {refresh}
             </div>
           )}

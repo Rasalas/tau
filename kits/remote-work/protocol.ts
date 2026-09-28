@@ -173,6 +173,8 @@ export interface RemoteRepoCommands {
 
 /** Kits that may drive transfers on this machine (ADR 0020): threads on another machine, and the handoff to one. */
 export const TRANSFER_CALLERS = ["tau.agents", "tau.handoff"] as const;
+/** Review Kit's Reviews page lists threads whose work came back, and merges or asks them (`threads`, `preview`, `thread-send`, `thread-settle`). */
+export const REVIEW_CALLERS = [...TRANSFER_CALLERS, "tau.review"] as const;
 
 // ---------------------------------------------------------------------------
 // Receiving side (B): commands the sending side's host calls there
