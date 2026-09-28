@@ -91,6 +91,16 @@ export function draftKey(sessionId?: string, pending?: NewThreadDraft): DraftKey
   return sessionId ? createDraftKey(`session:${sessionId}`) : undefined;
 }
 
+/** What `draftKey` was made from: a thread's id, or a draft's id (a draft id holds no colon). */
+export function draftKeyOwner(key: string): { sessionId: string } | { draftId: string } | undefined {
+  if (key.startsWith("session:")) return { sessionId: key.slice("session:".length) };
+  if (key.startsWith("new:")) {
+    const draftId = key.slice(key.lastIndexOf(":") + 1);
+    return draftId ? { draftId } : undefined;
+  }
+  return undefined;
+}
+
 function readComposerDrafts(storage: ClientStorage): Record<string, string> {
   try {
     const value = JSON.parse(storage.get(DRAFTS_KEY) ?? "{}");

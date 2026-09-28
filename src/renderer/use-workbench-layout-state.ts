@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import type { ClientStorage } from "../workbench/client-storage";
 import { EMPTY_STAGE, type StageState } from "../workbench/stage";
+import type { ThreadStages } from "../workbench/thread-stages";
 import {
   EMPTY_DOCK,
+  mergeDock,
   pruneStageState,
   readDockState,
-  readStageState,
   shownPanel,
+  threadDock,
   writeDockState,
-  writeStageState,
   type DockState,
 } from "../workbench/workbench-layout-state";
 
@@ -17,10 +18,13 @@ const WRITE_DELAY_MS = 400;
 
 export interface WorkbenchLayoutStateOptions {
   storage: ClientStorage;
+  /** Where each thread's and draft's layout is kept. */
+  stages: ThreadStages;
+  /** Whose layout is on screen (`stageOwner`); nothing is restored or written without one. */
+  owner: string | undefined;
   /**
-   * What the stored layout is keyed by: the workspace's identity where the
-   * host mints one, its path otherwise. Nothing is restored or written
-   * without either.
+   * The owner's project: the workspace's identity where the host mints one,
+   * its path otherwise. The dock's width and mounted panels are kept per project.
    */
   workspaceKey: string | undefined;
   /** The workspace's root, for dropping a restored file tab of another project. */
@@ -31,26 +35,53 @@ export interface WorkbenchLayoutStateOptions {
   panelIds: readonly string[];
 }
 
+interface Restored {
+  owner: string;
+  workspace?: string;
+}
+
 /**
- * The stage and the dock across restarts, per workspace. Restoring happens
- * when the workspace changes; writing is deferred, and only for the workspace
- * that was last restored, so opening one never overwrites another's layout.
+ * The stage and the dock across switches and restarts, per thread and per
+ * draft. Switching writes what the one being left shows at once and restores
+ * the next; changes are written deferred, only for the owner on screen, so
+ * showing one never overwrites another's layout.
  */
 export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
-  const { storage, workspaceKey, workspacePath, knownThreadIds, panelIds } = options;
+  const { storage, stages, owner, workspaceKey, workspacePath, knownThreadIds, panelIds } = options;
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
+  const [stageMaximized, setStageMaximized] = useState(false);
   const [dock, setDock] = useState<DockState>(EMPTY_DOCK);
-  /** Which workspace the state on screen came from; state, so clearing it restores again. */
-  const [restoredFor, setRestoredFor] = useState<string>();
+  /** Whose layout is on screen and its project; state, so the restore re-renders. */
+  const [restored, setRestored] = useState<Restored>();
   /** Counts calls that show, hide or pick a dock panel; a restore is not one. */
   const [dockAsks, setDockAsks] = useState(0);
+  const held = useRef({ restored, stage, stageMaximized, dock });
+  held.current = { restored, stage, stageMaximized, dock };
+
+  const persist = useCallback(() => {
+    const { restored: at, stage: tabs, stageMaximized: maximized, dock: shown } = held.current;
+    if (!at) return;
+    stages.write(at.owner, { stage: tabs, maximized, dock: threadDock(shown) });
+    if (at.workspace) writeDockState(storage, at.workspace, shown);
+  }, [stages, storage]);
 
   useEffect(() => {
-    if (!workspaceKey || restoredFor === workspaceKey) return;
-    setRestoredFor(workspaceKey);
-    setStage(pruneStageState(readStageState(storage, workspaceKey), { ...(workspacePath ? { workspacePath } : {}) }));
-    setDock(readDockState(storage, workspaceKey));
-  }, [restoredFor, storage, workspaceKey, workspacePath]);
+    if (!owner) return;
+    const current = held.current.restored;
+    // The same owner, or the thread a draft on screen just became: what is on screen stays.
+    if (current && (current.owner === owner || stages.promotedTo(current.owner) === owner)) {
+      if (current.owner === owner && (!workspaceKey || current.workspace === workspaceKey)) return;
+      setRestored({ owner, ...(workspaceKey ?? current.workspace ? { workspace: workspaceKey ?? current.workspace } : {}) });
+      if (!current.workspace && workspaceKey) setDock((shown) => mergeDock(readDockState(storage, workspaceKey), threadDock(shown)));
+      return;
+    }
+    persist();
+    const layout = stages.read(owner, workspaceKey);
+    setRestored({ owner, ...(workspaceKey ? { workspace: workspaceKey } : {}) });
+    setStage(pruneStageState(layout?.stage ?? EMPTY_STAGE, { ...(workspacePath ? { workspacePath } : {}) }));
+    setStageMaximized(layout?.maximized ?? false);
+    setDock(mergeDock(workspaceKey ? readDockState(storage, workspaceKey) : EMPTY_DOCK, layout?.dock));
+  }, [owner, persist, stages, storage, workspaceKey, workspacePath]);
 
   // The index arrives after the first paint; a tab whose thread it does not
   // list was restored from a session that is gone.
@@ -61,16 +92,16 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
   }, [knownThreadIds]);
 
   useEffect(() => {
-    if (!workspaceKey || restoredFor !== workspaceKey) return;
-    const timer = window.setTimeout(() => writeStageState(storage, workspaceKey, stage), WRITE_DELAY_MS);
+    if (!restored) return;
+    const timer = window.setTimeout(persist, WRITE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [restoredFor, stage, storage, workspaceKey]);
+  }, [dock, persist, restored, stage, stageMaximized]);
 
+  // A window that closes inside the write delay still keeps what it showed.
   useEffect(() => {
-    if (!workspaceKey || restoredFor !== workspaceKey) return;
-    const timer = window.setTimeout(() => writeDockState(storage, workspaceKey, dock), WRITE_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [dock, restoredFor, storage, workspaceKey]);
+    window.addEventListener("pagehide", persist);
+    return () => window.removeEventListener("pagehide", persist);
+  }, [persist]);
 
   const setDockOpen = useCallback((open: SetStateAction<boolean>) => {
     setDockAsks((count) => count + 1);
@@ -105,18 +136,14 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
 
   return {
     stage, setStage,
-    /** The workspace the stage on screen was restored for; it lags `workspaceKey` until the restore runs. */
-    stageWorkspace: restoredFor,
+    /** The project of the stage on screen; it lags `workspaceKey` until the restore runs. */
+    stageWorkspace: restored?.workspace,
+    /** The documents fill the centre, the chat their first tab; kept with the thread. */
+    stageMaximized, setStageMaximized,
     dockOpen: dock.open, setDockOpen, dockAsks,
     activePanel, setActivePanel,
     openedPanels,
     dockWidth: dock.width, setDockWidth,
     drawer: dock.drawer, setDrawer,
-    /**
-     * A project switch starts the stage over; the next restore fills it.
-     * Forgetting what was restored is what keeps the empty stage from being
-     * written over the workspace that is being left.
-     */
-    resetStage: useCallback(() => { setRestoredFor(undefined); setStage(EMPTY_STAGE); }, []),
   };
 }

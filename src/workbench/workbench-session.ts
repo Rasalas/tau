@@ -1,6 +1,6 @@
 import type { HostBootstrap, HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { draftKey } from "./draft-store";
+import { draftKey, draftKeyOwner } from "./draft-store";
 import { createDraftKey, ComposerScopeStore } from "./composer-scope-store";
 import { HostSessionState } from "./host-session-state";
 import {
@@ -11,6 +11,7 @@ import {
 } from "./new-thread-delivery";
 import { NewThreadController } from "./new-thread-controller";
 import { DraftThreads } from "./draft-threads";
+import { ThreadStages } from "./thread-stages";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
 import { ToastStore } from "./toast-store";
@@ -25,8 +26,8 @@ export interface WorkbenchSessionOptions {
   storage: ClientStorage;
   cached?: CachedBootstrap;
   notification?: NewThreadDeliveryNotificationPort;
-  /** Renderer-only stage cleanup when a navigation result changes project. */
-  onProjectChange?: () => void;
+  /** Threads the user settled; a settled thread's stage is forgotten once it is long unopened. */
+  settledThreadIds?(): readonly string[];
 }
 
 /**
@@ -42,6 +43,8 @@ export class WorkbenchSession {
   readonly newThread: NewThreadController;
   /** The drafts the thread list shows; `threads.getDrafts()` reads them. */
   readonly drafts: DraftThreads;
+  /** Each thread's and draft's stage, kept across switches and restarts. */
+  readonly stages: ThreadStages;
   readonly hostSession: HostSessionState;
   readonly turn: TurnScopeController;
   /** The window's toast stack; notices become toasts in the client that draws them. */
@@ -50,11 +53,9 @@ export class WorkbenchSession {
   readonly delivery: NewThreadDeliveryPort;
 
   private readonly deliveryCoordinator: NewThreadDeliveryCoordinator;
-  private readonly onProjectChange?: () => void;
 
   constructor(options: WorkbenchSessionOptions) {
     const { cached, storage } = options;
-    this.onProjectChange = options.onProjectChange;
     this.view = new ThreadViewStore(cached?.snapshot);
     this.threads = new ThreadStore();
     if (cached) {
@@ -69,6 +70,18 @@ export class WorkbenchSession {
       scopes: this.scopes,
       newThread: this.newThread,
       publish: (drafts) => this.threads.setDrafts(drafts),
+    });
+    this.stages = new ThreadStages({
+      storage,
+      threads: () => this.threads.getSnapshot().threads,
+      drafts: () => this.drafts.list().map((draft) => draft.draftId),
+      ...(options.settledThreadIds ? { settled: options.settledThreadIds } : {}),
+    });
+    // Every promotion moves the draft's composer scope to its thread's; the stage goes along.
+    this.scopes.onMove((from, to) => {
+      const draft = draftKeyOwner(from);
+      const thread = draftKeyOwner(to);
+      if (draft && "draftId" in draft && thread && "sessionId" in thread) this.stages.promote(draft.draftId, thread.sessionId);
     });
     this.hostSession = new HostSessionState();
     this.turn = new TurnScopeController(() => this.currentScopeKey());
@@ -130,12 +143,16 @@ export class WorkbenchSession {
 
   applyBootstrap = (bootstrap: HostBootstrap, request: TranscriptBootstrapRequest): boolean => {
     const application = this.workbench.applyBootstrapWithObservation(bootstrap, request);
-    if (application.accepted) this.processDeliveryObservation(application.observation);
+    if (application.accepted) {
+      this.processDeliveryObservation(application.observation);
+      this.stages.sweep();
+    }
     return application.accepted;
   };
 
   applyThreadIndex = (index: ThreadIndexSnapshot): void => {
     this.workbench.applyThreadIndex(index);
+    this.stages.sweep();
   };
 
   applyTranscriptPage = (page: Parameters<WorkbenchStore["applyTranscriptPage"]>[0], request?: TranscriptHistoryRequest): boolean =>
@@ -160,10 +177,7 @@ export class WorkbenchSession {
   applyHostResult = (result: HostActionResult, inheritDraft = true): void => {
     const currentScope = createDraftKey(draftKey(this.view.getSnapshot()?.sessionId, this.newThread.current()));
     const pendingDraft = inheritDraft ? this.scopes.getSnapshot(currentScope).draft : "";
-    const previousCwd = this.view.getSnapshot()?.cwd;
     this.applyActionResult(result);
-    const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
-    if (cwd && cwd !== previousCwd) this.onProjectChange?.();
     const detail = result.updates.find((update) => update.type === "thread-detail");
     if (pendingDraft && detail?.type === "thread-detail") {
       this.scopes.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
@@ -174,6 +188,8 @@ export class WorkbenchSession {
 
   private reduceHostUpdate(update: HostUpdate, processDelivery = true): void {
     const observation = this.workbench.applyHostUpdate(update);
+    if (update.type === "thread-index") this.stages.sweep();
+    if (update.type === "thread-shell" && update.update.removed) this.stages.forgetThread(update.update.sessionId);
     if (processDelivery) this.processDeliveryObservation(observation);
   }
 

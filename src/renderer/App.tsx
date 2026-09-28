@@ -38,6 +38,7 @@ import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, 
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
+import { stageOwner } from "../workbench/thread-stages";
 import { isWidePanel, usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
@@ -69,9 +70,6 @@ export default function App() {
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
   const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
   const clientRef = useRef(client);
-  // The session is built before the layout state exists, and a project change
-  // reaches it from there; the ref is the one hop between them.
-  const resetStageRef = useRef<() => void>(() => {});
   const [registry] = useState(() => {
     const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile, platform: getPlatform });
     // Core's own contributions come first and stay on: safe mode is a workbench
@@ -100,7 +98,7 @@ export default function App() {
   const [workbenchSession] = useState(() => new WorkbenchSession({
     storage: clientStorage,
     cached: cachedBootstrap,
-    onProjectChange: () => resetStageRef.current(),
+    settledThreadIds: () => preferences.getSnapshot().settledThreadIds,
     notification: {
       notifyPromptSubmitted: (event) => {
         const actions = actionsRef.current;
@@ -173,12 +171,14 @@ export default function App() {
   const knownThreadIds = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getThreadIds);
   const panels = registry.getPanels();
   const panelIds = useMemo(() => panels.filter((panel) => panel.placement !== "drawer").map((panel) => panel.id), [panels]);
-  // The stage and the dock belong to the workspace, and outlive the window.
+  // The stage and the dock belong to the thread or draft on screen, and outlive the window.
   const {
-    stage, setStage, stageWorkspace, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
-    openedPanels, dockWidth, setDockWidth, drawer, setDrawer, resetStage,
+    stage, setStage, stageWorkspace, stageMaximized, setStageMaximized, dockOpen, setDockOpen, dockAsks, activePanel, setActivePanel,
+    openedPanels, dockWidth, setDockWidth, drawer, setDrawer,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
+    stages: workbenchSession.stages,
+    owner: stageOwner(snapshot?.sessionId, pendingNewThread),
     // A host that mints workspace ids names the workspace that way; one that
     // does not leaves its path, which is what the review state falls back to too.
     workspaceKey: activeWorkspaceId ?? workspaceCwd,
@@ -186,7 +186,6 @@ export default function App() {
     knownThreadIds,
     panelIds,
   });
-  useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Stage tabs a kit drew: their handles, and the one door that closes a tab.
   // A document opened beside the chat takes the tool that filled that space into the tabs.
@@ -195,7 +194,6 @@ export default function App() {
   // Where the centre is too narrow for chat and stage side by side, the chat is the stage's first tab.
   const [chatFocused, setChatFocused] = useState(false);
   // Documents maximized on their own; a list's tab on the stage came by maximizing, a wide tool's by opening.
-  const [stageMaximized, setStageMaximized] = useState(false);
   const maximized = stageMaximized || stage.tabs.some((tab) => tab.kind === "panel" && !isWidePanel(panels, tab.panelId));
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();

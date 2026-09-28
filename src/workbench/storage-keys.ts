@@ -12,8 +12,10 @@ export const STORAGE_KEYS = {
   /** New threads' drafts the user left with text in them. */
   keptDrafts: "tau.kept-drafts.v1",
   turnActivityCache: "tau.turn-activity.v1",
-  /** Prefix; `stageStateKey` adds the workspace. */
+  /** Prefix of the stage kept per project before K72; read once, to hand it to a thread. */
   stage: "tau.stage.v1",
+  /** Prefix; `threadStageKey` adds the thread or draft. */
+  threadStage: "tau.stage.v2",
   /** Prefix; `dockStateKey` adds the workspace. */
   dock: "tau.dock.v1",
   dockWidth: "tau:dock-width",
@@ -28,10 +30,11 @@ export const STORAGE_KEYS = {
 
 /**
  * Keys that hold one host's state. A page showing another machine keeps its
- * own copy of each (ADR 0025); stage, dock and review keys already carry a
+ * own copy of each (ADR 0025); dock and review keys already carry a
  * workspace id, which includes the host's.
  */
 export const HOST_STORAGE_KEYS: readonly string[] = [
+  STORAGE_KEYS.threadStage,
   STORAGE_KEYS.bootstrapCache,
   ...STORAGE_KEYS.bootstrapCacheLegacy,
   STORAGE_KEYS.composerDrafts,
@@ -40,12 +43,17 @@ export const HOST_STORAGE_KEYS: readonly string[] = [
   STORAGE_KEYS.turnActivityCache,
 ];
 
-/** `tau.stage.v1:<workspace>`; `workspace` is a workspace id, or a path from a host that mints none. */
+/** `tau.stage.v1:<workspace>`, the old per-project stage; `workspace` is a workspace id, or a path from a host that mints none. */
 export function stageStateKey(workspace: string): string {
   return `${STORAGE_KEYS.stage}:${workspace}`;
 }
 
-/** `tau.dock.v1:<workspace>`; which panels are open, which one is on top, and how wide. Same `workspace` as above. */
+/** `tau.stage.v2:<owner>`; `owner` is `thread:<id>` or `draft:<draftId>` (`stageOwner`). */
+export function threadStageKey(owner: string): string {
+  return `${STORAGE_KEYS.threadStage}:${owner}`;
+}
+
+/** `tau.dock.v1:<workspace>`; which panels were mounted, the last one picked, and how wide. Same `workspace` as above. */
 export function dockStateKey(workspace: string): string {
   return `${STORAGE_KEYS.dock}:${workspace}`;
 }

@@ -8,7 +8,7 @@ import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraf
 import type { DraftThreads } from "../workbench/draft-threads";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
-import { activateTab, cycleTab, EMPTY_STAGE, pinTab, setFileView, unpinTab, type StageState, type StageView } from "../workbench/stage";
+import { activateTab, cycleTab, pinTab, setFileView, unpinTab, type StageState, type StageView } from "../workbench/stage";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { TranscriptHistoryController, TransitionToken } from "../workbench/transcript-history";
@@ -51,9 +51,9 @@ export interface ThreadNavigationPorts {
 }
 
 /**
- * Moving between threads and projects, and the stage that follows them: the
- * one part of navigation that has to touch React, because a project change
- * empties the stage and a new draft takes the caret.
+ * Moving between threads and projects, and the stage's own gestures: the one
+ * part of navigation that has to touch React, because a new draft takes the
+ * caret. Each thread and draft keeps its own stage (`useWorkbenchLayoutState`).
  *
  * Every port must keep its identity for the session. What this hook returns
  * reaches every extension through `WorkbenchActions`, and an action that
@@ -110,9 +110,9 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     const project = threads.getProjects().find((candidate) => namesWorkspace(workspace, candidate.workspaceId, candidate.path));
     const pendingScope = pending ? activeDraftKey() : undefined;
     const pendingInFlight = pendingScope ? scopes.getSnapshot(pendingScope).submissionPending : false;
+    // The new draft has a stage of its own; the one left keeps its.
     if (pending && project && !pendingInFlight) {
       moveDraftToProject(project);
-      setStage(EMPTY_STAGE);
       return true;
     }
     if (!requireHost("Project switching")) return false;
@@ -121,7 +121,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     // the user picks that host project again, revealing it is the whole switch.
     if (pending && namesWorkspace(workspace, snapshot?.workspaceId, snapshot?.cwd)) {
       leavePendingNewThread(pending);
-      setStage(EMPTY_STAGE);
       return true;
     }
     try {

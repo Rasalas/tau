@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { STORAGE_KEYS } from "../workbench/storage-keys";
+import { STORAGE_KEYS, threadStageKey } from "../workbench/storage-keys";
 import { createLocalStorageAdapter } from "./browser-storage";
 
 afterEach(() => localStorage.clear());
@@ -29,5 +29,14 @@ describe("client storage on a page that shows another machine", () => {
     expect(studio.keys("tau.").sort()).toEqual([STORAGE_KEYS.bootstrapCache, "tau.stage.v1:ws-1"].sort());
     studio.remove(STORAGE_KEYS.bootstrapCache);
     expect(own.get(STORAGE_KEYS.bootstrapCache)).toBe("a");
+  });
+
+  it("keeps each machine's thread stages apart, so one page's cleanup never reaches another's", () => {
+    const own = createLocalStorageAdapter();
+    const studio = createLocalStorageAdapter("studio");
+    own.set(threadStageKey("thread:t1"), "laptop");
+    studio.set(threadStageKey("thread:t2"), "studio");
+    expect(own.keys(`${STORAGE_KEYS.threadStage}:`)).toEqual([threadStageKey("thread:t1")]);
+    expect(studio.keys(`${STORAGE_KEYS.threadStage}:`)).toEqual([threadStageKey("thread:t2")]);
   });
 });
