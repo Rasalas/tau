@@ -937,6 +937,15 @@ body.resizing-col .app-shell { transition: none; }
   align-self: center; font: 11px var(--mono); color: var(--faint);
   border: 1px dashed var(--line-strong); border-radius: 8px; padding: 6px 12px;
 }
+/* A context compaction: one quiet rule across the transcript, the summary one click away. */
+.compaction-divider { display: flex; flex-direction: column; gap: 8px; padding: 6px 0; }
+.compaction-divider-rule { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted-2); }
+.compaction-divider-rule > svg { flex: none; }
+.compaction-divider-line { flex: 1 1 24px; height: 1px; background: var(--line); }
+.compaction-divider-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compaction-divider-toggle { flex: none; padding: 0 2px; border: 0; background: none; font: inherit; color: var(--acid-text); cursor: pointer; }
+.compaction-divider-toggle:hover { text-decoration: underline; }
+.compaction-divider-summary { padding: 8px 12px; border-left: 2px solid var(--line-strong); color: var(--ink-3); font-size: 13px; }
 .activity-disclosure { color: var(--muted); }
 .activity-disclosure > button, .tool-activity-summary {
   width: 100%; display: flex; align-items: center; gap: 10px;
@@ -1177,6 +1186,9 @@ body.resizing-col .app-shell { transition: none; }
 .turn-error-line > svg { flex: none; margin-top: 3px; color: var(--fail); }
 .turn-error-line > span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
 .turn-error-line > .mini-button { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 5px; }
+.turn-error-count { font-weight: 600; }
+.turn-error-line.recovered { color: var(--muted); }
+.turn-error-line.recovered > svg { color: var(--faint); }
 
 /* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
 .queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }

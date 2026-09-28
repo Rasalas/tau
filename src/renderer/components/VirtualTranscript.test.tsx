@@ -183,6 +183,27 @@ function ActivityViewportFixture() {
 }
 
 describe("virtual transcript", () => {
+  it("draws a runtime's automatic retries as one failed row that retries the prompt", async () => {
+    const failed = (id: string, error: string, timestamp: number): UiMessage => ({ id, role: "assistant", text: "", error, timestamp });
+    const messages: UiMessage[] = [
+      { id: "user", role: "user", text: "Check the webhook signature", timestamp: 1 },
+      failed("a1", "500 · overloaded", 2), failed("a2", "500 · overloaded", 3), failed("a3", "500 · overloaded", 4), failed("a4", "500 · still overloaded", 5),
+    ];
+    const onRetryMessage = vi.fn();
+    function Retrying() {
+      const ref = useRef<HTMLDivElement>(null);
+      return <div ref={ref} style={{ height: 600, overflow: "auto" }}>
+        <VirtualTranscript messages={messages} scrollRef={ref} isStreaming={false} onRetryMessage={onRetryMessage} />
+      </div>;
+    }
+    const view = render(<Retrying />);
+    await waitFor(() => expect(view.container.querySelectorAll(".virtual-transcript-row")).toHaveLength(2));
+    expect(view.container.querySelectorAll(".turn-error-line")).toHaveLength(1);
+    expect(view.container.querySelector(".turn-error-line")?.textContent).toContain("Failed · retried 3× · 500 · still overloaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryMessage).toHaveBeenCalledWith(expect.objectContaining({ id: "a1", error: "500 · still overloaded" }));
+  });
+
   it("places aggregated tool activity between its anchor and the later reply", async () => {
     const messages: UiMessage[] = [
       { id: "user", role: "user", text: "Do the work", timestamp: 1 },

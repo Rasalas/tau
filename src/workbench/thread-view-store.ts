@@ -142,6 +142,15 @@ function isBackgroundEvent(state: ThreadViewState, event: HostEvent): boolean {
   }
 }
 
+/** Whether a recent answer on screen carries this error; retries repeat it at the tail. */
+function showsError(transcript: TranscriptState, message: string): boolean {
+  const { messages } = transcript;
+  for (let index = messages.length - 1; index >= Math.max(0, messages.length - 20); index -= 1) {
+    if (messages[index].error === message) return true;
+  }
+  return false;
+}
+
 function withEvent(state: ThreadViewState, label: string, detail?: string, timestamp = Date.now()): ThreadViewState {
   const entry: TimelineEvent = { id: `${timestamp}-${state.eventSequence}`, label, detail, timestamp };
   return { ...state, events: [...state.events.slice(-99), entry], eventSequence: state.eventSequence + 1 };
@@ -282,6 +291,8 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "error":
       return withNotice(state, event.message);
     case "notice":
+      // The transcript already shows a failed answer's reason; a toast over it would say it twice.
+      if (event.level === "error" && showsError(state.transcript, event.message)) return state;
       return withNotice(state, event.message, event.level);
     // Questions are host-wide: every thread's reach every client, and a replay repeats them.
     case "extension-ui-prompt":

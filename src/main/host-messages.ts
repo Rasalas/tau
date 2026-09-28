@@ -31,6 +31,7 @@ import {
 } from "../shared/transcript-completeness.js";
 import { hostCursorAtBridgeValue, providerCursorValue } from "./transcript-cursor.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
+import { COMPACTION_RECORD_ROLE, compactionMessage } from "./compaction-record.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { readSessionModel, type SessionModel } from "./session-model-provider.js";
 import { cleanThreadTitle, firstSentence, safeSessionTitle, textFromContent, visibleTitleText } from "./host-text.js";
@@ -162,6 +163,8 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
       ...(error ? { error } : {}),
     };
   }
+
+  if (value.role === COMPACTION_RECORD_ROLE) return compactionMessage(value as Parameters<typeof compactionMessage>[0], index);
 
   if (value.role === "custom" && value.customType) {
     return {

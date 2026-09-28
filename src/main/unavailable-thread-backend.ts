@@ -47,6 +47,7 @@ export class UnavailableThreadBackend implements ThreadRuntimeBackend {
       role: message.role,
       text: message.text,
       timestamp: (message as { timestamp?: number }).timestamp ?? record.updatedAt,
+      ...((message as Pick<UiMessage, "compaction">).compaction ? { compaction: { ...(message as Pick<UiMessage, "compaction">).compaction } } : {}),
     }));
   }
 

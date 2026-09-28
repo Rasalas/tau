@@ -111,7 +111,7 @@ describe("runtime controls slash commands", () => {
 
     await registry.findSlashCommand("/compact")!.command.run("", actions);
     expect(compactContext).toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith("Context compacted.");
+    expect(notify).not.toHaveBeenCalledWith("Context compacted.");
 
     await registry.findSlashCommand("/model")!.command.run("", actions);
     expect(openModelPicker).toHaveBeenCalled();

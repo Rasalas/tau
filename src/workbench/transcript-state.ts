@@ -132,3 +132,49 @@ export function appendMessageDelta(
     ? { ...message, text: message.text + delta }
     : { ...message, thinking: (message.thinking ?? "") + delta });
 }
+
+/** A failed answer that stands for a run of automatic retries. */
+export interface RetriedError {
+  /** Retries after the first failure; the row shows the last reason. */
+  retries: number;
+  /** An answer followed in the same turn, so the retries recovered. */
+  recovered: boolean;
+}
+
+export interface CollapsedTranscript {
+  messages: readonly UiMessage[];
+  retried: ReadonlyMap<string, RetriedError>;
+}
+
+const NO_RETRIES: ReadonlyMap<string, RetriedError> = new Map();
+
+const isBareError = (message: UiMessage) => message.role === "assistant" && message.error !== undefined && !message.text.trim();
+
+/**
+ * Consecutive failed answers without text are one row: the first keeps its id,
+ * so the row stays put while a runtime retries, and shows the newest reason.
+ */
+export function collapseRetriedErrors(messages: readonly UiMessage[]): CollapsedTranscript {
+  if (!messages.some((message, index) => isBareError(message) && messages[index + 1] && isBareError(messages[index + 1]))) {
+    return { messages, retried: NO_RETRIES };
+  }
+  const out: UiMessage[] = [];
+  const retried = new Map<string, RetriedError>();
+  for (let index = 0; index < messages.length; index += 1) {
+    const first = messages[index];
+    let end = index;
+    while (isBareError(first) && messages[end + 1] && isBareError(messages[end + 1])) end += 1;
+    if (end === index) {
+      out.push(first);
+      continue;
+    }
+    const last = messages[end];
+    let next = end + 1;
+    while (messages[next] && messages[next].role !== "user" && !(messages[next].role === "assistant" && messages[next].text.trim())) next += 1;
+    const recovered = messages[next]?.role === "assistant";
+    out.push({ ...first, error: last.error, timestamp: last.timestamp });
+    retried.set(first.id, { retries: end - index, recovered });
+    index = end;
+  }
+  return { messages: out, retried };
+}

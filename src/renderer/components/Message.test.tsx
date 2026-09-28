@@ -350,3 +350,42 @@ describe("A failed answer", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 });
+
+describe("Automatic retries", () => {
+  it("count on the one failed row, with the newest reason and Retry at the end", () => {
+    const failed = { id: "a1", role: "assistant" as const, text: "", timestamp: 0, error: "500 · The provider is overloaded" };
+    const onRetry = vi.fn();
+    const view = render(<Message message={failed} retried={{ retries: 3, recovered: false }} onRetry={onRetry} />);
+    expect(view.container.querySelector(".turn-error-line")?.textContent).toBe("Failed · retried 3× · 500 · The provider is overloadedRetry");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledWith(failed);
+  });
+
+  it("say they recovered when an answer followed", () => {
+    const view = render(<Message message={{ id: "a1", role: "assistant", text: "", timestamp: 0, error: "500 · busy" }} retried={{ retries: 1, recovered: true }} />);
+    expect(view.container.querySelector(".turn-error-line.recovered")?.textContent).toBe("Retried 1× · 500 · busy");
+  });
+});
+
+describe("A compaction", () => {
+  const compacted = {
+    id: "c1", role: "notice" as const, text: "Context compacted", timestamp: 0,
+    compaction: { tokensBefore: 142_000, tokensAfter: 38_400, turns: { first: 1, last: 3 }, summary: "## Goal\nFix the race." },
+  };
+
+  it("is a quiet divider with its turns and sizes; Show opens the summary", () => {
+    render(<Message message={compacted} />);
+    expect(screen.getByRole("separator").getAttribute("aria-label")).toBe("Context compacted · turns 1–3 summarised · 142k → 38k tokens");
+    expect(screen.queryByText("Fix the race.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(screen.getByText("Fix the race.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(screen.queryByText("Fix the race.")).toBeNull();
+  });
+
+  it("says only what the runtime knows", () => {
+    render(<Message message={{ ...compacted, compaction: { tokensBefore: 950 } }} />);
+    expect(screen.getByRole("separator").getAttribute("aria-label")).toBe("Context compacted · 950 tokens before");
+    expect(screen.queryByRole("button", { name: "Show" })).toBeNull();
+  });
+});

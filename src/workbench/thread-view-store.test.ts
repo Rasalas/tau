@@ -226,6 +226,18 @@ describe("reduceHostEvent", () => {
     expect(ended.tools).toEqual([tool({ status: "done", output: "full" })]);
   });
 
+  it("leaves out the toast for an error the failed answer on screen already shows", () => {
+    const failed: UiMessage = { id: "a1", role: "assistant", text: "", error: "500 · overloaded", timestamp: 2 };
+    const shown = reduceAll(state(), [
+      { type: "assistant-end", sessionId: SESSION, message: failed },
+      { type: "notice", sessionId: SESSION, message: "500 · overloaded", level: "error" },
+    ]);
+    expect(shown.notice).toBeUndefined();
+
+    const elsewhere = reduceHostEvent(state(), { type: "notice", sessionId: SESSION, message: "500 · overloaded", level: "error" });
+    expect(elsewhere.notice).toEqual({ message: "500 · overloaded", level: "error" });
+  });
+
   it("records notices, errors, log entries and queue changes", () => {
     const notice = reduceHostEvent(state(), { type: "notice", sessionId: SESSION, message: "saved", level: "warning" });
     expect(notice.notice).toEqual({ message: "saved", level: "warning" });
