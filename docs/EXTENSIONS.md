@@ -3563,7 +3563,7 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 
 | Token | Role | Light | Dark |
 |---|---|---|---|
-| `--working` | a run in flight | `#a34a08` | `#ff8a4d` |
+| `--working` | a file a turn changed; a write | `#a34a08` | `#ff8a4d` |
 | `--ready` | a run that finished | `#1c7440` | `#7ade9f` |
 | `--removed` | something taken away | `#b03a28` | `#f07a6a` |
 | `--stop` | the abort control | `#c2282d` | `#e5484d` |
@@ -3576,7 +3576,7 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--warn-chip` | a caution as a chip | `#f7ecd8` | `#33241d` |
 | `--fail` | a failed run's mark | `#c2452f` | `#d05a4a` |
 | `--fail-ink` | what that run says | `#a83b28` | `#d98a7c` |
-| `--info` | a step in progress | `#3457d5` | `#4d7cff` |
+| `--info` | a run or a step in progress | `#3457d5` | `#4d7cff` |
 | `--info-deep` | a step already done, in a dense bar | `#2745ad` | `#426fe1` |
 | `--info-ink` | the same, as text | `#2b4bbf` | `#79acf0` |
 | `--merged` | a merged pull or merge request | `#7446c2` | `#b59cf2` |

@@ -89,7 +89,7 @@
   --focus: light-dark(#4a6410, #c7ff3d);             /* the focus ring */
 
   /* -------------------------------------------------------------- status */
-  --working: light-dark(#a34a08, #ff8a4d);           /* a run in flight */
+  --working: light-dark(#a34a08, #ff8a4d);           /* a file a turn changed; a write */
   --ready: light-dark(#1c7440, #7ade9f);             /* a run that finished */
   --removed: light-dark(#b03a28, #f07a6a);           /* something taken away */
   --stop: light-dark(#c2282d, #e5484d);              /* the abort control */
@@ -104,7 +104,7 @@
   --warn-chip: light-dark(#f7ecd8, #33241d);         /* a caution as a chip */
   --fail: light-dark(#c2452f, #d05a4a);              /* a failed run's mark */
   --fail-ink: light-dark(#a83b28, #d98a7c);          /* what that run says */
-  --info: light-dark(#3457d5, #4d7cff);              /* a step in progress */
+  --info: light-dark(#3457d5, #4d7cff);              /* a run or a step in progress */
   --info-deep: light-dark(#2745ad, #426fe1);         /* a step already done, in a dense bar */
   --info-ink: light-dark(#2b4bbf, #79acf0);          /* the same, as text */
   --merged: light-dark(#7446c2, #b59cf2);            /* a merged pull or merge request */
