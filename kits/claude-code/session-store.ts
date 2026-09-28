@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -17,11 +17,13 @@ const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 export type ClaudeTitleSource = ThreadTitleSource;
 
 export interface ClaudeStoredMessage {
-  role: "user" | "assistant";
+  /** A `notice` is a compaction's divider and always carries `compaction`. */
+  role: "user" | "assistant" | "notice";
   text: string;
   timestamp: number;
   clientMessageId?: string;
   skill?: UiSkillInvocation;
+  compaction?: UiCompaction;
 }
 
 export interface ClaudeRuntimeSessionRecord {
@@ -82,12 +84,13 @@ export interface ClaudeExchangeOptions {
 }
 
 interface StoredMessageOnDisk {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "notice";
   text?: string;
   textChunks?: string[];
   timestamp: number;
   clientMessageId?: string;
   skill?: UiSkillInvocation;
+  compaction?: UiCompaction;
 }
 
 function chunkText(value: string, maxBytes = TEXT_CHUNK_BYTES): string[] {
@@ -120,6 +123,7 @@ function serializeMessage(message: ClaudeStoredMessage): StoredMessageOnDisk {
     timestamp: message.timestamp,
     ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
     ...(message.skill ? { skill: { ...message.skill } } : {}),
+    ...(message.compaction ? { compaction: { ...message.compaction } } : {}),
   };
 }
 
@@ -145,6 +149,27 @@ function storedSkill(value: unknown): UiSkillInvocation | undefined {
   return { name, command, copyText };
 }
 
+const tokenCount = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+
+/** A compaction's facts as the translator wrote them; anything else is dropped. */
+function storedCompaction(value: unknown): UiCompaction | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  const tokensBefore = tokenCount(item.tokensBefore);
+  const tokensAfter = tokenCount(item.tokensAfter);
+  const turns = item.turns as { first?: unknown; last?: unknown } | undefined;
+  const first = tokenCount(turns?.first);
+  const last = tokenCount(turns?.last);
+  const summary = typeof item.summary === "string" ? item.summary : undefined;
+  return {
+    ...(tokensBefore ? { tokensBefore } : {}),
+    ...(tokensAfter ? { tokensAfter } : {}),
+    ...(first && last && last >= first ? { turns: { first, last } } : {}),
+    ...(summary ? { summary } : {}),
+  };
+}
+
 function skillCopyText(skill: Pick<UiSkillInvocation, "command">, visibleText: string): string {
   return visibleText ? `${skill.command} ${visibleText}` : skill.command;
 }
@@ -154,7 +179,7 @@ function runtimeLikeEnvelope(text: string): boolean {
 }
 
 function visibleStoredText(
-  role: "user" | "assistant",
+  role: ClaudeStoredMessage["role"],
   text: string,
   metadata: UiSkillInvocation | undefined,
   knownSkills: ReadonlySet<string>,
@@ -181,7 +206,9 @@ function visibleStoredTitle(text: string): string {
 function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
-  if (item.role !== "user" && item.role !== "assistant") return undefined;
+  if (item.role !== "user" && item.role !== "assistant" && item.role !== "notice") return undefined;
+  const compaction = item.role === "notice" ? storedCompaction(item.compaction) : undefined;
+  if (item.role === "notice" && !compaction) return undefined;
   const rawText = typeof item.text === "string"
     ? item.text
     : Array.isArray(item.textChunks) && item.textChunks.every((chunk) => typeof chunk === "string")
@@ -209,6 +236,7 @@ function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
     timestamp,
     ...(clientMessageId ? { clientMessageId } : {}),
     ...(skill ? { skill } : {}),
+    ...(compaction ? { compaction } : {}),
   };
 }
 
@@ -299,6 +327,7 @@ function cloneMessage(message: ClaudeStoredMessage): ClaudeStoredMessage {
   return {
     ...message,
     ...(message.skill ? { skill: { ...message.skill } } : {}),
+    ...(message.compaction ? { compaction: { ...message.compaction } } : {}),
   };
 }
 
@@ -571,7 +600,8 @@ export class ClaudeRuntimeSessionStore {
     const knownSkills = new Set([...options.knownSkillNames ?? []].filter((name) => SKILL_NAME.test(name)));
     const additions: ClaudeStoredMessage[] = [];
     for (const message of messages) {
-      if (message.role !== "user" && message.role !== "assistant") continue;
+      const compaction = message.role === "notice" ? storedCompaction(message.compaction) : undefined;
+      if (message.role !== "user" && message.role !== "assistant" && !compaction) continue;
       const parsedSkill = message.role === "user" && message.skill
         ? storedSkill(message.skill)
         : undefined;
@@ -581,6 +611,7 @@ export class ClaudeRuntimeSessionStore {
         role: message.role,
         text: visibleText,
         timestamp: message.timestamp,
+        ...(compaction ? { compaction } : {}),
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(parsedSkill && knownSkills.has(parsedSkill.name)
           && parsedSkill.copyText === skillCopyText(parsedSkill, visibleText)

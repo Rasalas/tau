@@ -114,7 +114,7 @@ describe("SdkTurnTranslator", () => {
     expect(orphan.events).toEqual([{ type: "tool-end", tool: { id: "ghost", name: "tool", args: {}, status: "done", output: "x", startedAt: 42, endedAt: 42 } }]);
   });
 
-  it("turns compaction, denied tools and a rejected usage window into notices, once per window", () => {
+  it("turns compaction into a divider, and denied tools and a rejected usage window into notices, once per window", () => {
     const now = 1_000_000_000_000;
     const translator = new SdkTurnTranslator(() => now);
     const rejected = frame({ type: "rate_limit_event", rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt: now / 1000 + 2 * 3600 + 14 * 60 } });
@@ -126,7 +126,7 @@ describe("SdkTurnTranslator", () => {
       frame({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", rateLimitType: "five_hour" } }),
     ], translator);
     expect(events).toEqual([
-      { type: "notice", message: "Claude compacted the conversation (150,000 → 20,000 tokens).", level: "info" },
+      { type: "assistant-end", message: { id: `claude-compaction-${now}`, role: "notice", text: "Context compacted", timestamp: now, compaction: { tokensBefore: 150000, tokensAfter: 20000 } } },
       { type: "notice", message: "Claude was not allowed to run Bash: plan mode", level: "warning" },
       { type: "notice", message: "Claude usage limit reached; this turn waits until the limit resets. It resumes in about 2 h 14 min.", level: "warning" },
     ]);

@@ -78,6 +78,19 @@ export interface UiMessage {
   excludedFromContext?: boolean;
   /** Why the runtime stopped this answer, in the provider's words; the answer's text may be empty. */
   error?: string;
+  /** Set on a `notice` row that marks a context compaction; the transcript draws a divider. New in API 1.27.0. */
+  compaction?: UiCompaction;
+}
+
+/** What a context compaction did, as far as the runtime knows it. */
+export interface UiCompaction {
+  /** Context size before and after, in tokens; `tokensAfter` may be an estimate. */
+  tokensBefore?: number;
+  tokensAfter?: number;
+  /** The 1-based user turns the summary replaced. */
+  turns?: { first: number; last: number };
+  /** The summary the runtime continues from, Markdown. */
+  summary?: string;
 }
 
 /** Bounded image payload selected in the desktop composer. Data is raw base64. */

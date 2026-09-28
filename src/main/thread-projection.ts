@@ -6,6 +6,7 @@ import { resolveClientTurnIdentity } from "../shared/transcript-turn.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
+import { compactionRecord } from "./compaction-record.js";
 import { bridgeHostSnapshot, bridgeMessageMapping } from "./bridge-snapshot.js";
 import {
   EMPTY_PINS,
@@ -45,8 +46,9 @@ export interface BranchRecord {
 export function branchRecords(entries: readonly unknown[], skillNames: Iterable<string>): BranchRecord[] {
   const messages = branchMessagesWithClientMessageIds(entries, skillNames);
   let messageIndex = 0;
-  return entries.flatMap((entry) => {
+  return entries.flatMap((entry, index) => {
     const typed = entry as { type?: unknown; id?: unknown; message?: unknown };
+    if (typed.type === "compaction") return [{ record: compactionRecord(entries, index) }];
     if (typed.type !== "message") return [];
     const projected = messages[messageIndex++] as Record<string, unknown>;
     const raw = typed.message && typeof typed.message === "object" ? typed.message as object : undefined;

@@ -12,6 +12,8 @@ describe("retryPrompt", () => {
     expect(retryPrompt(messages, failed)).toEqual({ text: "second <file name=\"a.ts\">x</file>", attachments: [] });
     expect(retryPrompt(messages, messages[1])).toEqual({ text: "first", attachments: [] });
     expect(retryPrompt(messages)).toEqual({ text: "second <file name=\"a.ts\">x</file>", attachments: [] });
+    // A collapsed retry row is a copy of the answer; the id finds it.
+    expect(retryPrompt([...messages, user("u3", "third")], { ...failed, error: "500" })).toEqual({ text: "second <file name=\"a.ts\">x</file>", attachments: [] });
   });
 
   it("keeps a skill's command and a prompt's images, not the host's placeholder", () => {

@@ -9,6 +9,8 @@ import { UserMessage, useMessageBlocks } from "./UserMessage";
 import { Markdown } from "./Markdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 import { TurnErrorLine } from "./TurnError";
+import { CompactionDivider } from "./CompactionDivider";
+import type { RetriedError } from "../../workbench/transcript-state";
 
 interface AsyncActivity {
   label: string;
@@ -79,6 +81,7 @@ export const Message = memo(function Message({
   onFork,
   onEdit,
   onRetry,
+  retried,
   onToggleExpanded,
   expanded,
 }: {
@@ -92,6 +95,8 @@ export const Message = memo(function Message({
   onEdit?: (message: UiMessage) => void;
   /** Sends the prompt that led to this failed answer again. */
   onRetry?: (message: UiMessage) => void;
+  /** Set when this failed answer stands for a run of automatic retries. */
+  retried?: RetriedError;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
 }) {
@@ -101,6 +106,7 @@ export const Message = memo(function Message({
   const [thinkingToggled, setThinkingToggled] = useState(false);
 
   if (activity) return <ActivityDisclosure activity={activity} />;
+  if (message.compaction) return <CompactionDivider compaction={message.compaction} />;
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
@@ -134,7 +140,7 @@ export const Message = memo(function Message({
             {message.text.includes("<") ? <AssistantText message={message} streaming={streaming} /> : <Markdown streaming={streaming}>{message.text}</Markdown>}
           </div>
         ) : null}
-        {message.error ? <TurnErrorLine message={message.error} onRetry={onRetry ? () => onRetry(message) : undefined} /> : null}
+        {message.error ? <TurnErrorLine message={message.error} retries={retried?.retries} recovered={retried?.recovered} onRetry={onRetry ? () => onRetry(message) : undefined} /> : null}
         {detail === "everything" && message.text ? (
           <time className="message-stamp" dateTime={new Date(message.timestamp).toISOString()} title={fullTimestamp(message.timestamp)}>
             {compactTimestamp(message.timestamp)}

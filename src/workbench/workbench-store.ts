@@ -25,7 +25,7 @@ import type {
   TranscriptHistoryRequest,
   TransitionToken,
 } from "./transcript-history";
-import { readCachedTurnActivity } from "./turn-activity";
+import { activityOfLatestTurn, readCachedTurnActivity } from "./turn-activity";
 
 /** Other clients' threads each leave one; only the newest few can still become the one on screen. */
 const MAX_PENDING_PROJECTS = 8;
@@ -103,7 +103,7 @@ export class WorkbenchStore {
     const cachedActivity = readCachedTurnActivity(storage, next.sessionId);
     view.setSnapshot(next);
     view.setMessages(next.messages);
-    const restoredActivity = next.turnActivity ?? cachedActivity;
+    const restoredActivity = activityOfLatestTurn(next.turnActivity ?? cachedActivity, next.messages, next.turnActivityHistory);
     view.setTools(restoredActivity?.tools ?? []);
     view.setToolAnchorId(restoredActivity?.anchorMessageId);
     view.setTurnActivity(next.turnActivityHistory ?? [], restoredActivity ? next.sessionId : undefined);
@@ -332,7 +332,7 @@ export class WorkbenchStore {
     if (detailForRender.sessionId !== view.getState().activeThreadId) view.beginThread(detailForRender.sessionId);
     view.setMessages(detailForRender.messages);
     const cachedActivity = readCachedTurnActivity(storage, detailForRender.sessionId);
-    const restoredActivity = detailForRender.turnActivity ?? cachedActivity;
+    const restoredActivity = activityOfLatestTurn(detailForRender.turnActivity ?? cachedActivity, detailForRender.messages, detailForRender.turnActivityHistory);
     view.setTools(restoredActivity?.tools ?? []);
     view.setToolAnchorId(restoredActivity?.anchorMessageId);
     view.setTurnActivity(detailForRender.turnActivityHistory ?? [], restoredActivity ? detailForRender.sessionId : undefined);

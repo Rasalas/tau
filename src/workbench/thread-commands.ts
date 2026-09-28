@@ -169,8 +169,8 @@ export class ThreadCommands {
   compactContext = async (): Promise<void> => {
     if (!this.requireWrite("Compaction")) return;
     try {
+      // The transcript draws the compaction where it happened.
       this.ports.applyActionResult(await this.client!.compactContext());
-      this.notify("Context compacted.");
     } catch (error) {
       this.notify(errorMessage(error));
     }

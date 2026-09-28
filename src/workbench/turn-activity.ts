@@ -1,4 +1,4 @@
-import type { UiToolRun } from "../shared/contracts";
+import type { UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts";
 import type { UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { ClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";
@@ -54,6 +54,35 @@ export function clearCachedTurnActivity(storage: ClientStorage, sessionId: strin
   } catch {
     // A full or blocked storage area must not break recovery.
   }
+}
+
+/**
+ * The restored live work, unless it belongs to a turn before the last prompt.
+ * A detail names the last turn that used tools, and the cache the last one on
+ * screen; drawn as live work, that turn's tools would move below the new
+ * prompt and take its fold with them.
+ */
+export function activityOfLatestTurn<T extends { tools: readonly UiToolRun[]; anchorMessageId?: string }>(
+  activity: T | undefined,
+  messages: readonly UiMessage[],
+  history: readonly UiTurnActivityEntry[] = [],
+): T | undefined {
+  if (!activity) return undefined;
+  // A tool still running is this run's, even after a steering message.
+  if (activity.tools.some((tool) => tool.status === "running")) return activity;
+  let lastPrompt = messages.length - 1;
+  while (lastPrompt >= 0 && messages[lastPrompt].role !== "user") lastPrompt -= 1;
+  if (lastPrompt <= 0) return activity;
+  const earlier = new Set<string>();
+  for (const message of messages.slice(0, lastPrompt)) {
+    earlier.add(message.id);
+    if (message.sourceEntryId) earlier.add(message.sourceEntryId);
+  }
+  const before = (id: string | undefined) => id !== undefined && earlier.has(id);
+  if (before(activity.anchorMessageId)) return undefined;
+  const ids = new Set(activity.tools.map((tool) => tool.id));
+  const settled = history.some((entry) => before(entry.anchorMessageId) && entry.tools.some((tool) => ids.has(tool.id)));
+  return settled ? undefined : activity;
 }
 
 /** Net worktree changes made after an agent run began. */
