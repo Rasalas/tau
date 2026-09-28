@@ -169,7 +169,8 @@ describe("runtime controls keybindings", () => {
       "runtime.cycle-thinking": ["shift+tab"],
       "runtime.instructions": ["mod+i"],
       "runtime.model": ["mod+shift+m"],
-      "runtime.new-session": ["mod+n", "mod+shift+o"],
+      "runtime.new-session": ["mod+n", "mod+shift+n"],
+      "runtime.new-session-in": ["mod+shift+o"],
       "runtime.rename-thread": ["mod+shift+r"],
       "runtime.settings": ["mod+,"],
       "runtime.theme": ["mod+alt+shift+a"],
@@ -186,7 +187,7 @@ describe("runtime controls keybindings", () => {
       "rightPanel.toggleMaximized": ["mod+alt+shift+b"],
     });
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
-    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus" });
+    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+n": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus" });
   });
 });
 

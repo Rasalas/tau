@@ -1,6 +1,62 @@
-import type { UiProject, UiSession } from "../shared/contracts";
+import type { HostSnapshot, UiProject, UiSession } from "../shared/contracts";
 import { isFilesystemRoot } from "../shared/filesystem-root";
+import { namesWorkspace } from "../shared/workspace-identity";
+import type { NewThreadDraft } from "./draft-store";
+import type { NewThreadSelection } from "./new-thread-controller";
 import { inProject } from "./thread-supervision";
+
+/** What is on screen when a new thread is asked for; `covered` when a page, Settings or a phone's list hides it. */
+export interface NewThreadScreen {
+  covered?: boolean;
+  draft?: NewThreadDraft;
+  /** The runtime the draft on screen is bound to. */
+  draftRuntime?: string;
+  thread?: Pick<HostSnapshot, "sessionId" | "cwd" | "workspaceId" | "backendKind" | "model" | "thinkingLevel" | "mode">;
+}
+
+/** The workspace of the draft or thread on screen; nothing when it is covered. */
+export function workspaceOnScreen(screen: NewThreadScreen): string | undefined {
+  if (screen.covered) return undefined;
+  if (screen.draft) return screen.draft.workspaceId ?? screen.draft.projectPath;
+  return screen.thread?.sessionId ? screen.thread.workspaceId ?? screen.thread.cwd : undefined;
+}
+
+/**
+ * Where "New thread" opens a draft when no project was named: the project of
+ * the draft or thread on screen, else `lastUsedProject`. Undefined means ask.
+ */
+export function newThreadProject(projects: readonly UiProject[], threads: readonly UiSession[], screen: NewThreadScreen): UiProject | undefined {
+  const workspace = workspaceOnScreen(screen);
+  const current = workspace ? projects.find((project) => namesWorkspace(workspace, project.workspaceId, project.path)) : undefined;
+  return current ?? lastUsedProject(projects, threads);
+}
+
+/**
+ * What a new draft takes from the draft or thread on screen, as in T3 Code:
+ * the runtime with its model and level, and the mode. Access and the
+ * workspace mode stay at their defaults.
+ */
+export function selectionOnScreen(screen: NewThreadScreen): NewThreadSelection | undefined {
+  if (screen.covered) return undefined;
+  const { draft, thread } = screen;
+  if (draft) {
+    const runtime = screen.draftRuntime ?? draft.runtime ?? "pi";
+    const chosen = (draft.selectionRuntime ?? "pi") === runtime;
+    return {
+      runtime,
+      ...(chosen && draft.model ? { model: draft.model } : {}),
+      ...(chosen && draft.thinkingLevel ? { thinkingLevel: draft.thinkingLevel } : {}),
+      ...(draft.mode ? { mode: draft.mode } : {}),
+    };
+  }
+  if (!thread?.sessionId) return undefined;
+  return {
+    runtime: thread.backendKind ?? "pi",
+    // A level is the model's; without one it says nothing.
+    ...(thread.model ? { model: thread.model, ...(thread.thinkingLevel ? { thinkingLevel: thread.thinkingLevel } : {}) } : {}),
+    ...(thread.mode ? { mode: thread.mode } : {}),
+  };
+}
 
 /**
  * The project a new thread starts in when nobody named one: the one the

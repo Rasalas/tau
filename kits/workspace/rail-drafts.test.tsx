@@ -51,8 +51,6 @@ function start(overrides: { newSession?: (...args: unknown[]) => Promise<NewThre
 
 async function newThread(): Promise<HTMLTextAreaElement> {
   fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
-  const picker = await screen.findByRole("dialog", { name: "Search projects" });
-  fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
   return await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
 }
 

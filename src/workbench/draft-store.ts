@@ -19,6 +19,8 @@ export interface NewThreadDraft {
   /** When the draft began; the list orders drafts by it. */
   createdAt?: number;
   sessionId?: string;
+  /** The runtime the thread is created on; absent means the preference for new threads. */
+  runtime?: string;
   /** Explicit composer choice for this thread; never applied to the previously active runtime. */
   model?: UiModel;
   /** The thinking level chosen with it. */
@@ -173,6 +175,7 @@ function parseNewThreadDraft(value: Partial<NewThreadDraft> | null): NewThreadDr
     projectName: value.projectName,
     ...(typeof value.createdAt === "number" ? { createdAt: value.createdAt } : {}),
     ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.runtime === "string" && value.runtime ? { runtime: value.runtime } : {}),
     ...(readModel(value.model) ? { model: readModel(value.model) } : {}),
     ...(typeof value.thinkingLevel === "string" ? { thinkingLevel: value.thinkingLevel } : {}),
     ...(typeof value.selectionRuntime === "string" ? { selectionRuntime: value.selectionRuntime } : {}),

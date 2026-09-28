@@ -54,7 +54,6 @@ import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
-import { lastUsedProject } from "../workbench/new-thread-project";
 import { threadListOrder } from "../workbench/thread-supervision";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
@@ -222,6 +221,8 @@ export interface WorkbenchThread {
   /** The snapshot as the conversation sees it: a draft, or the live run state. */
   conversationSnapshot?: HostSnapshot;
   pendingNewThread: boolean;
+  /** The runtime the draft on screen is bound to, when not the preference for new threads. */
+  draftRuntime?: string | undefined;
   showStartScreen: boolean;
   startProjectPath: string;
   startProjectName: string;
@@ -278,8 +279,8 @@ export interface WorkbenchComposer {
   setThinking(level: string): Promise<void>;
   /** Binds the draft to another runtime; it keeps what it chose for each. */
   selectRuntime?(kind: string): void;
-  /** The next draft starts on this runtime's model. */
-  carryModel?(runtime: string, model: import("../shared/contracts").UiModel): void;
+  /** The next draft starts on this runtime, and on its `model` when given. */
+  carryModel?(runtime: string, model?: import("../shared/contracts").UiModel): void;
   answerUiPrompt(id: string, answer: import("../shared/contracts").ExtensionUiAnswer): void;
   compactContext(): Promise<void>;
 }
@@ -312,7 +313,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     setNotice, activeOverlayId, closeOverlay, pages,
   } = layout;
   const {
-    snapshot, conversationSnapshot, pendingNewThread, showStartScreen, startProjectPath, startProjectName,
+    snapshot, conversationSnapshot, pendingNewThread, draftRuntime, showStartScreen, startProjectPath, startProjectName,
     dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
@@ -509,11 +510,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   ].filter(Boolean).join(" ");
 
   const openSupervisedThread = (row: { path: string }) => { void actions.switchSession(row.path); };
-  // In the filtered project, else where the host last worked; with neither, ask.
+  // In the filtered project, else as ⌘N: the project on screen, else where the host last worked, else ask.
   const startTouchThread = () => {
-    const project = touchProject ?? lastUsedProject(projects, threadStore.getSnapshot().threads);
-    if (project) createThreadInProject(project);
-    else openNewThreadPicker();
+    if (touchProject) createThreadInProject(touchProject);
+    else actions.newSession();
   };
   const threadBrowserProps = {
     registry,
@@ -537,6 +537,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     snapshot={snapshot}
     conversationSnapshot={conversationSnapshot}
     pendingNewThread={pendingNewThread}
+    draftRuntime={draftRuntime}
     showStartScreen={showStartScreen}
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
@@ -668,7 +669,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             label={snapshot?.projectLabel}
             pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
             settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-            onNewThread={openNewThreadPicker}
+            onNewThread={() => actions.newSession()}
             onOpenTree={() => openThreadTree("navigate")}
             onOpenInstructions={() => setSystemPromptOpen(true)}
             onDuplicate={() => void duplicateThread()}
@@ -1054,12 +1055,13 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, showStartScreen, activeDraftKey, onNotify, actions }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, showStartScreen, activeDraftKey, onNotify, actions }: {
   view: ThreadViewStore;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
   conversationSnapshot?: HostSnapshot;
   pendingNewThread: boolean;
+  draftRuntime?: string | undefined;
   showStartScreen: boolean;
   activeDraftKey?: string;
   onNotify?(message: string): void;
@@ -1073,7 +1075,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   // The runtime is a property of the thread; it is chosen before the thread exists and never after.
   const runtimeBackends = snapshot?.runtimeBackends ?? [];
   const runtimeChoice = pendingNewThread && runtimeBackends.length > 1
-    ? { kind: effectiveNewThreadRuntime(newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => (composer.selectRuntime ? composer.selectRuntime(kind) : preferences.setNewThreadRuntime(kind)) }
+    ? { kind: effectiveNewThreadRuntime(draftRuntime ?? newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => (composer.selectRuntime ? composer.selectRuntime(kind) : preferences.setNewThreadRuntime(kind)) }
     : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
@@ -1103,7 +1105,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
     onNewThreadOnRuntime={actions ? (kind, model) => {
-      if (model) composer.carryModel?.(kind, model);
+      composer.carryModel?.(kind, model);
       preferences.setNewThreadRuntime(kind);
       // The new thread stays in this thread's project.
       const workspace = snapshot?.workspaceId ?? snapshot?.cwd;
