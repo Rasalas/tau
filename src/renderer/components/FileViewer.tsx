@@ -17,11 +17,13 @@ export function missingReason(message: string): "project" | "file" | undefined {
   return /\bENOENT\b/u.test(message) ? "file" : undefined;
 }
 
-export function FileViewer({ tab, relativePath, changed, editor, commands = [], actions, loadFile, loadDiff, onChangeView, onOpenInEditor, onClose }: {
+export function FileViewer({ tab, relativePath, changed, stat, editor, commands = [], actions, loadFile, loadDiff, onChangeView, onOpenInEditor, onClose }: {
   tab: StageFileTab;
   relativePath: string;
   /** The working tree differs from HEAD for this file, so a diff exists. */
   changed: boolean;
+  /** Lines added and removed in the working tree, beside the view switch as in the design. */
+  stat?: { added: number; removed: number };
   editor?: UiEditor;
   /** Commands an extension offers on the `file-tab` surface; they read the tab from `actions.activeStageTab()`. */
   commands?: readonly CommandContribution[];
@@ -61,10 +63,11 @@ export function FileViewer({ tab, relativePath, changed, editor, commands = [], 
       <span className="spacer" />
       {changed ? (
         <div className="toggle-group" role="tablist" aria-label="View">
-          <button className={view === "source" ? "active" : ""} onClick={() => onChangeView("source")}>Source</button>
           <button className={view === "diff" ? "active" : ""} onClick={() => onChangeView("diff")}>Diff</button>
+          <button className={view === "source" ? "active" : ""} onClick={() => onChangeView("source")}>Source</button>
         </div>
       ) : null}
+      {changed && stat ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
       {view === "diff" ? (
         <div className="toggle-group" aria-label="Diff layout">
           <button className={mode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>

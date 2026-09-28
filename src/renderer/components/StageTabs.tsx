@@ -90,7 +90,11 @@ function useOverflow(strip: React.RefObject<HTMLElement | null>, count: number):
   useLayoutEffect(() => {
     const element = strip.current;
     if (!element) return undefined;
-    const measure = () => setOver(element.scrollWidth > element.clientWidth + 1);
+    const measure = () => {
+      setOver(element.scrollWidth > element.clientWidth + 1);
+      // A narrower strip keeps the tab in front in view.
+      element.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver(measure);

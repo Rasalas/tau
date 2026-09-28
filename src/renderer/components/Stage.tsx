@@ -162,6 +162,7 @@ export function Stage({
         tab={current}
         relativePath={relativeTo(cwd, current.path)}
         changed={changedRelative.has(relativeTo(cwd, current.path))}
+        stat={changes.files.find((file) => file.path === relativeTo(cwd, current.path))}
         editor={editor}
         commands={registry?.getCommandsFor("file-tab") ?? []}
         actions={actions}

@@ -684,6 +684,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           label: panel.label,
           Icon: panel.Icon,
           open: panelSheet === panel.id,
+          ...(panel.stageButton ? { pinned: true } : {}),
           onToggle: () => setPanelSheet((open) => (open === panel.id ? undefined : panel.id)),
         }))}
       /> : null}

@@ -49,4 +49,14 @@ describe("TitleBar (a phone's bar over its chat)", () => {
     expect(view.queryByRole("button", { name: "More" })).toBeNull();
     expect(view.getByRole("button", { name: "Review" })).toBeTruthy();
   });
+
+  it("keeps the pinned tools' glyphs, Files and Terminal, and folds the others", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    const sheet = (id: string, pinned?: boolean) => ({ id, label: id, open: false, onToggle: vi.fn(), ...(pinned ? { pinned } : {}) });
+    const view = render(<TitleBar registry={registry} actions={{} as WorkbenchActions} foldSheets sheets={[sheet("Files", true), sheet("Review"), sheet("Terminal", true), sheet("Agents")]} />);
+    expect(view.getByRole("button", { name: "Files" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Terminal" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Review" })).toBeNull();
+    expect(view.getByRole("button", { name: "More" })).toBeTruthy();
+  });
 });

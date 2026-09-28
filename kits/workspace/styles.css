@@ -14,6 +14,10 @@
 .workspace-title-actions > :first-child { margin-left: auto; }
 .workspace-title-actions .chrome-button { white-space: nowrap; }
 .workspace-title-actions .title-more { width: 31px; justify-content: center; padding: 0; }
+/* In the thread header the actions are quiet text buttons, as the design's "Commit". */
+.thread-header .workspace-title-actions .chrome-button { min-height: 28px; border-color: transparent; background: transparent; box-shadow: none; }
+.thread-header .workspace-title-actions .chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--hover); }
+.thread-header .workspace-title-actions .chrome-group .split-trigger { width: 20px; border-left-color: transparent; }
 /* The design's "3 files changed ›": a link in the accent's ink, not a button. */
 .workspace-changes-link {
   flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 6px; border: 0; border-radius: var(--radius-sm);

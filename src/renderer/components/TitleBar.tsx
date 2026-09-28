@@ -14,6 +14,8 @@ export interface SheetToggle {
   label: string;
   Icon?: PanelIconComponent;
   open: boolean;
+  /** Keeps its glyph in the bar when the rest fold into More (a panel with `stageButton`). */
+  pinned?: boolean;
   onToggle(): void;
 }
 
@@ -73,12 +75,14 @@ export function TitleBar({
   onBack?(): void;
   /** Panels the phone draws over the thread. */
   sheets?: readonly SheetToggle[];
-  /** Two or more sheets: the first keeps its glyph, the rest fold into one More menu. */
+  /** Past two sheets the pinned ones keep their glyphs, the rest fold into one More menu. */
   foldSheets?: boolean;
 }) {
-  const [first, ...rest] = sheets;
+  // The pinned panels (else the first) keep their glyphs; two or more others fold into More.
+  const pinned = sheets.some((sheet) => sheet.pinned) ? sheets.filter((sheet) => sheet.pinned) : sheets.slice(0, 1);
+  const rest = sheets.filter((sheet) => !pinned.includes(sheet));
   const folded = foldSheets && rest.length > 1;
-  const glyphs = folded && first ? [first] : sheets;
+  const glyphs = folded ? pinned : sheets;
   return (
     <header className="title-bar">
       <div className="title-lead">
