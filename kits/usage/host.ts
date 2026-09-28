@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { applyPrices, summarize, type BackendScan, type RowPrice, type UsageScan } from "./aggregate.js";
 import { PiUsageCache } from "./pi-sessions.js";
+import { LimitHistory } from "./limit-history.js";
 import {
   BACKEND_LIMITS_COMMAND,
   BACKEND_USAGE_COMMAND,
@@ -208,16 +209,18 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
 
       // A cold cache over a long history may take longer than a command's timeout.
       context.registerCommand(USAGE_SUMMARY_COMMAND, async (input): Promise<UsageSummary> => {
-        const request = input && typeof input === "object" ? input as { since?: unknown; refresh?: unknown } : {};
+        const request = input && typeof input === "object" ? input as { since?: unknown; refresh?: unknown; daily?: unknown; timeZone?: unknown } : {};
         const since = finite(request.since);
         const result = await current(request.refresh === true);
-        return price(summarize(result, since === undefined ? {} : { since }));
+        return price(summarize(result, { ...(since === undefined ? {} : { since }), daily: request.daily === true, ...(typeof request.timeZone === "string" ? { timeZone: request.timeZone } : {}) }));
       }, { access: "read", long: true });
 
       const limitSources = options.limitSources ?? LIMIT_SOURCES;
+      const history = new LimitHistory(join(services.stateDir, "limit-history.json"), readLimitsAnswer);
       let limits: UsageLimitsSummary | undefined;
       let readingLimits: Promise<UsageLimitsSummary> | undefined;
       const readLimits = async (refresh: boolean): Promise<UsageLimitsSummary> => {
+        await history.load(now()).catch((error) => services.log("usage.history-read-failed", reason(error)));
         const answers = await Promise.all(limitSources.map(async (source): Promise<{ source: LimitSource; accounts?: UsageLimitAccount[]; error?: string }> => {
           try {
             const accounts = readLimitsAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_LIMITS_COMMAND, refresh ? { refresh } : {}));
@@ -233,7 +236,16 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
           const windows = accounts.reduce((sum, account) => sum + account.windows.length, 0);
           return { ...base, status: "ok", detail: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}, ${windows} ${windows === 1 ? "window" : "windows"}.` };
         });
-        return { checkedAt: now(), accounts: answers.flatMap((answer) => answer.accounts ?? []), sources: reports };
+        const accounts = answers.flatMap((answer) => {
+          const previous = history.latest(answer.source.extensionId);
+          if (!answer.accounts) return previous.map((account) => ({ ...account, unavailable: { reason: "failed" as const, message: answer.error ?? "Could not refresh limits." } }));
+          return answer.accounts.map((account) => account.unavailable?.reason === "failed"
+            ? { ...(previous.find((old) => old.id === account.id) ?? account), unavailable: account.unavailable }
+            : account);
+        });
+        const samples = await history.record(answers.map((answer) => ({ source: answer.source.extensionId, accounts: answer.accounts })), now())
+          .catch((error) => { services.log("usage.history-write-failed", reason(error)); return []; });
+        return { checkedAt: now(), accounts, sources: reports, history: samples };
       };
       context.registerCommand(USAGE_LIMITS_COMMAND, async (input): Promise<UsageLimitsSummary> => {
         const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);

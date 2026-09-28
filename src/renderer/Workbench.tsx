@@ -459,7 +459,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     registry,
     actions,
     onOpen: openSupervisedThread,
-    onStop: (row: { id: string }) => composer.abort(row.id),
     project: touchProject,
     projects,
     onProjectChange: (project: UiProject | undefined) => setTouchProjectPath(project?.path),

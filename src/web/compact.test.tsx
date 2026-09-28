@@ -132,14 +132,29 @@ describe("the web client at 400 px", () => {
     expect(client.calls.find((call) => call.method === "switchSession")?.args[0]).toBe("/sessions/t-a.json");
   });
 
-  it("stops a running thread without opening it", async () => {
+  it.each([400, 1024])("offers no Stop in the thread list or its action sheet at %i px", async (width) => {
+    setViewport(width);
     const client = renderHome();
-    await screen.findByRole("list", { name: "Threads" });
-    client.emit(running("t-b"));
-    const stop = await screen.findByRole("button", { name: "Stop Ship the web client" });
+    const list = await screen.findByRole("list", { name: "Threads" });
+    act(() => client.emit(running("t-b")));
+    await waitFor(() => expect(rowNamed("Ship the web client").dataset.status).toBe("running"));
+    expect(within(list).queryByRole("button", { name: /Stop/u })).toBeNull();
+    fireEvent.contextMenu(rowNamed("Ship the web client").querySelector(".swipe-row")!);
+    const sheet = await screen.findByRole("dialog", { name: "Ship the web client" });
+    expect(within(sheet).queryByRole("button", { name: /Stop/u })).toBeNull();
+    expect(client.calls.some((call) => call.method === "abort")).toBe(false);
+  });
+
+  it.each([400, 1024])("stops the open thread from the composer at %i px", async (width) => {
+    setViewport(width);
+    const client = renderCompactClient();
+    await screen.findByRole("textbox");
+    act(() => client.emit(running("t-a")));
+    const stop = await screen.findByRole("button", { name: "Stop the run" });
+    expect(stop.classList.contains("send-button")).toBe(true);
     fireEvent.click(stop);
     await waitFor(() => expect(client.calls.some((call) => call.method === "abort")).toBe(true));
-    expect(client.calls.find((call) => call.method === "abort")?.args[0]).toBe("t-b");
+    expect(client.calls.find((call) => call.method === "abort")?.args[0]).toBe("t-a");
   });
 
   it("answers a Pi confirm on the thread that is open", async () => {

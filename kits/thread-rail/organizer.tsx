@@ -211,7 +211,9 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     store.actions = actions;
     // A phone has no ⌘Z to name.
     const shortcut = document.body.dataset.profile === "compact" ? undefined : registry.keybindingLabel("thread.undo");
-    const text = notice ? `${notice.action} ${notice.count} thread${notice.count === 1 ? "" : "s"}` : undefined;
+    // Touch clients show the settled state at the thread, with Un-settle there.
+    const inlineSettled = registry.getProfile() === "compact" && notice?.action === "Settled";
+    const text = notice && !inlineSettled ? `${notice.action} ${notice.count} thread${notice.count === 1 ? "" : "s"}` : undefined;
     const toast = actions.toast;
     useEffect(() => {
       if (!toast) return;

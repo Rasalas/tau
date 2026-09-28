@@ -1,22 +1,22 @@
 import type { UsageRow, UsageTokens } from "./protocol.js";
 
-export type UsagePeriod = "today" | "7d" | "30d" | "all";
+export type UsagePeriod = "today" | "7d" | "30d" | "90d" | "all";
 
 export const USAGE_PERIODS: ReadonlyArray<{ id: UsagePeriod; label: string }> = [
   { id: "today", label: "Today" },
   { id: "7d", label: "7 days" },
   { id: "30d", label: "30 days" },
+  { id: "90d", label: "90 days" },
   { id: "all", label: "All time" },
 ];
 
 /**
- * Where a period starts, at local midnight: today, and the six or twenty-nine
- * days before it. The client's clock decides, so a remote host still counts
+ * Where a period starts, at local midnight, including today's calendar day. The client's clock decides, so a remote host still counts
  * the user's own day.
  */
 export function periodStart(period: UsagePeriod, now: Date = new Date()): number | undefined {
   if (period === "all") return undefined;
-  const back = period === "today" ? 0 : period === "7d" ? 6 : 29;
+  const back = period === "today" ? 0 : period === "7d" ? 6 : period === "30d" ? 29 : 89;
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - back).getTime();
 }
 
@@ -99,9 +99,9 @@ export function formatTokens(tokens: number): string {
   return String(value);
 }
 
-/** Quota left in a window, 0–100; bars show what remains. */
-export function remainingPercent(window: { usedPercent: number }): number {
-  return Math.round(100 - Math.max(0, Math.min(100, window.usedPercent)));
+/** Quota used in a window, rounded and bounded to 0–100. */
+export function usedPercent(window: { usedPercent: number }): number {
+  return Math.round(Math.max(0, Math.min(100, window.usedPercent)));
 }
 
 /** How far into the window the clock is, 0–1, or undefined when its length or reset is unknown. */

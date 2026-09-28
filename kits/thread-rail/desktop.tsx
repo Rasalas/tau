@@ -409,7 +409,7 @@ export const threadRailExtension: DesktopExtension = {
         return () => { if (titles === value) titles = undefined; };
       }),
       context.registerModelSelection(selection),
-      context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web"], Component: createSettledNote(store, organizer.toggleSettledById) }),
+      context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web", "compact"], Component: createSettledNote(store, organizer.toggleSettledById) }),
       // The rail's dialogs and undo offer; on the desktop the workspace sidebar mounts them, elsewhere this does.
       context.registerRegion({ id: "thread-rail.layer", placement: "composer-below", order: 99, profiles: ["web", "compact"], Component: ({ actions }: RegionProps) => (organizer.Layer ? <organizer.Layer actions={actions} /> : null) }),
       context.registerComposerControl({ id: "thread-rail.fan-out", placement: "toolbar", order: 30, profiles: ["desktop"], Component: createFanOutChip(selection, () => workspace) }),

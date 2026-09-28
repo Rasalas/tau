@@ -25,7 +25,7 @@ const thread = (id: string, modifiedAt = 1): UiSession => ({
 const model = (id: string): UiModel => ({ provider: "openai", id, name: id } as UiModel);
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean } = {}) {
+function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean; profile?: "desktop" | "web" | "compact" } = {}) {
   let state: RailState = { threads: {}, settings: { onMerged: true, onClosed: false }, ...options.initial };
   const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
     if (command === "state" || command === "import") return state;
@@ -53,7 +53,7 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confir
     if (command === "start") return { sessionId: `started-${invoke.mock.calls.filter((call) => call[1] === "start").length}`, cwd: (input as { cwd: string }).cwd };
     return undefined;
   });
-  const { registry, preferences } = createKitHarness(invoke);
+  const { registry, preferences } = createKitHarness(invoke, options.profile);
   let organizer: RailOrganizer | undefined;
   const worktrees: Array<{ force?: boolean; branchSuffix?: string }> = [];
   let railProjectFilter: string | undefined;
@@ -266,6 +266,30 @@ describe("Thread Rail on the desktop", () => {
     expect(organizer().sections([thread("a", 2), thread("b", 1)]).flatMap((section) => section.threads.map((entry) => entry.id))).toEqual(["a", "b"]);
   });
 
+  it.each(["desktop", "compact"] as const)("uses the %s client's settle confirmation without changing other undo offers", async (profile) => {
+    const { registry, organizer, actions } = setup({ profile });
+    const dismiss = vi.fn();
+    actions.toast = vi.fn(() => ({ id: "t", update: vi.fn(), dismiss }));
+    await flush();
+    const Layer = organizer().Layer!;
+    const view = render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    organizer().sections([thread("a"), thread("b")]);
+    // Other undo offers still use the stack, even on touch.
+    await act(async () => { organizer().runMenu(thread("a"), "archive", actions); await flush(); });
+    expect(actions.toast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Archived 1 thread" }));
+    vi.mocked(actions.toast).mockClear();
+    await act(async () => { organizer().toggleSettled(thread("b")); await flush(); });
+    if (profile === "compact") {
+      expect(actions.toast).not.toHaveBeenCalled();
+      expect(dismiss).toHaveBeenCalled();
+      expect(view.queryByRole("status")).toBeNull();
+    } else {
+      expect(actions.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Settled 1 thread" }));
+    }
+  });
+
   it("opens a new thread in the project when the thread on screen is archived, and undo returns to it", async () => {
     const { registry, organizer, actions } = setup();
     await flush();
@@ -305,8 +329,8 @@ describe("Thread Rail on the desktop", () => {
     expect(actions.notify).toHaveBeenCalledWith("Stop the thread before deleting it.");
   });
 
-  it("says above the composer that the thread on screen is settled, and un-settles it from there", async () => {
-    const { registry, actions, calls, push } = setup();
+  it.each(["desktop", "web", "compact"] as const)("says at the thread that it is settled, with Un-settle, on %s", async (profile) => {
+    const { registry, actions, calls, push } = setup({ profile });
     await flush();
     const region = registry.getRegions("composer-above").find((entry) => entry.id === "thread-rail.settled-note")!;
     const snapshot = { sessionId: "b" } as never;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsSection, errorMessage, formatCost, type HostExtensionClient, type SettingsPageProps } from "tau";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
+import { QuotaHistory, UsageActivity } from "./activity.js";
 import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
 import {
   USAGE_GROUPINGS,
@@ -28,7 +29,7 @@ function Tile({ label, value, detail }: { label: string; value: string; detail?:
 
 /**
  * What the threads Tau ran have used, per project, runtime and model, and
- * what each plan has left. Money billed per token and what a subscription
+ * how much of each plan was used. Money billed per token and what a subscription
  * covered stay apart: a plan's usage shows its limits and what the same
  * tokens would have cost over the API, never a cost.
  */
@@ -40,7 +41,14 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
   const [limits, setLimits] = useState<UsageLimitsSummary>();
   const [limitsError, setLimitsError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [limitsBusy, setLimitsBusy] = useState(false);
+  const [activity, setActivity] = useState<UsageSummary>();
+  const [activityError, setActivityError] = useState<string>();
+  const [activityBusy, setActivityBusy] = useState(false);
+  const [clock, setClock] = useState(() => (now?.() ?? new Date()).getTime());
   const request = useRef(0);
+  const limitsRequest = useRef(0);
+  const activityRequest = useRef(0);
 
   const load = useCallback(async (refresh: boolean) => {
     const id = ++request.current;
@@ -60,32 +68,65 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
   }, [host, now, period]);
 
   const loadLimits = useCallback(async (refresh: boolean) => {
+    const id = ++limitsRequest.current;
+    setLimitsBusy(true);
     try {
-      setLimits(await host.invoke(USAGE_LIMITS_COMMAND, refresh ? { refresh } : {}) as UsageLimitsSummary);
+      const result = await host.invoke(USAGE_LIMITS_COMMAND, refresh ? { refresh } : {}) as UsageLimitsSummary;
+      if (id !== limitsRequest.current) return;
+      setLimits(result);
+      setClock((now?.() ?? new Date()).getTime());
       setLimitsError(undefined);
     } catch (failure) {
-      setLimitsError(errorMessage(failure));
+      if (id === limitsRequest.current) setLimitsError(errorMessage(failure));
+    } finally {
+      if (id === limitsRequest.current) setLimitsBusy(false);
     }
-  }, [host]);
+  }, [host, now]);
 
-  useEffect(() => { void load(false); }, [load]);
-  useEffect(() => { void loadLimits(false); }, [loadLimits]);
+  const loadActivity = useCallback(async (refresh: boolean) => {
+    const id = ++activityRequest.current;
+    setActivityBusy(true);
+    const date = now?.() ?? new Date();
+    const since = new Date(date.getFullYear(), date.getMonth(), date.getDate() - 89).getTime();
+    try {
+      const result = await host.invoke(USAGE_SUMMARY_COMMAND, { since, daily: true, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(refresh ? { refresh } : {}) }) as UsageSummary;
+      if (id !== activityRequest.current) return;
+      setActivity(result); setActivityError(undefined);
+    } catch (failure) {
+      if (id === activityRequest.current) setActivityError(errorMessage(failure));
+    } finally {
+      if (id === activityRequest.current) setActivityBusy(false);
+    }
+  }, [host, now]);
+
+  useEffect(() => { void load(false); return () => { request.current++; }; }, [load]);
+  useEffect(() => { void loadLimits(false); return () => { limitsRequest.current++; }; }, [loadLimits]);
+  useEffect(() => { void loadActivity(false); return () => { activityRequest.current++; }; }, [loadActivity]);
+  useEffect(() => {
+    const timer = setInterval(() => setClock((now?.() ?? new Date()).getTime()), 30_000);
+    return () => clearInterval(timer);
+  }, [now]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible" || busy || limitsBusy || activityBusy) return;
+      void load(false); void loadLimits(false); void loadActivity(false);
+    }, 5 * 60_000);
+    return () => clearInterval(timer);
+  }, [load, loadLimits, loadActivity, busy, limitsBusy, activityBusy]);
 
   const groups = useMemo(() => summary ? groupRows(summary.rows, grouping) : [], [grouping, summary]);
   const suggestions = useMemo(() => [...new Set((summary?.rows ?? []).map((row) => row.provider ? `${row.provider}/${row.modelId ?? row.model}` : row.modelId ?? row.model))].sort(), [summary]);
   const totals = summary?.totals;
   const plan = totals?.subscription;
   const periodLabel = USAGE_PERIODS.find((entry) => entry.id === period)?.label ?? "";
-  const clock = (now?.() ?? new Date()).getTime();
+  const refreshing = busy || limitsBusy || activityBusy;
 
   return (
     <div className="settings-page usage-page">
-      <h3>Usage</h3>
-      <p className="lede">
-        What the threads Tau ran have used, from what each runtime recorded, and what each subscription has left. Money billed per token
-        and what a plan covered are kept apart: a plan&apos;s usage shows its limits and what the same tokens would have cost over the API.
-        Nothing here is a bill.
-      </p>
+      <header className="usage-page-heading">
+        <div><span className="usage-eyebrow">Usage</span><h3>Plans &amp; activity</h3><p className="lede">Your plans, their next reset, and the work you have done.</p></div>
+        <div className="usage-refresh-group"><button type="button" className="usage-refresh" disabled={refreshing} onClick={() => { setClock((now?.() ?? new Date()).getTime()); void load(true); void loadLimits(true); void loadActivity(true); }}>{refreshing ? "Reading…" : "Read again"}</button><small>Updates every 5 minutes while open</small></div>
+      </header>
 
       <div className="usage-controls">
         <div className="segmented" role="group" aria-label="Period">
@@ -95,14 +136,12 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
             </button>
           ))}
         </div>
-        <button type="button" className="usage-refresh" disabled={busy} onClick={() => { void load(true); void loadLimits(true); }}>
-          {busy ? "Reading…" : "Read again"}
-        </button>
       </div>
 
-      <SettingsSection title="Subscription limits" plain>
+      <section className="usage-overview" aria-label="Subscription overview">
+        <div className="usage-section-heading"><div><h4>Your subscriptions</h4><p>Current limits and their next reset. The period filter applies to recorded activity.</p></div></div>
         <UsageLimits limits={limits} error={limitsError} rows={summary?.rows} periodLabel={periodLabel} now={clock} />
-      </SettingsSection>
+      </section>
 
       {error ? <div className="settings-note" data-level="error">{error}</div> : null}
 
@@ -121,8 +160,12 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
         <div className="settings-note">Reading usage…</div>
       ) : null}
 
+      <UsageActivity summary={activity} error={activityError} period={period} now={clock} />
+      <QuotaHistory limits={limits} now={clock} />
+
       {summary ? (
         <>
+          <details className="usage-disclosure" open><summary>Usage breakdown <span>{periodLabel}</span></summary>
           <SettingsSection title={`${periodLabel} · by`} plain headerAction={
             <div className="segmented usage-grouping" role="group" aria-label="Group by">
               {USAGE_GROUPINGS.map((entry) => (
@@ -173,11 +216,13 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
           )}
           </SettingsSection>
 
-          <SettingsSection title="Model prices" plain>
-            <ModelPrices suggestions={suggestions} />
-          </SettingsSection>
+          </details>
 
-          <SettingsSection title="Sources" plain>
+          <details className="usage-disclosure"><summary>Model prices <span>Automatic prices and your overrides</span></summary>
+            <ModelPrices suggestions={suggestions} />
+          </details>
+
+          <details className="usage-disclosure"><summary>Data sources &amp; pricing <span>What these numbers include</span></summary>
           <ul className="usage-sources" aria-label="Sources">
             {summary.sources.map((source) => (
               <li key={source.backend} data-status={source.status}>
@@ -199,7 +244,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
             tokens would have cost over the provider&apos;s API; the plan itself was paid for already. A model without a price counts tokens
             only. Last read {new Date(summary.scannedAt).toLocaleTimeString()}.
           </div>
-          </SettingsSection>
+          </details>
         </>
       ) : null}
     </div>

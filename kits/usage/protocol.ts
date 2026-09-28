@@ -121,7 +121,14 @@ export interface UsageLimitSourceReport {
   detail: string;
 }
 
+export interface UsageLimitSample {
+  source: string;
+  account: UsageLimitAccount;
+}
+
 export interface UsageLimitsSummary {
+  /** Actual observations from the last 24 hours, never synthetic poll timestamps. */
+  history?: UsageLimitSample[];
   checkedAt: number;
   accounts: UsageLimitAccount[];
   sources: UsageLimitSourceReport[];
@@ -169,6 +176,8 @@ export interface UsageTotals extends UsageTokens {
 }
 
 export interface UsageRow extends UsageTokens {
+  /** Calendar date in the requested time zone, only for a daily summary. */
+  day?: string;
   backend: string;
   backendLabel: string;
   cwd: string;
@@ -214,6 +223,9 @@ export interface UsageSummary {
 
 export interface UsageSummaryInput {
   since?: number;
+  /** Split rows by calendar day for activity charts. Undated records are omitted. */
+  daily?: boolean;
+  timeZone?: string;
   /** Reads the sources again instead of answering from the cache. */
   refresh?: boolean;
 }

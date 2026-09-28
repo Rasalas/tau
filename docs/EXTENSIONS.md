@@ -1251,6 +1251,22 @@ keeps what Pi's subscription providers send in their response headers. The
 backends read at most every five minutes unless asked to refresh. A kit that adds limits adds its row to
 `LIMIT_SOURCES` in `kits/usage/protocol.ts`.
 
+Usage Kit's `summary` also accepts `{ daily: true, timeZone, since? }`. Its rows
+then carry a `day` calendar date in the client's time zone, priced by the same
+rules as the totals. Undated Pi records cannot appear in a daily chart; legacy
+backend totals remain dated by last activity. The page displays 90 days of
+activity and keeps API billing separate from subscription API value.
+
+The kit's `limits` answer includes `history`, up to 12,000 account snapshots from
+the last 24 hours, saved in its own `limit-history.json`. `checkedAt` must be the
+observation time, not the time a cached answer was returned. Failed refreshes
+retain the last known windows, marked as failed; sign-out and unsupported
+accounts discard those snapshots. The page polls every five minutes while open
+and visible. Readings older than ten minutes or past their reset do not support
+forecasts. A forecast needs at least three increasing or level readings spanning
+five minutes, with no gap over ten minutes, for the same account and reset. It
+only appears for an estimated limit within two hours and before the reset.
+
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
 conversations their CLIs ran outside Tau. A backend that can import them
 registers two commands granted to `tau.onboarding`:

@@ -9,7 +9,7 @@ import usageExtension from "./desktop.js";
 import { UsagePage } from "./page.js";
 import { priceFromDraft } from "./prices.js";
 import { USAGE_SETTINGS_PAGE, type UsageLimitsSummary, type UsageRow, type UsageSummary } from "./protocol.js";
-import { groupRows, periodStart, planUsageOf, resetsIn } from "./view-model.js";
+import { groupRows, periodStart, planUsageOf, resetsIn, usedPercent } from "./view-model.js";
 
 afterEach(cleanup);
 
@@ -79,6 +79,7 @@ describe("periods and groups", () => {
     expect(periodStart("today", NOW)).toBe(new Date(2026, 8, 22).getTime());
     expect(periodStart("7d", NOW)).toBe(new Date(2026, 8, 16).getTime());
     expect(periodStart("30d", NOW)).toBe(new Date(2026, 7, 24).getTime());
+    expect(periodStart("90d", NOW)).toBe(new Date(2026, 5, 25).getTime());
   });
 
   it("groups rows by project, runtime or model, the largest figure first, a plan's value apart from the money", () => {
@@ -93,6 +94,10 @@ describe("periods and groups", () => {
     expect(planUsageOf(rows, { runtime: "pi", id: "pi:anthropic" })).toEqual({ tokens: 0, requests: 0, apiValueUsd: 0 });
     expect(resetsIn({ resetsAt: 10 + 2 * 3_600_000 + 13 * 60_000 }, 10)).toBe("resets in 2h 13m");
     expect(resetsIn({ resetsAt: 5 }, 10)).toBe("reset");
+  });
+
+  it("shows consumed quota without inverting it, rounded and bounded", () => {
+    expect([0, 34, 95, 100, -10, 120, 34.6].map((value) => usedPercent({ usedPercent: value }))).toEqual([0, 34, 95, 100, 0, 100, 35]);
   });
 
   it("reads a price from the editor's fields, a blank cache rate being the input rate", () => {
@@ -132,18 +137,38 @@ describe("Usage page", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("limits", { refresh: true }));
   });
 
-  it("shows each plan's windows with what is left and when it resets, and beside them what its usage would have cost via the API", async () => {
+  it("shows each plan's windows with what was used and when it resets, and beside them what its usage would have cost via the API", async () => {
     renderPage(answers());
     const codex = await screen.findByRole("region", { name: "Codex limits" });
     expect(within(codex).getByText("pro")).toBeTruthy();
-    expect(within(codex).getByText("66% left")).toBeTruthy();
+    expect(within(codex).getByText("34% used")).toBeTruthy();
+    const session = within(codex).getByRole("img", { name: /5-hour: 34% used, 70% of the window elapsed/u });
+    expect((session.querySelector(".usage-window-fill") as HTMLElement).style.width).toBe("34%");
+    expect((session.querySelector(".usage-window-time") as HTMLElement).style.left).toBe("70%");
+    expect(session.hasAttribute("data-low")).toBe(false);
     expect(within(codex).getByText("resets in 1h 30m")).toBeTruthy();
-    expect(within(codex).getByRole("img", { name: /Weekly: 5% left, \d+% of the window left, resets in 3d/u })).toBeTruthy();
+    const weekly = within(codex).getByRole("img", { name: /Weekly: 95% used, 57% of the window elapsed, resets in 3d/u });
+    expect((weekly.querySelector(".usage-window-fill") as HTMLElement).style.width).toBe("95%");
+    expect(weekly.getAttribute("data-low")).toBe("true");
     const pi = screen.getByRole("region", { name: "Pi · openai-codex limits" });
+    expect(within(pi).getByRole("img", { name: "5-hour: 10% used, Reset time unavailable" }).querySelector(".usage-window-time")).toBeNull();
     await waitFor(() => expect(within(pi).getByText(/7 days on the plan: 500 tokens in 2 turns/u)).toBeTruthy());
     expect(within(pi).getByText("≈ $1.40")).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText("An API key or a cloud provider has no plan limits.")).toBeTruthy();
     expect(within(screen.getByLabelText("Sources")).getByText("Codex limits")).toBeTruthy();
+  });
+
+  it("uses the clock after a limits read, so newly returned readings are not marked stale", async () => {
+    let clock = NOW.getTime();
+    const invoke = async (command: string) => {
+      if (command !== "limits") return summary();
+      clock += 1_000;
+      return { ...limits, accounts: [{ ...limits.accounts[0]!, checkedAt: clock }] };
+    };
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage onNotify={vi.fn()} host={host(invoke)} now={() => new Date(clock)} /></HostClientProvider></TestProviders>);
+    const card = await screen.findByRole("region", { name: "Codex limits" });
+    expect(within(card).getByText("Live reading")).toBeTruthy();
+    expect(within(card).queryByText("Last known reading")).toBeNull();
   });
 
   it("explains where the numbers would come from when a period has none", async () => {

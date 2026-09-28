@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Check, CircleAlert, LoaderCircle, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Square } from "lucide-react";
+import { Check, CircleAlert, LoaderCircle, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
@@ -51,7 +51,6 @@ export interface TouchThreadListProps {
   registry: ExtensionRegistry;
   actions: WorkbenchActions;
   onOpen(row: ThreadSupervisionRow): void;
-  onStop(row: ThreadSupervisionRow): void;
   /** The next step the empty list offers; absent, the empty list only says so. */
   onNewThread?(): void;
   /** Only this project's threads. */
@@ -62,10 +61,9 @@ export interface TouchThreadListProps {
  * The compact thread list: pinned, active and settled threads, each row a
  * tap to open and a swipe to settle, as in T3 Code's thread list. A long
  * press (or a right click) lists every action, the kits' `thread-row`
- * commands among them. Running rows keep a stop button: supervision on a
- * phone means stopping a run without opening it.
+ * commands among them. Runs are stopped in the thread's composer.
  */
-export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread, project }: TouchThreadListProps) {
+export function TouchThreadList({ registry, actions, onOpen, onNewThread, project }: TouchThreadListProps) {
   const store = useThreadStore();
   const preferences = usePreferences();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -100,7 +98,6 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     return tray;
   };
   const sheetActions = (row: ThreadSupervisionRow): SheetAction[] => [
-    ...(row.status === "running" ? [{ id: "stop", label: "Stop the run", Icon: Square, disabledReason: refused({}), run: () => onStop(row) }] : []),
     { ...settleAction(row), label: row.settled ? "Un-settle" : "Settle", disabledReason: refused({}) },
     { id: "pin", label: row.pinned ? "Unpin" : "Pin", Icon: row.pinned ? PinOff : Pin, disabledReason: refused({}), run: () => preferences.togglePinned(row.id) },
     row.unread
@@ -139,8 +136,6 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         setOpenRow={setOpenRow}
         swipeActions={swipeActions}
         onOpen={onOpen}
-        // A Read-only device may not stop a run; the row's sheet says why.
-        {...(readOnly ? {} : { onStop })}
         onSheet={setSheetFor}
         onMore={() => setShown((value) => group.id === "settled"
           ? { ...value, settled: value.settled + 25 }
@@ -178,14 +173,13 @@ function shortLabel(label: string): string {
   return label.replace(/…$/u, "").replace(/\s+thread$/iu, "");
 }
 
-function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onStop, onSheet, onMore }: {
+function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onSheet, onMore }: {
   group: ThreadListGroup;
   activeId: string;
   openRow?: string;
   setOpenRow(id: string | undefined): void;
   swipeActions(row: ThreadSupervisionRow): SwipeAction[];
   onOpen(row: ThreadSupervisionRow): void;
-  onStop?(row: ThreadSupervisionRow): void;
   onSheet(row: ThreadSupervisionRow): void;
   onMore(): void;
 }) {
@@ -213,12 +207,6 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
               <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
             </span>}
           </button>
-          {row.status === "running" && onStop ? <button
-            type="button"
-            className="touch-thread-stop"
-            aria-label={`Stop ${row.title}`}
-            onClick={() => onStop(row)}
-          ><Square size={12} /></button> : null}
           <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
         </SwipeRow>
       </li>;

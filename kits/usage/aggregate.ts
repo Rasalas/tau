@@ -28,6 +28,8 @@ export interface UsageScan {
 
 export interface SummarizeOptions {
   since?: number;
+  daily?: boolean;
+  timeZone?: string;
   /** A project's name; the folder's name when this says nothing. */
   nameOf?(cwd: string): string | undefined;
 }
@@ -54,7 +56,7 @@ export function splitModel(model: string): { provider?: string; modelId: string 
   return slash > 0 ? { provider: model.slice(0, slash), modelId: model.slice(slash + 1) } : { modelId: model };
 }
 
-type RowKey = { backend: string; backendLabel: string; cwd: string; model: string; provider?: string; modelId?: string; billing?: UsageBilling };
+type RowKey = { day?: string; backend: string; backendLabel: string; cwd: string; model: string; provider?: string; modelId?: string; billing?: UsageBilling };
 
 class Rows {
   private readonly rows = new Map<string, UsageRow & { threadIds: Set<string> }>();
@@ -62,10 +64,11 @@ class Rows {
   constructor(private readonly nameOf: (cwd: string) => string | undefined) {}
 
   row(key: RowKey) {
-    const id = `${key.backend}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}`;
+    const id = `${key.backend}\u0000${key.cwd}\u0000${key.model}\u0000${key.billing ?? ""}\u0000${key.day ?? ""}`;
     let row = this.rows.get(id);
     if (!row) {
       row = {
+        ...(key.day ? { day: key.day } : {}),
         backend: key.backend,
         backendLabel: key.backendLabel,
         cwd: key.cwd,
@@ -184,6 +187,8 @@ function backendReport(scan: BackendScan, threads: number): UsageSourceReport {
  */
 export function summarize(scan: UsageScan, options: SummarizeOptions = {}): UsageSummary {
   const since = options.since;
+  const dates = options.daily ? new Intl.DateTimeFormat("en-CA", { timeZone: options.timeZone ?? "UTC", year: "numeric", month: "2-digit", day: "2-digit" }) : undefined;
+  const dayOf = (at: number) => dates ? { day: dates.format(at) } : {};
   const rows = new Rows(options.nameOf ?? (() => undefined));
   const inPeriod = (at: number | undefined) => since === undefined || (at !== undefined && at >= since);
 
@@ -194,8 +199,8 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
     for (const record of session.records) {
       if (seen.has(record.key)) continue;
       seen.add(record.key);
-      if (!inPeriod(record.at)) continue;
-      const row = rows.row({ backend: PI_BACKEND, backendLabel: "Pi", cwd: session.cwd, model: record.model, ...splitModel(record.model) });
+      if (!inPeriod(record.at) || (options.daily && record.at === undefined)) continue;
+      const row = rows.row({ ...dayOf(record.at ?? 0), backend: PI_BACKEND, backendLabel: "Pi", cwd: session.cwd, model: record.model, ...splitModel(record.model) });
       row.requests += record.requests;
       row.inputTokens += record.input;
       row.outputTokens += record.output;
@@ -218,6 +223,7 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
         if (!inPeriod(turn.at)) continue;
         const model = turn.model ?? thread.model ?? "default model";
         const row = rows.row({
+          ...dayOf(turn.at),
           backend: backend.source.backend,
           backendLabel: backend.source.label,
           cwd: thread.cwd,
