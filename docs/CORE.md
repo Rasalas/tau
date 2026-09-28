@@ -477,7 +477,8 @@ and the client writes it onto `<html>`: no component in the workbench knows a
 colour. `index.html` links the file rather than importing it, so the first
 paint is already themed.
 
-The palette is the workbench design's (K69): a warm neutral grey on two
+The palette is the workbench design's (K69), with a warm grey in the light
+scheme and a near-black with a faint blue cast in the dark (K77), on two
 grounds — the document area and the side surface, the latter the lighter one
 in the dark scheme — one blue accent for Tau's own actions and selection,
 green and red for diffs and checks, amber for a question, short light shadows,

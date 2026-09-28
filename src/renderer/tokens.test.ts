@@ -153,6 +153,27 @@ describe("the token contract", () => {
     expect(lighter("light")).toBe(false);
   });
 
+  it("keeps the dark scheme near-black with a cool cast, and menus a step above the sidebar", async () => {
+    const tokens = await readTokens();
+    const dark = (name: string) => colour(tokens, name, "dark");
+    const [r, g, b] = [1, 3, 5].map((index) => Number.parseInt(dark("shell").slice(index, index + 2), 16));
+    expect(luminance(dark("shell"))).toBeLessThan(0.008);
+    expect(b).toBeGreaterThan(r);
+    expect(b).toBeGreaterThanOrEqual(g);
+    expect(luminance(dark("float"))).toBeGreaterThan(luminance(dark("rail")));
+    expect(luminance(dark("rail"))).toBeGreaterThan(luminance(dark("sunken")));
+  });
+
+  it("paints the window and the browser bar in the dark ground before the first frame", async () => {
+    const tokens = await readTokens();
+    const shell = colour(tokens, "shell", "dark");
+    const pages = ["../../index.html", "../../index.web.html", "../../mobile/index.html"];
+    const htmls = await Promise.all(pages.map((page) => readFile(new URL(page, import.meta.url), "utf8")));
+    htmls.forEach((html, index) => expect(html, pages[index]).toMatch(new RegExp(`<meta name="theme-color" content="${shell}" data-scheme="dark"`, "u")));
+    const main = await readFile(new URL("../main/index.ts", import.meta.url), "utf8");
+    expect(main).toContain(`backgroundColor: "${shell}"`);
+  });
+
   it("ships Figtree as the sans with its own local files, never a font server", async () => {
     const tokens = await readTokens();
     expect(tokens.get("--sans")).toMatch(/^"Figtree", system-ui,/u);

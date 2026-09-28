@@ -29,6 +29,19 @@ describe("the tokens a theme may set", () => {
 });
 
 describe("a palette from three colours", () => {
+  it("rebuilds Tau's own dark surfaces from its ground, ink and accent", async () => {
+    const css = await readFile(new URL("../../src/renderer/tokens.css", import.meta.url), "utf8");
+    const dark = new Map([...css.matchAll(/^\s*(--[\w-]+):\s*light-dark\(#[0-9a-f]{6},\s*(#[0-9a-f]{6})\);/gmu)].map((match) => [match[1], match[2]]));
+    const tokens = derivePalette({ appearance: "dark", background: dark.get("--shell")!, foreground: dark.get("--ink")!, accent: dark.get("--acid")! });
+    const channels = (hex: string) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+    // --well stays deeper than the window in a derived theme: an imported ground may be mid-grey.
+    const surfaces = TOKEN_GROUPS.find((group) => group.id === "surfaces")!.tokens.map(([name]) => name).filter((name) => name !== "--well");
+    for (const name of surfaces) {
+      const [want, got] = [channels(dark.get(name)!), channels(tokens[name]!)];
+      expect(Math.max(...want.map((value, index) => Math.abs(value - got[index]!))), `${name}: ${tokens[name]} for ${dark.get(name)}`).toBeLessThanOrEqual(2);
+    }
+  });
+
   it("keeps every text ink readable on the window and the document area, in both schemes", () => {
     for (const seed of [
       { appearance: "dark" as const, background: "#1e1e1e", foreground: "#d4d4d4", accent: "#0e639c" },

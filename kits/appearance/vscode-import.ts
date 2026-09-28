@@ -102,7 +102,7 @@ export function importVsCodeTheme(source: string | unknown): ImportedTheme {
   const background = flatten({ ...canvas, a: 1 }, "#000000");
   const type = typeof value.type === "string" ? value.type.toLowerCase() : "";
   const appearance: Appearance = type === "light" || type === "hc-light" ? "light" : type === "dark" || type === "hc-black" ? "dark" : isDark(background) ? "dark" : "light";
-  const fallbackInk = appearance === "dark" ? "#e9e6e0" : "#1c1b19";
+  const fallbackInk = appearance === "dark" ? "#e3e6ec" : "#1c1b19";
   const foregroundColor = pick(["editor.foreground", "foreground"]);
   const foreground = foregroundColor ? readable(flatten(foregroundColor, background), background, fallbackInk) : fallbackInk;
   const accentColor = pick(["focusBorder", "button.background", "textLink.foreground", "activityBarBadge.background", "progressBar.background"]);

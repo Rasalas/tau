@@ -13,7 +13,7 @@ export interface PaletteSeed {
 /** How a surface sits against the window: toward the ink, lifted toward white (or the ink, in the dark), or deeper. */
 type Step = readonly ["ink" | "lift" | "deep", number, number?];
 
-/** Offsets read off Tau's own two token sets (the workbench palette); the optional second number is the light scheme's lift. */
+/** Offsets read off Tau's own two token sets; the optional second number is the light scheme's own amount. */
 const SURFACES: Readonly<Record<string, Step>> = {
   "--well": ["deep", 0.3],
   "--rail": ["ink", 0.04],
@@ -23,17 +23,17 @@ const SURFACES: Readonly<Record<string, Step>> = {
   "--field": ["ink", 0.04],
   "--thread-active": ["lift", 0, 0],
   "--raised": ["ink", 0.1],
-  "--raised-strong": ["ink", 0.12],
-  "--raised-hover": ["ink", 0.15],
-  "--overlay": ["lift", 0.058, 0],
-  "--float": ["lift", 0.058, 0],
+  "--raised-strong": ["ink", 0.127, 0.15],
+  "--raised-hover": ["ink", 0.163, 0.1875],
+  "--overlay": ["lift", 0.05, 0],
+  "--float": ["lift", 0.05, 0],
   "--hover": ["ink", 0.075],
   "--hover-strong": ["ink", 0.09],
   "--code-bg": ["ink", 0.04],
   "--inset": ["ink", 0.04],
-  "--chip": ["ink", 0.085],
-  "--chip-hover": ["ink", 0.12],
-  "--track": ["ink", 0.12],
+  "--chip": ["ink", 0.094, 0.10625],
+  "--chip-hover": ["ink", 0.15, 0.15],
+  "--track": ["ink", 0.15, 0.15],
 };
 
 const HAIRLINES: Readonly<Record<string, number>> = {
@@ -58,10 +58,10 @@ export function derivePalette(seed: PaletteSeed): Record<string, string> {
   const white = "#ffffff";
   const black = "#000000";
   const tokens: Record<string, string> = { "--shell": bg };
-  for (const [name, [kind, amount, lightLift]] of Object.entries(SURFACES)) {
-    if (kind === "ink") tokens[name] = mix(bg, fg, appearance === "light" ? amount * 1.25 : amount);
-    else if (kind === "lift") tokens[name] = appearance === "light" ? mix(bg, white, lightLift ?? amount) : mix(bg, fg, amount);
-    else tokens[name] = appearance === "light" ? mix(bg, fg, amount / 5) : mix(bg, black, amount);
+  for (const [name, [kind, amount, light]] of Object.entries(SURFACES)) {
+    if (kind === "ink") tokens[name] = mix(bg, fg, appearance === "light" ? light ?? amount * 1.25 : amount);
+    else if (kind === "lift") tokens[name] = appearance === "light" ? mix(bg, white, light ?? amount) : mix(bg, fg, amount);
+    else tokens[name] = appearance === "light" ? mix(bg, fg, light ?? amount / 5) : mix(bg, black, amount);
   }
   for (const [name, amount] of Object.entries(HAIRLINES)) tokens[name] = mix(bg, fg, appearance === "light" ? amount * 1.2 : amount);
   const stage = tokens["--stage"]!;
