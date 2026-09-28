@@ -317,7 +317,7 @@
 
 /* The branch in the thread header (K84): a quiet trigger that opens the checkout menu or a new thread's Branch section. */
 .thread-branch-trigger {
-  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; margin: -2px -5px; padding: 2px 5px;
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; margin: -2px 0; padding: 2px 4px;
   border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer;
 }
 .thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }

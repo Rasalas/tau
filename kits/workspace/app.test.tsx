@@ -1575,7 +1575,8 @@ describe("Workspace Kit in the workbench", () => {
   it("moves the checkout row into the header's branch menu once the conversation has begun", async () => {
     const moved: HostActionResult = { version: 1, updates: [] };
     const switchRef = vi.fn(async () => moved);
-    const createBranch = vi.fn(async () => moved);
+    let branch = "main";
+    const createBranch = vi.fn(async (name: string) => { branch = name; return moved; });
     const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
@@ -1588,8 +1589,8 @@ describe("Workspace Kit in the workbench", () => {
         listEditors: async () => [],
         getChanges: async () => ({ files: [], added: 0, removed: 0 }),
         getWorkspaceInfo: async () => ({
-          root: "/project", isRepo: true, isDirty: false, branch: "main", hasRemote: false,
-          worktrees: [{ path: "/project", name: "project", branch: "main", isMain: true, isCurrent: true }],
+          root: "/project", isRepo: true, isDirty: false, branch, hasRemote: false,
+          worktrees: [{ path: "/project", name: "project", branch, isMain: true, isCurrent: true }],
           refs: [{ name: "main", isCurrent: true }, { name: "feat/paging", isCurrent: false }],
           worktreeParent: "/project-worktrees",
         }),
@@ -1617,6 +1618,8 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.change(search, { target: { value: "fix/header" } });
     fireEvent.keyDown(search, { key: "Enter" });
     await waitFor(() => expect(createBranch).toHaveBeenCalledWith("fix/header"));
+    // The project stays the same, so the kit rereads the checkout itself.
+    expect(await screen.findByRole("button", { name: "Branch fix/header" })).toBeTruthy();
   });
 
   it("draws a new thread as a chat: its project and branch in the header, its Branch section behind the branch", async () => {

@@ -294,7 +294,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!hostAvailable() || !this.state.workspace?.isRepo) return;
     const cwd = this.state.cwd;
     try {
-      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin: this.startFromOrigin() });
+      // The checkout's branch, as a worktree made without a base starts from it.
+      const branch = this.state.workspace.branch;
+      const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin: this.startFromOrigin(), ...(branch ? { baseRef: branch } : {}) });
       if (cwd === this.state.cwd) this.update({ worktreeBase: base });
     } catch (error) {
       if (cwd === this.state.cwd) this.notify(errorMessage(error));
@@ -524,6 +526,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.update({ workspaceBusy: true });
     try {
       this.actions.applyHostResult(await action());
+      // A switch in place keeps the project, so nothing else rereads the branch.
+      void this.refreshWorkspace();
       return true;
     } catch (error) {
       this.notify(errorMessage(error));
