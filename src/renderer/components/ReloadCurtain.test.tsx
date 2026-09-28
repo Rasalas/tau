@@ -25,5 +25,7 @@ describe("ReloadCurtain", () => {
     const asset = readFileSync(join(process.cwd(), "assets/icon/tau-glyph.svg"), "utf8");
     expect(drawn).toEqual([...asset.matchAll(/ d="([^"]+)"/gu)].map((match) => match[1]));
     expect(container.textContent).not.toContain("τ");
+    // Inline, so the global line-icon stroke width cannot thin it.
+    expect(container.querySelector<SVGElement>(".reload-glyph")?.style.strokeWidth).toBe(asset.match(/stroke-width="([^"]+)"/u)?.[1]);
   });
 });
