@@ -11,7 +11,7 @@ import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
 import { AntigravitySignInSettings, METHOD_LABELS, antigravityAccount, antigravitySignInMethods, callbackAddress, credentialEnvironment, methodProblem, usesBrowser } from "./sign-in.js";
-import { AntigravityThreadRuntimeBackend, MODEL_PROVIDER, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
+import { AntigravityThreadRuntimeBackend, antigravityModelProvider, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
 
 export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
 
@@ -97,13 +97,20 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         });
       };
 
-      const record = (entry: Awaited<ReturnType<AntigravitySessionStore["list"]>>[number]): HostBackendThreadRecord => ({
-        threadId: entry.tauThreadId,
-        cwd: entry.cwd,
-        ...(entry.title ? { title: entry.title } : {}),
-        updatedAt: entry.updatedAt,
-        messages: entry.messages,
-      });
+      /** A thread's shell; the account's model names tell whose model it ran on. */
+      const record = (entry: Awaited<ReturnType<AntigravitySessionStore["list"]>>[number], names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
+        const model = entry.model ?? entry.observedModel;
+        const name = model ? names.get(model) : undefined;
+        return {
+          threadId: entry.tauThreadId,
+          cwd: entry.cwd,
+          ...(entry.title ? { title: entry.title } : {}),
+          updatedAt: entry.updatedAt,
+          messages: entry.messages,
+          ...(model ? { model: { provider: antigravityModelProvider({ id: model, ...(name ? { name } : {}) }), id: model } } : {}),
+        };
+      };
+      const modelNames = async () => new Map((await store.listModels()).map((model) => [model.value, model.name] as const));
 
       const provider: HostRuntimeBackendProvider = {
         kind: ANTIGRAVITY_BACKEND_KIND,
@@ -111,7 +118,13 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         order: 30,
         adapter,
         modelProvider: "google",
-        listThreads: async () => (await store.list()).map(record),
+        homeProviders: ["google"],
+        // A Google sign-in is Google's plan, whichever maker's model it runs.
+        ownPlan: true,
+        listThreads: async () => {
+          const names = await modelNames();
+          return (await store.list()).map((entry) => record(entry, names));
+        },
         removeThread: async (threadId) => {
           const taken = await store.take(threadId);
           const tools = await activity.take(threadId);
@@ -123,7 +136,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         },
         lookup: async (threadId) => {
           const entry = await store.get(threadId);
-          return entry ? record(entry) : undefined;
+          return entry ? record(entry, await modelNames()) : undefined;
         },
         open: async (threadId, cwd, { resume }, thread) => {
           await resolveExecutable();
@@ -142,6 +155,8 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             onEvent: thread.onEvent,
             ask: thread.ask,
             ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
+            // A Google sign-in is a plan (or its free tier); a key is billed per token.
+            billing: () => (usesBrowser(signInSettings.current.method) ? "subscription" : "api-key"),
             onSignIn: (link, signInThreadId) => context.emit(ANTIGRAVITY_SIGN_IN_EVENT, { threadId: signInThreadId, url: link.authorizationUrl } satisfies AntigravitySignInEvent),
           });
           await backend.start(resume ? "resume" : "create");
@@ -150,7 +165,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         composerCommands: () => [],
         // The server names its models only in a session; a draft offers the ones the last session named.
         newThreadCatalog: async () => {
-          const models = (await store.listModels()).map((model) => ({ provider: MODEL_PROVIDER, id: model.value, name: model.name.trim() || model.value }));
+          const models = (await store.listModels()).map((model) => ({ provider: antigravityModelProvider({ id: model.value, name: model.name }), id: model.value, name: model.name.trim() || model.value }));
           return models.length > 0
             ? { models, thinkingLevels: {} }
             : { models: [], thinkingLevels: {}, note: "Antigravity names its models once a thread has started; choose one then." };

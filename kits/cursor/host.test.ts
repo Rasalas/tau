@@ -55,7 +55,7 @@ function caller(id: string): HostExtension & { call?: (command: string, input?: 
 describe("Cursor host half", () => {
   it("registers a Cursor backend that asks for approvals, takes files and plans", async () => {
     const { provider } = await harness();
-    expect(provider).toMatchObject({ kind: "cursor", label: "Cursor", order: 50 });
+    expect(provider).toMatchObject({ kind: "cursor", label: "Cursor", order: 50, ownPlan: true });
     expect(provider.adapter.capabilities).toMatchObject({ interactiveApprovals: true, fileAttachments: true, modes: ["plan"], ownsModelSelection: false });
   });
 
@@ -66,7 +66,7 @@ describe("Cursor host half", () => {
       model: { provider: "cursor", id: "default", name: "Auto" },
       thinkingLevels: { default: ["default"], "composer-2": ["default"], "gpt-5.4": ["default", "low", "medium", "high"] },
     });
-    expect(catalog?.models.map((model) => `${model.id}:${model.billing}`)).toEqual(["default:subscription", "composer-2:subscription", "gpt-5.4:subscription"]);
+    expect(catalog?.models.map((model) => `${model.provider}/${model.id}:${model.billing}`)).toEqual(["cursor/default:subscription", "cursor/composer-2:subscription", "openai/gpt-5.4:subscription"]);
     expect((await sent()).map((message) => message.method).filter(Boolean)).toEqual(["initialize", "authenticate", "cursor/list_available_models"]);
     expect(connects).toEqual([]);
   });
@@ -154,6 +154,19 @@ describe("Cursor host half", () => {
     await registry.activate(stranger);
     await expect(usage.call!("usage")).resolves.toMatchObject({ threads: [{ threadId: "thread-1", model: "gpt-5.4", usage: { totalTokens: 12 } }] });
     await expect(stranger.call!("usage")).rejects.toThrow(/not allowed/u);
+  });
+
+  it("names each thread's model and its maker for the thread's row", async () => {
+    const { provider, root } = await harness();
+    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    await store.setModels([{ id: "m-1", name: "Claude Sonnet 4.5", efforts: [] }]);
+    await store.setObservedModel("on-claude", "/repo", "m-1");
+    await store.setObservedModel("on-auto", "/repo", "default");
+    const threads = await provider.listThreads();
+    expect(Object.fromEntries(threads.map((thread) => [thread.threadId, thread.model]))).toEqual({
+      "on-claude": { provider: "anthropic", id: "m-1" },
+      "on-auto": { provider: "cursor", id: "default" },
+    });
   });
 
   it("hands the text of its threads to the Search kit and to no other kit", async () => {

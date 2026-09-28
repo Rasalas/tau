@@ -1,9 +1,15 @@
 import type { HostCatalogModel, HostRuntimeNewThreadCatalog } from "tau/host-extension";
+import { modelProvider } from "../_acp/model-provider.js";
 import { configOptionValues, type AcpConfigOption } from "../_acp/session.js";
 import type { CursorStoredModel } from "./session-store.js";
 
-/** Cursor serves every model itself and bills the Cursor plan, whoever made the model. */
+/** Cursor serves every model itself and bills the Cursor plan; its own models (Auto, Composer) are this provider's. */
 export const MODEL_PROVIDER = "cursor";
+
+/** A model's provider: its maker's where the name tells, Cursor's otherwise. */
+export function cursorModelProvider(model: { id: string; name?: string }): string {
+  return modelProvider(model, MODEL_PROVIDER);
+}
 /** The effort picker's first entry: the model's own default. */
 export const DEFAULT_EFFORT = "default";
 /** Cursor's automatic choice, the model a new thread gets when nobody picks one. */
@@ -57,7 +63,7 @@ export function storedModels(listed: readonly CursorListedModel[]): CursorStored
 export function cursorNewThreadCatalog(models: readonly CursorStoredModel[]): HostRuntimeNewThreadCatalog {
   if (models.length === 0) return { models: [], thinkingLevels: {}, status: "unavailable", note: "Cursor named no models for this account." };
   const catalog: HostCatalogModel[] = models.map((model) => ({
-    provider: MODEL_PROVIDER,
+    provider: cursorModelProvider(model),
     id: model.id,
     name: model.name,
     billing: "subscription",

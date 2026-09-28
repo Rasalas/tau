@@ -20,7 +20,7 @@ import {
 } from "tau/host-extension";
 import type { AcpProcess, AcpSpawnInput } from "../_acp/client.js";
 import { withTauServer } from "../_acp/mcp.js";
-import { cursorNewThreadCatalog, storedModels } from "./catalog.js";
+import { cursorModelProvider, cursorNewThreadCatalog, storedModels } from "./catalog.js";
 import { CURSOR_VERSION_POLICY, cursorCompatibility, cursorEnvironment, cursorLatestVersion, cursorUpdateCommand, readCursorAbout, readCursorVersion, type CursorAbout } from "./cli.js";
 import {
   CURSOR_BACKEND_KIND,
@@ -181,13 +181,20 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
         return next;
       };
 
-      const record = (entry: Awaited<ReturnType<CursorSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
-        threadId: entry.tauThreadId,
-        cwd: entry.cwd,
-        ...(entry.title ? { title: entry.title } : {}),
-        updatedAt: entry.updatedAt,
-        messages: entry.messages,
-      });
+      /** A thread's shell; the instance's model names tell whose model it ran on. */
+      const record = (entry: Awaited<ReturnType<CursorSessionStore["list"]>>[number], names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
+        const model = entry.model ?? entry.observedModel;
+        const name = model ? names.get(model) : undefined;
+        return {
+          threadId: entry.tauThreadId,
+          cwd: entry.cwd,
+          ...(entry.title ? { title: entry.title } : {}),
+          updatedAt: entry.updatedAt,
+          messages: entry.messages,
+          ...(model ? { model: { provider: cursorModelProvider({ id: model, ...(name ? { name } : {}) }), id: model } } : {}),
+        };
+      };
+      const modelNames = async (id: string) => new Map((await store.listModels(id)).map((model) => [model.id, model.name] as const));
 
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { path, version } = await cli(id);
@@ -229,7 +236,12 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           label: settings.label(id),
           order: 50,
           adapter,
-          listThreads: async () => (await store.list(id)).map(record),
+          // Cursor bills its own plan for every maker's model; `cursor` is home by name.
+          ownPlan: true,
+          listThreads: async () => {
+            const names = await modelNames(id);
+            return (await store.list(id)).map((entry) => record(entry, names));
+          },
           removeThread: async (threadId) => {
             const taken = await store.take(threadId);
             const tools = await activity.take(threadId);
@@ -241,7 +253,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           },
           lookup: async (threadId) => {
             const entry = await store.get(threadId);
-            return entry && (entry.instance ?? DEFAULT_INSTANCE_ID) === id ? record(entry) : undefined;
+            return entry && (entry.instance ?? DEFAULT_INSTANCE_ID) === id ? record(entry, await modelNames(id)) : undefined;
           },
           open: async (threadId, cwd, { resume }, thread) => {
             const backend = new CursorThreadRuntimeBackend(threadId, cwd, {
