@@ -5,6 +5,7 @@ import { createDraftKey, type DraftKey } from "./composer-scope-store";
 
 const DRAFTS_KEY = STORAGE_KEYS.composerDrafts;
 const NEW_THREAD_KEY = STORAGE_KEYS.activeNewThread;
+const KEPT_DRAFTS_KEY = STORAGE_KEYS.keptDrafts;
 
 export interface NewThreadDraft {
   kind: "draft";
@@ -15,6 +16,8 @@ export interface NewThreadDraft {
   /** Opaque identity of the draft's project on the host. */
   workspaceId?: string;
   projectName: string;
+  /** When the draft began; the list orders drafts by it. */
+  createdAt?: number;
   sessionId?: string;
   /** Explicit composer choice for this thread; never applied to the previously active runtime. */
   model?: UiModel;
@@ -77,6 +80,7 @@ export function createNewThreadDraft(project: Pick<NewThreadDraft, "projectPath"
     projectPath: project.projectPath,
     ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}),
     projectName: project.projectName,
+    createdAt: Date.now(),
   };
 }
 
@@ -159,25 +163,31 @@ export function writeComposerDraftState(storage: ClientStorage, key: DraftKey | 
   storage.set(DRAFTS_KEY, JSON.stringify(drafts));
 }
 
+function parseNewThreadDraft(value: Partial<NewThreadDraft> | null): NewThreadDraft | undefined {
+  if (!value || typeof value !== "object" || typeof value.projectPath !== "string" || typeof value.projectName !== "string") return undefined;
+  return {
+    kind: "draft",
+    draftId: typeof value.draftId === "string" && value.draftId.length > 0 ? value.draftId : newDraftId(),
+    projectPath: value.projectPath,
+    ...(typeof value.workspaceId === "string" ? { workspaceId: value.workspaceId } : {}),
+    projectName: value.projectName,
+    ...(typeof value.createdAt === "number" ? { createdAt: value.createdAt } : {}),
+    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    ...(readModel(value.model) ? { model: readModel(value.model) } : {}),
+    ...(typeof value.thinkingLevel === "string" ? { thinkingLevel: value.thinkingLevel } : {}),
+    ...(typeof value.selectionRuntime === "string" ? { selectionRuntime: value.selectionRuntime } : {}),
+    ...(typeof value.mode === "string" && value.mode ? { mode: value.mode } : {}),
+    ...(readSelections(value.runtimeSelections) ? { runtimeSelections: readSelections(value.runtimeSelections) } : {}),
+    ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
+    ...(isStringRecord(value.extensions) ? { extensions: value.extensions } : {}),
+  };
+}
+
 export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | undefined {
   try {
     const value = JSON.parse(storage.get(NEW_THREAD_KEY) ?? "null") as Partial<NewThreadDraft> | null;
-    if (!value || typeof value.projectPath !== "string" || typeof value.projectName !== "string") return undefined;
-    const draft: NewThreadDraft = {
-      kind: "draft",
-      draftId: typeof value.draftId === "string" && value.draftId.length > 0 ? value.draftId : newDraftId(),
-      projectPath: value.projectPath,
-      ...(typeof value.workspaceId === "string" ? { workspaceId: value.workspaceId } : {}),
-      projectName: value.projectName,
-      ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
-      ...(readModel(value.model) ? { model: readModel(value.model) } : {}),
-      ...(typeof value.thinkingLevel === "string" ? { thinkingLevel: value.thinkingLevel } : {}),
-      ...(typeof value.selectionRuntime === "string" ? { selectionRuntime: value.selectionRuntime } : {}),
-      ...(typeof value.mode === "string" && value.mode ? { mode: value.mode } : {}),
-      ...(readSelections(value.runtimeSelections) ? { runtimeSelections: readSelections(value.runtimeSelections) } : {}),
-      ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
-      ...(isStringRecord(value.extensions) ? { extensions: value.extensions } : {}),
-    };
+    const draft = parseNewThreadDraft(value);
+    if (!draft || !value) return undefined;
     // Migrate the single legacy persisted draft once. The generated ID is
     // written back so a reload keeps the same draft scope.
     if (value.kind !== "draft" || value.draftId !== draft.draftId) writeNewThreadDraft(storage, draft);
@@ -188,4 +198,22 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
 export function writeNewThreadDraft(storage: ClientStorage, draft?: NewThreadDraft): void {
   if (draft) storage.set(NEW_THREAD_KEY, JSON.stringify(draft));
   else storage.remove(NEW_THREAD_KEY);
+}
+
+/** The drafts the user left with text in them; attachments stay in memory, so a draft without text is not kept. */
+export function readKeptDrafts(storage: ClientStorage): NewThreadDraft[] {
+  try {
+    const value = JSON.parse(storage.get(KEPT_DRAFTS_KEY) ?? "[]") as unknown;
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry) => {
+      const draft = parseNewThreadDraft(entry as Partial<NewThreadDraft>);
+      return draft && typeof (entry as Partial<NewThreadDraft>).draftId === "string" ? [draft] : [];
+    });
+  } catch { return []; }
+}
+
+export function writeKeptDrafts(storage: ClientStorage, drafts: readonly NewThreadDraft[]): void {
+  const withText = drafts.filter((draft) => draft.draft?.trim());
+  if (withText.length) storage.set(KEPT_DRAFTS_KEY, JSON.stringify(withText));
+  else storage.remove(KEPT_DRAFTS_KEY);
 }

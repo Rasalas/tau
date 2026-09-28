@@ -5,6 +5,7 @@ import { optimisticThreadSnapshot, threadDetailFromPage } from "../workbench/app
 import type { ClientStorage } from "../workbench/client-storage";
 import type { ComposerScopeStore, DraftKey } from "../workbench/composer-scope-store";
 import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
+import type { DraftThreads } from "../workbench/draft-threads";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
 import { activateTab, cycleTab, EMPTY_STAGE, pinTab, setFileView, unpinTab, type StageState, type StageView } from "../workbench/stage";
@@ -39,6 +40,8 @@ export interface ThreadNavigationPorts {
   };
   /** Read at call time: a draft scope changes with every thread switch. */
   activeDraftKey(): DraftKey | undefined;
+  /** The drafts the thread list shows; a draft left with something in it stays there. */
+  drafts: Pick<DraftThreads, "keep" | "take" | "discard" | "find">;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   closeNewThreadPicker(): void;
   /** A thread was asked for, the one on screen too: its chat comes to the front. */
@@ -56,20 +59,22 @@ export interface ThreadNavigationPorts {
  */
 export function useThreadNavigation(ports: ThreadNavigationPorts) {
   const {
-    activeDraftKey, client, closeNewThreadPicker, composerRef, detachPendingDelivery,
+    activeDraftKey, client, closeNewThreadPicker, composerRef, detachPendingDelivery, drafts,
     history, newThread, requireHost, scopes, showThread, storage, threads, view, workbench, stage, setStage,
   } = ports;
   const { applyActionResult, applySnapshot, applyHostResult } = workbench;
   const notify = view.setNotice;
 
-  const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
+  /** The draft on screen is left: it stays in the list with what it holds, unless it is empty or being sent. */
+  const leavePendingNewThread = useCallback((expected?: NewThreadDraft, sending = false): boolean => {
     const current = newThread.current();
     if (!current || (expected && current.draftId !== expected.draftId)) return false;
+    if (!sending) drafts.keep(current);
     newThread.invalidate();
     newThread.set(undefined);
     writeNewThreadDraft(storage);
     return true;
-  }, [newThread, storage]);
+  }, [drafts, newThread, storage]);
 
   const moveDraftToProject = useCallback((project: UiProject) => {
     const scope = activeDraftKey();
@@ -113,34 +118,70 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     // A draft for another project sits above the still-active host thread. If
     // the user picks that host project again, revealing it is the whole switch.
     if (pending && namesWorkspace(workspace, snapshot?.workspaceId, snapshot?.cwd)) {
-      discardPendingNewThread(pending);
+      leavePendingNewThread(pending);
       setStage(EMPTY_STAGE);
       return true;
     }
     try {
       const result = await client!.openProject(workspace);
-      if (pending) discardPendingNewThread(pending);
+      if (pending) leavePendingNewThread(pending, pendingInFlight);
       applyHostResult(result, options?.inheritDraft ?? !pendingInFlight);
       return true;
     } catch (error) {
       notify(errorMessage(error));
       return false;
     }
-  }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, discardPendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
+  }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
 
-  const createThreadInProject = useCallback((project: UiProject) => {
+  /**
+   * A new thread's draft in `project`. As in T3 Code a draft with something in
+   * it stays in the list and a fresh one opens; `carry` moves it instead (the
+   * start screen's project button).
+   */
+  const createThreadInProject = useCallback((project: UiProject, options?: { carry?: boolean }) => {
     showThread({ focusComposer: true });
+    const current = newThread.current();
+    const scope = current ? activeDraftKey() : undefined;
+    if (current && !options?.carry && !(scope && scopes.getSnapshot(scope).submissionPending)) {
+      leavePendingNewThread(current, detachPendingDelivery());
+    }
     moveDraftToProject(project);
-  }, [moveDraftToProject, showThread]);
+  }, [activeDraftKey, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, scopes, showThread]);
+
+  /** A draft from the list becomes the draft on screen again; the one it replaces is left. */
+  const openDraft = useCallback((draftId: string) => {
+    showThread({ focusComposer: true });
+    const current = newThread.current();
+    if (current?.draftId === draftId) return;
+    const draft = drafts.find(draftId);
+    if (!draft) return;
+    if (current) leavePendingNewThread(current, detachPendingDelivery());
+    drafts.take(draftId);
+    newThread.begin(draft);
+    closeNewThreadPicker();
+  }, [closeNewThreadPicker, detachPendingDelivery, drafts, leavePendingNewThread, newThread, showThread]);
+
+  /** Throws a draft away; the draft on screen closes onto the thread the host has open. */
+  const discardDraft = useCallback((draftId: string) => {
+    const current = newThread.current();
+    if (current?.draftId === draftId) {
+      if (detachPendingDelivery()) return;
+      drafts.discard(current);
+      newThread.invalidate();
+      newThread.set(undefined);
+      writeNewThreadDraft(storage);
+      return;
+    }
+    const draft = drafts.find(draftId);
+    if (draft) drafts.discard(draft);
+  }, [detachPendingDelivery, drafts, newThread, storage]);
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
     showThread();
     const target = threads.getSnapshot().threads.find((session) => session.path === path);
-    detachPendingDelivery();
-    newThread.invalidate();
-    newThread.set(undefined);
-    writeNewThreadDraft(storage);
+    const sending = detachPendingDelivery();
+    leavePendingNewThread(undefined, sending);
     const startedAt = performance.now();
     const previous = view.getSnapshot();
     const cached = target ? history.getDetail(target.id) : undefined;
@@ -182,7 +223,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     } finally {
       releaseTarget?.();
     }
-  }, [applyActionResult, applySnapshot, client, detachPendingDelivery, history, newThread, notify, requireHost, showThread, storage, threads, view]);
+  }, [applyActionResult, applySnapshot, client, detachPendingDelivery, history, leavePendingNewThread, notify, requireHost, showThread, threads, view]);
 
   /** The one way out of a read-only thread tab: make it the thread on screen. */
   const takeOverThread = useCallback((sessionId: string) => {
@@ -199,7 +240,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
 
   return {
     stage, setStage, activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
-    applyHostResult, discardPendingNewThread, openWorkspace, createThreadInProject,
+    applyHostResult, openWorkspace, createThreadInProject, openDraft, discardDraft,
     switchSession, takeOverThread,
   };
 }

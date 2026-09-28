@@ -9,6 +9,8 @@ export const STORAGE_KEYS = {
   bootstrapCacheLegacy: ["tau.bootstrap-cache.v6", "tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const,
   composerDrafts: "tau.composer-drafts.v1",
   activeNewThread: "tau.active-new-thread.v1",
+  /** New threads' drafts the user left with text in them. */
+  keptDrafts: "tau.kept-drafts.v1",
   turnActivityCache: "tau.turn-activity.v1",
   /** Prefix; `stageStateKey` adds the workspace. */
   stage: "tau.stage.v1",
@@ -34,6 +36,7 @@ export const HOST_STORAGE_KEYS: readonly string[] = [
   ...STORAGE_KEYS.bootstrapCacheLegacy,
   STORAGE_KEYS.composerDrafts,
   STORAGE_KEYS.activeNewThread,
+  STORAGE_KEYS.keptDrafts,
   STORAGE_KEYS.turnActivityCache,
 ];
 

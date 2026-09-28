@@ -1,4 +1,5 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiProject, UiSession } from "../shared/contracts";
+import type { DraftThread } from "./draft-threads";
 
 export interface ThreadActivitySnapshot {
   activeThreadId: string;
@@ -134,12 +135,26 @@ export class ThreadStore {
   private runningTools = new Map<string, string>();
   /** Deliveries the host refused, by thread; the rest of `failedThreadIds` comes from the index. */
   private refusedThreadIds: readonly string[] = [];
+  private drafts: readonly DraftThread[] = [];
+  private draftListeners = new Set<() => void>();
 
   getSnapshot = (): ThreadStoreSnapshot => this.snapshot;
   getThreadIds = (): readonly string[] => this.threadIds;
   getProjects = (): readonly UiProject[] => this.snapshot.projects;
   getActivity = (): ThreadActivitySnapshot => this.activitySnapshot;
   getThread = (id: string): UiSession | undefined => this.snapshot.threads.find((thread) => thread.id === id);
+  /** New threads' drafts, newest first: the one on screen and the ones left with text in them. */
+  getDrafts = (): readonly DraftThread[] => this.drafts;
+
+  subscribeToDrafts = (listener: () => void): (() => void) => {
+    this.draftListeners.add(listener);
+    return () => this.draftListeners.delete(listener);
+  };
+
+  setDrafts(drafts: readonly DraftThread[]): void {
+    this.drafts = drafts;
+    this.draftListeners.forEach((listener) => listener());
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -199,7 +214,10 @@ export class ThreadStore {
     if (removed) {
       if (existingIndex >= 0) threads = current.filter((thread) => thread.id !== sessionId);
     } else if (shell) {
-      const mergedShell = preserveObservedModelProvider(shell, current[existingIndex]);
+      const existing = current[existingIndex];
+      // A shell read before the first prompt was written says 0; one the thread outgrew never takes it back.
+      const counted = shell.messageCount === 0 && (existing?.messageCount ?? 0) > 0 ? { ...shell, messageCount: existing!.messageCount } : shell;
+      const mergedShell = preserveObservedModelProvider(counted, existing);
       if (existingIndex < 0) threads = [mergedShell, ...current];
       else if (!threadEqual(current[existingIndex], mergedShell)) {
         const next = [...current];
@@ -222,8 +240,13 @@ export class ThreadStore {
     else delete runningStartedAt[threadId];
     // A thread that runs again is no longer the thread that failed.
     if (running) this.refusedThreadIds = this.refusedThreadIds.filter((id) => id !== threadId);
+    // A run starts from a prompt: the list keeps a new thread when its run ends before the host's shell counts it.
+    const threads = running && this.getThread(threadId)?.messageCount === 0
+      ? this.snapshot.threads.map((thread) => thread.id === threadId ? { ...thread, messageCount: 1 } : thread)
+      : this.snapshot.threads;
     this.publish({
       ...this.snapshot,
+      threads,
       runningThreadIds: running ? (alreadyRunning ? current : [...current, threadId]) : current.filter((id) => id !== threadId),
       runningStartedAt,
     });

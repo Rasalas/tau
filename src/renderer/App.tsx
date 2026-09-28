@@ -321,7 +321,7 @@ export default function App() {
   const abortThread = useCallback((sessionId?: string) => { returnQueued(); abortRun(sessionId); }, [abortRun, returnQueued]);
   const {
     activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
-    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
+    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread, openDraft, discardDraft,
   } = useThreadNavigation({
     ...(client ? { client } : {}),
     storage: clientStorage,
@@ -329,7 +329,7 @@ export default function App() {
     threads: threadStore,
     history: transcriptHistory,
     scopes: composerScopeStore,
-    workbench: workbenchSession,
+    workbench: workbenchSession, drafts: workbenchSession.drafts,
     stage, setStage,
     requireHost,
     detachPendingDelivery: newThreadDelivery.detachPendingDelivery,
@@ -508,7 +508,7 @@ export default function App() {
     client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
     composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
-    switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
+    switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,

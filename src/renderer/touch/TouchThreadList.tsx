@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Check, ChevronDown, Mail, MailOpen, Pin, PinOff, RotateCcw, Square } from "lucide-react";
+import { Check, ChevronDown, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
   THREAD_SUPERVISION_LABELS,
   threadAge,
   threadElapsed,
+  threadListDrafts,
   threadListGroups,
   type ThreadListGroup,
   type ThreadSupervisionRow,
   type ThreadSupervisionStatus,
 } from "../../workbench/thread-supervision";
 import type { UiProject } from "../../shared/contracts";
+import type { DraftThread } from "../../workbench/draft-threads";
+import { DraftRow, draftTitle } from "../components/DraftRow";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { projectHue, projectInitial } from "../components/ThreadRow";
@@ -84,6 +87,12 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const [shown, setShown] = useState(THREAD_LIST_PAGE);
   const [openRow, setOpenRow] = useState<string>();
   const [sheetFor, setSheetFor] = useState<ThreadSupervisionRow>();
+  const [draftSheet, setDraftSheet] = useState<DraftThread>();
+  const allDrafts = useSyncExternalStore(store.subscribeToDrafts, store.getDrafts);
+  const drafts = useMemo(
+    () => actions.openDraft ? threadListDrafts(allDrafts, snapshot.threads, current, project) : [],
+    [actions.openDraft, allDrafts, current, project, snapshot.threads],
+  );
   const clientStorage = useClientStorage();
   const [settledOpen, setSettledOpen] = useState(() => clientStorage.get(SETTLED_OPEN_KEY) === "true");
   const toggleSettled = () => setSettledOpen((open) => {
@@ -133,7 +142,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
 
   const link = useConnectionState();
   const connection = link.state === "connected" ? null : <ConnectionNotice state={link.state} refusal={link.refusal} empty={groups.length === 0} />;
-  if (groups.length === 0) {
+  if (groups.length === 0 && drafts.length === 0) {
     return <>
       {connection}
       {connection ? null : <div className="touch-thread-empty">
@@ -144,7 +153,8 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     </>;
   }
   const rowProps = {
-    activeId: current.activeThreadId,
+    // A draft on screen is the active row; the thread the host holds behind it is not.
+    activeId: allDrafts.some((draft) => draft.active) ? "" : current.activeThreadId,
     openRow,
     setOpenRow,
     swipeActions,
@@ -158,6 +168,11 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     ? { ...value, settled: value.settled + 25 }
     : { ...value, active: value.active + THREAD_LIST_PAGE.active });
   const settled = groups.find((group) => group.id === "settled");
+  const pinned = groups.find((group) => group.id === "pinned");
+  const draftSheetActions = (draft: DraftThread): SheetAction[] => [
+    { id: "open", label: "Open draft", Icon: SquarePen, run: () => actions.openDraft?.(draft.draftId) },
+    ...(actions.discardDraft ? [{ id: "discard", label: "Discard draft", Icon: Trash2, destructive: true, run: () => actions.discardDraft?.(draft.draftId) }] : []),
+  ];
   const settledCount = settled ? settled.rows.length + settled.hidden : 0;
   // One scroll, as the desktop rail: the settled shelf follows the active threads and sits at the bottom while those are few.
   return <>
@@ -165,7 +180,9 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     <div className="touch-thread-lists" onScrollCapture={() => setOpenRow(undefined)}>
       <div className="touch-thread-active">
         <ul className="touch-thread-list" aria-label="Threads">
-          {groups.filter((group) => group !== settled).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
+          {pinned ? <GroupRows group={pinned} {...rowProps} onMore={more(pinned)} /> : null}
+          {drafts.map((draft) => <DraftListRow key={draft.draftId} draft={draft} onOpen={(id) => actions.openDraft?.(id)} onSheet={setDraftSheet} />)}
+          {groups.filter((group) => group !== settled && group !== pinned).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
         </ul>
         {settled ? <div className="touch-thread-shelf">
           <button type="button" className="touch-thread-shelf-toggle" aria-expanded={settledOpen} onClick={toggleSettled}>
@@ -178,6 +195,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
       </div>
     </div>
     {sheetFor ? <ActionSheet title={sheetFor.title} actions={sheetActions(sheetFor)} onClose={() => setSheetFor(undefined)} /> : null}
+    {draftSheet ? <ActionSheet title={draftTitle(draftSheet)} actions={draftSheetActions(draftSheet)} onClose={() => setDraftSheet(undefined)} /> : null}
   </>;
 }
 
@@ -248,6 +266,22 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
       <button type="button" onClick={onMore}>Show {group.hidden} more</button>
     </li> : null}
   </>;
+}
+
+/**
+ * A new thread's draft above the active threads. No swipe: a draft is never
+ * thrown away by a gesture; a long press or its More button offers Discard.
+ */
+function DraftListRow({ draft, onOpen, onSheet }: { draft: DraftThread; onOpen(draftId: string): void; onSheet(draft: DraftThread): void }) {
+  return <li className="touch-thread-row touch-draft-row" data-active={draft.active || undefined}>
+    <SwipeRow actions={[]} open={false} onOpenChange={() => undefined} onLongPress={() => onSheet(draft)}>
+      <DraftRow
+        draft={draft}
+        onOpen={onOpen}
+        actions={<button type="button" className="touch-thread-more" aria-label={`Actions for draft ${draftTitle(draft)}`} onClick={() => onSheet(draft)}>…</button>}
+      />
+    </SwipeRow>
+  </li>;
 }
 
 /**
