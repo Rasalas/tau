@@ -547,7 +547,7 @@ export interface ThreadRailDrop {
   beforeThreadId?: string;
 }
 
-/** A button a row shows on hover that drops a short list; picking an item goes to `runMenu`. */
+/** @deprecated The rail draws no hover buttons since API 1.27.0; `rowActions` is ignored. */
 export interface ThreadRailRowAction {
   id: string;
   /** Tooltip and accessible name. */
@@ -571,9 +571,9 @@ export interface ThreadRailOrganizer {
   /** A row's right-click menu. */
   menu(session: UiSession): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
-  /** The row's own settle button. */
+  /** Settles or returns a thread the rail itself moves (a drop on the shelf's heading). */
   toggleSettled(session: UiSession): void;
-  /** Buttons beside Settle while the row is hovered, e.g. T3 Code's snooze clock. */
+  /** @deprecated Ignored since API 1.27.0: a row keeps its state on hover; Snooze and Settle are the menu's and the keyboard's. */
   rowActions?(session: UiSession): ThreadRailRowAction[];
   /** What dropping the thread there does, in a word; undefined when it may not land there. */
   dropLabel(threadId: string, drop: ThreadRailDrop): string | undefined;

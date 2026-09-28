@@ -44,18 +44,25 @@ describe("Access Kit desktop extension", () => {
     const [control] = registry.getComposerControls();
     expect(control).toMatchObject({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"] });
     const snapshot = { backendKind: "claude-code", runtimeCapabilities: { skillInvocationDialect: "claude-code", interactiveApprovals: false } } as unknown as HostSnapshot;
+    const openSettings = vi.fn();
     render(
       <RendererServicesProvider services={{ preferences }}>
-        <control.Component snapshot={snapshot} />
+        <control.Component snapshot={snapshot} actions={{ openSettings } as never} />
       </RendererServicesProvider>,
     );
     expect(screen.getByRole("group", { name: "Access" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: /Full access/u }).getAttribute("aria-checked")).toBe("true");
-    const ask = screen.getByRole("radio", { name: /Ask before edits/u });
+    // Settings' names, and the Edit files card's line for each level.
+    const full = screen.getByRole("radio", { name: /^Full access/u });
+    expect(full.getAttribute("aria-checked")).toBe("true");
+    expect(full.textContent).toContain("Edit files, run commands: allowed without asking");
+    const ask = screen.getByRole("radio", { name: /^Ask/u });
+    expect(ask.textContent).toContain("asks every time");
     expect(ask).toHaveProperty("disabled", true);
     expect(ask.getAttribute("data-tooltip")).toContain("cannot stop for an approval");
-    fireEvent.click(screen.getByRole("radio", { name: /Read-only/u }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Read only/u }));
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("read-only");
+    fireEvent.click(screen.getByRole("button", { name: "Details in Settings → Runtimes" }));
+    expect(openSettings).toHaveBeenCalledWith("runtimes#runtime-permissions");
   });
 
   it("offers one palette command per level", () => {

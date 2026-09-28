@@ -1,11 +1,11 @@
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   DraftRow,
   draftTitle,
   errorMessage,
-  Popover,
+  projectHue,
   READ_ONLY_REASON,
   ThreadRow,
   tooltipProps,
@@ -27,7 +27,7 @@ import {
   type UiSession,
   type WorkbenchActions,
 } from "tau";
-import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
+import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
@@ -41,7 +41,8 @@ import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen,
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
-const ROW_STRIDE = 78;
+/** A card (70 px, the design's) and the 2 px between two. */
+const ROW_STRIDE = 72;
 const THREAD_PAGE_SIZE = 25;
 
 export type NavigationRow =
@@ -359,6 +360,14 @@ export function requestProjectSwitcher(): void {
   for (const open of switcherRequests) open();
 }
 
+type ProjectEntry = { kind: "all" } | { kind: "project"; project: UiProject };
+
+/**
+ * A searchable list of the host's projects under the rail's search. As the
+ * switcher (`workspace.switch-project`) a pick opens the project; as the
+ * rail's project filter (T3 Code's scope menu) "All projects" leads it, the
+ * shown one is checked, and each row has its project's settings.
+ */
 export function ProjectSwitcherPopover({
   activePath,
   open,
@@ -366,6 +375,11 @@ export function ProjectSwitcherPopover({
   onClose,
   onSelect,
   iconOf,
+  label = "Switch project",
+  all,
+  selectedName,
+  onSettings,
+  footer,
 }: {
   activePath?: string;
   open: boolean;
@@ -374,30 +388,52 @@ export function ProjectSwitcherPopover({
   iconOf?(project: UiProject): string | undefined;
   onClose(): void;
   onSelect(project: UiProject): void;
+  label?: string;
+  /** A first row for every project, while nothing is typed. */
+  all?: { label: string; onSelect(): void };
+  /** The filter's project: checked, and the rows say "current" no more. */
+  selectedName?: string | undefined;
+  onSettings?(project: UiProject): void;
+  footer?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const matches = useMemo(() => projects.filter((project) => fuzzyMatch(`${project.name} ${project.path}`, query.trim())), [projects, query]);
+  const filtering = all !== undefined;
+  const entries = useMemo((): ProjectEntry[] => {
+    const needle = query.trim();
+    const matches = projects.filter((project) => fuzzyMatch(`${project.name} ${project.path}`, needle));
+    return [...(all && !needle ? [{ kind: "all" as const }] : []), ...matches.map((project) => ({ kind: "project" as const, project }))];
+  }, [all, projects, query]);
   const currentProject = useMemo(
     () => findProjectForSession(projects, { projectPath: activePath ?? "" }),
     [projects, activePath],
   );
   const currentPath = currentProject?.path ?? activePath;
+  const isPicked = (entry: ProjectEntry) => filtering
+    ? entry.kind === "all" ? !selectedName : entry.project.name === selectedName
+    : entry.kind === "project" && entry.project.path === currentPath;
   useEffect(() => {
     if (!open) return;
     setQuery("");
-    setSelected(Math.max(0, projects.findIndex((project) => project.path === currentPath)));
+    setSelected(Math.max(0, filtering
+      ? (selectedName ? 1 + projects.findIndex((project) => project.name === selectedName) : 0)
+      : projects.findIndex((project) => project.path === currentPath)));
     window.setTimeout(() => inputRef.current?.focus(), 0);
+    // Where the list starts is read when it opens, not while it is open.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPath, open, projects]);
   // Escape closes it wherever the keyboard is, and stops nothing behind it.
   useEscapeLayer(onClose, open);
   if (!open) return null;
-  const activate = () => { const project = matches[selected]; if (project) onSelect(project); };
+  const pick = (entry: ProjectEntry | undefined) => {
+    if (entry?.kind === "all") all?.onSelect();
+    else if (entry) onSelect(entry.project);
+  };
 
   return <>
-    <button type="button" className="project-switcher-scrim" aria-label="Close project switcher" onClick={onClose} />
-    <section className="project-switcher-popover" role="dialog" aria-label="Switch project">
+    <button type="button" className="project-switcher-scrim" aria-label={`Close ${label.toLocaleLowerCase()}`} onClick={onClose} />
+    <section className={`project-switcher-popover${filtering ? " project-filter-popover" : ""}`} role="dialog" aria-label={label}>
       <label><Search size={15} /><input
         ref={inputRef}
         value={query}
@@ -405,98 +441,145 @@ export function ProjectSwitcherPopover({
         aria-label="Search projects"
         onChange={(event) => { setQuery(event.target.value); setSelected(0); }}
         onKeyDown={(event) => {
-          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, matches.length - 1))); }
+          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, entries.length - 1))); }
           if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
-          if (event.key === "Enter") { event.preventDefault(); activate(); }
+          if (event.key === "Enter") { event.preventDefault(); pick(entries[selected]); }
+          // As T3 Code's: the menu key opens the highlighted project's settings.
+          const highlighted = entries[selected];
+          if (onSettings && highlighted?.kind === "project" && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+            event.preventDefault();
+            onSettings(highlighted.project);
+          }
         }}
       /></label>
       <VirtualList
-        items={matches}
-        itemHeight={42}
+        items={entries}
+        itemHeight={filtering ? 34 : 42}
         overscan={5}
         className="project-switcher-results"
         role="listbox"
         scrollToIndex={selected}
         empty={<p>No matching projects</p>}
-        renderItem={(project, index) => <button
-          type="button"
-          role="option"
-          aria-selected={selected === index}
-          className={selected === index ? "selected" : ""}
-          key={project.path}
-          onMouseMove={() => setSelected(index)}
-          onClick={() => onSelect(project)}
-        >
-          {(() => {
-            const icon = iconOf?.(project) ?? project.icon;
-            return <i className={icon ? "has-image" : ""}>{icon ? <img src={icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}</i>;
-          })()}
-          <span>{project.name}</span>
-          {project.path === currentPath ? <small>current</small> : null}
-          <Settings size={14} aria-hidden="true" />
-        </button>}
+        renderItem={(entry, index) => {
+          const picked = isPicked(entry);
+          const project = entry.kind === "project" ? entry.project : undefined;
+          const icon = project ? iconOf?.(project) ?? project.icon : undefined;
+          const name = project ? project.name : all?.label ?? "";
+          return <div
+            role="none"
+            className={`project-switcher-option${selected === index ? " selected" : ""}`}
+            key={project?.path ?? "all"}
+            onMouseMove={() => setSelected(index)}
+          >
+            <button
+              type="button"
+              role="option"
+              aria-label={name}
+              aria-selected={selected === index}
+              aria-checked={filtering ? picked : undefined}
+              className="project-switcher-pick"
+              onClick={() => pick(entry)}
+            >
+              {project
+                ? <i className={icon ? "has-image" : ""} aria-hidden="true">{icon ? <img src={icon} alt="" /> : projectInitial(project.name)}</i>
+                : <i className="all-projects" aria-hidden="true"><Folder size={14} /></i>}
+              <span>{name}</span>
+              {filtering ? picked ? <Check size={14} aria-hidden="true" /> : null : picked ? <small>current</small> : null}
+            </button>
+            {project && onSettings ? <button
+              type="button"
+              tabIndex={-1}
+              className="project-switcher-settings"
+              aria-label={`Project settings for ${project.name}`}
+              {...tooltipProps(`Project settings for ${project.name}`, { side: "right" })}
+              onClick={() => onSettings(project)}
+            ><Settings size={13} /></button> : null}
+          </div>;
+        }}
       />
+      {footer ? <footer className="project-switcher-footer">{footer}</footer> : null}
     </section>
   </>;
 }
 
-function ProjectScope({ actions }: SidebarContributionProps) {
-  const { snapshot } = useWorkbenchShell();
+/** The shown project on the filter button, in the tile its rows draw. */
+function ProjectTile({ project, icon }: { project: UiProject; icon: string | undefined }) {
+  const style = { "--project-hue": projectHue(project.path) } as CSSProperties;
+  return <i className={`thread-project-icon project-filter-tile${icon ? " has-image" : ""}`} style={style}>{icon ? <img src={icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}</i>;
+}
+
+/**
+ * The rail's project filter as an icon between the search and "+": a folder
+ * for every project, the shown project's tile while one is. Its list adds a
+ * project too. T3 Code's scope menu; the design has no project block.
+ */
+function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const threadStore = useThreadStore();
   const workspace = useWorkspaceStore();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const filter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const { readOnly } = useHostCapabilities();
+  const shown = filter ? projects.find((project) => project.name === filter) : undefined;
+  const iconOf = (project: UiProject) => readProjectIcon(preferences, project)?.image;
+  const label = filter ? `Filter threads by project: ${filter}` : "Filter threads by project";
+  const close = () => setOpen(false);
+  return <>
+    <button
+      type="button"
+      className={`sidebar-action project-filter${filter ? " filtered" : ""}`}
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      {...tooltipProps(open ? undefined : label, { side: "bottom" })}
+      onClick={() => setOpen((value) => !value)}
+    >
+      {shown ? <ProjectTile project={shown} icon={iconOf(shown) ?? shown.icon} /> : <Folder size={15} />}
+    </button>
+    <ProjectSwitcherPopover
+      label="Filter by project"
+      open={open}
+      projects={projects}
+      all={{ label: "All projects", onSelect: () => { close(); workspace.setRailProjectFilter(undefined); } }}
+      selectedName={filter}
+      onClose={close}
+      onSelect={(project) => { close(); workspace.setRailProjectFilter(project.name); }}
+      onSettings={(project) => { close(); workspace.openProjectSettings({ projectPath: project.path, projectName: project.name, ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}) }); }}
+      iconOf={iconOf}
+      // Adding a project changes the host's list; a Read-only device may not (ADR 0024).
+      footer={readOnly ? undefined : <button type="button" onClick={() => { close(); actions.openProjectSources(); }}><FolderPlus size={14} /> Add project…</button>}
+    />
+  </>;
+}
 
+/** The switcher `workspace.switch-project` opens: a pick opens that project. */
+function ProjectSwitcher({ actions }: { actions: WorkbenchActions }) {
+  const { snapshot } = useWorkbenchShell();
+  const threadStore = useThreadStore();
+  const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
+  const preferences = usePreferences();
+  const [open, setOpen] = useState(false);
   const activeThread = snapshot?.sessionId ? threadStore.getThread(snapshot.sessionId) : undefined;
   const activeProject = findProjectForSession(projects, {
     projectPath: snapshot?.cwd ?? "",
     projectName: activeThread?.projectName,
     workspaceId: snapshot?.workspaceId,
   });
-
   useEffect(() => {
-    const open = () => setSearchOpen(true);
-    switcherRequests.add(open);
-    return () => { switcherRequests.delete(open); };
+    const show = () => setOpen(true);
+    switcherRequests.add(show);
+    return () => { switcherRequests.delete(show); };
   }, []);
-
-  return (
-    <>
-      <div className="project-scope-row">
-        <button className="project-scope" onClick={() => setSearchOpen(true)}>
-          <i className="all-projects-icon"><Folder size={15} /></i>
-          <span>{filter ?? "All projects"}</span>
-          <b><ChevronDown size={14} /></b>
-        </button>
-        {filter ? (
-          <button className="sidebar-action" {...tooltipProps("Show all projects", { side: "bottom" })} aria-label="Show all projects" onClick={() => workspace.setRailProjectFilter(undefined)}>
-            <X size={15} />
-          </button>
-        ) : null}
-        {/* Adding a project changes the host's list; a Read-only device may not (ADR 0024). */}
-        {readOnly ? null : <button
-          className="sidebar-action"
-          {...tooltipProps("Add project", { side: "bottom" })}
-          aria-label="Add project"
-          onClick={() => { setSearchOpen(false); actions.openProjectSources(); }}
-        >
-          <FolderPlus size={16} />
-        </button>}
-      </div>
-      <ProjectSwitcherPopover
-        activePath={activeProject?.path ?? snapshot?.cwd}
-        open={searchOpen}
-        projects={projects}
-        onClose={() => setSearchOpen(false)}
-        onSelect={(project) => { setSearchOpen(false); void actions.openWorkspace(project.path); }}
-        iconOf={(project) => readProjectIcon(preferences, project)?.image}
-      />
-    </>
-  );
+  return <ProjectSwitcherPopover
+    activePath={activeProject?.path ?? snapshot?.cwd}
+    open={open}
+    projects={projects}
+    onClose={() => setOpen(false)}
+    onSelect={(project) => { setOpen(false); void actions.openWorkspace(project.path); }}
+    iconOf={(project) => readProjectIcon(preferences, project)?.image}
+  />;
 }
 
 /** The rail's tooltip for a thread a provider limit stopped. */
@@ -530,10 +613,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   workingChildren,
   modelProvider,
   startedAt,
-  rowActions,
-  onRowAction,
   onSelect,
-  onToggleSettled,
 }: {
   id: string;
   active: boolean;
@@ -544,10 +624,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   workingChildren: number;
   modelProvider?: string;
   startedAt?: number;
-  rowActions?: (session: UiSession) => ThreadRailRowAction[];
-  onRowAction(session: UiSession, itemId: string): void;
   onSelect(path: string): Promise<boolean>;
-  onToggleSettled(session: UiSession): void;
 }) {
   const store = useThreadStore();
   const session = useSyncExternalStore(
@@ -564,7 +641,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   const icon = useProjectIcon(owner);
   useEffect(() => { if (project) workspace.loadDefaultBranch(project); }, [project, workspace]);
   if (!session) return null;
-  const offered = activity === "settled" ? [] : rowActions?.(session) ?? [];
   const age = sessionAge(session.modifiedAt);
   const diff = stat && !compact && activity !== "settled"
     ? <span key="diff" className="thread-diff-stat" aria-label={`Last turn: ${stat.added} lines added, ${stat.removed} removed`}><b>+{stat.added}</b> <i>−{stat.removed}</i></span>
@@ -574,9 +650,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
     <ThreadRow
       session={session}
       showLabel={!isDefaultBranch(session.projectLabel, defaultBranch)}
-      actions={offered.length > 0
-        ? offered.map((action) => <RailRowAction key={action.id} action={action} onPick={(itemId) => onRowAction(session, itemId)} />)
-        : undefined}
       accessory={diff || marks.length > 0 ? <>{diff}{marks}</> : undefined}
       projectIcon={icon}
       active={active}
@@ -590,7 +663,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
-      onToggleSettled={() => onToggleSettled(session)}
     />
   );
 });
@@ -609,11 +681,11 @@ export function railDrafts(drafts: readonly DraftThread[], filter: { project?: s
     (!needle || `${draft.projectName} ${draftTitle(draft)}`.toLocaleLowerCase().includes(needle)));
 }
 
-const DraftRailRow = memo(function DraftRailRow({ draft, onOpen, onDiscard }: { draft: DraftThread; onOpen(draftId: string): void; onDiscard?(draftId: string): void }) {
+const DraftRailRow = memo(function DraftRailRow({ draft, onOpen }: { draft: DraftThread; onOpen(draftId: string): void }) {
   const store = useThreadStore();
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   const icon = useProjectIcon(useMemo(() => findProjectForSession(projects, draft), [draft, projects]));
-  return <DraftRow draft={draft} {...(icon ? { projectIcon: icon } : {})} onOpen={onOpen} {...(onDiscard ? { onDiscard } : {})} />;
+  return <DraftRow draft={draft} {...(icon ? { projectIcon: icon } : {})} onOpen={onOpen} />;
 });
 
 /** Subscribes to the drafts on its own, so typing in a draft repaints these rows and nothing else. */
@@ -621,12 +693,24 @@ const RailDrafts = memo(function RailDrafts({ actions, project, query, listed }:
   const store = useThreadStore();
   const drafts = useSyncExternalStore(store.subscribeToDrafts, store.getDrafts);
   const shown = useMemo(() => railDrafts(drafts, { ...(project ? { project } : {}), query, listed }), [drafts, listed, project, query]);
+  const openContextMenu = useContextMenu();
   if (!actions.openDraft || shown.length === 0) return null;
+  // Discard is the draft's menu: the row keeps its quiet "draft" on hover, as a thread keeps its state.
+  const menu = (event: ReactMouseEvent, draft: DraftThread) => {
+    event.stopPropagation();
+    void openContextMenu(event, [
+      { items: [{ id: "open", label: "Open draft" }] },
+      ...(actions.discardDraft ? [{ items: [{ id: "discard", label: "Discard draft", destructive: true }] }] : []),
+    ]).then((choice) => {
+      if (choice === "open") actions.openDraft?.(draft.draftId);
+      if (choice === "discard") actions.discardDraft?.(draft.draftId);
+    });
+  };
   return (
     <div className="rail-drafts" role="group" aria-label="Drafts">
       {shown.map((draft) => (
-        <div key={draft.draftId} className="rail-row rail-draft">
-          <DraftRailRow draft={draft} onOpen={actions.openDraft!} {...(actions.discardDraft ? { onDiscard: actions.discardDraft } : {})} />
+        <div key={draft.draftId} className="rail-row rail-draft" onContextMenu={(event) => menu(event, draft)}>
+          <DraftRailRow draft={draft} onOpen={actions.openDraft!} />
         </div>
       ))}
     </div>
@@ -738,75 +822,6 @@ export function agentCounts(id: string, threads: readonly UiSession[], parents: 
   return { total: Math.max(children.size, working), working };
 }
 
-/**
- * A row's hover button and the list it drops (T3 Code's snooze clock). The
- * keyboard walks the list like a menu; Escape and a press outside close it and
- * give focus back to the button.
- */
-export function RailRowAction({ action, onPick }: { action: ThreadRailRowAction; onPick(itemId: string): void }) {
-  const [open, setOpen] = useState<"keyboard" | "pointer">();
-  const button = useRef<HTMLButtonElement>(null);
-  const list = useRef<HTMLDivElement>(null);
-  const items = () => [...(list.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-  useLayoutEffect(() => {
-    // Opened by a click the list takes focus, so no row looks chosen before the pointer is on one.
-    if (open) (open === "keyboard" ? items()[0] : list.current)?.focus({ preventScroll: true });
-  }, [open]);
-  const onKeyDown = (event: ReactKeyboardEvent) => {
-    // The rail's own arrow keys would take these otherwise.
-    event.stopPropagation();
-    if (event.key === "Tab") { setOpen(undefined); return; }
-    const all = items();
-    const at = all.indexOf(document.activeElement as HTMLButtonElement);
-    const next = event.key === "ArrowDown" ? at + 1 : event.key === "ArrowUp" ? (at < 0 ? all.length : at) - 1
-      : event.key === "Home" ? 0 : event.key === "End" ? all.length - 1 : undefined;
-    if (next === undefined || all.length === 0) return;
-    event.preventDefault();
-    all[(next + all.length) % all.length]?.focus({ preventScroll: true });
-  };
-  const pick = (itemId: string) => { setOpen(undefined); onPick(itemId); };
-  return (
-    <>
-      <button
-        ref={button}
-        type="button"
-        aria-label={action.label}
-        aria-haspopup="menu"
-        aria-expanded={Boolean(open)}
-        {...tooltipProps(open ? undefined : action.label)}
-        onClick={(event) => setOpen((current) => current ? undefined : event.detail === 0 ? "keyboard" : "pointer")}
-      >
-        {action.icon}
-      </button>
-      {open ? (
-        <Popover anchor={button} side="bottom" align="start" label={action.label} className="menu rail-row-popover" onClose={() => setOpen(undefined)}>
-          <div ref={list} role="menu" aria-label={action.label} tabIndex={-1} onKeyDown={onKeyDown}>
-            {action.menu().map((section, index) => (
-              <Fragment key={index}>
-                {index > 0 ? <hr /> : null}
-                {section.items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    tabIndex={-1}
-                    disabled={item.disabled}
-                    onPointerEnter={(event) => event.currentTarget.focus({ preventScroll: true })}
-                    onClick={() => pick(item.id)}
-                  >
-                    <span>{item.label}</span>
-                    {item.hint ? <small className="menu-hint">{item.hint}</small> : null}
-                  </button>
-                ))}
-              </Fragment>
-            ))}
-          </div>
-        </Popover>
-      ) : null}
-    </>
-  );
-}
-
 /** The rail's own split when no organizer says otherwise: pins first, settled threads on their shelf. */
 export function defaultRailSections(
   threads: readonly UiSession[],
@@ -819,7 +834,7 @@ export function defaultRailSections(
   const sorted = threads.slice().sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)) || right.modifiedAt - left.modifiedAt);
   return [
     { id: "active", threads: sorted.filter((session) => !shelved.has(session.id)) },
-    { id: "settled", label: "Settled", shelf: true, collapsed: true, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
+    { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
   ];
 }
 
@@ -965,8 +980,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     else preferences.toggleSettled(session.id);
   }, [organizer, preferences]);
 
-  const rowActions = useMemo(() => organizer?.rowActions ? (session: UiSession) => organizer.rowActions!(session) : undefined, [organizer]);
-  const runRowAction = useCallback((session: UiSession, itemId: string) => organizer?.runMenu(session, itemId, actions), [actions, organizer]);
 
   const openExternal = useCallback((thread: RailExternalThread) => thread.open(actions), [actions]);
   const lookInExternal = useCallback((thread: RailExternalThread) => thread.lookIn?.(actions), [actions]);
@@ -998,10 +1011,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
-      rowActions={rowActions}
-      onRowAction={runRowAction}
       onSelect={actions.switchSession}
-      onToggleSettled={toggleSettled}
     />
   );
 
@@ -1050,7 +1060,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (section.threads.length === 0 && !drag) return null;
     const open = shelfIsOpen(section, shelfOpen);
     const rows = shelfRows(section);
-    const heading = section.shelf ? shelfHeading(section, open) : `${section.label} · ${section.threads.length}`;
+    const heading = section.shelf ? shelfHeading(section) : `${section.label} · ${section.threads.length}`;
     const limit = shelfLimits[section.id] ?? (section.shelf ? shelfFirstPage(section) : THREAD_PAGE_SIZE);
     const hidden = Math.max(0, section.threads.length - Math.max(limit, rows.length));
     const target = drag?.drop?.sectionId === section.id ? " drop-target" : "";
@@ -1063,7 +1073,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             aria-expanded={open}
             onClick={() => toggleShelf(section.id, !open)}
           >
-            {heading}<i />
+            <span>{heading}</span>
             <b><ChevronDown size={12} /></b>
           </button>
         ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
@@ -1089,8 +1099,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const clearSelection = () => setSelection((current) => current.ids.size ? { ids: new Set(), ...(current.anchor ? { anchor: current.anchor } : {}) } : current);
 
   const openMenu = (event: ReactMouseEvent) => {
-    if (!organizer) return;
     const id = rowIdOf(event.target) ?? (event.target === event.currentTarget ? cursorId : undefined);
+    // Without an organizer the menu only settles; rows carry no hover buttons for it.
+    if (!organizer) {
+      const session = id ? findSession(id) : undefined;
+      if (!session || readOnlyDevice) return;
+      const settled = settings.settledThreadIds.includes(session.id);
+      void openContextMenu(event, [{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread" }] }]).then((choice) => { if (choice) toggleSettled(session); });
+      return;
+    }
     if (selected.length > 1 && organizer.bulkMenu && (!id || selection.ids.has(id))) {
       const sessions = selected.flatMap((selectedId) => findSession(selectedId) ?? []);
       void openContextMenu(event, organizer.bulkMenu(sessions)).then((choice) => {
@@ -1133,6 +1150,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
               <button aria-label="Clear thread search" onClick={() => { setThreadQuery(""); searchRef.current?.focus(); }}><X size={13} /></button>
             ) : <kbd className="keyboard-hint">/</kbd>}
           </label>
+          <ProjectFilterButton actions={actions} />
           <button
             className="sidebar-action new-thread"
             {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
@@ -1143,7 +1161,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             <Plus size={15} />
           </button>
         </div>
-        <ProjectScope actions={actions} />
+        <ProjectSwitcher actions={actions} />
       </div>
 
       <nav
@@ -1203,7 +1221,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
-        {/* One scroll, as in T3 Code: the shelves follow the active threads, and sit at the bottom while those are few. */}
+        {/* One scroll, as in T3 Code; the shelves follow the active threads right after the last one, as in the design. */}
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
@@ -1211,7 +1229,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         {main.label === undefined && drag && sections.length > 1 ? (
           <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
         ) : null}
-        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
+        <div className="rail-virtual" style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
           {rowVirtualizer.getVirtualItems().map((item) => {
             const row = navigationRows[item.index];
             if (!row) return null;

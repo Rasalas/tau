@@ -58,7 +58,7 @@
   background: var(--rail);
 }
 .sidebar-controls { padding: calc(12px * var(--density)) calc(12px * var(--density)) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
-.thread-search-row, .project-scope-row { display: flex; align-items: center; gap: var(--space-3); }
+.thread-search-row { display: flex; align-items: center; gap: var(--space-2); }
 
 /* The search is a filled field with its key, the design's; "+" beside it starts a thread. */
 .thread-search {
@@ -84,18 +84,10 @@
 }
 .thread-search-row > .sidebar-action.new-thread:hover { background: var(--chip); }
 
-.project-scope {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
-  height: calc(32px * var(--density)); border: 0; border-radius: var(--radius-row); background: transparent;
-  color: var(--muted); padding: 0 10px; text-align: left; cursor: pointer;
-}
-.project-scope:hover { background: var(--hover); color: var(--ink-2); }
-.project-scope > i.all-projects-icon { display: grid; place-items: center; color: inherit; font-style: normal; }
-.project-scope > span {
-  flex: 1; min-width: 0; font: 500 var(--text-sm) var(--sans);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.project-scope > b { display: grid; place-items: center; color: var(--faint); }
+/* The project filter between the search and "+" (T3 Code's scope icon): a folder, or the shown project's tile. */
+.thread-search-row > .sidebar-action.project-filter { width: calc(30px * var(--density)); height: calc(30px * var(--density)); }
+.thread-search-row > .sidebar-action.project-filter[aria-expanded="true"] { background: var(--raised); color: var(--ink); }
+.project-filter-tile.thread-project-icon { width: 16px; height: 16px; font-size: 9px; }
 
 .sidebar-action {
   width: 30px; height: 30px; flex: none; display: grid; place-items: center;
@@ -105,7 +97,7 @@
 .sidebar-action:hover { background: var(--raised); color: var(--ink); }
 .project-switcher-scrim { position: fixed; inset: 0; z-index: 54; border: 0; background: transparent; cursor: default; }
 .project-switcher-popover {
-  position: fixed; z-index: 55; top: 132px; left: 12px; width: min(272px, calc(100vw - 24px));
+  position: fixed; z-index: 55; top: calc(var(--window-top, 0px) + 50px); left: 12px; width: min(272px, calc(100vw - 24px));
   padding: 8px; border: 1px solid var(--line-float); border-radius: 11px;
   background: var(--overlay); box-shadow: var(--elevation-2); animation: fade-up .12s ease;
 }
@@ -120,22 +112,39 @@
 }
 .project-switcher-popover input::placeholder { color: var(--muted); }
 .project-switcher-results { max-height: min(420px, calc(100vh - 200px)); overflow: auto; }
-.project-switcher-results > button {
-  width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px;
-  padding: 0 9px; border: 0; border-radius: 8px; background: transparent;
+.project-switcher-option { display: flex; align-items: center; border-radius: 8px; }
+.project-switcher-option.selected { background: var(--raised); }
+.project-switcher-pick {
+  flex: 1; min-width: 0; height: 42px; display: flex; align-items: center; gap: 9px;
+  padding: 0 9px; border: 0; background: transparent;
   color: var(--ink-2); cursor: pointer; text-align: left;
 }
-
-.project-switcher-results > button > i {
-  width: 22px; height: 22px; display: grid; place-items: center; flex: none;
+.project-switcher-pick > i {
+  width: 22px; height: 22px; display: grid; place-items: center; flex: none; overflow: hidden;
   border-radius: 6px; background: var(--chip); color: var(--ink-3); font: 600 10px var(--sans); font-style: normal;
 }
-
-.project-switcher-results > button > i > img { width: 100%; height: 100%; display: block; object-fit: contain; }
-.project-switcher-results > button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
-.project-switcher-results > button > small { color: var(--acid-text); font: 9px var(--mono); }
-.project-switcher-results > button > svg { color: var(--faint); }
+.project-switcher-pick > i.has-image { background: transparent; }
+.project-switcher-pick > i > img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.project-switcher-pick > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.project-switcher-pick > small { color: var(--acid-text); font: 9px var(--mono); }
+.project-switcher-pick > svg { flex: none; color: var(--info-ink); }
+.project-switcher-settings {
+  width: 26px; height: 26px; margin-right: 6px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer; opacity: 0;
+}
+.project-switcher-option:is(:hover, .selected) .project-switcher-settings, .project-switcher-settings:focus-visible { opacity: 1; }
+.project-switcher-settings:hover { background: var(--chip); color: var(--ink); }
+@media (hover: none) { .project-switcher-settings { opacity: 1; } }
+/* As the rail's filter the rows are T3 Code's 34 px, the tiles the rows' own. */
+.project-filter-popover .project-switcher-pick { height: 34px; }
+.project-filter-popover .project-switcher-pick > i { width: 18px; height: 18px; border-radius: 5px; font-size: 9px; }
 .project-switcher-results > p { margin: 12px 8px; color: var(--faint); font-size: 11px; }
+.project-switcher-footer { margin: 4px 0 0; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.project-switcher-footer > button {
+  width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 9px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.project-switcher-footer > button:hover { background: var(--raised); color: var(--ink); }
 
 .thread-search kbd { font: 10.5px var(--mono); color: var(--muted); }
 .thread-search button {
@@ -144,17 +153,16 @@
 }
 .thread-search button:hover { color: var(--ink); }
 
-/*
- * One scroll, as in T3 Code: the shelves (snoozed, settled) follow the active threads. While those
- * are few the shelves sit at the rail's bottom; a long list pushes them down to its end.
- */
+/* One scroll, as in T3 Code: the shelves (snoozed, settled) follow right after the active threads, the design's. */
 .session-list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rail-active {
   flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
   padding: calc(10px * var(--density)) calc(10px * var(--density)) var(--space-3);
 }
 .rail-active-rows { flex: 1 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
-.rail-shelves { margin-top: auto; display: flex; flex-direction: column; }
+.rail-shelves { display: flex; flex-direction: column; }
+/* The virtual list's cards, 2 px apart (the design's), inside their measured box. */
+.rail-virtual > .rail-row { padding-bottom: 2px; }
 .thread-group-label {
   display: flex; align-items: center; gap: 8px; padding: var(--space-5) var(--space-2) var(--space-2);
   color: var(--faint); font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
@@ -170,18 +178,16 @@
 @media (hover: none) { .thread-group-new { opacity: 1; } }
 
 .settled-shelf { display: flex; flex-direction: column; gap: 2px; }
-/* T3 Code's shelf header: 32 px, the count only while folded, a chevron that turns when open. */
+/* The design's quiet "Settled · 41" right after the active rows; it folds on a click, the chevron shows on hover. */
 .settled-shelf-toggle {
-  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 4px;
-  border: 0; background: transparent; color: var(--faint);
-  font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); cursor: pointer;
+  display: flex; align-items: center; gap: 4px; padding: 14px 10px 4px;
+  border: 0; background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); text-align: left; cursor: pointer;
 }
-.settled-shelf-toggle > i { flex: 1; min-width: 8px; height: 1px; background: var(--line); }
-.settled-shelf-toggle > b { display: grid; place-items: center; transition: transform var(--motion-fast) ease; }
-.settled-shelf-toggle[aria-expanded="true"] > b { transform: rotate(180deg); }
-.settled-shelf-toggle:hover { color: var(--muted); }
+.settled-shelf-toggle > b { display: grid; place-items: center; color: var(--faint); opacity: 0; transition: transform var(--motion-fast) ease, opacity var(--motion-fast) ease; }
+.settled-shelf-toggle[aria-expanded="false"] > b { transform: rotate(-90deg); }
+.settled-shelf-toggle:is(:hover, :focus-visible) > b, .settled-shelf-toggle[aria-expanded="false"] > b { opacity: 1; }
+.settled-shelf-toggle:hover { color: var(--ink-3); }
 .rail-section-snoozed > .settled-shelf-toggle { color: var(--info-ink); }
-.rail-section-snoozed > .settled-shelf-toggle > i { background: color-mix(in srgb, var(--info) 20%, transparent); }
 .sidebar-empty { margin: 18px 10px; color: var(--faint); font-size: 12px; }
 
 /* Sections another kit organises the rail into, and dragging a thread between them. */
@@ -211,11 +217,6 @@
 .thread-diff-stat { flex: none; font: 11px var(--mono); white-space: nowrap; }
 .thread-diff-stat > b { font-weight: 400; color: var(--diff-add-edge); }
 .thread-diff-stat > i { font-style: normal; color: var(--diff-del-edge); }
-/* A row action's list (the snooze clock's), T3 Code's 256 px popover with 28 px rows. */
-.popover.rail-row-popover { width: 256px; padding: 4px; }
-.rail-row-popover > [role="menu"] { display: flex; flex-direction: column; outline: none; }
-.popover.rail-row-popover button { padding: 6px 8px; font: 400 12px/16px var(--sans); }
-.popover.rail-row-popover hr { margin: 4px; }
 .thread-group-label.drop-target, .settled-shelf-toggle.drop-target { color: var(--acid-text); }
 .thread-group-label.drop-target > i, .settled-shelf-toggle.drop-target > i { background: var(--acid-line); }
 .rail-drag-label {
@@ -247,6 +248,25 @@
 .sidebar-footer button.sidebar-back {
   width: auto; flex: 1; justify-content: start; display: flex; align-items: center; gap: 8px;
   padding: 0 8px; margin-right: 4px; color: var(--ink-3); font: 500 13px var(--sans);
+}
+.sidebar-footer:has(> .sidebar-footer-end) button.sidebar-back { flex: none; }
+/* A prominent page (the design's "Reviews 4"): icon, label, and its count in the accent. */
+.sidebar-footer button.page-named {
+  width: auto; display: flex; align-items: center; gap: 7px; padding: 0 8px;
+  font: 500 var(--text-sm) var(--sans); white-space: nowrap;
+}
+.sidebar-footer .page-count { color: var(--info-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* A page's figure at the foot's end (Usage's month): quiet mono, the short form where the full one does not fit. */
+.sidebar-footer-end { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; container-type: inline-size; }
+.sidebar-footer button.sidebar-summary {
+  width: auto; max-width: 100%; display: block; padding: 0 8px; overflow: hidden;
+  color: var(--muted); font: var(--text-xs) var(--mono); white-space: nowrap; text-overflow: ellipsis;
+}
+.sidebar-footer button.sidebar-summary:hover { color: var(--ink); }
+.sidebar-summary-short { display: none; }
+@container (max-width: 150px) {
+  .sidebar-summary-full { display: none; }
+  .sidebar-summary-short { display: inline; }
 }
 
 /* A turn's changes: one pill centred over the composer (core's `.control-pill`), or in the transcript for an earlier turn. */

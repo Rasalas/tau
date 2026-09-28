@@ -130,7 +130,6 @@ describe("Thread Rail on the desktop", () => {
       const enabled = items.filter((item) => !item.disabled).map((item) => item.id);
       expect(enabled).toEqual(["mark-unread", "filter-project", "copy", "project-settings"]);
       expect(items.find((item) => item.id === "archive")?.description).toMatch(/Read only/u);
-      expect(organizer().rowActions?.(thread("a"))).toEqual([]);
       organizer().runMenu(thread("a"), "pin", actions);
       expect(calls("patch")).toEqual([]);
       expect(actions.notify).toHaveBeenCalledWith(expect.stringMatching(/Read only/u));
@@ -139,17 +138,14 @@ describe("Thread Rail on the desktop", () => {
     }
   });
 
-  it("offers the snooze clock on rows still in the rail, and runs its choice like the menu's", async () => {
+  it("draws no hover clock: Snooze is the row menu's, with the presets and a time of one's own", async () => {
     const { organizer, calls, actions, push } = setup();
     await flush();
-    push({ threads: { d: { settledAt: 1, settledBy: "user" }, z: { snoozedUntil: Date.now() + 60_000 } }, settings: { onMerged: true, onClosed: false } });
-    expect(organizer().rowActions!(thread("d"))).toEqual([]);
-    expect(organizer().rowActions!(thread("z"))).toEqual([]);
-    const [clock] = organizer().rowActions!(thread("a"));
-    expect(clock?.label).toBe("Snooze thread");
-    const sections = clock!.menu();
-    expect(sections[0]!.items[0]).toMatchObject({ id: "snooze:1h", label: "In 1 hour", hint: expect.any(String) });
-    expect(sections[1]!.items).toEqual([{ id: "snooze:custom", label: "Custom…" }]);
+    push({ threads: { d: { settledAt: 1, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } });
+    expect("rowActions" in organizer()).toBe(false);
+    const snooze = organizer().menu(thread("a")).flatMap((section) => section.items).find((item) => item.id === "snooze");
+    expect(snooze?.submenu?.[0]?.items[0]).toMatchObject({ id: "snooze:1h", label: "In 1 hour" });
+    expect(organizer().menu(thread("d")).flatMap((section) => section.items).some((item) => item.id === "snooze")).toBe(false);
     organizer().runMenu(thread("a"), "snooze:1h", actions);
     expect(calls("patch").at(-1)).toMatchObject({ patches: { a: { snoozedUntil: expect.any(Number) } } });
   });

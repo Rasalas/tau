@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runningTurn } from "../../src/renderer/test-support/kit-harness.js";
-import { ProjectSwitcherPopover, RailRowAction } from "./navigation.js";
+import { ProjectSwitcherPopover } from "./navigation.js";
 
 afterEach(cleanup);
 
@@ -74,52 +74,58 @@ describe("ProjectSwitcherPopover", () => {
   });
 });
 
-describe("RailRowAction", () => {
-  const action = {
-    id: "snooze",
-    label: "Snooze thread",
-    icon: <i />,
-    menu: () => [
-      { items: [{ id: "snooze:1h", label: "In 1 hour", hint: "10:00" }, { id: "snooze:tomorrow", label: "Tomorrow", hint: "9:00" }] },
-      { items: [{ id: "snooze:custom", label: "Custom…" }] },
-    ],
-  };
-  const focused = () => document.activeElement?.textContent;
+describe("ProjectSwitcherPopover as the rail's project filter", () => {
+  const projects = [
+    { name: "tau", path: "/repos/tau", lastOpenedAt: 2 },
+    { name: "satchel", path: "/repos/satchel", lastOpenedAt: 1 },
+  ];
 
-  it("walks the list from the keyboard and picks with Enter's click, without the rail seeing the keys", () => {
-    const onPick = vi.fn();
-    const railKeys = vi.fn();
-    render(<div onKeyDown={railKeys}><RailRowAction action={action} onPick={onPick} /></div>);
-    const button = screen.getByRole("button", { name: "Snooze thread" });
-    button.focus();
-    fireEvent.click(button, { detail: 0 });
-
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(focused()).toBe("In 1 hour10:00");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
-    expect(focused()).toBe("Tomorrow9:00");
-    fireEvent.keyDown(document.activeElement!, { key: "End" });
-    expect(focused()).toBe("Custom…");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
-    expect(focused()).toBe("In 1 hour10:00");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
-    expect(railKeys).not.toHaveBeenCalled();
-
-    fireEvent.click(document.activeElement!);
-    expect(onPick).toHaveBeenCalledWith("snooze:custom");
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(button.getAttribute("aria-expanded")).toBe("false");
+  it("leads with All projects, checks the shown one, and picks from the keyboard", () => {
+    const all = vi.fn();
+    const onSelect = vi.fn();
+    render(<ProjectSwitcherPopover
+      label="Filter by project"
+      open
+      projects={projects}
+      all={{ label: "All projects", onSelect: all }}
+      selectedName="satchel"
+      onClose={() => {}}
+      onSelect={onSelect}
+    />);
+    const options = screen.getAllByRole("option");
+    expect(options.map((option) => option.getAttribute("aria-label"))).toEqual(["All projects", "tau", "satchel"]);
+    expect(options.map((option) => option.getAttribute("aria-checked"))).toEqual(["false", "false", "true"]);
+    expect(screen.queryByText("current")).toBeNull();
+    // The shown project is where the keyboard starts.
+    expect(options[2]!.getAttribute("aria-selected")).toBe("true");
+    const search = screen.getByRole("textbox", { name: "Search projects" });
+    fireEvent.keyDown(search, { key: "ArrowUp" });
+    fireEvent.keyDown(search, { key: "ArrowUp" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(all).toHaveBeenCalledOnce();
+    // A query hides the row for every project.
+    fireEvent.change(search, { target: { value: "sat" } });
+    expect(screen.getAllByRole("option").map((option) => option.getAttribute("aria-label"))).toEqual(["satchel"]);
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ name: "satchel" }));
   });
 
-  it("closes on Escape and gives focus back to its button", () => {
-    render(<RailRowAction action={action} onPick={() => {}} />);
-    const button = screen.getByRole("button", { name: "Snooze thread" });
-    button.focus();
-    fireEvent.click(button, { detail: 1 });
-    // Opened by the pointer the list holds focus, not its first row.
-    expect(document.activeElement?.getAttribute("role")).toBe("menu");
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement).toBe(button);
+  it("opens a project's settings from its row and draws its footer", () => {
+    const onSettings = vi.fn();
+    const onSelect = vi.fn();
+    render(<ProjectSwitcherPopover
+      label="Filter by project"
+      open
+      projects={projects}
+      all={{ label: "All projects", onSelect: () => {} }}
+      onClose={() => {}}
+      onSelect={onSelect}
+      onSettings={onSettings}
+      footer={<button type="button">Add project…</button>}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Project settings for tau" }));
+    expect(onSettings).toHaveBeenCalledWith(expect.objectContaining({ path: "/repos/tau" }));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Add project…" })).toBeTruthy();
   });
 });

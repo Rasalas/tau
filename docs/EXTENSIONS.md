@@ -955,11 +955,20 @@ receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, 
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
 version and update, the login and a path override there, one card per
-instance (below). `inspectPackages(cwd)`
+instance (below). Such a card's `runtimeRows` (new in API 1.27.0) name the
+rows Settings → Runtimes opens: `program`, where the program is installed and
+updated (its Update and Install buttons), and `addInstance`, on the default
+instance's card, where another setup is added ("Add a custom runtime").
+Without them the buttons open the card. Runtimes is core's: a table of every
+backend in `runtimeBackends` with its state, version, the model providers its
+catalog names and Make default, Update, Install, Config and Permissions. Its
+buttons only open places in Settings and set the client's runtime for new
+threads; installing, updating and signing in stay on the kit's card.
+`inspectPackages(cwd)`
 answers core's own scan of the package folders and the shipped kits
 (`ExtensionInspection`) without loading any code — including `distribution`,
 the name and version of the set the `bundled` entries came in, absent in safe
-mode, which loads none. Core keeps General, Models, Pi, Keybindings,
+mode, which loads none. Core keeps General, Models, Runtimes, Pi, Keybindings,
 Connections, Extensions and the Inspector; every other page is a contribution
 and is gone with its extension. The search field at the top of the Settings
 column finds core's own rows (and scrolls to the row), a page by its label,
@@ -1028,6 +1037,15 @@ page's icon, and read out with its label ("Pull requests, 3"); `undefined` or
 rail knows. Being a hook, it may subscribe to a store with
 `useSyncExternalStore`, and it should stay cheap: it runs with the foot.
 
+The sidebar's foot is the design's (API 1.27.0): pages with `prominent: true`
+lead it with their label beside the icon and their `useBadge` count after it in
+the accent ("Reviews 4"), then Settings, then the other pages as icons and the
+commands kits put there. `useSummary()` is an optional hook for a short figure
+`{ text, short?, hint? }` the foot shows at its end instead of the page's icon
+(Usage's "$12.40 · 22 · 3.1M tok"); `short` stands in where the foot has no room
+for `text`, `hint` is the tooltip, and `undefined` draws the icon. A click on
+either opens the page.
+
 `useOpenPage()` from `tau` answers the page on screen (`{ id, views }`) or
 undefined, for a sidebar that marks it. A `standalone` Settings page (API
 1.15.0) still opens alone, without Settings' navigation; it is deprecated in
@@ -1055,15 +1073,18 @@ to the one action the page is for; an action on a group of rows belongs in
 that `SettingsSection`'s `headerAction`.
 
 **Where a page sits (new in API 1.18.0).** `group` on `registerSettingsPage`
-places a page in the section column: `general` (the first group, without a
-heading: General, Appearance, Notifications, Keybindings), `threads` (Models,
-Providers, Pi and what shapes threads), `projects` (what works on a project:
-source control, review, terminal, preview), `remote` (Connections, Machines,
-servers, other devices), `extensions` (the list of extensions, Packages, and
-the default for a page that names no group) or `diagnostics` (Inspector,
-Signals). Within a group pages follow `order`; core's own pages take 0 to 80
-(General 0, Keybindings 80, Models 0, Providers 10, Pi 20, Connections 0,
-Extensions 0, Inspector 50). A page that lists `rows: [{ id, label,
+places a page in the section column: `general` (the main pages, always open
+under "Settings": General, Appearance, Models, Providers, Runtimes,
+Notifications, Keybindings, Connections; keep it short), `threads` (Pi and
+what shapes threads), `projects` (what works on a project: source control,
+review, terminal, preview), `remote` (Machines, servers, other devices),
+`extensions` (the list of extensions, Packages, and the default for a page
+that names no group) or `diagnostics` (Inspector, Signals). Every group but
+`general` folds under its heading (since API 1.27.0): it opens on a click, or
+by itself while it holds the page on screen. Within a group pages follow
+`order`; core's own pages take 0 to 90 (General 0, Models 10, Providers 20,
+Runtimes 30, Keybindings 80, Connections 90, Pi 20, Extensions 0, Inspector
+50). A page that lists `rows: [{ id, label,
 keywords? }]` has each row found by the search, which scrolls to the element
 with that id — give the `SettingRow` the same `id`.
 
@@ -1392,9 +1413,9 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` draws no cost since API 1.26.0; the rail's hover card does. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) in front with the runtime's stacked behind it, fanned out side by side on hover or keyboard focus and always on a touch screen, in a box that keeps the fanned width ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) in front with the runtime's stacked behind it, fanned out side by side on hover or keyboard focus and always on a touch screen, in a box that keeps the fanned width ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `threadRowStatus`, `ThreadRowStatus`, `THREAD_QUESTION_LABEL`, `threadLimitHint` | new in API 1.27.0: the one derivation of a thread row's state that the desktop rail and the tablet and phone lists share. `threadRowStatus(id, activity, thread?)` takes the thread store's activity (`useThreadStore().getActivity()`) and the thread's shell and answers `{ activity, label, hint?, startedAt? }` for `ThreadRow`: a question is "Question", a run "Working" with the host's start of the run, then Limited, Failed, Interrupted, Ready and Idle. A navigator that draws its own rows calls it rather than naming the states itself. |
-| `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws, after T3 Code's draft rows: the project line marked Draft with a pen, the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") and T3 Code's tint for unsent work. `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
+| `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and T3 Code's tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
@@ -1510,12 +1531,21 @@ by time without touching the rail's own order), `running`, `opening`, `machine`
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
-The shelves after the main list (snoozed, settled) share its scroll, as in T3 Code: they
-sit at the rail's bottom while the main list is short and follow its end when it is long.
-`collapsed` is only the default; the client remembers each shelf it opened or folded
-(`tau.workspace.rail-shelves-open.v1` in its storage). A folded shelf's label adds the
-count, an open settled shelf shows ten rows and then 25 a page, and the thread on screen
-keeps its row on a folded or paged shelf.
+The shelves after the main list (snoozed, settled) share its scroll, as in T3 Code, and
+follow right after the last active row, as the design draws them (since API 1.27.0; they
+sat at the rail's bottom before). Each is a quiet heading with its count ("Settled · 41")
+over one-line rows (tile, title, age); a click on the heading folds or opens it.
+`collapsed` is only the default — Settled starts open, Snoozed folded — and the client
+remembers each shelf it opened or folded (`tau.workspace.rail-shelves-open.v1` in its
+storage). An open settled shelf shows ten rows and then 25 a page, and the thread on
+screen keeps its row on a folded or paged shelf. A row draws no hover buttons (API
+1.27.0): its state or age stays where it is, and Settle, Snooze and the rest are the
+row's menu (right click, or the menu key on the keyboard's row) and the keyboard's
+(`thread.settle`, ⌘⇧S; without an organizer the menu offers Settle alone). A draft row's
+menu opens or discards it. The rail's head is the search, the project filter as an icon
+(a folder, or the shown project's tile, with a list of the projects under the search:
+"All projects" first, each project's settings on its row, "Add project…" at its foot)
+and "+".
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,
@@ -1556,12 +1586,9 @@ into sections `{ id, label?, threads, shelf?, collapsed?, settled? }` in draw
 order, where the one section without a label is the main, paged list and a
 `shelf` folds away under its label with compact rows; `menu(session)` and
 `runMenu(session, itemId, actions)` are a row's right-click menu;
-`toggleSettled(session)` answers the row's own settle button; the optional
-`rowActions(session)` (new in API 1.11.0) lists buttons `{ id, label, icon,
-menu() }` the row shows beside Settle on hover and keyboard focus, each dropping
-the list `menu()` answers at that moment in a `Popover` — arrows, Home and End
-walk it, Escape closes it — and a pick goes to `runMenu` (Thread Rail's snooze
-clock with its presets and "Custom…"); and
+`toggleSettled(session)` settles or returns a thread the rail moves itself; the
+optional `rowActions(session)` (API 1.11.0) is ignored since API 1.27.0, when rows
+stopped drawing hover buttons (Thread Rail's snooze clock is its menu's Snooze now); and
 `dropLabel(threadId, { sectionId, beforeThreadId? })` / `drop(…)` say what a
 pointer drag of a row onto a section or between two rows does — the rail draws
 the gesture, the word ("Pin", "Settle") beside the pointer and the insertion
@@ -2016,12 +2043,12 @@ model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 — so a thread whose draft named none still gives the hint.
 
 A registered backend's `label` is what the workbench calls it where a new
-thread's runtime is chosen (the composer's runtime chip, Settings → Models);
+thread's runtime is chosen (the composer's runtime chip, Settings → Runtimes);
 it defaults to the kind. The host publishes every installed backend as
 `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none. The list is in the one order
 every runtime list uses — the model picker's rail, the composer's runtime
-menu, Settings → Models and Providers, onboarding: Pi, then backends by the
+menu, Settings → Runtimes and Providers, onboarding: Pi, then backends by the
 provider's `order` (new in API 1.11.0; lower first, unset last, ties in
 registration order). The bundled kits take 10 (the Agent SDK runtime), 20
 (Codex), 30 (Antigravity), 40 (OpenCode), 50 (Cursor) and 60 (Grok); every instance of a program shares its order.
@@ -2045,7 +2072,7 @@ is: `version()` on the provider answers `{ tool, installed?, latest?,
 updateCommand? }` (`RuntimeToolVersion`), or `undefined` when it cannot tell.
 The host asks each backend once a day, never while a snapshot waits for it,
 and publishes the answer as `version` on that backend's `runtimeBackends` entry;
-the picker's runtime tab and Settings → Models then say that an update is
+the picker's runtime tab and Settings → Runtimes then say that an update is
 out, with `updateCommand`, whenever `installed` is older than `latest`
 (`compareVersions`). `updateCommand` is what the user runs — a shell command,
 or where in Tau to click. For a CLI that npm publishes, `tau/host-extension`
@@ -2154,7 +2181,7 @@ instance's way to fake a range, or a fix that cannot wait for a release) and
 the bundled one otherwise. `packageInstallCommand(realPath, packageName,
 version)` names the npm, pnpm or bun command that installs exactly that
 release; Homebrew cannot pin one, so it answers `undefined` and the update
-command stands. The picker's runtime tab and Settings → Models put an unsafe
+command stands. The picker's runtime tab and Settings → Runtimes put an unsafe
 or broken version before an available update. Tau never runs either command on its own:
 the shipped kits draw `RuntimeVersionBanner` above the composer of the thread
 and on the card, and its button types the command into a new Terminal Kit
@@ -2742,8 +2769,11 @@ it beside the client in Connections — never as a login.
 
 On the desktop side, `registerSettingsSection({ id, page, order?, rows?, Component })`
 (new in API 1.13.0) adds a section to one of core's Settings pages, below
-core's own sections: `"connections"`; `"extensions"`, above the list of
-extensions; or `"extension"`, on every extension's own page after its
+core's own sections: `"connections"`; `"runtimes"`, below the table of
+runtimes (new in API 1.27.0; a section whose `rows` name `runtime-permissions`
+is what Pi's Permissions button there opens, as Access Kit's cards do);
+`"extensions"`, above the list of extensions; or `"extension"`, on every
+extension's own page after its
 settings, where the component also gets `extensionId` and `cwd` and draws
 nothing for an extension it has nothing to say about (both new in API 1.18.0;
 Packages Kit's Update and Remove for an installed package are one). The

@@ -77,7 +77,8 @@ export { useEscapeLayer } from "./components/ui/escape-layers";
 export type { FloatingAlign, FloatingSide } from "./components/ui/floating";
 export type { ToastAction, ToastHandle, ToastOptions, ToastType } from "../workbench/toast-store";
 export { FileKindIcon } from "./components/FileKindIcon";
-export { ThreadRow } from "./components/ThreadRow";
+// `projectHue` (API 1.27.0): the hue a row tints a project's tile with, for a tile drawn beside the rows.
+export { projectHue, ThreadRow } from "./components/ThreadRow";
 export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
 export { ProviderIconStack, providerStackLabel } from "./components/ProviderIconStack";
@@ -156,6 +157,7 @@ export type {
   SettingsPageContribution,
   SettingsPageProps,
   PageContribution,
+  PageSummary,
   PageProps,
   SettingsSectionContribution,
   SettingsSectionPage,

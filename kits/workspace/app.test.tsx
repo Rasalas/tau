@@ -15,6 +15,7 @@ import {
   writeNewThreadDraft,
 } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
+import { requestProjectSwitcher } from "./navigation.js";
 import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
 
 /** The latest turn's pill over the composer; a click opens its detail. */
@@ -203,7 +204,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(busy?.textContent).toMatch(/^Working2:1[45]$/u);
   });
 
-  it("folds settled history by default, keeps the open thread, and pages it ten then twenty-five at a time", async () => {
+  it("shows settled history open under its count, folds it on a click keeping the open thread, and pages it ten then twenty-five at a time", async () => {
     const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `settled-${index}`,
       path: `/sessions/settled-${index}.jsonl`,
@@ -229,13 +230,15 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     const toggle = await screen.findByRole("button", { name: /Settled · 71/u });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("Settled · 71");
+    fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     // Folded, the shelf still draws the thread on screen, as T3 Code does.
     expect(screen.getByText("Settled thread 0")).toBeTruthy();
     expect(screen.queryByText("Settled thread 1")).toBeNull();
+    expect(getClientStorage()?.get("tau.workspace.rail-shelves-open.v1")).toBe(JSON.stringify({ settled: false }));
     fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(toggle.textContent).toBe("Settled");
     expect(screen.getByText("Settled thread 9")).toBeTruthy();
     expect(screen.queryByText("Settled thread 10")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "+ show 25 more" }));
@@ -245,7 +248,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(getClientStorage()?.get("tau.workspace.rail-shelves-open.v1")).toBe(JSON.stringify({ settled: true }));
   });
 
-  it("draws the sections, the row menu and the settle button another kit's organizer decides", async () => {
+  it("draws the sections and the row menu another kit's organizer decides, and no hover buttons in place of a row's state", async () => {
     const sessions = ["alpha", "beta", "gamma"].map((id, index) => ({
       id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 10 - index, projectPath: "/project", projectName: "project", messageCount: 1,
     }));
@@ -296,8 +299,10 @@ describe("Workspace Kit in the workbench", () => {
     // The page's own menu stands in for the OS's, which the fake host refuses; the choice arrives with the promise.
     await waitFor(() => expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "pin", expect.anything()));
 
-    fireEvent.click(screen.getByRole("button", { name: "Settle Thread gamma" }));
-    expect(toggleSettled).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }));
+    // Settle and Snooze are the menu's and the keyboard's: a hovered row keeps its state.
+    expect(screen.queryByRole("button", { name: "Settle Thread gamma" })).toBeNull();
+    expect(screen.getByText("Thread gamma").closest(".thread-row")?.querySelector(".thread-row-actions")).toBeNull();
+    expect(toggleSettled).not.toHaveBeenCalled();
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {
@@ -555,7 +560,8 @@ describe("Workspace Kit in the workbench", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalled());
 
     // The host has not even named the session yet; leaving must still work.
-    fireEvent.click(await screen.findByRole("button", { name: /All projects/u }));
+    // The switcher is `workspace.switch-project`'s; the rail's folder icon filters.
+    act(() => requestProjectSwitcher());
     const switcher = await screen.findByRole("dialog", { name: "Switch project" });
     fireEvent.click(within(switcher).getByRole("option", { name: /second/u }));
     await waitFor(() => expect(openProject).toHaveBeenCalledWith("/second"));
@@ -732,7 +738,8 @@ describe("Workspace Kit in the workbench", () => {
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "discard this draft" } });
 
-    fireEvent.click(await screen.findByRole("button", { name: /All projects/u }));
+    // The switcher is `workspace.switch-project`'s; the rail's folder icon filters.
+    act(() => requestProjectSwitcher());
     const switcher = await screen.findByRole("dialog", { name: "Switch project" });
     fireEvent.click(within(switcher).getByRole("option", { name: /other/u }));
 
