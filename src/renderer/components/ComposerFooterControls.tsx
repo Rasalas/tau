@@ -1,58 +1,81 @@
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Ellipsis } from "lucide-react";
 import { Popover } from "../deferred-surfaces";
 import { focusableElements, openedByKeyboard } from "./ui/focus";
+import { ComposerMenuContext } from "./ComposerMenu";
 import { fitFooterControls, type FooterBlockWidths, type FooterLayout } from "./composer-footer-layout";
 
 export interface FooterBlock {
   id: string;
   node: ReactNode;
+  /** What the menu draws once the block folded into it; `node` itself otherwise. */
+  menuNode?: ReactNode;
+  /** Sits at the row's end, before the send button. */
+  end?: boolean;
+  /** Blocks with a higher rank fold later; equal ranks fold from the end of the row. */
+  rank?: number;
 }
 
 interface Measured extends FooterBlockWidths {
-  /** `data-composer-shortcut` names inside the block, for the overflow trigger to answer to. */
+  /** `data-composer-shortcut` names inside the block, for the menu trigger to answer to. */
   shortcuts: readonly string[];
 }
 
 const NO_LAYOUT: FooterLayout = { iconOnly: 0, hidden: 0 };
+const NO_SHORTCUTS: readonly string[] = [];
 
 const px = (value: string) => Number.parseFloat(value) || 0;
 
 /** A chip reduced to its icon: 8 px padding either side of a 13 px icon. Once drawn so, the real width counts. */
 const ICON_CHIP = 29;
 
-/** Width of the block with its chips reduced to their icons, before it has been drawn that way. */
+/** Width of the block with its chips reduced to their icons; a chip without an icon keeps its text. */
 function iconWidth(block: HTMLElement, natural: number): number {
   let width = natural;
-  for (const chip of block.querySelectorAll(".runtime-chip")) width -= Math.max(0, chip.getBoundingClientRect().width - ICON_CHIP);
+  for (const chip of block.querySelectorAll(".runtime-chip")) {
+    if (!chip.querySelector(":scope > svg")) continue;
+    width -= Math.max(0, chip.getBoundingClientRect().width - ICON_CHIP);
+  }
   return width;
 }
 
 /**
- * The chips beside the model: the model stays, the blocks after it first
- * lose their labels and then move into an overflow menu, from the end, as the
- * composer narrows (T3 Code's footer). Kit controls are opaque, so a hidden
- * block is drawn inside the overflow popover as it is.
+ * The composer's footer row: the model, then the blocks, then one menu ("…")
+ * that holds `menu` and every block the row has no room for. As the
+ * composer narrows the blocks first drop their labels and then move into the
+ * menu, lowest rank first (T3 Code's footer).
  */
-export function ComposerFooterControls({ leading, blocks, revision = "" }: {
+export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
   leading: ReactNode;
   blocks: readonly FooterBlock[];
-  /** Changes when the leading chips change in a way the observer cannot see, such as one appearing. */
+  /** Entries that always live in the menu. */
+  menu?: ReactNode;
+  /** Shortcut ids of the controls in `menu`, for the trigger to answer to. */
+  menuShortcuts?: readonly string[];
+  /** Changes when the chips change in a way the observer cannot see, such as one appearing. */
   revision?: string;
 }) {
   const row = useRef<HTMLDivElement>(null);
-  const overflowRef = useRef<HTMLButtonElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const measured = useRef(new Map<string, Measured>());
-  const overflowWidth = useRef(ICON_CHIP);
+  const triggerWidth = useRef(ICON_CHIP);
   const [layout, setLayout] = useState(NO_LAYOUT);
   const [open, setOpen] = useState(false);
+  const hasMenu = Boolean(menu);
+  // Fold order: the blocks kept longest first, so the fitter takes them from the end.
+  const byFold = useMemo(() => blocks
+    .map((block, index) => ({ block, index }))
+    .sort((a, b) => (b.block.rank ?? 0) - (a.block.rank ?? 0) || a.index - b.index)
+    .map((entry) => entry.block), [blocks]);
   // Only blocks seen with content fold; an empty or unseen one stays in the row to be measured.
-  const candidates = blocks.filter((block) => (measured.current.get(block.id)?.natural ?? 0) > 0);
+  const candidates = byFold.filter((block) => (measured.current.get(block.id)?.natural ?? 0) > 0);
   const iconOnly = new Set(candidates.slice(candidates.length - layout.iconOnly).map((block) => block.id));
   const hidden = new Set(layout.hidden > 0 ? candidates.slice(candidates.length - layout.hidden).map((block) => block.id) : []);
 
-  const order = useRef(blocks);
-  order.current = blocks;
+  const order = useRef(byFold);
+  order.current = byFold;
+  const menuAlways = useRef(hasMenu);
+  menuAlways.current = hasMenu;
   const measure = useCallback(() => {
     const element = row.current;
     if (!element) return;
@@ -71,7 +94,8 @@ export function ComposerFooterControls({ leading, blocks, revision = "" }: {
         const shortcuts = [...item.querySelectorAll<HTMLElement>("[data-composer-shortcut]")].flatMap((node) => node.dataset.composerShortcut?.split(/\s+/u) ?? []);
         measured.current.set(id, { natural, icon: Math.min(icon, natural), shortcuts });
       } else if (item.dataset.composerOverflow !== undefined) {
-        overflowWidth.current = item.getBoundingClientRect().width;
+        triggerWidth.current = item.getBoundingClientRect().width;
+        if (menuAlways.current) fixed.push(triggerWidth.current);
       } else {
         // The model chip may be shrunk with an ellipsis; count the width its label asks for.
         const label = item.querySelector<HTMLElement>(".runtime-chip-label");
@@ -83,13 +107,20 @@ export function ComposerFooterControls({ leading, blocks, revision = "" }: {
       return entry && entry.natural > 0 ? [entry] : [];
     });
     setLayout((current) => {
-      const next = fitFooterControls({ available: element.clientWidth, gap, fixed, blocks: widths, overflow: overflowWidth.current }, current);
+      const next = fitFooterControls({
+        available: element.clientWidth,
+        gap,
+        fixed,
+        blocks: widths,
+        // A menu that is there anyway costs nothing more when a block moves into it.
+        overflow: menuAlways.current ? 0 : triggerWidth.current,
+      }, current);
       return next.iconOnly === current.iconOnly && next.hidden === current.hidden ? current : next;
     });
   }, []);
 
   // Not on every render: a keystroke re-renders the composer, and sizes change only through these or the observer.
-  const shape = `${blocks.map((block) => block.id).join(" ")}|${layout.iconOnly}|${layout.hidden}|${revision}`;
+  const shape = `${blocks.map((block) => block.id).join(" ")}|${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
   useLayoutEffect(() => {
     measure();
     const element = row.current;
@@ -101,49 +132,75 @@ export function ComposerFooterControls({ leading, blocks, revision = "" }: {
   }, [measure, shape]);
 
   const hiddenBlocks = blocks.filter((block) => hidden.has(block.id));
-  if (open && hiddenBlocks.length === 0) setOpen(false);
-  const shortcuts = hiddenBlocks.flatMap((block) => measured.current.get(block.id)?.shortcuts ?? []);
+  const showTrigger = hasMenu || hiddenBlocks.length > 0;
+  if (open && !showTrigger) setOpen(false);
+  const shortcuts = [...menuShortcuts, ...hiddenBlocks.flatMap((block) => measured.current.get(block.id)?.shortcuts ?? [])];
+  const drawn = (block: FooterBlock) => (
+    <span key={block.id} className={`composer-block${block.end ? " end" : ""}`} data-composer-block={block.id} {...(iconOnly.has(block.id) ? { "data-icon-only": "" } : {})}>
+      {block.node}
+    </span>
+  );
 
   return (
     <div className="composer-chips" ref={row}>
       {leading}
-      {blocks.filter((block) => !hidden.has(block.id)).map((block) => (
-        <span key={block.id} className="composer-block" data-composer-block={block.id} {...(iconOnly.has(block.id) ? { "data-icon-only": "" } : {})}>
-          {block.node}
-        </span>
-      ))}
-      {hiddenBlocks.length > 0 ? (
+      {blocks.filter((block) => !block.end && !hidden.has(block.id)).map(drawn)}
+      {showTrigger ? (
         <span className="composer-overflow-anchor" data-composer-overflow="">
           <button
-            ref={overflowRef}
+            ref={trigger}
             type="button"
-            className="runtime-chip"
+            className="runtime-chip composer-menu-trigger"
             aria-label="More composer controls"
             aria-expanded={open}
             aria-haspopup="dialog"
+            data-composer-menu=""
             {...(shortcuts.length > 0 ? { "data-composer-shortcut": shortcuts.join(" ") } : {})}
             onClick={() => setOpen((current) => !current)}
           >
-            <Ellipsis size={14} />
+            <Ellipsis size={15} />
           </button>
-          {open ? <OverflowPopover anchor={overflowRef} blocks={hiddenBlocks} onClose={() => setOpen(false)} /> : null}
+          {open ? (
+            <ComposerMenuPopover anchor={trigger} onClose={() => setOpen(false)}>
+              {hiddenBlocks.length > 0 ? (
+                <div className="composer-overflow-list">
+                  {hiddenBlocks.map((block) => <span key={block.id} className="composer-block" data-composer-block={block.id}>{block.menuNode ?? block.node}</span>)}
+                </div>
+              ) : null}
+              {menu}
+            </ComposerMenuPopover>
+          ) : null}
         </span>
       ) : null}
+      {blocks.filter((block) => block.end && !hidden.has(block.id)).map(drawn)}
     </div>
   );
 }
 
-function OverflowPopover({ anchor, blocks, onClose }: { anchor: RefObject<HTMLButtonElement | null>; blocks: readonly FooterBlock[]; onClose(): void }) {
+function ComposerMenuPopover({ anchor, children, onClose }: { anchor: RefObject<HTMLButtonElement | null>; children: ReactNode; onClose(): void }) {
   const list = useRef<HTMLDivElement>(null);
   const [byKeyboard] = useState(openedByKeyboard);
+  const context = useMemo(() => ({ close: onClose }), [onClose]);
   useLayoutEffect(() => {
     if (byKeyboard && list.current) focusableElements(list.current)[0]?.focus({ preventScroll: true });
   }, [byKeyboard]);
+  // Arrows walk the entries, as in every other menu.
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const entries = list.current ? focusableElements(list.current) : [];
+    if (entries.length === 0) return;
+    event.preventDefault();
+    const at = entries.indexOf(document.activeElement as HTMLElement);
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    entries[(at + step + entries.length) % entries.length]?.focus({ preventScroll: true });
+  };
   return (
     <Popover anchor={anchor} side="top" align="start" label="More composer controls" className="composer-overflow" onClose={onClose}>
-      <div ref={list} className="composer-overflow-list">
-        {blocks.map((block) => <span key={block.id} className="composer-block" data-composer-block={block.id}>{block.node}</span>)}
-      </div>
+      <ComposerMenuContext.Provider value={context}>
+        <div ref={list} className="composer-menu" onKeyDown={onKeyDown}>
+          {children}
+        </div>
+      </ComposerMenuContext.Provider>
     </Popover>
   );
 }

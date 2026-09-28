@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Gauge } from "lucide-react";
-import { HostUnavailableError, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient } from "tau";
+import { Gauge } from "lucide-react";
+import { ComposerMenuItem, ComposerMenuSection, HostUnavailableError, type ComposerControlProps, type DesktopExtension, type HostExtensionClient } from "tau";
 import { SERVICE_TIER_EVENT, SERVICE_TIER_HOST_EXTENSION_ID, type ServiceTier, type ServiceTierState } from "./protocol.js";
 
 const UNKNOWN: ServiceTierState = { tier: "standard", available: false };
@@ -13,7 +13,6 @@ function isState(value: unknown): value is ServiceTierState {
 function createControl(host: HostExtensionClient, notify: (message: string) => void) {
   return function ServiceTierControl({ snapshot }: ComposerControlProps) {
     const [state, setState] = useState<ServiceTierState>(UNKNOWN);
-    const [open, setOpen] = useState(false);
     const model = snapshot?.model;
     // The host decides availability from the active model's API, so ask again
     // whenever the thread or its model changes, and whenever the host says so.
@@ -34,31 +33,18 @@ function createControl(host: HostExtensionClient, notify: (message: string) => v
       .then((value) => { if (isState(value)) setState(value); })
       .catch((error: unknown) => notify(error instanceof Error ? error.message : String(error)));
     return (
-      <span className="menu-anchor composer-runtime-menu-anchor">
-        <button className="runtime-chip" title="Service tier" onClick={() => setOpen((current) => !current)}>
-          <Gauge size={13} />
-          {state.tier === "fast" ? "fast" : "standard"}
-          <ChevronDown size={12} className="chev" />
-        </button>
-        {open ? (
-          <Menu
-            placement="above"
-            heading="Service tier"
-            items={[
-              { id: "standard", label: "Standard", badge: "Default", selected: state.tier === "standard" },
-              {
-                id: "fast",
-                label: "Fast",
-                description: state.available ? "Priority routing, higher cost" : "Not offered for this model's provider",
-                selected: state.tier === "fast",
-                disabled: !state.available,
-              },
-            ]}
-            onSelect={(id) => void setTier(id as ServiceTier)}
-            onClose={() => setOpen(false)}
-          />
-        ) : null}
-      </span>
+      <ComposerMenuSection heading="Service tier">
+        <ComposerMenuItem icon={<Gauge size={13} />} label="Standard" selected={state.tier === "standard"} onSelect={() => void setTier("standard")} />
+        <ComposerMenuItem
+          icon={<Gauge size={13} />}
+          label="Fast"
+          detail="Priority routing, higher cost"
+          selected={state.tier === "fast"}
+          disabled={!state.available}
+          disabledReason="Not offered for this model's provider"
+          onSelect={() => void setTier("fast")}
+        />
+      </ComposerMenuSection>
     );
   };
 }
@@ -68,7 +54,7 @@ export const serviceTierKitExtension: DesktopExtension = {
   name: "Service Tier",
   activate(plugin) {
     let notify: (message: string) => void = (message) => console.warn(message);
-    plugin.registerComposerControl({ id: "service-tier.chip", order: 20, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.host, (message) => notify(message)) });
+    plugin.registerComposerControl({ id: "service-tier.chip", placement: "menu", order: 20, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.host, (message) => notify(message)) });
     for (const tier of ["standard", "fast"] as const) {
       plugin.registerCommand({
         id: `service-tier.${tier}`,

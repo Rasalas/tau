@@ -1,6 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { Archive, Quote, X } from "lucide-react";
-import { errorMessage, type ComposerControlProps, type ComposerInlineContext, type DesktopExtension, type HostSnapshot, type WorkbenchActions } from "tau";
+import { ComposerMenuItem, ComposerMenuSection, errorMessage, type ComposerControlProps, type ComposerInlineContext, type DesktopExtension, type HostSnapshot } from "tau";
 import { buildHistory, stepHistory, type HistoryDirection, type HistoryPosition } from "./history.js";
 import {
   CHIPS_SERVICE,
@@ -46,83 +46,35 @@ export function threadPrompts(snapshot: HostSnapshot | undefined): string[] {
     .reverse();
 }
 
-function StashList({ controller, actions, project, entries, onClose }: {
-  controller: StashController;
-  actions: WorkbenchActions;
-  project: string;
-  entries: readonly StashEntry[];
-  onClose(): void;
-}) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
-  const attempt = (work: () => Promise<unknown>) => { work().catch((error) => actions.notify(errorMessage(error))); };
-  return (
-    <>
-      <button className="menu-scrim" aria-label="Close stashed prompts" onClick={onClose} />
-      <div className="prompt-stash-list" role="dialog" aria-label="Stashed prompts">
-        <div className="menu-heading">Stashed prompts</div>
-        <button type="button" className="prompt-stash-now" onClick={() => { onClose(); attempt(() => controller.stash(actions)); }}>
-          Stash this draft
-        </button>
-        <ul>
-          {entries.map((entry) => (
-            <li key={entry.id}>
-              <button type="button" className="prompt-stash-restore" title={entry.text || undefined} onClick={() => { onClose(); attempt(() => controller.restore(actions, entry.id)); }}>
-                <strong>{entryTitle(entry)}</strong>
-                <small>{entryDetail(entry)}</small>
-              </button>
-              <button type="button" className="prompt-stash-drop" aria-label={`Delete stashed prompt: ${entryTitle(entry)}`} onClick={() => attempt(() => controller.drop(project, entry.id))}>
-                <X size={12} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
-  );
-}
-
+/**
+ * The stash as a section of the composer's "…" menu: stash the draft, then
+ * each entry to bring back, newest first, with a button to delete it.
+ */
 export function createStashControl(controller: StashController) {
   return function StashControl({ actions }: ComposerControlProps) {
     const project = actions?.activeThread()?.cwd;
     const entries = useSyncExternalStore(controller.subscribe, () => controller.list(project));
-    const requested = useSyncExternalStore(controller.subscribe, () => controller.listRequested);
-    const [open, setOpen] = useState(false);
     useEffect(() => {
       if (project) controller.refresh(project).catch(() => undefined);
     }, [project]);
-    useEffect(() => {
-      if (!requested) return;
-      controller.listRequested = false;
-      setOpen(true);
-    }, [requested]);
     if (!actions || !project) return null;
-    const stashNow = () => {
-      controller.stash(actions)
-        .then((stashed) => { if (!stashed) actions.notify("There is nothing to stash."); })
-        .catch((error) => actions.notify(errorMessage(error)));
-    };
+    const attempt = (work: () => Promise<unknown>) => { work().catch((error) => actions.notify(errorMessage(error))); };
     return (
-      <span className="menu-anchor prompt-stash-anchor">
-        <button
-          type="button"
-          className="runtime-chip prompt-stash-button"
-          title={entries.length > 0 ? "Stashed prompts" : "Stash this draft"}
-          aria-label={entries.length > 0 ? `Stashed prompts: ${entries.length}` : "Stash this draft"}
-          onClick={() => entries.length > 0 ? setOpen((current) => !current) : stashNow()}
-        >
-          <Archive size={13} />
-          {entries.length > 0 ? <span className="prompt-stash-count">{entries.length}</span> : null}
-        </button>
-        {open && entries.length > 0 ? <StashList controller={controller} actions={actions} project={project} entries={entries} onClose={() => setOpen(false)} /> : null}
-      </span>
+      <ComposerMenuSection heading={entries.length > 0 ? `Stashed prompts · ${entries.length}` : "Stash"}>
+        <ComposerMenuItem
+          icon={<Archive size={13} />}
+          label="Stash this draft"
+          onSelect={() => attempt(async () => { if (!(await controller.stash(actions))) actions.notify("There is nothing to stash."); })}
+        />
+        {entries.map((entry) => (
+          <span key={entry.id} className="prompt-stash-entry" title={entry.text || undefined}>
+            <ComposerMenuItem label={entryTitle(entry)} detail={entryDetail(entry)} onSelect={() => attempt(() => controller.restore(actions, entry.id))} />
+            <button type="button" className="prompt-stash-drop" aria-label={`Delete stashed prompt: ${entryTitle(entry)}`} onClick={() => attempt(() => controller.drop(project, entry.id))}>
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+      </ComposerMenuSection>
     );
   };
 }
@@ -200,9 +152,14 @@ const promptTools: DesktopExtension = {
       label: "Bring back a stashed prompt…",
       group: "Composer",
       access: "write",
-      run: () => controller.requestList(),
+      // The stash lives in the composer's menu, whose trigger answers to this id.
+      run: (actions) => {
+        const trigger = document.querySelector<HTMLElement>('[data-composer-shortcut~="prompt-tools.stash-list"]');
+        if (trigger) trigger.click();
+        else actions.notify("The composer shows no menu here.");
+      },
     });
-    context.registerComposerControl({ id: "prompt-tools.stash", order: 40, profiles: ["desktop"], Component: createStashControl(controller) });
+    context.registerComposerControl({ id: "prompt-tools.stash", placement: "menu", shortcuts: ["prompt-tools.stash-list"], order: 40, profiles: ["desktop"], Component: createStashControl(controller) });
 
     const history = createHistory(host);
     context.registerComposerInline({ id: "prompt-tools.history", profiles: ["desktop"], keyDown: history.keyDown });

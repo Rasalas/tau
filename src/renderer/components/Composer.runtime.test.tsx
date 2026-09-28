@@ -106,7 +106,7 @@ describe("composer runtime choice", () => {
     expect(chip.getAttribute("data-tooltip")).toMatch(/start with Acme Agent's default model/u);
     expect(screen.queryByText("Claude Opus 5")).toBeNull();
     // The visible thread's reasoning level is not this draft's either.
-    expect(screen.getByLabelText("Reasoning controls unavailable").textContent).toBe("—");
+    expect(screen.queryByLabelText(/^Reasoning/u)).toBeNull();
   });
 
   it("offers runtime choices inside the model picker", async () => {

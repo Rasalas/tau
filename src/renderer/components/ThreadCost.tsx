@@ -6,12 +6,12 @@ import { tooltipProps } from "./ui/Tooltip";
 const ThreadCostPopover = lazy(() => import("./ThreadCostPopover"));
 
 /**
- * What the open thread has cost, beside the context dial. It opens into the
+ * What the open thread has cost, in its head's details. It opens into the
  * token split the money came from; a model without pricing shows tokens only.
  * What a subscription covered stays apart: its tokens, and what the API would
  * have charged for them, never added to the money.
  */
-export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
+export function ThreadCost({ usage, className }: { usage: UiThreadUsage; className?: string }) {
   const [open, setOpen] = useState(false);
   const label = threadCostLabel(usage);
   if (!label) return null;
@@ -19,13 +19,13 @@ export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
 
   return (
     <span
-      className="menu-anchor"
+      className={className ? `menu-anchor ${className}` : "menu-anchor"}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
       <button
         className={onPlan && usage.costUsd <= 0 ? "thread-cost plan" : "thread-cost"}
-        {...tooltipProps(threadCostOrigin(usage))}
+        {...tooltipProps(threadCostOrigin(usage), { side: "bottom" })}
         aria-label={`Thread cost ${label}`}
         onClick={() => setOpen((value) => !value)}
       >

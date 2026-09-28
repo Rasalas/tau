@@ -25,8 +25,6 @@ export function chipAsText(chip: StashedChip): string {
 export class StashController {
   private readonly entries = new Map<string, readonly StashEntry[]>();
   private readonly listeners = new Set<() => void>();
-  /** Set by the palette command; the control opens its list and clears it. */
-  listRequested = false;
   chips: ComposerContextChips | undefined;
 
   constructor(private readonly host: HostApi) {}
@@ -42,11 +40,6 @@ export class StashController {
 
   async refresh(project: string): Promise<void> {
     this.entries.set(project, await this.host("stash-list", { project }));
-    this.changed();
-  }
-
-  requestList(): void {
-    this.listRequested = true;
     this.changed();
   }
 

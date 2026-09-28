@@ -130,6 +130,8 @@ button > svg { pointer-events: none; }
 .thread-detail + .thread-detail::before { content: "·"; margin-right: 3px; color: var(--faint); }
 .thread-detail > span { overflow: hidden; text-overflow: ellipsis; }
 .thread-detail-cost { font-family: var(--mono); }
+.thread-details .thread-cost { font-size: inherit; color: inherit; }
+.thread-details .thread-cost-popover { top: calc(100% + 6px); bottom: auto; left: -8px; right: auto; }
 .thread-header-actions { flex: 1 1 0; display: flex; justify-content: flex-end; min-width: 0; overflow: hidden; }
 .thread-header-actions .region-title-bar { flex: 1 1 auto; min-width: 0; }
 /* Room for the native macOS traffic lights where the sidebar is hidden; they ignore page zoom. */
@@ -1079,7 +1081,6 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   color: inherit; font: inherit; text-align: left;
 }
 .work-live-line:hover { color: var(--ink-2); }
-.work-live-question { flex: none; color: var(--warn); }
 .work-live-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-live.running .work-live-label {
   background: linear-gradient(90deg, var(--muted) 30%, var(--ink-2) 50%, var(--muted) 70%) 0 0 / 300% 100%;
@@ -1358,17 +1359,40 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .composer-chip-preview { padding: 0; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken); cursor: zoom-in; overflow: hidden; }
 .composer-chip-preview img { display: block; width: 100%; max-height: 160px; object-fit: contain; }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-3) var(--space-3); }
-/* One row: blocks after the model drop their labels, then move into the overflow menu (ComposerFooterControls). */
-.composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
+/* One row: model, reasoning, the "…" menu; context and attach at the end. Blocks drop their labels, then move into the menu (ComposerFooterControls). */
+.composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .composer-block { flex: none; display: flex; align-items: center; }
 .composer-block:empty { display: none; }
-.composer-block[data-icon-only] .runtime-chip { gap: 0; font-size: 0; }
+.composer-chips > :not(.end) + .composer-block.end, .composer-chips > .composer-block.end:first-child { margin-left: auto; }
+.composer-block[data-icon-only] .runtime-chip:has(> svg) { gap: 0; font-size: 0; }
 .composer-block[data-icon-only] .runtime-chip .chev { display: none; }
 .composer-model-chip { flex: 0 1 auto; min-width: 64px; }
 .runtime-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The reasoning level reads as text beside the model, as in the design. */
+.composer-thinking-chip { color: var(--muted); }
+.composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }
+.composer-menu-trigger { padding: 4px 6px; color: var(--muted); }
 .popover.composer-overflow { padding: 4px; }
+.composer-menu { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 300px; }
 .composer-overflow-list { display: flex; flex-direction: column; gap: 2px; }
 .composer-overflow-list .runtime-chip { width: 100%; }
+.composer-overflow-list + .composer-menu-section, .composer-menu-section + .composer-menu-section { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.composer-menu-section > .menu-heading {
+  padding: 6px 10px 4px; color: var(--faint); font-weight: 500;
+  font-family: var(--label-font); font-size: var(--label-size); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+}
+.composer-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; text-align: left;
+  border: 0; border-radius: 7px; background: transparent; color: var(--ink-2);
+  font: 400 12.5px var(--sans); padding: 6px 10px; cursor: pointer;
+}
+.composer-menu-item:hover:not(:disabled), .composer-menu-item:focus-visible { outline: none; background: var(--raised); color: var(--ink); }
+.composer-menu-item:disabled { opacity: .45; cursor: default; }
+.composer-menu-icon { flex: none; display: grid; place-items: center; width: 14px; color: var(--muted); }
+.composer-menu-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.composer-menu-label > em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-menu-label > small { font: 11px/1.35 var(--sans); color: var(--faint); }
+.composer-menu-check { flex: none; color: var(--acid-text); }
 .runtime-chip {
   display: flex; align-items: center; gap: 6px; border: 0; border-radius: var(--radius-sm); white-space: nowrap;
   background: transparent; color: var(--ink-2);
@@ -1408,13 +1432,6 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .send-button:disabled { background: var(--raised); color: var(--faint); cursor: default; }
 .send-button.stop { background: var(--stop); }
 .send-button.stop > i { width: 11px; height: 11px; background: var(--stop-ink); border-radius: 2.5px; }
-.prompt-submit-button {
-  height: 28px; flex: none; display: flex; align-items: center; gap: 5px;
-  padding: 0 12px; border: 0; border-radius: var(--radius-pill);
-  background: var(--acid); color: var(--acid-ink); font: 600 var(--text-md) var(--sans); cursor: pointer;
-}
-.prompt-submit-button:not(:disabled):hover { background: var(--acid-strong); }
-.prompt-submit-button:disabled { background: var(--raised); color: var(--faint); cursor: default; }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1579,85 +1596,69 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .prompt-arrival { display: contents; }
 .prompt-arrival.waiting > * { opacity: .55; transition: opacity .2s var(--ease); }
 .prompt-arrival-note { margin: 0; padding: 6px 12px 0; color: var(--muted); font: 11.5px/1.4 var(--sans); }
-/* The question and the composer under it read as one filled card, a hairline between them. */
+/* The question and the composer under it read as one filled card, a hairline between them (design 1n). */
 .extension-prompt {
-  max-width: 780px; margin: 0 auto; padding: 11px 10px 8px;
+  max-width: 780px; margin: 0 auto; padding: 12px 14px 10px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field);
 }
-.extension-prompt > header { display: flex; align-items: center; gap: 9px; padding: 0 4px 2px; }
-.extension-prompt > header > strong {
-  min-width: 0; font-size: 13px; font-weight: 650; color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+.extension-prompt > header { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--text-sm); }
+/* A question is amber wherever it shows: the rail, the live line, the card on the composer. */
+.extension-prompt-kind { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--warn); font-weight: 600; }
+.extension-prompt-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
-/* A question is amber wherever it shows: the rail, the live line, the card on the composer. */
-.extension-prompt-mark {
-  width: 20px; height: 20px; flex: none; display: grid; place-items: center;
-  border-radius: 6px; background: var(--warn-chip); color: var(--warn);
-}
-.extension-prompt-message {
-  margin: 6px 4px 2px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap;
+.extension-prompt-pick { flex: none; color: var(--muted); white-space: nowrap; }
+.extension-prompt-title { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.extension-prompt-message { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; }
+.extension-prompt-subject {
+  display: block; margin: 6px 0 0; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
+  font: 12px/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
 }
 
-/* Choices read as a list, like every other list in the workbench. */
-.extension-prompt-options { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+/* Options: a box to tick, the label and its second line; no frame until hovered. */
+.extension-prompt-options { display: flex; flex-direction: column; gap: 2px; margin: 8px -6px 0; }
 .extension-option {
-  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
-  border: 1px solid transparent; border-radius: 8px; background: transparent;
-  padding: 7px 10px; cursor: pointer; color: var(--ink-2);
-  transition: background 0.12s ease, border-color 0.12s ease;
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
+  border: 0; border-radius: 8px; background: transparent;
+  padding: 7px 6px; cursor: pointer; color: var(--ink);
+  transition: background 0.12s ease;
 }
-.extension-option:hover { background: var(--raised); border-color: var(--line-control); }
+.extension-option:hover { background: var(--raised); }
+.extension-option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .extension-option-indicator {
-  width: 15px; height: 18px; flex: none; display: grid; place-items: center;
-  color: var(--faint);
+  width: 16px; height: 16px; flex: none; margin-top: 2px; display: grid; place-items: center;
+  border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--field); color: var(--acid-ink);
 }
-.extension-option > i {
-  flex: none; width: 15px; padding-top: 1px; font-style: normal;
-  font: 500 10.5px var(--mono); color: var(--faint); text-align: right;
-}
-.extension-option > i.bullet { color: var(--fainter); }
-.extension-option:hover > i,
-.extension-option:hover .extension-option-indicator { color: var(--acid-text); }
-.extension-option > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.extension-option strong { font-size: 12.5px; font-weight: 500; line-height: 1.4; }
-.extension-option:hover strong { color: var(--ink); }
-.extension-option small {
-  font-size: 11.5px; line-height: 1.45; color: var(--faint);
-}
+.extension-option-indicator.radio { border-radius: 50%; }
+.extension-option.chosen .extension-option-indicator { border-color: var(--acid); background: var(--acid); }
+.extension-option.chosen .extension-option-indicator.radio { background: var(--field); box-shadow: inset 0 0 0 3px var(--field), inset 0 0 0 8px var(--acid); }
+.extension-option > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.extension-option strong { font-size: 13.5px; font-weight: 400; line-height: 1.45; }
+.extension-option small { font-size: 12px; line-height: 1.45; color: var(--muted); }
 .extension-option-preview {
   margin: 4px 0 2px; padding: 7px 9px; max-height: 180px; overflow: auto;
   background: var(--code-bg); border-radius: 6px;
   font: 11px/1.35 var(--mono); color: var(--muted); white-space: pre-wrap;
 }
-.extension-option.chosen > i,
-.extension-option.chosen .extension-option-indicator { color: var(--acid-text); }
-.extension-option.chosen {
-  background: var(--raised);
-  border-color: var(--acid-line);
-}
-.extension-option.chosen strong { color: var(--ink); }
-.extension-option.read { cursor: default; }
-.extension-option.read:hover { background: transparent; border-color: transparent; }
-.extension-option.read:hover > i { color: var(--faint); }
-.extension-option.read:hover strong { color: var(--ink-2); }
+.extension-option.read { cursor: default; color: var(--ink-2); }
+.extension-option.read:hover { background: transparent; }
 
-.extension-prompt > footer {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: 6px; padding: 6px 4px 0; border-top: 1px solid var(--line-soft);
-}
-.extension-prompt > footer > span { font: 11px var(--sans); color: var(--faint); }
+.extension-prompt > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 30px; }
+.extension-prompt > footer > span { font-size: var(--text-sm); color: var(--muted); }
 .extension-prompt > footer .spacer { flex: 1; }
 .extension-prompt > footer > button {
-  border: 0; background: transparent; color: var(--faint);
-  font: 500 11.5px var(--sans); padding: 3px 6px; border-radius: 6px; cursor: pointer;
+  height: 30px; border: 0; background: transparent; color: var(--muted);
+  font: 500 var(--text-sm) var(--sans); padding: 0 10px; border-radius: var(--radius-pill); cursor: pointer;
 }
-.extension-prompt > footer > button:hover { background: var(--raised); color: var(--ink-2); }
-.extension-prompt > footer > button.primary { color: var(--acid-text); border: 1px solid var(--acid-line); background: var(--acid-bg); }
-.extension-prompt > footer > button.primary:hover:not(:disabled) { background: var(--acid-chip); color: var(--acid-text); }
-.extension-prompt > footer > button.primary:disabled { color: var(--fainter); border-color: var(--line-soft); background: transparent; cursor: default; }
+.extension-prompt > footer > button:hover { background: var(--raised); color: var(--ink); }
+.extension-prompt > footer > button.extension-prompt-send {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 14px;
+  background: var(--acid); color: var(--acid-ink); font-weight: 600;
+}
+.extension-prompt > footer > button.extension-prompt-send:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
+.extension-prompt > footer > button.extension-prompt-send:disabled { background: var(--raised); color: var(--faint); cursor: default; }
+.extension-prompt-send > kbd { font: 11px var(--sans); opacity: .8; }
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }

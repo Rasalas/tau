@@ -6,7 +6,7 @@ import { threadUsageSections } from "../cost-sections";
 /** What the thread spent and, apart from it, what a subscription covered; loaded when first opened. */
 export default function ThreadCostPopover({ usage }: { usage: UiThreadUsage }) {
   const popover = useRef<HTMLDivElement>(null);
-  // It hangs past the composer's right edge, which is where the dock begins.
+  // It drops over the stage when the details run to the conversation's edge.
   useKeepClear(popover, true);
   const sections = threadUsageSections(usage);
   return (

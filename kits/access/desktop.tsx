@@ -1,6 +1,6 @@
-import { useState, useSyncExternalStore } from "react";
-import { ChevronDown, Lock, LockOpen } from "lucide-react";
-import { HostUnavailableError, hostIsReadOnly, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
+import { useSyncExternalStore } from "react";
+import { Lock, LockOpen } from "lucide-react";
+import { ComposerMenuItem, ComposerMenuSection, HostUnavailableError, hostIsReadOnly, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
 
@@ -9,39 +9,33 @@ function storedLevel(preferences: PreferencesStore): AccessLevel {
   return isAccessLevel(value) ? value : DEFAULT_ACCESS_LEVEL;
 }
 
-/** The chip and menu that used to be hard-wired into the composer. */
+const DETAILS: Record<AccessLevel, string> = {
+  "read-only": "Blocks edits and commands",
+  ask: "Asks before each edit or command",
+  full: "Edits and runs without asking",
+};
+
+/** The level as a section of the composer's "…" menu, as T3 Code's Access group. */
 function createControl(preferences: PreferencesStore, choose: (level: string) => void) {
   return function AccessControl({ snapshot }: ComposerControlProps) {
     const readLevel = () => storedLevel(preferences);
     const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
-    const [open, setOpen] = useState(false);
     const noInteractiveApprovals = snapshot?.runtimeCapabilities?.interactiveApprovals === false;
-    const label = ACCESS_LEVELS.find((entry) => entry.id === level)?.label ?? level;
     return (
-      <span className="menu-anchor composer-runtime-menu-anchor">
-        <button className="runtime-chip" data-composer-shortcut="composer.mode" onClick={() => setOpen((current) => !current)}>
-          {level === "full" ? <LockOpen size={13} /> : <Lock size={13} />}
-          {label}
-          <ChevronDown size={12} className="chev" />
-        </button>
-        {open ? (
-          <Menu
-            placement="above"
-            heading="Access"
-            items={ACCESS_LEVELS.map((entry) => ({
-              id: entry.id,
-              label: entry.label,
-              selected: entry.id === level,
-              disabled: noInteractiveApprovals && entry.id === "ask",
-              description: noInteractiveApprovals && entry.id === "ask"
-                ? "This runtime cannot stop for an approval; choose read-only or full access."
-                : undefined,
-            }))}
-            onSelect={choose}
-            onClose={() => setOpen(false)}
+      <ComposerMenuSection heading="Access">
+        {ACCESS_LEVELS.map((entry) => (
+          <ComposerMenuItem
+            key={entry.id}
+            icon={entry.id === "full" ? <LockOpen size={13} /> : <Lock size={13} />}
+            label={entry.label.charAt(0).toUpperCase() + entry.label.slice(1)}
+            detail={DETAILS[entry.id]}
+            selected={entry.id === level}
+            disabled={noInteractiveApprovals && entry.id === "ask"}
+            disabledReason="This runtime cannot stop for an approval; choose read-only or full access."
+            onSelect={() => choose(entry.id)}
           />
-        ) : null}
-      </span>
+        ))}
+      </ComposerMenuSection>
     );
   };
 }
@@ -70,8 +64,8 @@ export const accessKitExtension: DesktopExtension = {
   name: "Access Kit",
   activate(plugin) {
     const choose = chooser(plugin.host, plugin.preferences);
-    plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
-    // T3 Code's `composer.mode` opens the access menu, its runtime mode.
+    plugin.registerComposerControl({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"], order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
+    // T3 Code's `composer.mode` opens the menu that holds the access level, its runtime mode.
     plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", access: "write", run: (app) => {
       const control = document.querySelector<HTMLElement>('[data-composer-shortcut~="composer.mode"]');
       if (control) control.click();

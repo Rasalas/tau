@@ -92,30 +92,33 @@ describe("Prompt Tools: the stash", () => {
     expect(host.stash).toEqual([]);
   });
 
-  it("counts the entries in the composer toolbar, brings one back and stashes what was there", async () => {
+  it("lists the entries in the composer menu, brings one back and stashes what was there", async () => {
     const { registry, host, state, actions } = activate({ composer: composer({ text: "first draft", images: [image] }) });
     await registry.executeCommand("prompt-tools.stash", actions);
     state.text = "second draft";
     const Control = registry.getComposerControls().find((control) => control.id === "prompt-tools.stash")!.Component;
+    expect(registry.getComposerControls().find((control) => control.id === "prompt-tools.stash")).toMatchObject({ placement: "menu", shortcuts: ["prompt-tools.stash-list"] });
     render(<Control actions={actions} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Stashed prompts: 1" }));
+    await screen.findByRole("group", { name: "Stashed prompts · 1" });
     fireEvent.click(screen.getByRole("button", { name: /^first draft/u }));
     await waitFor(() => expect(state.text).toBe("first draft"));
     expect(state.images).toEqual([image]);
     expect(host.stash.map((entry) => entry.text)).toEqual(["second draft"]);
     expect(actions.focusComposer).toHaveBeenCalled();
-    await screen.findByRole("button", { name: "Stashed prompts: 1" });
+    await screen.findByRole("group", { name: "Stashed prompts · 1" });
   });
 
-  it("deletes an entry from the list, and opens the list from the palette", async () => {
+  it("deletes an entry from the list, and opens the menu from the palette", async () => {
     const { registry, host, state, actions } = activate({ composer: composer({ text: "throw away" }) });
     await registry.executeCommand("prompt-tools.stash", actions);
     const Control = registry.getComposerControls().find((control) => control.id === "prompt-tools.stash")!.Component;
-    render(<Control actions={actions} />);
-    await screen.findByRole("button", { name: "Stashed prompts: 1" });
+    const opened = vi.fn();
+    render(<><button type="button" data-composer-shortcut="composer.mode prompt-tools.stash-list" onClick={opened}>…</button><Control actions={actions} /></>);
+    await screen.findByRole("group", { name: "Stashed prompts · 1" });
     await act(() => registry.executeCommand("prompt-tools.stash-list", actions));
+    expect(opened).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Delete stashed prompt: throw away" }));
-    await screen.findByRole("button", { name: "Stash this draft" });
+    await screen.findByRole("group", { name: "Stash" });
     expect(host.stash).toEqual([]);
     expect(state.text).toBe("");
   });
@@ -125,8 +128,7 @@ describe("Prompt Tools: the stash", () => {
     host.stash.push({ id: "old", createdAt: 1, text: "look", chips: [{ kind: "text-excerpt", label: "Terminal", payload: { source: "Terminal", text: "$ ls" } }], images: [] });
     const Control = registry.getComposerControls().find((control) => control.id === "prompt-tools.stash")!.Component;
     render(<Control actions={actions} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Stashed prompts: 1" }));
-    fireEvent.click(screen.getByRole("button", { name: /^look/u }));
+    fireEvent.click(await screen.findByRole("button", { name: /^look/u }));
     await waitFor(() => expect(state.text).toBe("From Terminal:\n> $ ls\n\nlook"));
   });
 });
