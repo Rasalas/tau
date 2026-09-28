@@ -3686,6 +3686,8 @@ their pixels until a visual pass moves them.
 | `--panel-motion` | how long the sidebar and the dock take to open or close, and the drawer to open; never while a divider is dragged or the system asks for reduced motion | `0ms` |
 
 `--project-hue` is not a token: the thread row sets it per project, and
-`--project-tint` and `--project-ink` say how deep that hue reads. The same goes
+`--project-tint` and `--project-ink` say how deep that hue reads. Both are
+declared on `.thread-project-icon`, not on `:root`, because a custom property's
+`var()` resolves where it is declared; a theme overrides them on that selector. The same goes
 for the handful of layout variables a component sets on itself
 (`--keep-clear-x`, `--composer-inset`, `--used`).
