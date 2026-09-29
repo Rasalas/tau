@@ -64,6 +64,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
+  // The last build of each package half, with esbuild's errors (K112).
+  "./package-builds.js",
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-clients.js",   "./host-access.js",   "./host-connections.js",   "./client-device.js",   "./host-endpoints.js",   "./host-network.js",
   // Bonjour through the system's responder while Local network is on (API 1.13.0).
