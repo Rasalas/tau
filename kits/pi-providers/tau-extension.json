@@ -4,7 +4,7 @@
   "description": "Signs Pi in to its model providers from the window, the way /login does.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.29.0"
   },
   "permissions": [
     "runtime:extend"
