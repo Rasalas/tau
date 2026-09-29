@@ -231,7 +231,8 @@ describe("App stage per thread", () => {
     await screen.findByText("note alpha in ws-a");
     expect(screen.queryByText(/note beta/u)).toBeNull();
 
-    act(() => { actions().newSession(); });
+    // Named, so no picker asks first (K98).
+    act(() => { actions().newSession({ workspace: "ws-a" }); });
     await waitFor(() => expect(screen.queryByText(/note alpha/u)).toBeNull());
     await show("a1");
     await screen.findByText("note alpha in ws-a");
