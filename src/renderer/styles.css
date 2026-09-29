@@ -1286,7 +1286,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
   color: var(--ink); padding: var(--space-5) calc(14px * var(--density)) var(--space-3); line-height: 1.55;
-  font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
+  font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, var(--text-md));
   outline: none; min-height: 40px; max-height: 220px; overflow-y: hidden;
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
@@ -1295,7 +1295,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .composer-mirror {
   position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; box-sizing: border-box;
   padding: var(--space-5) calc(14px * var(--density)) var(--space-3); line-height: 1.55; color: var(--ink);
-  font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
+  font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, var(--text-md));
   font-weight: 400; font-style: normal; font-variant: normal; font-stretch: normal; letter-spacing: normal; word-spacing: normal;
   text-transform: none; text-indent: 0; tab-size: 8; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
 }
