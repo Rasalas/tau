@@ -146,6 +146,37 @@ describe("last-turn activity", () => {
     expect(view.services.preferences.isSettled("background-session")).toBe(true);
   });
 
+  it("keeps earlier toolcalls above text that arrives during the run", async () => {
+    const view = renderApp(client);
+    await screen.findByRole("heading", { name: /do next\?$/ });
+    act(() => {
+      client.emit({ type: "user-message", sessionId: "session", message: { id: "u", role: "user", text: "Inspect", timestamp: 1 } });
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "tool-start", sessionId: "session", tool: tool("first") });
+      client.emit({ type: "tool-start", sessionId: "session", tool: tool("another") });
+    });
+    await waitFor(() => expect(view.container.querySelector(".inline-transcript-activity")).toBeTruthy());
+    act(() => {
+      client.emit({ type: "assistant-start", sessionId: "session", id: "a", timestamp: 3 });
+      client.emit({ type: "assistant-delta", sessionId: "session", id: "a", delta: "Found the issue" });
+    });
+    const text = await screen.findByText("Found the issue");
+    await waitFor(() => {
+      const activity = view.container.querySelector(".inline-transcript-activity")!;
+      expect(activity.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+    act(() => client.emit({ type: "tool-start", sessionId: "session", tool: { ...tool("second"), startedAt: 4, endedAt: 5 } }));
+    await waitFor(() => {
+      const activities = view.container.querySelectorAll(".inline-transcript-activity");
+      expect(activities).toHaveLength(2);
+      const reply = screen.getByText("Found the issue");
+      expect(activities[0].compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(reply.compareDocumentPosition(activities[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
+    await waitFor(() => expect(view.container.querySelectorAll(".inline-transcript-activity")).toHaveLength(2));
+  });
+
   it("keeps a tool without a terminal frame visibly interrupted after settling", async () => {
     const view = renderApp(client);
     await screen.findByRole("heading", { name: /do next\?$/ });
@@ -543,6 +574,33 @@ describe("last-turn activity", () => {
     // A turn that failed folds like any other and says on its fold that it failed.
     expect(activityRows[1]?.textContent).toContain("Worked for");
     expect(activityRows[1]?.querySelector('[aria-label="Turn failed"]')).toBeTruthy();
+  });
+
+  it("restores tool batches on either side of an intermediate reply", async () => {
+    const originalBootstrap = client.bootstrap;
+    client.bootstrap = async () => {
+      const bootstrap = await originalBootstrap();
+      return { ...bootstrap, detail: { ...bootstrap.detail,
+        messages: [
+          { id: "u", role: "user" as const, text: "Inspect", timestamp: 1 },
+          { id: "a", role: "assistant" as const, text: "Intermediate reply", timestamp: 3 },
+          { id: "final", role: "assistant" as const, text: "Finished", timestamp: 6 },
+        ],
+        turnActivityHistory: [{ id: "history", anchorMessageId: "u", status: "completed" as const,
+          tools: [tool("before"), { ...tool("after"), startedAt: 4, endedAt: 5 }],
+        }],
+      } };
+    };
+    const view = renderApp(client);
+    await screen.findByText("Intermediate reply");
+    await waitFor(() => {
+      const activities = view.container.querySelectorAll(".inline-transcript-activity");
+      expect(activities).toHaveLength(2);
+      const reply = screen.getByText("Intermediate reply");
+      expect(activities[0].compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(reply.compareDocumentPosition(activities[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(activities[1].compareDocumentPosition(screen.getByText("Finished")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
   });
 
   it("does not duplicate the live group when its anchor is an assistant message", async () => {
