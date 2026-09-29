@@ -2,7 +2,7 @@ import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeService } from "./discovery";
 import type { SecureStore } from "./hosts";
 import type { TextScalePort } from "./text-scale";
-import type { NativeSocketEvent, NativeSocketRequest, SocketBridge } from "./native-socket";
+import { trackedBridge, type NativeSocketEvent, type NativeSocketRequest, type SocketBridge } from "./native-socket";
 
 export interface DeviceInfo {
   /** What the system calls the device ("iPhone", "Pixel 9"). */
@@ -45,7 +45,7 @@ export const secureStore: SecureStore = {
 export async function createSocketBridge(): Promise<SocketBridge> {
   const listeners = new Map<string, (event: NativeSocketEvent) => void>();
   await TauNative.addListener("socket", (event) => listeners.get(event.id)?.(event));
-  return {
+  const bridge = trackedBridge({
     open: (request) => TauNative.socketOpen(request),
     send: (id, data) => TauNative.socketSend({ id, data }),
     close: (id, code, reason) => TauNative.socketClose({ id, ...(code !== undefined ? { code } : {}), ...(reason ? { reason } : {}) }),
@@ -53,7 +53,9 @@ export async function createSocketBridge(): Promise<SocketBridge> {
       listeners.set(id, listener);
       return () => { listeners.delete(id); };
     },
-  };
+  }, sessionStorage);
+  window.addEventListener("pagehide", bridge.closeAll);
+  return bridge;
 }
 
 export type ScanResult = { text: string } | { error: "cancelled" | "camera-denied" | "no-camera" | "failed"; message?: string };

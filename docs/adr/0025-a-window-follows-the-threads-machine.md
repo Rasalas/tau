@@ -203,3 +203,25 @@ stays the gate, as ADR 0023 has it.
   original stays here, and comes back as a branch; a thread there can be
   looked in on without moving the window. The thread itself still never moves.
 - **Port forwarding** so Preview can show a remote machine's `localhost`.
+
+## Amendment: the phone app (K106, 2026-09-29)
+
+The phone app keeps the same model: it shows one host at a time and moves by
+loading afresh on another host, and every host it paired with is one
+connection of its own, with its own token. A phone differs from a window in
+two ways, so it keeps no standing connection to the hosts it does not show:
+
+- **Battery and data.** A connection per host that stays open wakes the radio
+  for every push. The phone reads the other hosts in short visits instead: an
+  auxiliary hello that follows no thread and no topic, at start, every two
+  minutes while the app is in front, when it comes back to the front and on
+  Retry. A visit sends the last push it saw (`lastSeq`) and applies what the
+  host replays; only a gap the host cannot replay costs a `bootstrap`. The
+  link stays open 20 s for a kit's read (`readExtension`), then closes, and
+  every link closes when the app goes to the background.
+- **Reloads.** Every machine switch reloads the app, so what each visit found
+  (threads, running ones, the last sequence, reached or not) is kept per host
+  and shown at once on the next page.
+
+So on a phone "connected" means "reached at the last visit", and a host's
+running threads are as current as that visit. The shown host is live.

@@ -135,6 +135,21 @@
 /* Settled rows are the rail's slim, quiet ones. */
 .touch-thread-row .thread-row.compact .thread-main { padding-block: 10px; }
 .touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 400 var(--text-md)/1.3 var(--sans); color: var(--muted); }
+/* The machine a thread runs on, after its project, while the list shows several. */
+.touch-thread-row .thread-project-line:has(> .touch-thread-machine) > strong { flex: 0 1 auto; }
+.touch-thread-machine {
+  flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
+  color: var(--muted); font: var(--text-xs) var(--sans);
+}
+.touch-thread-machine > svg { flex: none; color: var(--faint); }
+.touch-thread-machine > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.touch-thread-row .thread-row.compact .touch-thread-machine { flex: none; }
+/* A machine out of reach: its threads greyed (design 2p); they still open what the phone last saw. */
+.touch-outside-row[data-unavailable] .thread-main { opacity: .55; }
+.touch-outside-row .thread-main[aria-busy="true"] { opacity: .7; }
+/* Kits' strip over the list: notices, the plans' juicebars. */
+.touch-browser .region-thread-list-head { flex: none; display: flex; flex-direction: column; gap: 6px; max-width: none; margin: 0; padding: 0 8px 4px; }
+.touch-browser .region-thread-list-head:empty { display: none; }
 /* Keyboard and screen-reader way to the actions a long press opens. */
 .touch-thread-more {
   position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;

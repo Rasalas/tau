@@ -86,5 +86,14 @@ describe("juicebars", () => {
     choices.set("anthropic:k|seven_day_fable", true);
     expect(told).toBe(1);
     expect(createJuicebarChoices().getSnapshot()).toEqual({ "anthropic:k|seven_day_fable": true });
+    // Under the device's own key, which a phone shares across its hosts.
+    expect(storage.keys()).toEqual(["device:tau.usage.sidebar-windows"]);
+  });
+
+  it("starts from a choice kept under the earlier key", () => {
+    const storage = createMemoryStorage();
+    storage.set("tau.usage.sidebar-windows", JSON.stringify({ "openai:k|primary": false }));
+    setClientStorage(storage);
+    expect(createJuicebarChoices().getSnapshot()).toEqual({ "openai:k|primary": false });
   });
 });

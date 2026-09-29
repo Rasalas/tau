@@ -6,6 +6,7 @@ import {
   threadAge,
   threadListDrafts,
   threadListGroups,
+  outsideRow,
   type ThreadListGroup,
   type ThreadSupervisionRow,
   inProject,
@@ -13,7 +14,7 @@ import {
 import type { UiProject } from "../../shared/contracts";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { DraftRow, draftTitle } from "../components/DraftRow";
-import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
+import type { ExtensionRegistry, ThreadListEntry, ThreadListPlace, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { showsThreadStatus, ThreadStatus } from "../components/ThreadRow";
 import { ProjectIcon } from "../components/ProjectIcon";
@@ -27,6 +28,7 @@ import { usePreferences } from "../renderer-services-context";
 import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
+import { useThreadListSources } from "./thread-list-sources";
 
 /** The desktop rail's badge where the thread needs a look or runs, else its age; a settled row shows only its age. */
 function RowTime({ row }: { row: ThreadSupervisionRow }) {
@@ -84,9 +86,15 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     clientStorage.set(SETTLED_OPEN_KEY, String(!open));
     return !open;
   });
+  const outside = useThreadListSources(registry);
+  // Another machine's projects are other projects; the filter keeps those of the same name.
+  const extra = useMemo(() => outside.entries
+    .filter((entry) => !project || entry.session.projectName === project.name)
+    .map((entry) => outsideRow(entry.key, entry.session, { ...(entry.running ? { running: true } : {}), ...(entry.settled ? { settled: true } : {}) })),
+  [outside.entries, project]);
   const groups = useMemo(
-    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, ...(project ? { project } : {}) }),
-    [current, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
+    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, ...(project ? { project } : {}) }),
+    [current, extra, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
   );
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {
@@ -145,6 +153,9 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     swipeActions,
     onOpen,
     onSheet: setSheetFor,
+    outside: outside.byKey,
+    here: outside.entries.length > 0 ? outside.here : undefined,
+    actions,
   };
   const more = (group: ThreadListGroup) => () => setShown((value) => group.id === "settled"
     ? { ...value, settled: value.settled + 25 }
@@ -208,7 +219,7 @@ function shortLabel(label: string): string {
   return label.replace(/…$/u, "").replace(/\s+thread$/iu, "");
 }
 
-function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onSheet, onMore }: {
+function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onSheet, onMore, outside, here, actions }: {
   group: ThreadListGroup;
   activeId: string;
   openRow?: string | undefined;
@@ -217,10 +228,22 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
   onOpen(row: ThreadSupervisionRow): void;
   onSheet(row: ThreadSupervisionRow): void;
   onMore(): void;
+  outside: ReadonlyMap<string, ThreadListEntry>;
+  here: ThreadListPlace | undefined;
+  actions: WorkbenchActions;
 }) {
   return <>
     {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}</span></li> : null}
     {group.rows.map((row) => {
+      const entry = outside.get(row.id);
+      // Another machine's thread only opens there: no swipe, no actions here.
+      if (entry) {
+        return <li key={row.id} className="touch-thread-row touch-outside-row" data-status={row.status} data-settled={row.settled || undefined} data-unavailable={entry.unavailable ? "" : undefined}>
+          <div className={`thread-row${row.settled ? " compact" : ""}`}>
+            <ThreadCard row={row} machine={entry.machine} unavailable={entry.unavailable} busy={entry.opening} onOpen={() => entry.open(actions)} />
+          </div>
+        </li>;
+      }
       const active = row.id === activeId;
       return <li key={row.id} className="touch-thread-row" data-status={row.status} data-active={active || undefined} data-settled={row.settled || undefined}>
         <SwipeRow
@@ -230,7 +253,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
           onLongPress={() => { setOpenRow(undefined); onSheet(row); }}
         >
           <div className={`thread-row${row.settled ? " compact" : ""}${active ? " active" : ""}`}>
-            <ThreadCard row={row} onOpen={() => onOpen(row)} />
+            <ThreadCard row={row} machine={here} onOpen={() => onOpen(row)} />
             <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
           </div>
         </SwipeRow>
@@ -269,17 +292,30 @@ function sheetCost(row: ThreadSupervisionRow, showCosts: boolean): string | unde
  * state or age, the title, and the branch and runtime; a settled one
  * as the rail's slim row.
  */
-function ThreadCard({ row, onOpen }: { row: ThreadSupervisionRow; onOpen(): void }) {
+function ThreadCard({ row, machine, unavailable, busy, onOpen }: {
+  row: ThreadSupervisionRow;
+  /** Where the thread runs, named while the list shows several machines. */
+  machine?: ThreadListPlace | undefined;
+  unavailable?: string | undefined;
+  busy?: boolean | undefined;
+  onOpen(): void;
+}) {
   const store = useThreadStore();
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   const place = { path: row.projectPath ?? row.projectName, workspaceId: row.workspaceId };
   const project = projects.find((candidate) => inProject({ projectPath: place.path, workspaceId: place.workspaceId }, candidate));
   const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} hue={place.path} />;
-  const label = { "aria-label": `Open thread ${row.title}`, "aria-description": THREAD_SUPERVISION_LABELS[row.status] };
+  const where = machine ? ` on ${machine.name}` : "";
+  const label = {
+    "aria-label": `Open thread ${row.title}${where}`,
+    "aria-description": unavailable ?? THREAD_SUPERVISION_LABELS[row.status],
+    ...(busy ? { "aria-busy": true } : {}),
+  };
   if (row.settled) {
     return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
       {mark}
       <span className="thread-title">{row.title}</span>
+      {machine ? <span className="touch-thread-machine" aria-hidden="true">{machine.icon}</span> : null}
       <RowTime row={row} />
     </button>;
   }
@@ -288,6 +324,7 @@ function ThreadCard({ row, onOpen }: { row: ThreadSupervisionRow; onOpen(): void
     <span className="thread-project-line">
       {mark}
       <strong>{row.projectName}</strong>
+      {machine ? <span className="touch-thread-machine">{machine.icon}<span>{machine.name}</span></span> : null}
       <RowTime row={row} />
     </span>
     <span className="thread-title">{row.title}</span>

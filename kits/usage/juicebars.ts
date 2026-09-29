@@ -94,7 +94,9 @@ export function juicebarGroups(limits: UsageLimitsSummary | undefined, choices: 
     .sort((left, right) => TONE_ORDER.indexOf(left.tone) - TONE_ORDER.indexOf(right.tone) || left.group.label.localeCompare(right.group.label));
 }
 
-const CHOICES_KEY = "tau.usage.sidebar-windows";
+/** The device's own, whatever host it shows (`device:`): a phone keeps one choice for all its hosts. */
+const CHOICES_KEY = "device:tau.usage.sidebar-windows";
+const EARLIER_KEY = "tau.usage.sidebar-windows";
 
 /** Which windows the foot shows, chosen per device; unchosen ones follow `shownByDefault`. */
 export function createJuicebarChoices() {
@@ -103,7 +105,8 @@ export function createJuicebarChoices() {
   const read = (): Record<string, boolean> => {
     if (choices) return choices;
     try {
-      const stored = JSON.parse(getClientStorage()?.get(CHOICES_KEY) ?? "null") as unknown;
+      const storage = getClientStorage();
+      const stored = JSON.parse(storage?.get(CHOICES_KEY) ?? storage?.get(EARLIER_KEY) ?? "null") as unknown;
       choices = stored && typeof stored === "object" ? stored as Record<string, boolean> : {};
     } catch {
       choices = {};

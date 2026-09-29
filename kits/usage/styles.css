@@ -107,7 +107,7 @@
 .usage-account-cost { margin: 0; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .usage-account-cost b { color: var(--ink-2); font-weight: 600; }
 .usage-account-cost span { color: var(--faint); }
-/* Which windows the sidebar's foot draws; a phone has no such foot. */
+/* Which windows the sidebar's foot draws, or a phone's thread list. */
 .usage-show-in-sidebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -6px; color: var(--muted); font-size: var(--text-xs); }
 .usage-show-in-sidebar > span { margin-right: 2px; }
 .usage-show-in-sidebar > button {
@@ -116,7 +116,8 @@
 }
 .usage-show-in-sidebar > button:hover { color: var(--ink-2); background: var(--hover); }
 .usage-show-in-sidebar > button[aria-pressed="true"] { border-color: transparent; background: color-mix(in srgb, var(--usage-tone) 18%, transparent); color: var(--ink); }
-body[data-profile="compact"] .usage-show-in-sidebar { display: none; }
+body[data-profile="compact"] .usage-show-in-sidebar { gap: 8px; margin-top: 0; font-size: var(--text-sm); }
+body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(--touch-target); padding: 0 14px; border-radius: 12px; font-size: var(--text-sm); }
 .usage-account-updated { margin-top: -4px; color: var(--faint); font-size: calc(var(--text-xs) - 1px); }
 .usage-pace-legend { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: var(--text-xs); }
 .usage-pace-legend > i { width: 10px; height: 10px; flex: none; background: var(--ink); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
@@ -341,3 +342,23 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-topbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; }
 .usage-topbar > .usage-month { padding: 0; }
 .usage-topbar-filters { display: flex; flex-wrap: wrap; gap: 8px 10px; }
+
+/*
+ * A phone's thread list: the same bars on top of it, larger, each account
+ * with its mark and what its lowest window has left. One tap opens Usage.
+ */
+.usage-juicestrip {
+  width: 100%; min-height: var(--touch-target); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
+  padding: 6px 10px; border: 0; border-radius: 12px; background: var(--sunken); color: var(--ink-2); cursor: pointer;
+  font: var(--text-xs) var(--sans); font-variant-numeric: tabular-nums; text-align: left;
+}
+.usage-juicestrip:active { background: var(--hover-strong); }
+.usage-juicestrip-group { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; }
+.usage-juicestrip-group .provider-icon-stack { margin: 0; }
+.usage-juicestrip-group > span:not(.provider-icon-stack) { display: inline-flex; align-items: flex-end; gap: 3px; }
+.usage-juicestrip .usage-juicebar { width: 6px; height: 22px; border-radius: 2px; }
+.usage-juicestrip-group > b { font-weight: 600; color: var(--ink-2); }
+.usage-juicestrip-group[data-level="warn"] > b { color: var(--warn); }
+.usage-juicestrip-group[data-level="fail"] > b { color: var(--fail); }
+.usage-juicestrip-group[data-level="stale"] > b { color: var(--faint); font-weight: 500; }
+

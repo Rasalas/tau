@@ -309,8 +309,45 @@ export interface TranscriptRowsHandle {
  * before the branch; `thread-branch` draws the branch there instead of core's
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
+ * `thread-list-head` tops a phone's or tablet's thread list, under its header
+ * (API 1.30.0).
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head";
+
+/** Where a thread of a list source runs: its mark and name on the row's project line. */
+export interface ThreadListPlace {
+  name: string;
+  icon: ReactNode;
+}
+
+/**
+ * A thread of somewhere else that the compact thread list shows among this
+ * host's own, by time (API 1.30.0): another machine's. It opens with `open`;
+ * it cannot be pinned, settled or acted on from here.
+ */
+export interface ThreadListEntry {
+  /** Unique in the list, and never the id of a thread of this host. */
+  key: string;
+  session: UiSession;
+  running?: boolean;
+  /** Set while `open` is under way. */
+  opening?: boolean;
+  /** On the settled shelf rather than among the active threads. */
+  settled?: boolean;
+  machine: ThreadListPlace;
+  /** Why it cannot be reached now; the row is dimmed and says so, and still opens. */
+  unavailable?: string;
+  open(actions: WorkbenchActions): void;
+}
+
+/** A kit's threads for the compact list; `threads()` keeps its identity until `subscribe`'s listener runs. */
+export interface ThreadListSource {
+  id: string;
+  subscribe(listener: () => void): () => void;
+  threads(): readonly ThreadListEntry[];
+  /** Where this host's own threads run, named on their rows while entries of elsewhere show. */
+  here?(): ThreadListPlace | undefined;
+}
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
 export interface LookInRegionContext {
@@ -1395,6 +1432,8 @@ export interface DesktopExtensionContext {
   useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
+  /** Threads of elsewhere in a phone's or tablet's thread list, beside this host's (API 1.30.0). */
+  registerThreadListSource(source: ThreadListSource): () => void;
   registerCommand(command: CommandContribution): () => void;
   /** Rows the command palette asks for as the user types, beside the commands. */
   registerPaletteSource(source: PaletteSourceContribution): () => void;
@@ -1560,6 +1599,7 @@ export class ExtensionRegistry {
   private problems = new Map<string, Array<ExtensionProblem & ContributionOwner>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
+  private threadListSources = new Map<string, Owned<ThreadListSource>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
@@ -1877,6 +1917,10 @@ export class ExtensionRegistry {
         note("project sources");
         return this.register(this.projectSources, source.id, { ...source, ...owner }, disposers);
       },
+      registerThreadListSource: (source) => {
+        note("thread list sources");
+        return this.register(this.threadListSources, source.id, { ...source, ...owner }, disposers);
+      },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
       registerPaletteSource: (source) => {
@@ -2182,6 +2226,10 @@ export class ExtensionRegistry {
 
   getProjectSources(): Array<Owned<ProjectSourceContribution>> {
     return this.sorted("sources", this.projectSources);
+  }
+
+  getThreadListSources(): Array<Owned<ThreadListSource>> {
+    return this.sorted("thread-list-sources", this.threadListSources, false);
   }
 
   getCommands(): Array<Owned<CommandContribution>> {

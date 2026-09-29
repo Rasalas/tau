@@ -11,8 +11,9 @@ import { pairingNotice } from "../../src/web/host-token";
 import { WebWorkbench } from "../../src/web/WebWorkbench";
 import { certificateRefusalNotice, connectHost, openCandidate } from "./connect";
 import { nearbyHosts, withDiscoveredEndpoints, type DiscoveredHost, type NativeService } from "./discovery";
-import type { SocketCandidate } from "./endpoints";
+import { RacingSocket, socketCandidates, type SocketCandidate } from "./endpoints";
 import { fallbackHostId, helloEndpoints, migratedPin, sortHosts, type HostBook, type SavedHost } from "./hosts";
+import { PhoneMachines, type Visibility } from "./machines";
 import type { DeviceInfo, ScanResult } from "./native";
 import type { SocketBridge } from "./native-socket";
 import { pairDevice, sameAddress, targetPins, type PairTarget } from "./pairing";
@@ -36,6 +37,8 @@ export interface AppContext {
   /** Loads the app afresh at `search`; leaving a workbench always does. */
   navigate(search: string): void;
   subscribeToLinks(listener: (route: AppRoute) => void): () => void;
+  /** Whether the app is in front; the other hosts are read only then. The page's own by default. */
+  visibility?: Visibility;
   now?(): Date;
 }
 
@@ -44,12 +47,20 @@ type View =
   | { name: "hosts"; notice?: string }
   | { name: "add"; error?: string; text?: string }
   | { name: "pairing"; hostName: string; verification?: string; address?: string; abort: AbortController; from: "hosts" | "add"; text?: string }
-  | { name: "workbench"; host: SavedHost; client: HostClient; storage: ClientStorage; services: RendererServices };
+  | { name: "workbench"; host: SavedHost; client: HostClient; storage: ClientStorage; services: RendererServices; environment: ClientEnvironment };
 
 /** A notice that must survive the reload a workbench leaves with. */
 const NOTICE_KEY = "tau.mobile.notice";
 
 const ADDRESS_LABEL: Record<string, string> = { lan: "the local network", mdns: "the local network", tailscale: "Tailscale", magicdns: "Tailscale", loopback: "this computer" };
+
+const documentVisibility: Visibility = {
+  visible: () => document.visibilityState === "visible",
+  subscribe: (listener) => {
+    document.addEventListener("visibilitychange", listener);
+    return () => document.removeEventListener("visibilitychange", listener);
+  },
+};
 
 export function payloadTarget(payload: PairingPayload): PairTarget {
   let name = payload.hostName;
@@ -145,7 +156,31 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       if (reply) void pushRegistrar()?.register({ host, client }).catch(() => undefined);
     }).catch(() => undefined);
     void book.update(host.id, { lastUsedAt: now().toISOString() });
-    setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices() });
+    // Every other paired host, each over its own token, for the thread list and "Run on".
+    const machines = new PhoneMachines({
+      hosts: async () => {
+        const list = await book.list();
+        return Promise.all(list.map(async (saved) => ({ host: saved, token: await book.token(saved.id) })));
+      },
+      storage,
+      shown: host,
+      client,
+      socket: (other, onFailure) => {
+        const pins = { ...(other.publicKey ? { publicKey: other.publicKey } : {}), ...(other.fingerprint ? { fingerprint: other.fingerprint } : {}) };
+        return new RacingSocket(socketCandidates(other.endpoints, pins, device), (candidate) => openCandidate({ bridge: context.bridge, userAgent: navigator.userAgent }, candidate), { onFailure });
+      },
+      navigate: (route) => leaveTo(routeSearch(route)),
+      forgetToken: (id) => book.forgetToken(id),
+      rename: (id, name) => book.update(id, { name }),
+      remove: async (id) => { await book.remove(id); clearHostStorage(storage, id); },
+      visibility: context.visibility ?? documentVisibility,
+    });
+    const environment: ClientEnvironment = {
+      ...context.environment,
+      createPlatform: (ports) => ({ ...context.environment.createPlatform(ports), environments: machines }),
+      shell: { hostLabel: host.name, actions: [{ id: "hosts", label: "Hosts", Icon: Server, run: () => leaveTo("?view=hosts") }] },
+    };
+    setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices(), environment });
   }, [book, context, device, leaveTo, storage]);
 
   const startPairing = useCallback((target: PairTarget, from: "hosts" | "add", text?: string) => {
@@ -254,7 +289,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       client={view.client}
       storage={view.storage}
       services={view.services}
-      environment={{ ...context.environment, shell: { hostLabel: view.host.name, actions: [{ id: "hosts", label: "Hosts", Icon: Server, run: () => leaveTo("?view=hosts") }] } }}
+      environment={view.environment}
     />;
     case "pairing": return <PairingScreen
       hostName={view.hostName}

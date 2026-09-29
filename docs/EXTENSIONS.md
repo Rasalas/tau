@@ -884,6 +884,30 @@ props carry `lookIn: { machine, machineName, sessionId, connected }`, and what
 it shows comes from that machine through `context.environments.readExtension`.
 Preview Kit puts that machine's page there, small and view only. An older core
 never draws the placement.
+`thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
+under its header and over the rows, and stays put while they scroll: a strip
+about the list as a whole. Machines Kit says there which paired machine is out
+of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
+plans' juicebars; register it with `profiles: ["compact"]` and render nothing
+when there is nothing to say. An older core never draws the placement.
+
+#### Threads of elsewhere in the compact list
+
+`registerThreadListSource({ id, subscribe, threads, here? })` (API 1.30.0)
+lists threads that are not this host's among a phone's or tablet's own:
+another machine's. Each entry (`ThreadListEntry`) has a `key` that is never a
+thread id of this host, the thread's `session` as its own host lists it,
+`running`, `opening` while `open` is under way, `settled` for the settled
+shelf, the `machine` it runs on (`{ name, icon }`, drawn after the project
+on the row's project line) and `unavailable`, the reason it cannot be reached
+now, which greys the row. The rows stand among the host's by the list's own
+order (state, then time); a project filter keeps those whose project has the
+filtered one's name. A tap runs `open(actions)`; such a row has no swipe
+tray and no action sheet. `threads()` keeps its entries until `subscribe`'s
+listener runs. `here()`, when it answers, names the machine this host's own
+rows run on, drawn on them while any entry shows. Machines Kit is the shipped
+caller, with the same threads it gives Workspace Kit's rail. Call it with `?.`:
+an older core has no such method.
 
 #### Rows in the command palette
 
@@ -1219,7 +1243,8 @@ the icon ("Reviews 4") and Settings came second. `Summary` (API 1.28.0) is an
 optional component the foot draws for the page at its end, in place of the
 icon and of `useSummary`: Usage's juicebars. It gets `{ actions }`, opens the
 page itself (`actions.openPage(id, params)`, Usage at `{ section: "limits" }`)
-and draws the page's icon when it has nothing to show. `useSummary()` (API
+and draws the page's icon when it has nothing to show. A phone has no foot:
+Usage draws the same bars in `thread-list-head` instead. `useSummary()` (API
 1.27.0) is an optional hook for a short figure `{ text, short?, hint? }` the
 foot shows at its end instead of the icon when there is no `Summary`; `short`
 stands in where the foot has no room for `text`, `hint` is the tooltip, and
@@ -1627,7 +1652,7 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
-| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
+| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
 | `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
@@ -3238,14 +3263,27 @@ methods with `unsupported`. Every kit a page loads comes from the machine it sho
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
 
-A phone or tablet has no `context.environments`, so Machines Kit draws no "Run
-on" pill there (K104). The list alone could come through the host (the kit's
-host half answers `agents`: the machines this host's agents reach), but a
-choice could not be carried out: "Run on" moves the client to the other
-machine's host, and a paired phone holds a token for its own host only, while a
-thread the host started there for it would stay out of the phone's reach. The
-way there is a `Platform.environments` of the phone app itself, over the hosts
-it paired with (`mobile/src/hosts.ts`), which a later change can add.
+A browser has no `context.environments`. The phone app has its own
+(K106, `mobile/src/machines.ts`): every host the phone paired with, each over
+its own token, none of them `local`. The one on screen streams through the
+workbench's connection and lists no threads of its own there (the workbench
+has them); `status` follows that connection. The others are read in short
+visits, an auxiliary hello that follows no thread and no topic, at start,
+every two minutes while the app is in front, when it comes back to the front
+and on `retry`; a visit replays what the host pushed since the last one and
+takes a `bootstrap` only when it cannot, and the link stays open 20 s for a
+`readExtension` before it closes. Their `status` is what the last visit
+found, kept per host with its threads, so the reload a machine switch makes
+shows them at once; a host that refuses the token is `refused` and its token
+dropped, as opening it would. `open(id, target)` loads the app on that host
+(a thread by its id, or an arrival `takeArrival` hands the next page);
+`pair`, `discover` and `setPreferences` do nothing there (the phone pairs
+from its host list), and it has no `watchThread`, `transcriptPage` or
+`update`. `threads[].settled` says the phone settled the thread while it
+showed that host. On a phone Machines Kit draws "Run on" as a sheet in
+`draft-actions` (a machine out of reach says why and cannot be picked; the
+sheet asks it again when it opens), the other machines' threads in the thread
+list (`registerThreadListSource`) and their state in `thread-list-head`.
 
 ### A machine's own Tau: `useMachineUpdates`, `useHostUpdate`
 

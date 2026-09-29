@@ -113,6 +113,30 @@ export interface ThreadListOptions extends ThreadOrganization {
   project?: Pick<UiProject, "path" | "workspaceId">;
   /** How many active and settled rows show before "Show more". */
   shown?: Partial<Record<"active" | "settled", number>>;
+  /** Rows of threads kept elsewhere (another machine's), placed among these by the same order before paging. */
+  extra?: readonly ThreadSupervisionRow[];
+}
+
+/** Another machine's thread as a list row: running or idle, as far as that machine's list says. */
+export function outsideRow(key: string, thread: UiSession, options: { running?: boolean; settled?: boolean } = {}): ThreadSupervisionRow {
+  return {
+    id: key,
+    path: thread.path,
+    title: thread.title || "Untitled thread",
+    projectName: thread.projectName,
+    projectPath: thread.projectPath,
+    ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}),
+    ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
+    ...(thread.usage ? { usage: thread.usage } : {}),
+    status: options.running ? "running" : "done",
+    state: options.running ? { activity: "working", label: "Working" } : { activity: "idle", label: "Idle" },
+    unread: false,
+    modifiedAt: thread.modifiedAt,
+    pinned: false,
+    settled: !options.running && options.settled === true,
+    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
+    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
+  };
 }
 
 /** A thread belongs to a project by its id, or by its path where one side has no id. */
@@ -143,6 +167,7 @@ export function threadListGroups(
     .filter((thread) => listed(thread, activity))
     .filter((thread) => !project || inProject(thread, project))
     .map((thread) => rowFor(thread, activity, options))
+    .concat(options.extra ?? [])
     .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
   const pinned = rows.filter((row) => row.pinned && !row.settled).sort(worstFirst);
   const active = rows.filter((row) => !row.pinned && !row.settled).sort(worstFirst);

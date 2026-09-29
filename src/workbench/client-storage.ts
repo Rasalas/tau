@@ -12,6 +12,13 @@ export interface ClientStorage {
   keys(prefix?: string): string[];
 }
 
+/**
+ * Keys under this prefix belong to the device, not to the host it shows: a
+ * client that keeps several hosts' state apart (the phone app) shares them
+ * across hosts (API 1.30.0).
+ */
+export const DEVICE_STORAGE_PREFIX = "device:";
+
 /** For tests and the browser preview, where no browser store exists or one must not leak between cases. */
 export function createMemoryStorage(): ClientStorage {
   const store = new Map<string, string>();

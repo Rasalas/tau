@@ -127,13 +127,14 @@ function SharedCost({ costs, period }: { costs: MemberCost[]; period: string }) 
   );
 }
 
-/** Which of the account's windows the sidebar's foot draws as juicebars; chosen on this device. */
+/** Which of the account's windows the sidebar's foot draws as juicebars, or a phone's thread list; chosen on this device. */
 function SidebarChoice({ group, choices }: { group: LimitGroup; choices: JuicebarChoices }) {
   const chosen = useSyncExternalStore(choices.subscribe, choices.getSnapshot);
   const windows = group.shown.windows;
+  const where = typeof document !== "undefined" && document.body.dataset.profile === "compact" ? "Show in thread list" : "Show in sidebar";
   return (
-    <div className="usage-show-in-sidebar" role="group" aria-label="Show in sidebar">
-      <span>Show in sidebar</span>
+    <div className="usage-show-in-sidebar" role="group" aria-label={where}>
+      <span>{where}</span>
       {orderWindows(windows).map((window) => {
         const key = choiceKey(group, window);
         const on = chosen[key] ?? shownByDefault(window, windows);

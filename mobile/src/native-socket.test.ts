@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NativeSocket, type NativeSocketEvent, type NativeSocketRequest, type SocketBridge } from "./native-socket";
+import { NativeSocket, OPEN_SOCKETS_KEY, trackedBridge, type NativeSocketEvent, type NativeSocketRequest, type SocketBridge } from "./native-socket";
 
 function fakeBridge(options: { refuseOpen?: boolean; forgetOnClose?: boolean } = {}) {
   const listeners = new Map<string, (event: NativeSocketEvent) => void>();
@@ -85,5 +85,34 @@ describe("NativeSocket", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(forgotten.readyState).toBe(NativeSocket.CLOSED);
+  });
+});
+
+describe("trackedBridge", () => {
+  const memory = () => {
+    const values = new Map<string, string>();
+    return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  };
+
+  it("closes on the next page the sockets the last one left open, and all of its own when the page goes", async () => {
+    const store = memory();
+    const first = fakeBridge();
+    const tracked = trackedBridge(first.bridge, store);
+    const a = new NativeSocket(tracked, "wss://mac.test/");
+    const b = new NativeSocket(tracked, "wss://rex.test/");
+    await Promise.resolve();
+    const [idA, idB] = first.opened.map((request) => request.id);
+    // One closed by itself; the other is still open when the page reloads without a word.
+    first.listeners.get(idA!)!({ id: idA!, type: "close", code: 1000 });
+    expect(JSON.parse(store.getItem(OPEN_SOCKETS_KEY)!)).toEqual([idB]);
+    const next = fakeBridge();
+    const again = trackedBridge(next.bridge, store);
+    expect(next.closed).toEqual([idB]);
+    expect(JSON.parse(store.getItem(OPEN_SOCKETS_KEY)!)).toEqual([]);
+    const c = new NativeSocket(again, "wss://mac.test/");
+    await Promise.resolve();
+    again.closeAll();
+    expect(next.closed).toEqual([idB, next.opened[0]!.id]);
+    void a; void b; void c;
   });
 });
