@@ -30,6 +30,8 @@ export const STABLE_NAMES = {
   "Tau-windows-x64.exe": (version) => `Tau-Setup-${version}.exe`,
   "Tau-linux-amd64.deb": (version) => `Tau_${version}_amd64.deb`,
   "Tau-linux-x86_64.AppImage": (version) => `Tau-${version}.AppImage`,
+  // For sideloading; no feed names it, Play and TestFlight update the phone apps.
+  "Tau-android.apk": (version) => `Tau-${version}.apk`,
 };
 
 /** Each fixed name with the versioned file it copies. */
@@ -73,6 +75,7 @@ export function releaseProblems(names, readText, { stable = false, sizeOf } = {}
     return problems;
   }
   for (const { name, source } of stableCopies(version)) {
+    if (!have.has(source)) problems.push(`${source} is missing.`);
     if (!have.has(name)) problems.push(`${name} is missing.`);
     else if (sizeOf && have.has(source) && sizeOf(name) !== sizeOf(source)) problems.push(`${name} is not a copy of ${source}.`);
   }

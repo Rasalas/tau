@@ -19,7 +19,9 @@ const COMPLETE = [
   "Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb", "LICENSE",
 ];
 const read = (name) => FEEDS[name];
-const STABLE = ["Tau-mac-arm64.dmg", "Tau-mac-x64.dmg", "Tau-windows-x64.exe", "Tau-linux-amd64.deb", "Tau-linux-x86_64.AppImage"];
+const STABLE = ["Tau-mac-arm64.dmg", "Tau-mac-x64.dmg", "Tau-windows-x64.exe", "Tau-linux-amd64.deb", "Tau-linux-x86_64.AppImage", "Tau-android.apk"];
+// The Android build's APK: a stable release carries it, no feed names it.
+const APK = "Tau-0.7.15.apk";
 
 const folders = [];
 afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -79,17 +81,23 @@ describe("the fixed download names", () => {
       { name: "Tau-windows-x64.exe", source: "Tau-Setup-0.7.15.exe" },
       { name: "Tau-linux-amd64.deb", source: "Tau_0.7.15_amd64.deb" },
       { name: "Tau-linux-x86_64.AppImage", source: "Tau-0.7.15.AppImage" },
+      { name: "Tau-android.apk", source: APK },
     ]);
     const named = Object.values(FEEDS).flatMap((text) => [...text.matchAll(/url: (\S+)/gu)].map((match) => match[1]));
-    for (const { source } of stableCopies("0.7.15")) expect(named).toContain(source);
+    for (const { source } of stableCopies("0.7.15")) if (source !== APK) expect(named).toContain(source);
   });
 
   it("are required in a stable release, without blockmaps, and each the size of its source", () => {
     const size = (name) => (name.includes("arm64") ? 2 : 1);
-    expect(releaseProblems([...COMPLETE, ...STABLE], read, { stable: true, sizeOf: size })).toEqual([]);
-    expect(releaseProblems(COMPLETE, read, { stable: true })).toEqual(STABLE.map((name) => `${name} is missing.`));
+    expect(releaseProblems([...COMPLETE, APK, ...STABLE], read, { stable: true, sizeOf: size })).toEqual([]);
+    expect(releaseProblems([...COMPLETE, APK], read, { stable: true })).toEqual(STABLE.map((name) => `${name} is missing.`));
     const wrong = (name) => (name === "Tau-mac-x64.dmg" ? 2 : size(name));
-    expect(releaseProblems([...COMPLETE, ...STABLE], read, { stable: true, sizeOf: wrong })).toEqual(["Tau-mac-x64.dmg is not a copy of Tau-0.7.15.dmg."]);
+    expect(releaseProblems([...COMPLETE, APK, ...STABLE], read, { stable: true, sizeOf: wrong })).toEqual(["Tau-mac-x64.dmg is not a copy of Tau-0.7.15.dmg."]);
+  });
+
+  it("need the Android APK in a stable release, and let a nightly go without it", () => {
+    expect(releaseProblems([...COMPLETE, ...STABLE.filter((name) => name !== "Tau-android.apk")], read, { stable: true })).toEqual([`${APK} is missing.`, "Tau-android.apk is missing."]);
+    expect(releaseProblems(COMPLETE, read)).toEqual([]);
   });
 
   it("stay out of a nightly", () => {
@@ -98,13 +106,13 @@ describe("the fixed download names", () => {
 
   it("need one version across the feeds", () => {
     const mixed = (name) => (name === "latest.yml" ? FEEDS[name].replace("0.7.15", "0.7.16") : FEEDS[name]);
-    expect(releaseProblems([...COMPLETE, ...STABLE], mixed, { stable: true })).toEqual(["The feeds name 0.7.15, 0.7.16; a stable release needs one."]);
+    expect(releaseProblems([...COMPLETE, APK, ...STABLE], mixed, { stable: true })).toEqual(["The feeds name 0.7.15, 0.7.16; a stable release needs one."]);
   });
 
   it("are written and checked from the command line", () => {
     const dir = mkdtempSync(join(tmpdir(), "tau-publish-release-"));
     folders.push(dir);
-    for (const name of COMPLETE) writeFileSync(join(dir, name), FEEDS[name] ?? `contents of ${name}`);
+    for (const name of [...COMPLETE, APK]) writeFileSync(join(dir, name), FEEDS[name] ?? `contents of ${name}`);
     const run = (...args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
     expect(run("check", dir, "--stable").stderr).toContain("Tau-mac-arm64.dmg is missing.");
     expect(run("copy-stable", dir).status).toBe(0);
