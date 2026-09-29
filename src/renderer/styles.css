@@ -1208,6 +1208,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 
 /* ------------------------------------------------------------- composer */
 
+.conversation-column { --composer-inset: max(32px, calc((100% - 780px) / 2)); }
 .composer-zone { flex: none; padding: 14px 32px 16px; }
 .composer-surface { width: 100%; max-width: 780px; margin: 0 auto; }
 .composer-read-only {
@@ -2159,6 +2160,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 
 @media (max-width: 700px) {
+  .conversation-column { --composer-inset: max(12px, calc((100% - 780px) / 2)); }
   .composer-zone { padding-inline: 12px; }
   .composer-toolbar { gap: 4px; padding-inline: 8px; }
 }
@@ -2192,7 +2194,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 /* Regions and status line: placement is core, content belongs to extensions. */
 .workbench-region { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .workbench-region:empty { display: none; }
-.region-composer-above, .region-composer-below { padding: 0 var(--composer-inset, 0); }
+.region-transcript-footer, .region-composer-above, .region-composer-below { padding: 0 var(--composer-inset, 0); }
 .status-line {
   display: flex; align-items: center; gap: 12px; padding: 4px 14px;
   border-top: 1px solid var(--line); font-size: var(--text-xs); letter-spacing: 0.02em; color: var(--ink); opacity: 0.75;
@@ -2206,11 +2208,13 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 /* Only rendered while the host link is being repaired. */
 .host-connection-status {
   align-self: stretch;
-  padding: 4px 12px;
-  font-size: var(--text-sm);
+  margin: 8px var(--composer-inset, 12px);
+  padding: 8px 12px;
+  font: var(--text-sm)/1.45 var(--sans);
   color: var(--ink-2);
   background: color-mix(in srgb, var(--warn) 12%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: var(--radius-sm);
 }
 .host-connection-status.reconnecting {
   display: flex;
@@ -2250,7 +2254,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
   padding: 8px 12px;
   color: var(--danger);
   background: var(--danger-bg);
-  border-top-color: var(--danger-line);
+  border-color: var(--danger-line);
 }
 .host-connection-status.version-skew {
   display: flex;

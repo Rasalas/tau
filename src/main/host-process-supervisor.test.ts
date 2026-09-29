@@ -57,6 +57,7 @@ function supervisor(userData: string, options: {
     version: options.version ?? "1.0.0",
     startTimeoutMs: options.startTimeoutMs ?? 20_000,
     restartDelayMs: options.restartDelayMs ?? 10,
+    adoptedCheckMs: 50,
     ...(options.onFatal ? { onFatal: options.onFatal } : {}),
     ...(options.service ? { service: options.service, serviceCheckMs: 50, serviceStartTimeoutMs: options.serviceStartTimeoutMs ?? 10_000 } : {}),
     ...(options.onUrlChanged ? { onUrlChanged: options.onUrlChanged } : {}),
@@ -214,6 +215,38 @@ describe("the host process supervisor", () => {
     expect(await readHostDescriptor(userData)).toBeUndefined();
     await waitFor(() => !processAlive(running.pid), "the host to stop");
   }, 30_000);
+
+  it("restarts an adopted host after its original window left it running", async () => {
+    const userData = workingDirectory();
+    const original = supervisor(userData);
+    const first = await original.start();
+    original.detach();
+    const window = supervisor(userData);
+    expect(await window.start()).toMatchObject({ pid: first.pid, adopted: true });
+
+    process.kill(first.pid, "SIGKILL");
+    await waitFor(async () => {
+      const descriptor = await readHostDescriptor(userData);
+      return descriptor?.pid !== first.pid && descriptor !== undefined && processAlive(descriptor.pid);
+    }, "the adopted host to restart", 4_000);
+    expect(window.descriptor?.url).toBe(first.url);
+  }, 15_000);
+
+  it("leaves an adopted host unsupervised after the window detaches", async () => {
+    const userData = workingDirectory();
+    const original = supervisor(userData);
+    const first = await original.start();
+    original.detach();
+    const window = supervisor(userData);
+    await window.start();
+    window.detach();
+
+    const spawnCount = spawned.length;
+    process.kill(first.pid, "SIGKILL");
+    await waitFor(() => !processAlive(first.pid), "the host to exit");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(spawned).toHaveLength(spawnCount);
+  }, 15_000);
 
   it("reports a host that will not start", async () => {
     const userData = workingDirectory();
