@@ -199,8 +199,8 @@ routable, and another one is `<kind>@<id>`. Because the thread index, the
 virtual paths and the prepared prompts already key on the kind, a thread
 keeps its instance without a new field in core; the kit's own store names
 the instance too, which is what `listThreads` filters on. We considered one
-backend per program with an instance id on each thread (T3 Code's
-`providerInstances` route by instance id and keep the driver apart), and
+backend per program with an instance id on each thread (routing by instance
+id and keeping the driver apart), and
 chose the kind because core then needs no new routing at all: a registration
 after start republishes the catalog and the index, and that is the whole
 change to the host. The settings live with the kit

@@ -22,9 +22,8 @@ could see who held it, take it back from one device, or change it without
 editing a file by hand and restarting every client.
 
 Wave F brings remote hosts and a mobile client, so more devices will hold
-access, not fewer. T3 Code answers the same need with client sessions
-(`ConnectionsSettings.tsx`, `apps/server/src/auth/`): pairing credentials with
-an expiry, one session per paired client, revocation that ends a live
+access, not fewer. The usual answer is client sessions: pairing credentials
+with an expiry, one session per paired client, revocation that ends a live
 connection, and scopes per session.
 
 ## Decision
@@ -166,7 +165,7 @@ an SSH tunnel, or TLS.
 
 The first three items below are decided in ADR 0024.
 
-- **Scopes per client** (T3's read-only / operate / terminal / access rights).
+- **Scopes per client** (read-only, operate, terminal, access rights).
   Every method would need a declared scope first; wave F decides whether a
   mobile client needs them.
 - **Expiring client tokens** and refresh. A client token lives until it is
@@ -178,5 +177,5 @@ The first three items below are decided in ADR 0024.
 - **A window attached with `TAU_HOST_URL` learning a rotated token.** Its
   process has no path to the host's file; it is refused until it is given the
   new token.
-- **Sender-constrained tokens** (T3's DPoP proof keys). A token is a bearer
+- **Sender-constrained tokens** (DPoP proof keys). A token is a bearer
   token; TLS or a tunnel keeps it off the wire.

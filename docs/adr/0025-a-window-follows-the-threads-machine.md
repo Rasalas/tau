@@ -8,18 +8,17 @@ where a window is the client of exactly one host for its whole life. Builds on
 
 ## Context
 
-The user wants T3's "environments" (plan, decision 8): the own machine and saved
+The user wants "environments" (plan, decision 8): the own machine and saved
 other machines side by side in one window, and the machine chosen per new
 thread. There should be no switcher. Until now a window had one host: its
 supervised child process, or the one `TAU_HOST_URL` named at start. Reaching a
 second machine meant a second app started with other environment variables.
 
-T3 holds one connection per environment in a single web client. Every store is
-keyed by `environmentId`, thread and project ids are "scoped refs"
-(`environmentId:threadId`), and every RPC goes through
-`registry.run(environmentId, …)`. Terminal, diff and file calls follow the
-thread's environment, and the sidebar is one flat list with a machine icon on
-remote threads.
+The usual shape is one connection per machine in a single web client. Every
+store is keyed by a machine id, thread and project ids are scoped refs
+(`machineId:threadId`), and every call names its machine. Terminal, diff and
+file calls follow the thread's machine, and the sidebar is one flat list with a
+machine icon on remote threads.
 
 Tau is built differently in three ways:
 
@@ -48,7 +47,7 @@ Tau is built differently in three ways:
 - when the machine was added and last reached.
 
 If `safeStorage` cannot encrypt, the machine is not saved, and the user reads
-why, as in T3. The own machine is not in the file: it is always the window's
+why. The own machine is not in the file: it is always the window's
 own host. The catalog is the window's, not the host's: the machines belong to
 the person at this screen, and a host serves devices it does not know about.
 
@@ -144,7 +143,7 @@ stays the gate, as ADR 0023 has it.
 
 ## Alternatives
 
-- **Every store keyed by machine, one renderer (T3's way).** This would mean
+- **Every store keyed by machine, one renderer.** This would mean
   scoping every core store, draft, cache and module singleton by machine, and
   every kit's state too. Every kit would also have to load once per machine
   (another version may be running there). That is a rewrite of the workbench
@@ -155,9 +154,9 @@ stays the gate, as ADR 0023 has it.
   shortcut, context menus and Preview's native views all assume one page per
   window, and each would need routing per view. This is the natural next
   step if the reload proves too slow, and nothing decided here blocks it.
-- **Load balancing (T3's Prefer/Normal/Less often/Manual only).** T3 picks the
-  machine for a new thread by free CPU and memory, weighted per machine, and
-  only for projects that exist on several machines. Tau has no host resource
+- **Load balancing (a weight per machine: prefer, normal, less often, manual
+  only).** It would pick the machine for a new thread by free CPU and memory,
+  and only for projects that exist on several machines. Tau has no host resource
   sample and no cross-machine project identity. The choice stays explicit.
 
 ## Consequences
@@ -195,7 +194,7 @@ stays the gate, as ADR 0023 has it.
 
 ## Out of scope
 
-- **Desktop without a host of its own** ("Local environment" off in T3).
+- **Desktop without a host of its own** (the own machine switched off).
 - **SSH-managed machines** and relays (plan, decision 3).
 - **Moving a thread between machines**, or one thread visible on two at once.
   [ADR 0027](0027-a-host-reaches-other-machines-for-its-agents.md) later let a

@@ -197,7 +197,7 @@ so settled what `compact` claims.
   height)` is `split` for a client that claims compact and is at least
   720 × 600 px, `single` otherwise; a desktop window narrowed below 720 px is
   always single. The split keeps the thread list in a sidebar a third of the
-  width wide (280–380 px, after T3 Code's), the single form makes it a screen of
+  width wide (280–380 px), the single form makes it a screen of
   its own. This is layout, like the width rule above: nothing registers or
   unregisters when a tablet turns.
 - **A panel that claims `compact` is a sheet.** The compact layout still draws

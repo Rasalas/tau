@@ -28,12 +28,11 @@ attached on the same machine, the host never installs by itself. A window
 started with `TAU_NO_NATIVE_DIALOGS` (a test instance, the invisible
 display's window) cannot install, so the host does.
 
-### Timing, as in T3 Code and as asked
+### Timing
 
 - First check 2 minutes after the host starts, then every 6 hours; Check now
-  at any time. (T3 Code's desktop checks 15 s after start and every 4 minutes
-  and downloads only on a click; the ticket asked for large intervals and
-  background downloads.)
+  at any time. Long intervals keep the checks quiet, and downloads run in the
+  background so an update needs no click.
 - With **Automatic updates** on (the default, per machine, in
   `<userData>/updates/settings.json`), a newer release downloads at once and
   installs once no turn has run for 15 minutes.

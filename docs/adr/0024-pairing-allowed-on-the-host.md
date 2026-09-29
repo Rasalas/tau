@@ -11,9 +11,8 @@ hands out a token by itself.
 
 Under ADR 0023 a single-use link was the whole of pairing: whoever opened it
 first held a token of their own. A photographed QR code, a link forwarded by
-mistake or read off a shared screen was enough. T3 Code works the same way
-(`PairingGrantStore.ts`: the link is the grant), and the user named that as
-what they do not want. What they want instead (plan, decision 9) is what
+mistake or read off a shared screen was enough: the link was the grant, and
+the user named that as what they do not want. What they want instead (plan, decision 9) is what
 AirDrop and Bluetooth do: in the local network the host asks "<device> wants
 to connect, allow?", and both screens show a code to compare.
 
@@ -180,7 +179,7 @@ any other.
 
 ## Out of scope
 
-- **Finer scopes** than two presets (T3's terminal, review and access scopes).
+- **Finer scopes** than two presets (terminal, review and access scopes).
   The method table and the registry declaration are where they would go.
 - **Sender-constrained tokens** (DPoP). Pinned TLS or a tunnel keeps the
   bearer token off the wire.

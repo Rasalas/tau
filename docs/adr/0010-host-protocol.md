@@ -72,7 +72,7 @@ We chose deltas keyed by sequence over deltas keyed by length, because a length 
 
 ## Amendment, 2026-09-23: no repeated outputs
 
-After the lean stream, most of a turn's bytes were outputs a client had already received: `tool-end` carried the final output again, the settled `thread-detail` carried each tool twice (`turnActivity` and the last `turnActivityHistory` entry), and a tool writing faster than it could be read streamed every byte of it. T3 Code sends no command output at all.
+After the lean stream, most of a turn's bytes were outputs a client had already received: `tool-end` carried the final output again, the settled `thread-detail` carried each tool twice (`turnActivity` and the last `turnActivityHistory` entry), and a tool writing faster than it could be read streamed every byte of it.
 
 Now `tool-end` refers to the push that carried the output (`tool-end-delta`), and a settled detail's `turnActivity` travels once, inside its history (`thread-detail-compact`); `HostConnection` rebuilds both. A settled output longer than 16 KB reaches clients as its size (`outputDeferred`, `outputLength`) and loads through `tool-output` when its row opens; a running one longer than 16 KB streams its last 4 KB. Unlike the two wire events, the deferred output is a change of the contract: a client that renders a tool has to load its output.
 

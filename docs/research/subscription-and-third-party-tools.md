@@ -37,5 +37,5 @@ Sources: [VentureBeat](https://venturebeat.com/technology/anthropic-reinstates-o
 ## Consequence for Tau
 
 - Pi's Anthropic OAuth login is a terms violation regardless of what Tau does around it. Tau keeps it available anyway, because it is a core Pi feature and Tau runs on the user's `~/.pi/agent`: models behind such a login carry `login: "subscription"`, the picker marks them, the workbench asks once per provider with this page's findings before the first use, and a status item reminds afterwards. The two ways within the terms are an API key in Pi or a Claude Code thread.
-- The subscription is reachable only through the unmodified `claude` binary driven by `@anthropic-ai/claude-agent-sdk`. T3 Code does exactly this (`apps/server/src/provider/Layers/ClaudeAdapter.ts` in the reference checkout); Tau's `kits/claude-code/` did it in `--print` mode until 2026-09-07 and drives the SDK since (ADR 0005, amendment 2026-09-07).
+- The subscription is reachable only through the unmodified `claude` binary driven by `@anthropic-ai/claude-agent-sdk`. Another open-source workbench does exactly this; Tau's `kits/claude-code/` did it in `--print` mode until 2026-09-07 and drives the SDK since (ADR 0005, amendment 2026-09-07).
 - Tau identifies itself through `CLAUDE_AGENT_SDK_CLIENT_APP` and never sets Claude Code's headers or system prompt itself.
