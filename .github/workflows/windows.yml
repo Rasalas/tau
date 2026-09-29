@@ -1,12 +1,6 @@
 name: Windows
 
-# Manual only. CI runs on one self-hosted Linux runner, and GitHub-hosted
-# Windows minutes may not be configured for this repository, so this never
-# runs on push or pull_request. Start it on a branch with:
-#
-#   gh workflow run windows.yml --ref <branch>
-#   gh workflow run windows.yml --ref <branch> -f full-suite=true
-#
+# Manual only: gh workflow run windows.yml --ref <branch> [-f full-suite=true]
 # What it proves and what it does not: docs/windows.md.
 on:
   workflow_dispatch:
@@ -20,21 +14,25 @@ concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      # The tests written for Windows, including the ones that only run there
-      # (a real cmd.exe, where.exe, Windows PowerShell and taskkill).
+      # Includes the tests that only run on Windows (cmd.exe, where.exe, PowerShell, taskkill).
       - name: Windows tests
         run: >-
           npx vitest run

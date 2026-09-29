@@ -22,25 +22,29 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Write access only where a release is made (release, nightly).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # Decides whether this run builds at all, and whether it is a nightly. Every
-  # other job needs it, so a nightly with nothing new stops here.
+  # Decides whether this run builds at all, whether it is a nightly, and which
+  # environment holds its secrets. Every other job needs it.
   gate:
-    # A fork runs schedules too; only the upstream repository publishes nightlies,
-    # and only after someone switched them on.
+    # A fork runs schedules too; only upstream publishes nightlies, once switched on.
     if: github.event_name != 'schedule' || (github.repository == 'Rasalas/tau' && vars.NIGHTLY == 'true')
-    runs-on: tau-linux
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       build: ${{ steps.decide.outputs.build }}
       nightly: ${{ steps.decide.outputs.nightly }}
       version: ${{ steps.decide.outputs.version }}
+      # `release` holds the secrets and admits only main and v* tags; a branch's dry run gets
+      # `release-dry-run`, which holds none, and builds unsigned.
+      environment: ${{ steps.decide.outputs.environment }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Credentials kept: `git ls-remote origin` below. Trusted events only.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - id: decide
@@ -56,6 +60,11 @@ jobs:
           if [ "$EVENT" != schedule ] && [ "$NIGHTLY" != true ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
             echo "nightly=false" >> "$GITHUB_OUTPUT"
+            case "$REF" in
+              refs/tags/v*|refs/heads/main) environment=release ;;
+              *) if [ "$PUBLISH" = true ]; then environment=release; else environment=release-dry-run; fi ;;
+            esac
+            echo "environment=$environment" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$PUBLISH" = true ]; then
@@ -66,6 +75,7 @@ jobs:
             echo "::error::A nightly builds main of Rasalas/tau, not $REF of $REPOSITORY."
             exit 1
           fi
+          echo "environment=release" >> "$GITHUB_OUTPUT"
           head="$(git rev-parse HEAD)"
           # The peeled line (^{}) names the commit when the tag is annotated.
           last="$(git ls-remote origin refs/tags/nightly 'refs/tags/nightly^{}' | tail -n 1 | cut -f 1)"
@@ -81,22 +91,20 @@ jobs:
           echo "nightly=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-  # Same gates as ci.yml, so a tag that points at a red commit stops here
-  # instead of shipping a broken build. Cheap enough to run on every release.
+  # Same gates as ci.yml, so a tag on a red commit stops here.
   verify:
     needs: gate
     if: needs.gate.outputs.build == 'true'
-    runs-on: tau-linux
-    # The same suite as CI's fast job, with its limit: it takes about 20 minutes on the runner.
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    environment: ${{ needs.gate.outputs.environment }}
+    timeout-minutes: 45
     steps:
       - name: Require a tag ref for publishing
         if: inputs.publish && github.ref_type != 'tag'
         run: |
           echo "::error::Publishing requires a tag ref. Dispatch this workflow on a tag, or set publish=false."
           exit 1
-      # Installed hosts refuse an unsigned feed, so a run that publishes stops
-      # here rather than after the builds. The sign job checks again.
+      # Installed hosts refuse an unsigned feed; fail before the builds. The sign job checks again.
       - name: Require the release signing key for publishing
         if: needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish
         env:
@@ -117,8 +125,10 @@ jobs:
             echo "::error::The secrets TAU_RELEASES_APP_ID and TAU_RELEASES_APP_KEY are not both set; installed Tau reads releases from Rasalas/tau-releases only."
             exit 1
           fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -131,35 +141,55 @@ jobs:
     needs: [gate, verify]
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # Only the macOS build signs, so only it enters the environment with Apple's credentials.
+    environment: ${{ matrix.artifact == 'macos' && needs.gate.outputs.environment || '' }}
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Both macOS architectures build on one runner so the two of them
-          # write a single latest-mac.yml; two jobs would overwrite each other's
-          # and leave one architecture without updates.
+          # Both Mac architectures on one runner, so they write a single latest-mac.yml.
+          # macos-26 is arm64 and ships Xcode 26 (actool for assets/icon/Tau.icon).
           - name: macOS (arm64 and x64)
-            # Self-hosted Mac mini; avoids the 10x macOS minute rate.
-            runner: tau-macos
+            runner: macos-26
             platform: --mac --arm64 --x64
             artifact: macos
           - name: Linux x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             platform: --linux --x64
             artifact: linux
           - name: Windows x64
-            runner: windows-latest
-            # node-pty ships N-API binaries for Windows, which Electron loads as they are; rebuilding it
-            # from source fails when node-gyp's Visual Studio lookup overflows its output buffer.
+            runner: windows-2025
+            # node-pty's N-API binaries load as they are; a node-gyp rebuild fails on the runner.
             platform: --win --x64 -c.npmRebuild=false
             artifact: windows
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
+      # Pinned so an image update cannot move the Icon Composer compiler under a release.
+      - name: Select Xcode
+        if: runner.os == 'macOS'
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+          xcrun actool --version
+      # Electron and electron-builder download these on first use; npm's cache does not hold them.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
       - run: npm ci
       # Before the build, so the app, its update feed and the file names all carry it.
       - name: Stamp the nightly version
@@ -173,26 +203,19 @@ jobs:
       - name: Package
         shell: bash
         env:
-          # Signing turns itself on once these are set. electron-builder treats
-          # an empty value as "set", so an unsigned build has to unset them.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Empty outside the macOS build: Windows would try the Developer ID certificate for Authenticode.
+          # CSC_LINK is the base64 of the .p12; electron-builder imports it into a temporary keychain.
+          CSC_LINK: ${{ matrix.artifact == 'macos' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.artifact == 'macos' && secrets.CSC_KEY_PASSWORD || '' }}
           # Notarization through the App Store Connect API key; the .p8 is written to a file below.
-          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          # Makes electron-builder write release/builder-debug.yml, which is
-          # otherwise silent; a failing platform is diagnosed from it.
+          APPLE_API_KEY_P8: ${{ matrix.artifact == 'macos' && secrets.APPLE_API_KEY_P8 || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.artifact == 'macos' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.artifact == 'macos' && secrets.APPLE_API_ISSUER || '' }}
+          # Writes release/builder-debug.yml, from which a failing platform is diagnosed.
           DEBUG: electron-builder
         run: |
-          # The Developer ID certificate is Apple's; Windows would try it for Authenticode.
-          if [ "${{ matrix.artifact }}" != "macos" ]; then
-            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER
-          fi
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+          # electron-builder treats an empty value as "set", so an unsigned build unsets them.
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
             [ -n "${!name-}" ] || unset "$name"
           done
           if [ -n "${APPLE_API_KEY_P8:-}" ]; then
@@ -200,7 +223,7 @@ jobs:
             printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
             chmod 600 "$key"
             export APPLE_API_KEY="$key"
-            unset APPLE_API_KEY_P8 APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            unset APPLE_API_KEY_P8
           fi
           [ -n "${CSC_LINK:-}" ] || export CSC_IDENTITY_AUTO_DISCOVERY=false
           status=0
@@ -221,7 +244,7 @@ jobs:
           grep -q '\bxvfb\b' <<< "$(dpkg-deb --field "$deb" Recommends)"
           grep -q ' \./opt/Tau/resources/apparmor-profile$' <<< "$files"
           grep -q ' \./opt/Tau/bin/tau$' <<< "$files"
-          # The update helper, the script it runs, and the polkit files postinst puts in place (docs/host-updates.md).
+          # The update helper, its script and the polkit files postinst puts in place (docs/host-updates.md).
           paths="$(awk '{ print $NF }' <<< "$files")"
           for path in \
             ./opt/Tau/bin/tau-update-helper \
@@ -234,12 +257,11 @@ jobs:
           grep -qF /usr/share/polkit-1/actions/de.tbuck.tau.update.policy <<< "$(dpkg-deb --info "$deb" postinst)"
           grep -q "url: $(basename "$deb")" release/latest-linux.yml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tau-${{ matrix.artifact }}
           if-no-files-found: error
-          # Consumed by the release job in this run; published files live in
-          # the GitHub release. Long retention filled the account's storage.
+          # Consumed by the release job in this run; published files live in the GitHub releases.
           retention-days: 1
           path: |
             release/*.dmg
@@ -251,15 +273,13 @@ jobs:
             release/latest*.yml
 
       # The update feed alone, for the sign job; the installers stay in tau-<platform>.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: feed-${{ matrix.artifact }}
           if-no-files-found: error
           retention-days: 1
           path: release/latest*.yml
 
-      # electron-builder's debug log and npm's own log live outside `release/`
-      # and are only worth keeping when something went wrong.
       - name: Collect diagnostics
         if: failure()
         shell: bash
@@ -269,28 +289,31 @@ jobs:
           npm_cache="$(npm config get cache)"
           find "$npm_cache/_logs" -type f -name '*.log' -exec cp {} diagnostics/ \; 2>/dev/null || true
 
+      # Readable by anyone on a public repository; named so the release jobs' tau-* pattern skips it.
       - name: Upload diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tau-${{ matrix.artifact }}-diagnostics
+          name: diagnostics-${{ matrix.artifact }}
           if-no-files-found: ignore
           path: diagnostics
           retention-days: 7
 
-  # Signs every latest*.yml of the run with TAU_RELEASE_SIGNING_KEY; installed
-  # hosts refuse a feed without the .sig (docs/host-updates.md). A dry run signs
-  # too when the secret is there, and stays unsigned with a warning when not.
+  # Signs every latest*.yml with TAU_RELEASE_SIGNING_KEY; installed hosts refuse a
+  # feed without the .sig (docs/host-updates.md). A branch's dry run has no key and stays unsigned.
   sign:
     needs: [gate, build]
-    runs-on: tau-linux
+    runs-on: ubuntu-24.04
+    environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: feed-*
           path: feed
@@ -319,28 +342,33 @@ jobs:
           node scripts/packaging/release-signing.mjs check feed/latest*.yml
           echo "signed=true" >> "$GITHUB_OUTPUT"
       - if: steps.sign.outputs.signed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tau-signatures
           if-no-files-found: error
           retention-days: 1
           path: feed/latest*.yml.sig
 
-  # The release goes to two places: Rasalas/tau keeps it as it always had
-  # (notes, tag, every file), and the public Rasalas/tau-releases carries the
-  # same files and notes, which is where installed apps and install:mac read.
+  # The release goes to two places: Rasalas/tau (tag, generated notes, every
+  # file), and the public Rasalas/tau-releases, where installed apps and
+  # install:mac read. Only tau-releases gets the fixed download names.
   release:
     needs: [gate, build, sign]
     if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
-    runs-on: tau-linux
+    runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       # tau-<platform> and tau-signatures; the feed-* copies are not needed again.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: tau-*
           path: artifacts
@@ -356,14 +384,14 @@ jobs:
       - name: Require every file the feeds name, their blockmaps and the license
         run: node scripts/packaging/publish-release.mjs check artifacts
       - id: source
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: artifacts/*
           fail_on_unmatched_files: true
           generate_release_notes: true
       # GitHub writes the notes from this repository's history; tau-releases has none.
       - name: Take the notes along
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           RELEASE_ID: ${{ steps.source.outputs.id }}
         with:
@@ -371,6 +399,11 @@ jobs:
             const { releaseBody } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
             const body = await releaseBody(github, { ...context.repo, releaseId: Number(process.env.RELEASE_ID) });
             require("node:fs").writeFileSync("release-notes.md", body);
+      # Tau-mac-arm64.dmg and the others, for releases/latest/download/<name> links.
+      - name: Add the fixed download names
+        run: |
+          node scripts/packaging/publish-release.mjs copy-stable artifacts
+          node scripts/packaging/publish-release.mjs check artifacts --stable
       - id: token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -382,7 +415,7 @@ jobs:
       # A draft first: installed apps keep seeing the previous release until
       # every file is up. Its tag lands on tau-releases' default branch.
       - id: public
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           repository: Rasalas/tau-releases
           token: ${{ steps.token.outputs.token }}
@@ -392,7 +425,7 @@ jobs:
           files: artifacts/*
           fail_on_unmatched_files: true
       - name: Publish the public release
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           RELEASE_ID: ${{ steps.public.outputs.id }}
         with:
@@ -409,14 +442,19 @@ jobs:
   nightly:
     needs: [gate, build, sign]
     if: needs.gate.outputs.nightly == 'true'
-    runs-on: tau-linux
+    runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: tau-*
           path: artifacts
@@ -430,12 +468,12 @@ jobs:
       - name: Require every file the feeds name, their blockmaps and the license
         run: node scripts/packaging/publish-release.mjs check artifacts
       - name: Remove the previous nightly
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const { removeNightly } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
             await removeNightly(github, context.repo);
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: nightly
           target_commitish: ${{ github.sha }}
@@ -455,7 +493,7 @@ jobs:
           repositories: tau-releases
           permission-contents: write
       - name: Remove the previous public nightly
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           github-token: ${{ steps.token.outputs.token }}
           script: |
@@ -464,7 +502,7 @@ jobs:
       # No target_commitish: the source commit does not exist in tau-releases,
       # so the tag lands on its default branch and the body names the commit.
       - id: public
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           repository: Rasalas/tau-releases
           token: ${{ steps.token.outputs.token }}
@@ -477,7 +515,7 @@ jobs:
           files: artifacts/*
           fail_on_unmatched_files: true
       - name: Publish the public nightly
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           RELEASE_ID: ${{ steps.public.outputs.id }}
         with:

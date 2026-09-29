@@ -1,7 +1,6 @@
 name: Cleanup artifacts
 
-# Artifacts count against the account's storage quota. Anything older than
-# two days has served its purpose; release files live in the GitHub release.
+# Anything older than two days has served its purpose; release files live in the GitHub release.
 on:
   schedule:
     - cron: '23 3 * * *'
@@ -16,11 +15,13 @@ permissions:
 
 jobs:
   cleanup:
-    runs-on: tau-linux
+    # A fork runs schedules too.
+    if: github.repository == 'Rasalas/tau'
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Delete artifacts older than two days
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000;

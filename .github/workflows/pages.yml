@@ -1,8 +1,7 @@
 name: Website
 
 # The landing page (site/) and the docs rendered from the repository's Markdown,
-# on GitHub Pages. Pages needs a public repository on the free plan: until the
-# source goes public this workflow is ready but has nowhere to deploy.
+# on GitHub Pages. Pages needs a public repository on the free plan.
 on:
   push:
     branches: [main]
@@ -18,15 +17,38 @@ on:
 permissions:
   contents: read
 
+# A deployment that already started finishes; the newest waiting one follows.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    # A hosted runner: nothing here needs the private host, and a fork never deploys.
-    runs-on: ubuntu-latest
+  build:
+    # A fork's Pages would publish a copy of the site under its own name.
+    if: github.repository == 'Rasalas/tau'
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      # The docs build needs only the Markdown packages; no install scripts, no Electron download.
+      - run: npm ci --ignore-scripts
+      - run: npm run site:docs
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: site
+
+  # Only this job may write to Pages; it runs no repository code.
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
@@ -34,17 +56,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      # The docs build needs only the Markdown packages; no install scripts, no Electron download.
-      - run: npm ci --ignore-scripts
-      - run: npm run site:docs
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - uses: actions/deploy-pages@v4
-        id: deployment
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
