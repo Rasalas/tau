@@ -386,7 +386,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "move-down") step(session.id, 1);
       else if (itemId === "archive") void archive(session, actions);
       else if (itemId === "delete") void remove(session, actions);
-      else if (itemId === "new-on-branch") actions.newSession({ workspace: session.workspaceId ?? session.projectPath });
+      else if (itemId === "new-on-branch") actions.newSession({ workspace: session.workspaceId ?? session.projectPath, pick: true });
       else if (itemId === "rename") store.openRename(session);
       else if (itemId === "regenerate-title") void regenerateTitle(session, actions);
       else if (itemId === "mark-unread") store.threadStore?.markUnread(session.id);
