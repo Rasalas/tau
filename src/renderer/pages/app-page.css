@@ -5,7 +5,7 @@
 .app-page-back {
   flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
   border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted);
-  font: 500 13px var(--sans); cursor: pointer;
+  font: 500 var(--text-md) var(--sans); cursor: pointer;
 }
 .app-page-back:hover { background: var(--hover-strong); color: var(--ink); }
 .app-page-content.wide { max-width: 1240px; }
@@ -24,3 +24,7 @@
 .app-page.stacked.with-nav .settings-content { padding-bottom: 32px; }
 /* Without Back the title lines up with the page below it. */
 .app-page.stacked .app-page-bar:not(:has(> .app-page-back)) { padding-left: 12px; }
+
+/* A page's own sidebar in the thread list's place: Settings' column, on the rail's surface like the list. */
+.page-sidebar { grid-area: 1 / 1 / -1 / 2; padding-top: max(var(--window-top, 0px), var(--space-5)); border-right: 0; }
+.page-sidebar-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }

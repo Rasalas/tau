@@ -12,7 +12,7 @@
 .agents-view {
   display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px;
   border: 0; border-radius: var(--radius-sm); background: none; cursor: pointer;
-  font: 500 12.5px var(--sans); color: var(--muted-2);
+  font: 500 calc(var(--text-sm) + .5px) var(--sans); color: var(--muted-2);
 }
 .agents-view > span { font-variant-numeric: tabular-nums; }
 .agents-view:hover { color: var(--ink-2); }
@@ -24,7 +24,7 @@
   height: 24px; display: flex; align-items: center; padding: 0 var(--space-6);
   font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint);
 }
-.agent-section-label { height: 32px; display: flex; align-items: flex-end; padding: 0 var(--space-6) 6px; font-size: 11.5px; color: var(--faint); }
+.agent-section-label { height: 32px; display: flex; align-items: flex-end; padding: 0 var(--space-6) 6px; font-size: calc(var(--text-xs) + .5px); color: var(--faint); }
 .agent-row {
   display: grid; width: 100%; height: 48px; align-content: center; gap: 2px;
   padding: 0 var(--space-6); border: 0; border-radius: 0;
@@ -34,17 +34,17 @@
 .agent-row:disabled { cursor: default; opacity: .7; }
 .agent-row-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .agent-row-head > strong {
-  flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--ink);
+  flex: 1; min-width: 0; font-size: var(--text-md); font-weight: 500; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .agent-row:is(.status-completed, .status-idle, .status-cancelled) .agent-row-head > strong { color: var(--ink-3); }
 .agent-row-sub {
   display: flex; align-items: baseline; gap: 8px; min-width: 0;
-  font: 11px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);
+  font: var(--text-xs) var(--mono); font-variant-numeric: tabular-nums; color: var(--faint);
   overflow: hidden; white-space: nowrap;
 }
 /* A question reads as prose, in the rail's amber. */
-.agent-row-sub.question { display: block; font: 500 11.5px var(--sans); color: var(--warn); text-overflow: ellipsis; }
+.agent-row-sub.question { display: block; font: 500 calc(var(--text-xs) + .5px) var(--sans); color: var(--warn); text-overflow: ellipsis; }
 .agent-row.status-failed .agent-row-stand { color: var(--fail-ink); }
 /* The actions keep their room; only the line before them is truncated. */
 .agent-row-sub-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -57,8 +57,8 @@
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 24px; text-align: center; color: var(--faint);
 }
-.agents-empty > p { margin: 0; font-size: 12.5px; color: var(--muted-2); }
-.agents-empty > small { max-width: 30ch; font-size: 11px; line-height: 1.5; }
+.agents-empty > p { margin: 0; font-size: calc(var(--text-sm) + .5px); color: var(--muted-2); }
+.agents-empty > small { max-width: 30ch; font-size: var(--text-xs); line-height: 1.5; }
 .agent-parent-link {
   display: inline-flex; align-items: center; gap: 5px;
   background: none; border: none; padding: 0; cursor: pointer;
@@ -72,12 +72,12 @@
 .agent-spawn-card {
   display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; margin: 6px 0; padding: 7px 10px;
   border: 0; border-radius: var(--radius-md); background: var(--wash); cursor: pointer;
-  font: inherit; font-size: 12.5px; color: var(--ink-2); text-align: left;
+  font: inherit; font-size: calc(var(--text-sm) + .5px); color: var(--ink-2); text-align: left;
 }
 .agent-spawn-card:hover { background: var(--wash-2); }
 .agent-spawn-card > svg { flex: none; color: var(--muted); }
 .agent-spawn-card > strong { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-spawn-part { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.agent-spawn-part { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); color: var(--muted); white-space: nowrap; }
 .agent-spawn-part.part-running { color: var(--info-ink); }
 .agent-spawn-part.part-question { color: var(--warn); }
 .agent-spawn-part.part-failed { color: var(--fail-ink); }
@@ -93,20 +93,20 @@
 .agent-definition:hover { background: var(--hover); }
 .agent-definition-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .agent-definition-head > strong {
-  flex: 1; min-width: 0; font: 600 12px var(--mono); color: var(--ink-2);
+  flex: 1; min-width: 0; font: 600 var(--text-sm) var(--mono); color: var(--ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .agent-definition-open { font: 10px var(--mono); color: var(--working); }
-.agent-definition-description { font-size: 11.5px; line-height: 1.4; color: var(--muted-2); }
+.agent-definition-description { font-size: calc(var(--text-xs) + .5px); line-height: 1.4; color: var(--muted-2); }
 .agent-definition-settings { font: 10px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-definition-form { display: grid; gap: 6px; margin-top: 4px; }
 .agent-definition-form > textarea {
   width: 100%; resize: vertical; min-height: 48px; padding: 6px 8px;
   border: 1px solid var(--line); border-radius: 6px; background: var(--sunken);
-  color: var(--ink); font: inherit; font-size: 12px;
+  color: var(--ink); font: inherit; font-size: var(--text-sm);
 }
 .agent-definition-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.agent-definitions-problems { display: block; padding: 4px 8px 0; font-size: 11px; color: var(--fail-ink); }
+.agent-definitions-problems { display: block; padding: 4px 8px 0; font-size: var(--text-xs); color: var(--fail-ink); }
 .agent-row-definition {
   flex: none; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px;
   font: 10px var(--mono); color: var(--muted-2);

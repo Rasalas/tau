@@ -39,7 +39,7 @@
 .touch-icon-button:active { background: var(--hover-strong); }
 .touch-browser-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* The project filter, an icon between search and More as on the desktop rail: the shown project's tile while one is. */
-.touch-project-tile.thread-project-icon { width: 22px; height: 22px; border-radius: 6px; font-size: 11px; }
+.touch-project-tile.thread-project-icon { width: 22px; height: 22px; border-radius: 6px; font-size: var(--text-xs); }
 /* One scroll, as the desktop rail and T3 Code: the settled shelf follows right after the active threads. */
 .touch-thread-lists { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .touch-thread-active {
@@ -93,8 +93,8 @@
 }
 .touch-search-results button:active, .touch-search-results button:focus-visible { background: var(--hover-strong); }
 .touch-search-results strong { font: 550 15px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.touch-search-results small { font: 13px var(--sans); color: var(--muted); }
-.touch-search-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px; font: 14px/1.4 var(--sans); color: var(--muted); }
+.touch-search-results small { font: var(--text-md) var(--sans); color: var(--muted); }
+.touch-search-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px; font: var(--text-lg)/1.4 var(--sans); color: var(--muted); }
 .touch-search-empty > button, .touch-thread-empty > button {
   min-height: 44px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 10px;
   background: var(--raised); color: var(--ink); font: 550 15px var(--sans); cursor: pointer;
@@ -106,12 +106,12 @@
 /* Group labels as the desktop rail's: quiet text, no rule. */
 .touch-thread-group {
   display: flex; align-items: center; gap: 8px; padding: 16px 12px 6px;
-  color: var(--faint); font: 500 13px var(--sans);
+  color: var(--faint); font: 500 var(--text-md) var(--sans);
 }
 /* The shelf's header, the design's quiet "Settled · 41": no rule, a small chevron that turns when open, 44 px to tap. */
 .touch-thread-shelf-toggle {
   width: 100%; min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 8px 12px 0;
-  border: 0; background: transparent; color: var(--muted); font: 400 13px var(--sans); text-align: left; cursor: pointer;
+  border: 0; background: transparent; color: var(--muted); font: 400 var(--text-md) var(--sans); text-align: left; cursor: pointer;
 }
 .touch-thread-shelf-toggle > svg { flex: none; color: var(--faint); transition: transform var(--motion-fast) ease; }
 .touch-thread-shelf-toggle[aria-expanded="false"] > svg { transform: rotate(-90deg); }
@@ -121,15 +121,15 @@
 .touch-thread-row .thread-row:active { background: var(--hover); }
 .touch-thread-row .thread-main { min-height: 44px; padding: 10px 12px; }
 .touch-thread-row .thread-project-line { height: 20px; }
-.touch-thread-row .thread-project-line > strong { font-size: 13px; }
-.touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: 13px; }
-.touch-thread-row .thread-status-age { font-size: 13px; }
+.touch-thread-row .thread-project-line > strong { font-size: var(--text-md); }
+.touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: var(--text-md); }
+.touch-thread-row .thread-status-age { font-size: var(--text-md); }
 .touch-thread-row .thread-title { margin-top: 4px; font: 400 16px/21px var(--sans); }
 .touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 18px; }
 .touch-thread-row .thread-meta-line { margin-top: 3px; line-height: 18px; }
-.touch-thread-row .thread-branch { font-size: 12px; }
+.touch-thread-row .thread-branch { font-size: var(--text-sm); }
 /* A draft's mark stays: a touch leaves :hover behind, and Discard lives in the sheet. */
-.touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: 13px; }
+.touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: var(--text-md); }
 .touch-thread-pin { flex: none; color: var(--faint); }
 .touch-thread-provider { flex: none; }
 /* Settled rows are the rail's slim, quiet ones. */
@@ -144,25 +144,25 @@
 .touch-thread-more:focus-visible { opacity: 1; pointer-events: auto; }
 .touch-thread-empty {
   display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 32px 20px; text-align: center;
-  font: 14px/1.45 var(--sans); color: var(--muted);
+  font: var(--text-lg)/1.45 var(--sans); color: var(--muted);
 }
 .touch-thread-empty > strong { font: 600 16px var(--sans); color: var(--ink-2); }
 .touch-thread-empty > button { margin-top: 10px; }
 .touch-thread-notice {
   display: flex; flex-direction: column; gap: 2px; margin: 4px 12px 8px; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--sunken);
-  font: 13px/1.4 var(--sans); color: var(--muted);
+  font: var(--text-md)/1.4 var(--sans); color: var(--muted);
 }
-.touch-thread-notice > strong { font: 600 14px var(--sans); color: var(--ink-2); }
+.touch-thread-notice > strong { font: 600 var(--text-lg) var(--sans); color: var(--ink-2); }
 .touch-thread-notice.refused > strong { color: var(--danger); }
 .touch-thread-more-rows { padding: 2px 0 8px; }
 .touch-thread-more-rows > button {
   width: 100%; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; text-align: left;
-  background: transparent; color: var(--muted); font: 500 13px var(--sans); cursor: pointer;
+  background: transparent; color: var(--muted); font: 500 var(--text-md) var(--sans); cursor: pointer;
 }
 .touch-thread-more-rows > button:active { background: var(--hover); }
 /* The host a native shell is on, at the head of More. */
-.touch-menu-context { margin: 4px 12px 6px; overflow: hidden; color: var(--muted); font: 500 13px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
+.touch-menu-context { margin: 4px 12px 6px; overflow: hidden; color: var(--muted); font: 500 var(--text-md) var(--sans); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ------------------------------------------------------------ the swipe */
 
@@ -171,7 +171,7 @@
 .swipe-tray { position: absolute; inset: 0 0 0 auto; display: flex; }
 .swipe-action {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  border: 0; padding: 0; background: transparent; color: var(--muted); font: 500 11px var(--sans); cursor: pointer;
+  border: 0; padding: 0; background: transparent; color: var(--muted); font: 500 var(--text-xs) var(--sans); cursor: pointer;
   opacity: var(--swipe-reveal, 0); transform: scale(calc(0.78 + 0.22 * var(--swipe-reveal, 0)));
 }
 .swipe-action > i {
@@ -210,7 +210,7 @@
   border: 0; background: transparent; color: var(--ink); font: 500 16px var(--sans); text-align: left; cursor: pointer;
 }
 .action-sheet-list > button > span { display: flex; flex-direction: column; gap: 1px; }
-.action-sheet-list > button small { font: 13px var(--sans); color: var(--muted); }
+.action-sheet-list > button small { font: var(--text-md) var(--sans); color: var(--muted); }
 .action-sheet-list > button + button { border-top: 1px solid var(--line-soft); }
 .action-sheet-list > button:active { background: var(--hover-strong); }
 .action-sheet-list > button > i { width: 20px; flex: none; display: grid; place-items: center; color: var(--muted); }

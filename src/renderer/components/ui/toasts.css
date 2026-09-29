@@ -26,7 +26,7 @@
 .toast-item[data-type="success"] .toast-type { color: var(--ready); }
 .toast-item[data-type="warning"] .toast-type { color: var(--warn); }
 .toast-item[data-type="error"] .toast-type { color: var(--danger); }
-.toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font: 12.5px/18px var(--sans); }
+.toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font: calc(var(--text-sm) + .5px)/18px var(--sans); }
 .toast-body > strong { color: var(--ink); font-weight: 500; }
 /* `anywhere`: an error is often a bare URL or a JSON blob with no space to break at. */
 .toast-body > p { margin: 0; color: var(--ink-3); overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
@@ -34,7 +34,7 @@
 .toast-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .toast-actions > button {
   border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--raised);
-  color: var(--ink); font: 500 12px var(--sans); padding: 4px 10px; cursor: pointer;
+  color: var(--ink); font: 500 var(--text-sm) var(--sans); padding: 4px 10px; cursor: pointer;
 }
 .toast-actions > button:hover { background: var(--raised-hover); }
 .toast-icon-button {
@@ -64,7 +64,7 @@
 @media (prefers-reduced-motion: reduce) { .toast-stack[data-placement="bottom"] .toast-item { animation: none; } }
 .toast-stack[data-placement="bottom"] .toast-card { padding: 4px 4px 4px 14px; }
 .toast-stack[data-placement="bottom"] .toast-type { height: 20px; margin-top: 10px; }
-.toast-stack[data-placement="bottom"] .toast-body { padding-block: 10px 8px; font-size: 14px; line-height: 20px; }
+.toast-stack[data-placement="bottom"] .toast-body { padding-block: 10px 8px; font-size: var(--text-lg); line-height: 20px; }
 .toast-stack[data-placement="bottom"] .toast-icon-button { width: 44px; height: 44px; }
 .toast-stack[data-placement="bottom"] .toast-icon-button > svg { width: 18px; height: 18px; }
-.toast-stack[data-placement="bottom"] .toast-actions > button { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.toast-stack[data-placement="bottom"] .toast-actions > button { min-height: 44px; padding: 0 16px; font-size: var(--text-lg); }

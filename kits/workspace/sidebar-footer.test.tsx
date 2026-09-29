@@ -56,6 +56,7 @@ describe("sidebar footer pages", () => {
     expect(within(footer).getByRole("button", { name: "Usage" }).querySelector(".page-badge")).toBeNull();
     count = 120;
     fireEvent.click(within(footer).getByRole("button", { name: "Usage" }));
+    fireEvent.click(await within(footer).findByRole("button", { name: "Back to thread" }));
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
@@ -78,6 +79,7 @@ describe("sidebar footer pages", () => {
 
     figure = { text: "$12.40 · 22 · 3.1M tok", short: "$12.40", hint: "This month · $12.40 billed per token" };
     fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
+    fireEvent.click(await footer.findByRole("button", { name: "Back to thread" }));
     const usage = await footer.findByRole("button", { name: "Usage: This month · $12.40 billed per token" });
     expect(usage.closest(".sidebar-footer-end")).toBeTruthy();
     expect(usage.querySelector(".sidebar-summary-full")?.textContent).toBe("$12.40 · 22 · 3.1M tok");
@@ -113,9 +115,9 @@ describe("app pages", () => {
     const page = await screen.findByRole("region", { name: "Reports" });
     expect(within(page).getByRole("heading", { name: "Reports" })).toBeTruthy();
     expect(await within(page).findByText("All items")).toBeTruthy();
-    // The sidebar stays, and its foot leads with Back and marks the page.
+    // The sidebar stays, and its foot is Back alone.
     expect(screen.getByRole("navigation", { name: "Threads" })).toBeTruthy();
-    expect(footer.getByRole("button", { name: "Reports" }).getAttribute("aria-current")).toBe("page");
+    expect(footer.getAllByRole("button").map((button) => button.textContent)).toEqual(["Back to thread"]);
 
     fireEvent.click(within(page).getByRole("button", { name: "Open item" }));
     expect(await within(page).findByText("Item 7", { selector: "p" })).toBeTruthy();
@@ -123,9 +125,10 @@ describe("app pages", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(await within(page).findByText("All items")).toBeTruthy();
 
-    fireEvent.click(footer.getByRole("button", { name: "Back" }));
+    fireEvent.click(footer.getByRole("button", { name: "Back to thread" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Reports" })).toBeNull());
-    expect(footer.queryByRole("button", { name: "Back" })).toBeNull();
+    expect(footer.queryByRole("button", { name: "Back to thread" })).toBeNull();
+    expect(footer.getByRole("button", { name: "Reports" })).toBeTruthy();
   });
 
   it("closes with Escape, and stays under Settings opened over it", async () => {
@@ -138,7 +141,7 @@ describe("app pages", () => {
 
     fireEvent.click(footer.getByRole("button", { name: "Reports" }));
     await screen.findByRole("region", { name: "Reports" });
-    fireEvent.click(footer.getByRole("button", { name: "Settings" }));
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
     await screen.findByRole("dialog", { name: "Settings" });
     fireEvent.keyDown(window, { key: "Escape" });
     // Settings opened over the page; closing it shows the page again.
@@ -168,5 +171,57 @@ describe("app pages", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("region", { name: "Reports" })).toBeNull());
     expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("draws a page's own sidebar in the thread list's place, which steers the page", async () => {
+    const shown: Array<boolean | undefined> = [];
+    const owned: DesktopExtension = {
+      id: "owned-test", name: "Owned test", activate(plugin) {
+        plugin.registerPage({
+          id: "catalog", label: "Catalog", Icon: ChartColumn,
+          Component: ({ params, sidebar }) => { shown.push(sidebar); return <p>{params.item ? `Item ${String(params.item)}` : "Overview"}</p>; },
+          Sidebar: ({ params, navigate }) => (
+            <ul aria-label="Items">
+              {[1, 2].map((item) => <li key={item}><button type="button" aria-current={params.item === item ? "page" : undefined} onClick={() => navigate({ item }, { replace: true })}>Item {item}</button></li>)}
+            </ul>
+          ),
+        });
+      },
+    };
+    const view = renderApp(undefined, { extensions: [workspaceExtension, owned] });
+    const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
+    fireEvent.click(await footer.findByRole("button", { name: "Catalog" }));
+    const page = await screen.findByRole("region", { name: "Catalog" });
+    expect(await within(page).findByText("Overview")).toBeTruthy();
+    const sidebar = await screen.findByRole("navigation", { name: "Catalog" });
+    // The thread list stays mounted, out of sight, so its scroll and search survive.
+    expect(view.container.querySelector(".sidebar-slot.covered .session-rail")).toBeTruthy();
+    expect(shown.at(-1)).toBe(true);
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Item 2" }));
+    expect(await within(page).findByText("Item 2")).toBeTruthy();
+    expect(within(sidebar).getByRole("button", { name: "Item 2" }).getAttribute("aria-current")).toBe("page");
+
+    const backs = within(sidebar).getAllByRole("button", { name: "Back to thread" });
+    expect(backs).toHaveLength(2);
+    fireEvent.click(backs[1]!);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Catalog" })).toBeNull());
+    expect(screen.queryByRole("navigation", { name: "Catalog" })).toBeNull();
+    expect(view.container.querySelector(".sidebar-slot.covered")).toBeNull();
+  });
+
+  it("keeps the thread list beside a page without a sidebar of its own, and tells the page", async () => {
+    const shown: Array<boolean | undefined> = [];
+    const plain: DesktopExtension = {
+      id: "plain-test", name: "Plain test", activate(plugin) {
+        plugin.registerPage({ id: "plain", label: "Plain", Icon: ChartColumn, Component: ({ sidebar }) => { shown.push(sidebar); return <p>Plain page</p>; } });
+      },
+    };
+    const view = renderApp(undefined, { extensions: [workspaceExtension, plain] });
+    const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
+    fireEvent.click(await footer.findByRole("button", { name: "Plain" }));
+    await screen.findByText("Plain page");
+    expect(view.container.querySelector(".sidebar-slot.covered")).toBeNull();
+    expect(shown.at(-1)).toBe(false);
   });
 });

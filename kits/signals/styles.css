@@ -6,7 +6,7 @@
   max-height: 60vh; overflow: auto; padding: var(--space-3) var(--space-2);
   border: 1px solid var(--line-card); border-radius: var(--radius-lg); background: var(--stage);
 }
-.event-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 10px; font: 11px var(--mono); }
+.event-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 10px; font: var(--text-xs) var(--mono); }
 .event-row time { color: var(--fainter); flex: none; }
 .event-row strong { flex: none; color: var(--ink-2); font-weight: 500; white-space: nowrap; }
 .event-row span { min-width: 0; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

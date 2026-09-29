@@ -29,10 +29,14 @@ export class AppPageStore {
     this.set({ id, views: [{ params }] });
   };
 
-  /** Steps into another view of the open page; `replace` swaps the view on top instead. */
-  navigate = (params: Readonly<Record<string, unknown>>, options: { label?: string; replace?: boolean } = {}): void => {
+  /**
+   * Steps into another view of the open page; `replace` swaps the view on top
+   * instead, and `root` leaves every view for the page's own, opened on `params`.
+   */
+  navigate = (params: Readonly<Record<string, unknown>>, options: { label?: string; replace?: boolean; root?: boolean } = {}): void => {
     const state = this.state;
     if (!state) return;
+    if (options.root) { this.set({ id: state.id, views: [{ params }] }); return; }
     const view: AppPageView = { params, ...(options.label ? { label: options.label } : {}) };
     const below = options.replace ? state.views.slice(0, -1) : state.views;
     // The page's own view keeps no label, even when it is replaced.

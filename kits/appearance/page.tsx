@@ -7,6 +7,7 @@ import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, with
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
 import { parseThemeCss } from "./theme-css.js";
 import { TerminalFontRow, type TerminalFontLink } from "./terminal-font.js";
+import { TEXT_SIZE_LABELS, TEXT_SIZES, type TextSizeStore } from "./text-size.js";
 import { importVsCodeTheme } from "./vscode-import.js";
 
 const DENSITY_LABELS: Record<Density, string> = { compact: "Compact", normal: "Normal", comfortable: "Comfortable" };
@@ -127,8 +128,21 @@ function ColorsAndThemes({ themes, mode, scheme, preferences, onEdit, onImport, 
   </>;
 }
 
+/** Kept on this device, not the host: a phone and a desktop read at their own sizes. */
+function TextSizeRow({ store }: { store: TextSizeStore }) {
+  const size = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return (
+    <SettingRow
+      id="setting-appearance-text-size"
+      title="Text size"
+      description="How large text reads everywhere on this device. Zooming the window (View → Zoom In) scales everything instead."
+      control={<SegmentedControl label="Text size" value={size} options={TEXT_SIZES.map((next) => ({ value: next, label: TEXT_SIZE_LABELS[next] }))} onChange={store.set} />}
+    />
+  );
+}
+
 /** Settings → Appearance: themes per scheme, the editor and the importer, contrast, density and type. */
-export function AppearancePage({ onNotify, preferences, editor, terminalFont }: SettingsPageProps & { preferences: PreferencesStore; editor: ThemeEditorStore; terminalFont?: TerminalFontLink }) {
+export function AppearancePage({ onNotify, preferences, editor, terminalFont, textSize }: SettingsPageProps & { preferences: PreferencesStore; editor: ThemeEditorStore; terminalFont?: TerminalFontLink; textSize?: TextSizeStore }) {
   // A sync registers the user's themes and emits, so this page follows new ones.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const themes = userThemes();
@@ -138,7 +152,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
   const density = useSetting<Density>(value(SETTING_KEYS.density), { defaultValue: "normal", scope: "both", read: readDensity, format: (next) => DENSITY_LABELS[next] });
   const contrast = useSetting<number>(value(SETTING_KEYS.contrast), { defaultValue: 0, read: readContrast, write: String, format: (next) => `${next}%` });
   const interfaceFamily = useSetting<string>("fontFamily", { defaultValue: "", read: readString, format: (next) => next || "Figtree", offline: (next) => preferences.setFontFamily(next || undefined) });
-  const interfaceSize = useSetting<number | undefined>("fontSize", { defaultValue: undefined, read: (raw) => (typeof raw === "number" ? raw : undefined), format: (next) => (next ? `${next}px` : "13px"), offline: (next) => preferences.setFontSize(next) });
+  const interfaceSize = useSetting<number | undefined>("fontSize", { defaultValue: undefined, read: (raw) => (typeof raw === "number" ? raw : undefined), format: (next) => (next ? `${next}px` : "14px"), offline: (next) => preferences.setFontSize(next) });
   const promptFamily = useSetting<string>(value(SETTING_KEYS.promptFontFamily), { defaultValue: "", read: readString, format: (next) => next || "Interface font" });
   const promptSize = useSetting<number | undefined>(value(SETTING_KEYS.promptFontSize), { defaultValue: undefined, read: readSize, write: String, format: (next) => (next ? `${next}px` : `${DEFAULT_PROMPT_FONT_SIZE}px`) });
   const codeFamily = useSetting<string>(value(SETTING_KEYS.codeFontFamily), { defaultValue: "", read: readString, format: (next) => next || "System monospace" });
@@ -211,12 +225,13 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
       </SettingsSection>
 
       <SettingsSection title="Typography">
+        {textSize ? <TextSizeRow store={textSize} /> : null}
         <SettingRow
           id="setting-appearance-interface-font"
           title="Interface font"
           description="Everything outside code and the terminal."
           setting={interfaceFamily}
-          control={<><TextSetting label="Interface font family" placeholder="Figtree" setting={interfaceFamily} /><SizeSetting label="Interface font size" setting={interfaceSize} fallback={13} /></>}
+          control={<><TextSetting label="Interface font family" placeholder="Figtree" setting={interfaceFamily} /><SizeSetting label="Interface font size" setting={interfaceSize} fallback={14} /></>}
         />
         <SettingRow
           id="setting-appearance-prompt-font"

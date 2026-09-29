@@ -5,7 +5,7 @@
 
 /* Paging between the questions of one questionnaire. */
 .extension-pager { flex: none; display: flex; align-items: center; gap: 2px; }
-.extension-pager > span { font: 500 11px var(--mono); color: var(--muted); padding: 0 3px; letter-spacing: .04em; }
+.extension-pager > span { font: 500 var(--text-xs) var(--mono); color: var(--muted); padding: 0 3px; letter-spacing: .04em; }
 .extension-pager > button {
   width: 20px; height: 20px; display: grid; place-items: center;
   border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer;
