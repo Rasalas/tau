@@ -193,6 +193,7 @@ describe("PhoneMachines", () => {
     again.getSnapshot();
     await vi.advanceTimersByTimeAsync(0);
     expect(rexOf(again)!.threads.map((thread) => thread.id)).toEqual(["a", "b"]);
+    expect(rexOf(again)!.status).toBe("offline");
     again.dispose();
   });
 

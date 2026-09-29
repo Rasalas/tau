@@ -64,6 +64,9 @@ export interface PhoneMachinesOptions {
 }
 
 interface Kept {
+  /** What the last visit found; the next page starts from it instead of "connecting". */
+  status?: "connected" | "offline";
+  detail?: string;
   index?: ThreadIndexSnapshot;
   running: string[];
   lastSeq?: number;
@@ -153,8 +156,8 @@ export class PhoneMachines implements PlatformEnvironments {
         this.machines.set(host.id, {
           host,
           token,
-          status: token ? "connecting" : "refused",
-          ...(token ? {} : { detail: `${host.name} no longer accepts this phone. Open it to pair again.` }),
+          status: token ? kept?.status ?? "connecting" : "refused",
+          ...(token ? kept?.detail ? { detail: kept.detail } : {} : { detail: `${host.name} no longer accepts this phone. Open it to pair again.` }),
           ...(kept?.lastSeenAt !== undefined ? { lastSeenAt: kept.lastSeenAt } : {}),
           ...(host.access === "read-only" ? { readOnly: true } : {}),
           ...(kept?.index ? { index: kept.index } : {}),
@@ -209,7 +212,10 @@ export class PhoneMachines implements PlatformEnvironments {
         this.set(machine, { status: "connected", lastSeenAt: this.now() });
         this.keep(machine);
       } catch (error) {
-        if (machine.status !== "refused") this.set(machine, { status: "offline", detail: error instanceof Error ? error.message : String(error) });
+        if (machine.status !== "refused") {
+          this.set(machine, { status: "offline", detail: error instanceof Error ? error.message : String(error) });
+          this.keep(machine);
+        }
       } finally {
         machine.reading = undefined;
       }
@@ -304,6 +310,8 @@ export class PhoneMachines implements PlatformEnvironments {
 
   private keep(machine: Machine): void {
     const kept: Kept = {
+      ...(machine.status === "connected" || machine.status === "offline" ? { status: machine.status } : {}),
+      ...(machine.status === "offline" && machine.detail ? { detail: machine.detail } : {}),
       ...(machine.index ? { index: machine.index } : {}),
       running: [...machine.running],
       ...(machine.index && machine.lastSeq !== undefined ? { lastSeq: machine.lastSeq } : {}),
