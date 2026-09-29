@@ -138,3 +138,31 @@ export class NativeSocket {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
+
+/** Where the page notes its open native sockets; it survives the reload a host switch makes. */
+export const OPEN_SOCKETS_KEY = "tau.mobile.open-sockets";
+
+/**
+ * The plugin's sockets outlive the page: a reload (every host switch) would
+ * leave the last page's connections open, each still waking the radio. The
+ * bridge notes the sockets it opens, closes them when the page goes, and
+ * closes whatever the last page could not before the first socket of this one.
+ */
+export function trackedBridge(bridge: SocketBridge, store: Pick<Storage, "getItem" | "setItem">): SocketBridge & { closeAll(): void } {
+  const open = new Set<string>();
+  const note = () => { try { store.setItem(OPEN_SOCKETS_KEY, JSON.stringify([...open])); } catch { /* best effort */ } };
+  let left: unknown;
+  try { left = JSON.parse(store.getItem(OPEN_SOCKETS_KEY) ?? "[]"); } catch { left = []; }
+  for (const id of Array.isArray(left) ? left : []) if (typeof id === "string") void bridge.close(id).catch(() => undefined);
+  note();
+  return {
+    open: (request) => { open.add(request.id); note(); return bridge.open(request); },
+    send: (id, data) => bridge.send(id, data),
+    close: (id, code, reason) => bridge.close(id, code, reason),
+    subscribe: (id, listener) => bridge.subscribe(id, (event) => {
+      if (event.type === "close" && open.delete(id)) note();
+      listener(event);
+    }),
+    closeAll: () => { for (const id of open) void bridge.close(id).catch(() => undefined); },
+  };
+}
