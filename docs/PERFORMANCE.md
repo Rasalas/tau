@@ -1170,6 +1170,24 @@ The complete rail (D10: selection, grouping, file drops, hover details, diff sta
 The one real waste was the rows' subscription to the whole preferences snapshot for `showCosts`: every setting change redrew every row. Rows now select the one value they read (costs, the project's icon, the thread's stat), the rail memoizes the searched and sorted list and the organizer's sections on their inputs and looks a row's state up in sets instead of arrays, and selection, cursor and drop state live on the row's wrapper, not on the memoized row. Because the sections are memoized, Thread Rail's store now bumps its version when the next snooze runs out, which the rail used to catch only on its next unrelated render. The test holds the row counts: one row for a thread's run state, none for an organizer bump with the same sections, a setting, or a selection, one for a stat.
 
 
+### Cost of threads that are not open (K118, 2026-09-29)
+
+Threads of Codex and the Agent SDK runtime showed "—" as their cost in the rail's hover card, Reviews and the phone until they were opened: the index listed them from each backend's `listThreads`, which carried no usage. The records now carry the thread's tallies from the backend's own store (`HostBackendThreadRecord.usage`), and the index prices them as it prices a Pi session file's. No file is read for it: the stores are the JSON files `listThreads` already loads, and each store merges a thread's turns once per new turn (keyed by the turn list, which every new turn replaces).
+
+Measured on the development machine (load average 6 to 12), with the same harness before and after:
+
+| what | before | after |
+| --- | ---: | ---: |
+| index scan with 2,000 other-runtime threads, 3 models each, cold (median of 5 runs) | 10.7 ms | 12.8 ms |
+| the same scan warm (median of 5 runs of 10 scans) | 4.9 ms | 4.8 ms |
+| repricing every shell after a price change | 0.7 ms | 0.9 ms |
+| a kit's `listThreads`, 1,000 threads of 40 messages and 20 turns, Codex / Agent SDK | 1.2–1.3 / 1.6–2.2 ms | 1.3–1.4 / 1.7–2.3 ms |
+| rail mount, 1,000 threads (jsdom, medians of 3) | 66–88 ms | 64–83 ms |
+| a full thread index again, 1,000 threads, rows redrawn / time | 0 / 0.51–0.61 ms | 0 / 1.33–1.42 ms |
+| one thread's cost changes | – | 1 row / about 1 ms |
+
+Merging the turns on every listing instead of once per turn cost 3.6–4.7 ms (Codex) and 4.5–6.0 ms (Agent SDK) per listing of 1,000 threads, and grows with a thread's turns (up to 2,000 kept), which is why the stores keep the merged tallies. The full index again costs the rail about 0.8 ms more per 1,000 threads because `threadEqual` compares each thread's usage as JSON, which Pi threads already paid; the host sends a full index only at start-up and on request, and a rescan otherwise publishes changed shells alone. `src/main/thread-index.test.ts` ("thread index scale") holds one `listThreads` per backend per scan, no `lookup`, and one pricing per thread; `kits/workspace/rail-render.test.tsx` holds that a rescan carrying every cost redraws no row and a new cost redraws one.
+
 ### Chips in the composer's text
 
 Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. A rich-text editor such as Tiptap would do this; Tau does not use one: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerChipLayer.tsx`, `composer-chips.ts`).
