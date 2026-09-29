@@ -1,12 +1,15 @@
 // What the package managers need from one GitHub release of Tau: the version,
 // and for each installer its download URL and SHA-256. The release JSON comes
-// from `gh api` (the repository may be private) or from a file (--release-json).
-import { execFileSync } from "node:child_process";
+// from GitHub's public API for the release repository, without a login, or
+// from a file (--release-json).
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const REPO = "Rasalas/tau";
+/** Where releases are published (`publish:` in electron-builder.yml); public. */
+export const REPO = "Rasalas/tau-releases";
+/** The source, private for now; releases before REPO existed live only here. */
+export const SOURCE_REPO = "Rasalas/tau";
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** The installers a release carries, by electron-builder's artifact names. */
@@ -49,14 +52,22 @@ export function releaseAssets(release) {
   for (const kind of Object.keys(PATTERNS)) {
     if (!found[kind]) throw new Error(`${release.tag_name} has no ${kind} asset for ${version}.`);
   }
+  const license = (release.assets ?? []).find((asset) => asset.name === "LICENSE");
   return {
     version,
     tag: release.tag_name,
     prerelease: Boolean(release.prerelease),
     publishedAt: release.published_at ?? "",
     notesUrl: release.html_url ?? `https://github.com/${REPO}/releases/tag/${release.tag_name}`,
+    repoUrl: releaseRepoUrl(release),
+    ...(license ? { license: { name: license.name, url: license.browser_download_url } } : {}),
     ...found,
   };
+}
+
+/** The repository a release lives in, which the packages name as their home and download from. */
+export function releaseRepoUrl(release) {
+  return /^(https:\/\/github\.com\/[\w.-]+\/[\w.-]+)\/releases\//u.exec(release.html_url ?? "")?.[1] ?? `https://github.com/${REPO}`;
 }
 
 /** The parts of a release JSON the scripts read; what `packaging/release.json` keeps. */
@@ -92,24 +103,27 @@ export function parseArgs(argv) {
   return options;
 }
 
-/** The release to package: a file when given, else `gh api` for the tag (default: package.json's version). */
-export function loadRelease(options) {
+/** The release to package: a file when given, else the public API for the tag (default: package.json's version). */
+export async function loadRelease(options, fetchUrl = fetch) {
   if (options.releaseJson) return JSON.parse(readFileSync(options.releaseJson, "utf8"));
   const tag = options.tag ?? `v${packageVersion()}`;
-  return JSON.parse(execFileSync("gh", ["api", `repos/${REPO}/releases/tags/${tag}`], { encoding: "utf8" }));
+  const url = `https://api.github.com/repos/${REPO}/releases/tags/${encodeURIComponent(tag)}`;
+  const response = await fetchUrl(url, { headers: { accept: "application/vnd.github+json" } });
+  if (!response.ok) throw new Error(`${url} answered ${response.status}; is ${tag} published in ${REPO}?`);
+  return response.json();
 }
 
 /**
  * Runs one package's update from the command line: reads the release, hands
  * its assets to `update`, and writes the files it returns under the checkout.
  */
-export function runUpdate(argv, usage, update) {
+export async function runUpdate(argv, usage, update) {
   const options = parseArgs(argv);
   if (options.help) {
     console.log(usage);
     return;
   }
-  const release = loadRelease(options);
+  const release = await loadRelease(options);
   const assets = releaseAssets(release);
   if (assets.prerelease) throw new Error(`${assets.tag} is a prerelease; the package managers carry stable releases only.`);
   for (const [path, text] of Object.entries(update(assets, release))) {
@@ -123,5 +137,5 @@ export function isMain(url) {
 }
 
 export function main(run) {
-  try { run(); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
+  Promise.resolve().then(run).catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
 }

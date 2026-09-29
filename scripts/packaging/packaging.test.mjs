@@ -4,12 +4,12 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isNightlyVersion } from "../../src/shared/app-version.js";
 import { foreignMachOFiles, machOArchitectures, macPackagesFor } from "./mac-architectures.mjs";
 import { nightlyVersion, parseArgs as parseNightlyArgs } from "./nightly-version.mjs";
-import { ROOT, parseArgs, releaseAssets, versionOfTag } from "./release.mjs";
-import { AUR_DIR } from "./update-aur.mjs";
+import { ROOT, loadRelease, parseArgs, releaseAssets, versionOfTag } from "./release.mjs";
+import { AUR_DIR, renderPkgbuild, renderSrcinfo } from "./update-aur.mjs";
 import { renderCask } from "./update-cask.mjs";
 import { RELEASE_PATH, renderPackages } from "./update-packages.mjs";
 import { renderWingetManifests } from "./update-winget.mjs";
@@ -18,18 +18,18 @@ import { renderWingetManifests } from "./update-winget.mjs";
 const RELEASE = JSON.parse(readFileSync(new URL("./fixtures/release-v0.4.0.json", import.meta.url), "utf8"));
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
 
-/** A later release with the installer name the artifactName fix gives it. */
+/** A later release as the public release repository carries it, with the installer name the artifactName fix gives it. */
 function nextRelease() {
   const hash = (char) => char.repeat(64);
-  const asset = (name, char) => ({ name, digest: `sha256:${hash(char)}`, browser_download_url: `https://github.com/Rasalas/tau/releases/download/v0.4.1/${name}` });
+  const asset = (name, char) => ({ name, digest: `sha256:${hash(char)}`, browser_download_url: `https://github.com/Rasalas/tau-releases/releases/download/v0.4.1/${name}` });
   return {
     tag_name: "v0.4.1",
     prerelease: false,
     published_at: "2026-10-01T10:00:00Z",
-    html_url: "https://github.com/Rasalas/tau/releases/tag/v0.4.1",
+    html_url: "https://github.com/Rasalas/tau-releases/releases/tag/v0.4.1",
     assets: [
       asset("Tau-0.4.1-arm64.dmg", "a"), asset("Tau-0.4.1-arm64.dmg.blockmap", "0"), asset("Tau-0.4.1.dmg", "b"),
-      asset("Tau-0.4.1.AppImage", "c"), asset("Tau-Setup-0.4.1.exe", "d"), asset("latest-mac.yml", "e"),
+      asset("Tau-0.4.1.AppImage", "c"), asset("Tau-Setup-0.4.1.exe", "d"), asset("latest-mac.yml", "e"), asset("LICENSE", "f"),
     ],
   };
 }
@@ -58,6 +58,20 @@ describe("release assets", () => {
     expect(() => versionOfTag("nightly")).toThrow("not a release tag");
   });
 
+  it("reads a release from the public repository without a login", async () => {
+    const fetchUrl = vi.fn(async () => new Response(JSON.stringify(nextRelease())));
+    expect((await loadRelease({ tag: "v0.4.1" }, fetchUrl)).tag_name).toBe("v0.4.1");
+    expect(fetchUrl).toHaveBeenCalledWith("https://api.github.com/repos/Rasalas/tau-releases/releases/tags/v0.4.1", { headers: { accept: "application/vnd.github+json" } });
+    await expect(loadRelease({ tag: "v0.4.0" }, vi.fn(async () => new Response("{}", { status: 404 })))).rejects.toThrow("is v0.4.0 published in Rasalas/tau-releases?");
+  });
+
+  it("knows the repository a release lives in", () => {
+    expect(releaseAssets(RELEASE).repoUrl).toBe("https://github.com/Rasalas/tau");
+    expect(releaseAssets(nextRelease()).repoUrl).toBe("https://github.com/Rasalas/tau-releases");
+    expect(releaseAssets(nextRelease()).license).toEqual({ name: "LICENSE", url: "https://github.com/Rasalas/tau-releases/releases/download/v0.4.1/LICENSE" });
+    expect(releaseAssets(RELEASE).license).toBeUndefined();
+  });
+
   it("parses the command line the three scripts share", () => {
     expect(parseArgs(["--tag", "v0.4.0"])).toEqual({ tag: "v0.4.0", releaseJson: undefined, help: false });
     expect(() => parseArgs(["--tag"])).toThrow("--tag needs a value");
@@ -80,8 +94,9 @@ describe("the Homebrew cask", () => {
     expect(cask).toContain('version "0.4.1"');
     expect(cask).toContain(`sha256 "${"a".repeat(64)}"`);
     expect(cask).toContain(`sha256 "${"b".repeat(64)}"`);
-    expect(cask).toContain('url "https://github.com/Rasalas/tau/releases/download/v#{version}/Tau-#{version}-arm64.dmg"');
-    expect(cask).toContain('url "https://github.com/Rasalas/tau/releases/download/v#{version}/Tau-#{version}.dmg"');
+    expect(cask).toContain('url "https://github.com/Rasalas/tau-releases/releases/download/v#{version}/Tau-#{version}-arm64.dmg"');
+    expect(cask).toContain('url "https://github.com/Rasalas/tau-releases/releases/download/v#{version}/Tau-#{version}.dmg"');
+    expect(cask).toContain('homepage "https://github.com/Rasalas/tau-releases"');
   });
 });
 
@@ -94,13 +109,26 @@ describe("the winget manifests", () => {
       expect(text).toContain("ManifestVersion: 1.9.0\n");
     }
     const installer = manifests["Rasalas.Tau.installer.yaml"];
-    expect(installer).toContain("InstallerUrl: https://github.com/Rasalas/tau/releases/download/v0.4.1/Tau-Setup-0.4.1.exe");
+    expect(installer).toContain("InstallerUrl: https://github.com/Rasalas/tau-releases/releases/download/v0.4.1/Tau-Setup-0.4.1.exe");
+    const locale = manifests["Rasalas.Tau.locale.en-US.yaml"];
+    expect(locale).toContain("PackageUrl: https://github.com/Rasalas/tau-releases\n");
+    expect(locale).toContain("LicenseUrl: https://github.com/Rasalas/tau-releases/releases/download/v0.4.1/LICENSE\n");
+    expect(locale).toContain("ReleaseNotesUrl: https://github.com/Rasalas/tau-releases/releases/tag/v0.4.1\n");
     expect(installer).toContain(`InstallerSha256: ${"D".repeat(64)}`);
     expect(installer).toContain("ReleaseDate: 2026-10-01");
   });
 });
 
 describe("the AUR package", () => {
+  it("downloads the AppImage and the license from the public release", () => {
+    const assets = releaseAssets(nextRelease());
+    const pkgbuild = renderPkgbuild(assets, "f".repeat(64));
+    expect(pkgbuild).toContain("url='https://github.com/Rasalas/tau-releases'");
+    expect(pkgbuild).toContain('"${_appimage}::https://github.com/Rasalas/tau-releases/releases/download/v${_version}/${_appimage}"');
+    expect(pkgbuild).toContain('"LICENSE-${_version}::https://github.com/Rasalas/tau-releases/releases/download/v${_version}/LICENSE"');
+    expect(renderSrcinfo(assets, "f".repeat(64))).toContain("\tsource = LICENSE-0.4.1::https://github.com/Rasalas/tau-releases/releases/download/v0.4.1/LICENSE\n");
+  });
+
   it("describes the same sources and hashes in the PKGBUILD as in .SRCINFO", () => {
     // What makepkg would read: the PKGBUILD evaluated by bash.
     const script = `source "$1"; printf '%s\\n' "$pkgver" "\${source[@]}" "\${sha256sums[@]}" "\${depends[@]}" "\${conflicts[@]}"`;
