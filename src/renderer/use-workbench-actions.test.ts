@@ -162,6 +162,23 @@ describe("useWorkbenchActions", () => {
     dispatchEvent.mockRestore();
   });
 
+  it("focuses the composer, and shows the chat first when a folded one could not take the keyboard", () => {
+    const composer = document.createElement("textarea");
+    document.body.append(composer);
+    const showThread = vi.fn();
+    const options = createMockOptions({ composerRef: { current: composer }, showThread });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+
+    result.current.focusComposer();
+    expect(document.activeElement).toBe(composer);
+    expect(showThread).not.toHaveBeenCalled();
+
+    // Folded out of sight, it cannot take focus.
+    composer.remove();
+    result.current.focusComposer();
+    expect(showThread).toHaveBeenCalledWith({ focusComposer: true });
+  });
+
   it("focuses the supplied active transcript ref without consulting DOM class names", () => {
     const transcript = document.createElement("div");
     transcript.tabIndex = 0;

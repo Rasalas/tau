@@ -38,6 +38,8 @@ export interface UseWorkbenchActionsOptions {
   composerRef: RefObject<HTMLTextAreaElement | null>;
   transcriptRef: RefObject<HTMLDivElement | null>;
   focusStage: () => void;
+  /** Brings the chat into view (out of a maximized stage, a sheet); with `focusComposer`, the composer takes the keyboard once drawn. */
+  showThread?: (options: { focusComposer: true }) => void;
   toggleSidebar?: () => void;
   openPanel: (id: string) => void;
   closePanel?: (id: string) => void;
@@ -156,7 +158,10 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       duplicateThread,
       focusComposer: (seed) => {
         if (seed !== undefined) options.setComposerSeed(seed);
-        options.composerRef.current?.focus();
+        const composer = options.composerRef.current;
+        composer?.focus();
+        // A folded chat (a maximized stage) cannot take it: show the chat, then the composer takes it.
+        if (composer && document.activeElement !== composer) options.showThread?.({ focusComposer: true });
       },
       // The transcript ref is attached to the active, focusable transcript.
       // Keep this action independent of its internal CSS and virtualizer rows.
