@@ -10,7 +10,7 @@
 }
 .token-gate h1 { margin: 0; font: 650 17px var(--sans); }
 .token-gate p { margin: 0; font: var(--text-sm)/1.5 var(--sans); color: var(--ink-3); }
-.token-gate code { font: calc(var(--text-xs) + .5px) var(--mono); color: var(--ink-2); }
+.token-gate code { font: var(--text-xs) var(--mono); color: var(--ink-2); }
 .token-gate-notice { color: #d88c83; }
 .token-gate label { display: flex; flex-direction: column; gap: 5px; }
 .token-gate label span { font: 550 var(--text-xs) var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
