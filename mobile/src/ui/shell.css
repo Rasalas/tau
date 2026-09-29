@@ -12,7 +12,7 @@ html, body { margin: 0; background: var(--shell); }
   min-height: 52px; padding: 0 6px 0 16px;
 }
 .shell-header:has(> .shell-icon-button:first-child) { padding-left: 4px; }
-.shell-header h1 { margin: 0; font: 650 22px var(--sans); letter-spacing: -0.01em; }
+.shell-header h1 { margin: 0; font: 650 var(--text-display) var(--sans); letter-spacing: -0.01em; }
 .shell-scroll {
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
@@ -27,7 +27,7 @@ html, body { margin: 0; background: var(--shell); }
 .shell-notice {
   margin: 4px 16px 12px; padding: 12px 14px;
   border: 1px solid var(--danger-line); border-radius: 12px; background: var(--danger-bg);
-  font: 14px/1.45 var(--sans); color: var(--ink);
+  font: var(--text-md)/1.45 var(--sans); color: var(--ink);
 }
 
 /* Flat rows with dividers, no cards (the user's list rules). */
@@ -45,28 +45,28 @@ html, body { margin: 0; background: var(--shell); }
   border-radius: 10px; background: var(--sunken); color: var(--ink-2);
 }
 .shell-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.shell-row-text > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 550 16px/21px var(--sans); }
-.shell-row-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--sans); color: var(--muted); }
+.shell-row-text > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 550 var(--text-md)/1.3 var(--sans); }
+.shell-row-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-xs) var(--sans); color: var(--muted); }
 .shell-row[data-signed-out] .shell-row-text > small { color: var(--danger); }
 
 .shell-section { margin-top: 20px; }
 .shell-section > h2 {
   display: flex; align-items: center; gap: 8px; margin: 0 16px 4px;
-  font: 500 13px var(--sans); color: var(--muted);
+  font: 500 var(--text-xs) var(--sans); color: var(--muted);
 }
 .shell-section > h2::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
-.shell-hint { margin: 8px 16px; font: 14px/1.45 var(--sans); color: var(--muted); }
+.shell-hint { margin: 8px 16px; font: var(--text-sm)/1.45 var(--sans); color: var(--muted); }
 
 .shell-empty {
   display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 36px 24px 12px; text-align: center;
-  font: 15px/1.45 var(--sans); color: var(--muted);
+  font: var(--text-md)/1.45 var(--sans); color: var(--muted);
 }
-.shell-empty > strong { font: 600 17px var(--sans); color: var(--ink-2); }
+.shell-empty > strong { font: 600 var(--text-lg) var(--sans); color: var(--ink-2); }
 .shell-empty > p { margin: 0; }
 .shell-empty > button {
   display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; min-height: 44px; padding: 0 16px;
   border: 1px solid var(--line-control); border-radius: 10px; background: var(--raised); color: var(--ink);
-  font: 550 15px var(--sans); cursor: pointer;
+  font: 550 var(--text-md) var(--sans); cursor: pointer;
 }
 
 /* Add host: the list's primary action, bottom right above the safe area. */
@@ -82,22 +82,22 @@ html, body { margin: 0; background: var(--shell); }
 
 /* Forms and their actions: full width, 50 px, stacked. */
 .shell-form { display: flex; flex-direction: column; gap: 14px; padding: 4px 16px 0; }
-.shell-form > p { margin: 0; font: 15px/1.45 var(--sans); color: var(--ink-3); }
+.shell-form > p { margin: 0; font: var(--text-md)/1.45 var(--sans); color: var(--ink-3); }
 .shell-form form { display: flex; flex-direction: column; gap: 10px; }
 .shell-field { display: flex; flex-direction: column; gap: 6px; }
-.shell-field > span { font: 550 14px var(--sans); color: var(--ink-2); }
+.shell-field > span { font: 550 var(--text-sm) var(--sans); color: var(--ink-2); }
 .shell-field textarea {
   min-height: 88px; padding: 10px 12px; resize: none;
   border: 1px solid var(--line-field); border-radius: 12px; background: var(--field); color: var(--ink);
-  font: 16px/1.4 var(--mono); word-break: break-all;
+  font: max(16px, var(--text-input))/1.4 var(--mono); word-break: break-all;
 }
 .shell-field textarea:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
 .shell-field textarea[aria-invalid] { border-color: var(--danger-line); }
-.shell-field-error { margin: 0; font: 14px/1.4 var(--sans); color: var(--danger); }
+.shell-field-error { margin: 0; font: var(--text-sm)/1.4 var(--sans); color: var(--danger); }
 .shell-primary, .shell-secondary, .shell-danger {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   width: 100%; min-height: 50px; padding: 0 16px; border-radius: 12px;
-  font: 600 16px var(--sans); cursor: pointer;
+  font: 600 var(--text-md) var(--sans); cursor: pointer;
 }
 .shell-primary { border: 0; background: var(--acid); color: var(--acid-ink); }
 .shell-secondary { border: 1px solid var(--line-control); background: var(--raised); color: var(--ink); }
@@ -114,9 +114,9 @@ html, body { margin: 0; background: var(--shell); }
   flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px;
   padding: 24px; text-align: center;
 }
-.shell-pairing-body h1 { margin: 0; font: 650 22px var(--sans); }
-.shell-pairing-body p { margin: 0; max-width: 340px; font: 15px/1.5 var(--sans); color: var(--ink-3); }
-.shell-pairing-body small { font: 13px var(--sans); color: var(--muted); }
+.shell-pairing-body h1 { margin: 0; font: 650 var(--text-display) var(--sans); }
+.shell-pairing-body p { margin: 0; max-width: 340px; font: var(--text-md)/1.5 var(--sans); color: var(--ink-3); }
+.shell-pairing-body small { font: var(--text-xs) var(--sans); color: var(--muted); }
 .shell-code {
   display: block; padding: 8px 0; font: 600 44px/1 var(--mono); letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums; color: var(--ink);
@@ -132,7 +132,7 @@ html, body { margin: 0; background: var(--shell); }
   background: var(--float); color: var(--ink); box-shadow: var(--shadow-strong);
 }
 .shell-dialog > header { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 16px; }
-.shell-dialog h2 { flex: 1; margin: 0; font: 650 18px var(--sans); }
-.shell-dialog > p { margin: 4px 16px 4px; font: 15px/1.5 var(--sans); color: var(--ink-3); }
+.shell-dialog h2 { flex: 1; margin: 0; font: 650 var(--text-title) var(--sans); }
+.shell-dialog > p { margin: 4px 16px 4px; font: var(--text-md)/1.5 var(--sans); color: var(--ink-3); }
 
 .shell-fatal { padding: calc(24px + env(safe-area-inset-top, 0px)) 24px; font: 15px/1.5 var(--sans); color: var(--ink); }
