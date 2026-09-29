@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getAgentDir, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   HostEvent,
@@ -76,8 +76,11 @@ import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
 import { TurnSettlement } from "./turn-settlement.js";
 import { ModelPriceBook, piNewThreadCatalog } from "./model-price-book.js";
 import { createModelAuth } from "./model-auth.js";
-import { modelReleaseDate } from "./pi-model-runtime.js";
+import { modelReleaseDate, useModelCatalog } from "./pi-model-runtime.js";
+import { SignedModelCatalog, modelCatalogKeys } from "./model-catalog.js";
+import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
+import { RuntimeToolUpdates } from "./runtime-tool-updates.js";
 import { UsagePricing, type UsageTally } from "./usage-pricing.js";
 import { ThreadRunClock } from "./thread-run-clock.js";
 import { readModelPrices } from "../shared/model-prices.js";
@@ -205,6 +208,8 @@ export interface PiHostComponents {
   readonly settlement: TurnSettlement;
   /** What every runtime offers a new thread, kept across runs. */
   readonly catalogs: RuntimeCatalogs;
+  /** Keeps the agent CLIs current (Settings → Runtimes). */
+  readonly toolUpdates: RuntimeToolUpdates;
   /** What threads cost: the user's prices, the runtimes', a subscription's value. */
   readonly pricing: UsagePricing;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
@@ -218,8 +223,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const sessionsDirOverride = resolvePiSessionsDirOverride();
   const lifecycleMetrics = new HostLifecycleInstrumentation();
   const runClock = new ThreadRunClock();
+  let toolUpdates: RuntimeToolUpdates | undefined;
   const emit: Emit = (event) => {
     const stamped = runClock.stamp(event);
+    if (stamped.type === "agent-status" && !stamped.running) toolUpdates?.turnEnded();
     lifecycleMetrics.recordIpc(stamped);
     deps.emit(stamped);
   };
@@ -487,7 +494,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
   };
   const seam = createHostExtensionSeam(port);
-  const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit);
+  const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit, (kind) => void publication.recheckVersion(kind));
   // `disabledExtensions` is the one list every client follows; the host's halves follow it too.
   const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event), {
     disabled: () => {
@@ -604,7 +611,31 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     errorMessage: (error) => deps.errorMessage(error),
     fail: (error, sessionId) => deps.fail(error, sessionId),
     runs: () => runClock.runs(),
+    toolUpdates: (kind) => toolUpdates?.updatesFor(kind),
+    prepareToolUpdates: async (kind) => { await toolUpdates?.ensure(kind); },
   });
+  let refreshModelCatalog: (() => Promise<void>) | undefined;
+  toolUpdates = new RuntimeToolUpdates({
+    backends: () => seam.backends.values(),
+    busy: () => new Set(Object.keys(runClock.runs()).map((threadId) => index.byId(threadId)?.backendKind ?? "pi")),
+    recheck: async (kind) => { await Promise.all([publication.recheckVersion(kind), catalogs.recheck(kind)]); },
+    changed: () => void publication.publishActiveCatalog().catch(() => undefined),
+    ...(options.runtimeCatalogsPath ? { file: join(dirname(options.runtimeCatalogsPath), "runtime-tool-updates.json") } : {}),
+    refresh: async () => {
+      await refreshModelCatalog?.();
+      const kinds = ["pi", ...[...seam.backends.values()].map((provider) => provider.kind)];
+      await Promise.all(kinds.map((kind) => Promise.all([publication.recheckVersion(kind), catalogs.recheck(kind)])));
+    },
+    automatic: options.warmRuntimeCatalogs === true,
+    safeMode,
+    log: (label, detail) => deps.log(label, detail),
+  });
+  if (options.warmRuntimeCatalogs === true && options.runtimeCatalogsPath && !safeMode) {
+    refreshModelCatalog = followModelCatalog(join(dirname(options.runtimeCatalogsPath), "model-catalog.json"), getAgentDir(), (label, detail) => deps.log(label, detail), () => {
+      publication.credentialsChanged();
+      void catalogs.recheck("pi");
+    });
+  }
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
   /**
    * Edits to a package, a theme, the keybindings or the config take effect
@@ -728,6 +759,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     limits,
     settlement,
     catalogs,
+    toolUpdates,
     pricing,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
   };
@@ -741,6 +773,7 @@ function runtimeCatalogs(
   piAdapter: AgentRuntimeAdapter,
   backends: () => Iterable<HostRuntimeBackendProvider>,
   emit: Emit,
+  programChanged: (kind: ThreadBackendKind) => void,
 ): RuntimeCatalogs {
   let book: Promise<ModelPriceBook | undefined> | undefined;
   const priceBook = () => book ??= completions.catalogData().then((data) => new ModelPriceBook(data.known, modelReleaseDate), () => {
@@ -759,13 +792,54 @@ function runtimeCatalogs(
   };
   return new RuntimeCatalogs({
     sources: () => [pi, ...sortByRuntimeOrder([...backends()]).flatMap((provider): RuntimeCatalogSource[] => provider.newThreadCatalog
-      ? [{ kind: provider.kind, owner: provider, capabilities: provider.adapter.capabilities, load: () => provider.newThreadCatalog!() }]
+      ? [{
+        kind: provider.kind,
+        owner: provider,
+        capabilities: provider.adapter.capabilities,
+        load: () => provider.newThreadCatalog!(),
+        ...(provider.programKey ? { programKey: () => provider.programKey!() } : {}),
+      }]
       : [])],
     priceBook,
     publish: (catalog) => emit({ type: "runtime-catalog", catalog }),
     automatic: options.warmRuntimeCatalogs === true && !deps.safeMode,
     log: (label, detail) => deps.log(label, detail),
+    programChanged,
     ...(options.runtimeCatalogsPath ? { file: options.runtimeCatalogsPath } : {}),
     ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
   });
+}
+
+/** How long start-up has the network to itself before the catalog is fetched. */
+const MODEL_CATALOG_DELAY_MS = 30_000;
+const MODEL_CATALOG_EVERY_MS = 6 * 60 * 60_000;
+
+/**
+ * Tau's signed model catalog for Pi: the last good one from disk at once, a
+ * newer one from the website once a day (`TAU_MODEL_CATALOG_URL` and
+ * `TAU_MODEL_CATALOG_KEY` point a test host at its own; `TAU_NO_MODEL_CATALOG=1`
+ * and `PI_OFFLINE` keep it off the network).
+ */
+function followModelCatalog(file: string, agentDir: string, log: (label: string, detail?: string) => void, changed: () => void): () => Promise<void> {
+  const env = process.env;
+  const url = env.TAU_MODEL_CATALOG_URL?.trim();
+  const feed = new SignedModelCatalog({ file, keys: modelCatalogKeys(env, RELEASE_PUBLIC_KEYS), ...(url ? { url } : {}), log });
+  void feed.load().then(() => { if (feed.current()) { useModelCatalog(feed.current(), agentDir); changed(); } });
+  const offline = env.TAU_NO_MODEL_CATALOG === "1" || env.PI_OFFLINE !== undefined;
+  // The Refresh button: asked now, however fresh the held one is.
+  const now = async () => {
+    if (offline || !await feed.refresh(true)) return;
+    useModelCatalog(feed.current(), agentDir);
+    changed();
+  };
+  if (offline) return now;
+  const check = () => {
+    void feed.refresh().then((newer) => {
+      if (!newer) return;
+      useModelCatalog(feed.current(), agentDir);
+      changed();
+    }).finally(() => { setTimeout(check, MODEL_CATALOG_EVERY_MS).unref?.(); });
+  };
+  setTimeout(check, MODEL_CATALOG_DELAY_MS).unref?.();
+  return now;
 }

@@ -22,7 +22,19 @@ Codex threads drive the installed `codex` CLI through its app server (`codex app
 
 ## Keeping the CLIs current
 
-For Claude Code and Codex, the picker's runtime tab and Settings → Runtimes say when npm has a newer release of the CLI than the one installed, with the command that updates it; for Antigravity, when Tau pins a newer server than it installed.
+Settings → Runtimes lists, under **Agent tools**, each agent CLI Tau drives: its version, where it comes from and the command that updates it. Tau reads the source from where the executable really lives: a Homebrew formula or cask (only the formulae and casks each runtime names, and only with the `brew` of that prefix), a global npm, pnpm or bun install (the package's own folder in the path, so a global under a Homebrew-installed Node counts as npm's), or the program's own installer (the Agent SDK runtime's CLI under `~/.local/share`, `cursor-agent`, OpenCode's install script). Anything else, Grok Build's CLI among it for now, is shown as unknown and left to you.
+
+With **Keep agent tools up to date** on (Tau asks once, when the first update is out; the choice holds for this machine), Tau checks every six hours and runs that update itself as soon as none of the runtime's turns runs, then asks the program for its version and models again. Each run lands in the page's activity log with its command; a failed one keeps its output and the version it left. **Update now** runs one update by hand. Without the setting, the picker's runtime tab and an update toast say when a newer release is out, as before; for Antigravity, when Tau pins a newer server than it installed.
+
+A Homebrew cask can lag npm by a release (Codex 0.159.1 was on npm while the cask still had 0.159.0). The page then says so ("Homebrew has 0.159.0, npm 0.159.1") and offers **Switch to npm**: after you confirm, Tau removes the Homebrew install and installs the npm package; if npm fails, it puts the Homebrew install back. Tau never switches on its own. Every command is an argument list built from the package names Tau knows, never a shell line. A test instance (`TAU_RUNTIME_UPDATE_COMMAND` or `TAU_NO_RUNTIME_UPDATES=1`) and safe mode run none.
+
+A model list follows its program: once a CLI was replaced (its file's path, size or time changed), the next picker asks it again instead of showing what the old one named. **Refresh** on the Agent tools section asks every runtime at once.
+
+## Models Pi does not know yet
+
+Pi's model list comes with Tau's Pi package and with Pi's own online catalog. Tau adds a catalog of its own on top: `https://rasalas.github.io/tau/catalog/models.json`, signed with Tau's release key (`models.json.sig`). A host fetches it once a day (and on Refresh), checks the signature against the keys it ships and ignores a file without a valid one or with a lower `revision`; offline it keeps the last good copy (`<userData>/model-catalog.json`). The catalog only adds models Pi does not list, each built on a model of the same provider (`like`), with its context, output, input kinds, thinking levels, price per million tokens and release date; a provider your own `~/.pi/agent/models.json` shapes is left alone. `TAU_NO_MODEL_CATALOG=1` or `PI_OFFLINE` keeps it off the network.
+
+To change it, edit `catalog/models.json` (one entry per provider and model; raise `revision` with every change, never lower it) and merge to main: the Pages workflow builds it (`npm run site:catalog`), signs it with `TAU_RELEASE_SIGNING_KEY` in the `release` environment and publishes it with the site. Nothing is signed on a laptop. A test host reads its own catalog with `TAU_MODEL_CATALOG_URL` (an `https:` or `file:` address) and `TAU_MODEL_CATALOG_KEY`, the throwaway key that signed it.
 
 ## Which runtime a thread gets
 

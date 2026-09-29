@@ -65,6 +65,7 @@
     "screenshots": "node scripts/screenshots/run.mjs",
     "screenshots:site": "node scripts/screenshots/run.mjs --out site/assets --format webp --theme both",
     "site:docs": "node scripts/site/build-docs.mjs",
+    "site:catalog": "node scripts/site/build-model-catalog.mjs",
     "typecheck:kits": "tsc -p tooling/tsconfig.kits.json --noEmit",
     "typecheck:examples": "tsc -p tooling/tsconfig.examples.json --noEmit",
     "build:kits": "node scripts/build-kits.mjs"

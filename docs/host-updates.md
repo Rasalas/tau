@@ -126,6 +126,11 @@ verifies against a listed key; nothing is downloaded before that. An update
 is checked against the keys of the Tau already installed, so a new key has to
 ship before anything is signed with it alone.
 
+The same key signs Tau's model catalog (`catalog/models.json`, published by
+the Pages workflow as `catalog/models.json` and `.sig`, see
+[Runtimes](runtimes.md#models-pi-does-not-know-yet)); a host takes a catalog
+only with a line that verifies, so a rotation covers it too.
+
 The first key (`8hB4AtWu…Smg=`) ships in 0.7.14 together with the host
 updater and the helper, and 0.7.14 is the first signed release.
 

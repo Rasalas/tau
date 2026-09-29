@@ -5,6 +5,7 @@ import type { ModelBadgeContribution, ModelSelectionContribution } from "../exte
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 import { withPriceOverride } from "../../shared/model-prices";
 import { modelPresentation } from "../model-manifest";
+import { getHostClient } from "../host-client-context";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeInstanceId } from "../../shared/runtime-instances";
@@ -237,6 +238,9 @@ export function ModelPicker({
   const [filters, setFilters] = useState<OfferingFilters>(NO_FILTERS);
   const [showHidden, setShowHidden] = useState(false);
   const [menu, setMenu] = useState<"options">();
+  const [refreshing, setRefreshing] = useState(false);
+  // A CLI updated behind Tau's back names its new models only when asked again.
+  const refreshModels = getHostClient()?.runtimeTools;
   const [cursor, setCursor] = useState<number>();
   const [expandedLegacy, setExpandedLegacy] = useState<ReadonlySet<string>>(() => new Set());
   const [expandedAll, setExpandedAll] = useState<ReadonlySet<string>>(() => new Set());
@@ -844,7 +848,7 @@ export function ModelPicker({
       {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
       {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
 
-      {recents.length || onOpenSettings ? <footer className="model-recent">
+      {recents.length || onOpenSettings || refreshModels ? <footer className="model-recent">
         {recents.length ? <span className="model-recent-label">Recent</span> : null}
         {recents.length ? <span className="model-recent-list">
           {recents.map((offering) => (
@@ -855,6 +859,12 @@ export function ModelPicker({
           ))}
         </span> : null}
         <span className="spacer" />
+        {refreshModels ? (
+          <button className="model-footer-link" disabled={refreshing} {...tooltipProps("Ask every runtime for its version and models again", { side: "top" })} onClick={() => {
+            setRefreshing(true);
+            void refreshModels("refresh").catch(() => undefined).finally(() => setRefreshing(false));
+          }}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+        ) : null}
         {onOpenSettings ? (
           <button className="model-footer-link" onClick={() => { onOpenSettings(pinRuntime, "models"); onClose(); }}>
             {stacked ? "Pin in Settings" : "Pin models in Settings"}

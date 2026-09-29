@@ -232,6 +232,57 @@ export interface RuntimeToolVersion {
   updateCommand?: string;
   /** How well Tau works with `installed`, when the backend keeps a policy for it. */
   compatibility?: RuntimeCompatibility;
+  /**
+   * Tau updates this program itself (`automatic`), or could once the user
+   * answers "Keep agent tools up to date" (`ask`); absent: the user updates it.
+   */
+  updates?: "automatic" | "ask";
+}
+
+/** Settings → Runtimes: how this machine's Tau keeps the agent CLIs current. */
+export interface UiRuntimeToolsState {
+  /** "Keep agent tools up to date"; undefined until the user answered once. */
+  automatic?: boolean;
+  /** Why this Tau runs no update at all (safe mode, a test instance). */
+  blocked?: string;
+  tools: UiRuntimeTool[];
+  /** Newest first. */
+  log: UiRuntimeToolLogEntry[];
+}
+
+/** One installed program; the runtimes that share it (instances) update together. */
+export interface UiRuntimeTool {
+  kinds: ThreadBackendKind[];
+  label: string;
+  tool: string;
+  installed?: string;
+  /** The newest release the install's own source offers. */
+  latest?: string;
+  /** "Homebrew cask codex", "npm in ~/.local", "its own installer". */
+  source: string;
+  /** What Tau runs to update it; absent when it cannot. */
+  update?: string;
+  /** Why Tau cannot update it. */
+  note?: string;
+  /** The install's source lags another: "Homebrew has 0.159.0, npm 0.159.1". */
+  behind?: { source: string; latest: string; newer: { source: string; latest: string } };
+  /** What a switch to the newer source runs, in order. */
+  switchSteps?: string[];
+  state?: "updating" | "switching" | "waiting";
+}
+
+export interface UiRuntimeToolLogEntry {
+  at: number;
+  label: string;
+  action: "update" | "switch" | "restore";
+  command?: string;
+  from?: string;
+  to?: string;
+  /** `waiting`: a turn of the runtime runs; `unchanged`: it ran, and the version stayed. */
+  outcome: "ok" | "failed" | "waiting" | "unchanged";
+  message?: string;
+  /** The end of what the command printed. */
+  output?: string;
 }
 
 /**

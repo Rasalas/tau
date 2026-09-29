@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,8 +149,9 @@ describe("Codex host half", () => {
     const { provider, fetch } = await harness();
     await expect(provider.version!()).resolves.toEqual({ tool: "codex", installed: "0.154.0", latest: "0.155.1", updateCommand: "brew upgrade --cask codex" });
     await provider.version!();
-    // The registry is asked once a day, not once per question.
-    expect(fetch).toHaveBeenCalledTimes(1);
+    // npm and, for a cask, Homebrew are each asked once a day, not once per question.
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.map((call: unknown[]) => String(call[0]))).toEqual(["https://registry.npmjs.org/@openai/codex/latest", "https://formulae.brew.sh/api/cask/codex.json"]);
   });
 
   it("reads the CLI again on recheck and registers its backend anew, so core asks the version too", async () => {
@@ -164,6 +165,21 @@ describe("Codex host half", () => {
     expect(backends).toHaveLength(1);
     expect(backends[0]).not.toBe(provider);
     await expect(registry.invoke("tau.codex", "recheck", { instance: "nope" })).rejects.toThrow("no instance");
+  });
+
+  it("reads a CLI replaced in place again, and says how it is installed and what updates it", async () => {
+    const options: { installed?: string } = { installed: "0.154.0" };
+    const { provider, root } = await harness(options);
+    const key = await provider.programKey!();
+    await expect(provider.version!()).resolves.toMatchObject({ installed: "0.154.0" });
+    options.installed = "0.155.1";
+    // An update rewrites the file: same path, another fingerprint.
+    const real = join(root, "Caskroom", "codex", "0.154.0", "bin", "codex");
+    await writeFile(real, "a newer codex");
+    await utimes(real, new Date(), new Date(Date.now() + 5_000));
+    expect(await provider.programKey!()).not.toBe(key);
+    await expect(provider.version!()).resolves.toMatchObject({ installed: "0.155.1" });
+    await expect(provider.maintenance!()).resolves.toMatchObject({ tool: "codex", installed: "0.155.1", install: { method: "homebrew-cask", label: "Homebrew cask codex" } });
   });
 
   it("names the update command TAU_RUNTIME_UPDATE_COMMAND gives, for a test instance", async () => {

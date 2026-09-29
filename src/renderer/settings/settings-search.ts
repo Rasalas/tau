@@ -68,6 +68,7 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
     keywords: ["harness", "backend", "program", "cli", "version", "update", "install", "instance", "permissions"],
     rows: [
       ["Runtime for new threads", ["default runtime", "runtime", "backend", "program", "make default"]],
+      ["Keep agent tools up to date", ["agent tools", "update", "upgrade", "homebrew", "brew", "npm", "refresh", "models", "automatic"]],
     ],
   },
   {

@@ -2359,6 +2359,36 @@ executable's resolved path, or `undefined` for the program's own updater. The
 registry request needs the `network` permission. Claude Code and Codex use
 both; Antigravity reports the release it pins.
 
+#### Keeping the program current (K124, next API version)
+
+`maintenance()` on the provider answers how the program is installed and what
+keeps it current (`RuntimeToolMaintenance`): `install` (`method` —
+`homebrew-formula`, `homebrew-cask`, `npm`, `pnpm`, `bun`, `native` or
+`unknown` —, a `label` for people, the path and its resolved target),
+`installed`, `latest` as the install's own source has it, `update` (a
+`CliCommand`: `executable` and `args`, never a shell line), `env` for the
+instance, and, when Homebrew lags npm, `behind` and the `switch` steps with
+their `restore`. `cliMaintenance({ tool, path, installed?, spec, findCommand,
+cacheFile })` in `tau/host-extension` builds all of it from a
+`CliPackageSpec` — the npm package, the Homebrew formulae and casks, and the
+program's own updater with the path fragments it owns — so a command only
+ever names a package the kit declared, and a keg of another name or a `brew`
+of another prefix gets none. `detectCliInstall`, `homebrewLatestVersion`
+(Homebrew's JSON API, cached with `npmLatestVersion`'s file) and
+`cliCommandText` are the pieces. The host runs `update` itself when the user
+keeps agent tools up to date (`src/main/runtime-tool-updates.ts`), and
+`switch` only when the user asks; clients see it as `version.updates`
+(`automatic`, or `ask` before the user answered once) and offer no update
+toast for an `automatic` one. Codex, the Agent SDK runtime, Cursor, OpenCode
+and Grok answer it.
+
+`programKey()` changes whenever the program does; `executableFingerprint(path)`
+(resolved path, size, modification time) is the usual answer. The host keeps
+it beside each held catalog and asks a runtime again at once when its key
+changed, and asks its version again too, so a CLI updated outside Tau shows
+its models the next time a picker opens. Each kit also reads its CLI's version
+and drops its own probe cache when the fingerprint changed.
+
 #### A new thread's model before it exists (new in API 1.11.0)
 
 `newThreadCatalog()` on the provider answers what a thread that does not

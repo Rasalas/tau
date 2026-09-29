@@ -7,6 +7,8 @@ import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
 import { declareRuntimeMarks } from "../runtime-marks";
 import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
+import { setHostClient } from "../host-client-context";
+import type { HostClient } from "../../workbench/host-client";
 
 beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
 afterAll(() => declareRuntimeMarks([]));
@@ -564,6 +566,20 @@ describe("where the picker opens", () => {
     } finally {
       HTMLElement.prototype.getBoundingClientRect = original;
       frame.remove();
+    }
+  });
+
+  it("asks every runtime for its models again from the footer (K124)", async () => {
+    const runtimeTools = vi.fn(async () => ({ tools: [], log: [] }));
+    setHostClient({ runtimeTools } as unknown as HostClient);
+    try {
+      renderPicker();
+      fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+      expect(screen.getByRole("button", { name: "Refreshing…" })).toHaveProperty("disabled", true);
+      await waitFor(() => expect(runtimeTools).toHaveBeenCalledWith("refresh"));
+      await screen.findByRole("button", { name: "Refresh" });
+    } finally {
+      setHostClient(undefined);
     }
   });
 });

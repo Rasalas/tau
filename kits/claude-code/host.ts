@@ -1,14 +1,17 @@
 import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   DEFAULT_INSTANCE_ID,
   HostCommandError,
   RuntimeInstanceSettings,
+  cliCommandText,
+  cliMaintenance,
   commandInvocation,
   commandLine,
-  npmLatestVersion,
+  executableFingerprint,
   packageInstallCommand,
   packageUpdateCommand,
   registerSignIn,
@@ -18,11 +21,13 @@ import {
   splitArguments,
   updateAvailable,
   versionCompatibility,
+  type CliPackageSpec,
   type HostBackendThreadRecord,
   type HostExtension,
   type HostExtensionServices,
   type HostRuntimeBackendProvider,
   type RuntimeInstanceConfig,
+  type RuntimeToolMaintenance,
   type RuntimeToolVersion,
   type SignInMethod,
   type UiComposerCommand,
@@ -73,6 +78,12 @@ export interface ClaudeCodeHostExtensionOptions {
 }
 
 const CLAUDE_NPM_PACKAGE = "@anthropic-ai/claude-code";
+/** Where the CLI comes from; its own installer's copy updates itself. Only these names are ever updated. */
+export const CLAUDE_PACKAGE: CliPackageSpec = {
+  npm: CLAUDE_NPM_PACKAGE,
+  homebrew: { casks: ["claude-code"] },
+  native: { args: ["update"], paths: ["/.local/share/claude/", "/.claude/local/"] },
+};
 /** The plan's windows move with every turn; reading them more often than this only costs requests. */
 const LIMITS_TTL_MS = 5 * 60 * 1000;
 
@@ -193,25 +204,42 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           : command)
         : claudeComposerCommands(services.skills(cwd), adapter);
 
+      /** How the instance's CLI is installed and what updates it; the maintenance and the version share one read. */
+      const maintenanceOf = async (id: string, path: string): Promise<RuntimeToolMaintenance> => {
+        const installed = await readVersion(path);
+        const added = Object.fromEntries(Object.entries(settings.environment(id, {})).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+        return cliMaintenance({
+          tool: "claude",
+          path,
+          ...(installed ? { installed } : {}),
+          spec: CLAUDE_PACKAGE,
+          findCommand: (name) => services.findCommand(name),
+          cacheFile: join(services.stateDir, "latest-version.json"),
+          env,
+          commandEnv: added,
+          home: homedir(),
+          ...(options.fetch ? { fetch: options.fetch } : {}),
+        });
+      };
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const path = services.findCommand(claudeCommand(id));
         if (!path) return undefined;
-        const [installed, latest, real] = await Promise.all([
-          readVersion(path),
-          npmLatestVersion(CLAUDE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}) }),
-          realpath(path).catch(() => path),
-        ]);
+        const [maintenance, real] = await Promise.all([maintenanceOf(id, path), realpath(path).catch(() => path)]);
+        const installed = maintenance.installed;
         const verdict = versionCompatibility(policy, installed);
         const install = verdict?.recommendedVersion ? packageInstallCommand(real, CLAUDE_NPM_PACKAGE, verdict.recommendedVersion) : undefined;
         // The native installer updates itself; a package manager's install is that manager's to update.
+        const command = maintenance.update ? cliCommandText(maintenance.update) : packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update";
         return {
           tool: "claude",
           ...(installed ? { installed } : {}),
-          ...(latest ? { latest } : {}),
-          updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update", env),
+          ...(maintenance.latest ? { latest: maintenance.latest } : {}),
+          updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, command, env),
           ...(verdict ? { compatibility: install ? { ...verdict, installCommand: install } : verdict } : {}),
         };
       };
+      /** The program each instance's catalog was last asked of; another one is probed afresh. */
+      const catalogKeys = new Map<string, string | undefined>();
 
       /** Per instance: the plan's windows last read or reported by a turn, and the login's billing. */
       const limits = new Map<string, { at: number; windows: LimitWindow[]; plan?: string; billing?: UiModelBilling; identity?: AccountIdentity; error?: string; unsupported?: boolean }>();
@@ -296,13 +324,22 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           },
           composerCommands: offered,
           version: () => versionOf(id),
+          maintenance: async () => {
+            const path = services.findCommand(claudeCommand(id));
+            return path ? maintenanceOf(id, path) : undefined;
+          },
+          programKey: () => executableFingerprint(services.findCommand(claudeCommand(id))),
           // The plan's models; the probe is cached a few minutes and the host keeps the answer.
           newThreadCatalog: async () => {
-            if (!services.findCommand(claudeCommand(id))) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The CLI "${claudeCommand(id)}" is not installed.` };
+            const path = services.findCommand(claudeCommand(id));
+            if (!path) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The CLI "${claudeCommand(id)}" is not installed.` };
+            const key = await executableFingerprint(path);
+            const fresh = catalogKeys.has(id) && catalogKeys.get(id) !== key;
+            catalogKeys.set(id, key);
             // The probe lists models signed out too; the CLI's own login state decides.
             const auth = await authOf(id);
             if (auth && !auth.loggedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
-            const catalog = probeNewThreadCatalog(noteProbe(id, await adapter.probe()));
+            const catalog = probeNewThreadCatalog(noteProbe(id, await adapter.probe(fresh ? { fresh: true } : undefined)));
             const billing = authBilling(auth);
             if (!billing) return catalog;
             return { ...catalog, models: catalog.models.map((model) => model.billing ? model : { ...model, billing }), ...(catalog.model ? { model: catalog.model.billing ? catalog.model : { ...catalog.model, billing } } : {}) };

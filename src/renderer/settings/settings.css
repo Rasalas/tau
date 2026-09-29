@@ -289,6 +289,20 @@
 .runtimes-actions { text-align: right; white-space: nowrap; padding-right: var(--space-6); }
 .runtimes-actions > .tau-button + .tau-button { margin-left: var(--space-2); }
 .runtimes-page > * + * { margin-top: var(--space-8); }
+/* Agent tools (K124): a lagging source, the switch it offers, and what ran. */
+.runtime-tools-behind, .runtime-tools-log { margin: var(--space-4) 0 0; font-size: var(--text-sm); color: var(--ink-2); }
+.runtime-tools-behind { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-5); }
+.runtime-tools-behind > p { margin: 0; color: var(--warn); }
+.runtime-tools-confirm { flex-basis: 100%; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); background: var(--inset); }
+.runtime-tools-confirm p, .runtime-tools-confirm ol { margin: 0 0 var(--space-3); }
+.runtime-tools-confirm code, .runtime-tools-log code { font: var(--text-xs) var(--mono); color: var(--ink-3); }
+.runtime-tools-confirm .tau-button + .tau-button { margin-left: var(--space-2); }
+.runtime-tools-log { display: grid; gap: var(--space-4); padding: 0; list-style: none; }
+.runtime-tools-log-entry { display: grid; gap: 2px; }
+.runtime-tools-log-head { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); }
+.runtime-tools-log-head > time { margin-left: auto; color: var(--muted); }
+.runtime-tools-log-entry p { margin: 0; color: var(--muted); }
+.runtime-tools-log-entry pre { max-height: 160px; margin: var(--space-2) 0 0; overflow: auto; font: var(--text-xs) var(--mono); white-space: pre-wrap; color: var(--ink-3); }
 /* A narrow page: each runtime a block of its own, the version and the marks under its name. */
 @container (max-width: 640px) {
   .runtimes-table thead { display: none; }

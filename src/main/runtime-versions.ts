@@ -8,6 +8,8 @@ export interface RuntimeVersionsOptions {
   providers(): Iterable<HostRuntimeBackendProvider>;
   /** A backend answered with something new; the host republishes its catalog. */
   onChange(): void;
+  /** Runs before a backend's new version is published (what Tau does about updates is known by then). */
+  prepare?(kind: ThreadBackendKind): Promise<void>;
   log(label: string, detail?: string): void;
   now?(): number;
   maxAgeMs?: number;
@@ -32,6 +34,14 @@ export class RuntimeVersions {
   get(kind: ThreadBackendKind): RuntimeToolVersion | undefined {
     const version = this.known.get(kind);
     return version ? { ...version } : undefined;
+  }
+
+  /** Asks one backend again now: its program changed. */
+  recheck(kind: ThreadBackendKind): Promise<void> {
+    const provider = [...this.options.providers()].find((candidate) => candidate.kind === kind);
+    if (!provider?.version) return Promise.resolve();
+    this.asked.set(kind, { at: (this.options.now ?? Date.now)(), provider });
+    return this.ask(provider);
   }
 
   /** Asks every backend it has not asked today, and one registered since. */
@@ -60,6 +70,7 @@ export class RuntimeVersions {
     }
     const previous = this.known.get(provider.kind);
     if (JSON.stringify(previous) === JSON.stringify(version)) return;
+    await this.options.prepare?.(provider.kind).catch(() => undefined);
     if (version) this.known.set(provider.kind, { ...version });
     else this.known.delete(provider.kind);
     this.options.onChange();

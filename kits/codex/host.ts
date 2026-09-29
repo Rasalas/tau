@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -7,10 +8,12 @@ import {
   HostCommandError,
   RuntimeInstanceSettings,
   TurnActivityStore,
+  cliCommandText,
+  cliMaintenance,
   commandInvocation,
   commandLine,
   compareVersions,
-  npmLatestVersion,
+  executableFingerprint,
   packageInstallCommand,
   packageUpdateCommand,
   registerSignIn,
@@ -22,8 +25,10 @@ import {
   type HostExtension,
   type HostExtensionServices,
   type HostRuntimeBackendProvider,
+  type CliPackageSpec,
   type HostRuntimeNewThreadCatalog,
   type RuntimeCompatibility,
+  type RuntimeToolMaintenance,
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
   type SignInAccount,
@@ -80,6 +85,9 @@ const PROBE_TTL_MS = 10 * 60 * 1000;
 const LIMITS_TTL_MS = 5 * 60 * 1000;
 
 export const CODEX_COMMAND_VARIABLE = "TAU_CODEX_COMMAND";
+
+/** Where Codex comes from; only these names are ever updated. */
+export const CODEX_PACKAGE: CliPackageSpec = { npm: CODEX_NPM_PACKAGE, homebrew: { casks: ["codex"] } };
 
 /**
  * The releases this kit speaks to. The app-server protocol is experimental and
@@ -166,7 +174,8 @@ function accountSummary(account: CodexAccount | undefined): CodexStatusReport["a
 
 /** Per instance: its CLI as last found, its probe, and the backend it registered. */
 interface InstanceState {
-  installed?: { path: string; version?: string };
+  /** `key` is the executable's fingerprint: a CLI replaced in place is read again. */
+  installed?: { path: string; version?: string; key?: string };
   probe?: Promise<Probe>;
   unregister?: () => void;
 }
@@ -231,12 +240,17 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         const install = packageInstallCommand(await realpath(path).catch(() => path), CODEX_NPM_PACKAGE, verdict.recommendedVersion);
         return install ? { ...verdict, installCommand: install } : verdict;
       };
-      /** The instance's CLI and its version; read once per path. */
+      /** The instance's CLI and its version; read again once the file changed (an update). */
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
         const path = locate(id);
         if (!path) throw new Error(`The Codex CLI "${codexCommand(id)}" was not found on the PATH of your login shell. Install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}) or set its path under Settings → Providers.`);
         const entry = state(id);
-        if (entry.installed?.path !== path) entry.installed = { path, ...(await readVersion(path).then((version) => version ? { version } : {})) };
+        const key = await executableFingerprint(path);
+        if (entry.installed?.path !== path || entry.installed.key !== key) {
+          // Another program answers now: what the old one said about models and account is stale.
+          if (entry.installed) entry.probe = undefined;
+          entry.installed = { path, ...(key ? { key } : {}), ...(await readVersion(path).then((version) => version ? { version } : {})) };
+        }
         return entry.installed;
       };
       const assertSupported = async (id: string): Promise<string> => {
@@ -276,8 +290,9 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
 
       /** Account and models, from a short-lived app-server that starts no thread. */
-      const runProbe = (id: string, fresh = false): Promise<Probe> => {
+      const runProbe = async (id: string, fresh = false): Promise<Probe> => {
         const entry = state(id);
+        await cli(id).catch(() => undefined);
         if (!fresh && entry.probe) return entry.probe.then((cached) => Date.now() - cached.at < PROBE_TTL_MS ? cached : runProbe(id, true));
         const next = (async (): Promise<Probe> => {
           await mkdir(services.stateDir, { recursive: true });
@@ -366,15 +381,32 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         };
       };
 
+      /** How this instance's Codex is installed and what updates it; Homebrew's own release for a cask. */
+      const maintenanceOf = async (id: string): Promise<RuntimeToolMaintenance> => {
+        const { path, version } = await cli(id);
+        return cliMaintenance({
+          tool: "codex",
+          path,
+          ...(version ? { installed: version } : {}),
+          spec: CODEX_PACKAGE,
+          findCommand: (name) => services.findCommand(name),
+          cacheFile: join(services.stateDir, "latest-version.json"),
+          env,
+          commandEnv: signInEnv(id),
+          home: homedir(),
+          ...(options.fetch ? { fetch: options.fetch } : {}),
+        });
+      };
+
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { path, version } = await cli(id);
-        const latest = await npmLatestVersion(CODEX_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}) });
+        const maintenance = await maintenanceOf(id);
         const verdict = await compatibility(path, version);
         return {
           tool: "codex",
           ...(version ? { installed: version } : {}),
-          ...(latest ? { latest } : {}),
-          updateCommand: await updateCommand(path),
+          ...(maintenance.latest ? { latest: maintenance.latest } : {}),
+          updateCommand: maintenance.update ? runtimeUpdateCommand(CODEX_BACKEND_KIND, cliCommandText(maintenance.update), env) : await updateCommand(path),
           ...(verdict ? { compatibility: verdict } : {}),
         };
       };
@@ -431,6 +463,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           },
           composerCommands: () => [],
           version: () => versionOf(id),
+          maintenance: async () => locate(id) ? maintenanceOf(id) : undefined,
+          programKey: () => executableFingerprint(locate(id)),
           // The account's models, starting where config.toml points; the host keeps the answer and asks again now and then.
           newThreadCatalog: async () => {
             if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };

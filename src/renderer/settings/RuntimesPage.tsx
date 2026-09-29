@@ -14,6 +14,7 @@ import { SettingsPageAction } from "./page-action";
 import { settingAnchor } from "./settings-search";
 import { settingsTarget } from "./settings-nav";
 import { runtimeRow, type RuntimeAction, type RuntimeRow } from "./runtimes-table";
+import { RuntimeToolsSection } from "./RuntimeToolsSection";
 
 /** The row id a section on this page names to be what the Permissions button opens. */
 export const RUNTIME_PERMISSIONS_ROW = "runtime-permissions";
@@ -155,6 +156,7 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
           </tbody>
         </table>
       </div>
+      <RuntimeToolsSection onNotify={onNotify} />
       {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => undefined} />)}
     </div>
   );

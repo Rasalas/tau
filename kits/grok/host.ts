@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   DEFAULT_INSTANCE_ID,
@@ -6,6 +7,8 @@ import {
   RuntimeInstanceSettings,
   THREAD_TEXTS_COMMAND,
   TurnActivityStore,
+  cliMaintenance,
+  executableFingerprint,
   runtimeVersionPolicy,
   threadTextsDelta,
   versionCompatibility,
@@ -15,6 +18,7 @@ import {
   type HostRuntimeBackendProvider,
   type HostRuntimeNewThreadCatalog,
   type RuntimeInstanceConfig,
+  type RuntimeToolMaintenance,
   type RuntimeToolVersion,
   type UiModelBilling,
 } from "tau/host-extension";
@@ -59,7 +63,8 @@ export interface GrokHostExtensionOptions {
 
 interface Probe { listing: GrokModelsListing; models: AcpStoredModel[]; start?: string; at: number }
 interface InstanceState {
-  installed?: { path: string; version?: string };
+  /** `key` is the executable's fingerprint: a replaced CLI is read again. */
+  installed?: { path: string; version?: string; key?: string };
   probe?: Promise<Probe>;
   limits?: { at: number; value: GrokLimits };
   unregister?: () => void;
@@ -124,7 +129,11 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         const path = locate(id);
         if (!path) throw new Error(`The Grok CLI "${grokCommand(id)}" was not found on the PATH of your login shell. Install Grok Build's CLI or set its path under Settings → Providers.`);
         const entry = state(id);
-        if (entry.installed?.path !== path) entry.installed = { path, ...(await readVersion(path, instanceEnv(id)).then((version) => version ? { version } : {})) };
+        const key = await executableFingerprint(path);
+        if (entry.installed?.path !== path || entry.installed.key !== key) {
+          if (entry.installed) entry.probe = undefined;
+          entry.installed = { path, ...(key ? { key } : {}), ...(await readVersion(path, instanceEnv(id)).then((version) => version ? { version } : {})) };
+        }
         return entry.installed;
       };
       const refuseBroken = ({ version }: { version?: string }): void => {
@@ -156,8 +165,9 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
       };
 
       /** The login (`grok models`) and the models `initialize` names; neither signs in nor starts a session. */
-      const runProbe = (id: string, fresh = false): Promise<Probe> => {
+      const runProbe = async (id: string, fresh = false): Promise<Probe> => {
         const entry = state(id);
+        await cli(id).catch(() => undefined);
         if (!fresh && entry.probe) return entry.probe.then((cached) => Date.now() - cached.at < PROBE_TTL_MS ? cached : runProbe(id, true));
         const next = (async (): Promise<Probe> => {
           const { path } = await cli(id);
@@ -251,6 +261,13 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           },
           composerCommands: () => [],
           version: () => versionOf(id),
+          // Grok Build names no package or updater Tau knows; the Runtimes page says how it is installed.
+          maintenance: async (): Promise<RuntimeToolMaintenance | undefined> => {
+            if (!locate(id)) return undefined;
+            const { path, version } = await cli(id);
+            return cliMaintenance({ tool: "grok", path, ...(version ? { installed: version } : {}), spec: {}, findCommand: (name) => services.findCommand(name), cacheFile: join(services.stateDir, "package-versions.json"), env, home: homedir() });
+          },
+          programKey: () => executableFingerprint(locate(id)),
           newThreadCatalog: () => newThreadCatalog(id),
         };
       };

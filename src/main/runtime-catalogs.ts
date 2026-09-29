@@ -30,6 +30,8 @@ export interface RuntimeCatalogSource {
   /** The answer already carries price and limits; the book is not consulted. */
   readonly complete?: boolean;
   load(): Promise<HostRuntimeNewThreadCatalog | undefined>;
+  /** Changes with the program behind the answer (`executableFingerprint`); an answer held for another is asked again. */
+  programKey?(): Promise<string | undefined>;
 }
 
 export interface RuntimeCatalogsOptions {
@@ -43,6 +45,8 @@ export interface RuntimeCatalogsOptions {
   /** Whether `start` asks the runtimes in the background; otherwise only clients make it ask. */
   automatic: boolean;
   log(label: string, detail?: string): void;
+  /** A source's program changed since its answer (a CLI update); the host asks its version again. */
+  programChanged?(kind: ThreadBackendKind): void;
   logger?: PersistedJsonLogger;
   now?(): number;
   freshMs?: number;
@@ -60,6 +64,8 @@ interface Held {
   askedAt: number;
   /** Undefined for an answer read from disk. */
   owner?: object;
+  /** The source's `programKey` when it answered. */
+  programKey?: string;
 }
 
 /**
@@ -88,7 +94,9 @@ export class RuntimeCatalogs {
   async list(revalidate = false, known: Readonly<Record<string, number>> = {}): Promise<UiRuntimeCatalog[]> {
     await this.restore();
     const sources = this.options.sources();
-    if (revalidate) for (const source of sources) if (this.stale(source, this.options.freshMs ?? FRESH_MS)) this.askLater(source);
+    if (revalidate) await Promise.all(sources.map(async (source) => {
+      if (this.stale(source, this.options.freshMs ?? FRESH_MS) || await this.programChanged(source)) this.askLater(source);
+    }));
     return sources.flatMap((source) => {
       const held = this.held.get(source.kind);
       const sent = held?.catalog.checkedAt !== undefined && known[source.kind] === held.catalog.checkedAt;
@@ -103,6 +111,7 @@ export class RuntimeCatalogs {
     if (!source) return undefined;
     const held = this.held.get(kind);
     if (!held) return served(await this.ask(source), source);
+    if (await this.programChanged(source)) return served(await this.ask(source), source);
     if (this.stale(source, this.options.freshMs ?? FRESH_MS)) this.askLater(source);
     return served(held.catalog, source);
   }
@@ -126,9 +135,10 @@ export class RuntimeCatalogs {
   }
 
   /** Asks one runtime again now, however fresh its answer: what it may run on changed (a sign-in). */
-  recheck(kind: ThreadBackendKind): void {
+  recheck(kind: ThreadBackendKind): Promise<void> {
     const source = this.options.sources().find((candidate) => candidate.kind === kind);
-    if (source && !this.disposed) this.askLater(source);
+    if (!source || this.disposed) return Promise.resolve();
+    return this.ask(source).then(() => undefined, () => undefined);
   }
 
   /** A backend registered or went; after start-up a new one is asked at once. */
@@ -152,7 +162,7 @@ export class RuntimeCatalogs {
     // One at a time: each may start its program.
     for (const source of this.options.sources()) {
       if (this.disposed) return;
-      if (this.stale(source, this.options.startMaxAgeMs ?? START_MAX_AGE_MS)) await this.ask(source).catch(() => undefined);
+      if (this.stale(source, this.options.startMaxAgeMs ?? START_MAX_AGE_MS) || await this.programChanged(source)) await this.ask(source).catch(() => undefined);
     }
   }
 
@@ -160,6 +170,17 @@ export class RuntimeCatalogs {
     const held = this.held.get(source.kind);
     if (!held || (held.owner !== undefined && held.owner !== source.owner)) return true;
     return this.now() - held.askedAt >= maxAgeMs;
+  }
+
+  /** The program behind a held answer was replaced; the version it reported is stale too. */
+  private async programChanged(source: RuntimeCatalogSource): Promise<boolean> {
+    const held = this.held.get(source.kind);
+    if (!held || !source.programKey || this.asking.has(source.kind)) return false;
+    const key = await source.programKey().catch(() => undefined);
+    if (key === undefined || key === held.programKey) return false;
+    this.options.log("runtime-catalog.program-changed", source.kind);
+    this.options.programChanged?.(source.kind);
+    return true;
   }
 
   private askLater(source: RuntimeCatalogSource): void {
@@ -178,6 +199,7 @@ export class RuntimeCatalogs {
 
   private async answer(source: RuntimeCatalogSource): Promise<HeldRuntimeCatalog> {
     const checkedAt = this.now();
+    const programKey = await source.programKey?.().catch(() => undefined);
     let next: HeldRuntimeCatalog;
     try {
       next = await this.normalized(source, await this.bounded(source), checkedAt);
@@ -190,7 +212,7 @@ export class RuntimeCatalogs {
         ? { ...previous, status: "unavailable", note, checkedAt }
         : { kind: source.kind, models: [], thinkingLevels: {}, status: "unavailable", note, checkedAt };
     }
-    return this.keep(source, next);
+    return this.keep(source, next, programKey);
   }
 
   private bounded(source: RuntimeCatalogSource): Promise<HostRuntimeNewThreadCatalog | undefined> {
@@ -217,11 +239,11 @@ export class RuntimeCatalogs {
     return { ...rest, kind, models: models.map(shown), ...(model ? { model: shown(model) } : {}), checkedAt };
   }
 
-  private keep(source: RuntimeCatalogSource, next: HeldRuntimeCatalog): HeldRuntimeCatalog {
+  private keep(source: RuntimeCatalogSource, next: HeldRuntimeCatalog, programKey?: string): HeldRuntimeCatalog {
     const previous = this.held.get(source.kind)?.catalog;
     // An unchanged answer keeps its `checkedAt`, so a client that holds it is sent nothing.
     const catalog = previous && sameCatalog(previous, next) ? previous : next;
-    this.held.set(source.kind, { catalog, askedAt: next.checkedAt ?? this.now(), owner: source.owner });
+    this.held.set(source.kind, { catalog, askedAt: next.checkedAt ?? this.now(), owner: source.owner, ...(programKey ? { programKey } : {}) });
     if (catalog === next) this.options.publish(served(next, source));
     this.persist();
     return catalog;
@@ -236,7 +258,9 @@ export class RuntimeCatalogs {
     }).then((read) => {
       // An answer that came in while the file was read is newer than the file.
       const outdated = (read?.version ?? VERSION) < VERSION;
-      for (const { catalog, askedAt } of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt: outdated ? 0 : askedAt });
+      for (const { catalog, askedAt, programKey } of read?.data ?? []) {
+        if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt: outdated ? 0 : askedAt, ...(programKey ? { programKey } : {}) });
+      }
     }, () => undefined);
   }
 
@@ -247,7 +271,8 @@ export class RuntimeCatalogs {
       .then(() => {
         const held = [...this.held.values()];
         const askedAt = Object.fromEntries(held.map((entry) => [entry.catalog.kind, entry.askedAt]));
-        return writePersistedJson(file, VERSION, { catalogs: held.map((entry) => entry.catalog), askedAt }, this.options.logger ? { logger: this.options.logger } : {});
+        const programKeys = Object.fromEntries(held.flatMap((entry) => entry.programKey ? [[entry.catalog.kind, entry.programKey]] : []));
+        return writePersistedJson(file, VERSION, { catalogs: held.map((entry) => entry.catalog), askedAt, programKeys }, this.options.logger ? { logger: this.options.logger } : {});
       })
       .catch(() => undefined);
   }
@@ -335,14 +360,16 @@ function decodeCatalog(value: unknown): HeldRuntimeCatalog | undefined {
 }
 
 /** The file as written by `persist`; entries it cannot read are left out. */
-export function decodeCatalogs(value: unknown): Array<{ catalog: HeldRuntimeCatalog; askedAt: number }> | undefined {
+export function decodeCatalogs(value: unknown): Array<{ catalog: HeldRuntimeCatalog; askedAt: number; programKey?: string }> | undefined {
   const list = record(value)?.catalogs;
   const asked = record(record(value)?.askedAt) ?? {};
+  const keys = record(record(value)?.programKeys) ?? {};
   if (!Array.isArray(list)) return undefined;
   return list.flatMap((entry) => {
     const catalog = decodeCatalog(entry);
     if (!catalog) return [];
     const askedAt = asked[catalog.kind];
-    return [{ catalog, askedAt: count(askedAt) ? askedAt : catalog.checkedAt ?? 0 }];
+    const programKey = keys[catalog.kind];
+    return [{ catalog, askedAt: count(askedAt) ? askedAt : catalog.checkedAt ?? 0, ...(typeof programKey === "string" && programKey.length <= 4096 ? { programKey } : {}) }];
   });
 }

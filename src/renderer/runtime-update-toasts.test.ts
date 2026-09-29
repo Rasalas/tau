@@ -2,10 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeToolVersion, UiRuntimeBackend } from "../shared/contracts";
 import { createMemoryStorage } from "../workbench/client-storage";
 import { ToastStore } from "../workbench/toast-store";
+import type { HostClient } from "../workbench/host-client";
 import type { WorkbenchActions } from "./extension-system";
+import { setHostClient } from "./host-client-context";
 import { createRuntimeUpdateToasts, DISMISSED_UPDATES_KEY, resetOfferedUpdates, type RuntimeUpdateRun, type RuntimeUpdateToastsOptions } from "./runtime-update-toasts";
 
-afterEach(resetOfferedUpdates);
+afterEach(() => {
+  resetOfferedUpdates();
+  setHostClient(undefined);
+});
 
 function codex(version: Partial<RuntimeToolVersion> = {}, kind = "codex"): UiRuntimeBackend {
   return { kind, label: kind === "codex" ? "Codex" : "Codex · Work", version: { tool: "codex", installed: "0.155.0", latest: "0.156.1", updateCommand: "brew upgrade --cask codex", ...version } };
@@ -169,5 +174,41 @@ describe("runtime update toasts", () => {
     const { toasts, run } = setup();
     expect(() => toasts.sync([codex()], { openSettings: vi.fn() } as unknown as WorkbenchActions)).not.toThrow();
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing for a program Tau keeps current itself", () => {
+    const { toasts, actions, shown } = setup();
+    toasts.sync([codex({ updates: "automatic" })], actions);
+    expect(shown()).toEqual([]);
+  });
+
+  it("asks once whether to keep agent tools up to date, and saves the answer on the host", async () => {
+    const runtimeTools = vi.fn(async () => ({ tools: [], log: [] }));
+    setHostClient({ runtimeTools, isOwner: () => true } as unknown as HostClient);
+    const { toasts, actions, shown, click } = setup();
+    const notify = vi.fn();
+    Object.assign(actions, { notify });
+    toasts.sync([codex({ updates: "ask" })], actions);
+    toasts.sync([codex({ updates: "ask" })], actions);
+    expect(shown()).toHaveLength(1);
+    expect(shown()[0]).toMatchObject({ id: "runtime-tools:ask", title: "Keep agent tools up to date?" });
+    expect(shown()[0]!.actions!.map((action) => action.label)).toEqual(["Not now", "Keep up to date"]);
+    click("Keep up to date");
+    await settle();
+    expect(runtimeTools).toHaveBeenCalledWith("automatic", { on: true });
+    expect(notify).toHaveBeenCalledWith("Tau keeps the agent tools up to date.");
+  });
+
+  it("offers the release itself when the question is closed unanswered or the client cannot answer", () => {
+    setHostClient({ runtimeTools: vi.fn(), isOwner: () => true } as unknown as HostClient);
+    const { toasts, actions, shown, store } = setup();
+    toasts.sync([codex({ updates: "ask" })], actions);
+    store.dismiss(shown()[0]!.id);
+    expect(shown().map((toast) => toast.id)).toEqual(["runtime-update:codex"]);
+    resetOfferedUpdates();
+    setHostClient({ runtimeTools: vi.fn(), isOwner: () => false } as unknown as HostClient);
+    const phone = setup();
+    phone.toasts.sync([codex({ updates: "ask" })], phone.actions);
+    expect(phone.shown().map((toast) => toast.id)).toEqual(["runtime-update:codex"]);
   });
 });
