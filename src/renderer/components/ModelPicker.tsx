@@ -173,6 +173,7 @@ export function ModelPicker({
   onOpenSettings: openSettings,
   focus,
   anchor,
+  placeAgainst,
   side = "top",
 }: {
   models: readonly UiModel[];
@@ -208,8 +209,10 @@ export function ModelPicker({
   onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
   /** "thinking": opens with the focus on the thinking column, as the composer's reasoning level asks. */
   focus?: "thinking";
-  /** The control the picker opens beside, as T3 Code's picker at its chip. */
+  /** The control that opens the picker, as T3 Code's picker at its chip. */
   anchor: RefObject<HTMLElement | null>;
+  /** Where it opens when not at the anchor: the composer's frame, its left edge and 6 px above (design 1l). */
+  placeAgainst?: RefObject<HTMLElement | null>;
   /** Where it prefers to open; it flips when that side has no room. */
   side?: "top" | "bottom";
 }) {
@@ -884,7 +887,7 @@ export function ModelPicker({
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   return addProvider ?? (
-    <Popover anchor={anchor} side={side} align="start" label="Select model" className={`model-picker${thinking ? " with-thinking" : ""}`} onClose={dismiss}>
+    <Popover anchor={anchor} placeAgainst={placeAgainst} side={side} align="start" label="Select model" className={`model-picker${thinking ? " with-thinking" : ""}`} onClose={dismiss}>
       {content}
     </Popover>
   );

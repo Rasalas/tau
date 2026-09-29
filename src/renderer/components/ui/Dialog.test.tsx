@@ -63,3 +63,35 @@ describe("Popover", () => {
     expect(document.activeElement).toBe(trigger);
   });
 });
+
+describe("Popover placed against another element", () => {
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  function FrameHarness() {
+    const chip = useRef<HTMLButtonElement>(null);
+    const frame = useRef<HTMLDivElement>(null);
+    const [open, setOpen] = useState(false);
+    return <>
+      <div ref={frame} data-testid="frame"><button type="button" ref={chip} onClick={() => setOpen(true)}>Model</button></div>
+      {open ? <Popover anchor={chip} placeAgainst={frame} side="top" label="Pick" onClose={() => setOpen(false)}>list</Popover> : null}
+    </>;
+  }
+
+  it("opens 6 px above the frame's top at its left edge, not at the control that opened it", () => {
+    render(<FrameHarness />);
+    screen.getByTestId("frame").getBoundingClientRect = () => rect(260, 600, 360, 110);
+    screen.getByRole("button", { name: "Model" }).getBoundingClientRect = () => rect(268, 660, 120, 28);
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      return this.getAttribute("role") === "dialog" ? rect(0, 0, 460, 300) : original.call(this);
+    };
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      const popover = screen.getByRole("dialog", { name: "Pick" });
+      expect(popover.style.left).toBe("260px");
+      expect(popover.style.top).toBe(`${600 - 6 - 300}px`);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    }
+  });
+});
