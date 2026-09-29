@@ -5,6 +5,7 @@ import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
 import { ProjectIcon } from "../components/ProjectIcon";
+import { Region } from "../components/Regions";
 import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { useHostCapabilities } from "../use-host-capabilities";
@@ -43,6 +44,8 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   // A Read-only device could never send a new thread's first message.
   const { readOnly } = useHostCapabilities();
 
+  // What kits put over the list: another machine's state, the plans' juicebars.
+  const head = <Region registry={list.registry} placement="thread-list-head" actions={list.actions} />;
   const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
   const header = <header className="touch-browser-header">
     <strong>Threads</strong>
@@ -72,6 +75,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   if (screen) return <section ref={surface} className={`touch-browser screen home${nav ? " with-nav" : ""}`} aria-label="Threads">
     {header}
     <div className="touch-browser-body">
+      {head}
       <TouchThreadList {...list} />
       {/* The floating button is the empty list's next step too. */}
       {readOnly ? null : <button type="button" className="touch-fab" aria-label="New thread" onClick={onNewThread}><Plus size={28} /></button>}
@@ -81,6 +85,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   </section>;
   return <nav ref={surface} className="touch-browser sidebar" aria-label="Thread list">
     {header}
+    {head}
     <TouchThreadList {...list} onNewThread={onNewThread} />
     {popovers}
   </nav>;
