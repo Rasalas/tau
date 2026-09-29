@@ -384,7 +384,7 @@ button > svg { pointer-events: none; }
 .provider-icon-stack.stacked > .provider-icon-runtime { opacity: .7; }
 .provider-icon-stack.stacked > .provider-icon-fallback { border-radius: 3px; font-size: 6px; }
 :is(.runtime-chip, .model-recent-chip) .provider-icon-stack.stacked { gap: 3px; }
-.provider-family-ki-connect .provider-mark { width: 18px; height: 18px; }
+.provider-mark-picture { border-radius: 3px; }
 /* Hover actions take the status slot: shown on hover, keyboard focus or while their popover is open. */
 .thread-row-actions {
   position: absolute; top: calc(7px * var(--density) - 1px); right: var(--space-4);

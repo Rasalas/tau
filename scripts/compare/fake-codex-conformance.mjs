@@ -1,6 +1,6 @@
-// Decodes everything fake-codex.mjs says with T3's generated Codex protocol
-// schemas, so a shape T3 would reject fails here instead of mid-benchmark.
-// Run with Node 24 (type stripping): node fake-codex-conformance.mjs <t3-clone>
+// Decodes everything fake-codex.mjs says with the reference app's generated Codex protocol
+// schemas, so a shape the reference app would reject fails here instead of mid-benchmark.
+// Run with Node 24 (type stripping): node fake-codex-conformance.mjs <reference-checkout>
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import { buildTurn } from "./turn-fixture.mjs";
 
 const clone = process.argv[2];
-if (!clone) throw new Error("usage: node fake-codex-conformance.mjs <t3-clone>");
+if (!clone) throw new Error("usage: node fake-codex-conformance.mjs <reference-checkout>");
 const generated = join(clone, "packages/effect-codex-app-server/src/_generated");
 const meta = await import(join(generated, "meta.gen.ts"));
 const { Schema } = await import(join(clone, "packages/effect-codex-app-server/node_modules/effect/dist/index.js"));

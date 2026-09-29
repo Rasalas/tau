@@ -39,6 +39,7 @@ describe("createModelAuth", () => {
     expect(providers.find((entry) => entry.id === "fakegw")).toMatchObject({ name: "Fake gateway", oauth: { name: "Fake gateway", subscription: false } });
     expect(providers.find((entry) => entry.id === "anthropic")?.apiKey).toMatchObject({ interactive: true });
     expect(providers.find((entry) => entry.id === "fakegw")?.stored).toBeUndefined();
+    expect(providers.find((entry) => entry.id === "fakegw")?.baseUrl).toBe(`${gateway.url}/v1`);
   });
 
   it("signs in with a device code against the gateway and out again, in Pi's own file", async () => {

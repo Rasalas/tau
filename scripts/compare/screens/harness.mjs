@@ -30,7 +30,7 @@ export const SCREEN_TURN = { answerBytes: 13_000, codeBlocks: 2, bigOutputBytes:
 /** A seeded profile is ready once the kits drew the rail and the title bar, and the composer is mounted. */
 const READY = {
   tau: `document.querySelectorAll("article.thread-row").length >= 5 && !!document.querySelector(".region-title-bar button") && !!document.querySelector("textarea")`,
-  t3: `!!document.querySelector("[data-testid=composer-editor]") && !!document.querySelector("[data-testid=sidebar-settled-header], [data-testid=sidebar-row-card]")`,
+  reference: `!!document.querySelector("[data-testid=composer-editor]") && !!document.querySelector("[data-testid=sidebar-settled-header], [data-testid=sidebar-row-card]")`,
 };
 
 /**

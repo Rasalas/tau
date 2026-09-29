@@ -12,7 +12,7 @@ const PROBES = probes(CHROME, {
     paletteRow: ".palette [role=option], .palette-results button, .palette li",
     paletteGroup: ".palette [class*=group], .palette [class*=heading]",
   },
-  t3: {
+  reference: {
     picker: "[data-slot=popover-popup], [data-slot=combobox-popup]",
     pickerSearch: "[data-slot=popover-popup] input, [data-slot=combobox-popup] input",
     pickerRow: "[data-slot=popover-popup] [role=option], [data-slot=combobox-popup] [role=option]",
@@ -44,4 +44,4 @@ async function run(ctx, { shot, note }) {
   note("focusAfterPalette", await ctx.eval(`document.activeElement?.tagName + " " + (document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.className ?? "")`));
 }
 
-export default { id: "07-picker-palette", title: "Model picker and command palette", tau: run, t3: run };
+export default { id: "07-picker-palette", title: "Model picker and command palette", tau: run, reference: run };

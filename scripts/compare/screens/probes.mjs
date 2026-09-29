@@ -10,7 +10,7 @@ export const CHROME = {
     composerInput: "textarea",
     sendButton: "button.send-button:not(.stop)",
   },
-  t3: {
+  reference: {
     header: "main[data-slot=sidebar-inset] header",
     sidebar: "[data-slot=sidebar-inner]",
     search: "input[aria-label='Search threads']",
@@ -30,7 +30,7 @@ export const RAIL = {
     sectionLabel: ".thread-group-label, .settled-shelf-toggle",
     settledRow: "[data-rail-section=settled] article.thread-row",
   },
-  t3: {
+  reference: {
     rowActive: "[data-testid=sidebar-row-card][data-active=true], [data-testid=sidebar-row-card][aria-current]",
     row: "[data-testid=sidebar-row-card]",
     rowTitle: "[data-testid=sidebar-row-card] [aria-label='Thread title'], [data-testid=sidebar-row-card] .truncate",
@@ -54,7 +54,7 @@ export const TRANSCRIPT = {
     tableHead: ".markdown table th",
     inlineCode: ".markdown p code",
   },
-  t3: {
+  reference: {
     threadHeader: "main[data-slot=sidebar-inset] header",
     userBubble: ".bg-message",
     prose: ".chat-markdown p",
@@ -70,7 +70,7 @@ export const TRANSCRIPT = {
 
 /** Chrome plus extra probes, per app. */
 export function probes(...sets) {
-  const out = { tau: {}, t3: {} };
-  for (const set of sets) for (const id of ["tau", "t3"]) Object.assign(out[id], set[id] ?? {});
+  const out = { tau: {}, reference: {} };
+  for (const set of sets) for (const id of ["tau", "reference"]) Object.assign(out[id], set[id] ?? {});
   return out;
 }

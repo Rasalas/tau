@@ -15,7 +15,7 @@ const PROBES = probes({
     label: ".settings-label",
     search: ".settings-nav-search",
   },
-  t3: {
+  reference: {
     nav: "[data-slot=sidebar-inner]",
     navItem: "[data-slot=sidebar-inner] a, [data-slot=sidebar-inner] button@^Appearance$",
     navActive: "[data-slot=sidebar-inner] [data-active=true], [data-slot=sidebar-inner] [aria-current=page]",
@@ -29,7 +29,7 @@ const PROBES = probes({
   },
 });
 
-const PAGES = { tau: ["Appearance", "Providers", "Keybindings"], t3: ["Appearance", "Providers", "Keybindings"] };
+const PAGES = { tau: ["Appearance", "Providers", "Keybindings"], reference: ["Appearance", "Providers", "Keybindings"] };
 
 async function run(ctx, { shot }) {
   await ctx.click("button[aria-label=Settings]");
@@ -49,4 +49,4 @@ async function run(ctx, { shot }) {
   await shot("search", { probes: PROBES });
 }
 
-export default { id: "10-settings", title: "Settings: pages and search", tau: run, t3: run };
+export default { id: "10-settings", title: "Settings: pages and search", tau: run, reference: run };

@@ -1,6 +1,6 @@
 {
-  "id": "example.theme-t3-like",
-  "name": "T3-like",
+  "id": "example.theme-zinc",
+  "name": "Zinc",
   "version": "1.0.0",
   "engines": { "api": "^1.3.0" },
   "styles": "./theme.css"

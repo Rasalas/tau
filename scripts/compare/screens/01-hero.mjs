@@ -3,7 +3,7 @@ import { CHROME, probes } from "./probes.mjs";
 
 const HERO = {
   tau: { hero: ".conversation-start-screen h1, .conversation-start-content h1", projectCard: "button.conversation-start-project" },
-  t3: { hero: "main[data-slot=sidebar-inset] h1, main[data-slot=sidebar-inset] h2@What should we build" },
+  reference: { hero: "main[data-slot=sidebar-inset] h1, main[data-slot=sidebar-inset] h2@What should we build" },
 };
 
 export default {
@@ -14,7 +14,7 @@ export default {
     await ctx.moveMouse(900, 820);
     await shot(undefined, { probes: probes(CHROME, HERO), tabs: 6 });
   },
-  async t3(ctx, { shot }) {
+  async reference(ctx, { shot }) {
     await ctx.waitFor(`!!document.querySelector("[data-testid=composer-editor]") && /What should we build/.test(document.body.textContent)`);
     await ctx.moveMouse(900, 820);
     await shot(undefined, { probes: probes(CHROME, HERO), tabs: 6 });

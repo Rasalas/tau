@@ -15,6 +15,8 @@ export interface HostModelProviderAuth {
   apiKey?: { name: string; interactive: boolean };
   /** A login in the provider's own pages; `subscription` when it spends a consumer plan. */
   oauth?: { name: string; label?: string; subscription: boolean };
+  /** Where its API lives, the provider's or its first model's; may carry a key in its query, so keep it on the host. */
+  baseUrl?: string;
 }
 
 /** A question during a login; `signal` aborts it when the flow no longer needs the answer. */
@@ -70,6 +72,7 @@ export function createModelAuth(options: ModelAuthOptions): HostModelAuthService
         const status = runtime.getProviderAuthStatus(entry.id);
         const kind = stored.get(entry.id);
         const { apiKey, oauth } = entry.auth;
+        const baseUrl = entry.baseUrl ?? runtime.getModels(entry.id).find((model) => model.baseUrl)?.baseUrl;
         return {
           id: entry.id,
           name: entry.name || entry.id,
@@ -79,6 +82,7 @@ export function createModelAuth(options: ModelAuthOptions): HostModelAuthService
           ...(kind ? { stored: kind } : {}),
           ...(apiKey ? { apiKey: { name: apiKey.name, interactive: typeof apiKey.login === "function" } } : {}),
           ...(oauth ? { oauth: { name: oauth.name, ...(oauth.loginLabel ? { label: oauth.loginLabel } : {}), subscription: oauth.isSubscription === true } } : {}),
+          ...(baseUrl ? { baseUrl } : {}),
         };
       }).sort((left, right) => left.name.localeCompare(right.name));
     },

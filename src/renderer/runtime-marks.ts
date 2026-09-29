@@ -27,6 +27,9 @@ function spelling(value: string): string {
   return runtimeDriver(value).toLocaleLowerCase().replace(/[_.\s]/gu, "-");
 }
 
+/** How a provider or runtime is keyed for its mark, whichever way it is written. */
+export const providerIconKey = spelling;
+
 let declared: RuntimeMarkDeclarations = new Map();
 let declaredKey = "";
 const listeners = new Set<() => void>();

@@ -3,9 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { ExtensionRegistry, type DesktopExtensionContext } from "../extension-system";
+import { PreferencesStore } from "../preferences";
 import { declareRuntimeMarks } from "../runtime-marks";
+import { WorkbenchShellContext } from "../workbench-context";
 import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
-import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
+import { ProviderIconStack, monogram, providerHasMark, providerLabel } from "./ProviderIconStack";
 
 afterEach(cleanup);
 beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
@@ -28,7 +31,6 @@ describe("ProviderIconStack", () => {
     ["vertex-ai", "Vertex AI", "vertex-ai"],
     ["opencode-go", "OpenCode Go", "opencode"],
     ["cursor", "Cursor", "cursor"],
-    ["ki:connect", "KI:connect", "ki-connect"],
   ])("badges %s's mark with Pi's", (modelProvider, label, family) => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider={modelProvider} runtimeProvider="pi" />);
     const stack = getByLabelText(`Pi via ${label}`);
@@ -144,5 +146,45 @@ describe("two marks on screen", () => {
     expect(rules).toContain(".provider-icon-stack.stacked { width: auto; gap: 6px; }");
     expect(rules.find((rule) => rule.includes("> .provider-icon-runtime"))).toMatch(/opacity: \.7/u);
     expect(rules.find((rule) => rule.startsWith(":is(.runtime-chip"))).toMatch(/gap: 3px/u);
+  });
+});
+
+describe("provider pictures a kit publishes (setProviderIcons)", () => {
+  const logo = "data:image/png;base64,iVBORw0KGgo=";
+  function setup() {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+    const contexts: DesktopExtensionContext[] = [];
+    for (const id of ["first", "second"]) registry.activate({ id, name: id, activate(context) { contexts.push(context); } });
+    const draw = (node: React.ReactNode) => render(<WorkbenchShellContext.Provider value={{ registry }}>{node}</WorkbenchShellContext.Provider>);
+    return { registry, first: contexts[0]!, second: contexts[1]!, draw };
+  }
+
+  it("keys pictures the way marks are keyed, keeps pictures only, lets the first extension win", () => {
+    const { registry, first, second } = setup();
+    first.setProviderIcons({ "KI_Connect": logo, other: "https://tracker.example/x.png" });
+    second.setProviderIcons({ "ki-connect": "data:image/png;base64,Zm9v" });
+    expect(registry.providerIcon("ki.connect")).toBe(logo);
+    expect(registry.providerIcon("other")).toBeUndefined();
+    registry.deactivate("first");
+    expect(registry.providerIcon("ki-connect")).toBe("data:image/png;base64,Zm9v");
+  });
+
+  it("draws a picture instead of the initial, never instead of a mark Tau ships, and follows a change", () => {
+    const { first, draw } = setup();
+    const { container } = draw(<><ProviderIconStack modelProvider="radius" runtimeProvider="pi" /><ProviderIconStack modelProvider="openai" /></>);
+    const radius = () => container.querySelector(".provider-family-radius");
+    expect(radius()?.classList).toContain("provider-icon-fallback");
+    act(() => first.setProviderIcons({ radius: logo, openai: logo }));
+    expect(radius()?.querySelector("img.provider-mark-picture")?.getAttribute("src")).toBe(logo);
+    expect(radius()?.classList).not.toContain("provider-icon-fallback");
+    expect(container.querySelector(".provider-family-openai img.provider-mark-picture")).toBeNull();
+    act(() => first.setProviderIcons(undefined));
+    expect(radius()?.textContent).toBe("R");
+  });
+
+  it("tells which providers have a mark of Tau's own", () => {
+    expect(providerHasMark("anthropic")).toBe(true);
+    expect(providerHasMark("deepseek")).toBe(true);
+    expect(providerHasMark("ki:connect")).toBe(false);
   });
 });

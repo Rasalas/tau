@@ -7,7 +7,7 @@ const PROBES = probes(CHROME, TRANSCRIPT);
 
 /**
  * Scrolls the transcript until an element matching `selector` (and `pattern`)
- * is mounted, then centres it. T3 virtualizes its timeline, so a row far up is
+ * is mounted, then centres it. The reference app virtualizes its timeline, so a row far up is
  * not in the DOM until the list scrolls near it.
  */
 export async function reveal(ctx, selector, pattern = ".*", block = "center") {
@@ -49,4 +49,4 @@ async function run(ctx, { shot }) {
   await shot("table", { probes: PROBES });
 }
 
-export default { id: "05-finished-turn", title: "A finished turn: work group, code block, table", tau: run, t3: run };
+export default { id: "05-finished-turn", title: "A finished turn: work group, code block, table", tau: run, reference: run };

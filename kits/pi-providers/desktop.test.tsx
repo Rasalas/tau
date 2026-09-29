@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PiProvidersCard, piProvidersExtension, providerRowId, setUpBy, waysIn } from "./desktop.js";
+import { createKitHarness, PreferencesStore } from "../../src/renderer/test-support/kit-harness.js";
+import { PiProvidersCard, piProvidersExtension, providerRowId, setUpBy, waysIn, type ProviderIconControls } from "./desktop.js";
+import { readProviderIcon } from "./provider-icons.js";
 import type { PiProviderView } from "./protocol.js";
 
 afterEach(cleanup);
@@ -94,5 +95,44 @@ describe("Pi Providers desktop half", () => {
     expect(waysIn(PROVIDERS[2]!)).toBe("Environment only");
     expect(setUpBy({ ...PROVIDERS[0]!, configured: true, stored: "api_key" })).toBe("API key");
     expect(setUpBy(PROVIDERS[1]!)).toBe("OPENAI_API_KEY");
+  });
+
+  it("gives a provider without a mark of Tau's its site icon once, and a row to fetch it again, choose a picture or remove it", async () => {
+    const PNG = "data:image/png;base64,iVBORw0KGgo=";
+    const radius: PiProviderView = { id: "radius", name: "Radius", configured: true, source: "stored", stored: "api_key", apiKey: { name: "key", interactive: true }, site: "api.radius.example" };
+    const { host } = fakeHost([radius, PROVIDERS[1]!]);
+    const preferences = new PreferencesStore();
+    const icons: ProviderIconControls = {
+      preferences,
+      fetch: vi.fn(async () => ({ site: "api.radius.example", image: "data:image/x-icon;base64,AAABAA==" })),
+      rasterize: vi.fn(async () => PNG),
+    };
+    const notify = vi.fn();
+    render(<PiProvidersCard host={host} icons={icons} onNotify={notify} />);
+    await waitFor(() => expect(readProviderIcon(preferences, "radius")).toEqual({ kind: "site", image: PNG, site: "api.radius.example" }));
+    expect(icons.fetch).toHaveBeenCalledWith("radius", false);
+    expect(icons.fetch).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Radius" }));
+    const row = (await screen.findByRole("heading", { name: "Logo" })).closest(".settings-row") as HTMLElement;
+    expect(within(row).getByText("The icon of api.radius.example.")).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(icons.fetch).toHaveBeenLastCalledWith("radius", true));
+
+    const picked = new File(["x"], "logo.png", { type: "image/png" });
+    fireEvent.change(within(row).getByLabelText("Picture for Radius"), { target: { files: [picked] } });
+    await waitFor(() => expect(readProviderIcon(preferences, "radius")?.kind).toBe("upload"));
+    expect(icons.rasterize).toHaveBeenLastCalledWith(picked);
+    expect(within(row).getByText("Your picture.")).toBeTruthy();
+
+    fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    expect(readProviderIcon(preferences, "radius")).toEqual({ kind: "removed" });
+    expect(within(row).getByText("Its initial, as you chose.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage OpenAI" }));
+    // One row opens at a time; OpenAI wears a mark of Tau's own and has no logo row.
+    await screen.findByRole("heading", { name: "Account" });
+    expect(screen.queryByRole("heading", { name: "Logo" })).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
   });
 });

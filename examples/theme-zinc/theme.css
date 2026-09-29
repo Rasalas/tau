@@ -1,9 +1,8 @@
 /*
- * T3 Code's palette in Tau's tokens: zinc and neutral greys, the indigo
- * primary (oklch .488 .217 264 light, .571 .21 264 dark), T3's smaller radii.
- * Colours and radii only, no layout and no blur, so a side-by-side capture
- * tells a difference of colour from one of layout (scripts/compare/screens,
- * `--theme t3-like`). Values follow T3's apps/web/src/index.css.
+ * Zinc and neutral greys, an indigo primary (oklch .488 .217 264 light,
+ * .571 .21 264 dark) and smaller radii, in Tau's tokens. Colours and radii
+ * only, no layout and no blur, so a side-by-side capture tells a difference
+ * of colour from one of layout (scripts/compare/screens, `--theme zinc`).
  */
 
 :root {
@@ -69,13 +68,13 @@
   --acid-glow: light-dark(#1b4ed8bb, #346bf1bb);
   --focus: light-dark(#1b4ed8, #87adfa);
 
-  /* status in T3's hues: sky for a run, emerald for done, red to stop */
+  /* status hues: sky for a run, emerald for done, red to stop */
   --working: light-dark(#0369a1, #38bdf8);
   --ready: light-dark(#047857, #34d399);
   --stop: light-dark(#dc2626, #ef4444);
   --danger: light-dark(#b91c1c, #f87171);
 
-  /* T3's radius is 10px, a control 6–8px, a dialog 16px */
+  /* a 10px radius; a control 6–8px, a dialog 16px */
   --radius-md: 8px;
   --radius-lg: 10px;
 }

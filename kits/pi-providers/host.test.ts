@@ -1,3 +1,7 @@
+import { createServer } from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { HostModelAuthInteraction, HostModelAuthServices, HostModelProviderAuth } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
@@ -102,5 +106,33 @@ describe("Pi Providers host half", () => {
   it("says so on a host without the seam", async () => {
     const registry = await activateHostKit(createPiProvidersHostExtension(), {});
     await expect(registry.invoke("tau.pi-providers", "providers")).rejects.toThrow(/cannot sign Pi's providers in/u);
+  });
+
+  it("fetches a provider's site icon by its id from the address only the host knows, and shows windows the host name alone", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const paths: string[] = [];
+    const server = createServer((request, response) => {
+      paths.push(request.url ?? "");
+      if (request.url === "/favicon.ico") response.writeHead(200, { "content-type": "image/x-icon" }).end(png);
+      else response.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    const stateDir = await mkdtemp(join(tmpdir(), "tau-pi-providers-"));
+    try {
+      const local: HostModelProviderAuth = { id: "local-llm", name: "Local LLM", configured: true, apiKey: { name: "key", interactive: true }, baseUrl: `http://user:secret@127.0.0.1:${port}/v1?key=secret` };
+      const auth: HostModelAuthServices = { providers: async () => [local], login: vi.fn(), logout: vi.fn() };
+      const registry = await activateHostKit(createPiProvidersHostExtension(), { modelAuth: auth, stateDir }, () => undefined);
+      const [listed] = await registry.invoke("tau.pi-providers", "providers") as Array<Record<string, unknown>>;
+      expect(listed).toMatchObject({ id: "local-llm", site: `127.0.0.1:${port}` });
+      expect(listed).not.toHaveProperty("baseUrl");
+      await expect(registry.invoke("tau.pi-providers", "site-icon", { id: "local-llm" })).resolves.toEqual({ site: `127.0.0.1:${port}`, image: `data:image/png;base64,${png.toString("base64")}` });
+      await registry.invoke("tau.pi-providers", "site-icon", { id: "local-llm" });
+      expect(paths).toEqual(["/", "/favicon.ico"]);
+      await expect(registry.invoke("tau.pi-providers", "site-icon", { id: "nobody" })).rejects.toThrow(/knows no provider/u);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(stateDir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,9 +1,10 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { BUILD_ONLY_DEV_DEPENDENCIES, bundledFileLicenses, collectThirdPartyLicenses } from "./vite.third-party-licenses";
+import { BUILD_ONLY_DEV_DEPENDENCIES, bundledFileLicenses, collectMobileLicenses, collectThirdPartyLicenses, SUPPLIED_LICENSES_DIR } from "./vite.third-party-licenses";
 import { packLicenses, unpackLicenses } from "./src/shared/third-party-licenses";
 
 let root: string | undefined;
@@ -43,6 +44,42 @@ describe("the packages Tau ships", () => {
       name: "react", version: "19.0.0", license: "MIT", repository: "https://github.com/facebook/react", text: "MIT License\n\nCopyright Meta",
     });
     expect(found.find((entry) => entry.name === "@xterm/xterm")?.repository).toBe("https://github.com/xtermjs/xterm.js");
+  });
+
+  it("gives a package without a licence file its repository's text, a supplied one, or MIT's own words", async () => {
+    root = await mkdtemp(join(tmpdir(), "tau-licenses-"));
+    const modules = join(root, "node_modules");
+    await pkg(root, { dependencies: { tool: "1", "tool-darwin": "1", agent: "1", tiny: "1", odd: "1" } });
+    await pkg(join(modules, "tool"), { name: "tool", version: "1.0.0", license: "MIT", repository: "github:someone/tool" }, "MIT License\n\nCopyright Someone");
+    await pkg(join(modules, "tool-darwin"), { name: "tool-darwin", version: "1.0.0", license: "MIT", repository: "github:someone/tool" });
+    await pkg(join(modules, "agent"), { name: "agent", version: "2.0.0", license: "MIT", repository: { url: "git+https://github.com/Some-Org/Agent.git" } });
+    await pkg(join(modules, "tiny"), { name: "tiny", version: "0.1.0", license: "MIT", author: "Ada Lovelace <ada@example.invalid> (https://example.invalid)" });
+    await pkg(join(modules, "odd"), { name: "odd", version: "0.1.0", license: "BSD-3-Clause" });
+    await mkdir(join(root, SUPPLIED_LICENSES_DIR), { recursive: true });
+    await writeFile(join(root, SUPPLIED_LICENSES_DIR, "some-org__agent.txt"), "MIT License\n\nCopyright (c) 2025 Some Org\n");
+
+    const text = (name: string) => collectThirdPartyLicenses(root!).find((entry) => entry.name === name)?.text;
+    expect(text("tool-darwin")).toBe("MIT License\n\nCopyright Someone");
+    expect(text("agent")).toBe("MIT License\n\nCopyright (c) 2025 Some Org");
+    expect(text("tiny")).toMatch(/^MIT License\n\nCopyright \(c\) Ada Lovelace\n\nPermission is hereby granted/u);
+    expect(text("odd")).toBeUndefined();
+  });
+
+  it("carries the texts Pi and the vendored programs ship without", () => {
+    const here = fileURLToPath(new URL(".", import.meta.url));
+    const pi = collectThirdPartyLicenses(here).find((entry) => entry.name === "@earendil-works/pi-coding-agent");
+    expect(pi?.text).toMatch(/Copyright \(c\) 2025 Mario Zechner/u);
+    for (const file of ["microsoft__terminal.txt", "trycua__cua.txt"]) {
+      expect(readFileSync(join(here, SUPPLIED_LICENSES_DIR, file), "utf8")).toMatch(/^(?:MIT License|Copyright)/u);
+    }
+  });
+
+  it("lists for the mobile app what its bundle reaches, not the desktop app's packages", () => {
+    const found = collectMobileLicenses(fileURLToPath(new URL(".", import.meta.url)));
+    const names = new Set(found.map((entry) => entry.name));
+    expect(names.has("@capacitor/core")).toBe(true);
+    expect(names.has("react")).toBe(true);
+    for (const desktopOnly of ["electron", "node-pty", "@earendil-works/pi-coding-agent", "tau-native"]) expect(names.has(desktopOnly)).toBe(false);
   });
 
   it("stores a notice once however many packages carry it", () => {

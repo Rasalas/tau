@@ -24,7 +24,9 @@ export type WorkbenchEventCandidate =
   | { type: "active-thread-changed"; sessionId?: string }
   /** The host opened another project; `from` is absent for the first one this client saw. */
   | { type: "workspace-changed"; from?: string; to: string }
-  | { type: "host-connection"; state: HostConnectionState };
+  | { type: "host-connection"; state: HostConnectionState }
+  /** The host sent a model catalog; `providers` are its models' providers, sorted (API 1.29.0). */
+  | { type: "models-changed"; providers: readonly string[] };
 
 /** What a host event needs of the user's preferences. */
 export interface SettledThreadsPort {
@@ -87,9 +89,15 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
   if (isWorkbenchEvent(event)) queueMicrotask(() => registry.dispatchWorkbenchEvent(event));
 
   switch (event.type) {
-    case "host-update":
+    case "host-update": {
       targets.applyHostUpdate(event.update);
+      const update = event.update;
+      if (update.type === "catalog") {
+        const providers = [...new Set(update.catalog.models.map((model) => model.provider))].sort();
+        queueMicrotask(() => registry.dispatchWorkbenchEvent({ type: "models-changed", providers }));
+      }
       return;
+    }
     case "thread-index":
       targets.applyThreadIndex(event.threadIndex);
       return;

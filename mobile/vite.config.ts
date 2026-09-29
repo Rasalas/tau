@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, here, "TAU_");
   return {
     root: here,
-    plugins: [react(), stripIconKeys(), dedupeLegalComments(), thirdPartyLicenses(repository)],
+    plugins: [react(), stripIconKeys(), dedupeLegalComments(), thirdPartyLicenses(repository, { app: "mobile" })],
     base: "./",
     // The browser client's favicon and manifest.
     publicDir: fileURLToPath(new URL("../src/web/public", import.meta.url)),

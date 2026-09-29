@@ -1,2 +1,4 @@
 mobile/plugins/tau-native/android/build/
 .private/
+glob:reports/compare-*
+src/renderer/assets/providers/ki-connect.png

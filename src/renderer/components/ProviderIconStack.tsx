@@ -7,8 +7,9 @@ import openAiIcon from "@lobehub/icons-static-svg/icons/openai.svg?no-inline";
 import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline";
 import piIcon from "@lobehub/icons-static-svg/icons/pi.svg?no-inline";
 import vertexAiIcon from "@lobehub/icons-static-svg/icons/vertexai-color.svg?no-inline";
-import kiConnectIcon from "../assets/providers/ki-connect.png";
+import { useContext, useSyncExternalStore } from "react";
 import { providerMarks, useRuntimeMarkDeclarations, type RuntimeMarkDeclarations } from "../runtime-marks";
+import { WorkbenchShellContext } from "../workbench-context";
 import { runtimeDriver } from "../../shared/runtime-instances";
 import { tooltipProps, type TooltipOptions } from "./ui/Tooltip";
 import "./provider-marks.css";
@@ -41,7 +42,6 @@ function providerIdentity(value: string | undefined): ProviderIdentity | undefin
   if (["google", "google-gemini", "gemini"].includes(key)) return { family: "gemini", label: "Google Gemini", source: geminiIcon, color: true, fallback: "G" };
   if (["vertex-ai", "vertexai", "google-vertex"].includes(key)) return { family: "vertex-ai", label: "Vertex AI", source: vertexAiIcon, color: true, fallback: "V" };
   if (["opencode", "opencode-go"].includes(key)) return { family: "opencode", label: key === "opencode-go" ? "OpenCode Go" : "OpenCode", source: openCodeIcon, fallback: "O" };
-  if (["ki:connect", "ki-connect", "kiconnect"].includes(key)) return { family: "ki-connect", label: "KI:connect", source: kiConnectIcon, color: true, fallback: "K" };
   if (key === "pi") return { family: "pi", label: "Pi", source: piIcon, fallback: "P" };
   const known = KNOWN.find(([, keys]) => keys.some((name) => key === name || key.startsWith(`${name}-`)));
   if (known) {
@@ -95,6 +95,12 @@ const KNOWN: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["Cursor", ["cursor"]],
 ];
 
+/** Whether Tau draws a mark of its own for this provider or runtime; any other gets a kit's picture or its initial. */
+export function providerHasMark(value: string): boolean {
+  const identity = providerIdentity(value);
+  return Boolean(identity?.source || identity?.styled);
+}
+
 /** One or two letters for a provider without a mark: "radius" → "R", "ant-ling" → "AL". */
 export function monogram(value: string): string {
   const words = value.trim().split(/[\s_\-.:/]+/u).filter(Boolean);
@@ -102,8 +108,19 @@ export function monogram(value: string): string {
   return letters.toUpperCase() || "·";
 }
 
-function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: "model" | "runtime" }) {
-  const mark = identity.styled
+const noSubscribe = () => () => undefined;
+
+/** A kit's picture for a provider Tau has no mark for (`setProviderIcons`). */
+function useProviderPicture(value: string | undefined): string | undefined {
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  return useSyncExternalStore(registry?.subscribe ?? noSubscribe, () => (value ? registry?.providerIcon(value) : undefined));
+}
+
+function ProviderIcon({ identity, layer, value }: { identity: ProviderIdentity; layer: "model" | "runtime"; value?: string | undefined }) {
+  const picture = useProviderPicture(identity.source || identity.styled ? undefined : value);
+  const mark = picture
+    ? <img className="provider-mark provider-mark-picture" src={picture} alt="" />
+    : identity.styled
     ? <span className="provider-mark provider-mark-styled" />
     : identity.source
     ? identity.color
@@ -111,7 +128,7 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
       : <span className="provider-mark provider-mark-mono" style={{ maskImage: `url("${identity.source}")`, WebkitMaskImage: `url("${identity.source}")` }} />
     : identity.fallback;
   return (
-    <span className={`provider-icon provider-icon-${layer} provider-family-${identity.family}${identity.source || identity.styled ? "" : " provider-icon-fallback"}`}>
+    <span className={`provider-icon provider-icon-${layer} provider-family-${identity.family}${picture || identity.source || identity.styled ? "" : " provider-icon-fallback"}`}>
       {mark}
     </span>
   );
@@ -128,7 +145,7 @@ function stackIdentities(modelProvider: string | undefined, runtimeProvider: str
     : runtimeLabel && home && home.label !== runtimeLabel
       ? `${runtimeLabel} (${home.label})`
       : model?.label ?? runtimeLabel ?? "Unknown provider";
-  return { model, runtime, route };
+  return { model, runtime, route, marks };
 }
 
 /** What `ProviderIconStack` names its marks without a model name: "Pi via OpenAI", "Codex (OpenAI)". */
@@ -156,14 +173,14 @@ export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtim
   name?: string;
 }) {
   const runtimes = useRuntimeMarkDeclarations();
-  const { model, runtime, route } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName, runtimes);
+  const { model, runtime, route, marks } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName, runtimes);
   if (!model && !runtime) return null;
   const label = name ?? (modelName ? `${modelName} · ${route}` : route);
   const stacked = Boolean(runtimeMark && model && runtime);
   return (
     <span className={`provider-icon-stack ${stacked ? "stacked" : "single"}${className ? ` ${className}` : ""}`} role="img" aria-label={label} {...(hint === undefined ? { title: label } : hint ? tooltipProps(label, hint) : {})}>
-      {model ? <ProviderIcon identity={model} layer="model" /> : runtime ? <ProviderIcon identity={runtime} layer="model" /> : null}
-      {stacked && runtime ? <ProviderIcon identity={runtime} layer="runtime" /> : null}
+      {model ? <ProviderIcon identity={model} layer="model" value={marks.model} /> : runtime ? <ProviderIcon identity={runtime} layer="model" value={marks.runtime} /> : null}
+      {stacked && runtime ? <ProviderIcon identity={runtime} layer="runtime" value={marks.runtime} /> : null}
     </span>
   );
 }

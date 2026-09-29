@@ -33,7 +33,7 @@ export function realTmp(name) {
 function gitInit(dir) {
   mkdirSync(dir, { recursive: true });
   execFileSync("git", ["init", "-q", "-b", "main", dir]);
-  writeFileSync(join(dir, "README.md"), "# Comparison workspace\n\nScratch repository for the Tau and T3 Code comparison harness.\n");
+  writeFileSync(join(dir, "README.md"), "# Comparison workspace\n\nScratch repository for the comparison harness.\n");
   execFileSync("git", ["-C", dir, "add", "README.md"]);
   execFileSync("git", ["-C", dir, "-c", "user.name=Compare Harness", "-c", "user.email=compare@example.invalid", "commit", "-q", "-m", "chore: init"]);
 }
@@ -150,7 +150,7 @@ export const tau = {
   /**
    * A thread opens with its newest 10 turns; older ones come 20 at a time as
    * the reader reaches the top. Loaded until none are left so the scroll covers
-   * the whole thread, as it does in T3, which sends all of it at once.
+   * the whole thread, as it does in the reference app, which sends all of it at once.
    */
   async loadHistory(session, { evaluate, waitFor }) {
     let pages = 0;
@@ -194,32 +194,38 @@ export const tau = {
   },
 };
 
-export const t3 = {
-  id: "t3",
-  label: "T3 Code",
-  // COMPARE_T3_ROOT keeps a checkout's T3 profile apart, as COMPARE_TAU_ROOT does for Tau.
-  defaultRoot: () => process.env.COMPARE_T3_ROOT || realTmp("t3-harness-home"),
-  sourceDir: realTmp("t3-harness"),
+/**
+ * The app Tau is measured against: an Electron coding-agent workbench built
+ * from a checkout at COMPARE_REFERENCE_SOURCE. The environment names, data
+ * folders and URL scheme below are that app's own, which isolation needs.
+ */
+export const reference = {
+  id: "reference",
+  label: "Reference",
+  // COMPARE_REFERENCE_ROOT keeps a checkout's reference profile apart, as COMPARE_TAU_ROOT does for Tau.
+  defaultRoot: () => process.env.COMPARE_REFERENCE_ROOT || realTmp("reference-harness-home"),
+  get sourceDir() { return process.env.COMPARE_REFERENCE_SOURCE || realTmp("reference-harness"); },
   describe() {
     const desktop = join(this.sourceDir, "apps", "desktop");
+    const manifest = JSON.parse(readFileSync(join(desktop, "package.json"), "utf8"));
     return {
-      app: "T3 Code",
+      app: manifest.productName ?? this.label,
       commit: gitHead(this.sourceDir),
-      version: JSON.parse(readFileSync(join(desktop, "package.json"), "utf8")).version,
+      version: manifest.version,
       electron: electronVersion(join(desktop, "node_modules", "electron")),
       build: "vp run build:desktop (production bundles, unpackaged Electron, no launcher bundle)",
     };
   },
   paths(root) {
     const run = join(root, "run");
-    return { root, run, template: join(root, "template"), workspace: join(run, "workspace"), t3Home: join(run, "home", ".t3") };
+    return { root, run, template: join(root, "template"), workspace: join(run, "workspace"), dataHome: join(run, "home", ".reference") };
   },
   prepare(root) {
     const paths = this.paths(root);
     prepareRunDirs(paths.run);
     const shim = writeCodexShim(root);
     gitInit(paths.workspace);
-    const stateDir = join(paths.t3Home, "userdata");
+    const stateDir = join(paths.dataHome, "userdata");
     mkdirSync(stateDir, { recursive: true });
     // Codex runs the replay; every other provider stays off, and no update or manifest fetch runs.
     writeFileSync(join(stateDir, "settings.json"), `${JSON.stringify({
@@ -232,17 +238,17 @@ export const t3 = {
     return { ...paths, sessionsHome: join(paths.run, "home", ".codex") };
   },
   env(root, { backendPort }) {
-    const { run, t3Home } = this.paths(root);
+    const { run, dataHome } = this.paths(root);
     const env = {
       ...baseEnv({ root, run }),
-      T3CODE_HOME: t3Home,
+      T3CODE_HOME: dataHome,
       T3CODE_PORT: String(backendPort),
       T3CODE_TELEMETRY_ENABLED: "false",
       T3CODE_DISABLE_AUTO_UPDATE: "1",
       CODEX_HOME: join(run, "home", ".codex"),
       CLAUDE_CONFIG_DIR: join(run, "home", ".claude"),
       GROK_HOME: join(run, "home", ".grok"),
-      // T3's checkout stays untouched: a preload gives its main process the rules of TAU_NO_FOCUS.
+      // The reference app's checkout stays untouched: a preload gives its main process the rules of TAU_NO_FOCUS.
       ...(startsInBackground() ? { NODE_OPTIONS: `--require ${JSON.stringify(BACKGROUND_PRELOAD)}` } : {}),
     };
     assertEnvUnder(env, ["HOME", "CFFIXED_USER_HOME", "T3CODE_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "ZDOTDIR"], root);
@@ -252,7 +258,7 @@ export const t3 = {
     const { run } = this.paths(root);
     const desktop = join(this.sourceDir, "apps", "desktop");
     const electronBinary = join(desktop, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
-    if (!existsSync(join(desktop, "dist-electron", "main.cjs"))) throw new Error(`T3 is not built: run \`vp run build:desktop\` in ${this.sourceDir}`);
+    if (!existsSync(join(desktop, "dist-electron", "main.cjs"))) throw new Error(`The reference app is not built: run \`vp run build:desktop\` in ${this.sourceDir}`);
     const log = openSync(join(run, "logs", logName), "a");
     // The plain Electron binary, never apps/desktop/scripts/start-electron.mjs: that
     // builds a bundle with the installed app's identifier and registers it with LaunchServices.
@@ -288,7 +294,7 @@ export const t3 = {
     await waitFor(session, `/Settled \\(${expectedThreads}\\)/.test(document.querySelector("[data-testid=sidebar-settled-header]")?.textContent ?? "") || document.querySelectorAll(${JSON.stringify(this.selectors.threadRow)}).length >= ${expectedThreads}`, { timeoutMs: 120_000 });
     await this.revealThreads(session, { clickWhenReady, waitFor, expectedThreads });
   },
-  /** T3 sends a thread's whole history when it opens. */
+  /** The reference app sends a thread's whole history when it opens. */
   async loadHistory() { return 0; },
   /** Imported threads land on the collapsed "Settled" shelf; open it so rows can be clicked. */
   async revealThreads(session, { clickWhenReady, waitFor, expectedThreads }) {
@@ -300,7 +306,7 @@ export const t3 = {
   },
 };
 
-export const APPS = { tau, t3 };
+export const APPS = { tau, reference };
 
 /** Replaces the run dir with a copy of the seeded template; paths inside stay valid because the location is the same. */
 export function resetRunFromTemplate(app, root) {
