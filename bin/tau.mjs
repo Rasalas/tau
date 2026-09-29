@@ -11,11 +11,13 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { UPDATE_WAIT_MS, describeUpdate, parseMachinesArgs, runMachines } from "./tau-machines.mjs";
+import { parseKitArgs, runKit } from "./tau-kit.mjs";
 
 /** `configureAppIdentity` in `src/main/single-instance.ts` names the folder the same way. */
 export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
 const PROTOCOL = 1;
 const WORKSPACE_KIT = "tau.workspace";
+const PACKAGES_KIT = "tau.packages";
 const TIMEOUT_MS = 15_000;
 
 export const SERVICE_ACTIONS = ["install", "status", "uninstall", "restart"];
@@ -28,6 +30,8 @@ export const USAGE = `Usage: tau app [path]
        tau machines list [--json]
        tau machines update <name or id> [--check | --status] [--json]
        tau machines remove <name or id> [--json]
+       tau kit new <name or path> [--id <id>] [--no-host] [--install [--local]]
+       tau kit types [folder]
 
 tau app opens a folder in the running Tau with a new thread, and brings its
 window to the front. Without a running Tau it starts the app on that folder.
@@ -52,6 +56,9 @@ tau machines add pairs this computer with a machine you reach over ssh:
 Tau's command line there allows it with that machine's own host token, so
 nobody compares digits. tau machines --help says more.
 
+tau kit new writes a package folder to start a kit of your own from, with the
+extension API's types for your editor; tau kit --help says more.
+
 TAU_USER_DATA names the instance, as it does for the app itself.`;
 
 export function parseArgs(argv) {
@@ -68,6 +75,7 @@ export function parseArgs(argv) {
     return { command, action, flags };
   }
   if (command === "machines") return { command, machines: parseMachinesArgs(rest) };
+  if (command === "kit") return { command, kit: parseKitArgs(rest) };
   if (command === "update") return { command, update: parseUpdateFlags(rest, "tau update") };
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
   const paths = rest.filter((arg) => arg !== "--");
@@ -303,6 +311,23 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     } finally {
       session.close();
     }
+  }
+  if (options.command === "kit") {
+    return runKit(options.kit, {
+      out,
+      ...(io.cwd ? { cwd: io.cwd } : {}),
+      ...(io.kitTypes ? { types: io.kitTypes } : {}),
+      install: io.installPackage ?? (async (source, scope) => {
+        const host = (io.readRunningHost ?? readRunningHost)(userDataDir(env));
+        if (!host) throw new Error("Tau is not running on this machine. Start it, then type /install with the folder in its composer.");
+        const session = await openHostSession(host, io.WebSocket);
+        try {
+          return await session.request("host-extension", [PACKAGES_KIT, "install", { source, scope }], UPDATE_WAIT_MS);
+        } finally {
+          session.close();
+        }
+      }),
+    });
   }
   if (options.command === "machines") {
     const userData = userDataDir(env);
