@@ -1,0 +1,29 @@
+/* The thread tree (/tree, /fork). Loaded with its chunk on first open; the
+   modal frame it shares with the project picker stays in styles.css. */
+.thread-tree { display: flex; flex-direction: column; max-height: min(70vh, 640px); }
+.thread-tree-list { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; flex: 1; min-height: 120px; }
+.thread-tree-list li { padding-right: 12px; }
+.thread-tree-node {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--ink); font: var(--text-sm) var(--sans); text-align: left; cursor: pointer;
+}
+.thread-tree-node:hover:not(:disabled) { background: var(--hover); }
+.thread-tree-node:disabled { cursor: default; opacity: 0.55; }
+.thread-tree-node.leaf:disabled { opacity: 1; }
+.thread-tree-node.on-branch { color: var(--ink); }
+.thread-tree-node:not(.on-branch) { color: var(--faint); }
+.thread-tree-node > i { display: inline-flex; flex: none; opacity: 0.7; }
+.thread-tree-node > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-tree-node > small { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--info-ink); font-weight: 500; }
+.thread-tree-label { margin-right: 6px; padding: 1px 5px; border-radius: 4px; background: var(--acid-chip); font-weight: 600; font-size: var(--text-xs); }
+.thread-tree-error { margin: 0; padding: 8px 14px; color: var(--danger); font: var(--text-sm) var(--sans); }
+.thread-tree-empty { padding: 14px; color: var(--faint); font: var(--text-sm) var(--sans); }
+.thread-tree-summarize { display: inline-flex; align-items: center; gap: 6px; }
+.project-modal-help {
+  display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 14px;
+  border-top: 1px solid var(--line); color: var(--faint); font: var(--text-xs) var(--sans);
+}
+.project-modal-help kbd {
+  border: 0; border-radius: 5px; background: var(--raised); padding: 3px 6px;
+  color: var(--ink-3); font: 10px var(--mono);
+}
