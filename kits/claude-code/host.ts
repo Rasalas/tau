@@ -176,13 +176,17 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         return adapter;
       };
 
-      const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
-        threadId: entry.tauThreadId,
-        cwd: entry.cwd,
-        ...(entry.title ? { title: entry.title } : {}),
-        updatedAt: entry.updatedAt,
-        messages: entry.messages,
-      });
+      const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => {
+        const usage = store.talliesOf(entry.tauThreadId);
+        return {
+          threadId: entry.tauThreadId,
+          cwd: entry.cwd,
+          ...(entry.title ? { title: entry.title } : {}),
+          updatedAt: entry.updatedAt,
+          messages: entry.messages,
+          ...(usage.length ? { usage } : {}),
+        };
+      };
       const commands = (adapter: ClaudeCodeAgentRuntimeAdapter) => (cwd: string) => options.commands
         ? options.commands.map((command) => command.source === "skill"
           ? { ...command, skillCommand: skillInvocationCommand(command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name, adapter) }

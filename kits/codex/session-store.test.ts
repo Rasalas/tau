@@ -76,4 +76,17 @@ describe("CodexSessionStore", () => {
     expect(Object.keys(saved.instanceModels)).toEqual(["work"]);
     expect(saved.sessions.map((session) => session.instance)).toEqual([undefined, "work"]);
   });
+
+  it("answers what a thread was billed for, and a new turn counts at once", async () => {
+    const { make } = await store();
+    const codex = make();
+    const turn = (at: number) => ({ provider: "openai", model: "gpt-5.6-luna", inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.5, turns: 1, at });
+    const total = { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.5, turns: 1 };
+    await codex.recordUsage("tau-1", "/repo", total, turn(1));
+    expect(codex.talliesOf("tau-1")).toEqual([{ provider: "openai", model: "gpt-5.6-luna", ...total }]);
+    codex.talliesOf("tau-1")[0]!.costUsd = 99;
+    await codex.recordUsage("tau-1", "/repo", total, turn(2));
+    expect(codex.talliesOf("tau-1")).toEqual([{ provider: "openai", model: "gpt-5.6-luna", ...total, inputTokens: 20, outputTokens: 4, totalTokens: 24, costUsd: 1, turns: 2 }]);
+    expect(codex.talliesOf("missing")).toEqual([]);
+  });
 });

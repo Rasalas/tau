@@ -81,6 +81,8 @@ export class ThreadIndex {
   /** Who spawned each thread, read from the session files and cached by stamp. */
   private readonly lineage: SessionLineageIndex;
   private lineageCacheLoaded?: Promise<void>;
+  /** Other runtimes' tallies by shell path, as their last listing gave them, for repricing. */
+  private externalTallies = new Map<string, readonly UsageTally[]>();
   /** The parent of a thread this host started or indexed, for its live shell. */
   private readonly parents = new Map<string, string>();
   /** Deletions already announced, so the sweep does not repeat one the host made itself. */
@@ -235,12 +237,16 @@ export class ThreadIndex {
     return { previous, next };
   }
 
-  private externalShells(): Promise<UiSession[]> {
-    return loadExternalSessionShells({
+  private async externalShells(): Promise<UiSession[]> {
+    const tallies = new Map<string, readonly UsageTally[]>();
+    const shells = await loadExternalSessionShells({
       safeMode: this.port.safeMode, providers: this.port.backends().values(),
       projectName: (cwd) => this.port.projects.name(cwd), projectLabel: (cwd) => this.port.projects.label(cwd),
       onError: (provider, error) => this.port.log("runtime-backend.list.failed", `${provider.kind}: ${this.port.errorMessage(error)}`),
+      usage: (path, list) => { tallies.set(path, list); return usageOrUndefined(this.port.priceUsage(list)); },
     });
+    this.externalTallies = tallies;
+    return shells;
   }
 
   /**
@@ -361,7 +367,7 @@ export class ThreadIndex {
   repriceAll(): void {
     const cached = this.usage.cached();
     for (const shell of this.sessions) {
-      const tallies = cached.get(shell.path);
+      const tallies = cached.get(shell.path) ?? this.externalTallies.get(shell.path);
       const usage = this.liveUsage(shell.id) ?? (tallies ? usageOrUndefined(this.port.priceUsage(tallies)) : undefined);
       if (!usage || threadUsageEqual(shell.usage, usage)) continue;
       const updated = { ...shell, usage };

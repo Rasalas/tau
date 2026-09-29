@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -362,5 +362,29 @@ describe("Claude Code host half", () => {
       const report = await registry.invoke("tau.claude-code", "sign-in-state") as Report;
       expect(report.account).toEqual({ signedIn: true, label: "API key", detail: "API key · ANTHROPIC_API_KEY", canSignOut: false });
     });
+  });
+
+  it("lists what each thread cost from its store, without opening it", async () => {
+    const { backends, agentDir } = await harness(() => "/usr/local/bin/claude");
+    const turn = (model: string, at: number, costUsd: number) => ({ provider: "anthropic", model, billing: "api-key", inputTokens: 100, outputTokens: 10, cacheReadTokens: 50, cacheWriteTokens: 0, totalTokens: 160, costUsd, turns: 1, at });
+    const total = { inputTokens: 300, outputTokens: 30, cacheReadTokens: 150, cacheWriteTokens: 0, totalTokens: 480, costUsd: 0.6, turns: 3 };
+    const thread = (tauThreadId: string, claudeSessionId: string, extra: Record<string, unknown>) => ({
+      tauThreadId, claudeSessionId, cwd: "/repo", started: true, updatedAt: 9, messages: [{ role: "user", text: "Say hi.", timestamp: 1 }], ...extra,
+    });
+    // A synthetic store: never the user's own.
+    await mkdir(join(agentDir, "tau"), { recursive: true });
+    await writeFile(join(agentDir, "tau", "claude-runtime-sessions.json"), JSON.stringify({ version: 1, sessions: [
+      thread("turns", "11111111-1111-4111-8111-111111111111", { usage: total, usageTurns: [turn("claude-haiku-4-5", 2, 0.1), turn("claude-haiku-4-5", 3, 0.2), turn("claude-sonnet-4-5", 4, 0.3)] }),
+      thread("legacy", "22222222-2222-4222-8222-222222222222", { usage: total, observedModel: "claude-haiku-4-5" }),
+      thread("unused", "33333333-3333-4333-8333-333333333333", {}),
+    ] }));
+    const listed = new Map((await backends[0]!.listThreads()).map((record) => [record.threadId, record.usage]));
+    expect(listed.get("turns")).toEqual([
+      { provider: "anthropic", model: "claude-haiku-4-5", billing: "api-key", inputTokens: 200, outputTokens: 20, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 320, costUsd: expect.closeTo(0.3), turns: 2 },
+      { provider: "anthropic", model: "claude-sonnet-4-5", billing: "api-key", inputTokens: 100, outputTokens: 10, cacheReadTokens: 50, cacheWriteTokens: 0, totalTokens: 160, costUsd: 0.3, turns: 1 },
+    ]);
+    expect(listed.get("legacy")).toEqual([{ provider: "anthropic", model: "claude-haiku-4-5", ...total }]);
+    expect(listed.has("unused")).toBe(true);
+    expect(listed.get("unused")).toBeUndefined();
   });
 });

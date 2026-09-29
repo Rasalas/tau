@@ -30,7 +30,6 @@ import {
   type UsageTally,
   type UsageTurn,
   appendUsageTurn,
-  legacyUsageTurn,
   mergeTallies,
   unpricedUsage,
 } from "tau/host-extension";
@@ -50,7 +49,7 @@ import { EFFORT_LEVELS, apiKeyBilling, probeBilling, uiModel, versionedModelName
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeNetworkLimit, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
-import { ClaudeRuntimeSessionStore } from "./session-store.js";
+import { ClaudeRuntimeSessionStore, usageTurnsOf } from "./session-store.js";
 
 function derivedClaudeTitle(text: string): string | undefined {
   // This function normally receives the backend's visible projection. Keep a
@@ -255,9 +254,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
-    const model = record.observedModel ?? record.model;
-    this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
-      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: "anthropic", ...(model ? { model } : {}) })] : []);
+    this.usageTurns = usageTurnsOf(record);
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
     this.mode = record.mode ?? DEFAULT_MODE;

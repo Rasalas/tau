@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -242,6 +242,13 @@ function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
 
 const USAGE_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "turns"] as const;
 
+/** A thread's turns; a thread from before turns were kept has one, from its total. */
+export function usageTurnsOf(record: ClaudeRuntimeSessionRecord): UsageTurn[] {
+  if (record.usageTurns) return record.usageTurns.map((turn) => ({ ...turn }));
+  const model = record.observedModel ?? record.model;
+  return record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: "anthropic", ...(model ? { model } : {}) })] : [];
+}
+
 function storedUsage(value: unknown): UiThreadUsage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
@@ -383,6 +390,8 @@ function decodeSessions(value: unknown): ClaudeRuntimeSessionRecord[] | undefine
 
 /** App-data persistence for Claude session ids and the visible Tau projection. */
 export class ClaudeRuntimeSessionStore {
+  /** Each thread's turns merged per model, by the turn list they came from; a new turn replaces the list. */
+  private readonly merged = new WeakMap<readonly UsageTurn[], UsageTally[]>();
   private readonly now: () => number;
   private readonly records = new Map<string, ClaudeRuntimeSessionRecord>();
   private loaded = false;
@@ -434,6 +443,15 @@ export class ClaudeRuntimeSessionStore {
     } finally {
       this.loaded = true;
     }
+  }
+
+  /** What a listed thread was billed for, per model, for its row before it opens. */
+  talliesOf(tauThreadId: string): UsageTally[] {
+    const record = this.records.get(tauThreadId);
+    if (!record?.usageTurns) return record ? mergeTallies(usageTurnsOf(record)) : [];
+    let merged = this.merged.get(record.usageTurns);
+    if (!merged) this.merged.set(record.usageTurns, merged = mergeTallies(record.usageTurns));
+    return merged.map((tally) => ({ ...tally }));
   }
 
   async get(tauThreadId: string): Promise<ClaudeRuntimeSessionRecord | undefined> {

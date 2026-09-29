@@ -73,6 +73,11 @@ export interface HostBackendThreadRecord {
   messages: ReadonlyArray<Pick<UiMessage, "role" | "text">>;
   /** The model it last ran on, for its row before it opens; else the row shows `modelProvider` (API 1.24.0). */
   model?: Pick<UiModel, "provider" | "id">;
+  /**
+   * What it was billed for, from the backend's own store; the index prices it
+   * like a Pi thread's, so a thread that is not open shows its cost (API 1.30.0).
+   */
+  usage?: readonly UsageTally[];
 }
 
 /** What core hands a backend when it opens a thread. */

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 
 /**
  * App-data persistence for Codex threads: the Tau thread → Codex thread
@@ -58,6 +58,13 @@ export interface CodexStoredModel {
 }
 
 const USAGE_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "turns"] as const;
+
+/** A thread's turns; a thread from before turns were kept has one, from its total. */
+export function usageTurnsOf(record: CodexSessionRecord): UsageTurn[] {
+  if (record.usageTurns) return record.usageTurns.map((turn) => ({ ...turn }));
+  const model = record.model ?? record.observedModel;
+  return record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: "openai", ...(model ? { model } : {}) })] : [];
+}
 
 function text(value: unknown, max: number): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= max ? value : undefined;
@@ -175,6 +182,8 @@ function sameInstance(record: CodexSessionRecord, instance: string | undefined):
 }
 
 export class CodexSessionStore {
+  /** Each thread's turns merged per model, by the turn list they came from; a new turn replaces the list. */
+  private readonly merged = new WeakMap<readonly UsageTurn[], UsageTally[]>();
   private readonly now: () => number;
   private readonly records = new Map<string, CodexSessionRecord>();
   /** The account's models per instance; the default instance under its id. */
@@ -198,6 +207,15 @@ export class CodexSessionStore {
       })
       .catch(() => undefined);
     return this.loading;
+  }
+
+  /** What a listed thread was billed for, per model, for its row before it opens. */
+  talliesOf(tauThreadId: string): UsageTally[] {
+    const record = this.records.get(tauThreadId);
+    if (!record?.usageTurns) return record ? mergeTallies(usageTurnsOf(record)) : [];
+    let merged = this.merged.get(record.usageTurns);
+    if (!merged) this.merged.set(record.usageTurns, merged = mergeTallies(record.usageTurns));
+    return merged.map((tally) => ({ ...tally }));
   }
 
   async get(tauThreadId: string): Promise<CodexSessionRecord | undefined> {
