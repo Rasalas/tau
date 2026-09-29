@@ -11,25 +11,28 @@
 //   npm run install:mac                 # latest release
 //   npm run install:mac -- --version v0.1.1
 //   npm run install:mac -- --open       # launch afterwards
+//   npm run install:mac -- --local      # build this checkout and install that
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream, mkdtempSync, readdirSync, renameSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { RELEASE_PUBLIC_KEYS, parseReleaseInfo, verifySignature } from "../bin/tau-update-helper.mjs";
 
-/** Where releases are published (`publish:` in electron-builder.yml). */
+/** Where releases are published (`publish:` in tooling/electron-builder.yml). */
 export const RELEASES = "Rasalas/tau-releases";
 /** Releases before tau-releases existed stayed here when the source repository went public. */
 export const PRIVATE_REPO = "Rasalas/tau-private";
 export const MAC_FEED = "latest-mac.yml";
 export const APP_NAME = "Tau.app";
 export const INSTALL_DIR = "/Applications";
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 export function parseArgs(argv) {
-  const options = { version: undefined, open: false, help: false };
+  const options = { version: undefined, open: false, local: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--version") {
@@ -37,10 +40,19 @@ export function parseArgs(argv) {
       if (!value) throw new Error("--version needs a tag, e.g. v0.1.2");
       options.version = value;
     } else if (arg === "--open") options.open = true;
+    else if (arg === "--local") options.local = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
-    else throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --version <tag>, --open)`);
+    else throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --version <tag>, --open, --local)`);
   }
+  if (options.local && options.version) throw new Error("--local installs this checkout; it takes no --version");
   return options;
+}
+
+/** Where `electron-builder --dir` leaves the app for an architecture. */
+export function localAppPath(arch) {
+  if (arch === "arm64") return join("release", "mac-arm64", APP_NAME);
+  if (arch === "x64") return join("release", "mac", APP_NAME);
+  throw new Error(`Unsupported architecture: ${arch}`);
 }
 
 /** The release's .dmg for an architecture: `Tau-1.2.3-arm64.dmg` on Apple silicon, `Tau-1.2.3.dmg` on Intel. */
@@ -115,7 +127,7 @@ export async function downloadChecked(fetchUrl, url, target, expected) {
 const launchEnv = () => { const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE; return env; };
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { stdio: options.quiet ? ["ignore", "pipe", "pipe"] : "inherit", encoding: "utf8", env: launchEnv() });
+  const result = spawnSync(command, args, { stdio: options.quiet ? ["ignore", "pipe", "pipe"] : "inherit", encoding: "utf8", env: launchEnv(), cwd: options.cwd });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed${result.stderr ? `: ${result.stderr.trim()}` : ""}`);
   }
@@ -140,14 +152,39 @@ async function download(options, arch, workDir) {
   return { tag, dmg: join(workDir, pickDmg(readdirSync(workDir), arch)) };
 }
 
+/** Copies an app bundle into /Applications, quitting a running copy first. */
+function installApp(source, label, open) {
+  const target = join(INSTALL_DIR, APP_NAME);
+  // A running copy is quit first; copying over a live bundle leaves a half-updated app.
+  spawnSync("osascript", ["-e", 'tell application "Tau" to quit'], { stdio: "ignore" });
+  if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+  run("cp", ["-R", source, target], { quiet: true });
+  // Gatekeeper blocks an unsigned download; the attribute is the "came from the internet" mark.
+  spawnSync("xattr", ["-dr", "com.apple.quarantine", target], { stdio: "ignore" });
+  console.log(`Installed ${label} to ${target}`);
+  // Nothing is put on the PATH unasked; this says how (README: "Open a folder from a terminal").
+  console.log(`For \`tau app <path>\` in a terminal: ln -s "${cliPath(target)}" ~/.local/bin/tau`);
+  if (open) run("open", ["-a", target], { quiet: true });
+}
+
+/** Builds this checkout for this Mac's architecture, unpacked, and installs the result. */
+function installLocal(arch, open) {
+  const source = join(ROOT, localAppPath(arch));
+  run("npm", ["run", "build"], { cwd: ROOT });
+  run("npx", ["electron-builder", "-c", "tooling/electron-builder.yml", "--mac", `--${arch}`, "--dir", "--publish", "never"], { cwd: ROOT });
+  if (!existsSync(source)) throw new Error(`electron-builder left no ${source}`);
+  installApp(source, "this checkout's build", open);
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("npm run install:mac -- [--version <tag>] [--open]");
+    console.log("npm run install:mac -- [--version <tag> | --local] [--open]");
     return;
   }
   if (process.platform !== "darwin") throw new Error("install:mac runs on macOS only.");
   const arch = process.arch;
+  if (options.local) return installLocal(arch, options.open);
   const workDir = mkdtempSync(join(tmpdir(), "tau-install-"));
   let mountPoint;
   try {
@@ -157,17 +194,7 @@ async function main() {
     if (!mountPoint) throw new Error("could not find where hdiutil mounted the image");
     const source = join(mountPoint, APP_NAME);
     if (!existsSync(source)) throw new Error(`${APP_NAME} is not in the image`);
-    const target = join(INSTALL_DIR, APP_NAME);
-    // A running copy is quit first; copying over a live bundle leaves a half-updated app.
-    spawnSync("osascript", ["-e", 'tell application "Tau" to quit'], { stdio: "ignore" });
-    if (existsSync(target)) rmSync(target, { recursive: true, force: true });
-    run("cp", ["-R", source, target], { quiet: true });
-    // Gatekeeper blocks an unsigned download; the attribute is the "came from the internet" mark.
-    spawnSync("xattr", ["-dr", "com.apple.quarantine", target], { stdio: "ignore" });
-    console.log(`Installed ${tag} to ${target}`);
-    // Nothing is put on the PATH unasked; this says how (README: "Open a folder from a terminal").
-    console.log(`For \`tau app <path>\` in a terminal: ln -s "${cliPath(target)}" ~/.local/bin/tau`);
-    if (options.open) run("open", ["-a", target], { quiet: true });
+    installApp(source, tag, options.open);
   } finally {
     if (mountPoint) spawnSync("hdiutil", ["detach", mountPoint, "-quiet"], { stdio: "ignore" });
     rmSync(workDir, { recursive: true, force: true });

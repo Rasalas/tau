@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cliPath, dmgPattern, downloadChecked, parseArgs, pickDmg, readRelease, releaseUrl } from "./install-mac.mjs";
+import { cliPath, dmgPattern, downloadChecked, localAppPath, parseArgs, pickDmg, readRelease, releaseUrl } from "./install-mac.mjs";
 
 const DMG = Buffer.from("a disk image");
 const SHA512 = createHash("sha512").update(DMG).digest("base64");
@@ -24,8 +24,10 @@ afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: 
 
 describe("install-mac", () => {
   it("parses the version and open flags", () => {
-    expect(parseArgs([])).toEqual({ version: undefined, open: false, help: false });
-    expect(parseArgs(["--version", "v0.1.1", "--open"])).toEqual({ version: "v0.1.1", open: true, help: false });
+    expect(parseArgs([])).toEqual({ version: undefined, open: false, local: false, help: false });
+    expect(parseArgs(["--version", "v0.1.1", "--open"])).toEqual({ version: "v0.1.1", open: true, local: false, help: false });
+    expect(parseArgs(["--local"])).toMatchObject({ local: true });
+    expect(() => parseArgs(["--local", "--version", "v0.1.1"])).toThrow("takes no --version");
     expect(() => parseArgs(["--version"])).toThrow("--version needs a tag");
     expect(() => parseArgs(["--linux"])).toThrow("unknown flag");
   });
@@ -36,6 +38,12 @@ describe("install-mac", () => {
     expect(pickDmg(names, "x64")).toBe("Tau-0.1.2.dmg");
     expect(() => pickDmg(["Tau-0.1.2.AppImage"], "arm64")).toThrow("expected one .dmg");
     expect(dmgPattern("arm64")).toBe("Tau-*-arm64.dmg");
+  });
+
+  it("finds a local build where electron-builder --dir leaves it", () => {
+    expect(localAppPath("arm64")).toBe(join("release", "mac-arm64", "Tau.app"));
+    expect(localAppPath("x64")).toBe(join("release", "mac", "Tau.app"));
+    expect(() => localAppPath("ia32")).toThrow("Unsupported architecture");
   });
 
   it("names the command line inside the installed bundle", () => {

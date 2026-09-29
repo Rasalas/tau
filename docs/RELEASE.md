@@ -111,6 +111,7 @@ download it, so look at one before trusting that it holds no secret.
 npm run install:mac                    # the latest release
 npm run install:mac -- --version v0.1.1
 npm run install:mac -- --open          # and launch it
+npm run install:mac -- --local         # build this checkout instead
 ```
 
 `scripts/install-mac.mjs` reads the release's `latest-mac.yml` from the
