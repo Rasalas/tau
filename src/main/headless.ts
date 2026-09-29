@@ -60,7 +60,7 @@ import type { ProcessLock } from "./process-lock.js";
 import { appPackageVersion } from "./packaged-app.js";
 import { HostUpdater, localWindowUpdatePort } from "./host-updater.js";
 import { hostInstaller } from "./update-installers.js";
-import { readUpdateFeed } from "./release-feed.js";
+import { readUpdateFeed, releaseKeysFor } from "./release-feed.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 
 /**
@@ -367,7 +367,7 @@ async function main(): Promise<void> {
     ...target,
     ...(existsSync(feedFile) ? { feed: readUpdateFeed(await readFile(feedFile, "utf8").catch(() => "")) } : {}),
     ...(process.env.TAU_UPDATE_FEED_URL ? { feedOverride: process.env.TAU_UPDATE_FEED_URL } : {}),
-    releaseKeys: RELEASE_PUBLIC_KEYS,
+    releaseKeys: releaseKeysFor(process.env, RELEASE_PUBLIC_KEYS),
     dir: join(userData, "updates"),
     fetch: (url, init) => fetch(url, init),
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,

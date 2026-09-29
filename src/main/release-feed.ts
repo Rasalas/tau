@@ -199,17 +199,29 @@ export function releasePublicKey(key: string) {
   return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: "der", type: "spki" });
 }
 
-/** True when one of `keys` signed exactly these bytes. */
+/**
+ * True when one of `keys` signed exactly these bytes. A `.sig` holds one base64
+ * signature per line, so a key rotation can sign with the old key and the new.
+ */
 export function verifyReleaseSignature(text: string, signature: string, keys: readonly string[]): boolean {
-  const bytes = Buffer.from(signature.trim(), "base64");
-  if (bytes.length !== 64) return false;
-  return keys.some((key) => {
+  const signatures = signature.split(/\s+/u).filter(Boolean).map((line) => Buffer.from(line, "base64")).filter((bytes) => bytes.length === 64);
+  return signatures.some((bytes) => keys.some((key) => {
     try {
       return verify(null, Buffer.from(text, "utf8"), releasePublicKey(key), bytes);
     } catch {
       return false;
     }
-  });
+  }));
+}
+
+/**
+ * The keys a host trusts. A local test feed (`TAU_UPDATE_FEED_URL`) may name
+ * the key it is signed with (`TAU_UPDATE_FEED_KEY`); the release's keys then
+ * do not count, and without that feed the variable does nothing.
+ */
+export function releaseKeysFor(env: NodeJS.ProcessEnv, built: readonly string[]): readonly string[] {
+  const key = env.TAU_UPDATE_FEED_KEY?.trim();
+  return env.TAU_UPDATE_FEED_URL?.trim() && key ? [key] : built;
 }
 
 export interface ReleaseInfo {

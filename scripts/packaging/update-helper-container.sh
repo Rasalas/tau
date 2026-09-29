@@ -9,7 +9,9 @@
 #
 # It builds stand-in `tau` packages whose /opt/Tau/tau is Node (the helper runs
 # on it exactly as it runs on Electron as Node), with the real helper, wrapper,
-# polkit files and maintainer scripts; serves a release feed on loopback;
+# polkit files and maintainer scripts; serves a release feed on loopback,
+# signed with a throwaway key that the stand-in packages' helper lists instead
+# of the release key;
 # starts D-Bus and polkitd; and installs, refuses and removes as a user in
 # `sudo` with no session and no password, and as one outside it.
 set -euo pipefail
@@ -34,6 +36,9 @@ case "$ARCH" in amd64) INFO=latest-linux.yml ;; *) INFO="latest-linux-$ARCH.yml"
 FEED=/tmp/feed
 mkdir -p "$FEED" /etc/tau
 echo '{"feedUrl":"http://127.0.0.1:8765/"}' > /etc/tau/update-helper.json
+SIGNING=/src/scripts/packaging/release-signing.mjs
+node "$SIGNING" keygen /tmp/release-key.pem >/tmp/keygen.out
+TEST_KEY="$(sed -n 's/^public key: *\([^ ]*\).*/\1/p' /tmp/keygen.out)"
 
 # A stand-in tau package of a version; `extra` changes its bytes, not its name.
 build() {
@@ -42,7 +47,13 @@ build() {
   rm -rf "$root"
   mkdir -p "$root/DEBIAN" "$root/opt/Tau/bin" "$root/opt/Tau/resources/app.asar.unpacked/bin" "$root/opt/Tau/resources/polkit"
   ln -s /usr/local/bin/node "$root/opt/Tau/tau"
-  cp /src/bin/tau-update-helper.mjs "$root/opt/Tau/resources/app.asar.unpacked/bin/"
+  TEST_KEY="$TEST_KEY" node -e '
+    const fs = require("fs"); const file = process.argv[1];
+    const text = fs.readFileSync("/src/bin/tau-update-helper.mjs", "utf8");
+    const keyed = text.replace(/^export const RELEASE_PUBLIC_KEYS = \[[^\]]*\];/mu, `export const RELEASE_PUBLIC_KEYS = [${JSON.stringify(process.env.TEST_KEY)}];`);
+    if (keyed === text) throw new Error("no key list in the helper");
+    fs.writeFileSync(file, keyed);
+  ' "$root/opt/Tau/resources/app.asar.unpacked/bin/tau-update-helper.mjs"
   cp /src/packaging/linux/tau-update-helper /src/packaging/linux/tau "$root/opt/Tau/bin/"
   cp /src/packaging/linux/polkit/* "$root/opt/Tau/resources/polkit/"
   printf 'provider: github\nowner: Rasalas\nrepo: tau\n' > "$root/opt/Tau/resources/app-update.yml"
@@ -54,13 +65,15 @@ build() {
   dpkg-deb --root-owner-group -b "$root" "/tmp/Tau_${version}${extra}_${ARCH}.deb" >/dev/null
 }
 
-# The feed names `version` and the checksum of the package built for it.
+# The feed names `version` and the checksum of the package built for it, signed unless `unsigned`.
 publish() {
   local version="$1" file="/tmp/Tau_$1_${ARCH}.deb"
   local sha512 size
   sha512="$(node -e 'process.stdout.write(require("crypto").createHash("sha512").update(require("fs").readFileSync(process.argv[1])).digest("base64"))' "$file")"
   size="$(stat -c %s "$file")"
   printf 'version: %s\nfiles:\n  - url: Tau_%s_%s.deb\n    sha512: %s\n    size: %s\npath: Tau_%s_%s.deb\n' "$version" "$version" "$ARCH" "$sha512" "$size" "$version" "$ARCH" > "$FEED/$INFO"
+  rm -f "$FEED/$INFO.sig"
+  [ "${2:-}" = unsigned ] || TAU_RELEASE_SIGNING_KEY="$(cat /tmp/release-key.pem)" node "$SIGNING" sign "$FEED/$INFO" >/dev/null
 }
 
 installed() { dpkg-query -W -f='${Version}' tau; }
@@ -89,6 +102,14 @@ sleep 1
 as rex sh -c 'pkcheck --action-id de.tbuck.tau.update --process $$' || fail "polkit does not allow rex (group sudo) without a password"
 if as guest sh -c 'pkcheck --action-id de.tbuck.tau.update --process $$' 2>/dev/null; then fail "polkit allows guest"; fi
 pass "pkcheck: rex (sudo, no session) is allowed without a password, guest is not"
+
+publish 0.7.14 unsigned
+set +e
+helper rex "/tmp/Tau_0.7.14_${ARCH}.deb" install --version 0.7.14 2>/tmp/out; code=$?
+set -e
+[ "$code" = 65 ] && grep -q "release key" /tmp/out || fail "an unsigned feed was not refused (exit $code): $(cat /tmp/out)"
+[ "$(installed)" = 0.7.6 ] || fail "a package from an unsigned feed was installed"
+pass "the helper refuses a feed without the release key's signature: $(tail -n 1 /tmp/out)"
 
 publish 0.7.14
 set +e
