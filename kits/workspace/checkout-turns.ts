@@ -23,7 +23,7 @@ export function createCheckoutTurns(services: Pick<HostExtensionServices, "threa
       const thread = services.thread(sessionId);
       if (!thread || thread.sessionId !== sessionId) { seen.delete(sessionId); continue; }
       if (!thread.isStreaming() || await checkoutKey(thread.cwd).catch(() => undefined) !== key) continue;
-      turns.push({ sessionId, title: thread.sessionName() || "A thread" });
+      turns.push({ sessionId, title: thread.sessionName() || (sessionId === asking ? "This thread" : "Another thread") });
     }
     return turns;
   };

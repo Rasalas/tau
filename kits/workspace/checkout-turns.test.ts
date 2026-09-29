@@ -18,9 +18,10 @@ describe("turns running in a checkout", () => {
     for (const id of ["b", "c", "d"]) turns.observer.accepted?.(id, "turn", { deferBefore: false });
     turns.observer.toolEnded?.("gone", { id: "t" } as never, "/repo");
 
-    expect(await turns.running("/repo")).toEqual([{ sessionId: "b", title: "A thread" }]);
+    expect(await turns.running("/repo")).toEqual([{ sessionId: "b", title: "Another thread" }]);
+    expect(await turns.running("/repo", "b")).toEqual([{ sessionId: "b", title: "This thread" }]);
     expect(await turns.running("/repo", "a")).toEqual([
-      { sessionId: "b", title: "A thread" },
+      { sessionId: "b", title: "Another thread" },
       { sessionId: "a", title: "Fix the header" },
     ]);
     expect(await turns.running("/other")).toEqual([{ sessionId: "c", title: "Elsewhere" }]);
