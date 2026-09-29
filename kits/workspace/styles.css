@@ -236,7 +236,6 @@
   background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .sidebar-footer button:hover { background: var(--hover-strong); color: var(--ink); }
-.sidebar-footer button.active { background: var(--thread-active); color: var(--ink); }
 /* A page's count (open pull requests): a small accent figure on the icon's corner. */
 .sidebar-footer .page-badge {
   position: absolute; top: 1px; right: 0; min-width: 14px; height: 14px; padding: 0 3px;
@@ -244,12 +243,12 @@
   font: 600 9.5px/14px var(--sans); font-variant-numeric: tabular-nums; text-align: center;
   box-shadow: 0 0 0 2px var(--rail);
 }
-/* On an app page Back leads the row, as it ends Settings' column. */
+/* On an app page the foot is Back alone, as it ends Settings' column. */
 .sidebar-footer button.sidebar-back {
-  width: auto; flex: 1; justify-content: start; display: flex; align-items: center; gap: 8px;
-  padding: 0 8px; margin-right: 4px; color: var(--ink-3); font: 500 13px var(--sans);
+  width: auto; height: 32px; flex: 1; justify-content: start; display: flex; align-items: center; gap: var(--space-4);
+  padding: 0 var(--space-4); color: var(--ink-3); font: 500 var(--text-md) var(--sans);
 }
-.sidebar-footer:has(> .sidebar-footer-end) button.sidebar-back { flex: none; }
+.sidebar-footer button.sidebar-back > svg { color: var(--faint); }
 /* A prominent page (the design's "Reviews 4"): icon, label, and its count in the accent. */
 .sidebar-footer button.page-named {
   width: auto; display: flex; align-items: center; gap: 7px; padding: 0 8px;

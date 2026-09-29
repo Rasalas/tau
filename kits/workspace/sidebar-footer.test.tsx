@@ -56,6 +56,7 @@ describe("sidebar footer pages", () => {
     expect(within(footer).getByRole("button", { name: "Usage" }).querySelector(".page-badge")).toBeNull();
     count = 120;
     fireEvent.click(within(footer).getByRole("button", { name: "Usage" }));
+    fireEvent.click(await within(footer).findByRole("button", { name: "Back to thread" }));
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
@@ -78,6 +79,7 @@ describe("sidebar footer pages", () => {
 
     figure = { text: "$12.40 · 22 · 3.1M tok", short: "$12.40", hint: "This month · $12.40 billed per token" };
     fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
+    fireEvent.click(await footer.findByRole("button", { name: "Back to thread" }));
     const usage = await footer.findByRole("button", { name: "Usage: This month · $12.40 billed per token" });
     expect(usage.closest(".sidebar-footer-end")).toBeTruthy();
     expect(usage.querySelector(".sidebar-summary-full")?.textContent).toBe("$12.40 · 22 · 3.1M tok");
@@ -113,9 +115,9 @@ describe("app pages", () => {
     const page = await screen.findByRole("region", { name: "Reports" });
     expect(within(page).getByRole("heading", { name: "Reports" })).toBeTruthy();
     expect(await within(page).findByText("All items")).toBeTruthy();
-    // The sidebar stays, and its foot leads with Back and marks the page.
+    // The sidebar stays, and its foot is Back alone.
     expect(screen.getByRole("navigation", { name: "Threads" })).toBeTruthy();
-    expect(footer.getByRole("button", { name: "Reports" }).getAttribute("aria-current")).toBe("page");
+    expect(footer.getAllByRole("button").map((button) => button.textContent)).toEqual(["Back to thread"]);
 
     fireEvent.click(within(page).getByRole("button", { name: "Open item" }));
     expect(await within(page).findByText("Item 7", { selector: "p" })).toBeTruthy();
@@ -123,9 +125,10 @@ describe("app pages", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(await within(page).findByText("All items")).toBeTruthy();
 
-    fireEvent.click(footer.getByRole("button", { name: "Back" }));
+    fireEvent.click(footer.getByRole("button", { name: "Back to thread" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Reports" })).toBeNull());
-    expect(footer.queryByRole("button", { name: "Back" })).toBeNull();
+    expect(footer.queryByRole("button", { name: "Back to thread" })).toBeNull();
+    expect(footer.getByRole("button", { name: "Reports" })).toBeTruthy();
   });
 
   it("closes with Escape, and stays under Settings opened over it", async () => {
@@ -138,7 +141,7 @@ describe("app pages", () => {
 
     fireEvent.click(footer.getByRole("button", { name: "Reports" }));
     await screen.findByRole("region", { name: "Reports" });
-    fireEvent.click(footer.getByRole("button", { name: "Settings" }));
+    fireEvent.keyDown(window, { key: ",", ctrlKey: true });
     await screen.findByRole("dialog", { name: "Settings" });
     fireEvent.keyDown(window, { key: "Escape" });
     // Settings opened over the page; closing it shows the page again.
