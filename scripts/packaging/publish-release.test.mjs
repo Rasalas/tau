@@ -1,0 +1,105 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { publishDraft, releaseBody, releaseProblems, removeNightly } from "./publish-release.mjs";
+
+const SCRIPT = new URL("./publish-release.mjs", import.meta.url).pathname;
+const feed = (...urls) => `version: 0.7.15\nfiles:\n${urls.map((url) => `  - url: ${url}\n    sha512: x==\n    size: 1\n`).join("")}path: ${urls[0]}\n`;
+const FEEDS = {
+  "latest-mac.yml": feed("Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg"),
+  "latest.yml": feed("Tau-Setup-0.7.15.exe"),
+  "latest-linux.yml": feed("Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb"),
+};
+const INSTALLERS = ["Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg", "Tau-Setup-0.7.15.exe"];
+const COMPLETE = [
+  ...Object.keys(FEEDS), ...Object.keys(FEEDS).map((name) => `${name}.sig`),
+  ...INSTALLERS, ...INSTALLERS.map((name) => `${name}.blockmap`),
+  "Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb", "LICENSE",
+];
+const read = (name) => FEEDS[name];
+
+const folders = [];
+afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+/** Octokit as github-script hands it in, with the calls it saw. */
+function fakeGithub({ releases = [], assets = [], tagMissing = false } = {}) {
+  const calls = [];
+  const rest = {
+    repos: {
+      getRelease: vi.fn(async (args) => { calls.push(["getRelease", args]); return { data: { body: "## What's Changed\n* one" } }; }),
+      listReleases: vi.fn(),
+      deleteRelease: vi.fn(async (args) => { calls.push(["deleteRelease", args]); }),
+      listReleaseAssets: vi.fn(),
+      updateRelease: vi.fn(async (args) => { calls.push(["updateRelease", args]); return { data: { html_url: "https://github.com/Rasalas/tau-releases/releases/tag/v0.7.15" } }; }),
+    },
+    git: { deleteRef: vi.fn(async (args) => { calls.push(["deleteRef", args]); if (tagMissing) throw Object.assign(new Error("Reference does not exist"), { status: 422 }); }) },
+  };
+  const paginate = vi.fn(async (method) => method === rest.repos.listReleases ? releases : assets);
+  return { calls, github: { rest, paginate } };
+}
+
+const REPO = { owner: "Rasalas", repo: "tau-releases" };
+
+describe("a release folder", () => {
+  it("is complete with every feed, its signature, the files it names, their blockmaps and the license", () => {
+    expect(releaseProblems(COMPLETE, read)).toEqual([]);
+  });
+
+  it("says what is missing", () => {
+    const without = (...names) => COMPLETE.filter((name) => !names.includes(name));
+    expect(releaseProblems(without("latest.yml.sig"), read)).toEqual(["latest.yml.sig is missing."]);
+    expect(releaseProblems(without("latest-mac.yml", "latest-mac.yml.sig"), read)).toEqual(["latest-mac.yml is missing."]);
+    expect(releaseProblems(without("Tau_0.7.15_amd64.deb"), read)).toEqual(["latest-linux.yml names Tau_0.7.15_amd64.deb, which is missing."]);
+    expect(releaseProblems(without("Tau-0.7.15.dmg.blockmap"), read)).toEqual(["Tau-0.7.15.dmg.blockmap is missing."]);
+    expect(releaseProblems(without("LICENSE"), read)).toEqual(["LICENSE is missing."]);
+  });
+
+  it("is checked from the command line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-publish-release-"));
+    folders.push(dir);
+    for (const name of COMPLETE) writeFileSync(join(dir, name), FEEDS[name] ?? "x");
+    expect(spawnSync(process.execPath, [SCRIPT, "check", dir], { encoding: "utf8" }).status).toBe(0);
+    rmSync(join(dir, "latest-linux.yml.sig"));
+    const failed = spawnSync(process.execPath, [SCRIPT, "check", dir], { encoding: "utf8" });
+    expect(failed.status).toBe(1);
+    expect(failed.stderr).toContain("latest-linux.yml.sig is missing.");
+  });
+});
+
+describe("publishing on GitHub", () => {
+  it("takes the notes of the source repository's release", async () => {
+    const { github } = fakeGithub();
+    expect(await releaseBody(github, { owner: "Rasalas", repo: "tau", releaseId: 7 })).toBe("## What's Changed\n* one");
+    expect(github.rest.repos.getRelease).toHaveBeenCalledWith({ owner: "Rasalas", repo: "tau", release_id: 7 });
+  });
+
+  it("publishes a draft only once every file is uploaded", async () => {
+    const names = ["latest-linux.yml", "latest-linux.yml.sig", "Tau_0.7.15_amd64.deb"];
+    const partial = fakeGithub({ assets: [{ name: "latest-linux.yml", state: "uploaded" }, { name: "latest-linux.yml.sig", state: "uploaded" }, { name: "Tau_0.7.15_amd64.deb", state: "starter" }] });
+    await expect(publishDraft(partial.github, { ...REPO, releaseId: 3, names, latest: true })).rejects.toThrow("lacks Tau_0.7.15_amd64.deb; it stays a draft");
+    expect(partial.github.rest.repos.updateRelease).not.toHaveBeenCalled();
+
+    const done = fakeGithub({ assets: names.map((name) => ({ name, state: "uploaded" })) });
+    await publishDraft(done.github, { ...REPO, releaseId: 3, names, latest: true });
+    expect(done.github.rest.repos.updateRelease).toHaveBeenCalledWith({ ...REPO, release_id: 3, draft: false, make_latest: "true" });
+    await publishDraft(done.github, { ...REPO, releaseId: 4, names, latest: false });
+    expect(done.github.rest.repos.updateRelease).toHaveBeenLastCalledWith({ ...REPO, release_id: 4, draft: false, make_latest: "false" });
+  });
+
+  it("removes the previous nightly, a draft left behind and the tag, and nothing that is not a prerelease", async () => {
+    const releases = [{ id: 9, tag_name: "nightly", prerelease: true, draft: false }, { id: 10, tag_name: "nightly", prerelease: true, draft: true }, { id: 2, tag_name: "v0.7.14", prerelease: false, draft: false }];
+    const nightly = fakeGithub({ releases });
+    await removeNightly(nightly.github, REPO);
+    expect(nightly.calls).toEqual([["deleteRelease", { ...REPO, release_id: 9 }], ["deleteRelease", { ...REPO, release_id: 10 }], ["deleteRef", { ...REPO, ref: "tags/nightly" }]]);
+
+    const first = fakeGithub({ tagMissing: true });
+    await expect(removeNightly(first.github, REPO)).resolves.toBeUndefined();
+
+    const stable = fakeGithub({ releases: [{ id: 1, tag_name: "nightly", prerelease: false, draft: false }] });
+    await expect(removeNightly(stable.github, REPO)).rejects.toThrow("not a prerelease");
+    expect(stable.github.rest.repos.deleteRelease).not.toHaveBeenCalled();
+    expect(stable.github.rest.git.deleteRef).not.toHaveBeenCalled();
+  });
+});
