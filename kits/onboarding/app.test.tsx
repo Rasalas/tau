@@ -168,7 +168,7 @@ describe("Onboarding in the workbench", () => {
     await screen.findByRole("heading", { name: "Choose your projects" });
 
     const group = screen.getByRole("checkbox", { name: "Add every folder of acme/app" }) as HTMLInputElement;
-    // T3 Code's default takes only the clone with three conversations.
+    // The default takes only the clone with three conversations.
     expect(group.indeterminate).toBe(true);
     expect((screen.getByRole("checkbox", { name: /app-2/ }) as HTMLInputElement).checked).toBe(false);
     fireEvent.click(group);
@@ -227,7 +227,7 @@ describe("Onboarding in the workbench", () => {
 });
 
 describe("Onboarding's choices", () => {
-  it("chooses T3 Code's defaults and words the result the same way", () => {
+  it("chooses the default projects and sessions and words the import result", () => {
     expect(defaultProjects(discovery.projects, NOW)).toEqual(["/work/alpha"]);
     expect(defaultSessions(discovery.sessions, new Set(["/work/alpha", "/work/old"]), NOW)).toEqual(["/h/c1.jsonl", "/h/x1.jsonl"]);
     expect(importSummary({ imported: 3, failed: 1 })).toBe("Imported 3 threads. 1 thread could not be imported.");

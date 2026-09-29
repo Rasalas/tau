@@ -72,7 +72,7 @@ export interface ExcludedFolders {
   ancestors: readonly string[];
 }
 
-/** After T3 Code's scanner: what a session's folder may be without being a project worth adding. */
+/** What a session's folder may be without being a project worth adding. */
 export function excludedFolders(home: string, env: { TAU_WORKTREES_DIR?: string } = {}, temp?: string): ExcludedFolders {
   const worktrees = env.TAU_WORKTREES_DIR?.trim();
   return {

@@ -52,7 +52,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * The request at a glance, in T3 Code's order: reviewers and labels, the
+ * The request at a glance, in this order: reviewers and labels, the
  * description, the checks, then every comment — active ones windowed, bots
  * and finished conversations folded away.
  */

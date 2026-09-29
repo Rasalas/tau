@@ -3,7 +3,7 @@ import type { LinkTarget } from "./settings.js";
 /**
  * Where a click on a link resolves to. `app` only when the setting asks for
  * it, the URL is a web page and no ⌘ or Ctrl was held: the modifier is the
- * one-gesture way to the system browser, as in T3 Code.
+ * one-gesture way to the system browser.
  */
 export function resolveLinkTarget(url: string, event: { metaKey: boolean; ctrlKey: boolean }, preference: LinkTarget): LinkTarget {
   if (preference !== "app" || event.metaKey || event.ctrlKey) return "system";

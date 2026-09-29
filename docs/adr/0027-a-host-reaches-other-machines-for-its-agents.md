@@ -4,8 +4,8 @@
 
 Accepted, 2026-09-25. Builds on [ADR 0024](0024-pairing-allowed-on-the-host.md)
 (pairing) and [ADR 0025](0025-a-window-follows-the-threads-machine.md) (a
-window's machines), whose catalog stays as it is. Wave H (`.scratch/t3-parity-6/plan-H.md`)
-builds remote work on top of it.
+window's machines), whose catalog stays as it is. Wave H builds remote work on
+top of it.
 
 ## Context
 

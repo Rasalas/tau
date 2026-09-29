@@ -21,8 +21,7 @@ export type RunAside = (request: { command: string; label: string }, recheck?: (
 
 /**
  * The wizard covers the workbench, terminal included, so it stands aside
- * while the command runs and comes back when the shell ends, as T3 Code's
- * inline terminal would.
+ * while the command runs and comes back when the shell ends.
  */
 export function createRunAside(flow: WelcomeFlow, runner: TerminalRunner, actions: WorkbenchActions, close: () => void): RunAside {
   return async (request, recheck) => {
@@ -69,7 +68,7 @@ function plural(count: number, one: string): string {
   return `${count} ${count === 1 ? one : `${one}s`}`;
 }
 
-/** "now", "5m", "3h", "2d", "4mo": fits the fixed column T3 Code gives it. */
+/** "now", "5m", "3h", "2d", "4mo": fits the list's fixed age column. */
 export function age(at: number, now: number): string {
   if (!at) return "";
   const minutes = Math.floor((now - at) / 60_000);
@@ -347,7 +346,7 @@ function GroupRow({ label, paths, open, selected, meta, onFold, onToggle, quiet 
 /**
  * Repositories first, newest on top; clones of one remote as a group with a
  * checkbox for all of them. Folders that are not repositories fold away at
- * the bottom, as in T3 Code.
+ * the bottom.
  */
 export function ProjectList({ candidates, selected, now, onToggle }: { candidates: readonly ProjectCandidate[]; selected: ReadonlySet<string>; now: number; onToggle(paths: readonly string[], on: boolean): void }) {
   const { repositories, other } = groupProjects(candidates);
@@ -432,7 +431,7 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
   );
 }
 
-/** The welcome wizard, drawn over the workbench as T3 Code draws its own over the workspace. */
+/** The welcome wizard, drawn over the workbench. */
 export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRunner | undefined) {
   return function WelcomeWizard({ actions, onClose }: OverlayProps) {
     const state = useSyncExternalStore(flow.subscribe, flow.get);

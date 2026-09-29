@@ -31,7 +31,7 @@ export interface ComposerContextChips {
 export const FOLLOW_UP_OPTION = "followUpBehavior";
 export type FollowUpBehavior = "queue" | "steer";
 
-/** T3 Code keeps twenty; the oldest goes when a twenty-first arrives. */
+/** Twenty; the oldest goes when a twenty-first arrives. */
 export const MAX_STASH_ENTRIES = 20;
 /** Base64 characters of images one entry may hold. */
 export const MAX_STASH_IMAGE_CHARS = 40 * 1024 * 1024;

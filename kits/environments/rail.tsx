@@ -74,8 +74,8 @@ export function railSession(machine: UiEnvironment, thread: UiEnvironmentThread)
 
 /**
  * The other machines' threads for Workspace Kit's rail (ADR 0025): they stand
- * among this machine's by project and time, each with its machine's mark, as
- * in T3 Code. A thread opens this window there; `lookIn` reads it in a tab
+ * among this machine's by project and time, each with its machine's mark.
+ * A thread opens this window there; `lookIn` reads it in a tab
  * here where the core offers that. The machine the window shows has no mark.
  */
 export function createMachineThreads(environments: PlatformEnvironments) {

@@ -8,7 +8,7 @@ export type SearchHost = <K extends keyof SearchHostCommands>(command: K, input:
 
 export type SearchDialog = "content" | "files";
 
-/** Which of the kit's two dialogs is open; a command toggles one, the way T3 Code's chords do. */
+/** Which of the kit's two dialogs is open; a command toggles one. */
 export class SearchDialogs {
   private open: SearchDialog | undefined;
   private readonly listeners = new Set<() => void>();

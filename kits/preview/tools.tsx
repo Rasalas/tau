@@ -21,7 +21,7 @@ const APPEARANCES: ReadonlyArray<{ id: PreviewAppearance; label: string }> = [
 /** `125%`. */
 export const zoomLabel = (factor: number): string => `${Math.round(factor * 100)}%`;
 
-/** The page's viewport, zoom and appearance: T3 Code's device toolbar, as one menu. */
+/** The page's viewport, zoom and appearance: a device toolbar, as one menu. */
 function ViewOptions({ state, run }: { state: PreviewState; run(work: () => Promise<unknown>): void }) {
   // The tool row clips what overflows it, so the menu opens over the whole window.
   const [open, setOpen] = useState<{ x: number; y: number } | undefined>();

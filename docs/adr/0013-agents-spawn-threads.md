@@ -254,9 +254,9 @@ and throws from the members that need a runtime.
 
 ## Amendment, 2026-09-23: the parent steers its children and hears back
 
-T3 Code's orchestrator lets a parent send a delegated thread more work, stop it,
-retry a call safely and get the result without polling. Agents Kit does the same
-on two host seams (`services.sessions.send` and `services.sessions.abort`, API
+A parent needs to send a delegated thread more work, stop it, retry a call
+safely and get the result without polling. Agents Kit does that on two host
+seams (`services.sessions.send` and `services.sessions.abort`, API
 1.11.0):
 
 - `tau_send_to_thread` sends a child a message in one of four modes. `auto`
@@ -276,5 +276,5 @@ on two host seams (`services.sessions.send` and `services.sessions.abort`, API
   it gets one message naming every child that finished meanwhile, with the
   start of each answer. A parent that already read the answer with
   `tau_get_thread_status` is not woken for it, and a turn the user started in a
-  child is not reported. This is T3's completion follow-up, automatic rather
-  than a notice the user confirms; a child started from the panel wakes nobody.
+  child is not reported. The follow-up on completion is automatic rather than
+  a notice the user confirms; a child started from the panel wakes nobody.

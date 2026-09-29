@@ -16,7 +16,7 @@ interface Entry {
 }
 
 export interface ThreadUndoOptions {
-  /** How long the last action stays undoable; T3 Code's five seconds. */
+  /** How long the last action stays undoable; five seconds. */
   windowMs?: number;
   /** A timer the tests can fire by hand; answers its own cancel. */
   schedule?(run: () => void, ms: number): () => void;
@@ -31,7 +31,7 @@ const defaultSchedule = (run: () => void, ms: number) => {
 /**
  * The thread actions that can still be taken back, shared by the row menu,
  * the title menu, drags and chords. Consecutive actions of the same kind
- * share one notice and are undone together, as in T3 Code; the window runs
+ * share one notice and are undone together; the window runs
  * from the last action, and when it closes every entry goes.
  */
 export class ThreadUndo {

@@ -1,9 +1,8 @@
 /**
  * The Antigravity ACP server Google publishes for editors, pinned per
  * platform. The URLs, sizes and hashes come from the official registry entry
- * (https://github.com/agentclientprotocol/registry, `antigravity-acp/agent.json`),
- * as T3 Code pins them; a new release means a new row here, never a silent
- * upgrade. Checked 2026-09-07.
+ * (https://github.com/agentclientprotocol/registry, `antigravity-acp/agent.json`);
+ * a new release means a new row here, never a silent upgrade. Checked 2026-09-07.
  */
 export const ANTIGRAVITY_RELEASE_VERSION = "agy_acp_server_1.1.1";
 

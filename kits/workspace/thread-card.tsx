@@ -334,7 +334,7 @@ function agentsLabel({ total, working }: { total: number; working: number }): st
 }
 
 /**
- * T3 Code's thread card: the whole title, then a line per fact the rail knows
+ * The thread card: the whole title, then a line per fact the rail knows
  * with its icon, then what other kits add. Only what is there is drawn.
  */
 export function ThreadCard(props: ThreadCardProps) {

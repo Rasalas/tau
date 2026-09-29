@@ -29,7 +29,7 @@ export function stackScope(stack: PullRequestStack, number: number) {
 }
 
 /**
- * A request's GitHub stack, after T3 Code's stack menu: "2/8" in the header
+ * A request's GitHub stack: "2/8" in the header
  * opens the layers top first (one opens its tab), then "Merge stack", which
  * merges this layer with every unmerged one below it, and "Rebase stack",
  * which updates every branch onto the one below. Both ask first and list

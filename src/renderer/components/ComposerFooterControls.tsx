@@ -43,7 +43,7 @@ function iconWidth(block: HTMLElement, natural: number): number {
  * The composer's footer row: the model, then the blocks, then one menu ("…")
  * that holds `menu`, the `menuOnly` blocks and every block the row has no room for. As the
  * composer narrows the blocks first drop their labels and then move into the
- * menu, lowest rank first (T3 Code's footer).
+ * menu, lowest rank first.
  */
 export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
   leading: ReactNode;

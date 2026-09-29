@@ -35,7 +35,7 @@ export function useLinkedThreads(client: PullRequestClient, url: string): string
 }
 
 /**
- * "Linked from 2 threads" in a request's header, after T3 Code's: the threads
+ * "Linked from 2 threads" in a request's header: the threads
  * that keep this request, archived ones included, each a click away.
  */
 export function LinkedThreadsControl({ threadIds, actions }: { threadIds: readonly string[] | undefined; actions: WorkbenchActions }) {
@@ -70,7 +70,7 @@ export function LinkedThreadsControl({ threadIds, actions }: { threadIds: readon
 }
 
 /**
- * T3 Code's "Link to thread": search the threads by title or project and
+ * "Link to thread": search the threads by title or project and
  * link the request to the one picked. A thread that already links it is
  * marked and cannot be picked twice.
  */

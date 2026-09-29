@@ -45,7 +45,7 @@
 .thread-rail-settings .segmented { max-width: none; }
 .thread-rail-settings .segmented > button { white-space: nowrap; padding: 8px 10px; }
 
-/* The undo notice at the foot of the rail, after T3 Code's sidebar notice. */
+/* The undo notice at the foot of the rail. */
 .thread-rail-undo {
   flex: none; margin: 0 var(--space-4) var(--space-3);
   padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-md);

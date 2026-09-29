@@ -2669,7 +2669,7 @@ export interface WorktreeBase {
 const REMOTE_PREFIX = /^([^/]+)\//u;
 
 /**
- * Resolves the base of a new worktree the way T3 Code does: with "start from
+ * Resolves the base of a new worktree: with "start from
  * origin" the remote is fetched and the worktree is created at that SHA, so a
  * stale local branch never becomes the starting point. A repository without the
  * remote branch falls back to the local base rather than failing.
@@ -2777,7 +2777,7 @@ export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git
 export interface CreateWorktreeOptions {
   /** The base the user picked; the repository's default branch when absent. */
   baseRef?: string;
-  /** Fetch and start from the remote-tracking commit; on by default, as in T3 Code. */
+  /** Fetch and start from the remote-tracking commit; on by default. */
   startFromOrigin?: boolean;
   /** Told when a step begins, for a setup card that follows it. */
   onStep?(step: "fetch" | "checkout"): void;
@@ -2863,8 +2863,8 @@ export async function removeWorktree(
 }
 
 /**
- * The worktree a thread expects, recreated when its directory vanished. T3 Code
- * does the same silently: a missing folder is an accident, not a decision.
+ * The worktree a thread expects, recreated silently when its directory
+ * vanished: a missing folder is an accident, not a decision.
  */
 export async function ensureWorktree(
   cwd: string,

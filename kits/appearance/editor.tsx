@@ -100,7 +100,7 @@ function ColorField({ label, value, placeholder, onChange, onReset }: {
 }
 
 /**
- * T3 Code's theme editor, in Tau's tokens: a floating panel over the window,
+ * The theme editor: a floating panel over the window,
  * so the draft can be judged on the thread, the rail and the panels while it
  * is tuned. Three colours derive a palette; every token can be set on its own.
  */

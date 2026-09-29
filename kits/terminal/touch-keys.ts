@@ -13,7 +13,7 @@ export type TouchKey =
   | { kind: "modifier"; id: string; label: string; title: string; modifier: TouchModifier }
   | { kind: "paste"; id: string; label: string; title: string };
 
-/** Left to right, after T3 Code's accessory bar; Ctrl-C and the keyboard toggle sit outside the scroller. */
+/** Left to right; Ctrl-C and the keyboard toggle sit outside the scroller. */
 export const TOUCH_KEYS: readonly TouchKey[] = [
   { kind: "send", id: "esc", label: "esc", title: "Escape", data: "\u001b" },
   { kind: "modifier", id: "ctrl", label: "ctrl", title: "Ctrl for the next key", modifier: "ctrl" },

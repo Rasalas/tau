@@ -288,7 +288,7 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
 }
 
 /**
- * A path in inline code, as T3 Code draws it. One with a directory opens the
+ * A path in inline code. One with a directory opens the
  * file on the stage, or brings its tab forward; a bare name names no file.
  */
 function FileChip({ path, name }: { path: string; name: string }) {
@@ -320,7 +320,7 @@ const COMPONENTS: MarkdownComponents = {
     const code = String(props.children ?? "").replace(/\n$/u, "");
     return <CodeBlock code={code} language={language} />;
   },
-  // As T3 Code: a path in inline code reads as a file chip with its name; the path is its tooltip.
+  // A path in inline code reads as a file chip with its name; the path is its tooltip.
   code({ children }) {
     const name = typeof children === "string" ? inlineCodeFile(children) : undefined;
     if (!name) return <code>{children}</code>;

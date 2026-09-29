@@ -39,7 +39,7 @@
 .evidence-thumb.active { border-color: var(--acid); box-shadow: 0 0 0 1px var(--acid); }
 .evidence-thumb-empty { display: block; width: 100%; height: 100%; background: var(--wash); }
 
-/* The viewer: T3 Code's media dialog, large and dark around the picture. */
+/* The viewer: a media dialog, large and dark around the picture. */
 .evidence-viewer {
   width: min(1180px, 94vw); max-height: 94vh; display: flex; flex-direction: column;
   border: 1px solid var(--line-float); border-radius: var(--radius-xl); background: var(--overlay);

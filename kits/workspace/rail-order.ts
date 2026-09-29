@@ -23,7 +23,7 @@ export const RAIL_PREVIEW_OPTION = "rail-preview";
 export const LEGACY_GROUP_OPTION = "group-by-project";
 
 export const DEFAULT_PREVIEW = 6;
-/** T3 Code's range, 1 to 15. */
+/** 1 to 15. */
 export const PREVIEW_CHOICES = Array.from({ length: 15 }, (_, index) => index + 1);
 
 export const RAIL_ORDER_OPTIONS = [

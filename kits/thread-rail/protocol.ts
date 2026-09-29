@@ -53,10 +53,10 @@ export interface ThreadMeta {
   archivedAt?: number;
 }
 
-/** Actions the rail can ask about first, T3 Code's confirmations. */
+/** Actions the rail can ask about first. */
 export type RailQuestionAction = "delete" | "archive" | "unpin";
 
-/** The kit option behind each question and whether it asks by default, as T3 Code does. */
+/** The kit option behind each question and whether it asks by default. */
 export const RAIL_CONFIRMATIONS: Record<RailQuestionAction, { option: string; fallback: boolean; label: string; hint: string }> = {
   delete: { option: "confirm-delete", fallback: true, label: "Before deleting a thread", hint: "Deleted threads wait in the trash under Settings → Archived" },
   archive: { option: "confirm-archive", fallback: false, label: "Before archiving a thread", hint: "Archived threads leave the rail until new work brings them back" },

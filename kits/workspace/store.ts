@@ -584,10 +584,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   /**
-   * A branch for the thread that is starting. The naming extension reads the
-   * whole first prompt, which T3 Code cannot: it names the branch afterwards,
-   * from the first message it already sent. Without that extension the branch
-   * is `tau/<8 hex>`, which the user can rename later.
+   * A branch for the thread that is starting, named from the whole first prompt
+   * by the naming extension. Without that extension the branch is `tau/<8 hex>`, which the user can rename later.
    */
   private async threadBranchName(prompt: string): Promise<string> {
     const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];

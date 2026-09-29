@@ -34,7 +34,7 @@
 .request-draft { display: flex; align-items: center; gap: 5px; color: var(--muted); font: var(--text-xs) var(--sans); }
 .request-form .toggle-group > button.active { background: var(--raised); color: var(--ink); }
 
-/* A thread's requests on its rail row (T3 Code's): the state's glyph in its colour and the number, or "+N". */
+/* A thread's requests on its rail row: the state's glyph in its colour and the number, or "+N". */
 .request-badge {
   display: inline-flex; align-items: center; gap: 3px; flex: none;
   font: var(--text-xs) var(--mono); font-variant-numeric: tabular-nums; color: var(--muted);

@@ -22,7 +22,7 @@ export interface AppearanceValues {
   codeFontSize?: number;
   /** Unset keeps core's 24-hour clock. */
   timestamps?: TimestampFormat;
-  /** How long panels take to open and close; 0 is at once, T3 Code's default. */
+  /** How long panels take to open and close; 0, the default, is at once. */
   panelMotion: number;
 }
 

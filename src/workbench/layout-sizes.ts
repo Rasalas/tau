@@ -1,10 +1,10 @@
 /**
- * The sidebar's width, the chat's beside the stage and the drawer's height, as T3 Code sizes
- * them. Pure, so the clamps are tested without a window; the caller passes the viewport.
+ * The sidebar's width, the chat's beside the stage and the drawer's height.
+ * Pure, so the clamps are tested without a window; the caller passes the viewport.
  */
 import { CHAT_DEFAULT_WIDTH, CHAT_MIN_WIDTH, STAGE_MIN_WIDTH } from "./center-layout";
 
-/** The design's rail (T3 Code starts at 256). */
+/** The design's rail. */
 export const SIDEBAR_DEFAULT_WIDTH = 248;
 export const SIDEBAR_MIN_WIDTH = 208;
 /** What the sidebar always leaves the rest of the window. */

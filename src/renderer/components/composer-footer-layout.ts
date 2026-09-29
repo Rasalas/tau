@@ -40,7 +40,7 @@ function widthAt(input: FooterMeasurement, iconOnly: number, hidden: number): nu
 const stepOf = (layout: FooterLayout, count: number) => (layout.hidden > 0 ? count + Math.min(layout.hidden, count) : Math.min(layout.iconOnly, count));
 
 /**
- * As T3 Code's composer footer: trailing blocks drop their labels first, then
+ * The composer footer: trailing blocks drop their labels first, then
  * move into the overflow menu, one at a time from the end. Growing back needs
  * a pixel of room more than shrinking, so a width on the edge cannot flip the
  * row between two layouts.

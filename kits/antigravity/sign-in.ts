@@ -5,7 +5,7 @@ import type { SignInAccount, SignInMethod } from "tau/host-extension";
 import type { AntigravityAuthMethod, AuthorizationLink } from "./profile.js";
 
 /**
- * How Antigravity signs in, after T3 Code's `authMethod`: a Google account
+ * How Antigravity signs in (`authMethod`): a Google account
  * or Gemini Enterprise in the browser, or a key the agent reads from the
  * environment. Tau keeps the choice and the Google Cloud project, never a
  * credential: the agent stores its Google token in Tau's profile folder

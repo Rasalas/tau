@@ -9,7 +9,7 @@ const STAGE_LABELS: Record<CloneStage, string> = {
   checkout: "Checking out files",
 };
 
-/** `Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s`, as T3 Code writes it. */
+/** `Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s`. */
 export function cloneProgressSummary(snapshot: Pick<CloneSnapshot, "stage" | "percent" | "detail">): string {
   return [STAGE_LABELS[snapshot.stage], snapshot.percent === undefined ? undefined : `${snapshot.percent}%`, snapshot.detail].filter(Boolean).join(" · ");
 }
@@ -18,7 +18,7 @@ export const isCloneSnapshot = (value: unknown): value is CloneSnapshot =>
   Boolean(value && typeof (value as CloneSnapshot).id === "string" && typeof (value as CloneSnapshot).phase === "string");
 
 /**
- * One toast per clone, as T3 Code's clone coordinator keeps it: it updates in
+ * One toast per clone: it updates in
  * place while git reports stages, offers Cancel while it runs and Open project
  * once it is done. The project source that started the clone has closed by then.
  */

@@ -1,0 +1,2 @@
+mobile/plugins/tau-native/android/build/
+.private/

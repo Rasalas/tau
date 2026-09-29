@@ -31,7 +31,7 @@ export interface ArchivedPageActions {
 }
 
 /**
- * Settings → Archived, after T3 Code's: archived threads by project, newest
+ * Settings → Archived: archived threads by project, newest
  * first, with Unarchive on the row and Delete in its context menu. Tau adds
  * the threads deleted in the last days, which can still be restored.
  */

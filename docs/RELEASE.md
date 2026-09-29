@@ -164,7 +164,7 @@ node scripts/icons/generate.mjs
 | `icon-light.svg`, `icon-dark.svg` | the macOS grid: an 824 squircle in 1024, the τ at its optical centre |
 | `square-light.svg`, `square-dark.svg` | full bleed; iOS and the Android launcher cut their own shape |
 | `android-foreground.svg` | the τ inside the adaptive icon's 66 dp safe circle |
-| `mark-light.svg`, `mark-dark.svg` | the 32-unit mark: favicon, small Windows sizes, the Tau repo's avatar (`t3.json`) |
+| `mark-light.svg`, `mark-dark.svg` | the 32-unit mark: favicon, small Windows sizes, the Tau repo's own project icon (the root `t3.json`) |
 | `tau-glyph.svg` | the bare τ in `currentColor` (reload curtain) |
 
 The script writes:

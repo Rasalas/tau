@@ -15,7 +15,7 @@
 .project-script-run[data-status="failed"] .project-script-run-status { color: var(--danger); }
 .project-script-run-output { margin: 0; max-height: 180px; overflow: auto; padding: 6px 8px; background: var(--sunken); color: var(--ink-code); font: var(--text-xs)/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line-soft); }
 
-/* The worktree setup of a new thread, step by step, under its transcript (T3 Code's setup card). */
+/* The worktree setup of a new thread, step by step, under its transcript. */
 .project-scripts-setups { flex: none; padding: 0 32px 8px; background: var(--stage); }
 .project-scripts-setup {
   max-width: 780px; margin: 0 auto; padding: 8px 10px 6px;

@@ -46,6 +46,7 @@ function staysWithin(root: string, path: string): boolean {
   return child === "" || (!child.startsWith("..") && !isAbsolute(child));
 }
 
+/** `iconPath` from `t3.json`, the project-icon file some other tools write. */
 async function configuredIconPath(projectPath: string): Promise<string | undefined> {
   try {
     const config = JSON.parse(await readFile(resolve(projectPath, "t3.json"), "utf8")) as { iconPath?: unknown };

@@ -34,7 +34,7 @@ describe("Preview browser service", () => {
 });
 
 describe("Preview toggle", () => {
-  it("binds T3 Code's mod+shift+j to preview.toggle", () => {
+  it("binds mod+shift+j to preview.toggle", () => {
     const { registry } = createKitHarness();
     registry.activate(previewExtension);
     expect(registry.getKeybindings().find((binding) => binding.keys === "mod+shift+j")).toMatchObject({ commandId: "preview.toggle" });

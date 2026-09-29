@@ -13,7 +13,7 @@ export interface NotificationSettings {
   whenFocused: boolean;
 }
 
-// Opt-in, as in T3: nothing is shown, sounded or badged until the user picks a mode.
+// Opt-in: nothing is shown, sounded or badged until the user picks a mode.
 export const DEFAULT_SETTINGS: NotificationSettings = { mode: "off", sound: "chime", toasts: false, whenFocused: false };
 
 export const MODES: ReadonlyArray<{ value: NotificationMode; label: string }> = [

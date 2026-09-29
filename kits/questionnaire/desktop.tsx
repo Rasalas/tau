@@ -137,7 +137,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
     const folded = prompt.kind === "select" ? splitPromptTitle(prompt.title) : { question: prompt.title, previews: [] };
     const input = prompt.kind === "input" ? splitInputTitle(prompt.title) : undefined;
     const title = viewing?.question ?? input?.question ?? folded.question;
-    // The question's topic names it better than the agent does, as T3 Code heads its card with it.
+    // The question's topic names it better than the agent does, so it heads the card.
     const from = viewing?.header || asker;
     const message = onCurrent ? (prompt.message ?? (input && !multi ? input.detail : undefined)) : undefined;
     const pick = choices[key(prompt.sessionId, page)];

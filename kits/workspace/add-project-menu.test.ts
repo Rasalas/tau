@@ -9,7 +9,7 @@ function fixture(base?: string): AddProjectHost & { listDirectories: ReturnType<
     listDirectories: vi.fn(async (path?: string) => {
       const at = path ?? "/Users/me";
       if (at === "/gone") throw new Error("ENOENT");
-      return { path: at, workspace: ref(at), parent: "/Users", directories: [{ name: "tau", path: `${at}/tau` }, { name: "t3code", path: `${at}/t3code` }] };
+      return { path: at, workspace: ref(at), parent: "/Users", directories: [{ name: "tau", path: `${at}/tau` }, { name: "orbit", path: `${at}/orbit` }] };
     }),
     pickFolder: vi.fn(async () => ref("/picked")),
     baseDirectory: () => base,
@@ -38,7 +38,7 @@ describe("the add-project levels", () => {
     const items = await level.items("", search);
     await level.items("ta", search);
     expect(host.listDirectories).toHaveBeenCalledTimes(1);
-    expect(items.map((item) => item.label)).toEqual(["Add me", "..", "tau", "t3code"]);
+    expect(items.map((item) => item.label)).toEqual(["Add me", "..", "tau", "orbit"]);
     expect(items[2]!.submenu?.title).toBe("tau");
 
     const actions = { openWorkspace: vi.fn(async () => false), notify: vi.fn() } as unknown as WorkbenchActions;

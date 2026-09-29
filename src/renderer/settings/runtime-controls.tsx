@@ -159,7 +159,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", access: "read", run: (app) => app.focusStage() });
     plugin.registerCommand({ id: "workbench.toggle-sidebar", label: "Toggle sidebar", group: "Workbench", access: "read", run: (app) => app.toggleSidebar?.() });
     plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", access: "read", run: (app) => app.toggleDock() });
-    // T3 Code's command id, so a keybindings.json written for it works here too.
+    // The command id other workbenches use, so an existing keybindings.json works here too.
     plugin.registerCommand({ id: "rightPanel.toggleMaximized", label: "Maximize or restore panel", group: "Workbench", access: "read", run: (app) => app.togglePanelMaximized?.() });
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
@@ -194,10 +194,10 @@ export const runtimeControls: DesktopExtension = {
     }
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
-    // As in T3 Code; the open Settings screen answers the same chord by closing.
+    // The open Settings screen answers the same chord by closing.
     plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
     // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).
-    // As in T3 Code: `mod+n` and `mod+shift+n` in the project on screen, `mod+shift+o` asks which project.
+    // `mod+n` and `mod+shift+n` in the project on screen, `mod+shift+o` asks which project.
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+n", commandId: "runtime.new-session", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session-in", when: "!terminalFocus" });
@@ -213,13 +213,13 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+r", commandId: "runtime.rename-thread" });
     plugin.registerKeybinding({ keys: "ctrl+g", commandId: "runtime.open-prompt-editor" });
     plugin.registerKeybinding({ keys: "mod+alt+shift+a", commandId: "runtime.theme" });
-    // ⌘1–⌘9 jump between threads as in T3 Code, so focus moves with ⌥ added.
+    // ⌘1–⌘9 jump between threads, so focus moves with ⌥ added.
     plugin.registerKeybinding({ keys: "mod+alt+1", commandId: "workbench.focus-composer" });
     plugin.registerKeybinding({ keys: "mod+alt+2", commandId: "workbench.focus-transcript" });
     plugin.registerKeybinding({ keys: "mod+alt+3", commandId: "workbench.focus-stage" });
     plugin.registerKeybinding({ keys: "mod+b", commandId: "workbench.toggle-sidebar" });
     plugin.registerKeybinding({ keys: "mod+alt+b", commandId: "workbench.toggle-dock" });
-    // T3 Code ships no default chord for it; this is the dock's chord with Shift.
+    // The dock's chord with Shift.
     plugin.registerKeybinding({ keys: "mod+alt+shift+b", commandId: "rightPanel.toggleMaximized" });
     plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });

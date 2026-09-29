@@ -102,7 +102,7 @@ describe("command palette focus", () => {
     trigger.remove();
   });
 
-  it("gives it to the composer when nothing had it, as T3 Code does", () => {
+  it("gives it to the composer when nothing had it", () => {
     const focusComposer = vi.fn();
     const view = render(<Toggle open focusComposer={focusComposer} />);
     act(() => { screen.getByRole("textbox", { name: "Command" }).focus(); });

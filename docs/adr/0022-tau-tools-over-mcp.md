@@ -11,8 +11,8 @@ Preview Kit and Agents Kit gave the agent their tools as Pi runtime
 extensions (`registerRuntimeExtension`). A thread on Codex, the Agent SDK
 runtime or Antigravity never saw them: the preview could not be driven and no
 sub-agent could be spawned from there. Each of those programs already speaks
-MCP and takes MCP servers in its own session configuration. T3 Code solves the
-same gap with one MCP HTTP server whose toolkits every provider is given.
+MCP and takes MCP servers in its own session configuration, so one MCP HTTP
+server whose toolkits every provider is given closes the gap for all of them.
 
 ## Decision
 

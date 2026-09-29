@@ -61,7 +61,7 @@ const unquote = (value: string) => value.replaceAll("\"", "").trim();
  * A typed query split into qualifiers and the text left for the host to
  * search, written GitHub's way: `label:a,b`, `-label:x`, `author:me`,
  * `draft:true`, `review:approved`, `status:success`. An unknown key is a
- * namespaced label (`size:XL`), as in T3 Code; a quoted token stays text.
+ * namespaced label (`size:XL`); a quoted token stays text.
  */
 export function parseListQuery(raw: string): { text: string; filters: PullRequestListFilters } {
   const text: string[] = [];
@@ -156,7 +156,7 @@ const measured = (entry: PullRequestListEntry) => size(entry) > 0;
 const recency = (left: PullRequestListEntry, right: PullRequestListEntry) => right.updatedAt.localeCompare(left.updatedAt);
 
 /**
- * T3 Code's default queue: green and approved, then green and waiting, then
+ * The default queue: green and approved, then green and waiting, then
  * the rest still open (drafts among them), then finished work; a known
  * conflict is never ready. Smaller measured diffs first within a tier.
  */

@@ -171,4 +171,4 @@ Record a new ADR when one of these decisions becomes expensive to reverse and ha
 
 ## Current non-goals
 
-The prototype is not trying to become a full code editor, replace Git tooling, reproduce T3 Code feature for feature, or create a new agent runtime. Those capabilities can arrive through extensions when they improve agent work and justify their maintenance cost.
+The prototype is not trying to become a full code editor, replace Git tooling, reproduce another workbench feature for feature, or create a new agent runtime. Those capabilities can arrive through extensions when they improve agent work and justify their maintenance cost.

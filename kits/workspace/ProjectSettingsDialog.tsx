@@ -41,8 +41,8 @@ function initials(name: string): string {
 }
 
 /**
- * Project settings: the project's name and path, and its icon (T3 Code's
- * picker: a Lucide icon in a colour, an emoji, a monogram, or an image).
+ * Project settings: the project's name and path, and its icon (a Lucide
+ * icon in a colour, an emoji, a monogram, or an image).
  */
 export function ProjectSettingsDialog({ project, current, automatic, onSave, onClose, onError }: {
   project: UiProject;

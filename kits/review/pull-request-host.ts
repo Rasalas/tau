@@ -173,7 +173,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
   }, { long: true });
 
   /**
-   * A review in one step, as T3 Code submits it: the verdict, its text and
+   * A review in one step: the verdict, its text and
    * every line comment held for it; the provider decides how its host takes them.
    */
   context.registerCommand("pr-review", async (input): Promise<PullRequestDetail> => {

@@ -82,7 +82,7 @@ export const appearanceExtension: DesktopExtension = {
         else editor.open(draftFromWindow(document.documentElement.dataset.theme === "light" ? "light" : "dark"));
       },
     });
-    // T3 Code's theme chords; Runtime Controls binds its "appearance.cycle" twin, `mod+alt+shift+a`.
+    // Theme chords; Runtime Controls binds its "appearance.cycle" twin, `mod+alt+shift+a`.
     plugin.registerKeybinding({ keys: "mod+alt+a", commandId: "appearance.open" });
     plugin.registerKeybinding({ keys: "mod+alt+shift+t", commandId: "appearance.toggle-theme-editor" });
 

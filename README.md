@@ -9,6 +9,8 @@
 
 > **PROTOTYPE, not production.** This repository answers one design question: can Pi remain the agent runtime while a desktop shell becomes independently extensible like Neovim?
 
+Open source under the [MIT License](LICENSE). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems as described in [SECURITY.md](SECURITY.md).
+
 Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. The renderer does not know Pi internals; it receives a small stream of host events. A separate desktop extension registry contributes sidebar modules, project sources, panels, commands, and tool presentation.
 
 ## Project documents
@@ -16,7 +18,7 @@ Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. T
 - [VISION.md](VISION.md) explains the product goal and guiding principles.
 - [CONTEXT.md](CONTEXT.md) defines the product language used in code and discussions.
 - [PLAN.md](PLAN.md) records the phased roadmap and open decisions.
-- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) records performance budgets and the optimization plan adapted from T3 Code.
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) records performance budgets, how they are measured, and the optimization plan.
 - [docs/EXTENSIONS.md](docs/EXTENSIONS.md) is the entry document for writing a Tau package: manifest, permissions, isolation, signing, and the install/approve/reload workflow.
 - [ADR 0001](docs/adr/0001-embed-pi-behind-a-desktop-host.md) records why Pi runs behind a desktop host.
 - [ADR 0002](docs/adr/0002-core-owns-placement-extensions-own-features.md) records why core owns placement while extensions own features.
@@ -238,8 +240,8 @@ there (its `bash` tool runs Git Bash).
 
 `tau app [path]` opens a folder in the Tau that is running — the current
 directory without a path — with a new thread's draft on screen, and brings the
-window to the front, the way `t3 app` does for T3 Code. It finds the host
-through `<userData>/host.json` and speaks to it with the host's own token;
+window to the front. It finds the host through `<userData>/host.json` and
+speaks to it with the host's own token;
 `TAU_USER_DATA` points it at another instance, as it does for the app. Without
 a running Tau it starts the app on that folder. The command is `bin/tau.mjs`
 (`bin` in `package.json`) and needs Node 22 or newer. The `.deb` puts it on
@@ -340,7 +342,7 @@ service or not.
 
 A Tau without a single thread opens its welcome wizard (Onboarding,
 `kits/onboarding/`); `/welcome`, or "Set up Tau…" in the palette, opens it again
-later. Its three steps follow T3 Code's:
+later. It has three steps:
 
 1. **Agents** — Pi and how many models your Pi configuration signs in to, then
    every other runtime Tau has (the Agent SDK runtime, Codex, Antigravity, and
@@ -787,6 +789,10 @@ still open:
 - **`kits/` in a repository of its own.** Two artifacts from one repository first; splitting them
   is a governance decision with a second release train behind it and no forcing need yet.
 
-Not goals: a full code editor, a replacement for Git tooling, feature-for-feature parity with T3
-Code, or a new agent runtime. Those arrive through extensions when they improve agent work enough to
+Not goals: a full code editor, a replacement for Git tooling, feature-for-feature parity with
+another workbench, or a new agent runtime. Those arrive through extensions when they improve agent work enough to
 justify their maintenance cost.
+
+## License
+
+Tau is licensed under the [MIT License](LICENSE). The desktop app lists every third-party package it bundles with its license under Settings → About, and `node scripts/open-source/third-party-notices.mjs` writes the full notices for the desktop and mobile apps. One bundled package, Anthropic's Agent SDK, is not open source: it ships unmodified under its own terms, and the app runs the command-line tool the user installed.

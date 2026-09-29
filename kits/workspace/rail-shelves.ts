@@ -3,7 +3,7 @@ import type { ThreadRailSection } from "./protocol.js";
 
 /** Which shelves this client has open or folded; the section's `collapsed` is the default. */
 export const SHELVES_OPEN_KEY = "tau.workspace.rail-shelves-open.v1";
-/** T3 Code's settled tail: ten rows, then 25 a page. */
+/** The settled tail: ten rows, then 25 a page. */
 export const SETTLED_FIRST_PAGE = 10;
 export const SHELF_PAGE = 25;
 

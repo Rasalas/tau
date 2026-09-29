@@ -14,7 +14,7 @@ export const PREVIEW_SETTINGS = {
   floating: "floating-preview",
 } as const;
 
-/** Where a link clicked in a thread opens: T3 Code's `browserLinkTarget`. */
+/** Where a link clicked in a thread opens. */
 export type LinkTarget = "system" | "app";
 
 export function readLinkTarget(value: unknown): LinkTarget {

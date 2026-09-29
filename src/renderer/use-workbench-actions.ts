@@ -122,13 +122,13 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         else if (unlisted) options.openNewThreadPicker();
         return;
       }
-      // Nothing to choose from yet: adding a project comes first (design 2a); with one, only `pick` asks (T3 Code).
+      // Nothing to choose from yet: adding a project comes first (design 2a); with one, only `pick` asks.
       const choices = projects.filter((project) => !isFilesystemRoot(project.path));
       if (choices.length === 0) { options.openProjectSources(); return; }
       if (choices.length === 1 && !request?.pick) { options.createThreadInProject?.(choices[0]!); return; }
       const draft = pendingNewThreadRef.current;
       const thread = options.viewStore.getSnapshot();
-      // Otherwise it asks, as T3 Code, with the project in context first: the named one, else the one on screen.
+      // Otherwise it asks, with the project in context first: the named one, else the one on screen.
       const context = named ?? newThreadProject(projects, options.threadStore.getSnapshot().threads, {
         covered: Boolean(options.threadView?.()?.covered), ...(draft ? { draft } : {}), ...(thread ? { thread } : {}),
       });

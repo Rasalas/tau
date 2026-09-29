@@ -85,7 +85,7 @@
 .screen-access span { flex: 1; min-width: 0; }
 .screen-access .text-button { flex: none; color: var(--acid-text); }
 
-/* The agent's pointer over a picture; T3 Code's agent cursor, in Tau's tokens. */
+/* The agent's pointer over a picture. */
 .agent-cursor-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .agent-cursor {
   position: absolute; width: 0; height: 0; color: var(--acid-text);
@@ -188,7 +188,7 @@
   .preview-mini { transition: none; }
 }
 
-/* Cookie import: T3 Code's browser import dialog, with a list of sites to choose from. */
+/* Cookie import: the browser import dialog, with a list of sites to choose from. */
 .cookie-import-dialog {
   width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); display: flex; flex-direction: column; gap: 12px; padding: 18px;
   border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3);

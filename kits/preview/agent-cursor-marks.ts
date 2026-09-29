@@ -5,7 +5,7 @@ import type { ScreenAction } from "./screen-protocol.js";
  * components, the host sends them into the preview page.
  */
 
-/** How long the cursor stays bright after an input, as T3 Code's agent cursor does. */
+/** How long the agent cursor stays bright after an input. */
 export const CURSOR_ACTIVE_MS = 700;
 /** How long typed text or a chord stays beside the cursor. */
 export const LABEL_VISIBLE_MS = 1_600;

@@ -172,7 +172,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
   );
 }
 
-/** Arrow keys move between rows, as T3 Code's list does; Enter opens the focused one. */
+/** Arrow keys move between rows; Enter opens the focused one. */
 function moveFocus(event: KeyboardEvent<HTMLElement>): void {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-pr-row]")];
@@ -187,7 +187,7 @@ type Grouping = "involvement" | "project";
 const GROUPINGS: Array<{ value: Grouping; label: string }> = [{ value: "involvement", label: "Involvement" }, { value: "project", label: "Project" }];
 
 /**
- * T3 Code's Pull Requests list: every request of a repository in a state, the
+ * The Pull Requests list: every request of a repository in a state, the
  * viewer's own work first, ordered by merge readiness or by what blocks whom,
  * and narrowed by typed qualifiers or the filter menu. As the app's Pull
  * Requests page it lists every project, grouped by involvement or project; as

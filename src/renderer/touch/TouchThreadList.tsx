@@ -56,10 +56,10 @@ export interface TouchThreadListProps {
 
 /**
  * The compact thread list: pinned, active and settled threads, each row a
- * tap to open and a swipe to settle, as in T3 Code's thread list. A long
+ * tap to open and a swipe to settle. A long
  * press (or a right click) lists every action, the kits' `thread-row`
  * commands among them, Stop the run too. A row carries no stop button of its
- * own, as in the design and T3 Code: a run stopped by a slipped tap is lost
+ * own, as in the design: a run stopped by a slipped tap is lost
  * work, and the open thread's composer stops it in one tap.
  */
 export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread, project }: TouchThreadListProps) {

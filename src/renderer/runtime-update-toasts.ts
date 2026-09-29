@@ -60,7 +60,7 @@ export function offerableUpdate(backend: UiRuntimeBackend): (RuntimeToolVersion 
 }
 
 /**
- * T3 Code's provider update notification: one toast per new release of each
+ * The runtime update notification: one toast per new release of each
  * backend's program, with Update (runs the update command in a terminal the
  * user sees, then asks the version again) and Settings. Nothing is installed
  * without the click; closing the toast remembers that release on this client.

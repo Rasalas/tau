@@ -180,8 +180,7 @@ export function inversePatch(before: ThreadMeta | undefined, patch: ThreadMetaPa
 
 /**
  * Where the reader goes when the thread on screen is deleted: the newest other
- * thread of its project, else the first other one the rail shows (T3 Code
- * opens the newest thread of the project).
+ * thread of its project, else the first other one the rail shows.
  */
 export function fallbackThread(displayed: readonly UiSession[], leaving: UiSession): UiSession | undefined {
   const others = displayed.filter((thread) => thread.id !== leaving.id);
@@ -190,7 +189,7 @@ export function fallbackThread(displayed: readonly UiSession[], leaving: UiSessi
 }
 
 /**
- * T3 Code's move after parking the thread on screen: the first thread after it
+ * The move after parking the thread on screen: the first thread after it
  * in `order` that stays active, wrapping round to the top. None when the
  * thread is not in `order`; the caller then opens a new draft.
  */
@@ -351,7 +350,7 @@ export function clockLabel(epoch: number): string {
   return new Date(epoch).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/** The snooze presets of the row menu and the rail's clock, in local time, after T3 Code's. */
+/** The snooze presets of the row menu and the rail's clock, in local time. */
 export function snoozePresets(now: Date): Array<{ id: string; label: string; when: string; until: number }> {
   const hour = 60 * 60 * 1_000;
   const at = (days: number, hourOfDay: number) => {

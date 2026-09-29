@@ -23,9 +23,9 @@ client. What was missing was the mode where both are the normal case, and the
 three things a window still owes its user when the host is somewhere else: its
 clipboard, the kit code its renderer imports, and a native view over a panel.
 
-T3 Code arrived at the same shape from the other side: its desktop app spawns
-`apps/server` as a supervised child, and `t3 service install` keeps that server
-alive as a system service.
+The same shape is common elsewhere: a desktop app spawns its server as a
+supervised child, and a service install keeps that server alive as a system
+service.
 
 ## Decision
 
@@ -156,7 +156,7 @@ release cycle.
 
 - **Restarting a host on another machine.** `TAU_HOST_URL` still attaches to a
   host somebody else runs; nothing supervises it from here.
-- **A system service.** T3's `service install` (launchd/systemd) is a separate
+- **A system service.** Installing a launchd/systemd service is a separate
   step; the background setting is the smaller version of it. *Amended
   2026-09-24:* it is in (`src/main/host-service.ts`, README "Run the host as a
   system service"). A service host writes `host.json` itself with a `service`

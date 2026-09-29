@@ -11,7 +11,7 @@ import type {
 export const DAY_MS = 24 * 60 * 60 * 1_000;
 export const MAX_RETENTION_DAYS = 3_650;
 
-/** Every rule off, as in T3 Code: cleanup is something a user turns on. */
+/** Every rule off: cleanup is something a user turns on. */
 export const NO_CLEANUP: WorktreeCleanupRules = { afterDays: null, onMerge: false, onThreadDelete: false, unchanged: false };
 export const EMPTY_POLICY: CleanupPolicy = { host: NO_CLEANUP, projects: {} };
 

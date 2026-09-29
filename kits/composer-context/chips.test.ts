@@ -70,7 +70,7 @@ describe("limits", () => {
     expect(selectFiles([file("b.png", "image/png", 10)], [], false).take).toHaveLength(1);
   });
 
-  it("holds T3's limits: 50 MB a file, 10 MB an image, a hundred files a message", () => {
+  it("holds the limits: 50 MB a file, 10 MB an image, a hundred files a message", () => {
     expect(selectFiles([file("big.zip", "application/zip", MAX_FILE_BYTES + 1)], [], true).error).toMatch(/50 MB/u);
     expect(selectFiles([file("big.png", "image/png", MAX_IMAGE_BYTES + 1)], [], false).error).toMatch(/10 MB/u);
     const store = new ChipStore();

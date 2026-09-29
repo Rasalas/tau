@@ -11,7 +11,7 @@ export const BUILD_ONLY_DEV_DEPENDENCIES = new Set([
 ]);
 
 /** Shipped, but not their dependencies: Electron's are its installer's. */
-const WITHOUT_DEPENDENCIES = new Set(["electron"]);
+export const WITHOUT_DEPENDENCIES = new Set(["electron"]);
 
 const NOTICE_FILE = /^(?:licen[cs]e|copying|notice)(?:[.-]|$)/iu;
 

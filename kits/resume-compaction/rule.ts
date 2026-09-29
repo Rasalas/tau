@@ -1,6 +1,6 @@
 import type { UiContextUsage } from "tau";
 
-/** T3 Code's thresholds: a context this large, idle this long, has fallen out of any prompt cache. */
+/** Thresholds: a context this large, idle this long, has fallen out of any prompt cache. */
 export const RESUME_COMPACTION_TOKENS = 100_000;
 export const RESUME_COMPACTION_IDLE_MS = 70 * 60_000;
 /** How many "Keep full history" answers are remembered; older threads have moved on by then. */
@@ -26,7 +26,7 @@ export function dismissalKey(threadId: string, usage: UiContextUsage): string {
   return `${threadId}@${usage.updatedAt ?? 0}`;
 }
 
-/** "153k", the way T3 Code writes a context's size. */
+/** A context's size as "153k". */
 export function formatContextTokens(tokens: number): string {
   if (tokens < 1_000) return `${Math.round(tokens)}`;
   if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1).replace(/\.0$/u, "")}k`;

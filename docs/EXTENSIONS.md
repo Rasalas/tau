@@ -211,8 +211,8 @@ lists. Keybindings Kit registers `keybindings.json`. An element marked
 the keyboard: no workbench chord runs, so a field that records chords can
 take ⌘K.
 
-`when` (new in API 1.10.0) says where a chord applies, as in VS Code and T3
-Code: context names joined by `!`, `&&`, `||` and parentheses, e.g.
+`when` (new in API 1.10.0) says where a chord applies, as in VS Code:
+context names joined by `!`, `&&`, `||` and parentheses, e.g.
 `"terminalFocus && !stageFocus"`; `true` and `false` are constants. Contexts
 come from the page when the key goes down. Mark an element
 `data-keybinding-context="<name>"` (several names may be space-separated) and
@@ -223,7 +223,7 @@ Kit marks `terminal`, Files Kit's editor `editor` and Preview Kit's panel
 `preview`. Two contexts nothing marks: `editableFocus` (new in API 1.11.0)
 holds while a text field, a select or anything `contenteditable` has the
 keyboard, so a chord native editing shares yields to it — Thread Rail's
-`mod+z` is `"!terminalFocus && !editableFocus"`, as in T3 Code; `overlayOpen`
+`mod+z` is `"!terminalFocus && !editableFocus"`; `overlayOpen`
 holds while an overlay is drawn: anything with `aria-modal="true"`, a
 `role="dialog"`, `"alertdialog"` or `"menu"`, an app page (`registerPage`),
 or an element marked `data-overlay`. A non-modal tool window that stays open beside the work (the
@@ -286,7 +286,7 @@ command gets no id and acts on the open one. A long press on a row lists every
 `thread-row` command (destructive ones last); the swipe tray holds core's Settle
 and the first non-destructive `thread-row` command that brings an `Icon` (new in
 API 1.13.0, a component like a panel's). Thread Rail's Snooze, Archive and
-Delete are the shipped callers, with Snooze in the tray as in T3 Code.
+Delete are the shipped callers, with Snooze in the tray.
 On a device paired Read only, every place that offers a command (the palette,
 the title menu, the compact list's sheet and tray, a file tab's header) shows
 it disabled with the reason unless it declares `access: "read"` (new in API
@@ -632,8 +632,8 @@ excerpt opens it in full with a field for the user's comment on it. A draft's
 chips persist with its text (the `draftState` slot above) and go when
 the prompt was accepted; a refused prompt puts them back. An attachment whose
 upload the connection lost after its three retries is uploaded again, from the
-start, once the host is back (`host-connection` below). The kit's own limits
-are T3 Code's: eight attachments a message, 10 MB an image (an image goes to
+start, once the host is back (`host-connection` below). The kit's own limits:
+eight attachments a message, 10 MB an image (an image goes to
 core as an image whenever the model sees images), 50 MB any other file, and a
 paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
 chip is the undo. A file travels to the host in 4 MiB pieces, so a 50 MB one
@@ -1130,7 +1130,7 @@ favour of `registerPage`.
 
 #### Settings pages: the full page, the levels and the rows
 
-Settings is a page of its own that covers the whole window (T3 Code's layout):
+Settings is a page of its own that covers the whole window:
 the section column on the left with the search, the pages in groups and About
 with the version and Back at its foot, and the page at a readable width under
 its head (new in API 1.26.0): the page's title, its `description`, where a
@@ -1336,7 +1336,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `actions.toast(options)` | A toast on the window's stack, top right, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`; the icon, and an `error` is an ARIA alert), `title`, `description`, `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
 | `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
-| `ConfirmDialog` | A yes-or-no question on `Dialog`, after T3 Code's: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
+| `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
 | `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
@@ -1410,9 +1410,9 @@ released oldest first, and one nobody used for ten minutes is released too, so a
 released thread's transcript is projected from its session file, with the same
 paging, cursors and client-message correlation.
 
-`actions.newSession()` asks for the project first, as T3 Code's new thread
-does, and as ⌘N, the rail's "+", the palette and a phone's button do (K98,
-for API 1.28.0): the project picker opens with the project in context first
+`actions.newSession()` asks for the project first, as ⌘N, the rail's "+", the
+palette and a phone's button do (K98, for API 1.28.0), so a thread never starts
+in the wrong project: the project picker opens with the project in context first
 and selected, so Enter confirms it. That project is the draft's or thread's on
 screen, or, with nothing on screen (a page, Settings or a phone's thread list
 covers it), where the host last worked. Escape closes the picker without a
@@ -1517,9 +1517,9 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` draws no cost since API 1.26.0; the rail's hover card does. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) and the runtime's side by side, the runtime's a shade quieter ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) and the runtime's side by side, the runtime's a shade quieter ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, since the default branch says nothing on a card. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `threadRowStatus`, `ThreadRowStatus`, `THREAD_QUESTION_LABEL`, `threadLimitHint` | new in API 1.27.0: the one derivation of a thread row's state that the desktop rail and the tablet and phone lists share. `threadRowStatus(id, activity, thread?)` takes the thread store's activity (`useThreadStore().getActivity()`) and the thread's shell and answers `{ activity, label, hint?, startedAt? }` for `ThreadRow`: a question is "Question", a run "Working" with the host's start of the run, then Limited, Failed, Interrupted, Ready and Idle. A navigator that draws its own rows calls it rather than naming the states itself. |
-| `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and T3 Code's tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
+| `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and a tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
 | `ProjectIcon`, `useProjectIcon`, `ProjectIconSubject`, `projectHue` | new in API 1.28.0 (`projectHue` 1.27.0): a project's mark as every core list draws it — a published picture (`context.setProjectIcons`), else the host's, else the initial on the project's hue. See "Project icons" above. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
@@ -1609,7 +1609,7 @@ the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
 the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
 `registerThreadCardSection?({ place, order?, Component })` (new in API 1.23.0) adds to
-the card a rail row opens after T3 Code's thread card: a pointer resting 180 ms on a row
+the card a rail row opens: a pointer resting 180 ms on a row
 (a sweep over the rail opens nothing) or keyboard focus on it shows the whole title and a
 line per fact with its icon — project 10, machine 20, branch 30, model 40, status 50, the
 last turn's changes 55, agents 60, cost 70 — and the card stays while the pointer is on the
@@ -1636,7 +1636,7 @@ by time without touching the rail's own order), `running`, `opening`, `machine`
 `unavailable` (why it cannot open now; the row is dimmed and says so), `open(actions)`
 and `lookIn?(actions)` (the row's hover button). Such a row cannot be settled, pinned,
 picked, dragged or given files. Machines Kit lists the other machines' threads this way.
-The shelves after the main list (snoozed, settled) share its scroll, as in T3 Code, and
+The shelves after the main list (snoozed, settled) share its scroll and
 follow right after the last active row, as the design draws them (since API 1.27.0; they
 sat at the rail's bottom before). Each is a quiet heading with its count ("Settled · 41")
 over one-line rows (tile, title, age); a click on the heading folds or opens it.
@@ -1706,8 +1706,8 @@ a selection) opens the optional `bulkMenu(sessions)`, and a pick goes to
 `runBulkMenu(sessions, itemId, actions)`. Without them a selection has no
 menu. Without an
 organizer the rail keeps its own order: pins first, then newest, settled
-threads on their shelf. Thread Rail is the organizer Tau ships. As in T3 Code,
-settling or snoozing the thread on screen moves the reader on once the host
+threads on their shelf. Thread Rail is the organizer Tau ships.
+Settling or snoozing the thread on screen moves the reader on once the host
 has the change: to the next pinned or active thread below it in the rail
 (on a compact client, in `threadListOrder()`), wrapping round to the top and
 skipping threads parked in the same batch, else to a new draft in its project.
@@ -2318,8 +2318,8 @@ shell without pressing Enter (without Terminal Kit it is copied). A backend
 should refuse to open a thread on a `broken` version; Codex's policy calls
 every release older than its protocol broken.
 
-A newer release is offered as a toast, after T3 Code's provider update
-notification (new in API 1.11.0). `loadRuntimeUpdateToasts()` on `tau` loads
+A newer release is offered as a toast
+(new in API 1.11.0). `loadRuntimeUpdateToasts()` on `tau` loads
 a chunk of its own with `createRuntimeUpdateToasts({ run, canRun?, recheck,
 settingsPage })`; a kit calls `sync(backends, actions)` with its backends
 whenever the catalog changes (`updateAvailable` on `tau` decides cheaply
@@ -2490,7 +2490,7 @@ On the desktop side `loadSignInUi()` on `tau` loads `SignInSetup` (a chunk
 with its stylesheet): the account as a settings row (`rowId` is its element
 id) with sign-out, asked through `ConfirmDialog`, and the note on where the
 credential lives as its help; each method while signed out, with its button;
-and the flow drawn after T3 Code's provider setup — Open sign-in page and
+and the sign-in flow — Open sign-in page and
 Copy link, the device code with Copy and the page's host, the question's
 field (a password field for a secret) or its choices, Cancel sign-in and the
 time the flow gives up. A `terminal` step of a flow this window started runs
@@ -3812,8 +3812,8 @@ stylesheet, a new accent and a new code face. Two more sit beside it:
 `examples/theme-mono-labels/` sets the four label tokens back to the
 monospace capitals Tau's labels had before API 1.11.0 (label texts are written
 in sentence case, so `--label-case: uppercase` is all it takes), and
-`examples/theme-t3-like/` lays T3 Code's greys, indigo primary and radii over
-the tokens, for telling a difference of colour from one of layout.
+`examples/theme-t3-like/` lays zinc greys, an indigo primary and smaller radii
+over the tokens, for telling a difference of colour from one of layout.
 
 ### The table
 

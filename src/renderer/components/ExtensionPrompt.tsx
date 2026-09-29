@@ -145,7 +145,7 @@ export function ExtensionPrompt({
   // A question Pi asks in its own terminal cannot be answered here; offering
   // buttons and an input would be a lie.
   const elsewhere = prompt.answerElsewhere === true;
-  // A yes-or-no question is an approval: Approve and Decline, as T3 Code draws one.
+  // A yes-or-no question is an approval: Approve and Decline.
   const approval = prompt.kind === "confirm";
   const hasChoices = !elsewhere && prompt.kind === "select";
   // The composer below is the free-text answer; a row saying the same is noise.

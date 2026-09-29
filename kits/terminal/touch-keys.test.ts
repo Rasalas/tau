@@ -7,7 +7,7 @@ import {
 const armed = (...modifiers: TouchModifier[]) => new Set(modifiers);
 
 describe("the compact key bar", () => {
-  it("has the keys a phone keyboard lacks, in T3 Code's order", () => {
+  it("has the keys a phone keyboard lacks, in order", () => {
     expect(TOUCH_KEYS.map((key) => key.id)).toEqual(["esc", "ctrl", "alt", "tab", "up", "down", "left", "right", "tilde", "pipe", "slash", "dash", "paste"]);
   });
 

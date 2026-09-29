@@ -26,7 +26,7 @@ export function autoTooltip(preview: { answer?: { machine: string | null; reason
 }
 
 /**
- * "Run on" for a new thread (T3's environment selector), a pill under its
+ * "Run on" for a new thread, the environment selector: a pill under its
  * heading (`draft-actions`): which
  * machine the thread starts on. Another machine takes the draft's text with
  * it and opens this window there; a started thread stays where it runs.

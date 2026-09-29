@@ -37,7 +37,7 @@ function withActions(run: (actions: WorkbenchActions) => unknown) {
 }
 
 /**
- * T3 Code's chords. Splitting and moving between panes work in the panel and
+ * Terminal chords. Splitting and moving between panes work in the panel and
  * in a stage tab alike; on the stage `mod+w` closes the tab, which hands its
  * shells back to the panel. `mod+j` is bound twice so a shell never takes it,
  * whatever `mod` is here.
@@ -95,7 +95,7 @@ export const terminalExtension: DesktopExtension = {
       plugin.useService<WorkspaceStoreMirror>(WORKSPACE_STORE_SERVICE, (workspace) => {
         terminalServices.workspace = workspace;
         const unmark = workspace.registerThreadRowAccessory(TerminalRowStatus);
-        // After the model, as in T3 Code's card.
+        // After the model.
         const unlist = workspace.registerThreadCardSection?.({ place: "row", order: 45, Component: TerminalCardRow });
         return () => {
           unmark();

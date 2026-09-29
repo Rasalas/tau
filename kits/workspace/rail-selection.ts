@@ -1,4 +1,4 @@
-/** T3 Code's rail selection: mod-click toggles, shift-click runs from the anchor (the last row toggled or opened). */
+/** Rail selection: mod-click toggles, shift-click runs from the anchor (the last row toggled or opened). */
 export interface RailSelection {
   ids: ReadonlySet<string>;
   anchor?: string;

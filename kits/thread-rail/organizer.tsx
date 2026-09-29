@@ -93,7 +93,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
 
   /**
-   * T3 Code's move after parking the thread on screen: planned before the
+   * The move after parking the thread on screen: planned before the
    * change, taken once the host has it and only if the reader is still there.
    * The host's own settles never come through here, so they never move anyone.
    */
@@ -182,7 +182,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     }
   };
 
-  /** As in T3 Code: a running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
+  /** A running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
   const archive = async (session: UiSession, actions: WorkbenchActions | undefined, confirmed = false) => {
     if (port.running(session.id)) { notify(actions, "Cannot archive a running thread."); return; }
     if (!confirmed && !await ask("archive", [session])) return;
@@ -339,7 +339,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const snoozeItems: MenuItem[] = settled ? [] : snoozed
         ? [{ id: "wake", label: "Wake thread" }, { id: "snooze:custom", label: "Snooze until…" }]
         : [{ id: "snooze", label: "Snooze", submenu: snoozeSubmenu() }];
-      // T3 Code's order: start, keep, then name and find, then copy and the project, then the lifecycle.
+      // Order: start, keep, then name and find, then copy and the project, then the lifecycle.
       return lockWrites([
         {
           items: [
@@ -400,7 +400,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         if (preset) snooze(session.id, preset.until, actions);
       }
     },
-    // T3 Code's selection menu: what fits every selected thread, with how many it touches.
+    // The selection menu: what fits every selected thread, with how many it touches.
     bulkMenu(sessions) {
       const count = sessions.length;
       const pinned = sessions.filter((session) => meta(session.id)?.pinned).length;
@@ -491,7 +491,7 @@ const QUESTION_TEXT: Record<RailQuestionAction, { verb: string; message(count: n
   unpin: { verb: "Unpin", message: (count) => `${count === 1 ? "It moves" : "They move"} back among the active threads.` },
 };
 
-/** T3 Code's confirmation before a delete, an archive or an unpin, with a way to stop asking. */
+/** The confirmation before a delete, an archive or an unpin, with a way to stop asking. */
 function RailConfirmation({ question, onDone }: { question: RailQuestion; onDone(): void }) {
   const text = QUESTION_TEXT[question.action];
   const count = question.sessions.length;

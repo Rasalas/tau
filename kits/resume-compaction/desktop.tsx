@@ -8,8 +8,7 @@ const EVERY_CLIENT = ["desktop", "web", "compact"] as const;
 
 /**
  * Offers to compact a long thread whose prompt cache has gone cold, before
- * the next turn pays for all of it again (T3 Code's "Resume with less
- * context"). Where the answers live is Tau's config, so they hold on every
+ * the next turn pays for all of it again. Where the answers live is Tau's config, so they hold on every
  * device.
  */
 export const resumeCompactionExtension: DesktopExtension = {

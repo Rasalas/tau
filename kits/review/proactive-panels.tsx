@@ -5,10 +5,10 @@ import { parseRequestUrl } from "./pull-request-json.js";
 import { openPullRequest } from "./pull-request-open.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
-/** Review Kit's option, off by default as in T3 Code. */
+/** Review Kit's option, off by default. */
 export const PROACTIVE_OPTION = "proactive-panels";
 
-/** T3 Code's bar for a turn's changes to open the diff by themselves. */
+/** The bar for a turn's changes to open the diff by themselves. */
 export function worthShowing(changes: Pick<UiWorkspaceChanges, "files" | "added" | "removed">): boolean {
   return changes.files.length >= 3 || changes.added + changes.removed >= 50;
 }
@@ -29,7 +29,7 @@ export class LinkWatcher {
 }
 
 /**
- * Proactive panels, after T3 Code's setting: with it on, a request the thread
+ * Proactive panels: with it on, a request the thread
  * on screen links while you watch opens as its tab (several at once open the
  * Changes panel, which lists them), and a turn that changed at least 3 files
  * or 50 lines opens the Changes panel. A thread that links requests keeps to

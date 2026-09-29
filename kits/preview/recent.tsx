@@ -4,7 +4,7 @@ import { tooltipProps } from "tau";
 import type { PreviewHistoryEntry } from "./protocol.js";
 import { previewKit } from "./store.js";
 
-/** `localhost:3000/settings`, the way T3 Code's recent card writes an address. */
+/** `localhost:3000/settings`, the way the recent card writes an address. */
 export function pageLabel(url: string): string {
   try {
     const parsed = new URL(url);

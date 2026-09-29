@@ -62,7 +62,7 @@ export interface ProjectGroup {
 }
 
 /**
- * T3 Code's grouping: clones of one remote share a group, a repository
+ * Grouping: clones of one remote share a group, a repository
  * without one is a group of its own, newest activity first; folders that are
  * not repositories come apart, to be folded away.
  */
@@ -83,7 +83,7 @@ export function groupProjects(candidates: readonly ProjectCandidate[]): { reposi
   return { repositories, other };
 }
 
-/** T3 Code's default: repositories active in the last 30 days with at least three conversations. */
+/** The default: repositories active in the last 30 days with at least three conversations. */
 export function defaultProjects(candidates: readonly ProjectCandidate[], now: number): string[] {
   return candidates.filter((project) => project.git && project.threadCount >= 3 && now - project.lastActiveAt <= RECENT_MS).map((project) => project.path);
 }
@@ -97,7 +97,7 @@ function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-/** The line T3 Code shows when an import left something behind. */
+/** The line shown when an import left something behind. */
 export function importSummary(result: Pick<ImportResult, "imported" | "failed">): string {
   if (result.imported > 0 && result.failed > 0) return `Imported ${plural(result.imported, "thread")}. ${plural(result.failed, "thread")} could not be imported.`;
   if (result.failed > 0) return `${plural(result.failed, "thread")} could not be imported.`;

@@ -15,13 +15,13 @@ const thread = (id: string, title: string, modifiedAt: number, projectName = "ta
 
 const projects: UiProject[] = [
   { path: "/repo", workspaceId: "ws-repo", displayPath: "~/repo", name: "tau", lastOpenedAt: 2 },
-  { path: "/other", name: "t3code", lastOpenedAt: 3 },
+  { path: "/other", name: "orbit", lastOpenedAt: 3 },
 ];
 
 function searchContext(actions = {} as WorkbenchActions): PaletteSearchContext {
   return {
     actions,
-    index: { projects, threads: [thread("a", "Fix the stage tabs", 1), thread("b", "Stage restore", 5, "t3code"), thread("c", "Luna test", 3)], activeThreadId: "b" },
+    index: { projects, threads: [thread("a", "Fix the stage tabs", 1), thread("b", "Stage restore", 5, "orbit"), thread("c", "Luna test", 3)], activeThreadId: "b" },
     signal: new AbortController().signal,
   };
 }
@@ -30,7 +30,7 @@ describe("Search Kit: palette sources", () => {
   it("finds threads by title and project, newest first, and says which one is on screen", () => {
     const context = searchContext();
     expect(threadTitleItems("stage", context).map((item) => [item.label, item.detail])).toEqual([
-      ["Stage restore", "t3code · on screen"],
+      ["Stage restore", "orbit · on screen"],
       ["Fix the stage tabs", "tau"],
     ]);
     expect(threadTitleItems("stage tau", context).map((item) => item.id)).toEqual(["a"]);
@@ -43,7 +43,7 @@ describe("Search Kit: palette sources", () => {
     await threadTitleItems("luna", context)[0]!.run!(actions);
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/c.jsonl");
     const found = projectItems("t", context);
-    expect(found.map((item) => item.label)).toEqual(["t3code", "tau"]);
+    expect(found.map((item) => item.label)).toEqual(["orbit", "tau"]);
     await found[1]!.run!(actions);
     expect(actions.openWorkspace).toHaveBeenCalledWith("ws-repo");
   });

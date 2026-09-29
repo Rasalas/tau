@@ -65,10 +65,10 @@ interface NavItem {
 }
 
 /**
- * Settings as a page of its own: it takes the whole window, the way T3 Code's
- * settings route does. A navigation column with the search on the left, its
- * pages in groups; a top bar with the page and the level a change is written
- * to; the page below at a readable width. `page` is a place in Settings
+ * Settings as a page of its own that takes the whole window. A navigation
+ * column with the search on the left, its pages in groups; a top bar with the
+ * page and the level a change is written to; the page below at a readable
+ * width. `page` is a place in Settings
  * (`settings-nav.ts`): a page, an extension's page, and a row to scroll to.
  * Escape and ⌘, return to where Settings was opened from; Back to thread to the thread.
  */

@@ -50,7 +50,7 @@ export const observatoryExtension: DesktopExtension = {
       rows: SIGNALS_SETTINGS_ROWS,
     });
     plugin.registerCommand({ id: "observatory.open", label: "Open Signals", group: "Extensions", access: "read", run: (app) => app.openSettings(SIGNALS_SETTINGS_PAGE) });
-    // `mod+shift+o` is a new thread, as in T3 Code.
+    // `mod+shift+o` is already New thread.
     plugin.registerKeybinding({ keys: "mod+alt+o", commandId: "observatory.open" });
     // A shell command is the one tool run whose own text says what happened.
     plugin.registerToolRenderer(

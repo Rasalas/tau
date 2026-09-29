@@ -70,7 +70,7 @@ describe("Workspace Kit desktop extension", () => {
 
     const keybinding = registry.getKeybindings().find((kb) => kb.commandId === "workspace.open-terminal");
     expect(keybinding).toBeDefined();
-    // mod+j is Terminal Kit's embedded terminal, as in T3 Code.
+    // mod+j is Terminal Kit's embedded terminal.
     expect(keybinding?.keys).toBe("mod+alt+j");
 
     expect(registry.getSlashCommands().some((sc) => sc.name === "terminal" || sc.name === "term")).toBe(false);

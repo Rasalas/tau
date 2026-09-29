@@ -21,7 +21,7 @@ A user should be able to:
 - install, remove, and configure features without changing Tau core
 - keep using existing Pi models, credentials, skills, tools, sessions, and extensions
 
-We adapt useful interaction patterns from tools such as T3 Code, editors, terminals, and command palettes. Tau should develop its own product language rather than copy another application's source or visual identity.
+We adapt useful interaction patterns from other agent workbenches, editors, terminals, and command palettes. Tau should develop its own product language rather than copy another application's source or visual identity.
 
 ## Product principles
 

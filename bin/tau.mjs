@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// `tau app [path]`: opens a folder in the running Tau, the way `t3 app` does
-// for T3 Code. It reads `<userData>/host.json`, which the window writes for the
-// host process it supervises (ADR 0021), says hello with the host's token and
-// asks Workspace Kit's `app-open`. Without a running host it starts the app.
+// `tau app [path]`: opens a folder in the running Tau. It reads
+// `<userData>/host.json`, which the window writes for the host process it
+// supervises (ADR 0021), says hello with the host's token and asks Workspace
+// Kit's `app-open`. Without a running host it starts the app.
 // `tau service …` runs the app's `service-cli.js` with the app's own binary.
 // Plain Node, no dependencies: Node 22 has a global WebSocket.
 import { spawn, spawnSync } from "node:child_process";

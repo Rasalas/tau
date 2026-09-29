@@ -52,7 +52,7 @@ also types a script into a Terminal Kit shell, for one you want to talk to.
 ## The worktree setup
 
 When Workspace Kit creates a worktree for a new thread, the steps show as one
-card under the thread's transcript, the way T3 Code shows its setup: fetching
+card under the thread's transcript: fetching
 the base branch, creating the worktree, filling its submodules when it has any
 (`worktreeSubmodules`; a failure there is marked and the setup goes on), then
 every `runOnWorktreeCreate` script with its elapsed time and its last four lines of output. A blocking

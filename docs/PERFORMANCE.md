@@ -174,27 +174,21 @@ These code paths are plausible costs, but the audit did not isolate their runtim
 
 Each item needs a fixture that can go red before implementation starts.
 
-## Patterns adapted from T3 Code
+## Design patterns
 
-Historical: input from the T3 Code study that shaped the target model below. Every path in this section is in the T3 Code source, not in this repository.
+The patterns that shaped the target model below.
 
 ### Shell and detail are separate
 
 Thread shells contain the small index used by navigation. Thread details and messages load through separate state. A sidebar never subscribes to a full conversation.
 
-Relevant modules:
-
-- `packages/client-runtime/src/state/threadShell.ts`
-- `packages/client-runtime/src/state/threadDetail.ts`
-- `apps/web/src/state/entities.ts`
-
 ### Timeline work is bounded
 
-T3 Code initially loads only the latest ten user turns, pages older history in batches, and renders the timeline through `@legendapp/list`. Stable row identities keep an active update from invalidating settled rows.
+A thread first loads only its latest turns, pages older history in batches, and renders the timeline through a virtualized list. Stable row identities keep an active update from invalidating settled rows.
 
 ### Entities have stable identities
 
-Atom families address individual threads. Derived arrays reuse their previous references when elements have not changed. One shell update does not invalidate every row.
+Each thread is addressed on its own. Derived arrays reuse their previous references when elements have not changed. One shell update does not invalidate every row.
 
 ### Settled work collapses aggressively
 
@@ -202,7 +196,7 @@ Completed work logs expose a small visible tail and explicit expansion. Settled 
 
 ### Expensive rendering is cached or deferred
 
-T3 Code caches syntax highlighting, applies content visibility to inactive rows, updates elapsed labels locally, and lazy-loads heavy panels. Cached data remains renderable while refresh work runs.
+Syntax highlighting is cached, inactive rows use content visibility, elapsed labels update locally, and heavy panels load lazily. Cached data remains renderable while refresh work runs.
 
 ## Tau target model
 
@@ -282,7 +276,7 @@ Initial local targets:
 - the layout parity work (D08, 2026-09-23: one top bar, resizable sidebar, drawer, panels maximized onto the stage) costs the renderer's initial stylesheet about 870 bytes (138.70 kB → 139,574 bytes on the D08 base) and its initial script about 2.5 KB of gzip (237.26 → 239.77 kB). The rules a maximized panel needs load with the stage's chunk (`components/stage-panels.css`), the conversation header's rules went with it, and panel buttons are styled by their host instead of by the dock. Merged with wave D the initial stylesheet is 139,934 bytes, 66 under the 140,000 budget, and total JavaScript 437,029 bytes of gzip
 - initial stylesheet headroom won back on 2026-09-23 (ticket D29), budgets unchanged: 139,934 → 112,651 bytes (25,355 → 21,054 gzip), 27,349 bytes under the 140,000 budget. Settings, the model picker, the command palette, the reload conflict dialog and the renderer benchmark now load their rules with their own chunks, and rules that matched no element are gone; see "Initial stylesheet headroom" below
 - the Git odds and ends (D14, 2026-09-23: submodules, default-branch fast-forward, clone jobs, publishing, writing settings, diff colours and wrapping) found the merged wave D tree 234 bytes over the initial-stylesheet budget with its own additions (two edge tokens, the unwrapped-diff rule). The rows `DiffView` draws moved into `components/diff-view.css`, which loads with the DiffView chunk (1.92 kB, 0.65 kB gzip): the initial stylesheet went from 140,234 to 138,314 bytes (25,099 gzip). The blue and orange diff colours are mixed from `--info` and `--working` in Review Kit's own stylesheet, so they cost core nothing; the new settings pages, the clone toasts and the publish form are kit code in `dist-kits/`. Merged again after D29 the initial stylesheet is 111,047 bytes (20,798 gzip)
-- initial script headroom won back on 2026-09-23 (ticket E23), budgets unchanged: on `t3/wave-e` at `a801d57e` (E04, E08, E12, E16, E19, E22 and E24 merged) the initial script went from 803,191 to 758,016 bytes (250,193 → 236,129 gzip), 41,984 bytes under the 800,000 budget. Markdown lost its unified wrapper and an SVG table it never reaches; menus, dialogs, popovers, the extension prompt dialogs, the settings rows, the changes tree, transcript search, the queue and the image lightbox load as deferred components; see "Initial script headroom" below
+- initial script headroom won back on 2026-09-23 (ticket E23), budgets unchanged: on wave E at `a801d57e` (E04, E08, E12, E16, E19, E22 and E24 merged) the initial script went from 803,191 to 758,016 bytes (250,193 → 236,129 gzip), 41,984 bytes under the 800,000 budget. Markdown lost its unified wrapper and an SVG table it never reaches; menus, dialogs, popovers, the extension prompt dialogs, the settings rows, the changes tree, transcript search, the queue and the image lightbox load as deferred components; see "Initial script headroom" below
 - the palette's levels (E08, 2026-09-23: drill-down with breadcrumb and search per level, Set model…, Change theme…, New thread on…) cost the renderer's initial script 1,685 bytes (798,210 → 799,895, 105 under the 800,000 budget; gzip 248,250 → 248,788). They first measured 800,346: the levels' rows and `actions.runtimeModels` now load as their own chunks on first use (`palette-menus`, 2.75 kB; `runtime-models`, 0.41 kB). The drill-down itself is in the palette's lazy chunk (8.17 kB), Workspace Kit's and Review Kit's levels in their kits' bundles, and the index of other runtimes' thread text in Search Kit's worker, capped at four million characters
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
@@ -480,7 +474,7 @@ In the isolated real app (all kits, GPT-5.6 Luna running `for i in $(seq 1 60); 
 
 ### UI primitives in core
 
-Tau's menus, tooltips, toasts, dialogs, popovers and loading states (ticket D05, 2026-09-23) are its own code rather than `@base-ui/react`, which T3 Code uses. Bundled with esbuild, minified and with React external, Base UI 1.8.0 costs 151,040 bytes (52,145 gzip) for Menu alone, 97,829 (34,282) for Tooltip, 72,377 (26,345) for Toast, 68,247 (23,464) for Dialog and 209,750 (68,632) for Menu, ContextMenu, Popover, Tooltip, Dialog and Toast together. Lazy loading moves bytes out of the initial script but not out of the total, and the total gzip budget had 17,056 bytes left, so even Dialog alone would have used more than it. `@floating-ui/dom` for positioning alone is 16,628 (6,720 gzip); `placeFloating` in `src/renderer/components/ui/floating.ts` is under 1 KB. Tau's primitives together bundle to 20,111 bytes (7,416 gzip) under the same measurement, before subtracting the menu and the two toasts they replace.
+Tau's menus, tooltips, toasts, dialogs, popovers and loading states (ticket D05, 2026-09-23) are its own code rather than a library such as `@base-ui/react`. Bundled with esbuild, minified and with React external, Base UI 1.8.0 costs 151,040 bytes (52,145 gzip) for Menu alone, 97,829 (34,282) for Tooltip, 72,377 (26,345) for Toast, 68,247 (23,464) for Dialog and 209,750 (68,632) for Menu, ContextMenu, Popover, Tooltip, Dialog and Toast together. Lazy loading moves bytes out of the initial script but not out of the total, and the total gzip budget had 17,056 bytes left, so even Dialog alone would have used more than it. `@floating-ui/dom` for positioning alone is 16,628 (6,720 gzip); `placeFloating` in `src/renderer/components/ui/floating.ts` is under 1 KB. Tau's primitives together bundle to 20,111 bytes (7,416 gzip) under the same measurement, before subtracting the menu and the two toasts they replace.
 
 The desktop build before and after, from `reports/build-report.json`:
 
@@ -500,7 +494,7 @@ After wave D the total JavaScript had 5.3 KB of gzip left under its 500 KB budge
 
 | change | initial JavaScript | total JavaScript |
 | --- | ---: | ---: |
-| base (`t3/wave-d`, `12933f1`) | 785,075 (241,227 gzip) | 1,643,620 (494,702 gzip) |
+| base (wave D, `12933f1`) | 785,075 (241,227 gzip) | 1,643,620 (494,702 gzip) |
 | icon `key` hashes blanked (`vite.icon-keys.ts`) | 783,191 (240,421) | 1,550,184 (458,296) |
 | shared icon names built at run time (`src/renderer/shared-icons.ts`) | 783,297 (240,440) | 1,431,107 (433,508) |
 | native `structuredClone` for Markdown (`vite.renderer-build.ts`) | 780,146 (239,181) | 1,427,956 (432,230) |
@@ -508,7 +502,7 @@ After wave D the total JavaScript had 5.3 KB of gzip left under its 500 KB budge
 
 The browser client went from 786,560 to 763,499 bytes of initial JavaScript (242,258 to 235,993 gzip) and from 1,627,859 to 1,390,897 bytes of total JavaScript (489,598 to 422,119 gzip). The stylesheets did not change.
 
-By then `t3/wave-d` had moved on to `7d33f03` (U1, U2, U3 and D12 merged) and stood at 500,622 bytes of total gzip, over the budget. Merged with these changes, the desktop build measures 768,623 bytes of initial JavaScript (237,257 gzip, from 791,962 and 243,579) and 1,421,958 bytes of total JavaScript (432,911 gzip, from 1,659,832 and 500,622). That leaves 67 KB of gzip under the total budget. The browser client's total gzip on that tree went from 495,643 to 428,082.
+By then wave D had moved on to `7d33f03` (U1, U2, U3 and D12 merged) and stood at 500,622 bytes of total gzip, over the budget. Merged with these changes, the desktop build measures 768,623 bytes of initial JavaScript (237,257 gzip, from 791,962 and 243,579) and 1,421,958 bytes of total JavaScript (432,911 gzip, from 1,659,832 and 500,622). That leaves 67 KB of gzip under the total budget. The browser client's total gzip on that tree went from 495,643 to 428,082.
 
 - **Icon keys.** Every element of a lucide icon carries a six-character hash as its React `key`, 7,197 of them across the set. `Icon` renders the elements as a fixed array, so index keys are enough. `stripIconKeys` blanks the keys in lucide's icon modules before minifying, in production builds only; React's development build would warn about the keyless list. `vite.icon-keys.test.ts` checks that every installed icon loses its keys and nothing else, and that `Icon` renders the same markup either way.
 - **Shared icon names.** Extension packages get `lucide-react` from the renderer's copy. That copy was the dynamic import's module namespace, so the icon chunk exported 6,137 names. The export list alone took 127 KB, 27 KB of it gzip. `sharedIconModule` now builds the same object from lucide's `icons` object. It lists each icon under its own name, as `<name>Icon` and as `Lucide<name>`, plus a table of 254 older names of renamed icons. `shared-icons.test.ts` compares it name for name with lucide-react's ES namespace, so a lucide upgrade that renames icons fails there.
@@ -529,7 +523,7 @@ After D08 the initial stylesheet was 139,934 bytes, 66 under its 140,000 budget.
 
 | change | initial CSS | lazy stylesheet |
 | --- | ---: | ---: |
-| base (`t3/wave-d`, `b0b2c06`) | 139,934 (25,355 gzip) | |
+| base (wave D, `b0b2c06`) | 139,934 (25,355 gzip) | |
 | rules that match no element removed | 138,446 | |
 | renderer benchmark (`renderer-benchmark.css`) | 138,112 | 335 |
 | settings (`settings/settings.css`) | 121,016 | 17,097 |
@@ -553,7 +547,7 @@ After E21 the initial script was 799,498 bytes, 502 under its 800,000 budget, wi
 
 | change | initial JavaScript | total JavaScript gzip |
 | --- | ---: | ---: |
-| base (`t3/wave-e`, `6f0f358c`) | 799,498 (248,761 gzip) | 460,251 |
+| base (wave E, `6f0f358c`) | 799,498 (248,761 gzip) | 460,251 |
 | SVG attribute table dropped (`vite.markdown-schema.ts`) | 789,330 (245,837) | 457,326 |
 | Markdown through mdast and hast directly (`markdown-pipeline.ts`) | 775,147 (240,871) | 452,334 |
 | `Menu`, transcript search, queued messages deferred | 767,365 (238,486) | 454,989 |
@@ -562,7 +556,7 @@ After E21 the initial script was 799,498 bytes, 502 under its 800,000 budget, wi
 | `Dialog`, `Popover`, `ConfirmDialog`, `ChangesTree` deferred | 755,729 (234,980) | 458,551 |
 | image lightbox deferred (`AttachmentLightbox.tsx`) | 754,463 (234,670) | 459,109 |
 
-Merged with `t3/wave-e` at `d1df9ccd` (E12, E16, E19), which measured 801,053 bytes (249,464 gzip) on its own, the desktop build is 756,016 bytes; drawing the Cursor mark from `provider-marks.css`, which already had its rule, makes it 755,880 (235,329 gzip). Total JavaScript gzip went from 475,250 to 474,015. Merged again with `t3/wave-e` at `a801d57e` (E04, E08, E22 and E24 on top), which measured 803,191 bytes (250,193 gzip), the desktop build is 758,016 bytes (236,129 gzip) and total JavaScript gzip 478,904 (from 480,068). The initial stylesheet did not change.
+Merged with wave E at `d1df9ccd` (E12, E16, E19), which measured 801,053 bytes (249,464 gzip) on its own, the desktop build is 756,016 bytes; drawing the Cursor mark from `provider-marks.css`, which already had its rule, makes it 755,880 (235,329 gzip). Total JavaScript gzip went from 475,250 to 474,015. Merged again with wave E at `a801d57e` (E04, E08, E22 and E24 on top), which measured 803,191 bytes (250,193 gzip), the desktop build is 758,016 bytes (236,129 gzip) and total JavaScript gzip 478,904 (from 480,068). The initial stylesheet did not change.
 
 - **SVG table.** `hast-util-to-jsx-runtime` is the only importer of `property-information` in the renderer, and it switches to the SVG schema only below an `<svg>` element. Markdown renders no raw HTML, so none arrives. `dropSvgAttributes` leaves the 10 KB SVG table out of both renderer builds and keeps the SVG schema's shared ARIA, xlink and xml attributes. It throws when the package's index changes shape; `vite.markdown-schema.test.ts` checks the installed package and that Markdown draws no SVG element.
 - **Markdown without unified.** `react-markdown` wraps five calls in a unified processor, a VFile and plugin plumbing: `fromMarkdown` with GFM, `newlineToBreak`, `toHast`, a pass that turns raw HTML into text and empties unsafe URLs, and `toJsxRuntime`. `markdown-pipeline.ts` calls them itself, and the streaming block splitter parses with the same `parseMarkdown`. `markdown-pipeline.test.tsx` renders every Markdown fixture plus URL, raw-HTML, break, table, footnote and escape cases through both and requires identical markup and an identical mdast.
@@ -573,7 +567,7 @@ Kept in the initial script: the composer's Vim, Readline and history search hand
 
 Verification in an isolated instance: the network log of a reload showed the deferred chunks requested 2.0 s after the entry script. After that the thread title menu drew in the same task as its click. Opened within the first half second of a reload, before the preload, the Reasoning menu drew 24 to 315 ms after the click, the chunk requested 3 to 17 ms after it; the rest was start-up work still on the main thread. Every settings page (17 core, 34 extension pages), the setting origin popover, settings search, the keybinding editor's row menu and chord recorder, the Connections page's rotate question (`ConfirmDialog`), Thread Rail's snooze dialog (`Dialog`), the composer's overflow popover, the Reasoning and thread title menus, transcript search, the Changes panel's tree and the image lightbox opened and closed, with focus back on the trigger. The extension prompt dialogs and the queued-message bubbles were not opened in the app; their tests cover them.
 
-`npm run start:budget` passes. First paint on `t3/wave-e` (`a801d57e`) measured 108, 160 and 192 ms, merged with these changes 92, 212 and 228 ms, under a load average of 15 to 25; the spread is the machine's. The fixture now loads 12 files instead of 10: the command palette and project picker chunks, which the workbench already fetches at start-up, pull in the `Dialog` chunk and a shared icon chunk, so those bytes still arrive during start-up, beside the initial script rather than in it.
+`npm run start:budget` passes. First paint on wave E (`a801d57e`) measured 108, 160 and 192 ms, merged with these changes 92, 212 and 228 ms, under a load average of 15 to 25; the spread is the machine's. The fixture now loads 12 files instead of 10: the command palette and project picker chunks, which the workbench already fetches at start-up, pull in the `Dialog` chunk and a shared icon chunk, so those bytes still arrive during start-up, beside the initial script rather than in it.
 
 The renderer benchmark ran twice per side under a load average of 17 to 57. The Markdown streaming scenarios were as fast or faster (update p95 9.4 and 5.8 ms → 5.5 and 5.2 for the 150 KB code stream, 11.8 and 10.9 → 8.4 and 7.1 fenced, 10.6 and 7.4 → 6.6 and 7.7 plain). The other scenarios scattered by a factor of two in both directions between runs of the same build; `--check` failed on both sides on the same scenarios, `long-user-message` among them.
 
@@ -583,8 +577,8 @@ After F06 the total JavaScript was 500,073 bytes of gzip, 73 over its 500,000 bu
 
 | tree | initial JavaScript | total JavaScript | files |
 | --- | ---: | ---: | ---: |
-| `t3/wave-f` (`1b652f0c`) | 772,049 (240,763 gzip) | 1,594,716 (500,073 gzip) | 84 |
-| `t3/wave-f` (`13f17a36`, F14 merged) | 773,950 (241,408) | 1,597,011 (500,820) | 84 |
+| wave F (`1b652f0c`) | 772,049 (240,763 gzip) | 1,594,716 (500,073 gzip) | 84 |
+| wave F (`13f17a36`, F14 merged) | 773,950 (241,408) | 1,597,011 (500,820) | 84 |
 | merged with the packed icon set | 773,061 (240,932) | 1,436,200 (467,016) | 70 |
 
 The browser client on the same merged tree went from 778,606 to 777,641 bytes of initial JavaScript (243,664 to 243,217 gzip) and from 496,055 to 462,224 bytes of total gzip. The stylesheets did not change.
@@ -829,13 +823,12 @@ state the uncoalesced events produce, also after losing ten pushes mid-turn and
 replaying them, and that a client joining mid-tool receives the output whole.
 The expected state is the one a client should have: every tool as
 `src/main/client-tool-output.ts` shapes it (a live tail, a deferred output).
-It is Tau's counterpart of T3 Code's `TransferBudgetReport` gate.
 
 Three scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
 GPT-5.6 Luna turn recorded from a Tau host on 2026-09-23: thinking, a bash tool
 printing 200 lines that Pi reports every 100 ms, a two-sentence answer streamed
 per token, and the settle with its thread detail. **heavy-turn** is generated
-in the test in the spirit of T3's fixture: 1.2 KB of thinking, twenty tools with
+in the test: 1.2 KB of thinking, twenty tools with
 1 KB output each, one tool streaming 1.1 MB through the host's 128 KB tail
 window, and a 4 KB answer, at a model's pace. **answer-turn** is all answer,
 like the comparison harness's replay: 150 KB of text in 200-character deltas
@@ -986,7 +979,7 @@ in a short thread (8 entries) and in one of 5,000 turns (20,000 entries: user
 message, tool call, tool result, answer), 20 samples after one untimed round,
 in an agent directory of their own. The check fails when a p95 exceeds 10 ms
 (`metadataCommandP95Ms`) or the long thread shrinks below 10,000 entries.
-Before (`t3/wave-d`, same fixture and script) and after, two runs per side,
+Before (wave D, same fixture and script) and after, two runs per side,
 median / p95 in ms, on a busy machine (load average about 17):
 
 | mode | command | short, before | long, before | short, after | long, after |
@@ -1011,8 +1004,8 @@ click.
 
 ### Host process memory at idle
 
-The comparison harness below had Tau's host process at about 100 MiB more than
-T3's server at idle. Heap snapshots of the host after the harness fixture was
+The comparison harness below had Tau's host process at about 100 MiB more
+than the reference app's server at idle. Heap snapshots of the host after the harness fixture was
 imported (`--heapsnapshot-signal`, then the inspector for each kit worker)
 attributed its memory like this, on `ae88cee`:
 
@@ -1108,13 +1101,13 @@ What remains on the open path is linear. Pi parses the session file (about 200 m
 
 The check fails when a p95 exceeds `largeThreadOpenP95Ms` (2,500 ms), `largeThreadBootstrapP95Ms` (5,000 ms) or `largeThreadFullReadyP95Ms` (7,500 ms), when the first page holds more than `largeThreadPageMessages` (60) messages, or when the thread has fewer than 10,000 entries. Report schema 3. Median / p95 in ms:
 
-| scenario | before (`t3/wave-d` e15791a, 1 sample, load ≈ 20) | after, load ≈ 22 | after, load ≈ 10 |
+| scenario | before (wave D e15791a, 1 sample, load ≈ 20) | after, load ≈ 22 | after, load ≈ 10 |
 | --- | ---: | ---: | ---: |
 | open | 92,989 | 1,221 / 1,250 | 290 / 335 |
 | bootstrap | 47,131 | 2,809 / 3,790 | 519 / 532 |
 | full-ready | 47,851 | 5,882 / 5,911 | 874 / 916 |
 
-**In the window.** `npm run benchmark:compare -- --large-thread [--seed] [--check]` runs Tau alone from a seeded profile of its own (`/tmp/tau-harness-large-thread`, or `$COMPARE_TAU_ROOT-large-thread` when that is set). Each run writes a fresh 20,000-entry Pi session into the profile's session store. Its prompts carry a tag of that run, so the renderer's persisted cache from an earlier run cannot show the newest turn. Each run has two launches: one where a short Pi thread is the workspace's newest and the harness clicks the large one in the rail, and one where the large thread is newest and active from the start. `--check` holds the medians to `tauLargeThread` in `scripts/compare/budgets.json`: 2,500 ms from the click to the newest turn, 1,000 ms for one older page at the tail and at the top, 2 px of drift for an older page loaded at the top (see "Older pages without a jump" below), 2 px of drift and no notch at the top with older turns left while scrolling up (see "Scrolling up without a shift"), and 8,000 ms from spawn to the newest turn with the thread active. T3 Code cannot run this case, because both importers keep at most 200 messages. Five runs after one warm-up, load average 10:
+**In the window.** `npm run benchmark:compare -- --large-thread [--seed] [--check]` runs Tau alone from a seeded profile of its own (`/tmp/tau-harness-large-thread`, or `$COMPARE_TAU_ROOT-large-thread` when that is set). Each run writes a fresh 20,000-entry Pi session into the profile's session store. Its prompts carry a tag of that run, so the renderer's persisted cache from an earlier run cannot show the newest turn. Each run has two launches: one where a short Pi thread is the workspace's newest and the harness clicks the large one in the rail, and one where the large thread is newest and active from the start. `--check` holds the medians to `tauLargeThread` in `scripts/compare/budgets.json`: 2,500 ms from the click to the newest turn, 1,000 ms for one older page at the tail and at the top, 2 px of drift for an older page loaded at the top (see "Older pages without a jump" below), 2 px of drift and no notch at the top with older turns left while scrolling up (see "Scrolling up without a shift"), and 8,000 ms from spawn to the newest turn with the thread active. The reference app cannot run this case, because both importers keep at most 200 messages. Five runs after one warm-up, load average 10:
 
 | metric (median / p95) | before | after |
 | --- | ---: | ---: |
@@ -1179,7 +1172,7 @@ The one real waste was the rows' subscription to the whole preferences snapshot 
 
 ### Chips in the composer's text
 
-Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. T3 Code does this with Tiptap. Tau does not: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerChipLayer.tsx`, `composer-chips.ts`).
+Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. A rich-text editor such as Tiptap would do this; Tau does not use one: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerChipLayer.tsx`, `composer-chips.ts`).
 
 Desktop build, from `reports/build-report.json`:
 
@@ -1191,14 +1184,14 @@ Desktop build, from `reports/build-report.json`:
 
 The browser client went from 435,652 to 440,654 bytes of total JavaScript gzip.
 
-Merged with `t3/wave-e` (E02's picker, E07's app shell), those 11.4 KB of initial script took the desktop build to 809,282 bytes, over the 800,000 budget; `t3/wave-e` alone measured 798,207. So the textarea, its handlers and the few functions the send path needs (`composer-chip-token.ts`) stay in the initial script, and everything else goes into `ComposerChipLayer`, a chunk of 12,792 bytes (5,210 gzip): the mirror, the chip bookkeeping, the popover and folding while scrolling. The composer mounts it right away, but the first key never waits for it: until it is there, a chip is plain text in the textarea. On the merged tree:
+Merged with wave E (E02's picker, E07's app shell), those 11.4 KB of initial script took the desktop build to 809,282 bytes, over the 800,000 budget; wave E alone measured 798,207. So the textarea, its handlers and the few functions the send path needs (`composer-chip-token.ts`) stay in the initial script, and everything else goes into `ComposerChipLayer`, a chunk of 12,792 bytes (5,210 gzip): the mirror, the chip bookkeeping, the popover and folding while scrolling. The composer mounts it right away, but the first key never waits for it: until it is there, a chip is plain text in the textarea. On the merged tree:
 
-| | `t3/wave-e` | with E12 | budget |
+| | wave E | with E12 | budget |
 | --- | ---: | ---: | ---: |
 | initial JavaScript | 798,207 (248,250 gzip) | 798,942 (248,535 gzip) | 800,000 (275,000) |
 | total JavaScript gzip | 459,562 | 463,066 | 500,000 |
 
-`t3/wave-e` then grew to 799,498 bytes with E03, E14 and E21, and merged with it E12 stood at 800,694. Three more changes kept the initial script under budget. The layer reads the draft, its pending state, the inlines and the images itself instead of taking them as props. It asks the DOM whether anything in the composer is open when the wheel turns, instead of the composer computing that on every render. The fold option lives in client storage next to the layer instead of in the preferences. The initial script ended at 799,946 bytes (249,063 gzip): 448 bytes over `t3/wave-e` alone and 54 under the budget. Total JavaScript was 467,292 bytes of gzip; the browser client's initial script was 801,195 of its 820,000.
+wave E then grew to 799,498 bytes with E03, E14 and E21, and merged with it E12 stood at 800,694. Three more changes kept the initial script under budget. The layer reads the draft, its pending state, the inlines and the images itself instead of taking them as props. It asks the DOM whether anything in the composer is open when the wheel turns, instead of the composer computing that on every render. The fold option lives in client storage next to the layer instead of in the preferences. The initial script ended at 799,946 bytes (249,063 gzip): 448 bytes over wave E alone and 54 under the budget. Total JavaScript was 467,292 bytes of gzip; the browser client's initial script was 801,195 of its 820,000.
 
 Typing latency comes from two renderer scenarios in `benchmarks/renderer-fixtures.json`, committed before the change so both sides ran the same harness. `composer-typing` types 120 characters into an empty composer. `composer-typing-long` types them after a 20 KB draft with twelve chips; on the base side its chips sat in the old strip above the text. The time per key runs from the `input` event's dispatch through React's commit and the auto-height's layout, measured on the development machine under a load average of 13 to 28:
 
@@ -1237,9 +1230,9 @@ What guards it, in `npm test`: `kits/usage/scan-memory.test.ts` reads 400,000 re
 
 The code that remembers the navigation's pages lives in the browser client (`src/web/page-catalog.tsx`); a window loads its packages from disk and has only the slot for it. On `fix/0.7.14` with K91, K93 and K94 the desktop build's total gzip is 499,738 of 500,000 bytes (499,507 before K92; initial JavaScript 792,813 of 800,000), the browser client's 505,099 of 510,000 (initial stylesheet 139,554 of 140,000).
 
-## T3 Code comparison
+## Comparison harness
 
-`scripts/compare/` runs Tau and T3 Code side by side on the same machine, with the same data and the same agent turn (tier A of the benchmark plan in `.scratch/t3-parity-2/gap-analysis.md` §3.4). No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer.
+`scripts/compare/` runs Tau and a reference app side by side on the same machine, with the same data and the same agent turn. No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer. The reference app's numbers only calibrate Tau's; the budgets below are Tau's own.
 
 ### What runs
 
@@ -1248,7 +1241,7 @@ The code that remembers the navigation's pages lives in the browser client (`src
   - One command that streams 1 MB of output in 8 KB chunks.
   - A 151 KB Markdown answer with 20 fenced code blocks (with blank lines inside the fences), tables and lists, sent as 200-character deltas.
   - Sentinel strings at the start and end let the page probe time first text and the end of the stream.
-  - `fake-codex-conformance.mjs <t3-clone>` (run it with Node 24) decodes every response and notification the stand-in sends with T3's generated protocol schemas.
+  - `fake-codex-conformance.mjs` (run it with Node 24) checks every response and notification the stand-in sends against generated Codex protocol schemas.
 - **The sessions** (`sessions-fixture.mjs`) are seven Codex rollouts. Each app imports them through its own onboarding wizard.
   - One large thread: 100 turns, every fourth reply 2.4 KB of Markdown with a fence and a table.
   - Four small threads of six turns each.
@@ -1256,10 +1249,10 @@ The code that remembers the navigation's pages lives in the browser client (`src
   - Text only: both importers drop tool calls, and both keep at most 200 messages. The large thread is therefore 100 turns, not the plan's 1,000.
 - **Seeding** happens once per app (`--seed`). The harness drives each onboarding over CDP, then copies the resulting profile. Every run starts from a fresh copy of that profile at the same path.
 - **One run** does the following, in order:
-  1. Cold start to first paint and to "ready". Ready means the rail lists the imported threads and the composer is mounted. T3 files imported threads under a collapsed "Settled (5)" shelf, and that counts.
+  1. Cold start to first paint and to "ready". Ready means the rail lists the imported threads and the composer is mounted; imported threads filed under a collapsed shelf count.
   2. Memory of the whole process tree after 5 s idle.
   3. Opening the large thread.
-  4. In Tau only, loading the rest of the thread's history. Tau opens a thread with its newest 10 turns and loads older ones 20 at a time as the reader reaches the top. T3 sends all 100 turns at once. The harness wheels up at the top until no older turns are left, so both apps scroll the same thread.
+  4. In Tau only, loading the rest of the thread's history. Tau opens a thread with its newest 10 turns and loads older ones 20 at a time as the reader reaches the top. The harness wheels up at the top until no older turns are left, so both apps scroll the same thread.
   5. 60 wheel notches of 240 px up, then 60 down.
   6. The replayed turn, sent in the first small thread.
   7. Memory again, 5 s after the turn.
@@ -1271,33 +1264,23 @@ The code that remembers the navigation's pages lives in the browser client (`src
   - A `longtask` observer.
   - A mutation observer that reads only changed nodes, to spot the sentinels.
   - A per-frame `elementFromPoint` sampler that counts blank transcript frames.
-- **Bytes and messages** come from CDP `Network.webSocketFrame*` on the page, plus the encoded size of HTTP responses (T3 fetches thread snapshots over HTTP).
+- **Bytes and messages** come from CDP `Network.webSocketFrame*` on the page, plus the encoded size of HTTP responses.
 
 ### Isolation
 
-T3 runs from its own clone and never touches the installed app or its data. The clone is `git clone --shared /tmp/t3code-latest /tmp/t3-harness`, set up with `vp i` and built with `vp run build:desktop`.
+The reference app runs from its own clone and never touches an installed copy or its data. `scripts/compare/apps.mjs` holds how each app is built, launched and pointed at its root.
 
 **Both apps**
 
-- Everything lives under one root per app: `/tmp/t3-harness-home` and `/tmp/tau-harness-home`.
+- Everything lives under one root per app, `/tmp/tau-harness-home` for Tau.
 - `HOME` and `CFFIXED_USER_HOME` both point at `<root>/run/home`. Foundation reads `CFFIXED_USER_HOME`, so Chromium's own paths follow it too.
 - `ZDOTDIR` points at an empty directory, so the login shell both apps read `PATH` from never loads real dotfiles.
 - Electron gets `--use-mock-keychain`.
 - The environment is built from scratch. Only `USER`, `LOGNAME`, `TMPDIR` and `LANG` are inherited.
 - `isolation.mjs` fails the environment if any data variable points outside the root or into the user's data.
 - Neither app takes focus from the app the user works in. Both run with the macOS activation policy `accessory` (no Dock icon, never the active app), and their windows show with `showInactive()`; `show()`, `focus()` and `app.focus({ steal: true })` do nothing more. The windows still show and paint, so first paint, ready and frame timings measure the same thing as before (see "Focus and the measurements" below). `TAU_FOREGROUND=1` starts both in front as before.
-- After load and after the turn, every run lists the open files of the whole process tree with `lsof`. It aborts if any file sits in `~/.t3`, `~/Library/Application Support/t3code*`, `~/Library/Application Support/tau*`, `~/.tau`, `~/.codex`, `~/.claude` or `~/.pi`. In every run so far, no process of either tree had any file open under the real home.
-
-**T3 specifics**
-
-- `T3CODE_HOME` is `<root>/run/home/.t3`.
-- `T3CODE_PORT` is a free port.
-- `T3CODE_TELEMETRY_ENABLED=false` and `T3CODE_DISABLE_AUTO_UPDATE=1` are set.
-- `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `GROK_HOME` all point under the root.
-- A seeded `settings.json` points Codex at the stand-in, turns Claude off and sets `enableProviderUpdateChecks: false`.
-- Electron's `userData` is `homedir()/Library/Application Support/t3code` with no override, which is why `HOME` has to move.
-- T3's clone stays unchanged: `NODE_OPTIONS=--require scripts/compare/background-preload.cjs` gives its Electron main process the no-focus rules above. The preload acts only in the main process (`process.type === "browser"`) and removes `NODE_OPTIONS` from the environment at once, so T3's server and the Codex stand-in start without it.
-- T3 runs as the plain Electron binary on `apps/desktop/dist-electron/main.cjs`. `apps/desktop/scripts/start-electron.mjs` is never used: on macOS it builds a bundle with the installed app's identifier (`com.t3tools.t3code`) and registers it with LaunchServices.
+- After load and after the turn, every run lists the open files of the whole process tree with `lsof`. It aborts if any file sits in either app's data folders under the real home (`~/Library/Application Support/tau*`, `~/.tau`, `~/.codex`, `~/.pi` and the like). In every run so far, no process of either tree had any file open under the real home.
+- The reference app's own data, port, telemetry and update variables all point under its root or are switched off, and its clone stays unchanged: `NODE_OPTIONS=--require scripts/compare/background-preload.cjs` gives its Electron main process the no-focus rules above, and the preload removes `NODE_OPTIONS` at once so its child processes start without it.
 
 **Tau specifics**
 
@@ -1310,116 +1293,110 @@ T3 runs from its own clone and never touches the installed app or its data. The 
 
 ```
 npm run build                                   # Tau
-(cd /tmp/t3-harness && vp i && vp run build:desktop)
-npm run benchmark:compare -- --seed             # first time: import the fixture in both apps
-npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
+npm run benchmark:compare -- --seed             # first time: import the fixture in each app
+npm run benchmark:compare -- --runs 9 --warmup 1 [--apps <list>] [--check]
 npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
-npm run benchmark:compare -- --thread-switch --runs 5 --warmup 1 [--apps tau,t3] [--check]   # the switch launch alone, see "Switching threads"
+npm run benchmark:compare -- --thread-switch --runs 5 --warmup 1 [--apps <list>] [--check]   # the switch launch alone, see "Switching threads"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once; `COMPARE_T3_ROOT` does the same for T3. Seeding writes the session plan beside the template (`fixture.json`), and a run refuses a root seeded with another plan: after K38 added two threads, every root needs `--seed` once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check runs Tau alone: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Seeding writes the session plan beside the template (`fixture.json`), and a run refuses a root seeded with another plan: after K38 added two threads, every root needs `--seed` once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
 
 ### First results (2026-09-23)
 
 - **Report:** `reports/compare-20260923.json`.
 - **Machine:** Apple M4 `Mac16,10`, 16 GiB, 10 cores, arm64.
-- **Tau:** `e028602ad7` (t3/wave-d plus this harness, no app changes), 0.4.0, Electron 44.4.4. Built with `npm run build`, unpackaged.
-- **T3 Code:** `aca3c87cdb`, 0.0.42, Electron 44.4.2. Built with `vp run build:desktop`, unpackaged.
-- **Viewport:** 1440×900 at DPR 2. Dark theme, the default in both apps.
-- **Runs:** one warmup and nine measured runs per app. The table shows median / p95.
+- **Tau:** `e028602ad7` (wave D plus this harness, no app changes), 0.4.0, Electron 44.4.4. Built with `npm run build`, unpackaged.
+- **Viewport:** 1440×900 at DPR 2. Dark theme.
+- **Runs:** one warmup and nine measured runs per app. The table shows Tau's median / p95.
 
-| metric | Tau | T3 Code |
-| --- | ---: | ---: |
-| spawn → first paint (ms) | 1,942 / 2,537 | 2,278 / 3,186 |
-| spawn → rail and composer ready (ms) | 2,994 / 4,116 | 2,792 / 3,933 |
-| RSS of the whole tree, idle (MiB) | 772 / 867 | 726 / 873 |
-| RSS of the host / server process, idle (MiB) | 273 / 300 | 174 / 238 |
-| renderer JS heap, idle (MiB) | 49.7 / 49.8 | 39.8 / 40.5 |
-| open the 100-turn thread, first rows visible (ms) | 190 / 330 | 200 / 270 |
-| load the rest of its history (ms) | 322 / 1,213 (5 pages) | 0 (sent at once) |
-| scroll the whole thread: frame p95 / p99 (ms) | 18.3 / 18.6 | 31.5 / 33.8 |
-| scroll: frames over 33 ms (of 354–382) | 0 / 0 | 7 / 7.6 |
-| scroll: blank samples | 0 | 0 |
-| turn: Enter → first text visible (ms) | 80 / 110 | 169 / 279 |
-| turn: Enter → last delta visible (ms; replay lasts 14,384) | 14,446 / 14,478 | 14,589 / 14,634 |
-| stream: frame p95 / p99 (ms) | 18.4 / 18.6 | 18.5 / 33.4 |
-| stream: long tasks (count / total ms) | 0 / 0 | 7 / 408 |
-| long tasks after the last delta (ms) | 84 / 95 | 322 / 360 |
-| turn: WebSocket messages received | 924 / 926 | 113 / 114 |
-| turn: KiB received (WebSocket payload, decoded) | 8,812 / 9,077 | 259 / 261 |
-| turn: WebSocket messages sent | 44 / 44 | 120 / 121 |
-| renderer JS heap after the turn (MiB) | 60.1 / 66.7 | 90.3 / 178.4 |
-| RSS of the whole tree after the turn (MiB) | 474 / 818 | 812 / 929 |
+| metric | Tau |
+| --- | ---: |
+| spawn → first paint (ms) | 1,942 / 2,537 |
+| spawn → rail and composer ready (ms) | 2,994 / 4,116 |
+| RSS of the whole tree, idle (MiB) | 772 / 867 |
+| RSS of the host process, idle (MiB) | 273 / 300 |
+| renderer JS heap, idle (MiB) | 49.7 / 49.8 |
+| open the 100-turn thread, first rows visible (ms) | 190 / 330 |
+| load the rest of its history (ms) | 322 / 1,213 (5 pages) |
+| scroll the whole thread: frame p95 / p99 (ms) | 18.3 / 18.6 |
+| scroll: frames over 33 ms (of 354–382) | 0 / 0 |
+| scroll: blank samples | 0 |
+| turn: Enter → first text visible (ms) | 80 / 110 |
+| turn: Enter → last delta visible (ms; replay lasts 14,384) | 14,446 / 14,478 |
+| stream: frame p95 / p99 (ms) | 18.4 / 18.6 |
+| stream: long tasks (count / total ms) | 0 / 0 |
+| long tasks after the last delta (ms) | 84 / 95 |
+| turn: WebSocket messages received | 924 / 926 |
+| turn: KiB received (WebSocket payload, decoded) | 8,812 / 9,077 |
+| turn: WebSocket messages sent | 44 / 44 |
+| renderer JS heap after the turn (MiB) | 60.1 / 66.7 |
+| RSS of the whole tree after the turn (MiB) | 474 / 818 |
 
 **What the numbers say**
 
-- **Transfer.** This is where Tau loses clearly. One turn costs Tau 34 times T3's decoded bytes and 8 times its messages. Both apps receive the same 1.15 MB of events. T3 strips command output from what it pushes and coalesces live events for 50 ms. Tau pushes every assistant delta separately and resends the whole tool output on every 16 ms flush (hotspots 2 and 4 in the gap analysis). On the wire the gap is wider still, because T3's socket uses permessage-deflate and Tau's does not. This row is now Tau's transfer gate (`--check`).
+- **Transfer.** This is where Tau lost clearly: one turn cost 34 times the reference app's decoded bytes and 8 times its messages, for the same 1.15 MB of events. Tau pushed every assistant delta separately and resent the whole tool output on every 16 ms flush; stripping command output from pushes and coalescing live events are the known fixes. This row is now Tau's transfer gate (`--check`).
 - **Rendering.** Tau renders the stream and the long scroll without a single long task, and its frame p99 stays at one vsync.
-  - T3 has about 7 long tasks while it streams, the longest a 66 ms median.
-  - T3 spends 322 ms of long tasks after the last delta, against Tau's 84 ms.
-  - T3 misses 7 frames scrolling a thread it holds in full.
-  - Tau shows first text 90 ms sooner. T3 groups deltas into paragraphs by default (`responseStreamingMode`).
-- **Start-up.** The two apps are within a few hundred milliseconds of each other. Both runs overlap heavily at p95.
-- **Memory.** Tau's host process holds about 100 MiB more at idle than T3's server; the renderers are the other way round.
+- **Start-up.** The two apps were within a few hundred milliseconds of each other.
+- **Memory.** Tau's host process held about 100 MiB more at idle than the reference app's server; see "Host process memory at idle".
 
 **Caveats**
 
 - **The machine was not quiet.** Other agents' test suites ran alongside: the 1-minute load average was 6 to 12 at run start (in the JSON per run), the CI runner VM was not paused, and power was not checked. Treat timings as indicative; comparisons within one run of the table are fairer than absolute values.
-- **Memory is RSS on a 16 GiB machine under memory pressure.** macOS compresses and pages resident memory, so the "after turn" rows swing widely, and Tau's median is lower after the turn than at idle. Only the idle host/server and heap rows are stable enough to compare.
-- **Unpackaged builds.** Both are production bundles in unpackaged Electron, not the signed DMGs. T3's renderer comes from its `t3code://` protocol, Tau's from `file://`.
+- **Memory is RSS on a 16 GiB machine under memory pressure.** macOS compresses and pages resident memory, so the "after turn" rows swing widely, and Tau's median is lower after the turn than at idle. Only the idle host and heap rows are stable enough to compare.
+- **Unpackaged builds.** Production bundles in unpackaged Electron, not the signed DMGs. Tau's renderer loads from `file://`.
 - **Viewport, not window.** Electron's DevTools has no `Browser.setWindowBounds`, so the viewport is set with `Emulation.setDeviceMetricsOverride`. The windows keep their own sizes.
-- **Frame p95 does not discriminate.** At 60 Hz the p95 sits at about 18.4 ms in every scenario of both apps; that is vsync jitter in the `requestAnimationFrame` sampler. The p99, the frames over 33 ms and the long tasks are the rows that separate the apps.
-- **Decoded bytes, not wire bytes.** WebSocket bytes are the decoded payloads CDP reports. T3's actual wire bytes are smaller, because it compresses.
-- **The large thread was loaded in full in both apps.** For Tau that took an explicit action a user would take by hand. "Open the thread" measures only the first page (10 turns in Tau, 100 in T3).
-- **The turn is synthetic.** It is calibrated on the plan's shape, not recorded from a real Codex session. T3 ran with its default settings, including its server-side coalescing.
-- **Not measured yet:** tier B (a real Codex turn on the smallest model with a shadow `CODEX_HOME`), CPU at idle, the 2,000-thread rail, the 2 MB diff, and model switching.
+- **Frame p95 does not discriminate.** At 60 Hz the p95 sits at about 18.4 ms in every scenario; that is vsync jitter in the `requestAnimationFrame` sampler. The p99, the frames over 33 ms and the long tasks are the rows that tell runs apart.
+- **Decoded bytes, not wire bytes.** WebSocket bytes are the decoded payloads CDP reports; a compressing socket sends fewer.
+- **The large thread was loaded in full.** For Tau that took an explicit action a user would take by hand. "Open the thread" measures only the first page (10 turns).
+- **The turn is synthetic.** It is calibrated on the plan's shape, not recorded from a real Codex session.
+- **Not measured yet:** a real Codex turn on the smallest model with a shadow `CODEX_HOME`, CPU at idle, the 2,000-thread rail, the 2 MB diff, and model switching.
 
 ### After wave D (2026-09-23)
 
-- **Report:** `reports/compare-20260923-final.json`, five measured runs per app, same machine, fixture and T3 build as above.
-- **Tau:** `7ad2580e` (t3/wave-d with every ticket merged).
+- **Report:** `reports/compare-20260923-final.json`, five measured runs per app, same machine and fixture as above.
+- **Tau:** `7ad2580e` (wave D with every ticket merged).
 - **The machine was busy again:** the 1-minute load average was 6.8 median at run start.
 
-| metric (median / p95) | Tau | T3 Code |
-| --- | ---: | ---: |
-| first paint (ms) | 2,311 / 2,659 | 2,593 / 2,812 |
-| rail and composer ready (ms) | 3,632 / 3,984 | 3,337 / 3,571 |
-| footprint of the host / server process, idle (MiB) | 149 / 151 | 151 / 152 |
-| RSS of the host / server process, idle (MiB) | 174 / 176 | 194 / 196 |
-| renderer JS heap, idle (MiB) | 49.1 / 49.8 | 40.2 / 41.4 |
-| open the 100-turn thread, first rows visible (ms) | 219 / 236 | 171 / 196 |
-| scroll: frame p99 (ms) / frames over 33 ms | 17.6 / 0 | 33.4 / 5 |
-| turn: Enter → first text visible (ms) | 96 / 115 | 197 / 262 |
-| stream: long tasks (count / total ms) | 0 / 0 | 11 / 716 |
-| long tasks after the last delta (ms) | 0 / 0 | 345 / 365 |
-| turn: WebSocket messages received | 340 / 341 | 113 / 114 |
-| turn: KiB received (decoded) | 347 / 351 | 259 / 259 |
-| renderer JS heap after the turn (MiB) | 47.2 / 71.2 | 146.9 / 188.6 |
+| metric (median / p95) | Tau |
+| --- | ---: |
+| first paint (ms) | 2,311 / 2,659 |
+| rail and composer ready (ms) | 3,632 / 3,984 |
+| footprint of the host process, idle (MiB) | 149 / 151 |
+| RSS of the host process, idle (MiB) | 174 / 176 |
+| renderer JS heap, idle (MiB) | 49.1 / 49.8 |
+| open the 100-turn thread, first rows visible (ms) | 219 / 236 |
+| scroll: frame p99 (ms) / frames over 33 ms | 17.6 / 0 |
+| turn: Enter → first text visible (ms) | 96 / 115 |
+| stream: long tasks (count / total ms) | 0 / 0 |
+| long tasks after the last delta (ms) | 0 / 0 |
+| turn: WebSocket messages received | 340 / 341 |
+| turn: KiB received (decoded) | 347 / 351 |
+| renderer JS heap after the turn (MiB) | 47.2 / 71.2 |
 
-Tau's per-turn transfer fell from 8,812 KiB to 347 KiB and its idle host from 273 MiB to 174 MiB RSS; the host is now leaner than T3's server. T3 still sends about a third fewer messages and opens the large thread about 50 ms sooner, because it sends the whole history at once.
+Tau's per-turn transfer fell from 8,812 KiB to 347 KiB and its idle host from 273 MiB to 174 MiB RSS, below the reference app's server.
 
 ### After wave E (2026-09-24)
 
-- **Report:** `reports/compare-20260924-wave-e.json`, five measured runs per app, same machine, fixture and T3 build as above.
-- **Tau:** `000bdf2b` (t3/wave-e with the harness fix and the workspace-id fix below).
-- **The machine was busy:** the 1-minute load average at run start was 9.1 median for Tau (5.8 to 12.7) and 6.2 for T3 (5.5 to 17.5). Other agents' suites ran at the same time.
+- **Report:** `reports/compare-20260924-wave-e.json`, five measured runs per app, same machine and fixture as above.
+- **Tau:** `000bdf2b` (wave E with the harness fix and the workspace-id fix below).
+- **The machine was busy:** the 1-minute load average at Tau's run starts was 9.1 median (5.8 to 12.7). Other agents' suites ran at the same time.
 
-| metric (median / p95) | Tau | T3 Code |
-| --- | ---: | ---: |
-| first paint (ms) | 2,688 / 3,129 | 2,774 / 3,212 |
-| rail and composer ready (ms) | 4,082 / 4,773 | 3,550 / 4,084 |
-| footprint of the host / server process, idle (MiB) | 159 / 187 | 151 / 152 |
-| RSS of the host / server process, idle (MiB) | 168 / 183 | 102 / 198 |
-| renderer JS heap, idle (MiB) | 26.9 / 38.3 | 40.4 / 41.4 |
-| open the 100-turn thread, first rows visible (ms) | 102 / 131 | 229 / 321 |
-| scroll: frame p99 (ms) / frames over 33 ms | 17.6 / 0 | 33.4 / 3 |
-| turn: Enter → first text visible (ms) | 75 / 184 | 179 / 304 |
-| stream: long tasks (count / total ms) | 0 / 0 | 8 / 470 |
-| long tasks after the last delta (ms) | 0 / 0 | 319 / 514 |
-| turn: WebSocket messages received | 305 / 307 | 112 / 114 |
-| turn: WebSocket messages sent | 25 / 26 | 119 / 120 |
-| turn: KiB received (decoded) | 347 / 347 | 259 / 261 |
-| renderer JS heap after the turn (MiB) | 51.5 / 64.9 | 166.9 / 185.0 |
+| metric (median / p95) | Tau |
+| --- | ---: |
+| first paint (ms) | 2,688 / 3,129 |
+| rail and composer ready (ms) | 4,082 / 4,773 |
+| footprint of the host process, idle (MiB) | 159 / 187 |
+| RSS of the host process, idle (MiB) | 168 / 183 |
+| renderer JS heap, idle (MiB) | 26.9 / 38.3 |
+| open the 100-turn thread, first rows visible (ms) | 102 / 131 |
+| scroll: frame p99 (ms) / frames over 33 ms | 17.6 / 0 |
+| turn: Enter → first text visible (ms) | 75 / 184 |
+| stream: long tasks (count / total ms) | 0 / 0 |
+| long tasks after the last delta (ms) | 0 / 0 |
+| turn: WebSocket messages received | 305 / 307 |
+| turn: WebSocket messages sent | 25 / 26 |
+| turn: KiB received (decoded) | 347 / 347 |
+| renderer JS heap after the turn (MiB) | 51.5 / 64.9 |
 
 Two faults kept wave E from producing this table:
 
@@ -1435,25 +1412,25 @@ Seeding a new root (ticket E32) stopped at the wizard's first step. Wave E's run
 
 ### Focus and the measurements (2026-09-25)
 
-Since ticket G06 neither app takes focus during a run (see "Isolation"). The windows still show, at the same size, and paint: `document.visibilityState` is `visible` and `requestAnimationFrame` runs at 60 Hz. Only `document.hasFocus()` is false, and nothing the harness measures depends on it; the composer still takes the typed prompt, because CDP's `Input.insertText` goes to the focused element of the page, not of the OS. A run in front for comparison would have taken focus from the user again, so the comparison is with wave F's report on the same machine, fixture and T3 build.
+Since ticket G06 neither app takes focus during a run (see "Isolation"). The windows still show, at the same size, and paint: `document.visibilityState` is `visible` and `requestAnimationFrame` runs at 60 Hz. Only `document.hasFocus()` is false, and nothing the harness measures depends on it; the composer still takes the typed prompt, because CDP's `Input.insertText` goes to the focused element of the page, not of the OS. A run in front for comparison would have taken focus from the user again, so the comparison is with wave F's report on the same machine and fixture.
 
 - **Report:** `reports/compare-20260925-g06-no-focus.json`, five measured runs per app after one warm-up; before: `reports/compare-20260924-wave-f.json`.
-- **Load:** 1-minute load at run start 7.2 median for Tau and 8.0 for T3; wave F had 5.6 and 7.3.
+- **Load:** 1-minute load at Tau's run starts 7.2 median; wave F had 5.6.
 
-| metric (median) | Tau before | Tau after | T3 before | T3 after |
-| --- | ---: | ---: | ---: | ---: |
-| first paint (ms) | 2,363 | 2,434 | 2,362 | 2,411 |
-| rail and composer ready (ms) | 3,737 | 3,704 | 3,137 | 2,947 |
-| open the 100-turn thread (ms) | 81 | 97 | 170 | 175 |
-| scroll: frame p95 / p99 (ms) | 17.3 / 17.6 | 18.2 / 18.6 | 33.0 / 33.5 | 31.6 / 33.5 |
-| turn: first text visible (ms) | 101 | 82 | 178 | 161 |
-| stream: frame p95 / p99 (ms) | 17.4 / 17.6 | 18.3 / 18.6 | 17.6 / 50.0 | 18.4 / 32.5 |
+| metric (median) | Tau before | Tau after |
+| --- | ---: | ---: |
+| first paint (ms) | 2,363 | 2,434 |
+| rail and composer ready (ms) | 3,737 | 3,704 |
+| open the 100-turn thread (ms) | 81 | 97 |
+| scroll: frame p95 / p99 (ms) | 17.3 / 17.6 | 18.2 / 18.6 |
+| turn: first text visible (ms) | 101 | 82 |
+| stream: frame p95 / p99 (ms) | 17.4 / 17.6 | 18.3 / 18.6 |
 
 Start-up moved by 2 to 3 % in both apps, in both directions, within the spread of earlier runs at this load. The frame p95 of about 18.3 ms matches waves D and E; wave F's 17.4 ms is the outlier, and it moved alike in both apps, so it comes from the display, not from focus. The Electron fixtures of `benchmark:renderer` and `start:report` open hidden windows, and there the policy changes nothing either: sixteen renderer scenarios in the background and in front (`TAU_FOREGROUND=1`) back to back gave 16.7 ms frame medians in every one, mount medians within the run-to-run spread, and the same budget failures on this loaded machine; the start fixture's first paint was 122 ms median in the background against 128 ms in front over twelve alternating runs.
 
 ### Start-up after first paint (2026-09-25)
 
-After wave F both apps painted first at about 2.36 s, but Tau needed about a second more to show the rail and the composer, T3 about half a second (ticket G05). A probe that attached to the page before its first script (CDP `Target.setAutoAttach` with `waitForDebuggerOnStart`), read every host-protocol frame and merged them with the host's and the window's logs showed the chain after first paint:
+After wave F Tau painted first at about 2.36 s but needed about a second more to show the rail and the composer, twice as long as the reference app (ticket G05). A probe that attached to the page before its first script (CDP `Target.setAutoAttach` with `waitForDebuggerOnStart`), read every host-protocol frame and merged them with the host's and the window's logs showed the chain after first paint:
 
 1. The window's host process was listening, but idle: it started its kits and first runtime only when the page's `bootstrap` arrived, about 130 ms later.
 2. The page asked for the kits' desktop halves (`desktop-extensions`) right away, from its cached bootstrap, but the host answered only once its whole start was done, 450 to 600 ms later: the method resolved the workspace through a started host.
@@ -1469,13 +1446,13 @@ What changed:
 - `scripts/build-kits.mjs` writes each desktop half's map to `desktop.js.map`, and the host sends the code with a `file:` link to it, as it does for the Node halves. The answer is 3.7 MB.
 - The renderer starts every bundle's import at once and activates them in their order.
 
-The kits now load while the host starts, and the bootstrap is the last thing the rail waits for. On a quiet machine (load at run start 3.8 to 6.8), same fixture and T3 build as above, before (`f1308268`, built in a copy) and after, one warm-up and five runs each, run one after the other:
+The kits now load while the host starts, and the bootstrap is the last thing the rail waits for. On a quiet machine (load at run start 3.8 to 6.8), same fixture as above, before (`f1308268`, built in a copy) and after, one warm-up and five runs each, run one after the other:
 
-| metric (median / p95, ms) | Tau before | Tau after | T3 before | T3 after |
-| --- | ---: | ---: | ---: | ---: |
-| first paint | 2,286 / 2,747 | 2,155 / 2,398 | 2,414 / 2,543 | 2,201 / 2,621 |
-| rail and composer ready | 3,254 / 3,858 | 2,632 / 2,807 | 3,001 / 3,160 | 2,632 / 3,181 |
-| first paint → ready | 1,005 / 1,126 | 477 / 510 | 537 / 640 | 443 / 560 |
+| metric (median / p95, ms) | Tau before | Tau after |
+| --- | ---: | ---: |
+| first paint | 2,286 / 2,747 | 2,155 / 2,398 |
+| rail and composer ready | 3,254 / 3,858 | 2,632 / 2,807 |
+| first paint → ready | 1,005 / 1,126 | 477 / 510 |
 
 Reports: `reports/compare-20260925-g05-before.json` and `reports/compare-20260925-g05-after.json` (the latter with `--check`, which passed). The harness now records `startup.paintToReadyMs` and prints it as "first paint → rail + composer ready"; the "before" row is computed from the runs. The other rows did not move: a turn received 286 and 287 messages, the idle host footprint was 157 MiB in both.
 
@@ -1514,7 +1491,7 @@ What changed, in the kit only:
 
 Heavy host modules were not split out. Moving basic-ftp and typebox out of the file would save the 3.5 ms above at most, and deferring their evaluation inside it saves less. Beyond its require and a few file checks, the start no longer waits for the kit. A larger saving for every kit sits in core: Node's compile cache (`module.enableCompileCache`) took requiring all 40 host halves from 132 ms to 54 ms in a Node loop (Claude Code 61 → 33 ms, Servers 12 → 3 ms).
 
-The comparison, Tau alone, on the same machine and fixture in one session (load at run start 3.6 to 6.6). The G05 row is `2cf97b5d64` built in a copy; "wave I" is this build with `t3/wave-i`'s kits (`8cb5367b`); runs pooled from two to four invocations of five runs each:
+The comparison, Tau alone, on the same machine and fixture in one session (load at run start 3.6 to 6.6). The G05 row is `2cf97b5d64` built in a copy; "wave I" is this build with wave I's kits (`8cb5367b`); runs pooled from two to four invocations of five runs each:
 
 | metric (median / p95, ms) | G05 | wave I | after I17 |
 | --- | ---: | ---: | ---: |
@@ -1528,9 +1505,9 @@ Checks that catch a regression: `kits/servers/startup-cost.test.ts` runs the sta
 
 ### Switching threads (2026-09-27)
 
-Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower than T3 Code. The comparison had no step for it, so it got one (`scripts/compare/thread-switch.mjs`).
+Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower than in the reference app. The comparison had no step for it, so it got one (`scripts/compare/thread-switch.mjs`).
 
-**The step.** Each run launches both apps a second time from the seeded template, waits for the rail, opens a starter thread and then switches to a short (6 turns), a medium (30) and a long thread (100) from the rail: once cold, then three rounds warm. A probe armed in the page starts at the `mousedown` the harness sends and stops when the thread's newest reply is in view beside a composer and painted (a `requestAnimationFrame` followed by a task); "settled" is the last frame in which that reply moved. The click comes without a hover pause, so hover prefetching could not help either app. Tau also switches between three Pi threads written into its session store before the launch, shaped like an agent's work: per turn a prompt, thinking, a 150-line read, a search, an edit with its diff, a test run, a Markdown answer with a fence and a table, and Workspace Kit's checkpoint entry with its two refs in the workspace's Git repository (3, 12 and 40 turns). T3 cannot hold these. `--check` holds Tau's medians to `tauThreadSwitch` in `scripts/compare/budgets.json`: 150 ms to a cold thread's newest reply, 100 ms to a warm one's, and 250 ms until a cold Pi thread holds still.
+**The step.** Each run launches both apps a second time from the seeded template, waits for the rail, opens a starter thread and then switches to a short (6 turns), a medium (30) and a long thread (100) from the rail: once cold, then three rounds warm. A probe armed in the page starts at the `mousedown` the harness sends and stops when the thread's newest reply is in view beside a composer and painted (a `requestAnimationFrame` followed by a task); "settled" is the last frame in which that reply moved. The click comes without a hover pause, so hover prefetching could not help either app. Tau also switches between three Pi threads written into its session store before the launch, shaped like an agent's work: per turn a prompt, thinking, a 150-line read, a search, an edit with its diff, a test run, a Markdown answer with a fence and a table, and Workspace Kit's checkpoint entry with its two refs in the workspace's Git repository (3, 12 and 40 turns); the reference app cannot hold these. `--check` holds Tau's medians to `tauThreadSwitch` in `scripts/compare/budgets.json`: 150 ms to a cold thread's newest reply, 100 ms to a warm one's, and 250 ms until a cold Pi thread holds still.
 
 **What was slow.**
 
@@ -1544,25 +1521,25 @@ Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower
 - The window asks for the thread's newest persisted page (`transcript-page`) beside `switch-session` and paints it when it comes; the host's answer replaces it, and a page that comes later is dropped (`kits/workspace/app.test.tsx`).
 - The renderer keeps the detail of 24 threads (`DETAIL_CACHE_THREADS`).
 
-**Results.** Five runs per app after one warm-up, alternating, on the development machine (Apple M4). Load average at each launch: 5.2 to 10 before, 4.6 to 9.0 after. Before is `64afd849` with the new harness, built in a copy; after is `3cec93e1`; T3 is `aca3c87cdb`. Median / p95 in ms from the press to the newest reply painted:
+**Results.** Five runs per app after one warm-up, alternating, on the development machine (Apple M4). Load average at each launch: 5.2 to 10 before, 4.6 to 9.0 after. Before is `64afd849` with the new harness, built in a copy; after is `3cec93e1`. Median / p95 in ms from the press to the newest reply painted:
 
-| switch | Tau before | Tau after | T3 before | T3 after |
-| --- | ---: | ---: | ---: | ---: |
-| cold, short | 42.5 / 52.8 | 46.5 / 52.9 | 105 / 122.7 | 122.2 / 133.8 |
-| cold, medium | 72.1 / 84.8 | 85 / 89.1 | 160.9 / 183.9 | 154.2 / 196 |
-| cold, long | 41.1 / 53.5 | 65.8 / 68.7 | 152.6 / 173.7 | 152.5 / 164.7 |
-| warm, short | 46.8 / 51.9 | 23.2 / 26.6 | 53 / 72.7 | 55.6 / 64.8 |
-| warm, medium | 55.7 / 58.8 | 42.6 / 44.9 | 66.6 / 74 | 67.4 / 72.5 |
-| warm, long | 41.9 / 53 | 24.2 / 27.1 | 74.4 / 84.3 | 70.9 / 76.1 |
-| Pi, cold, short | 120.3 / 398.9 | 42.9 / 49 | – | – |
-| Pi, cold, medium | 255.4 / 268.9 | 59.3 / 61.5 | – | – |
-| Pi, cold, long | 501 / 1,014.5 | 57.7 / 65.3 | – | – |
-| Pi, warm, short | 44.7 / 67.9 | 26.1 / 29.7 | – | – |
-| Pi, warm, medium | 63.4 / 69.8 | 43.4 / 44.5 | – | – |
-| Pi, warm, long | 46.4 / 57.2 | 25.8 / 30.2 | – | – |
+| switch | Tau before | Tau after |
+| --- | ---: | ---: |
+| cold, short | 42.5 / 52.8 | 46.5 / 52.9 |
+| cold, medium | 72.1 / 84.8 | 85 / 89.1 |
+| cold, long | 41.1 / 53.5 | 65.8 / 68.7 |
+| warm, short | 46.8 / 51.9 | 23.2 / 26.6 |
+| warm, medium | 55.7 / 58.8 | 42.6 / 44.9 |
+| warm, long | 41.9 / 53 | 24.2 / 27.1 |
+| Pi, cold, short | 120.3 / 398.9 | 42.9 / 49 |
+| Pi, cold, medium | 255.4 / 268.9 | 59.3 / 61.5 |
+| Pi, cold, long | 501 / 1,014.5 | 57.7 / 65.3 |
+| Pi, warm, short | 44.7 / 67.9 | 26.1 / 29.7 |
+| Pi, warm, medium | 63.4 / 69.8 | 43.4 / 44.5 |
+| Pi, warm, long | 46.4 / 57.2 | 25.8 / 30.2 |
 
 - A cold Pi thread settles at 46.8, 98.6 and 98.6 ms (short, medium, long) against 120.3, 262.6 and 501 ms before. It moves once when the host's answer replaces the persisted page, whose 20 turns are twice the host's first page.
-- The imported Codex threads were fast before, since their runtime starts without the checkpoint check. A cold one is 4 to 25 ms slower now: the host reads the page before it answers the switch, and the window draws the thread twice. It stays at about half of T3's time.
+- The imported Codex threads were fast before, since their runtime starts without the checkpoint check. A cold one is 4 to 25 ms slower now: the host reads the page before it answers the switch, and the window draws the thread twice. It stays at about half of the reference app's time.
 - A warm switch paints from memory and moves once when the host's answer lands; the short Codex thread settles at 62.7 ms.
 - `--check` passed on the after run. Reports: `reports/compare-20260927-k38-switch-before.json`, `reports/compare-20260927-k38-switch-after.json`.
 - `--large-thread --check` passes: from the click to the newest turn of the 20,000-entry thread 134 / 234 ms (three runs, load 5.5 to 6.7), 287 ms before in one run at load 7.6. The window shows that thread's persisted page first.
@@ -1571,20 +1548,20 @@ Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower
 
 ### Screen by screen
 
-`scripts/compare/screens/` reuses the harness above for a visual comparison (gap analysis §2.3, ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau`, `/tmp/compare-screens-t3`), so a screen pass never shares a profile with a benchmark run.
+`scripts/compare/screens/` reuses the harness above for a visual comparison (ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau` for Tau), so a screen pass never shares a profile with a benchmark run.
 
 - **The fixture** is 30 threads (the large one plus 29 small ones). The replayed turn is short and slow (250 ms per event, about 13 s) and, unlike the benchmark's, has a thinking summary; screen 12 replays a turn that fails.
 - **Each screen** is a script (`NN-name.mjs`) that brings both apps into the same state, one implementation per app, and calls `shot(state)`. That captures the page with `Page.captureScreenshot` at 1440×900, DPR 2, in dark and light (`Emulation.setEmulatedMedia`), and measures the elements the screen names: box, font family, size, weight, case, tracking, colours, icon size, running animations, and on request the Tab order with the focus ring.
 - **Native menus** (both apps' row menus) are not in the page; they are captured with `screencapture -l` of the menu window the app's own process owns, never the desktop.
-- **Themes:** `--theme t3-like` installs `examples/theme-t3-like` into Tau's isolated home first, to tell a difference of colour from one of layout.
+- **Themes:** `--theme <name>` installs one of the example themes in `examples/` into Tau's isolated home first, to tell a difference of colour from one of layout.
 
 ```
 npm run build
-npm run compare:screens -- --seed                       # first time: import the fixture in both apps
-npm run compare:screens -- [--screens 02,05] [--apps tau] [--theme t3-like --tag t3like]
+npm run compare:screens -- --seed                       # first time: import the fixture in each app
+npm run compare:screens -- [--screens 02,05] [--apps tau] [--theme <name> --tag <tag>]
 ```
 
-Captures and `measurements.json` go to `.scratch/t3-parity-2/shots/` unless `--out` says otherwise; the findings are in `.scratch/t3-parity-2/ui-parity.md`.
+Captures and `measurements.json` go to a folder under `.scratch/` unless `--out` says otherwise.
 
 ## Execution order
 

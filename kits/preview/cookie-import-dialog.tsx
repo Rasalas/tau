@@ -94,7 +94,7 @@ type Phase =
   | { step: "failed"; reason?: CookieImportFailure; text: string };
 
 /**
- * T3 Code's browser import, with a site list: choose a browser and its
+ * Browser import, with a site list: choose a browser and its
  * profile, the sites to bring over and the Preview profile they go into.
  * Nothing of a browser is read before the user names it, and nothing is
  * decrypted before Import.

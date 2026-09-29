@@ -1,5 +1,5 @@
 /**
- * The arithmetic of a row's swipe, after T3 Code's thread list: actions sit
+ * The arithmetic of a row's swipe in the thread list: actions sit
  * behind the trailing edge, a short swipe opens the tray, a long one runs the
  * first action. Offsets are negative, in pixels, leftwards from rest.
  */

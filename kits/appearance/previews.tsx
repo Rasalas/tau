@@ -65,7 +65,7 @@ const MODE_TILES: ReadonlyArray<{ mode: Mode; label: string; title: string }> = 
   { mode: "dark", label: "Dark", title: "Always dark" },
 ];
 
-/** T3 Code's three appearance tiles, each showing the theme it would paint with. */
+/** The three appearance tiles, each showing the theme it would paint with. */
 export function ModeTiles({ value, colors, onChange }: { value: string; colors: Readonly<Record<Appearance, PreviewColors>>; onChange(mode: Mode): void }) {
   return (
     <div className="appearance-mode-tiles" role="group" aria-label="Mode">
@@ -96,7 +96,7 @@ export interface ThemeCardModel {
 }
 
 /**
- * A theme as T3 Code shows one: a swatch per scheme it has. A swatch gives the
+ * A theme card: a swatch per scheme it has. A swatch gives the
  * theme that scheme; the name gives it every scheme it has. A ring and a sun
  * or moon mark what it paints now.
  */
