@@ -793,6 +793,11 @@ Not goals: a full code editor, a replacement for Git tooling, feature-for-featur
 another workbench, or a new agent runtime. Those arrive through extensions when they improve agent work enough to
 justify their maintenance cost.
 
+## Acknowledgements
+
+<!-- Placeholder: the maintainer supplies the final two sentences. -->
+Tau is built on [Pi](https://github.com/earendil-works/pi) by Mario Zechner, which does the agent work in every Pi thread. Its workbench learned much from [REFERENCE PROJECT, name and link to follow]; more about Tau at [tbuck.de](https://tbuck.de).
+
 ## License
 
-Tau is licensed under the [MIT License](LICENSE). The desktop app lists every third-party package it bundles with its license under Settings → About, and `node scripts/open-source/third-party-notices.mjs` writes the full notices for the desktop and mobile apps. One bundled package, Anthropic's Agent SDK, is not open source: it ships unmodified under its own terms, and the app runs the command-line tool the user installed.
+Tau is licensed under the [MIT License](LICENSE). The desktop and mobile apps list every third-party package they bundle with its license under Settings → About, and `node scripts/open-source/third-party-notices.mjs` writes the full notices for the desktop and mobile apps. One bundled package, Anthropic's Agent SDK, is not open source: it ships unmodified under its own terms, and the app runs the command-line tool the user installed.
