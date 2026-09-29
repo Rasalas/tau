@@ -81,8 +81,8 @@ Anything else ends with exit 64. It takes no path and no URL. It:
 3. refuses a version that is not newer than the installed `tau` (exit 66): it
    never goes back, so an old signed release cannot be replayed;
 4. fetches that version's `latest-linux*.yml` itself (`releases/download/v<version>/`,
-   or `nightly/`) over HTTPS; with release keys in the helper it also fetches
-   `latest-linux*.yml.sig` and requires an Ed25519 signature by one of them;
+   or `nightly/`) over HTTPS, and `latest-linux*.yml.sig` beside it; the feed
+   needs an Ed25519 signature by one of the helper's release keys (below);
 5. reads standard input into a root-only temporary folder, at most the size
    the release names, and compares size and SHA-512 with the release's entry
    for `Tau_<version>_<arch>.deb` (exit 65 otherwise);
@@ -116,25 +116,69 @@ serves a feed on loopback, and installs, refuses and removes as a user in
 
 ## Release signing
 
-Today a release carries no signature of its own: the checksums in
-`latest*.yml` are trusted as far as HTTPS to the project's own release URL is
-(the same trust electron-updater has). `src/shared/release-keys.ts` and
-`bin/tau-update-helper.mjs` hold the list of release keys (empty now; a test
-keeps both lists equal). Once a key is listed, both the host and the helper
-refuse a feed without a valid `.sig`.
+Every release signs its update feeds. For each `latest*.yml` it publishes
+`latest*.yml.sig`: one base64 Ed25519 signature per line over the file's
+exact bytes. `src/shared/release-keys.ts` and `bin/tau-update-helper.mjs` list
+the public keys (raw, base64; a test keeps both lists equal). The host and the
+helper fetch the `.sig` beside the feed and refuse the feed unless a line
+verifies against a listed key; nothing is downloaded before that. An update
+is checked against the keys of the Tau already installed, so a new key has to
+ship before anything is signed with it alone.
 
-What the release workflow needs for that (not done here):
+The first key (`8hB4AtWu…Smg=`) ships in 0.7.14 together with the host
+updater and the helper, and 0.7.14 is the first signed release.
 
-1. An Ed25519 key pair made once, offline:
-   `node -e "const {generateKeyPairSync}=require('crypto');const k=generateKeyPairSync('ed25519');console.log(k.privateKey.export({type:'pkcs8',format:'pem'}));console.log(k.publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('base64'))"`.
-   The private key goes into a repository secret, say `TAU_RELEASE_SIGNING_KEY`;
-   the raw public key (base64) into both lists above, in a release before the
-   first signed one.
-2. In the `release` and `nightly` jobs, after the artifacts are downloaded and
-   before they are published: for each `artifacts/latest*.yml`, write
-   `<file>.sig` = base64 of `crypto.sign(null, <file bytes>, privateKey)` and
-   publish it with the rest. The bytes signed are exactly the published file.
-3. A second key can be listed beside the first before the first is retired.
+`scripts/packaging/release-signing.mjs` handles both sides:
+
+```bash
+# sign: every PEM private key in the variable signs; writes <file>.sig
+TAU_RELEASE_SIGNING_KEY="$(cat key.pem)" node scripts/packaging/release-signing.mjs sign release/latest*.yml
+# check: against the keys this checkout ships, as an installed Tau would
+node scripts/packaging/release-signing.mjs check release/latest*.yml
+# verify: against one key (raw base64, PEM, or a file holding either)
+node scripts/packaging/release-signing.mjs verify latest.yml latest.yml.sig <public key>
+# keygen: a new pair; writes the private key (0600) and prints the public one
+node scripts/packaging/release-signing.mjs keygen new-release-key.pem
+```
+
+`sign` refuses a file with a byte order mark or invalid UTF-8, because the
+host verifies the text it decoded, not the raw bytes.
+
+In `.github/workflows/release.yml` each build job uploads its feed as
+`feed-<platform>`. The `sign` job signs `latest-mac.yml`, `latest.yml` and
+`latest-linux.yml` with the repository secret `TAU_RELEASE_SIGNING_KEY` (the
+private key, PKCS#8 PEM), runs `check`, and uploads the `.sig` files as
+`tau-signatures`. `release` and `nightly` run `check` once more on what they
+downloaded and publish the `.sig` files with the rest. A publishing run
+without the secret fails in `verify`, before anything is built. A dry run
+without it only warns (see [RELEASE.md](RELEASE.md#build-all-platforms-without-publishing)).
+
+A local test feed (`TAU_UPDATE_FEED_URL`) is signed with a throwaway key that
+the host trusts through `TAU_UPDATE_FEED_KEY`. The variable counts only
+together with the feed URL, and then the release keys do not count.
+`npm run smoke:host-update` works this way. The container test
+(`scripts/packaging/update-helper-container.sh`) puts its throwaway key into
+the stand-in packages' helper.
+
+### Rotating the key
+
+The `.sig` holds one line per signing key, so during a rotation a release
+can be signed with the old key and the new one:
+
+1. `keygen` a new pair offline. Add the new public key next to the old one in
+   both lists, and add the new private key to the secret after the old one
+   (both PEM blocks in one value). Release N ships with both keys, signed by
+   both.
+2. Keep signing with both for as long as hosts from before N may still be
+   running. A host that skips releases and jumps from N-1 to N+2 then still
+   finds the old key's line.
+3. One release later (N+1) at the earliest, remove the old public key from
+   both lists and the old private key from the secret.
+
+A leaked key goes out of both lists and the secret at once. Hosts that list
+only that key cannot take the next update by themselves; update them once by
+hand (`tau update` there, or the `.deb`/installer), and they trust the new key
+from then on.
 
 ## Protocol
 
@@ -172,17 +216,19 @@ moment.
 - **A local process of the user** (malware, a compromised tool) can already
   do anything the user can. Through the helper it gains nothing: the helper
   installs only a newer `tau` package whose size and SHA-512 match the release
-  it fetched itself from the feed root owns (and, with keys, whose feed is
-  signed). It cannot name a file, a URL, a package or an older version, and
+  it fetched itself from the feed root owns and whose feed carries the
+  release key's signature. It cannot name a file, a URL, a package or an older version, and
   `env -i` keeps its environment out. At worst it installs the next genuine
   release early.
 - **A local user outside the admin groups** is refused by polkit (checked in
   the container).
-- **The network** sees only HTTPS to GitHub. Without release keys, whoever can
-  serve files as the project's GitHub release (or break that TLS) can ship an
-  update, as with electron-updater today; release signing (above) removes
-  that. A mirror in `/etc/tau/update-helper.json` is an administrator's
-  choice and should be used with release keys.
+- **The network** sees only HTTPS to GitHub. Whoever can serve files as the
+  project's GitHub release (or break that TLS) still cannot ship an update
+  to a host or the helper without the release key (above). A mirror in
+  `/etc/tau/update-helper.json` has to serve the `.sig` files too. The
+  window's own updater (electron-updater) and its AppImage-to-`.deb` offer
+  (`appimage-install.ts`) do not read the `.sig`; they trust the checksum
+  from HTTPS, and on macOS the code signature.
 - **A paired device** reaches `update-install` only over its authenticated
   connection (its token, TLS with a pinned key off loopback) and only with
   Full access, which the owner granted at pairing. A Full-access device can
