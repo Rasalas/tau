@@ -1046,8 +1046,7 @@ What changed:
 
 Harness, tier A fixture, one warm-up and three runs each, before (`ae88cee`,
 built in a copy) and after on the same machine, run one after the other (load
-average 10 to 24, memory pressure). `reports/compare-20260923-host-memory-before.json`
-and `-after.json` hold the runs. Footprint is macOS's physical footprint; RSS
+average 10 to 24, memory pressure). Footprint is macOS's physical footprint; RSS
 dropped as low as 27 MiB under pressure and is not comparable.
 
 | metric (median / p95) | before | after |
@@ -1299,11 +1298,10 @@ npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--chec
 npm run benchmark:compare -- --thread-switch --runs 5 --warmup 1 [--apps <list>] [--check]   # the switch launch alone, see "Switching threads"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check runs Tau alone: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Seeding writes the session plan beside the template (`fixture.json`), and a run refuses a root seeded with another plan: after K38 added two threads, every root needs `--seed` once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
+The report is written to `reports/compare-<timestamp>.json` (ignored by Git; the runs below were not kept in the repository) and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check runs Tau alone: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Seeding writes the session plan beside the template (`fixture.json`), and a run refuses a root seeded with another plan: after K38 added two threads, every root needs `--seed` once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
 
 ### First results (2026-09-23)
 
-- **Report:** `reports/compare-20260923.json`.
 - **Machine:** Apple M4 `Mac16,10`, 16 GiB, 10 cores, arm64.
 - **Tau:** `e028602ad7` (wave D plus this harness, no app changes), 0.4.0, Electron 44.4.4. Built with `npm run build`, unpackaged.
 - **Viewport:** 1440×900 at DPR 2. Dark theme.
@@ -1353,7 +1351,7 @@ The report is written to `reports/compare-<timestamp>.json` and holds every run,
 
 ### After wave D (2026-09-23)
 
-- **Report:** `reports/compare-20260923-final.json`, five measured runs per app, same machine and fixture as above.
+- **Runs:** five measured runs per app, same machine and fixture as above.
 - **Tau:** `7ad2580e` (wave D with every ticket merged).
 - **The machine was busy again:** the 1-minute load average was 6.8 median at run start.
 
@@ -1377,7 +1375,7 @@ Tau's per-turn transfer fell from 8,812 KiB to 347 KiB and its idle host from 27
 
 ### After wave E (2026-09-24)
 
-- **Report:** `reports/compare-20260924-wave-e.json`, five measured runs per app, same machine and fixture as above.
+- **Runs:** five measured runs per app, same machine and fixture as above.
 - **Tau:** `000bdf2b` (wave E with the harness fix and the workspace-id fix below).
 - **The machine was busy:** the 1-minute load average at Tau's run starts was 9.1 median (5.8 to 12.7). Other agents' suites ran at the same time.
 
@@ -1403,7 +1401,7 @@ Two faults kept wave E from producing this table:
 - **The harness never finished its turn.** A root's `bin/codex` was written only when the root was seeded, and it pointed at the seeding worktree's `fake-codex.mjs`. After wave D that worktree was removed, so `codex` exited at once and no turn streamed. Every run now rewrites the shim.
 - **Every kit restarted after every turn.** The client lost the workspace id whenever a thread detail arrived: after a turn, on opening a thread and on loading older turns. Each loss and its return re-ran the renderer's workspace effect, which syncs the runtime extensions: every kit was deactivated and activated again, and each read its state from the host once more. That cost about 40 requests and their answers per turn, already in wave D's 340 / 44. With wave E's new kits it went to 372 / 85 and broke the 360-message budget. With the fix a turn receives 305 messages and sends 25.
 
-After ticket E31 a turn receives 284 messages and sends 10 (medians over five runs, `reports/compare-20260924-e31.json`; before: 305 and 25). Two sources of traffic went:
+After ticket E31 a turn receives 284 messages and sends 10 (medians over five runs; before: 305 and 25). Two sources of traffic went:
 
 - **SnapShots asked for waiting captures about ten times per turn.** Core hands a composer strip a fresh draft handle whenever its registry changes, and each time the kit asked the host for `pending`. New captures arrive as events; the kit now asks only at start, after a reconnect, or after an event found no composer on screen.
 - **A missing themes folder reported changes it did not have.** The harness has no `run/themes`, so the watcher waited on `run/`, and every write there (logs, sessions) came out as "themes changed", twice per turn, each followed by `list-user-themes` and `get-config`. A watch on an ancestor now reports only the missing path appearing.
@@ -1414,7 +1412,7 @@ Seeding a new root (ticket E32) stopped at the wizard's first step. Wave E's run
 
 Since ticket G06 neither app takes focus during a run (see "Isolation"). The windows still show, at the same size, and paint: `document.visibilityState` is `visible` and `requestAnimationFrame` runs at 60 Hz. Only `document.hasFocus()` is false, and nothing the harness measures depends on it; the composer still takes the typed prompt, because CDP's `Input.insertText` goes to the focused element of the page, not of the OS. A run in front for comparison would have taken focus from the user again, so the comparison is with wave F's report on the same machine and fixture.
 
-- **Report:** `reports/compare-20260925-g06-no-focus.json`, five measured runs per app after one warm-up; before: `reports/compare-20260924-wave-f.json`.
+- **Runs:** five measured runs per app after one warm-up, against the wave F comparison.
 - **Load:** 1-minute load at Tau's run starts 7.2 median; wave F had 5.6.
 
 | metric (median) | Tau before | Tau after |
@@ -1454,7 +1452,7 @@ The kits now load while the host starts, and the bootstrap is the last thing the
 | rail and composer ready | 3,254 / 3,858 | 2,632 / 2,807 |
 | first paint → ready | 1,005 / 1,126 | 477 / 510 |
 
-Reports: `reports/compare-20260925-g05-before.json` and `reports/compare-20260925-g05-after.json` (the latter with `--check`, which passed). The harness now records `startup.paintToReadyMs` and prints it as "first paint → rail + composer ready"; the "before" row is computed from the runs. The other rows did not move: a turn received 286 and 287 messages, the idle host footprint was 157 MiB in both.
+The after run passed `--check`. The harness now records `startup.paintToReadyMs` and prints it as "first paint → rail + composer ready"; the "before" row is computed from the runs. The other rows did not move: a turn received 286 and 287 messages, the idle host footprint was 157 MiB in both.
 
 What is left is the host's own start, about 430 ms from listening to the bootstrap in the probe: loading the kits' host halves (about 90 ms), activating them (about 310 ms, of which the ten worker kits boot one after another for about 150 ms and Computer Use's import still costs about 130 ms of the host's thread) and opening the first runtime (about 120 ms). Before first paint, the window waits for the host to listen before it opens; creating the window beside the host's start would move first paint as well, and needs the host's address before the host has one.
 
@@ -1462,7 +1460,7 @@ Checks that catch a regression: `src/main/host-start.test.ts` (bundles answered 
 
 ### Servers at start-up (2026-09-25)
 
-Wave I's comparison (`reports/compare-20260925-wave-i.json`) put "first paint → rail + composer ready" at 659 ms against G05's 477 (ticket I17). The suspect was Servers Kit's host half, 714 KB with basic-ftp, the SSH client, sync, deploy and the agent tools. The measurement said otherwise.
+Wave I's comparison put "first paint → rail + composer ready" at 659 ms against G05's 477 (ticket I17). The suspect was Servers Kit's host half, 714 KB with basic-ftp, the SSH client, sync, deploy and the agent tools. The measurement said otherwise.
 
 How it was measured: a probe launched the comparison's Tau profile the way the harness does, attached to the page before its first script (`Target.setAutoAttach` with `waitForDebuggerOnStart`), recorded every host-socket frame and merged them with the host's and the window's logs. Each run alternated three `dist-kits/` on the same app build: wave I's, wave I's without `tau.servers`, and this ticket's. A CPU profile of the host process (`NODE_OPTIONS=--cpu-prof`) and one of the page (CDP `Profiler`) filled in the rest.
 
@@ -1499,7 +1497,7 @@ The comparison, Tau alone, on the same machine and fixture in one session (load 
 | rail and composer ready | 2,401 / 2,444 | 2,486 / 2,509 | 2,430 / 2,540 |
 | first paint → ready | 565 / 598 | 631 / 651 | 586 / 619 |
 
-After I17 the start is 21 ms from G05's, down from 66 ms. That this session's absolute numbers sit about 90 ms above G05's report is not the build: G05's own commit measured 565 ms in the same session. A turn still sends 12 messages, and the host's idle footprint is 159 MiB (157 for G05). Reports: `reports/compare-20260925-i17-g05-baseline.json`, `reports/compare-20260925-i17-before.json` and `reports/compare-20260925-i17-after.json` (the last with `--check`, which passed).
+After I17 the start is 21 ms from G05's, down from 66 ms. That this session's absolute numbers sit about 90 ms above G05's report is not the build: G05's own commit measured 565 ms in the same session. A turn still sends 12 messages, and the host's idle footprint is 159 MiB (157 for G05). The after run passed `--check`.
 
 Checks that catch a regression: `kits/servers/startup-cost.test.ts` runs the start-up hooks, the runtime extensions, the policy and the window's first asks for a project without servers and fails on any process the kit starts. `kits/servers/store.test.ts` holds a worktree to one Git ask, and `kits/servers/server-view.test.tsx` checks that the compact sheet still opens after loading lazily.
 
@@ -1541,7 +1539,7 @@ Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower
 - A cold Pi thread settles at 46.8, 98.6 and 98.6 ms (short, medium, long) against 120.3, 262.6 and 501 ms before. It moves once when the host's answer replaces the persisted page, whose 20 turns are twice the host's first page.
 - The imported Codex threads were fast before, since their runtime starts without the checkpoint check. A cold one is 4 to 25 ms slower now: the host reads the page before it answers the switch, and the window draws the thread twice. It stays at about half of the reference app's time.
 - A warm switch paints from memory and moves once when the host's answer lands; the short Codex thread settles at 62.7 ms.
-- `--check` passed on the after run. Reports: `reports/compare-20260927-k38-switch-before.json`, `reports/compare-20260927-k38-switch-after.json`.
+- `--check` passed on the after run.
 - `--large-thread --check` passes: from the click to the newest turn of the 20,000-entry thread 134 / 234 ms (three runs, load 5.5 to 6.7), 287 ms before in one run at load 7.6. The window shows that thread's persisted page first.
 
 **Host benchmark.** `npm run benchmark:host:full:check` now switches, right after the host started, to a thread of 60 turns that each left a checkpoint, and `checkpointedThreadOpenP95Ms` holds that to 1,000 ms. Three hosts each, load about 5: 1,647 / 1,740 ms before, 504 / 535 ms after. `full-ready` of the host with the large thread went from 1,358 / 1,551 to 775 / 986 ms, because the workspace sweep behind it got shorter.
