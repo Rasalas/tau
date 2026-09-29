@@ -185,6 +185,8 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
     platform: "browser",
     target: "es2022",
     jsx: "automatic",
+    // Every window start moves and parses these bytes; the map keeps sources and names readable.
+    minifyWhitespace: true,
     sourcemap: "inline",
     logLevel: "silent",
     define: {
