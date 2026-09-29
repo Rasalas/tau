@@ -41,8 +41,6 @@ export interface TerminalKitState {
   activeSessionId?: string;
   layout: TerminalLayout;
   focusRequest?: FocusRequest;
-  /** The Terminal panel is on screen: mounted and the dock's active panel. */
-  panelVisible: boolean;
 }
 
 function readStoredLayout(): TerminalLayout {
@@ -55,7 +53,7 @@ function readStoredLayout(): TerminalLayout {
 }
 
 export class TerminalStore {
-  private state: TerminalKitState = { sessions: [], layout: EMPTY_LAYOUT, panelVisible: false };
+  private state: TerminalKitState = { sessions: [], layout: EMPTY_LAYOUT };
   private readonly listeners = new Set<() => void>();
   /** Opens in flight: a shell they create is placed by them, not given a tab by reconcile. */
   private holds = 0;
@@ -124,11 +122,6 @@ export class TerminalStore {
     if (this.state.focusRequest?.seq !== seq) return;
     const { focusRequest: _done, ...rest } = this.state;
     this.publish(rest, false);
-  }
-
-  setPanelVisible(panelVisible: boolean): void {
-    if (panelVisible === this.state.panelVisible) return;
-    this.publish({ ...this.state, panelVisible }, false);
   }
 
   setActiveSession(activeSessionId: string | undefined): void {
