@@ -15,6 +15,8 @@ const LAZY = [
   { sheet: "./touch/touch.css", module: "./touch/TouchLayer.tsx", owns: [".touch-browser", ".touch-thread-row", ".swipe-row", ".action-sheet-list", ".touch-fab", ".touch-panel-sheet"] },
   { sheet: "./touch/sheet.css", module: "./touch/Sheet.tsx", owns: [".touch-sheet", ".touch-sheet-content"] },
   { sheet: "./components/stage-panels.css", module: "./components/Stage.tsx", owns: [".stage-strip", ".stage-tabs", ".stage-tab", ".stage-strip-actions"] },
+  { sheet: "./components/thread-tree.css", module: "./components/ThreadTreeModal.tsx", owns: [".thread-tree", ".thread-tree-list", ".thread-tree-label", ".project-modal-help"] },
+  { sheet: "./components/reload-curtain.css", module: "./components/ReloadCurtain.tsx", owns: [".reload-mark", ".reload-orbit", ".reload-pulse", ".reload-constant"] },
   { sheet: "./renderer-benchmark.css", module: "./RendererBenchmark.tsx", owns: [".renderer-benchmark", ".benchmark-list-row"] },
 ];
 

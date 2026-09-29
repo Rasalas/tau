@@ -729,6 +729,39 @@ Tried and left out:
 - Other orders for the packed icon set: alphabetical compresses best.
 - The dock fields `useWorkbenchLayoutState` still returns (`dockOpen`, `dockWidth`, `openedPanels`): about 0.5 KB, and their tests describe what older stored layouts restore.
 
+### Script and stylesheet headroom, 0.7.14 (K101)
+
+After K97, `fix/0.7.14` (`ffe52c2c`) had 149 bytes of total gzip left under its 500,000 budget and the browser client's initial stylesheet 446 bytes under 140,000, with four tickets still to land. Ticket K101 (2026-09-29) won back room in both without raising a budget. Moving script into a lazy chunk cannot help the total, which counts every chunk, so the script side is a real saving; the stylesheet side is a move, which the initial-CSS budget does count. Desktop build and browser client, from `reports/build-report.json` and `reports/build-web-report.json`:
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| desktop initial JavaScript | 792,909 (247,292 gzip) | 789,450 (239,841 gzip) | 800,000 (275,000) |
+| desktop lazy JavaScript | 733,020 (252,559 gzip), 84 files | 732,930 (249,775 gzip), 84 files | |
+| desktop total JavaScript | 1,525,929 (499,851 gzip) | 1,522,380 (489,616 gzip) | 1,900,000 (500,000) |
+| desktop initial CSS | 137,986 (25,726 gzip) | 133,666 (24,847 gzip) | 140,000 (30,000) |
+| browser initial JavaScript | 803,426 (252,311 gzip) | 800,016 (244,546 gzip) | 820,000 (255,000) |
+| browser total JavaScript gzip | 505,201 | 494,686 | 510,000 |
+| browser initial CSS | 139,554 (25,991 gzip) | 135,234 (25,113 gzip) | 140,000 (30,000) |
+| kits' desktop halves | 3,937,830 | unchanged | 4,000,000 |
+
+That leaves 10,384 bytes of gzip under the desktop total, 4,766 bytes under the browser client's initial stylesheet and 10,550 bytes under the desktop initial script.
+
+| change | desktop total gzip | browser initial CSS |
+| --- | ---: | ---: |
+| terser renames locals after esbuild (`vite.mangle.ts`) | −10,239 | |
+| thread tree and reload curtain styles with their chunks | +4 | −4,320 |
+
+- **Renaming for gzip.** esbuild still minifies. A post-ordered `renderChunk` then runs terser's mangler alone over each chunk: no compress pass, legal comments kept, source maps chained. terser picks short names by how often each character occurs in the chunk, so the output repeats more and gzip packs it tighter; the entry lost 7.5 KB of gzip, `SettingsScreen` 0.8 KB, the packed icon set 31 bytes. The legal comments of every chunk are the same as before. `vite.mangle.test.ts` checks that only names change (`1+2` stays unfolded) and that exports, imports and notices survive. The desktop Vite step takes about 2 s longer (three alternating builds under a load of 13 to 20: 7.3, 9.8 and 11.3 s against 5.0, 5.3 and 6.3).
+- **Two stylesheets.** `components/thread-tree.css` (1,663 bytes) comes with `ThreadTreeModal`, opened by /tree or /fork; `components/reload-curtain.css` (2,713 bytes) with the deferred `ReloadCurtain`, preloaded when the window is idle. The curtain's reduced-motion override moved with it and stays after its animations. The shared label rule (`.thread-tree-node > small`, `.reload-curtain p`) and the `.project-modal` frame stay in `styles.css`; no kit stylesheet names these classes. `lazy-styles.test.ts` lists both sheets.
+
+`npm run start:budget` passes. First paint, base and change alternated eight times each against the same fixture under a load average of 20 to 29: base 108 to 184 ms (median 144), after 108 to 136 ms (median 112, one run recorded no paint), the same five files. In an isolated instance on the fake model the mangled build started, sent a prompt that ran a `write` tool and answered, opened the model picker, the Files stage and Settings. A MutationObserver saw the thread tree's first open with its stylesheet already in `document.styleSheets` (`list-style: none`, the help row a flex box), and a curtain drawn into the page had its fixed position, z-index 1000 and both animations.
+
+Tried and left out:
+
+- Letting Vite run terser as the minifier instead of esbuild: −12.7 KB of total gzip, but the desktop build took 34 s against its 30 s budget.
+- terser's compress pass on top of the renaming: another 3.1 KB of gzip for about 3 s more build time and rewrites beyond renaming.
+- More stylesheets out of the initial sheet: `ReviewMode` (12 KB), the extension question card (4.3 KB), the project picker (3.3 KB), `ChangesTree` (3.2 KB) and the composer's chip layer (2.8 KB) are all lazy and would move the same way; they were left for later because K96, K98 and K100 change those surfaces now.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
