@@ -28,6 +28,8 @@ import type {
 import type { ComponentType, ReactNode } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./branch-commit.js";
+import type { CheckoutTurn } from "./checkout-turns.js";
+import type { ThreadChangesCount } from "./thread-changes.js";
 
 /** Keep the default branch current by fast-forward; off by default, as in T3 Code. */
 export const AUTO_PULL_OPTION = "auto-pull-default-branch";
@@ -259,6 +261,10 @@ export interface WorkspaceHostCommands {
   /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
+  /** What the thread header's "N files changed" counts for this thread. */
+  "thread-changes": { input: { sessionId?: string; workspace?: string }; output: ThreadChangesCount };
+  /** Threads with a turn running in the shown checkout; a branch switch there changes their files. */
+  "checkout-turns": { input: { sessionId?: string }; output: CheckoutTurn[] };
   /** A new branch at the checkout's HEAD, switched to in place. */
   "create-branch": { input: { branch: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
@@ -317,6 +323,8 @@ export interface WorkspaceHostClient {
   getDefaultBranch(workspace?: string): Promise<string>;
   autoPull(workspace?: string): Promise<AutoPullOutcome[]>;
   switchRef(ref: string): Promise<HostActionResult>;
+  checkoutTurns(sessionId?: string): Promise<CheckoutTurn[]>;
+  threadChanges(sessionId?: string, workspace?: string): Promise<ThreadChangesCount>;
   createBranch(branch: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
@@ -367,6 +375,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),
     autoPull: (workspace) => call("auto-pull", workspace === undefined ? undefined : { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
+    checkoutTurns: (sessionId) => call("checkout-turns", { sessionId }),
+    threadChanges: (sessionId, workspace) => call("thread-changes", { sessionId, workspace }),
     createBranch: (branch) => call("create-branch", { branch }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),

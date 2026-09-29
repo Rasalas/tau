@@ -6,8 +6,8 @@ import type {
   TurnCheckpointLease,
   TurnCheckpointLifecycleAdapter,
   TurnCheckpointStatus,
+  TurnChangesSummary,
 } from "./turn-checkpoint-types.js";
-import type { UiWorkspaceChanges } from "tau/host-extension";
 
 /**
  * Runtime-specific hooks for the shared checkpoint lifecycle. Host and bridge
@@ -18,7 +18,7 @@ export interface TurnCheckpointAdapterOptions<Snapshot extends { id: string }> {
   sessionIdForTurn(turnId: string): string | undefined;
   createBefore(turnId: string): Promise<Snapshot | undefined>;
   createAfter(turnId: string): Promise<Snapshot | undefined>;
-  summarize(before: Snapshot, after: Snapshot, turnId: string): Promise<UiWorkspaceChanges>;
+  summarize(before: Snapshot, after: Snapshot, turnId: string): Promise<TurnChangesSummary>;
   discardSnapshot(snapshot: Snapshot): Promise<void> | void;
   discardTurnSnapshot?(turnId: string, phase: "before" | "after"): Promise<void> | void;
   acquireLease?(turnId: string, signal?: AbortSignal): Promise<TurnCheckpointLease | undefined>;

@@ -10,6 +10,7 @@ import {
   HostClientProvider,
   PreferencesStore,
   RendererServicesProvider,
+  setHostClient,
 } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
@@ -27,9 +28,9 @@ function workspace(patch: Partial<WorkspaceInfo> = {}): WorkspaceInfo {
   return { root: "/project", isRepo: true, isDirty: true, branch: "main", worktrees: [], refs: [], worktreeParent: "/worktrees", ...patch };
 }
 
-function setup(info = workspace(), draftPending = false, localFiles = true, level?: number) {
+function setup(info = workspace(), draftPending = false, localFiles = true, level?: number, invoke: (command: string, input: unknown) => Promise<unknown> = async () => undefined) {
   const preferences = new PreferencesStore();
-  const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(async () => undefined));
+  const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(invoke));
   const Header = level === undefined
     ? withWorkspaceStore(workspaceStore, WorkspaceTitleActions)
     : withWorkspaceStore(workspaceStore, (props: { actions: WorkbenchActions }) => <TitleActionsRow {...props} collapse={titleCollapse(level)} />);
@@ -163,6 +164,18 @@ describe("Workspace Kit title actions", () => {
     const link = screen.getByRole("button", { name: /1 file changed/u });
     fireEvent.click(link);
     expect(showChangedFiles).toHaveBeenCalledOnce();
+  });
+
+  it("counts what the host says is this thread's, and names the rest in the tooltip", async () => {
+    const invoke = vi.fn(async (command: string) => command === "thread-changes" ? { files: 2, scope: "thread", uncommitted: 5 } : undefined);
+    setHostClient(createFakeHostClient());
+    try {
+      setup(workspace(), false, true, undefined, invoke);
+      expect((await screen.findByRole("button", { name: /2 files changed/u })).textContent).toBe("2 files changed");
+      expect(invoke).toHaveBeenCalledWith("thread-changes", { sessionId: undefined, workspace: undefined });
+    } finally {
+      setHostClient(undefined);
+    }
   });
 
   it("chooses commit versus commit and push from upstream state", () => {

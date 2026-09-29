@@ -1577,6 +1577,8 @@ describe("Workspace Kit in the workbench", () => {
   it("moves the checkout row into the header's branch menu once the conversation has begun", async () => {
     const moved: HostActionResult = { version: 1, updates: [] };
     const switchRef = vi.fn(async () => moved);
+    let running: Array<{ sessionId: string; title: string }> = [];
+    const checkoutTurns = vi.fn(async () => running);
     let branch = "main";
     const createBranch = vi.fn(async (name: string) => { branch = name; return moved; });
     const client = createFakeHostClient({
@@ -1600,6 +1602,7 @@ describe("Workspace Kit in the workbench", () => {
         getWorktreeBase: async () => ({ ref: "origin/main", commit: "abc1234", shortCommit: "abc1234", fromOrigin: true }),
         getFileTree: async () => [],
         switchRef,
+        checkoutTurns,
         createBranch,
       }),
     });
@@ -1612,6 +1615,27 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(within(menu).getByRole("button", { name: "feat/paging" }));
     await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Branch" })).toBeNull());
+    expect(checkoutTurns).toHaveBeenCalledWith("session");
+
+    // A turn is running in this checkout: the switch waits for a yes.
+    running = [{ sessionId: "other", title: "Fix the header" }];
+    switchRef.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Branch main" }));
+    menu = await screen.findByRole("dialog", { name: "Branch" });
+    fireEvent.click(within(menu).getByRole("button", { name: "feat/paging" }));
+    const ask = await within(menu).findByRole("alertdialog", { name: "Switch branch during a turn" });
+    expect(ask.textContent).toContain("Fix the header is working in this checkout.");
+    expect(ask.textContent).toContain("Switching the branch changes the files under it.");
+    fireEvent.click(within(ask).getByRole("button", { name: "Wait for the turn" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Branch" })).toBeNull());
+    expect(switchRef).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch main" }));
+    menu = await screen.findByRole("dialog", { name: "Branch" });
+    fireEvent.click(within(menu).getByRole("button", { name: "feat/paging" }));
+    fireEvent.click(await within(menu).findByRole("button", { name: "Switch anyway" }));
+    await waitFor(() => expect(switchRef).toHaveBeenCalledWith("feat/paging"));
+    running = [];
 
     fireEvent.click(screen.getByRole("button", { name: "Branch main" }));
     menu = await screen.findByRole("dialog", { name: "Branch" });

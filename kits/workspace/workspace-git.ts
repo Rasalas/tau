@@ -1011,6 +1011,9 @@ export interface WorkspaceSnapshot {
   backend?: "git" | "filesystem";
   /** Plain-folder snapshots are restorable only when the bounded scan completed. */
   complete?: boolean;
+  /** HEAD when the tree was read ("" while unborn); Git snapshots only. */
+  head?: string;
+  headBranch?: string;
 }
 
 export interface WorkspaceSnapshotOptions {
@@ -1036,6 +1039,8 @@ export interface SnapshotPageOptions extends SnapshotRefExpectation {
   cursor?: string;
   limit?: number;
   runGit?: GitRunner;
+  /** Narrows the full list to the turn's own files before it is paged. */
+  attribute?(changes: UiWorkspaceChanges): Promise<UiWorkspaceChanges>;
 }
 
 const SNAPSHOT_GIT_BUFFER = 64 * 1024 * 1024;
@@ -1071,8 +1076,9 @@ export async function createWorkspaceSnapshot(
     const inside = (await run(["rev-parse", "--is-inside-work-tree"])).trim();
     isGitWorkspace = true;
     if (inside !== "true") throw new Error("Git workspace snapshots are unavailable for bare repositories.");
-    const head = await run(["rev-parse", "--verify", "HEAD"]).catch(() => "");
-    await run(head.trim() ? ["read-tree", head.trim()] : ["read-tree", "--empty"]);
+    const head = (await run(["rev-parse", "--verify", "HEAD"]).catch(() => "")).trim();
+    const headBranch = (await run(["symbolic-ref", "-q", "--short", "HEAD"]).catch(() => "")).trim();
+    await run(head ? ["read-tree", head] : ["read-tree", "--empty"]);
     await run(["add", "-A"]);
     const treeId = (await run(["write-tree"])).trim();
     if (!/^[0-9a-f]{40,64}$/iu.test(treeId)) throw new Error("Git did not return a valid workspace snapshot tree.");
@@ -1093,7 +1099,7 @@ export async function createWorkspaceSnapshot(
         if (published !== treeId) throw error;
       }
     }
-    return { id: ref, ref, treeId, cwd, backend: "git", complete: true };
+    return { id: ref, ref, treeId, cwd, backend: "git", complete: true, head, ...(headBranch ? { headBranch } : {}) };
   } catch (error) {
     // A regular folder is a supported Workspace Kit workspace too. Only fall
     // back before Git has identified a worktree; errors after that boundary
@@ -1928,11 +1934,12 @@ export async function diffWorkspaceSnapshotPage(
   options: SnapshotPageOptions,
 ): Promise<UiWorkspaceChangesPage> {
   const runGit = options.runGit ?? git;
-  const changes = await diffWorkspaceSnapshots(cwd, beforeSnapshotId, afterSnapshotId, {
+  const full = await diffWorkspaceSnapshots(cwd, beforeSnapshotId, afterSnapshotId, {
     branch: options.branch,
     runGit,
     expected: { sessionId: options.sessionId, turnId: options.turnId },
   });
+  const changes = options.attribute ? await options.attribute(full) : full;
   const offset = snapshotCursor(options.cursor, changes.files.length);
   const requestedLimit = Number.isFinite(options.limit) ? Math.floor(options.limit as number) : MAX_SNAPSHOT_FILE_PAGE;
   const limit = Math.min(MAX_SNAPSHOT_FILE_PAGE, Math.max(1, requestedLimit));

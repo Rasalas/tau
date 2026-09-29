@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { DiffLoadOptions, UiFileDiff, UiWorkspaceChanges, UiWorkspaceChangesPage } from "tau/host-extension";
 import {
+  boundedTurnCheckpointSummary,
   createStoredTurnCheckpoint,
   createTurnCheckpointBatch,
   rehomeStoredTurnCheckpoint,
@@ -13,9 +14,12 @@ import {
 } from "./turn-checkpoint-codec.js";
 import { createTurnCheckpointAdapter, type TurnCheckpointAdapterOptions } from "./turn-checkpoint-adapter.js";
 import { TurnCheckpointLifecycle } from "./turn-checkpoint-lifecycle.js";
+import { attributeTurnChanges, headSteps, legacyHeadMove, readHeadReflog, recordedAttribution, type ReflogEntry } from "./turn-attribution.js";
 import type {
   AcceptTurnOptions,
   TurnCaptureState,
+  TurnChangesSummary,
+  TurnHead,
   TurnCheckpointCaptureResult,
   TurnCheckpointLease,
   TurnCheckpointStatus,
@@ -234,6 +238,75 @@ export interface WorkspaceKitCheckpointFeature {
 }
 
 /**
+ * Leaves out what a branch switch, pull or reset during the turn changed.
+ * Plain-folder snapshots carry no HEAD and stay as they are.
+ */
+export async function attributeSnapshotPair(
+  cwd: string,
+  changes: UiWorkspaceChanges,
+  before: workspaceGit.WorkspaceSnapshot,
+  after: workspaceGit.WorkspaceSnapshot,
+): Promise<TurnChangesSummary> {
+  if (before.head === undefined || after.head === undefined) return changes;
+  const head: TurnHead = {
+    before: before.head,
+    after: after.head,
+    ...(before.headBranch ? { beforeBranch: before.headBranch } : {}),
+    ...(after.headBranch ? { afterBranch: after.headBranch } : {}),
+  };
+  if (head.before === head.after) return { ...changes, head };
+  const reflog = await readHeadReflog(cwd).catch(() => undefined);
+  const steps = reflog ? headSteps(reflog, head) : undefined;
+  return attributeTurnChanges(cwd, changes, { beforeTree: before.id, afterTree: after.id, head, steps });
+}
+
+/**
+ * A record written before HEAD was stored: when the reflog shows a branch
+ * switch, pull or reset inside the turn's time, its files are attributed
+ * again. Without the snapshot refs the stored count cannot be split, so
+ * the record only says the branch changed.
+ */
+export async function reviseLegacyCheckpoint(
+  cwd: string,
+  checkpoint: StoredTurnCheckpoint,
+  reflog: readonly ReflogEntry[] | undefined,
+): Promise<StoredTurnCheckpoint> {
+  if (checkpoint.head || !reflog) return checkpoint;
+  const legacy = legacyHeadMove(reflog, checkpoint.startedAt, checkpoint.endedAt);
+  if (!legacy) return checkpoint;
+  try {
+    const changes = await workspaceGit.diffWorkspaceSnapshots(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
+      branch: checkpoint.branch,
+      expected: { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId },
+    });
+    const summary = await attributeTurnChanges(cwd, changes, {
+      beforeTree: checkpoint.beforeSnapshotId,
+      afterTree: checkpoint.afterSnapshotId,
+      head: legacy.head,
+      steps: legacy.steps,
+    });
+    return { ...checkpoint, ...boundedTurnCheckpointSummary(summary) };
+  } catch {
+    return {
+      ...checkpoint,
+      files: [],
+      fileCount: 0,
+      added: 0,
+      removed: 0,
+      head: legacy.head,
+      headMove: { kind: "unknown", steps: [], excludedFileCount: 0, uncertainFileCount: Math.max(1, checkpoint.fileCount ?? checkpoint.files.length) },
+    };
+  }
+}
+
+/** A checkpoint whose HEAD moved pages only the files it kept. */
+export function pageAttribution(cwd: string, checkpoint: StoredTurnCheckpoint): Pick<workspaceGit.SnapshotPageOptions, "attribute"> {
+  const { head, headMove } = checkpoint;
+  if (!head || !headMove) return {};
+  return { attribute: (changes) => attributeTurnChanges(cwd, changes, recordedAttribution({ ...checkpoint, head, headMove })) };
+}
+
+/**
  * Long enough for a neighbouring turn's persist or a ref sweep to finish, short
  * enough that a parallel thread in the same worktree feels instant.
  */
@@ -264,16 +337,17 @@ export function createWorkspaceKitCheckpointFeature(
       if (!context) return undefined;
       return leaseManager.acquire(context.cwd, { sessionId: context.sessionId, turnId, signal });
     },
-    summarize: async (before, after, turnId): Promise<UiWorkspaceChanges> => {
+    summarize: async (before, after, turnId): Promise<TurnChangesSummary> => {
       const beforeContext = options.contextForTurn(turnId);
       if (!beforeContext || before.cwd !== after.cwd || before.sessionId !== after.sessionId
         || before.turnId !== turnId || after.turnId !== turnId) {
         throw new Error("Workspace checkpoint snapshot ownership changed.");
       }
-      return workspaceGit.diffWorkspaceSnapshots(beforeContext.cwd, before.id, after.id, {
+      const changes = await workspaceGit.diffWorkspaceSnapshots(beforeContext.cwd, before.id, after.id, {
         branch: options.branchForWorkspace?.(beforeContext.cwd),
         expected: { sessionId: beforeContext.sessionId, turnId },
       });
+      return attributeSnapshotPair(beforeContext.cwd, changes, before, after);
     },
     discardSnapshot: (snapshot) => {
       const cwd = snapshot.cwd ?? options.contextForTurn(snapshot.turnId ?? "")?.cwd;
@@ -356,6 +430,7 @@ export function createWorkspaceKitCheckpointFeature(
         branch: checkpoint.branch,
         cursor,
         limit,
+        ...pageAttribution(cwd, checkpoint),
       },
     ),
     close: () => lifecycle.close(),

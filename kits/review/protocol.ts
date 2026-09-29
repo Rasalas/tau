@@ -17,6 +17,8 @@ export interface ReviewTurn extends UiWorkspaceChanges {
   sessionId: string;
   startedAt: number;
   endedAt: number;
+  /** HEAD moved under the turn (Workspace Kit); files it could not attribute are left out. */
+  headMove?: { uncertainFileCount: number };
 }
 
 /** The kit that asks `pr-status` about a thread's checkout to settle it. */

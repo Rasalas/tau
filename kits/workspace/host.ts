@@ -34,6 +34,9 @@ import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
 import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
+import { createCheckoutTurns } from "./checkout-turns.js";
+import { countThreadChanges } from "./thread-changes.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -613,6 +616,9 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       });
+      const checkoutKeys = new WorkspaceCheckpointLeaseManager();
+      const checkoutTurns = createCheckoutTurns(services, (path) => checkoutKeys.canonicalKey(path));
+      context.registerCommand("checkout-turns", (input) => checkoutTurns.running(cwd(), optionalString(input, "sessionId")), { access: "read" });
       // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
       // all live in the kit; core only offers the lifecycle hooks.
       // The rail's `+N −N` per thread outlives the checkpoint announcement in the kit's own state folder.
@@ -634,6 +640,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         },
         git,
         branch: (project) => labels.get(project),
+        revised: (sessionId, checkpoint) => void turnStats.record(sessionId, turnStatOf(checkpoint)),
       });
       const disposers = [
         services.describeProjects({
@@ -649,6 +656,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),
         services.registerThreadLifecycle(checkpoints.lifecycle),
         services.registerTurnObserver(checkpoints.turns),
+        services.registerTurnObserver(checkoutTurns.observer),
         services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),
         services.registerRuntimeExtension("tau-turn-checkpoints", checkpoints.runtimeExtension),
         () => turnStats.flush(),
@@ -674,6 +682,32 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);
+      }, { access: "read" });
+      // The header's "N files changed": a worktree's branch against its base, else this thread's own uncommitted files.
+      const turnPaths = new Map<string, readonly string[]>();
+      const branchPaths = new Map<string, Promise<readonly string[] | undefined>>();
+      context.registerCommand("thread-changes", async (input) => {
+        const project = await shownRoot(input);
+        const sessionId = optionalString(input, "sessionId");
+        const [status, info] = await Promise.all([git.getChanges(project), git.getWorkspaceInfo(project)]);
+        const ownWorktree = info.worktrees.some((tree) => tree.isCurrent && !tree.isMain);
+        return countThreadChanges(status, ownWorktree, {
+          branchPaths: async () => {
+            const head = (await workspaceGit.runGitCommand(project, ["rev-parse", "--verify", "HEAD"])).trim();
+            const key = `${project}\0${head}`;
+            let paths = branchPaths.get(key);
+            if (!paths) {
+              if (branchPaths.size >= 200) branchPaths.clear();
+              paths = workspaceGit.getBranchChanges(project).then((changes) => changes.files.map((file) => file.path), () => undefined);
+              branchPaths.set(key, paths);
+            }
+            return paths;
+          },
+          ...(sessionId && services.thread(sessionId)?.backendKind === "pi" ? {
+            checkpoints: async () => (await checkpoints.checkpoints(sessionId)).checkpoints,
+            turnPaths: (checkpoint) => checkpoints.turnPaths(sessionId, checkpoint.id),
+          } : {}),
+        }, turnPaths);
       }, { access: "read" });
       context.registerCommand("turn-files", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
