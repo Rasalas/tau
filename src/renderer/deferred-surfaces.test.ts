@@ -52,4 +52,10 @@ describe("deferred surfaces", () => {
       .map((module) => graph.get(module)!.map((path) => relative(SRC, path)).join(" → "));
     expect(leaks).toEqual([]);
   });
+
+  it("leave the kit API to the kits", () => {
+    // `loadTauApi` imports it before the first bundle request.
+    const api = startupGraph().get(join(SRC, "renderer/extension-api.ts"));
+    expect(api?.map((path) => relative(SRC, path)).join(" → ")).toBeUndefined();
+  });
 });

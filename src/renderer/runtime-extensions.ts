@@ -7,7 +7,6 @@ import type { PackagesChangeReport } from "../workbench/host-events";
 import { diagnosticLine } from "../shared/build-diagnostics";
 import type { ToastOptions } from "../workbench/toast-store";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
-import * as tauApi from "./extension-api";
 import { DEFERRED_SHARED_MODULES, type SharedModuleSpecifier } from "../shared/shared-modules";
 import type { Platform } from "../workbench/platform";
 import { getPlatform } from "./platform-context";
@@ -15,7 +14,7 @@ import { getPlatform } from "./platform-context";
 /**
  * The renderer's own copies of the modules an extension may import by bare
  * name. `src/shared/shared-modules.ts` names them; a specifier missing here is
- * one that has not been loaded yet (see `loadSharedIcons`).
+ * one that has not been loaded yet (see `loadTauApi`, `loadSharedIcons`).
  */
 export const SHARED_MODULES: Partial<Record<SharedModuleSpecifier, object>> & Record<string, object> = {
   react: React,
@@ -25,8 +24,20 @@ export const SHARED_MODULES: Partial<Record<SharedModuleSpecifier, object>> & Re
   "react/jsx-runtime": JsxRuntime,
   // The transcript already runs it; a list in a kit shares that copy instead of bundling its own.
   "@tanstack/react-virtual": ReactVirtual,
-  tau: tauApi,
 };
+
+/**
+ * The `tau` module is its own chunk: only kits run it, and they load after the
+ * first paint. Its names go with every bundle request, so a load waits for it.
+ */
+let apiModule: Promise<object> | undefined;
+export function loadTauApi(): Promise<object> {
+  apiModule ??= import("./extension-api").then(
+    (module) => (SHARED_MODULES.tau = module),
+    (error: unknown) => { apiModule = undefined; throw error; },
+  );
+  return apiModule;
+}
 
 /**
  * The deferred shared modules — the icon set — as their own chunk: a namespace
@@ -56,6 +67,7 @@ export function sharedExportNames(modules: Record<string, object> = SHARED_MODUL
 export function installSharedModules(target: { __tauShared?: Record<string, object> } = globalThis as never): void {
   // oxlint-disable-next-line eslint/no-underscore-dangle -- __tauShared is a cross-file global protocol name (see extension-api.ts, desktop-extensions.ts).
   target.__tauShared = SHARED_MODULES;
+  void loadTauApi().catch(() => undefined);
 }
 
 export function isDesktopExtension(value: unknown): value is DesktopExtension {
@@ -145,6 +157,7 @@ export class RuntimeExtensions {
    */
   private async replace(cwd: string, only: readonly string[]): Promise<readonly RuntimeExtensionRecord[]> {
     const generation = this.generation;
+    await loadTauApi();
     const result = await this.host.load(cwd, sharedExportNames(), only);
     if (generation !== this.generation) return this.loaded;
     if (result.bundles.length > 0) {
@@ -288,6 +301,7 @@ export class RuntimeExtensions {
 
   private async load(cwd: string, generation: number): Promise<readonly RuntimeExtensionRecord[]> {
     this.cwd = cwd;
+    await loadTauApi();
     const result = await this.host.load(cwd, sharedExportNames());
     if (generation !== this.generation) return this.loaded;
     // Only a workspace with packages pays for the icon set; it must be in

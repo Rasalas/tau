@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type DesktopExtension } from "./extension-system";
 import type { DesktopExtensionLoadResult } from "../shared/contracts";
 import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
-import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
+import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, loadTauApi, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
 
 function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<RuntimeExtensionHost> = {}) {
   const log = vi.fn();
@@ -170,7 +170,8 @@ describe("runtime desktop extensions", () => {
     expect(link()).toBeNull();
   });
 
-  it("publishes exactly the specifiers both bundlers are built from", () => {
+  it("publishes exactly the specifiers both bundlers are built from", async () => {
+    await loadTauApi();
     const published = new Set([...Object.keys(SHARED_MODULES), ...DEFERRED_SHARED_MODULES]);
     expect([...published].sort()).toEqual([...SHARED_MODULE_SPECIFIERS].sort());
     // Every one of them is reported to the host, deferred ones with no names yet.
