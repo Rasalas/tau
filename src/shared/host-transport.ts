@@ -246,8 +246,9 @@ export type HostServerFrame =
   | { type: "pong"; id: string };
 
 /**
- * Close codes a socket host uses. A client stops for `unauthorized` and
- * `forbiddenOrigin`, since retrying cannot help; any other close is a drop.
+ * Close codes a socket host uses. A client stops for a refused token
+ * (`tokenRefused`) and `forbiddenOrigin`, since retrying cannot help; any
+ * other close is a drop.
  */
 export const HOST_CLOSE_CODE = {
   /** A frame the host could not read, or one before the hello. Says nothing about the token. */
