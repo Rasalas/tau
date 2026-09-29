@@ -22,7 +22,7 @@ describe("sidebar footer pages", () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension, pages] });
     const usage = await screen.findByRole("button", { name: "Usage" });
     const footer = within(view.container.querySelector(".sidebar-footer") as HTMLElement);
-    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Settings", "Pull requests", "Usage"]);
+    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Pull requests", "Usage", "Settings"]);
     fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
     expect(pullRequests).toHaveBeenCalledTimes(1);
     fireEvent.click(usage);
@@ -60,22 +60,32 @@ describe("sidebar footer pages", () => {
     expect((await screen.findByRole("button", { name: "Pull requests, 120" })).querySelector(".page-badge")?.textContent).toBe("99+");
   });
 
-  it("leads with a prominent page's label and count, and ends with a page's figure in place of its icon", async () => {
+  it("leads with a prominent page as an icon with its count, and ends with the pages' figures, a waiting update and Settings", async () => {
     let figure: { text: string; short?: string; hint?: string } | undefined;
+    const install = vi.fn();
     const pages: DesktopExtension = {
       id: "foot-test", name: "Foot test", activate(plugin) {
         plugin.registerPage({ id: "usage", label: "Usage", Icon: ChartColumn, order: 20, useSummary: () => figure, Component: () => null });
         plugin.registerPage({ id: "requests", label: "Pull requests", Icon: GitPullRequest, order: 10, Component: () => null });
         plugin.registerPage({ id: "reviews", label: "Reviews", Icon: GitPullRequest, order: 30, prominent: true, useBadge: () => 4, Component: () => null });
+        plugin.registerPage({
+          id: "limits", label: "Limits", order: 40, Component: () => null,
+          Summary: ({ actions }) => <button type="button" aria-label="Limits left" onClick={() => actions.openPage?.("limits", { section: "limits" })}>bars</button>,
+        });
       },
     };
-    const view = renderApp(undefined, { extensions: [workspaceExtension, pages] });
+    const view = renderApp(undefined, { extensions: [workspaceExtension, pages], seed: (services) => services.appUpdate?.set({ version: "0.8.0", install }) });
     const footer = within(await waitFor(() => view.container.querySelector(".sidebar-footer") as HTMLElement));
     const reviews = await footer.findByRole("button", { name: "Reviews, 4" });
-    expect(reviews.textContent).toBe("Reviews4");
-    expect(reviews.querySelector(".page-count")?.textContent).toBe("4");
+    // An icon and its badge, no label.
+    expect(reviews.textContent).toBe("4");
+    expect(reviews.querySelector(".page-badge")?.textContent).toBe("4");
     // Without a figure yet, the page keeps its icon at the end.
-    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Settings", "Pull requests", "Usage"]);
+    expect(footer.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Reviews, 4", "Pull requests", "Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
+    const end = view.container.querySelector(".sidebar-footer-end") as HTMLElement;
+    expect(within(end).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
+    fireEvent.click(footer.getByRole("button", { name: "Tau 0.8.0 is ready: restart to update" }));
+    expect(install).toHaveBeenCalledTimes(1);
 
     figure = { text: "$12.40 · 22 · 3.1M tok", short: "$12.40", hint: "This month · $12.40 billed per token" };
     fireEvent.click(footer.getByRole("button", { name: "Pull requests" }));
