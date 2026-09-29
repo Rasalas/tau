@@ -126,22 +126,24 @@ export function svgElementImage(svg: SVGElement, hue: number): string {
 
 /** A picked image, drawn into 64 px so a config value stays small. */
 export async function imageFileImage(file: File, size = 64): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("This window cannot draw images.");
-    const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
-    const width = image.naturalWidth * scale;
-    const height = image.naturalHeight * scale;
-    context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
-    return canvas.toDataURL("image/png");
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  // A data URL, not a blob: one; the window's content policy allows only data: images.
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("The image could not be read."));
+    reader.readAsDataURL(file);
+  });
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This window cannot draw images.");
+  const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
+  const width = image.naturalWidth * scale;
+  const height = image.naturalHeight * scale;
+  context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+  return canvas.toDataURL("image/png");
 }
