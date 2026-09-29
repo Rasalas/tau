@@ -97,9 +97,10 @@ export function collectThirdPartyLicenses(root: string): ThirdPartyLicense[] {
   return [...found.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version));
 }
 
-/** Files Tau carries that come from no npm package: the interface font. */
+/** What Tau carries that comes from no npm package: the interface font, and source it adapted. */
 export const BUNDLED_FILES: ReadonlyArray<Omit<ThirdPartyLicense, "text"> & { notice: string }> = [
   { name: "Figtree", version: "Google Fonts v9, via @fontsource-variable/figtree 5.3.0", license: "OFL-1.1", repository: "https://github.com/erikdkennedy/figtree", notice: "src/renderer/assets/fonts/figtree/OFL.txt" },
+  { name: "T3 Code", version: "portions adapted in kits/review/pull-request-list-logic.ts", license: "MIT", repository: "https://github.com/pingdotgg/t3code", notice: "scripts/open-source/licenses/pingdotgg__t3code.txt" },
 ];
 
 /** The bundled files' entries, each with its licence text; a file that is gone is left out. */

@@ -1,3 +1,6 @@
+// Portions (scoreMatch and the tiers of rankByMergeReadiness and rankBlockedOnAuthor) are adapted
+// from T3 Code, https://github.com/pingdotgg/t3code, MIT License, Copyright (c) 2026 T3 Tools Inc.
+// The full licence text: scripts/open-source/licenses/pingdotgg__t3code.txt.
 import type { PullRequestListEntry, PullRequestListState, PullRequestReviewDecision } from "./protocol.js";
 
 export type PullRequestInvolvement = "all" | "reviewing" | "authored";
