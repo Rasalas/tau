@@ -11,6 +11,7 @@ package adds the shell around it and the native plugin.
 | `src/pairing.ts` | pairing over the best address, digits bound to the pinned key |
 | `src/native-socket.ts` | a `WebSocket`-shaped socket over the plugin |
 | `src/hosts.ts` | saved hosts and tokens in the secure store; a certificate pin moved to the key, and the host's address list kept, after each hello |
+| `src/machines.ts`, `src/machine-link.ts` | every paired host as the workbench's `Platform.environments`: the shown one through its own connection, the others in short auxiliary visits that replay what they pushed since the last one (at start, every two minutes in front, on coming to the front, on Retry), for the thread list, "Run on" and the juicebars |
 | `src/discovery.ts` | Bonjour records to hosts, read with F06's `src/shared/discovery.ts` (`v=1`, `id`, `fp`, `pk`) |
 | `src/wakes.ts` | foreground and network changes as wakes for the socket transport |
 | `src/routes.ts` | `?host=`, `?view=`, and `tau://thread?host=&thread=` links |
@@ -86,5 +87,5 @@ is in `../docs/agents/testing-the-app.md` ("Remote access"); what needs a real p
 
 ## What the app does not do yet
 
-The environments of several hosts
-side by side (F14 builds them for the desktop), and anything offline.
+Anything offline beyond what the last visit to each host kept: a thread of a
+host out of reach opens only once the phone reaches it again.
