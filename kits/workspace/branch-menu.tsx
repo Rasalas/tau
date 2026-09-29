@@ -116,11 +116,12 @@ function statusLine(status?: UiWorktreeStatus): string {
 }
 
 /** The checkout of a running thread: switch or create a branch, open, add or remove a worktree. */
-function CheckoutMenu({ onDone }: { onDone(): void }) {
+function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone(): void }) {
   const { store, state } = useWorkspaceState();
   const info = state.workspace;
   const [statuses, setStatuses] = useState<UiWorktreeStatus[]>();
   const [removing, setRemoving] = useState<{ tree: UiWorktree; preview?: UiWorktreeRemoval }>();
+  const [busy, setBusy] = useState<{ ref: string; who: string }>();
   useEffect(() => {
     let current = true;
     void store.loadWorktreeBase();
@@ -131,8 +132,21 @@ function CheckoutMenu({ onDone }: { onDone(): void }) {
   const done = (changed: Promise<boolean>) => void changed.then((ok) => { if (ok) onDone(); });
   const byPath = new Map(statuses?.map((status) => [status.path, status]));
   const base = state.worktreeBase?.ref ?? info.branch ?? "HEAD";
+  // A switch rewrites the files under a running turn; ask first. A ref checked out elsewhere only opens that worktree.
+  const switchTo = async (ref: string) => {
+    const turns = info.refs.some((entry) => entry.name === ref && entry.worktreePath) ? [] : await store.host.checkoutTurns(sessionId).catch(() => []);
+    if (turns.length > 0) setBusy({ ref, who: turns.length === 1 ? `${turns[0]!.title} is` : `${turns.length} threads are` });
+    else done(store.switchRef(ref));
+  };
   return <div className="branch-menu">
-    <RefList
+    {busy ? <div className="worktree-remove" role="alertdialog" aria-label="Switch branch during a turn">
+      <span className="menu-label">
+        <em>{busy.who} working in this checkout.</em>
+        <small>Switching the branch changes the files under it.</small>
+      </span>
+      <button type="button" className="danger" onClick={() => { setBusy(undefined); done(store.switchRef(busy.ref)); }}>Switch anyway</button>
+      <button type="button" autoFocus onClick={() => { setBusy(undefined); onDone(); }}>Wait for the turn</button>
+    </div> : <RefList
       refs={info.refs}
       {...(info.branch ? { current: info.branch } : {})}
       placeholder="Switch branch or type a new name…"
@@ -140,8 +154,8 @@ function CheckoutMenu({ onDone }: { onDone(): void }) {
         label: (name) => <>Create branch <code>{name}</code> here</>,
         onCreate: (name) => done(store.createBranch(name)),
       }}
-      onPick={(ref) => (ref === info.branch ? onDone() : done(store.switchRef(ref)))}
-    />
+      onPick={(ref) => (ref === info.branch ? onDone() : void switchTo(ref))}
+    />}
     {info.isDirty ? <div className="ref-note">Uncommitted changes: a branch without a worktree cannot be checked out in place; a new branch takes them along.</div> : null}
     <div className="menu-heading">Worktrees</div>
     <div className="worktree-list">
@@ -224,7 +238,7 @@ export function ThreadBranch({ snapshot }: RegionProps) {
       <span>{label}</span><ChevronDown size={11} className="chev" />
     </button>
     {open ? <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={() => setOpen(false)}>
-      {draft ? <DraftBranchSection /> : <CheckoutMenu onDone={() => setOpen(false)} />}
+      {draft ? <DraftBranchSection /> : <CheckoutMenu sessionId={snapshot?.sessionId} onDone={() => setOpen(false)} />}
     </Popover> : null}
   </span>;
 }

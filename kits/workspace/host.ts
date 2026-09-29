@@ -34,6 +34,8 @@ import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
 import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
+import { createCheckoutTurns } from "./checkout-turns.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -613,6 +615,9 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       });
+      const checkoutKeys = new WorkspaceCheckpointLeaseManager();
+      const checkoutTurns = createCheckoutTurns(services, (path) => checkoutKeys.canonicalKey(path));
+      context.registerCommand("checkout-turns", (input) => checkoutTurns.running(cwd(), optionalString(input, "sessionId")), { access: "read" });
       // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
       // all live in the kit; core only offers the lifecycle hooks.
       // The rail's `+N −N` per thread outlives the checkpoint announcement in the kit's own state folder.
@@ -650,6 +655,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),
         services.registerThreadLifecycle(checkpoints.lifecycle),
         services.registerTurnObserver(checkpoints.turns),
+        services.registerTurnObserver(checkoutTurns.observer),
         services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),
         services.registerRuntimeExtension("tau-turn-checkpoints", checkpoints.runtimeExtension),
         () => turnStats.flush(),
