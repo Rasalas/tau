@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -74,7 +74,8 @@ describe("the packages Tau ships", () => {
     }
   });
 
-  it("lists for the mobile app what its bundle reaches, not the desktop app's packages", () => {
+  // The mobile app's packages are installed only where it is built.
+  it.skipIf(!existsSync(fileURLToPath(new URL("./mobile/node_modules/@capacitor/core", import.meta.url))))("lists for the mobile app what its bundle reaches, not the desktop app's packages", () => {
     const found = collectMobileLicenses(fileURLToPath(new URL(".", import.meta.url)));
     const names = new Set(found.map((entry) => entry.name));
     expect(names.has("@capacitor/core")).toBe(true);
