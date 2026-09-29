@@ -2,13 +2,14 @@
 // Product screenshots from an isolated Tau on sample data: npm run screenshots -- --out <dir>.
 // See scripts/screenshots/README.md.
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { loadavg } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connect, evaluate, waitForPage } from "../compare/cdp.mjs";
 import { writeFixture } from "./fixture.mjs";
 import { selectShots } from "./shots.mjs";
+import { pairStudio, startStudio } from "./studio.mjs";
 import { assertEnvUnder } from "../compare/isolation.mjs";
 import { freePort, realTmp } from "../compare/apps.mjs";
 import { startFakeModelServer } from "../fake-model-server.mjs";
@@ -22,7 +23,7 @@ export const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 2 };
 const wait = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 export function parseArgs(argv) {
-  const options = { out: undefined, only: [], theme: "light", build: false, keep: false };
+  const options = { out: undefined, only: [], theme: "light", format: "png", build: false, keep: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const value = () => {
@@ -33,13 +34,30 @@ export function parseArgs(argv) {
     if (arg === "--out") options.out = resolve(value());
     else if (arg === "--only") options.only.push(...value().split(",").map((name) => name.trim()).filter(Boolean));
     else if (arg === "--theme") options.theme = value();
+    else if (arg === "--format") options.format = value();
     else if (arg === "--build") options.build = true;
     else if (arg === "--keep") options.keep = true;
-    else throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --out <dir>, --only <shot,...>, --theme light|dark, --build, --keep)`);
+    else throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --out <dir>, --only <shot,...>, --theme light|dark|both, --format png|webp, --build, --keep)`);
   }
   if (!options.out) throw new Error("--out <dir> is required");
-  if (options.theme !== "light" && options.theme !== "dark") throw new Error("--theme is light or dark");
+  if (!["light", "dark", "both"].includes(options.theme)) throw new Error("--theme is light, dark or both");
+  if (!["png", "webp"].includes(options.format)) throw new Error("--format is png or webp");
   return options;
+}
+
+/** The appearances a run takes, each with the suffix its files carry: a dark run of its own keeps plain names. */
+export function themesOf(theme) {
+  return theme === "both" ? [{ theme: "light", suffix: "" }, { theme: "dark", suffix: "-dark" }] : [{ theme, suffix: "" }];
+}
+
+/**
+ * The files one capture becomes: the PNG, or a WebP at full size and one at
+ * half, for a page's `srcset`.
+ */
+export function outputsOf(format) {
+  return format === "webp"
+    ? [{ suffix: "", format: "webp", scale: 1 }, { suffix: "-sm", format: "webp", scale: 0.5 }]
+    : [{ suffix: "", format: "png", scale: 1 }];
 }
 
 /** The instance's whole environment, built from nothing: every data path under `root`, HOME included. */
@@ -78,7 +96,6 @@ export function instanceEnv(fixture) {
     STUB_CLI_USAGE: fixture.sdkUsage,
     TAU_CURSOR_COMMAND: join(TAU_ROOT, "kits", "cursor", "fixtures", "fake-cursor-agent.mjs"),
     TAU_GROK_COMMAND: join(TAU_ROOT, "kits", "grok", "fixtures", "fake-grok.mjs"),
-    TAU_ANTIGRAVITY_ACP_COMMAND: join(root, "bin", "no-antigravity"),
     TAU_MACHINE_NAME: "MacBook Pro",
     TAU_BONJOUR_SERVICE_TYPE: "_tau-test._tcp",
     TAU_NO_NATIVE_DIALOGS: "1",
@@ -136,7 +153,7 @@ function ensureBuild(force) {
 }
 
 /** What a shot drives: real mouse and key events, element rects, a PNG of the page or a part of it. */
-function driver(session, viewport) {
+function driver(session, viewport, outputs) {
   const rect = async (expr) => {
     const box = await evaluate(session, `(() => { const el = (${expr}); if (!el) return null; el.scrollIntoView({ block: "nearest", inline: "nearest" }); const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()`);
     if (!box || !box.width) throw new Error(`no element for ${expr}`);
@@ -173,15 +190,30 @@ function driver(session, viewport) {
       await mouse("mouseMoved", box.x + box.width / 2, box.y + box.height / 2);
       await wait(900);
     },
+    async insertText(text) {
+      await session.send("Input.insertText", { text });
+    },
+    /** One key to the focused element: a character, or a named key such as Enter. */
+    async key(key) {
+      const named = { Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" }, Escape: { code: "Escape", windowsVirtualKeyCode: 27 } }[key];
+      await session.send("Input.dispatchKeyEvent", named ? { type: "keyDown", key, ...named } : { type: "keyDown", key, text: key, unmodifiedText: key });
+      await session.send("Input.dispatchKeyEvent", { type: "keyUp", key, ...(named ? { code: named.code, windowsVirtualKeyCode: named.windowsVirtualKeyCode } : {}) });
+    },
     /** The mouse on an empty spot, so no hover state or tooltip is in the picture. */
-    async rest() {
-      await mouse("mouseMoved", viewport.width - 4, viewport.height - 4);
+    async rest({ x = viewport.width - 4, y = viewport.height - 4 } = {}) {
+      await mouse("mouseMoved", x, y);
       await wait(700);
     },
+    /** Every output of the page, or of `clip` (CSS pixels), as `{ suffix, ext, data }`. */
     async screenshot(clip) {
       await wait(300);
-      const { data } = await session.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
-      return Buffer.from(data, "base64");
+      const area = clip ?? { x: 0, y: 0, width: viewport.width, height: viewport.height };
+      const files = [];
+      for (const output of outputs) {
+        const { data } = await session.send("Page.captureScreenshot", { format: output.format, ...(output.format === "webp" ? { quality: 88 } : {}), clip: { ...area, scale: output.scale } });
+        files.push({ suffix: output.suffix, ext: output.format, data: Buffer.from(data, "base64") });
+      }
+      return files;
     },
   };
   return ctx;
@@ -226,7 +258,9 @@ async function startPhone(root, theme, host) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const shots = selectShots(options.only);
-  const root = process.env.TAU_SCREENSHOTS_ROOT ? resolve(process.env.TAU_SCREENSHOTS_ROOT) : realTmp("tau-screenshots");
+  // The real path: the isolation check compares it with paths the app resolves (/tmp is /private/tmp on macOS).
+  const chosen = process.env.TAU_SCREENSHOTS_ROOT ? resolve(process.env.TAU_SCREENSHOTS_ROOT) : undefined;
+  const root = chosen ? join(realpathSync(dirname(chosen)), basename(chosen)) : realTmp("tau-screenshots");
   await waitForQuietMachine();
   ensureBuild(options.build);
   prepareRoot(root);
@@ -238,14 +272,17 @@ async function main() {
   const port = await freePort();
   const { default: electronBinary } = await import(join(TAU_ROOT, "node_modules", "electron", "index.js"));
   const log = openSync(join(root, "logs", "app.log"), "a");
-  const app = spawn(electronBinary, [".", `--remote-debugging-port=${port}`, "--use-mock-keychain"], { cwd: TAU_ROOT, env, stdio: ["ignore", log, log] });
+  // English dates and numbers whatever the machine's region is.
+  const app = spawn(electronBinary, [".", `--remote-debugging-port=${port}`, "--use-mock-keychain", "--lang=en-US"], { cwd: TAU_ROOT, env, stdio: ["ignore", log, log] });
   console.log(`[screenshots] app pid=${app.pid} cdp=${port} root=${root}`);
   let phone;
+  let studio;
   const failures = [];
 
   const stopAll = async () => {
     const started = [...(app.pid ? descendants(app.pid) : []), ...(phone?.chrome.pid ? descendants(phone.chrome.pid) : [])];
     if (phone?.chrome.pid && alive(phone.chrome.pid)) await stopProcess(phone.chrome.pid);
+    if (studio?.pid && alive(studio.pid) && commandOf(studio.pid).includes(join(TAU_ROOT, "dist-electron"))) await stopProcess(studio.pid);
     // The host runs as its own process; host.json names it, and only this checkout's is signalled.
     let host;
     try { host = JSON.parse(readFileSync(join(fixture.userData, "host.json"), "utf8")).pid; } catch { host = undefined; }
@@ -261,30 +298,46 @@ async function main() {
     const page = await waitForPage(port, { accept: (target) => /\/dist\/index\.html/u.test(target.url), timeoutMs: 90_000 });
     const session = await connect(page.webSocketDebuggerUrl);
     await session.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, mobile: false });
-    // The app follows the system's appearance; the shots follow --theme.
-    await session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: options.theme }] });
-    const desktop = driver(session, VIEWPORT);
+    const outputs = outputsOf(options.format);
+    const desktop = driver(session, VIEWPORT, outputs);
     await desktop.waitFor(`document.querySelectorAll("article.thread-row").length >= 9`, 90_000);
     await wait(2_000);
+    // A second machine only for the runs that show one: every shot of such a run has its threads in the list.
+    if (shots.some((shot) => shot.needs?.includes("studio"))) {
+      studio = await startStudio({ root, tauRoot: TAU_ROOT, base: Object.fromEntries(["USER", "LOGNAME", "TMPDIR", "LANG", "SHELL", "PATH", "ZDOTDIR", "TAU_NO_NATIVE_DIALOGS", "TAU_NO_RUNTIME_UPDATES"].map((key) => [key, env[key]])), baseUrl: fake.baseUrl });
+      console.log(`[screenshots] studio pid=${studio.pid}`);
+      await resetDesktop(session, themesOf(options.theme)[0].theme);
+      await pairStudio(desktop, studio);
+    }
+    // Each shot in every theme before the next shot: a shot that opens a thread changes what later ones see
+    // (Reviews leaves out a thread whose runtime is still settling), so both themes find the same window.
     for (const shot of shots) {
-      try {
-        let png;
-        if (shot.device === "desktop") {
-          await resetDesktop(session, options.theme);
-          png = await shot.run(desktop);
-        } else {
-          if (!phone) {
-            const descriptor = JSON.parse(readFileSync(join(fixture.userData, "host.json"), "utf8"));
-            phone = await startPhone(root, options.theme, { url: descriptor.url, token: readFileSync(env.TAU_HOST_TOKEN_FILE, "utf8").trim() });
+      for (const { theme, suffix } of themesOf(options.theme)) {
+        try {
+          // The app follows the system's appearance; the shots follow --theme.
+          await session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
+          let files;
+          if (shot.device === "desktop") {
+            await resetDesktop(session, theme);
+            files = await shot.run(desktop);
+          } else {
+            if (!phone) {
+              const descriptor = JSON.parse(readFileSync(join(fixture.userData, "host.json"), "utf8"));
+              phone = await startPhone(root, theme, { url: descriptor.url, token: readFileSync(env.TAU_HOST_TOKEN_FILE, "utf8").trim() });
+            }
+            await phone.session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
+            await wait(500);
+            files = await shot.run(driver(phone.session, phone.viewport, outputs));
           }
-          png = await shot.run(driver(phone.session, phone.viewport));
+          for (const file of files) {
+            const path = join(options.out, `${shot.name}${suffix}${file.suffix}.${file.ext}`);
+            writeFileSync(path, file.data);
+            console.log(`[screenshots] ${shot.name}${suffix}: ${path}`);
+          }
+        } catch (error) {
+          failures.push(`${shot.name}${suffix}`);
+          console.error(`[screenshots] ${shot.name}${suffix} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
-        const file = join(options.out, `${shot.name}.png`);
-        writeFileSync(file, png);
-        console.log(`[screenshots] ${shot.name}: ${file}`);
-      } catch (error) {
-        failures.push(shot.name);
-        console.error(`[screenshots] ${shot.name} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   } catch (error) {

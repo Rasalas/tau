@@ -36,6 +36,8 @@ files:
   # Homebrew, winget and AUR files; they point at the release, not into it.
   - "!packaging"
   - "!reports"
+  # The website and its screenshots (GitHub Pages, .github/workflows/pages.yml).
+  - "!site"
   - "!release"
   # The renderer benchmark's own build (`npm run benchmark:renderer`).
   - "!dist-benchmark"

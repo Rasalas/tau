@@ -63,6 +63,8 @@
     "benchmark:compare": "node scripts/compare/run.mjs",
     "compare:screens": "node scripts/compare/screens/run.mjs",
     "screenshots": "node scripts/screenshots/run.mjs",
+    "screenshots:site": "node scripts/screenshots/run.mjs --out site/assets --format webp --theme both",
+    "site:docs": "node scripts/site/build-docs.mjs",
     "typecheck:kits": "tsc -p tsconfig.kits.json --noEmit",
     "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
     "build:kits": "node scripts/build-kits.mjs"

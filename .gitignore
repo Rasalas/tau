@@ -29,3 +29,6 @@ reports/*.json
 
 # Private notes, never published
 .private/
+
+# The website's docs pages, rendered from the Markdown by `npm run site:docs`.
+site/docs/
