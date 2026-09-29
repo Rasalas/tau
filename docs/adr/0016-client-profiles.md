@@ -233,7 +233,7 @@ field — turned the tablet into a phone, bottom navigation included.
 - **The split is the desktop's arrangement.** The thread list stays the touch
   list, but the panels that claim `compact` go on the dock's rail and open
   beside the chat, or as a stage tab with the chat as the first tab where the
-  centre has no room for both (a tablet's chat minimum is 360 px, not 480).
+  centre has no room for both (the chat's minimum is 360 px, as on the desktop).
   Only the single form draws sheets and the bottom navigation. Kits that want
   their compact panel beside the chat declare it `width: "wide"` and
   `maximizable`, as on the desktop; the claim is unchanged, so nothing

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultChatWidth, drawerMaxHeight, shownChatWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth, storedDrawerHeight, storedSidebarWidth,
 } from "./layout-sizes";
-import { CHAT_MIN_WIDTH, STAGE_MIN_WIDTH } from "./center-layout";
+import { CHAT_DEFAULT_WIDTH, CHAT_MIN_WIDTH, STAGE_MIN_WIDTH } from "./center-layout";
 
 describe("layout sizes", () => {
   it("sizes the sidebar at the design's 248 by default, 208 at least, 640 left for the rest", () => {
@@ -24,13 +24,15 @@ describe("layout sizes", () => {
     expect(shownDrawerHeight(1000, 900)).toBe(675);
   });
 
-  it("gives the stage about half the window until the divider is dragged, within both minimums", () => {
-    // 1540 wide with the sidebar: the chat takes what the stage's 770 leave.
-    expect(defaultChatWidth(1284, CHAT_MIN_WIDTH, 1540)).toBe(514);
-    // Narrower: the chat keeps its minimum and the stage takes the rest.
-    expect(defaultChatWidth(1024, CHAT_MIN_WIDTH, 1280)).toBe(CHAT_MIN_WIDTH);
-    // Wider: never more than leaves the stage its minimum.
-    expect(shownChatWidth(2000, 1284, CHAT_MIN_WIDTH, 1540)).toBe(1284 - STAGE_MIN_WIDTH);
-    expect(shownChatWidth(600, 1284, CHAT_MIN_WIDTH, 1540)).toBe(600);
+  it("gives the chat the design's 380 px until the divider is dragged, within both minimums", () => {
+    expect(defaultChatWidth(1032)).toBe(CHAT_DEFAULT_WIDTH);
+    expect(defaultChatWidth(2312)).toBe(CHAT_DEFAULT_WIDTH);
+    // Narrower than 380 + the stage's minimum: the chat gives way down to its own minimum.
+    expect(defaultChatWidth(730)).toBe(370);
+    expect(defaultChatWidth(600)).toBe(CHAT_MIN_WIDTH);
+    // A dragged width stays, but never takes the stage's minimum.
+    expect(shownChatWidth(2000, 1284)).toBe(1284 - STAGE_MIN_WIDTH);
+    expect(shownChatWidth(600, 1284)).toBe(600);
+    expect(shownChatWidth(300, 1284)).toBe(CHAT_MIN_WIDTH);
   });
 });

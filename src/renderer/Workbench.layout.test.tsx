@@ -202,7 +202,7 @@ describe("workbench layout", () => {
     expect(within(stage).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Browser", "Tree", "a.ts"]);
   });
 
-  it("gives the stage about half the window by default, the chat what is left, and keeps a dragged width", async () => {
+  it("gives the chat the design's 380 px by default, the stage the rest, and keeps a dragged width", async () => {
     setWindowWidth(1600);
     const files: DesktopExtension = { id: "test.files", name: "File opener", activate(plugin) {
       plugin.registerCommand({ id: "test.open-file", label: "Open the fixture file", group: "Test", run: (actions) => actions.openFile("/project/notes.txt") });
@@ -211,12 +211,11 @@ describe("workbench layout", () => {
     await runPaletteCommand("Open the fixture file");
     await screen.findByRole("region", { name: "Stage" });
     const center = view.container.querySelector(".workbench-center") as HTMLElement;
-    // 1600 − 248 sidebar (the design's) − 800 for the stage.
-    expect(center.style.getPropertyValue("--chat-width")).toBe("552px");
+    expect(center.style.getPropertyValue("--chat-width")).toBe("380px");
     const divider = screen.getByRole("separator", { name: "Resize chat" });
     fireEvent.keyDown(divider, { key: "ArrowRight" });
-    expect(center.style.getPropertyValue("--chat-width")).toBe("568px");
-    expect(view.storage.get("tau:chat-width")).toBe("568");
+    expect(center.style.getPropertyValue("--chat-width")).toBe("396px");
+    expect(view.storage.get("tau:chat-width")).toBe("396");
   });
 
   it("maximizes the stage when the divider is pushed past the chat's minimum", async () => {
@@ -336,14 +335,15 @@ describe("workbench layout", () => {
       await waitFor(() => expect(center()).not.toContain("conversation-folded"));
     });
 
-    it("keeps chat and stage side by side in a window short of the full chat, the chat narrower", async () => {
-      setWindowWidth(1000);
+    it("keeps chat and stage side by side in a window short of the chat's 380 px, the chat narrower", async () => {
+      setWindowWidth(970);
       const view = renderApp(undefined, { extensions: [rail, files] });
       await openFile();
       const center = view.container.querySelector(".workbench-center") as HTMLElement;
       expect(center.className).toContain("stage-open");
       expect(center.className).not.toContain("conversation-folded");
-      expect(Number.parseInt(center.style.getPropertyValue("--chat-width"), 10)).toBeGreaterThanOrEqual(360);
+      // 970 − 248 sidebar − 360 for the stage.
+      expect(center.style.getPropertyValue("--chat-width")).toBe("362px");
     });
 
     it("shows one of the two in a window too narrow for both, with nothing to restore", async () => {

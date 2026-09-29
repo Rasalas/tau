@@ -332,10 +332,11 @@ panel's tab title — Agents Kit counts the thread's agents that still run or as
 `h2` in its `.panel-header` is left out there; keep controls in the header,
 as icons, and no kit name.
 
-The conversation keeps at least 480 px beside the stage, and the stage starts
-at about half the window; the divider between them is kept per client (API
-1.16.0). A window short of that room narrows the chat to 360 px, a tablet's,
-before it gives up showing both. Chat and stage are side by side whenever both
+The conversation starts 380 px wide beside the stage, as the workbench design
+draws it, and the stage takes the rest; the divider between them is kept per
+client (API 1.16.0). The chat keeps at least 360 px, on a desktop and a tablet
+alike, so a window short of 380 px narrows it before it gives up showing both.
+Chat and stage are side by side whenever both
 are open, except for two choices the user makes: the thread header's toggle
 hides the stage (and brings it back as it was), and the maximize gives the
 stage the whole centre (the strip's button, `rightPanel.toggleMaximized` on
