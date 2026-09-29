@@ -15,7 +15,8 @@ async function openSettings(ctx, page, ready) {
   await ctx.rest();
 }
 
-const TERMINAL_ROWS = `[...document.querySelectorAll(".xterm-accessibility-tree > div")].map((row) => row.textContent.trimEnd()).filter(Boolean)`;
+// A touch device's terminal has no screen reader tree; its rendered rows hold the same text.
+const TERMINAL_ROWS = `[...document.querySelectorAll(document.querySelector(".xterm-accessibility-tree") ? ".xterm-accessibility-tree > div" : ".xterm-rows > div")].map((row) => row.textContent.replace(/\\u00a0/g, " ").trimEnd()).filter(Boolean)`;
 
 const atPrompt = `/%$/.test(${TERMINAL_ROWS}.at(-1) ?? "")`;
 
@@ -37,6 +38,38 @@ async function typeInTerminal(ctx, line) {
 async function openWorkbenchThread(ctx) {
   await ctx.click(byTitle("Add cursor pagination to list endpoints"));
   await ctx.waitFor(`/All five list routes/.test(document.getElementById("thread-transcript")?.textContent ?? "")`);
+}
+
+/**
+ * The phone back on its thread list, whatever the last shot left open: sheets
+ * closed, detail pages left, the Threads tab chosen.
+ */
+async function phoneHome(ctx) {
+  // Only a button on top at its centre: a page left mounted underneath keeps its own.
+  const leave = `[...document.querySelectorAll("button[aria-label]")].find((button) => {
+    if (!/^(Close\\b|Back to )/.test(button.getAttribute("aria-label"))) return false;
+    const box = button.getBoundingClientRect();
+    return box.width > 0 && button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  })`;
+  for (let step = 0; step < 6 && (await ctx.evaluate(`!!(${leave})`)); step += 1) await ctx.tap(leave);
+  const threads = `[...document.querySelectorAll(".phone-nav-item")].find((item) => /Threads/.test(item.textContent))`;
+  if (await ctx.evaluate(`!!(${threads}) && (${threads}).getAttribute("aria-current") !== "page"`)) await ctx.tap(threads);
+  await ctx.waitFor(`document.querySelectorAll(".touch-thread-row").length >= 6`, 30_000);
+  await ctx.evaluate(`document.activeElement?.blur()`);
+}
+
+async function openPhoneThread(ctx) {
+  await phoneHome(ctx);
+  await ctx.tap(`[...document.querySelectorAll(".touch-thread-row")].find((row) => /Add cursor pagination to list endpoints/.test(row.textContent))?.querySelector("button:not(.swipe-action)")`);
+  await ctx.waitFor(`/The 24 route tests pass/.test(document.body.textContent) && !!document.querySelector('button[aria-label="Back to threads"]')`);
+}
+
+/** A page from the phone's bottom navigation. */
+async function openPhonePage(ctx, label, ready) {
+  await phoneHome(ctx);
+  await ctx.tap(`[...document.querySelectorAll(".phone-nav-item")].find((item) => item.textContent.includes(${JSON.stringify(label)}))`);
+  await ctx.waitFor(ready, 30_000);
+  await ctx.evaluate(`document.activeElement?.blur()`);
 }
 
 export const SHOTS = [
@@ -191,7 +224,68 @@ export const SHOTS = [
     device: "phone",
     description: "The paired phone's thread list",
     async run(ctx) {
-      await ctx.waitFor(`document.querySelectorAll(".touch-thread-row").length >= 6`, 30_000);
+      await phoneHome(ctx);
+      return ctx.screenshot();
+    },
+  },
+  {
+    name: "phone-thread",
+    device: "phone",
+    description: "A thread on the phone: the agent's reply and the composer",
+    async run(ctx) {
+      await openPhoneThread(ctx);
+      return ctx.screenshot();
+    },
+  },
+  {
+    name: "phone-reviews",
+    device: "phone",
+    description: "Reviews on the phone: finished branches by state",
+    async run(ctx) {
+      await openPhonePage(ctx, "Reviews", `/Ready/.test(document.body.textContent) && /Rate limit the checkout endpoint/.test(document.body.textContent)`);
+      return ctx.screenshot();
+    },
+  },
+  {
+    name: "phone-diff",
+    device: "phone",
+    description: "A review on the phone: its files, one of them opened to its diff, and Merge",
+    async run(ctx) {
+      await openPhonePage(ctx, "Reviews", `[...document.querySelectorAll("button, a")].some((el) => /^\\S?fix\\/pairing-flake/.test(el.textContent.trim()))`);
+      await ctx.tap(`[...document.querySelectorAll("button, a")].find((el) => /^\\S?fix\\/pairing-flake/.test(el.textContent.trim()))`);
+      await ctx.waitFor(`!!document.querySelector('button[aria-label="Back to Reviews"]')`);
+      await ctx.tap(`[...document.querySelectorAll("button, a")].find((el) => /PairingRequestWatcher\\.tsx/.test(el.textContent) && !/\\.test\\./.test(el.textContent))`);
+      await ctx.waitFor(`/@@ /.test(document.body.textContent) && /useMemo/.test(document.body.textContent)`);
+      return ctx.screenshot();
+    },
+  },
+  {
+    name: "phone-terminal",
+    device: "phone",
+    description: "A terminal in the thread's worktree on the phone",
+    async run(ctx) {
+      await openPhoneThread(ctx);
+      await ctx.tap(byLabel("/^Terminal$/"));
+      await ctx.waitFor(`!!document.querySelector(".xterm")`, 30_000);
+      await ctx.evaluate(`document.querySelector(".xterm-helper-textarea")?.focus()`);
+      await ctx.key("Enter");
+      await ctx.waitFor(atPrompt, 15_000);
+      for (const key of "clear") await ctx.key(key);
+      await ctx.key("Enter");
+      await ctx.waitFor(`${TERMINAL_ROWS}.length === 1 && ${atPrompt}`, 15_000);
+      await typeInTerminal(ctx, "git log --oneline --graph --all -12");
+      await typeInTerminal(ctx, "git status --short");
+      await ctx.evaluate(`document.activeElement?.blur()`);
+      await ctx.waitFor(`!document.querySelector(".xterm-helper-textarea:focus")`);
+      return ctx.screenshot();
+    },
+  },
+  {
+    name: "phone-usage",
+    device: "phone",
+    description: "Usage on the phone: this month's spend and plan value",
+    async run(ctx) {
+      await openPhonePage(ctx, "Usage", `/billed/.test(document.body.textContent)`);
       return ctx.screenshot();
     },
   },
