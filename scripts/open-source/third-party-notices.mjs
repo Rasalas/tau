@@ -39,6 +39,7 @@ const RANK = ["permissive", "attribution", "weak copyleft", "strong copyleft", "
 /** Reviewed non-permissive entries, by package name: what was decided and why. */
 const REVIEWED = new Map([
   ["caniuse-lite", "CC-BY-4.0 data; this file gives the attribution"],
+  ["@anthropic-ai/claude-agent-sdk", "proprietary, under Anthropic's legal agreements; shipped unmodified as a separate component, not under Tau's licence; its platform binaries are not packaged and the user's own CLI runs"],
 ]);
 
 /** Licences of the mobile app's native libraries, by Maven coordinate or Swift package URL. */
@@ -52,7 +53,7 @@ const NATIVE_TERMS = [
 ];
 
 // Apache-2.0 §4(d): Cordova's sources point at this NOTICE (cordova-android, and Capacitor's CapacitorCordova on iOS).
-const CORDOVA_NOTICE = "Apache Cordova\nCopyright 2012 The Apache Software Foundation\n\nThis product includes software developed at\nThe Apache Software Foundation (http://www.apache.org/).";
+const CORDOVA_NOTICE = "Apache Cordova\nCopyright 2015-2020 The Apache Software Foundation\n\nThis product includes software developed at\nThe Apache Software Foundation (http://www.apache.org/).";
 
 const newestEntry = (path) => { try { return readdirSync(join(ROOT, path)).sort().pop(); } catch { return undefined; } };
 const bundleVersion = (plist) => { try { return /CFBundleShortVersionString<\/key>\s*<string>([^<]+)/u.exec(readFileSync(join(ROOT, plist), "utf8"))?.[1]; } catch { return undefined; } };
