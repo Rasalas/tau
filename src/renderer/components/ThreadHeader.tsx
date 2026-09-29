@@ -82,13 +82,15 @@ export function ThreadDetails({ snapshot, view, slots, machine }: {
  * thread's title and details, what kits place at its end, and the stage's
  * toggle. It is the window's drag region over the conversation.
  */
-export function ThreadHeader({ lead, title, details, actions, stage }: {
+export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
   /** Before the title: room for the traffic lights, a tablet's threads toggle. */
   lead?: ReactNode;
   title: ReactNode;
   details?: ReactNode;
   /** The `title-bar` region's slot. */
   actions?: ReactNode;
+  /** The stage strip's tools, here while the stage is hidden (design 1k). */
+  tools?: ReactNode;
   stage?: { shown: boolean; shortcut?: string; onToggle(): void };
 }) {
   const stageLabel = stage?.shown ? "Hide stage" : "Show stage";
@@ -99,6 +101,8 @@ export function ThreadHeader({ lead, title, details, actions, stage }: {
       {details}
     </div>
     <div className="thread-header-actions">{actions}</div>
+    {tools ? <div className="thread-header-tools" role="toolbar" aria-label="Tools">{tools}</div> : null}
+    {tools && stage ? <span className="thread-header-separator" aria-hidden /> : null}
     {stage ? <button
       type="button"
       className="stage-tool"
@@ -106,6 +110,6 @@ export function ThreadHeader({ lead, title, details, actions, stage }: {
       aria-pressed={stage.shown}
       {...tooltipProps(stageLabel, { side: "bottom", shortcut: stage.shortcut })}
       onClick={stage.onToggle}
-    >{stage.shown ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}</button> : null}
+    >{stage.shown ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</button> : null}
   </header>;
 }

@@ -14,7 +14,7 @@ import { ThreadDocument } from "./ThreadDocument";
 import { tooltipProps } from "./ui/Tooltip";
 import "./stage-panels.css";
 
-export { ConversationSpine, StageTools } from "./StageSpine";
+export { StageTools } from "./StageSpine";
 
 function relativeTo(cwd: string | undefined, path: string): string {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
@@ -59,8 +59,11 @@ export function Stage({
   workspace?: string;
   changes: UiWorkspaceChanges;
   editor?: UiEditor;
-  /** Present where chat and stage fit side by side: the stage can take the whole centre, the chat folded to its spine. */
-  maximize?: { maximized: boolean; onToggle(): void };
+  /**
+   * Present where chat and stage fit side by side: the stage can take the whole centre, the chat out of sight.
+   * Where only one fits, the way back to the chat, named by `label`.
+   */
+  maximize?: { maximized: boolean; label?: string; onToggle(): void };
   /** The strip's own buttons before the maximize: the tools, and what kits place in `stage-bar`. */
   tools?: ReactNode;
   /** Who offers the stage tab kinds, and who holds their handles. */
@@ -127,10 +130,10 @@ export function Stage({
             type="button"
             className="stage-tool"
             aria-pressed={maximize.maximized}
-            aria-label={maximize.maximized ? "Show chat beside the stage" : "Maximize stage"}
-            {...tooltipProps(maximize.maximized ? "Show chat beside the stage" : "Maximize stage", { side: "bottom" })}
+            aria-label={maximize.label ?? (maximize.maximized ? "Show chat beside the stage" : "Maximize stage")}
+            {...tooltipProps(maximize.label ?? (maximize.maximized ? "Show chat beside the stage" : "Maximize stage"), { side: "bottom" })}
             onClick={maximize.onToggle}
-          >{maximize.maximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
+          >{maximize.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
         </> : null}
       </div>
     </div>

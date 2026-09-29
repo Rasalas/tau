@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiWorkspaceChanges, WorkbenchContextValue } from "tau";
 import { PreferencesStore, RendererServicesProvider, WorkbenchContext } from "../../src/renderer/test-support/kit-harness.js";
-import { ChangesPanel, FilesPanel, serviceSlot, type SearchFilesService } from "./panels.js";
+import { changedTreeRows, ChangesPanel, FilesPanel, serviceSlot, type SearchFilesService } from "./panels.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { WorkspaceStore } from "./store.js";
@@ -156,5 +156,45 @@ describe("FilesPanel", () => {
     expect(onPick).toBeTypeOf("function");
     act(() => onPick!("b.md"));
     expect(await screen.findByText("# B")).toBeTruthy();
+  });
+
+  it("lists the changed files as a tree on the stage, folders first, each file with its Git mark (design 1l)", () => {
+    expect(changedTreeRows([
+      { path: "src/routes/orders.ts", status: "modified" },
+      { path: "README.md", status: "modified" },
+      { path: "src/lib/envelope.ts", status: "added" },
+      { path: "src/lib/cursor.ts", status: "untracked" },
+    ]).map((row) => `${"  ".repeat(row.depth)}${row.name}${row.file ? ` ${row.file.status}` : "/"}`)).toEqual([
+      "src/", "  lib/", "    cursor.ts untracked", "    envelope.ts added", "  routes/", "    orders.ts modified", "README.md modified",
+    ]);
+
+    const workspaceStore = newStore();
+    kitState(workspaceStore, { changes: { ...CHANGED, files: [...CHANGED.files, { path: "src/new.ts", name: "new.ts", directory: "src", status: "added", added: 3, removed: 0 }] } });
+    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
+    render(withServices(workspaceStore, <WorkbenchContext.Provider value={workbench()}>
+      <FilesPanel active placement="stage" extensionName="Workspace" actions={{} as never} />
+    </WorkbenchContext.Provider>));
+    const tree = screen.getByRole("tree", { name: "Changed files" });
+    expect([...tree.children].map((row) => row.textContent)).toEqual(["src", "a.tsM", "new.tsA"]);
+    expect(screen.getByText("A").className).toBe("files-status-A");
+    fireEvent.click(screen.getByTitle("src/new.ts"));
+    // The file on show says what it is to Git beside its path.
+    expect(screen.getByText("new").className).toBe("files-status-A");
+  });
+
+  it("brings Changed to the front when the changes arrive after the tab opened, until a view is picked", () => {
+    const workspaceStore = newStore();
+    kitState(workspaceStore, { changes: NO_CHANGES });
+    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
+    render(withServices(workspaceStore, <WorkbenchContext.Provider value={workbench()}>
+      <FilesPanel active placement="stage" extensionName="Workspace" actions={{} as never} />
+    </WorkbenchContext.Provider>));
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    act(() => kitState(workspaceStore, { changes: CHANGED }));
+    expect(screen.getByRole("button", { name: "Changed" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    act(() => kitState(workspaceStore, { changes: NO_CHANGES }));
+    act(() => kitState(workspaceStore, { changes: CHANGED }));
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
   });
 });

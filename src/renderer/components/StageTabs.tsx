@@ -156,7 +156,7 @@ export function StageTabs({
           pin: () => onPin(tab.id),
           openMenu: (event, label) => setMenu({ id: tab.id, label, preview: tab.preview, x: event.clientX, y: event.clientY }),
         };
-        const { icon, label } = stageTabGlyph(tab, registry);
+        const { icon, label } = stageTabGlyph(tab, registry, 12);
         if (tab.kind === "thread" && tab.machine) return <RemoteThreadStageTab key={tab.id} machine={tab.machine} sessionId={tab.sessionId} chrome={chrome} icon={icon} />;
         if (tab.kind === "thread") return <ThreadStageTab key={tab.id} sessionId={tab.sessionId} chrome={chrome} icon={icon} />;
         if (tab.kind === "panel") {

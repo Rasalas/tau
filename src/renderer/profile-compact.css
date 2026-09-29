@@ -24,9 +24,8 @@ body[data-profile="compact"] .app-shell.touch-split { grid-template: minmax(0, 1
 body[data-profile="compact"] .app-shell:not(.touch-split) > .workbench-main { grid-row: 2; }
 body[data-keyboard] .app-shell { --safe-bottom: 0px; }
 
-/* The tablet's desktop chrome at touch size: the head's and the spines' glyphs, a divider a finger can take. */
-body[data-profile="compact"] :is(.thread-header, .conversation-spine) .stage-tool { width: 44px; height: 44px; }
-body[data-profile="compact"] .app-shell { --spine-width: 52px; }
+/* The tablet's desktop chrome at touch size: the head's glyphs, a divider a finger can take. */
+body[data-profile="compact"] .thread-header .stage-tool { width: 44px; height: 44px; }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"] { width: 24px; }
 body[data-profile="compact"] .chat-resizer { left: calc(var(--chat-width) - 12px); }
 body[data-profile="compact"] .resize-handle[aria-orientation="vertical"]::after { left: 11px; }

@@ -144,9 +144,9 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     stage, setStage,
     /** The project of the stage on screen; it lags `workspaceKey` until the restore runs. */
     stageWorkspace: restored?.workspace,
-    /** The documents fill the centre, the chat folded to its spine; kept with the thread. */
+    /** The documents fill the centre, the chat out of sight; kept with the thread, restored on a restart. */
     stageMaximized, setStageMaximized,
-    /** The stage folded to its spine; kept with the thread. */
+    /** The stage hidden; kept with the thread. */
     stageFolded, setStageFolded, setStageShown,
     dockOpen: dock.open, setDockOpen, dockAsks,
     activePanel, setActivePanel,

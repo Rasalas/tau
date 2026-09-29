@@ -11,14 +11,17 @@
 .app-page-content.wide { max-width: 1240px; }
 /* A page that scrolls itself fills the area below the bar; its head sits over it, in line with the page's own padding. */
 .app-page-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.app-page-head { flex: none; padding: var(--space-2) var(--space-7) var(--space-2); }
+/* The design's 16 px between a page's head and what it heads (1i). */
+.app-page-head { flex: none; padding: 0 var(--space-7) var(--space-6); }
 .app-page-head:has(> .settings-page-head > .settings-page-action:first-child:empty) { display: none; }
 
 .app-page.stacked > .settings-main { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
 .app-page.stacked .app-page-bar { padding: 0 12px 0 4px; gap: 4px; }
 .app-page.stacked .app-page-back { width: 44px; height: 44px; justify-content: center; padding: 0; color: var(--ink-2); }
+/* No gutter: a scrollbar that takes room would set the page off the title in the bar. */
+.app-page.stacked .settings-scroll { scrollbar-gutter: auto; }
 .app-page.stacked .settings-content { padding: 16px 12px calc(32px + env(safe-area-inset-bottom, 0px)); }
-.app-page.stacked .app-page-head { padding: var(--space-4) 12px 0; }
+.app-page.stacked .app-page-head { padding: var(--space-4) 12px var(--space-5); }
 /* A main page of a phone: the bottom navigation under it keeps the home indicator's room. */
 .app-page.stacked.with-nav { flex-direction: column; }
 .app-page.stacked.with-nav .settings-content { padding-bottom: 32px; }

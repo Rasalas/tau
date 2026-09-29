@@ -1285,8 +1285,8 @@ describe("Workspace Kit in the workbench", () => {
 
     await waitFor(() => expect(newSession).toHaveBeenCalled());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
-    // The draft already names its project, so the header's project controls stay available while allocation settles.
-    expect(screen.getByRole("button", { name: "Add action" }).hasAttribute("disabled")).toBe(false);
+    // A draft's header has no project controls (design 1k); they come with the thread.
+    expect(screen.queryByRole("button", { name: "Add action" })).toBeNull();
 
     // The host reports the missing user turn from prompt(), then commits the
     // detached delivery. Both arrive in that order over one channel.
@@ -1653,10 +1653,14 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByRole("button", { name: "Change project, current project shop-api" }).closest(".composer-chips")).toBeTruthy();
     expect(document.querySelector(".workspace-bar")).toBeNull();
 
-    fireEvent.click(await within(header).findByRole("button", { name: "Branch main" }));
+    // The header's checkout branch is plain text as in the design; a planned worktree's name is mono.
+    expect((await within(header).findByRole("button", { name: "Branch main" })).className).toBe("thread-branch-trigger");
+    // Nothing to run or commit in a draft's header.
+    expect(within(header).queryByRole("button", { name: "Add action" })).toBeNull();
+    fireEvent.click(within(header).getByRole("button", { name: "Branch main" }));
     const section = await screen.findByRole("dialog", { name: "Branch" });
     fireEvent.click(await within(section).findByRole("switch", { name: "Run in a new worktree" }));
-    expect(await within(header).findByRole("button", { name: "Branch tau/auto-named" })).toBeTruthy();
+    expect((await within(header).findByRole("button", { name: "Branch tau/auto-named" })).className).toContain("planned");
     await waitFor(() => expect(within(section).getByRole("button", { name: /from origin\/main/u })).toBeTruthy());
     fireEvent.change(within(section).getByRole("textbox", { name: "Branch name for the new worktree" }), { target: { value: "feat/pages" } });
     expect(within(header).getByRole("button", { name: "Branch feat/pages" })).toBeTruthy();

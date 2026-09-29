@@ -9,7 +9,7 @@ export interface PanelLayoutState {
   stage: StageState;
   activePanel: string;
   drawer?: string;
-  /** The stage fills the centre and the conversation is folded to its spine. */
+  /** The stage fills the centre and the conversation is out of sight. */
   maximized: boolean;
 }
 

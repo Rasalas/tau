@@ -11,11 +11,13 @@ import { titleCollapse, useTitleCollapse, type TitleCollapse } from "./title-col
  * The thread header's controls Workspace Kit owns, as in the workbench design:
  * the project actions, "N files changed ›", which opens the review, and the Git
  * quick action. Core's header only lends the place; the row collapses itself
- * to the room it gets. "Open in" is the stage strip's (`WorkspaceEditorButton`).
+ * to the room it gets. A draft's header shows none of them. "Open in" is the stage strip's (`WorkspaceEditorButton`).
  */
 export function WorkspaceTitleActions(props: RegionProps) {
   const row = useRef<HTMLDivElement>(null);
   const level = useTitleCollapse(row);
+  // A new thread has nothing of its own to run or commit yet (design 1k).
+  if (useWorkspaceKit().draftPending) return null;
   return <TitleActionsRow {...props} row={row} collapse={titleCollapse(level)} />;
 }
 

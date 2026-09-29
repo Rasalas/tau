@@ -316,35 +316,40 @@
 
 /* The branch in the thread header (K84): a quiet trigger that opens the checkout menu or a new thread's Branch section. */
 .thread-branch-trigger {
-  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; margin: -2px 0; padding: 2px 4px;
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; margin: -2px -4px; padding: 2px 4px;
   border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer;
 }
-.thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-sm); }
-.thread-branch-trigger .chev { flex: none; color: var(--faint); }
+/* As the design writes it: the checkout's branch in the sub-line's face, a draft's planned name in mono; the chevron shows on hover. */
+.thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-branch-trigger.planned > span { font-family: var(--mono); }
+.thread-branch-trigger .chev { flex: none; color: var(--faint); opacity: 0; }
+.thread-branch-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) .chev { opacity: 1; }
 .thread-branch-trigger:hover:not(:disabled), .thread-branch-trigger[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
 .popover.branch-popover { width: min(380px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 80px)); padding: 0; overflow: auto; }
-.branch-menu .menu-heading, .branch-section .menu-heading { padding: 10px 12px 4px; color: var(--faint); font-size: var(--text-sm); }
+.branch-menu .menu-heading { padding: 10px 12px 4px; color: var(--faint); font-size: var(--text-sm); }
+/* A new thread's Branch section, drawn as design 1k's popover draws it. */
+.branch-section .menu-heading { padding: 6px 16px 4px; color: var(--muted); font: var(--text-xs) var(--sans); letter-spacing: normal; text-transform: none; }
 .branch-note { margin: 0; padding: 4px 12px 12px; color: var(--muted); font: var(--text-sm)/1.5 var(--sans); }
 .branch-section { padding-bottom: 6px; }
 .branch-section.picking { padding: 0; }
 .branch-name {
-  display: flex; align-items: center; gap: 8px; margin: 2px 6px; padding: 7px 9px; border-radius: 7px;
-  background: var(--raised); color: var(--muted);
+  display: flex; align-items: center; gap: 8px; margin: 0 6px; padding: 6px 10px; border-radius: 7px;
+  background: var(--rail); color: var(--muted);
 }
-.branch-name > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: calc(var(--text-sm) + .5px) var(--mono); outline: none; }
+.branch-name > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-xs) var(--mono); outline: none; }
 .branch-name > input::placeholder { color: var(--ink-3); }
-.branch-name > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: calc(var(--text-sm) + .5px) var(--mono); }
-.branch-name > small { color: var(--faint); font-size: var(--text-xs); }
+.branch-name > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: var(--text-xs) var(--mono); }
+.branch-name > small { color: var(--muted); font-size: var(--text-xs); }
 .branch-section button.branch-base {
-  width: auto; display: inline-flex; align-items: center; gap: 6px; margin: 2px 6px; padding: 5px 9px;
+  width: auto; display: inline-flex; align-items: center; gap: 8px; margin: 1px 6px 0; padding: 6px 10px;
   border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer;
 }
-.branch-base > code { color: var(--ink-2); font: var(--text-sm) var(--mono); }
+.branch-base > code { color: var(--ink-3); font: var(--text-xs) var(--mono); }
 .branch-base:hover { background: var(--raised); }
-.branch-worktree { display: flex; align-items: center; gap: 10px; margin: 4px 6px 0; padding: 7px 9px; }
+.branch-worktree { display: flex; align-items: center; gap: 10px; margin: 2px 6px 0; padding: 6px 10px; }
 .branch-worktree > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.branch-worktree strong { color: var(--ink-2); font: 500 calc(var(--text-sm) + .5px) var(--sans); }
-.branch-worktree small { color: var(--faint); font-size: var(--text-xs); }
+.branch-worktree strong { color: var(--ink); font: 400 var(--text-md) var(--sans); }
+.branch-worktree small { color: var(--muted); font-size: var(--text-xs); }
 /* Inside "Run on" (a menu), whose button rule would flatten the switch. */
 .branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
@@ -421,26 +426,51 @@
 .files-panel-search { display: inline-grid; place-items: center; }
 /* The stage's Files tab (design 1l): the explorer beside the file it shows. */
 .files-stage { flex-direction: row; }
-.files-explorer { flex: none; width: clamp(200px, 32%, 300px); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-.files-explorer-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 8px 6px 14px; }
-.files-explorer-scope { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-sm); }
-.files-explorer-scope > b { font-weight: 400; color: var(--muted); }
-.files-explorer-view { flex: none; }
-.files-changed-list { flex: 1; min-height: 0; overflow: auto; padding: 0 0 8px; }
-.files-changed-list .file-row { width: 100%; }
-.files-changed-list .file-row .name { direction: rtl; text-align: left; }
-.files-status-A { color: var(--diff-add-ink); }
-.files-status-D { color: var(--danger); }
-.files-open-editor {
-  flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 0; border-top: 1px solid var(--line);
-  background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer; text-align: left;
+/* The explorer as design 1l draws it: 224 px, quiet head, a tree of short mono rows, the editor link at its foot. */
+.files-explorer { flex: none; width: min(224px, 45%); display: flex; flex-direction: column; min-height: 0; padding: 6px 4px; border-right: 1px solid var(--line); }
+.files-explorer-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 6px 8px 10px; color: var(--muted); font-size: var(--text-xs); }
+/* Wraps between project and branch beside the view chips; short of room for the branch, the chips take the next line. */
+.files-explorer-scope { flex: 1 1 64px; max-width: 100%; }
+.files-explorer-scope > b { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font-weight: 400; }
+.files-explorer-tools { flex: none; display: flex; align-items: center; gap: 4px; }
+.files-explorer-view { flex: none; display: flex; gap: 2px; }
+.files-explorer-view > button, .files-reading-view > button {
+  padding: 1px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; cursor: pointer;
 }
-.files-open-editor:hover { color: var(--ink); background: var(--hover); }
+.files-explorer-view > button:hover, .files-reading-view > button:hover { color: var(--ink); }
+.files-explorer-view > button.active, .files-reading-view > button.active { background: var(--rail); color: var(--ink); font-weight: 600; }
+.files-explorer .files-panel-search { width: 22px; height: 22px; margin: -2px 0; }
+.files-explorer .file-tree { padding: 0; }
+.files-explorer .file-row { gap: 6px; padding: 3px 10px; border-radius: 6px; color: var(--ink); font: var(--text-xs) var(--mono); }
+.files-explorer .file-row:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.files-explorer .file-row.active { background: var(--rail); font-weight: 600; }
+.files-explorer .file-row .file-kind-icon, .files-explorer .file-row.directory .file-kind-icon, .files-explorer .file-row.active .file-kind-icon { width: 12px; color: var(--muted); }
+.files-explorer .file-row > em { color: var(--acid-text); font: 600 10px var(--sans); }
+.files-changed-list { flex: 1; min-height: 0; overflow: auto; }
+.files-changed-list .file-row { width: 100%; cursor: pointer; }
+.files-changed-list .file-row.directory { cursor: default; }
+.files-changed-list .file-row.directory:hover { background: transparent; }
+/* Git's marks as the design colours them: added green, modified the accent. */
+.files-status-A, .file-row > em.files-status-A { color: var(--diff-add-ink); }
+.files-status-M, .files-status-R, .file-row > em:is(.files-status-M, .files-status-R) { color: var(--acid-text); }
+.files-status-D, .file-row > em.files-status-D { color: var(--danger); }
+.files-open-editor {
+  flex: none; display: flex; align-items: center; gap: 6px; margin-top: auto; padding: 8px 10px 4px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer; text-align: left;
+}
+.files-open-editor:hover { color: var(--ink); }
 .files-open-editor > span { flex: 1; }
-.files-open-editor > kbd { font: var(--text-xs) var(--mono); color: var(--faint); }
+.files-open-editor > kbd { font: var(--text-xs) var(--mono); color: var(--muted); }
 .files-reading { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.files-reading-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 10px 0 16px; }
-.files-reading-head > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--text-md) var(--mono); direction: rtl; text-align: left; }
+/* One line where the pane has room; narrower, the controls wrap under the path rather than cut it. */
+.files-reading-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px 8px 16px; color: var(--muted); font-size: var(--text-sm); }
+.files-reading-head > strong { flex: 0 1 auto; min-width: min(160px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--text-sm) var(--mono); direction: rtl; text-align: left; }
+.files-reading-head > em { flex: none; font-style: normal; font-weight: 600; }
+.files-reading-head > .spacer { flex: 1; }
+.files-reading-view { flex: none; display: flex; gap: 2px; }
+.files-reading-view > button { padding: 2px 8px; border-radius: 6px; }
+.files-reading-edit { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.files-reading-edit:hover { color: var(--ink); }
 .files-reading .file-reader-header { display: none; }
 .files-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .files-stage-empty { flex: 1; display: grid; place-items: center; padding: 24px; }
@@ -450,6 +480,7 @@ body[data-profile="compact"] .file-row .file-disclosure { width: 16px; }
 body[data-profile="compact"] .files-panel .panel-header { min-height: 52px; }
 body[data-profile="compact"] .files-panel .panel-header .text-button { min-height: 44px; padding: 0 10px; font-size: var(--text-md); }
 body[data-profile="compact"] .files-panel-search { width: 44px; height: 44px; border-radius: 12px; }
+body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > button, body[data-profile="compact"] .files-reading-edit { min-height: 44px; padding: 0 12px; }
 
 .file-reader { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
 .file-reader-header { display: flex; align-items: center; gap: 4px; flex: none; min-height: 52px; padding: 4px 12px 4px 4px; border-bottom: 1px solid var(--line); }
