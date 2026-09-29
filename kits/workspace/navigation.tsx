@@ -1,11 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, FolderPlus, GitBranch, Plus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
   DraftRow,
   draftTitle,
   errorMessage,
-  projectHue,
+  ProjectIcon,
   READ_ONLY_REASON,
   ThreadRow,
   tooltipProps,
@@ -14,6 +14,7 @@ import {
   useEscapeLayer,
   useHostCapabilities,
   usePreferences,
+  useProjectIcon,
   useThreadStore,
   useWorkbenchShell,
   VirtualList,
@@ -33,7 +34,7 @@ import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
 import { groupThreads, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
-import { projectIconKey, readProjectIcon, writeProjectIcon } from "./project-icons.js";
+import { readProjectIcon, writeProjectIcon } from "./project-icons.js";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
@@ -107,10 +108,6 @@ export function navigationRowsFor(threads: readonly UiSession[], order: RailOrde
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
   return rows[index]?.id ?? index;
-}
-
-function projectInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "·";
 }
 
 function fuzzyMatch(value: string, query: string): boolean {
@@ -374,7 +371,6 @@ export function ProjectSwitcherPopover({
   projects,
   onClose,
   onSelect,
-  iconOf,
   label = "Switch project",
   all,
   selectedName,
@@ -384,8 +380,6 @@ export function ProjectSwitcherPopover({
   activePath?: string;
   open: boolean;
   projects: readonly UiProject[];
-  /** A project's chosen icon, when it has one. */
-  iconOf?(project: UiProject): string | undefined;
   onClose(): void;
   onSelect(project: UiProject): void;
   label?: string;
@@ -463,7 +457,6 @@ export function ProjectSwitcherPopover({
         renderItem={(entry, index) => {
           const picked = isPicked(entry);
           const project = entry.kind === "project" ? entry.project : undefined;
-          const icon = project ? iconOf?.(project) ?? project.icon : undefined;
           const name = project ? project.name : all?.label ?? "";
           return <div
             role="none"
@@ -481,7 +474,7 @@ export function ProjectSwitcherPopover({
               onClick={() => pick(entry)}
             >
               {project
-                ? <i className={icon ? "has-image" : ""} aria-hidden="true">{icon ? <img src={icon} alt="" /> : projectInitial(project.name)}</i>
+                ? <ProjectIcon project={project} />
                 : <i className="all-projects" aria-hidden="true"><Folder size={14} /></i>}
               <span>{name}</span>
               {filtering ? picked ? <Check size={14} aria-hidden="true" /> : null : picked ? <small>current</small> : null}
@@ -502,12 +495,6 @@ export function ProjectSwitcherPopover({
   </>;
 }
 
-/** The shown project on the filter button, in the tile its rows draw. */
-function ProjectTile({ project, icon }: { project: UiProject; icon: string | undefined }) {
-  const style = { "--project-hue": projectHue(project.path) } as CSSProperties;
-  return <i className={`thread-project-icon project-filter-tile${icon ? " has-image" : ""}`} style={style}>{icon ? <img src={icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}</i>;
-}
-
 /**
  * The rail's project filter as an icon between the search and "+": a folder
  * for every project, the shown project's tile while one is. Its list adds a
@@ -518,12 +505,9 @@ function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const workspace = useWorkspaceStore();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const filter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
-  const preferences = usePreferences();
-  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [open, setOpen] = useState(false);
   const { readOnly } = useHostCapabilities();
   const shown = filter ? projects.find((project) => project.name === filter) : undefined;
-  const iconOf = (project: UiProject) => readProjectIcon(preferences, project)?.image;
   const label = filter ? `Filter threads by project: ${filter}` : "Filter threads by project";
   const close = () => setOpen(false);
   return <>
@@ -536,7 +520,7 @@ function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
       {...tooltipProps(open ? undefined : label, { side: "bottom" })}
       onClick={() => setOpen((value) => !value)}
     >
-      {shown ? <ProjectTile project={shown} icon={iconOf(shown) ?? shown.icon} /> : <Folder size={15} />}
+      {shown ? <ProjectIcon project={shown} className="project-filter-tile" /> : <Folder size={15} />}
     </button>
     <ProjectSwitcherPopover
       label="Filter by project"
@@ -547,7 +531,6 @@ function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
       onClose={close}
       onSelect={(project) => { close(); workspace.setRailProjectFilter(project.name); }}
       onSettings={(project) => { close(); workspace.openProjectSettings({ projectPath: project.path, projectName: project.name, ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}) }); }}
-      iconOf={iconOf}
       // Adding a project changes the host's list; a Read-only device may not (ADR 0024).
       footer={readOnly ? undefined : <button type="button" onClick={() => { close(); actions.openProjectSources(); }}><FolderPlus size={14} /> Add project…</button>}
     />
@@ -559,7 +542,6 @@ function ProjectSwitcher({ actions }: { actions: WorkbenchActions }) {
   const { snapshot } = useWorkbenchShell();
   const threadStore = useThreadStore();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
-  const preferences = usePreferences();
   const [open, setOpen] = useState(false);
   const activeThread = snapshot?.sessionId ? threadStore.getThread(snapshot.sessionId) : undefined;
   const activeProject = findProjectForSession(projects, {
@@ -578,7 +560,6 @@ function ProjectSwitcher({ actions }: { actions: WorkbenchActions }) {
     projects={projects}
     onClose={() => setOpen(false)}
     onSelect={(project) => { setOpen(false); void actions.openWorkspace(project.path); }}
-    iconOf={(project) => readProjectIcon(preferences, project)?.image}
   />;
 }
 
@@ -592,15 +573,6 @@ export function sessionAge(timestamp: number, now = Date.now()): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
-}
-
-const noValue = () => undefined;
-
-/** A project's chosen icon; the raw value is what the row subscribes to, so another project's change leaves it alone. */
-function useProjectIcon(project: UiProject | undefined): string | undefined {
-  const preferences = usePreferences();
-  const raw = useSyncExternalStore(preferences.subscribe, project ? () => preferences.value(WORKSPACE_EXTENSION_ID, projectIconKey(project)) : noValue);
-  return useMemo(() => project && raw ? readProjectIcon(preferences, project)?.image : undefined, [preferences, project, raw]) ?? project?.icon;
 }
 
 const ConnectedThreadRow = memo(function ConnectedThreadRow({

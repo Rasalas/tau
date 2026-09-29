@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { emojiImage, firstEmoji, monogramImage, monogramText, projectIconKey, readProjectIcon, writeProjectIcon } from "./project-icons.js";
+import { describe, expect, it, vi } from "vitest";
+import { PreferencesStore } from "../../src/renderer/test-support/kit-harness.js";
+import { emojiImage, firstEmoji, monogramImage, monogramText, projectIconKey, publishProjectIcons, readProjectIcon, writeProjectIcon } from "./project-icons.js";
 
 const svg = (url: string) => decodeURIComponent(url.slice(url.indexOf(",") + 1));
 
@@ -40,5 +41,25 @@ describe("project icons", () => {
     expect(readProjectIcon(preferences, project)).toBeUndefined();
     writeProjectIcon(preferences, project, undefined);
     expect(readProjectIcon(preferences, project)).toBeUndefined();
+  });
+
+  it("hands core every chosen picture by workspace id or path, again only when one changes, and withdraws them", () => {
+    const preferences = new PreferencesStore();
+    const rocket = emojiImage("🚀");
+    writeProjectIcon(preferences, { workspaceId: "ws1_shop", path: "/shop" }, { kind: "emoji", emoji: "🚀", image: rocket });
+    preferences.setValue("tau.workspace", "project-icon:/bad", "{broken");
+    const publish = vi.fn();
+    const stop = publishProjectIcons(preferences, publish);
+    expect(publish).toHaveBeenLastCalledWith({ ws1_shop: rocket });
+    preferences.setValue("tau.workspace", "other-setting", "x");
+    expect(publish).toHaveBeenCalledTimes(1);
+    writeProjectIcon(preferences, { path: "/tau" }, { kind: "monogram", text: "T", hue: 85, image: monogramImage("T", 85) });
+    expect(publish).toHaveBeenLastCalledWith({ ws1_shop: rocket, "/tau": monogramImage("T", 85) });
+    writeProjectIcon(preferences, { workspaceId: "ws1_shop", path: "/shop" }, undefined);
+    expect(publish).toHaveBeenLastCalledWith({ "/tau": monogramImage("T", 85) });
+    stop();
+    expect(publish).toHaveBeenLastCalledWith(undefined);
+    writeProjectIcon(preferences, { path: "/late" }, { kind: "emoji", emoji: "🚀", image: rocket });
+    expect(publish).toHaveBeenCalledTimes(4);
   });
 });

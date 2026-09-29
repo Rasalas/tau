@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronRight,
   CircleCheck,
@@ -20,7 +20,7 @@ import {
   FileKindIcon,
   formatCost,
   Markdown,
-  projectHue,
+  ProjectIcon,
   ProviderIconStack,
   READ_ONLY_REASON,
   SettingsPageAction,
@@ -88,11 +88,7 @@ export function shortAge(at: number, now = Date.now()): string {
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 function ProjectTile({ project }: { project: LocalReview["project"] }) {
-  return (
-    <span className={`thread-project-icon rv-tile${project.icon ? " has-image" : ""}`} aria-hidden="true" style={{ "--project-hue": projectHue(project.root) } as CSSProperties}>
-      {project.icon ? <img src={project.icon} alt="" /> : project.name.slice(0, 1).toUpperCase()}
-    </span>
-  );
+  return <ProjectIcon project={{ path: project.root, name: project.name, workspaceId: project.key, icon: project.icon }} className="rv-tile" />;
 }
 
 function Changes({ review, files = true }: { review: LocalReview; files?: boolean }) {
