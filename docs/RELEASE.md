@@ -626,11 +626,13 @@ repository secrets and the next tag is signed:
 |---|---|
 | `CSC_LINK` | base64 of the Developer ID `.p12`, or a path to it |
 | `CSC_KEY_PASSWORD` | its password |
-| `APPLE_ID` | the Apple ID that notarizes |
-| `APPLE_APP_SPECIFIC_PASSWORD` | an app-specific password for that Apple ID |
-| `APPLE_TEAM_ID` | the team the certificate belongs to |
+| `APPLE_API_KEY_P8` | an App Store Connect API key (`.p8`) that notarizes; the workflow writes it to a file for electron-builder |
+| `APPLE_API_KEY_ID` | that key's id |
+| `APPLE_API_ISSUER` | its issuer id |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | the older way to notarize, with an Apple ID; ignored when the API key is set |
 
-The workflow unsets whichever of these the repository has no secret for:
+These reach the macOS job only; the Windows job would otherwise take the
+Developer ID certificate for Authenticode. The workflow unsets whichever of these the repository has no secret for:
 electron-builder treats an empty value as "set" and would fail looking for a
 certificate that is not there. Without `CSC_LINK` it also sets
 `CSC_IDENTITY_AUTO_DISCOVERY=false`, so a runner never picks up a stray

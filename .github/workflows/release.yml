@@ -180,15 +180,33 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Notarization through the App Store Connect API key; the .p8 is written to a file below.
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           # Makes electron-builder write release/builder-debug.yml, which is
           # otherwise silent; a failing platform is diagnosed from it.
           DEBUG: electron-builder
         run: |
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+          # The Developer ID certificate is Apple's; Windows would try it for Authenticode.
+          if [ "${{ matrix.artifact }}" != "macos" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER
+          fi
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
             [ -n "${!name-}" ] || unset "$name"
           done
+          if [ -n "${APPLE_API_KEY_P8:-}" ]; then
+            key="$RUNNER_TEMP/notary-api-key.p8"
+            printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
+            chmod 600 "$key"
+            export APPLE_API_KEY="$key"
+            unset APPLE_API_KEY_P8 APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
           [ -n "${CSC_LINK:-}" ] || export CSC_IDENTITY_AUTO_DISCOVERY=false
-          npx electron-builder ${{ matrix.platform }} --publish never
+          status=0
+          npx electron-builder ${{ matrix.platform }} --publish never || status=$?
+          rm -f "$RUNNER_TEMP/notary-api-key.p8"
+          exit "$status"
 
       # What apt installs and what DebUpdater downloads: Xvfb comes along, the
       # AppArmor profile is inside, and the feed names the package.
