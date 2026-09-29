@@ -1,13 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Trash2 } from "lucide-react";
-import type { UiProject } from "../../shared/contracts";
-import { rootLast } from "../../workbench/new-thread-project";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Check, Plus, Search, Trash2 } from "lucide-react";
+import type { UiProject, UiSession } from "../../shared/contracts";
+import { pickerOrder } from "../../workbench/new-thread-project";
+import { namesWorkspace } from "../../shared/workspace-identity";
+import { Sheet } from "../touch/Sheet";
+import { Popover } from "./ui/Dialog";
 import { VirtualList } from "./VirtualList";
 import { useFocusReturn } from "./ui/focus";
+import "./project-picker.css";
 
 interface ProjectPickerProps {
   open: boolean;
   projects: readonly UiProject[];
+  /** Orders the list by the last thread worked in. */
+  threads?: readonly UiSession[];
+  /** The project in context (workspace id or path): first, checked and selected. */
+  preselect?: string | undefined;
+  /** The machine the projects are on, under each name. */
+  machine?: string | undefined;
+  heading?: string;
+  /** A bottom sheet, as on a phone or tablet. */
+  sheet?: boolean;
+  /** Opens as a popover at this point instead of over the window. */
+  anchor?: { x: number; y: number } | undefined;
   onBrowse: () => void;
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;
@@ -18,19 +33,21 @@ function projectInitial(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "·";
 }
 
-/** What the host says the user should see for a project; a local host says its path. */
-function projectPath(project: UiProject): string {
-  return project.displayPath ?? project.path;
-}
-
 function compactPath(path: string): string {
   const home = path.match(/^\/Users\/[^/]+/u)?.[0];
   return home ? path.replace(home, "~") : path;
 }
 
+/** "New thread" asks for the project first, as T3 Code: search, recent first, then "Add project…". */
 export function ProjectPicker({
   open,
   projects,
+  threads = [],
+  preselect,
+  machine,
+  heading = "New thread in",
+  sheet,
+  anchor,
   onBrowse,
   onClose,
   onRemove,
@@ -42,23 +59,27 @@ export function ProjectPicker({
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLElement>(null);
   useFocusReturn(open, surfaceRef);
-  // `/` is where an app opened from the Finder once started; never the first choice.
-  const ordered = useMemo(() => rootLast(projects), [projects]);
+  // Read when it opens: a thread finishing meanwhile must not move the row under the pointer.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  const ordered = useMemo(() => pickerOrder(projects, threads, preselect), [projects, preselect, open]);
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return ordered;
     return ordered.filter((project) =>
-      `${project.name} ${projectPath(project)}`.toLocaleLowerCase().includes(needle),
+      `${project.name} ${project.displayPath ?? project.path}`.toLocaleLowerCase().includes(needle),
     );
   }, [ordered, query]);
+  // The row after the projects is "Add project…".
+  const last = matches.length;
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setSelected(0);
     setContextMenu(undefined);
-    window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [open]);
+    // A touch keyboard would cover the list; there the search waits for a tap.
+    if (!sheet) window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open, sheet]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,93 +101,100 @@ export function ProjectPicker({
   }, [contextMenu, matches, onClose, onRemove, open, selected]);
 
   useEffect(() => {
-    setSelected((index) => Math.min(index, Math.max(0, matches.length - 1)));
-  }, [matches.length]);
+    setSelected((index) => Math.min(index, last));
+  }, [last]);
 
   if (!open) return null;
 
-  const activateSelected = () => {
-    const project = matches[selected];
+  const activate = (index: number) => {
+    const project = matches[index];
     if (project) onSelect(project);
+    else onBrowse();
   };
+
+  const body = <>
+    <label className="project-picker-search">
+      <Search size={15} />
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setSelected(0);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setSelected((index) => Math.max(0, Math.min(last, index + (event.key === "ArrowDown" ? 1 : -1))));
+          }
+          if (event.key === "Enter") {
+            event.preventDefault();
+            activate(selected);
+          }
+        }}
+        placeholder="Search projects…"
+        aria-label="Search projects"
+      />
+      {sheet ? null : <kbd className="keyboard-hint">esc</kbd>}
+    </label>
+    {sheet ? null : <div className="project-picker-heading">{heading}</div>}
+    <VirtualList
+      items={matches}
+      itemHeight={sheet ? 56 : 50}
+      overscan={6}
+      className="project-picker-results"
+      role="listbox"
+      scrollToIndex={selected < last ? selected : undefined}
+      empty={<p>No matching projects</p>}
+      renderItem={(project, index) => (
+        <button
+          key={project.workspaceId ?? project.path}
+          role="option"
+          aria-selected={selected === index}
+          className={selected === index ? "selected" : ""}
+          onMouseMove={() => setSelected(index)}
+          onClick={() => onSelect(project)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setSelected(index);
+            setContextMenu({
+              project,
+              x: Math.min(event.clientX, window.innerWidth - 216),
+              y: Math.min(event.clientY, window.innerHeight - 78),
+            });
+          }}
+        >
+          <i className={project.icon ? "has-image" : ""}>
+            {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
+          </i>
+          <span>
+            <strong>{project.name}</strong>
+            <small>{machine ? `${machine} · ` : ""}{compactPath(project.displayPath ?? project.path)}</small>
+          </span>
+          {preselect !== undefined && namesWorkspace(preselect, project.workspaceId, project.path) ? <Check size={14} aria-label="current" /> : null}
+        </button>
+      )}
+    />
+    <button
+      type="button"
+      className={`project-picker-add${selected === last ? " selected" : ""}`}
+      onMouseMove={() => setSelected(last)}
+      onClick={onBrowse}
+    ><Plus size={15} /> Add project…</button>
+    {sheet ? null : <footer className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>↵</kbd> start</footer>}
+  </>;
+
+  let surface: ReactNode;
+  if (sheet) surface = <Sheet title={heading} className="project-picker-sheet" onClose={onClose}>{body}</Sheet>;
+  else if (anchor) surface = <Popover anchor={anchor} label="Search projects" className="project-picker anchored" onClose={onClose}>{body}</Popover>;
+  else surface = <>
+    <button className="project-picker-scrim" aria-label="Close project picker" onClick={onClose} />
+    <section ref={surfaceRef} className="project-picker" role="dialog" aria-modal="true" aria-label="Search projects">{body}</section>
+  </>;
 
   return (
     <>
-      <button className="project-picker-scrim" aria-label="Close project picker" onClick={onClose} />
-      <section ref={surfaceRef} className="project-picker" role="dialog" aria-modal="true" aria-label="Search projects">
-        <header>
-          <span className="project-picker-search-glyph"><Search size={15} /></span>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setSelected(0);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setSelected((index) => Math.min(index + 1, Math.max(0, matches.length - 1)));
-              }
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setSelected((index) => Math.max(index - 1, 0));
-              }
-              if (event.key === "Enter") {
-                event.preventDefault();
-                activateSelected();
-              }
-            }}
-            placeholder="Search projects"
-            aria-label="Search projects"
-          />
-          <kbd className="keyboard-hint">esc</kbd>
-        </header>
-        <div className="project-picker-heading">
-          <span>Projects</span>
-          <small>{matches.length}</small>
-        </div>
-        <VirtualList
-          items={matches}
-          itemHeight={56}
-          overscan={6}
-          className="project-picker-results"
-          role="listbox"
-          scrollToIndex={selected}
-          empty={<p>No matching projects</p>}
-          renderItem={(project, index) => (
-            <button
-              key={project.workspaceId ?? project.path}
-              role="option"
-              aria-selected={selected === index}
-              className={selected === index ? "selected" : ""}
-              onMouseMove={() => setSelected(index)}
-              onClick={() => onSelect(project)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setSelected(index);
-                setContextMenu({
-                  project,
-                  x: Math.min(event.clientX, window.innerWidth - 216),
-                  y: Math.min(event.clientY, window.innerHeight - 78),
-                });
-              }}
-            >
-              <i className={project.icon ? "has-image" : ""}>
-                {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
-              </i>
-              <span>
-                <strong>{project.name}</strong>
-                <small>{compactPath(projectPath(project))}</small>
-              </span>
-            </button>
-          )}
-        />
-        <footer>
-          <button onClick={onBrowse}><span>＋</span> Add project from another source…</button>
-          <small className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small>
-        </footer>
-      </section>
+      {surface}
       {contextMenu ? <div
         className="project-picker-context-menu"
         role="menu"

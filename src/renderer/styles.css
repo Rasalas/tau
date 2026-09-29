@@ -519,6 +519,15 @@ button > svg { pointer-events: none; }
 }
 .conversation-empty > h1 { margin: 0; color: var(--ink); font: 600 var(--text-title)/1.3 var(--sans); letter-spacing: -.01em; overflow-wrap: anywhere; }
 .conversation-empty > p { margin: 0; color: var(--muted); font: var(--text-md)/1.5 var(--sans); }
+/* Project, machine and branch as pills after the text, the page's actions; each opens its popover. */
+.workbench-region.region-draft-actions { flex-flow: row wrap; justify-content: center; max-width: none; margin-top: var(--space-5); }
+.draft-pill {
+  height: 30px; display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 0 10px;
+  border: 0; border-radius: 8px; background: var(--raised); color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.draft-pill:hover, .draft-pill[aria-expanded="true"] { background: var(--raised-hover); color: var(--ink); }
+.draft-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-pill > svg:last-child { flex: none; color: var(--muted); }
 /* The draft's composer: narrower than a thread's and off the window's edge (design 1k). */
 body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-bottom: var(--space-7); }
 .conversation-start .composer-surface { max-width: 680px; }
@@ -1340,7 +1349,6 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .composer-model-chip > .chip-icon { margin-right: -5px; }
 .runtime-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* A new thread's machine and project, before the model. */
-.composer-project-chip { flex: 0 1 auto; min-width: 48px; }
 .composer-lead-rule { width: 1px; height: 16px; flex: none; background: var(--line); }
 /* The kits' lead controls drew nothing (a thread that started): no rule before the model. */
 .composer-lead-rule:first-child { display: none; }
@@ -2068,66 +2076,11 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   background: var(--overlay); box-shadow: var(--elevation-3);
   overflow: hidden; animation: centered-modal-enter .16s cubic-bezier(.2, .8, .2, 1);
 }
-.project-picker > header {
-  display: flex; align-items: center; gap: 11px; height: 52px;
-  border-bottom: 1px solid var(--line); padding: 0 16px;
-}
-.project-picker-search-glyph { display: grid; place-items: center; color: var(--acid-text); }
-.project-picker > header input {
-  flex: 1; border: 0; background: transparent; color: var(--ink);
-  font-size: var(--text-lg); outline: none;
-}
-.project-picker > header input::placeholder { color: var(--faint); }
 .project-picker-heading {
   padding: 10px 16px 4px; font-weight: 500;
   color: var(--faint);
 }
 .project-picker-heading small { color: var(--fainter); }
-.project-picker-results { padding: 4px 8px 8px; max-height: 340px; overflow: auto; }
-.project-picker-results button {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  border: 0; border-radius: 8px; background: transparent;
-  padding: 9px 10px; cursor: pointer; text-align: left; color: inherit;
-}
-.project-picker-results button:hover, .project-picker-results button.selected { background: var(--raised); }
-.project-picker-results button > i {
-  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
-  border-radius: 6px; background: var(--chip); color: var(--muted); font-size: var(--text-sm); font-style: normal;
-}
-.project-picker-results button > i.has-image { overflow: hidden; background: transparent; }
-.project-picker-results button > i > img { width: 100%; height: 100%; display: block; object-fit: contain; }
-.project-picker-results button > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.project-picker-results strong { font-size: var(--text-sm); font-weight: 600; }
-.project-picker-results small { font: 10px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-picker-results p { padding: 16px 10px; color: var(--faint); font-size: var(--text-sm); }
-.project-picker-context-menu {
-  position: fixed; z-index: 83; width: 204px; padding: 5px;
-  border: 1px solid var(--line-float); border-radius: 10px;
-  background: var(--stage); box-shadow: var(--elevation-2);
-  animation: fade-up .1s ease;
-}
-.project-picker-context-menu > button {
-  width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 9px;
-  border: 0; border-radius: 7px; background: transparent; color: var(--removed); cursor: pointer;
-  text-align: left;
-}
-.project-picker-context-menu > button:hover, .project-picker-context-menu > button:focus-visible { background: var(--raised); outline: none; }
-.project-picker-context-menu > button > svg { flex: none; }
-.project-picker-context-menu > button > span { display: flex; flex-direction: column; gap: 2px; }
-.project-picker-context-menu strong { color: var(--ink-2); font: 500 var(--text-sm) var(--sans); }
-.project-picker-context-menu small { color: var(--faint); font: 10px var(--sans); }
-.project-picker > footer {
-  display: flex; align-items: center; gap: 12px; height: 44px;
-  border-top: 1px solid var(--line); padding: 0 14px;
-}
-.project-picker > footer > button {
-  display: flex; align-items: center; gap: 8px;
-  border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
-  color: var(--ink-3); font: 500 var(--text-sm) var(--sans); padding: 6px 10px; cursor: pointer;
-}
-.project-picker > footer > button:hover { background: var(--raised); color: var(--ink); }
-.project-picker > footer > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
-
 .project-modal-title {
   display: flex; align-items: center; gap: 10px; height: 52px;
   border-bottom: 1px solid var(--line); padding: 0 14px;

@@ -407,6 +407,16 @@ describe("the web client at 400 px", () => {
   });
 });
 
+/** The new thread's sheet (K98): the project in context leads it; a tap starts the draft there. */
+async function pickFirstProject(expected: string): Promise<HTMLElement> {
+  const sheet = await screen.findByRole("dialog", { name: "New thread in" });
+  const options = within(sheet).getAllByRole("option");
+  expect(options[0]!.querySelector("strong")?.textContent).toBe(expected);
+  expect(options[0]!.getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(options[0]!);
+  return sheet;
+}
+
 describe("a phone with no thread open", () => {
   const TWO_PROJECTS: ProjectEntry[] = [{ path: "/", name: "/", lastOpenedAt: 99 }, { path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 2 }];
 
@@ -420,20 +430,27 @@ describe("a phone with no thread open", () => {
     expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(true);
   });
 
-  it("starts a new thread in the project the host last worked in, never in /", async () => {
+  it("asks for the project in a sheet, the one the host last worked in first and / last", async () => {
     renderHome([], TWO_PROJECTS);
     fireEvent.click(within(await screen.findByRole("region", { name: "Threads" })).getByRole("button", { name: "New thread" }));
+    const sheet = await screen.findByRole("dialog", { name: "New thread in" });
+    expect(sheet.className).toContain("touch-sheet");
+    expect(within(sheet).getAllByRole("option").map((option) => option.querySelector("strong")?.textContent)).toEqual(["project", "other", "/"]);
+    // The search waits for a tap: a keyboard would cover the list.
+    expect(document.activeElement).not.toBe(within(sheet).getByRole("textbox", { name: "Search projects" }));
+    await pickFirstProject("project");
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Threads" })).toBeNull();
     expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(false);
   });
 
-  it("asks for a project when the host knows none but /", async () => {
+  it("goes straight to adding a project when the host knows none but /", async () => {
     renderCompactClient({ bootstrap: bootstrapWith([], { home: true, projects: [{ path: "/", name: "/", lastOpenedAt: 1 }] }) });
     const home = await screen.findByRole("region", { name: "Threads" });
     expect(within(home).getByText("No threads yet")).toBeTruthy();
     fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
-    expect(await screen.findByPlaceholderText("Search projects")).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "New thread in" })).toBeNull();
     // No draft until a project is chosen: the start page stays.
     expect(screen.getByRole("region", { name: "Threads" })).toBeTruthy();
   });
@@ -456,10 +473,11 @@ describe("a phone with no thread open", () => {
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^All projects/u }));
     expect(await within(home).findByRole("button", { name: "Open thread Tune the other one" })).toBeTruthy();
 
-    // `other` was busy last, but the filter names the project a new thread starts in.
+    // `other` was busy last, but the filter names the project offered first.
     fireEvent.click(within(home).getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^project/u }));
     fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
+    await pickFirstProject("project");
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
   });
 });
@@ -543,19 +561,21 @@ describe("a new thread's draft in the phone's list", () => {
 describe("the compact client on a tablet", () => {
   beforeEach(() => setViewport(1024, 768));
 
-  it("starts a new thread in the project of the thread beside the list, or in the filtered one", async () => {
+  it("offers the project of the thread beside the list first, or the filtered one", async () => {
     // `other` is where the host last worked; the thread on screen is in `project`.
     const projects: ProjectEntry[] = [{ path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 99 }];
     renderCompactClient({ bootstrap: bootstrapWith(THREADS, { projects }) });
     const sidebar = await screen.findByRole("navigation", { name: "Thread list" });
     fireEvent.click(within(sidebar).getByRole("button", { name: "New thread" }));
+    await pickFirstProject("project");
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
-    expect(screen.queryByPlaceholderText("Search projects")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New thread in" })).toBeNull());
 
     fireEvent.click(within(sidebar).getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^other/u }));
     // The header's button; the empty list offers one too.
     fireEvent.click(within(sidebar).getAllByRole("button", { name: "New thread" })[0]!);
+    await pickFirstProject("other");
     expect(await screen.findByRole("button", { name: "Change project, current project other" })).toBeTruthy();
   });
 

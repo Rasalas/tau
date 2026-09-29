@@ -81,3 +81,16 @@ export function lastUsedProject(projects: readonly UiProject[], threads: readonl
 export function rootLast<T extends Pick<UiProject, "path">>(projects: readonly T[]): T[] {
   return [...projects.filter((project) => !isFilesystemRoot(project.path)), ...projects.filter((project) => isFilesystemRoot(project.path))];
 }
+
+/**
+ * The new thread's picker order, as T3 Code's: `first` (the project in
+ * context), then by the last thread worked in or the last opening, `/` last.
+ */
+export function pickerOrder(projects: readonly UiProject[], threads: readonly Pick<UiSession, "workspaceId" | "projectPath" | "modifiedAt" | "messageCount">[], first?: string): UiProject[] {
+  const at = new Map<string, number>();
+  const touch = (key: string | undefined, time: number) => { if (key && (at.get(key) ?? 0) < time) at.set(key, time); };
+  for (const thread of threads) if (thread.messageCount > 0) { touch(thread.workspaceId, thread.modifiedAt); touch(thread.projectPath, thread.modifiedAt); }
+  const used = (project: UiProject) => Math.max(project.lastOpenedAt, at.get(project.workspaceId ?? "") ?? 0, at.get(project.path) ?? 0);
+  const rank = (project: UiProject) => (first !== undefined && namesWorkspace(first, project.workspaceId, project.path) ? Infinity : used(project));
+  return rootLast([...projects].sort((a, b) => rank(b) - rank(a)));
+}

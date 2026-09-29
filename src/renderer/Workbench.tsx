@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ListTree, MessageSquare } from "lucide-react";
+import { ChevronDown, ListTree, MessageSquare } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
@@ -44,6 +44,7 @@ import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
 import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
+import type { NewThreadPick } from "./use-app-overlays";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
 import { CHAT_MIN_WIDTH, STAGE_MIN_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
@@ -186,8 +187,8 @@ export interface WorkbenchLayout {
   /** The source the project sources open on. */
   projectSource?: string;
   closeProjectSources(): void;
-  newThreadOpen: boolean;
-  openNewThreadPicker(): void;
+  newThreadPick?: NewThreadPick | undefined;
+  openNewThreadPicker(pick?: NewThreadPick): void;
   closeNewThreadPicker(): void;
   projects: readonly UiProject[];
   removeProject(project: UiProject): void;
@@ -295,7 +296,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
     documentState, documentSource, paletteOpen, paletteMenu, closePalette, commands,
-    projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
+    projectSourcesOpen, projectSource, closeProjectSources, newThreadPick, openNewThreadPicker, closeNewThreadPicker,
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
   } = layout;
@@ -359,8 +360,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     const draft = phoneHome ? threadStore.getDrafts().find((candidate) => candidate.active) : undefined;
     if (draft && !draft.preview && draft.attachments === 0) actions.discardDraft?.(draft.draftId);
   }, [phoneHome]);
-  // The start screen's project button moves the draft; the project picker's other doors start another.
-  const pickerCarries = useRef(false);
   // On a compact layout a panel that claims `compact` opens over the thread; F10 and F11 add theirs here.
   const [panelSheet, setPanelSheet] = useState<string>();
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
@@ -500,11 +499,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   ].filter(Boolean).join(" ");
 
   const openSupervisedThread = (row: { path: string }) => { void actions.switchSession(row.path); };
-  // In the filtered project, else as ⌘N: the project on screen, else where the host last worked, else ask.
-  const startTouchThread = () => {
-    if (touchProject) createThreadInProject(touchProject);
-    else actions.newSession();
-  };
+  // As ⌘N, with the filtered project first.
+  const startTouchThread = () => actions.newSession(touchProject ? { workspace: touchProject.workspaceId ?? touchProject.path, pick: true } : undefined);
   const threadBrowserProps = {
     registry,
     actions,
@@ -532,16 +528,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
     actions={actions}
-    {...(showStartScreen ? { lead: <button
-      type="button"
-      className="runtime-chip composer-project-chip"
-      aria-label={`Change project, current project ${startProjectName}`}
-      {...tooltipProps(displayPath(startProjectPath), { variant: "code" })}
-      onClick={() => { pickerCarries.current = true; openNewThreadPicker(); }}
-    >
-      <i className="thread-project-icon" style={{ "--project-hue": projectHue(startProjectPath) } as CSSProperties}>{projectInitial(startProjectName)}</i>
-      <span className="runtime-chip-label">{startProjectName}</span>
-    </button> } : {})}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -595,12 +581,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </Suspense> : null}
     <Suspense fallback={null}>
       <LazyProjectPicker
-        open={newThreadOpen}
+        open={newThreadPick !== undefined}
         projects={projects}
+        threads={threadStore.getSnapshot().threads}
+        preselect={newThreadPick?.preselect}
+        machine={hostName}
+        sheet={compact}
+        anchor={newThreadPick?.anchor}
+        {...(newThreadPick?.carry ? { heading: "Project" } : {})}
         onBrowse={() => actions.openProjectSources()}
-        onClose={() => { pickerCarries.current = false; closeNewThreadPicker(); }}
+        onClose={closeNewThreadPicker}
         onRemove={removeProject}
-        onSelect={(project) => { const carry = pickerCarries.current; pickerCarries.current = false; createThreadInProject(project, carry ? { carry } : undefined); }}
+        onSelect={(project) => { closeNewThreadPicker(); createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined); }}
       />
     </Suspense>
     {openPage && pageScreen ? appPage : null}
@@ -653,6 +645,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>);
 
   const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
+  // The icon the host found for the draft's project (favicon, t3.json), as the picker and the phone's list draw it.
+  const startIcon = showStartScreen ? projects.find((project) => project.path === startProjectPath)?.icon : undefined;
   const threadTitle = showStartScreen ? <span className="title-draft">New thread</span> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
@@ -783,6 +777,19 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 <i aria-hidden><MessageSquare size={20} /></i>
                 <h1 id="start-screen-title">What should {startProjectName} do next?</h1>
                 <p>Just chat, or hand it work. Files, Terminal and your editor sit top right.</p>
+                <Region registry={registry} placement="draft-actions" snapshot={snapshot} actions={actions} lead={<button
+                  type="button"
+                  className="draft-pill"
+                  aria-label={`Change project, current project ${startProjectName}`}
+                  {...tooltipProps(displayPath(startProjectPath), { variant: "code" })}
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    openNewThreadPicker({ carry: true, preselect: startProjectPath, ...(compact ? {} : { anchor: { x: rect.left, y: rect.bottom } }) });
+                  }}
+                >
+                  <i className={`thread-project-icon${startIcon ? " has-image" : ""}`} style={{ "--project-hue": projectHue(startProjectPath) } as CSSProperties}>{startIcon ? <img src={startIcon} alt="" /> : projectInitial(startProjectName)}</i>
+                  <span>{startProjectName}</span><ChevronDown size={12} />
+                </button>} />
               </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} />
               <ComposerHost start={showStartScreen}>{conversationComposer}</ComposerHost>

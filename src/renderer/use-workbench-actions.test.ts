@@ -275,11 +275,14 @@ describe("useWorkbenchActions", () => {
     result.current.newSession({ workspace: "ws1_unknown" });
     expect(createThreadInProject).toHaveBeenCalledTimes(1);
     expect(options.openNewThreadPicker).not.toHaveBeenCalled();
+    // `pick` asks even with one project, the named one first.
     result.current.newSession({ pick: true });
-    expect(options.openNewThreadPicker).toHaveBeenCalledTimes(1);
+    expect(options.openNewThreadPicker).toHaveBeenLastCalledWith({ preselect: "ws1_app" });
+    result.current.newSession({ workspace: "/work/app", pick: true });
+    expect(options.openNewThreadPicker).toHaveBeenLastCalledWith({ preselect: "ws1_app" });
   });
 
-  describe("a new thread nobody named a project for", () => {
+  describe("a new thread nobody named a project for asks, as T3 Code", () => {
     const app = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
     const site = { path: "/work/site", workspaceId: "ws1_site", name: "site", lastOpenedAt: 5 };
     const setup = (screen: { thread?: Partial<HostSnapshot>; draft?: object; covered?: boolean; projects?: object[] }) => {
@@ -292,22 +295,30 @@ describe("useWorkbenchActions", () => {
         createThreadInProject,
       });
       renderHook(() => useWorkbenchActions(options)).result.current.newSession();
-      return { createThreadInProject, picker: options.openNewThreadPicker };
+      return { createThreadInProject, picker: options.openNewThreadPicker, sources: options.openProjectSources };
     };
 
-    it("opens in the project of the thread on screen", () => {
-      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app", cwd: "/work/app" } }).createThreadInProject).toHaveBeenCalledWith(app);
+    it("offers the project of the thread on screen first", () => {
+      const { picker, createThreadInProject } = setup({ thread: { sessionId: "t", workspaceId: "ws1_app", cwd: "/work/app" } });
+      expect(picker).toHaveBeenCalledWith({ preselect: "ws1_app" });
+      expect(createThreadInProject).not.toHaveBeenCalled();
     });
 
-    it("opens in the project of the draft on screen", () => {
-      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_site" }, draft: { kind: "draft", draftId: "d", projectPath: "/work/app", workspaceId: "ws1_app", projectName: "app" } }).createThreadInProject).toHaveBeenCalledWith(app);
+    it("offers the project of the draft on screen first", () => {
+      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_site" }, draft: { kind: "draft", draftId: "d", projectPath: "/work/app", workspaceId: "ws1_app", projectName: "app" } }).picker)
+        .toHaveBeenCalledWith({ preselect: "ws1_app" });
     });
 
-    it("opens where the host last worked while a page covers the thread, and asks without a project", () => {
-      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true }).createThreadInProject).toHaveBeenCalledWith(site);
-      const none = setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true, projects: [] });
+    it("offers where the host last worked while a page covers the thread", () => {
+      expect(setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, covered: true }).picker).toHaveBeenCalledWith({ preselect: "ws1_site" });
+    });
+
+    it("starts in the only project without asking, and goes to Add project without one (/ does not count)", () => {
+      expect(setup({ projects: [app, { path: "/", name: "/", lastOpenedAt: 9 }] }).createThreadInProject).toHaveBeenCalledWith(app);
+      const none = setup({ thread: { sessionId: "t", workspaceId: "ws1_app" }, projects: [{ path: "/", name: "/", lastOpenedAt: 9 }] });
       expect(none.createThreadInProject).not.toHaveBeenCalled();
-      expect(none.picker).toHaveBeenCalledTimes(1);
+      expect(none.picker).not.toHaveBeenCalled();
+      expect(none.sources).toHaveBeenCalledTimes(1);
     });
   });
 

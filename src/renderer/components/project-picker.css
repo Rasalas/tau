@@ -1,0 +1,56 @@
+/* The new thread's project picker (design 1u's popover shell): over the window, at a pill, or as a sheet. */
+.project-picker { width: 460px; padding: 6px; border-radius: 12px; }
+.popover.project-picker.anchored { position: fixed; transform: none; top: 0; width: min(400px, calc(100vw - 24px)); animation: fade-up .12s ease; }
+.project-picker-search {
+  height: 40px; display: flex; align-items: center; gap: 9px; margin: 0 8px 4px;
+  border-bottom: 1px solid var(--line-field); color: var(--muted);
+}
+.project-picker-search:focus-within { color: var(--ink-2); border-bottom-color: var(--info); }
+.project-picker-search input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  color: var(--ink); font-size: var(--text-md);
+}
+.project-picker-search input::placeholder { color: var(--muted); }
+.project-picker .project-picker-heading, .project-picker-sheet .project-picker-heading { padding: 8px 12px 4px; color: var(--muted); }
+.project-picker-results { max-height: min(360px, calc(100vh - 220px)); overflow: auto; }
+.project-picker-results button, .project-picker-add {
+  width: 100%; height: 50px; display: flex; align-items: center; gap: 11px;
+  border: 0; border-radius: 8px; background: transparent;
+  padding: 0 12px; cursor: pointer; text-align: left; color: var(--ink-2);
+}
+.project-picker-results button.selected, .project-picker-add.selected { background: var(--raised); color: var(--ink); }
+.project-picker-results button > i {
+  width: 22px; height: 22px; flex: none; display: grid; place-items: center; overflow: hidden;
+  border-radius: 6px; background: var(--chip); color: var(--ink-3); font: 600 10px var(--sans); font-style: normal;
+}
+.project-picker-results button > i.has-image { background: transparent; }
+.project-picker-results button > i > img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.project-picker-results button > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.project-picker-results strong { font-size: var(--text-md); font-weight: 600; }
+.project-picker-results small, .project-picker > footer { color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-picker-results button > svg { flex: none; color: var(--info); }
+.project-picker-results p { padding: 14px 12px; color: var(--muted); font-size: var(--text-sm); }
+.project-picker-add { height: 38px; margin-top: 4px; box-shadow: 0 -1px 0 var(--line); border-radius: 0 0 8px 8px; font-size: var(--text-md); }
+.project-picker-add > svg { flex: none; color: var(--muted); }
+.project-picker > footer { padding: 6px 12px 4px; font-size: 10px; }
+.project-picker-context-menu {
+  position: fixed; z-index: 83; width: 204px; padding: 5px;
+  border: 1px solid var(--line-float); border-radius: 10px;
+  background: var(--stage); box-shadow: var(--elevation-2);
+  animation: fade-up .1s ease;
+}
+.project-picker-context-menu > button {
+  width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 9px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--removed); cursor: pointer;
+  text-align: left;
+}
+.project-picker-context-menu > button:hover, .project-picker-context-menu > button:focus-visible { background: var(--raised); outline: none; }
+.project-picker-context-menu > button > svg { flex: none; }
+.project-picker-context-menu > button > span { display: flex; flex-direction: column; gap: 2px; }
+.project-picker-context-menu strong { color: var(--ink-2); font: 500 var(--text-sm) var(--sans); }
+.project-picker-context-menu small { color: var(--faint); font: 10px var(--sans); }
+/* A phone or tablet: 1o's sheet, search on top, rows of 56 px (44 px targets and more). */
+.project-picker-sheet .project-picker-results { max-height: none; }
+.project-picker-sheet .project-picker-results button { height: 56px; }
+.project-picker-sheet .project-picker-add { height: 48px; }
+.project-picker-sheet .project-picker-search { height: 44px; margin: 0 4px 4px; }

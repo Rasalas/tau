@@ -300,9 +300,10 @@ export interface TranscriptRowsHandle {
  * `stage-bar` sits at the right of the stage's tab strip, before its maximize
  * (API 1.27.0). `thread-details` adds items to the thread header's sub-line,
  * before the branch; `thread-branch` draws the branch there instead of core's
- * plain label (both API 1.27.0).
+ * plain label (both API 1.27.0). `draft-actions` adds pills beside the
+ * project under a new thread's heading, each opening its own popover.
  */
-export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
+export type RegionPlacement = "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in";
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
 export interface LookInRegionContext {
