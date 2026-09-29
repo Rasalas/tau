@@ -1022,7 +1022,10 @@ system's back gesture steps out of it, then out of the page to the thread list.
 `layout` is `"readable"` (Settings' reading column, the default), `"wide"`
 (1240 px) or `"fill"`: the page gets the whole area below the bar and scrolls
 itself, as a stage tab does. `PageProps` carries `actions`, the `params` of the
-view on screen, `navigate(params, { label?, replace? })` and `close()`. A page
+view on screen, `navigate(params, { label?, replace?, root? })` and `close()`;
+`root` (API 1.28.0) leaves every view for the page's own, opened on `params`
+(a page's `Sidebar` switching what the page lists while a detail is open), and
+an older host ignores it, so pass `replace` with it. A page
 steps into a view of itself with `navigate` — a request's detail, a sub-page —
 and `label` is the head's title then, with the page and the views below as a
 breadcrumb over it (on a phone the title sits in the bar beside Back); Escape
@@ -1047,8 +1050,8 @@ the thread list while the page is open on a desktop, in Settings' column: Back
 to thread above it and at its foot, the component between, filling the column
 and scrolling itself. It receives the page's own `PageProps` (the `params` of the
 view on screen, `navigate`, `close`, `actions`), so a click in it can
-`navigate(…, { replace: true })` the page to a detail, and it can mark what the
-page shows from `params`. The thread list stays mounted out of sight and comes
+`navigate` the page — `{ root: true, replace: true }` to switch what it lists,
+out of any detail — and it marks what the page shows from `params`. The thread list stays mounted out of sight and comes
 back as it was. `PageProps.sidebar` is `true` for the page while its `Sidebar`
 is on screen: the page then leaves out the navigation the sidebar carries (Review
 Kit drops its tabs). It is `false` on a phone, on a tablet's split layout

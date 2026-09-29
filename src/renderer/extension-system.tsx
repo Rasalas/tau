@@ -683,9 +683,11 @@ export interface PageProps {
   /**
    * Steps into another view of the page (a detail, a sub-page): `label` follows
    * the page's own in the bar, and Escape, the bar and a phone's back gesture
-   * return. `replace` swaps the view on top instead of adding one.
+   * return. `replace` swaps the view on top instead of adding one; `root` (API
+   * 1.28.0) leaves every view for the page's own, opened on `params` — pass
+   * `replace` with it for an older host.
    */
-  navigate(params: Record<string, unknown>, options?: { label?: string; replace?: boolean }): void;
+  navigate(params: Record<string, unknown>, options?: { label?: string; replace?: boolean; root?: boolean }): void;
   /** Back to the thread. */
   close(): void;
   /**
