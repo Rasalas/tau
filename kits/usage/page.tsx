@@ -217,7 +217,14 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   useEffect(() => { view.setFacts({ runtimes, machines, anyOutside, ...(month ? { month } : {}) }); }, [anyOutside, machines, month, runtimes, view]);
   // Opened at a section (the foot's juicebars open the limits).
   const section = typeof params.section === "string" ? params.section : undefined;
-  useEffect(() => { if (section) requestAnimationFrame(() => jumpTo(`usage-${section}`)); }, [section]);
+  const jumped = useRef<string>(undefined);
+  const laidOut = Boolean(summary && (section !== "limits" || allLimits));
+  useEffect(() => {
+    // Once what it shows is in: before, the page is too short to scroll there.
+    if (!section || !laidOut || jumped.current === section) return;
+    jumped.current = section;
+    requestAnimationFrame(() => jumpTo(`usage-${section}`, "auto"));
+  }, [laidOut, section]);
 
   const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
   const threadOf = (threadId: string | undefined) => (threadId ? index.threads.find((thread) => thread.id === threadId) : undefined);

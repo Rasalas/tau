@@ -1,5 +1,5 @@
 import { useSyncExternalStore, type ReactNode } from "react";
-import { Monitor, Server } from "lucide-react";
+import { Monitor, Network, Server } from "lucide-react";
 import { formatCost, ProviderIconStack, tooltipProps, usePreferences } from "tau";
 import { USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageOrigin, type UsageRange } from "./dashboard.js";
 import type { UsageFacts, UsageFilters, UsageView } from "./filters.js";
@@ -113,8 +113,8 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string }> = [
 ];
 
 /** Scrolls the page to one of its sections. */
-export function jumpTo(id: string): void {
-  document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+export function jumpTo(id: string, behavior: ScrollBehavior = "smooth"): void {
+  document.getElementById(id)?.scrollIntoView({ block: "start", behavior });
 }
 
 function useView(view: UsageView): { filters: UsageFilters; facts: UsageFacts } {
@@ -135,14 +135,15 @@ export function UsageSidebar({ view }: { view: UsageView }) {
       {facts.machines.length > 0 ? (
         <NavGroup heading="Machine">
           {machineOptions(facts.machines).map((option) => (
-            <NavRow key={option.id ?? "all"} active={filters.machine === option.id} icon={option.id === undefined || option.id === "" ? <Monitor size={14} aria-hidden="true" /> : <Server size={14} aria-hidden="true" />} label={option.label} onSelect={() => view.setFilters({ machine: option.id })} />
+            <NavRow key={option.id ?? "all"} active={filters.machine === option.id} icon={option.id === undefined ? <Network size={14} aria-hidden="true" /> : option.id === "" ? <Monitor size={14} aria-hidden="true" /> : <Server size={14} aria-hidden="true" />} label={option.label} onSelect={() => view.setFilters({ machine: option.id })} />
           ))}
         </NavGroup>
       ) : null}
       {facts.anyOutside ? (
-        <NavGroup heading="Where it ran">
-          {ORIGINS.map((option) => <NavRow key={option.id} active={(filters.origin ?? "all") === option.id} label={option.label} onSelect={() => view.setFilters({ origin: option.id === "all" ? undefined : option.id })} />)}
-        </NavGroup>
+        <div className="settings-nav-group usage-sidebar-segment">
+          <h2 className="settings-nav-heading">Where it ran</h2>
+          <Segmented<UsageOrigin | "all"> label="Where the work ran" value={filters.origin ?? "all"} options={ORIGINS} onChange={(value) => view.setFilters({ origin: value === "all" ? undefined : value })} />
+        </div>
       ) : null}
       {facts.runtimes.length > 1 ? (
         <NavGroup heading="Runtime">

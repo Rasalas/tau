@@ -272,7 +272,7 @@ button.usage-rank-label:hover { background: var(--hover); }
  * between accounts. Low is the warn colour, spent the fail colour, an old
  * reading faint.
  */
-.sidebar-footer button.usage-juicebars { width: auto; min-width: 30px; display: flex; align-items: center; gap: 6px; padding: 0 7px; }
+.sidebar-footer button.usage-juicebars { width: auto; min-width: 30px; display: flex; align-items: center; gap: 8px; padding: 0 7px; }
 .usage-juicebar-group { display: flex; align-items: flex-end; gap: 2px; }
 .usage-juicebar {
   --usage-left: 0%;
@@ -322,7 +322,7 @@ button.usage-rank-label:hover { background: var(--hover); }
 .usage-month-change { color: var(--ink-2); font-weight: 600; }
 
 /* The sidebar: Settings' rows for the lists, the short choices segmented, the sections quietly at the end. */
-.usage-sidebar .provider-icon-stack { margin: 0; }
+.usage-sidebar .provider-icon-stack { flex: none; margin: 0; }
 .usage-sidebar-segment { padding: 0 var(--space-2); }
 .usage-sidebar-segment > .settings-nav-heading { padding-inline: var(--space-2); }
 .usage-sidebar .segmented { max-width: none; }
