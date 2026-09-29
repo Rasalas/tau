@@ -49,6 +49,8 @@ export interface MachineRailThread {
   opening?: boolean;
   machine: { name: string; icon: ReactNode };
   unavailable?: string;
+  /** Settled on this client (the phone's list puts it on the shelf); the desktop rail ignores it. */
+  settled?: boolean;
   open(actions: WorkbenchActions): void;
   lookIn?(actions: WorkbenchActions): void;
 }
@@ -102,6 +104,7 @@ export function createMachineThreads(environments: PlatformEnvironments) {
           key: session.id,
           session,
           ...(thread.running ? { running: true } : {}),
+          ...(thread.settled ? { settled: true } : {}),
           ...(opening === session.id ? { opening: true } : {}),
           machine: { name: machine.name, icon: <MachineIcon environment={machine} size={13} /> },
           ...(reason ? { unavailable: reason } : {}),

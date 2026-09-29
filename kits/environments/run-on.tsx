@@ -1,15 +1,14 @@
-import { useState } from "react";
-import { ChevronDown, Scale } from "lucide-react";
-import { Menu, tooltipProps, type HostExtensionClient, type PlatformEnvironments, type RegionProps, type UiEnvironment } from "tau";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Check, ChevronDown, Scale } from "lucide-react";
+import { Menu, Sheet, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type RegionProps, type UiEnvironment } from "tau";
 import { autoApplies, autoRunOn, chooseInput, threadTargets, useAutoPreview, useAutoRunOn } from "./auto.js";
 import { cannotStartReason, shownMachine, statusText } from "./machines.js";
 import { MachineIcon, useEnvironments } from "./rail.js";
 
 const AUTO = "auto";
 
-/** A machine's line under its name in "Run on" (design 1k): this one or online, and how busy. */
-export function runOnDetail(machine: UiEnvironment, now: number): string {
-  const running = machine.threads.filter((thread) => thread.running).length;
+/** A machine's line under its name in "Run on" (design 1k): this one or online, and how busy. `running` overrides its list's count. */
+export function runOnDetail(machine: UiEnvironment, now: number, running = machine.threads.filter((thread) => thread.running).length): string {
   const load = running > 0 ? `${running} running` : "idle";
   if (machine.local) return `this machine · ${load}`;
   return machine.status === "connected" ? `online · ${load}` : statusText(machine, now);
@@ -32,8 +31,8 @@ export function autoTooltip(preview: { answer?: { machine: string | null; reason
  * it and opens this window there; a started thread stays where it runs.
  * "Automatic" leaves the choice to the moment the prompt is sent.
  */
-export function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient) {
-  return function RunOnControl({ actions, snapshot }: Partial<RegionProps>) {
+export function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient, options: { sheet?: boolean } = {}) {
+  const RunOnControl = ({ actions, snapshot, runningHere }: Partial<RegionProps> & { runningHere?: number }) => {
     const list = useEnvironments(environments);
     const auto = useAutoRunOn();
     const [open, setOpen] = useState(false);
@@ -60,7 +59,9 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
       setMoving(true);
       // The text goes along; left here it would be a second copy. The page reloads before `open` answers.
       actions.setComposerDraft?.("");
-      void environments.open(machine.id, { newThread: { draft, ...(machine.projects[0]?.workspaceId ? { workspaceId: machine.projects[0].workspaceId } : {}) } })
+      // The project of the same name there, else the one that machine worked in last.
+      const workspaceId = (threadTargets(list, active?.cwd).get(machine.id) ?? machine.projects[0]?.workspaceId);
+      void environments.open(machine.id, { newThread: { draft, ...(workspaceId ? { workspaceId } : {}) } })
         .catch((error: unknown) => {
           setMoving(false);
           actions.setComposerDraft?.(draft);
@@ -69,6 +70,35 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
     };
     const names = new Map(list.environments.map((machine) => [machine.id, machine.name]));
     const label = moving ? "Moving…" : automatic ? "Automatic" : current.name;
+    const detail = (machine: UiEnvironment) => machine.readOnly || machine.status === "refused"
+      ? cannotStartReason(machine, now)!
+      : runOnDetail(machine, now, machine.id === current.id && runningHere !== undefined ? runningHere : undefined);
+    const blocked = (machine: UiEnvironment) => machine.id !== current.id && cannotStartReason(machine, now) !== undefined;
+    if (options.sheet) {
+      return <>
+        <button
+          className="draft-pill machine-chip"
+          aria-label={`Run on ${current.name}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          disabled={moving}
+          onClick={() => setOpen(!open)}
+        >
+          <MachineIcon environment={current} />
+          <span>{label}</span>
+          <ChevronDown size={12} className="chev" />
+        </button>
+        {open ? <RunOnSheet
+          machines={list.environments}
+          current={current.id}
+          detail={detail}
+          blocked={blocked}
+          onRefresh={(id) => void environments.retry(id).catch(() => undefined)}
+          onPick={(id) => { setOpen(false); move(id); }}
+          onClose={() => setOpen(false)}
+        /> : null}
+      </>;
+    }
     return (
       <span className="menu-anchor run-on-anchor">
         <button
@@ -102,8 +132,8 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
                 icon: <MachineIcon environment={machine} />,
                 selected: !automatic && machine.id === current.id,
                 // Offline reads as a state, as in the design; Read only and refused say why.
-                description: machine.readOnly || machine.status === "refused" ? cannotStartReason(machine, now) : runOnDetail(machine, now),
-                disabled: machine.id !== current.id && cannotStartReason(machine, now) !== undefined,
+                description: detail(machine),
+                disabled: blocked(machine),
               })),
             ]}
             onSelect={(id) => { setOpen(false); move(id); }}
@@ -113,4 +143,54 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
       </span>
     );
   };
+  if (!options.sheet) return RunOnControl;
+  // A phone's list of its hosts holds no threads of the one on screen; its own thread list does.
+  return function RunOnSheetControl(props: Partial<RegionProps>) {
+    const store = useThreadStore();
+    const runningHere = useSyncExternalStore(store.subscribeToActivity, () => store.getActivity().runningThreadIds.length);
+    return <RunOnControl {...props} runningHere={runningHere} />;
+  };
+}
+
+/**
+ * "Run on" as a phone's sheet (design 1o): a row per paired machine with its
+ * state, the one in use ticked. A machine out of reach says why and cannot be
+ * picked; opening the sheet asks those again, so a machine that came back
+ * turns pickable while the sheet is open.
+ */
+function RunOnSheet({ machines, current, detail, blocked, onRefresh, onPick, onClose }: {
+  machines: readonly UiEnvironment[];
+  current: string;
+  detail(machine: UiEnvironment): string;
+  blocked(machine: UiEnvironment): boolean;
+  onRefresh(id: string): void;
+  onPick(id: string): void;
+  onClose(): void;
+}) {
+  // Once per opening, not on every list change.
+  useEffect(() => {
+    for (const machine of machines) if (machine.id !== current && machine.status !== "connected" && machine.status !== "refused") onRefresh(machine.id);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <Sheet title="Run on" className="run-on-sheet" onClose={onClose}>
+    <div className="run-on-rows" role="group" aria-label="Machines">
+      {machines.map((machine) => {
+        const selected = machine.id === current;
+        const disabled = blocked(machine);
+        return <button
+          key={machine.id}
+          type="button"
+          className="run-on-row"
+          aria-pressed={selected}
+          disabled={disabled}
+          data-status={machine.status}
+          onClick={() => onPick(machine.id)}
+        >
+          <MachineIcon environment={machine} size={18} />
+          <span><strong>{machine.name}</strong><small>{detail(machine)}</small></span>
+          {selected ? <Check size={17} aria-hidden /> : null}
+        </button>;
+      })}
+    </div>
+  </Sheet>;
 }
