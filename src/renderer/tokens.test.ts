@@ -203,6 +203,18 @@ describe("the token contract", () => {
     expect(mark).toMatch(/--project-ink:\s*light-dark\(hsl\(var\(--project-hue\)/u);
   });
 
+  it("sets the design's type scale as Default, with Small and Large a step either side", async () => {
+    const scale = (css: string) => Object.fromEntries([...css.matchAll(/--(text-(?:xs|sm|md|lg|title)|label-size):\s*(\d+)px/gu)].map((m) => [m[1]!, Number(m[2])]));
+    const byDefault = scale(await readFile(TOKENS, "utf8"));
+    // Design K96 measured: meta 11, controls 12, body 13, a thread's heading 17.
+    expect(byDefault).toEqual({ "label-size": 11, "text-xs": 11, "text-sm": 12, "text-md": 13, "text-lg": 14, "text-title": 17 });
+    const appearance = await readFile(new URL("../../kits/appearance/styles.css", import.meta.url), "utf8");
+    for (const [size, step] of [["small", -1], ["large", 1]] as const) {
+      const rule = new RegExp(`\\[data-text-size="${size}"\\]\\s*\\{([^}]*)\\}`, "u").exec(appearance)?.[1] ?? "";
+      expect(scale(rule)).toEqual(Object.fromEntries(Object.entries(byDefault).map(([name, px]) => [name, px + step])));
+    }
+  });
+
   it("defines every token the stylesheets ask for", async () => {
     const tokens = await readFile(TOKENS, "utf8");
     const defined = new Set([...tokens.matchAll(/^\s*(--[\w-]+):/gmu)].map((match) => match[1]));

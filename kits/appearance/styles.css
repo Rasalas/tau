@@ -4,8 +4,8 @@
 :root[data-density="compact"] { --density: .8; }
 :root[data-density="comfortable"] { --density: 1.2; }
 /* Text size, per device: core's type scale (tokens.css) a step down or up; the page heads keep theirs. */
-:root[data-text-size="small"] { --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 14px; --text-title: 17px; --label-size: 11px; }
-:root[data-text-size="large"] { --text-xs: 13px; --text-sm: 14px; --text-md: 15px; --text-lg: 16px; --text-title: 19px; --label-size: 13px; }
+:root[data-text-size="small"] { --text-xs: 10px; --text-sm: 11px; --text-md: 12px; --text-lg: 13px; --text-title: 16px; --label-size: 10px; }
+:root[data-text-size="large"] { --text-xs: 12px; --text-sm: 13px; --text-md: 14px; --text-lg: 15px; --text-title: 18px; --label-size: 12px; }
 
 /* Mode tiles: the window in miniature, painted with the theme each mode would use. */
 .appearance-mode-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
