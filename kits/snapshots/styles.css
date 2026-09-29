@@ -7,14 +7,14 @@
   border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken);
 }
 .snapshots-detail-image.placeholder { height: 120px; }
-.snapshots-detail-meta, .snapshots-detail-note { color: var(--muted); font-size: 11px; }
+.snapshots-detail-meta, .snapshots-detail-note { color: var(--muted); font-size: var(--text-xs); }
 .snapshots-detail-tree summary { cursor: pointer; color: var(--ink-2); }
 .snapshots-detail-tree pre {
   margin: 6px 0 0; max-height: 160px; overflow: auto; padding: 6px 8px;
-  border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink-2); font: 11px/1.45 var(--mono); white-space: pre;
+  border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink-2); font: var(--text-xs)/1.45 var(--mono); white-space: pre;
 }
 
 /* The shortcut recorder is a Button; it keeps its width while it listens. */
 .snapshots-recorder { min-width: 96px; }
 .snapshots-recorder.listening { border-color: var(--focus); color: var(--muted); }
-.snapshots-recorder kbd { font: 12px/1 var(--mono); }
+.snapshots-recorder kbd { font: var(--text-sm)/1 var(--mono); }

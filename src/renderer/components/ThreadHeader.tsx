@@ -25,7 +25,7 @@ function countTurns(transcript: TranscriptState): number {
 
 function TurnCount({ view }: { view: ThreadViewStore }) {
   const turns = useSyncExternalStore(view.subscribeToTranscript, () => countTurns(view.getTranscript()));
-  return turns > 0 ? <span className="thread-detail">turn {turns}</span> : null;
+  return turns > 0 ? <span className="thread-detail thread-detail-turn">turn {turns}</span> : null;
 }
 
 /** Where kits add to the sub-line: `thread-details` items, and a `thread-branch` that replaces core's label. */
@@ -36,7 +36,7 @@ export interface ThreadDetailSlots {
 
 /** The kits' items, then their branch or core's plain one. */
 function SlotDetails({ slots, snapshot, branch }: { slots?: ThreadDetailSlots; snapshot?: HostSnapshot; branch?: string }) {
-  const plain = branch ? <span className="thread-detail" {...tooltipProps(branch, { side: "bottom", when: "truncated" })}>
+  const plain = branch ? <span className="thread-detail thread-detail-branch" {...tooltipProps(branch, { side: "bottom", when: "truncated" })}>
     <GitBranch size={12} aria-hidden /><span>{branch}</span>
   </span> : null;
   if (!slots) return plain;
@@ -54,14 +54,21 @@ export function DraftDetails({ project, projectPath, snapshot, slots }: { projec
   </div>;
 }
 
-/** Branch · model · turn · cost, each only where the thread has it, as in the workbench design. */
-export function ThreadDetails({ snapshot, view, slots }: { snapshot?: HostSnapshot; view: ThreadViewStore; slots?: ThreadDetailSlots }) {
+/** [Machine ·] branch · model · turn · cost, each only where the thread has it, as in the workbench design. */
+export function ThreadDetails({ snapshot, view, slots, machine }: {
+  snapshot?: HostSnapshot;
+  view: ThreadViewStore;
+  slots?: ThreadDetailSlots;
+  /** The host's name, where no kit names the machine (a phone's bar, design 1n). */
+  machine?: string | undefined;
+}) {
   const preferences = usePreferences();
   const { showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const model = snapshot?.model;
   return <div className="thread-details">
+    {machine ? <span className="thread-detail thread-detail-machine"><span>{machine}</span></span> : null}
     <SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} />
-    {model ? <span className="thread-detail">
+    {model ? <span className="thread-detail thread-detail-model">
       <ProviderIconStack modelProvider={model.provider} runtimeProvider={snapshot?.backendKind ?? DEFAULT_RUNTIME} plan={modelOnPlan(model)} hint={false} />
       <span>{model.name}</span>
     </span> : null}
@@ -75,13 +82,15 @@ export function ThreadDetails({ snapshot, view, slots }: { snapshot?: HostSnapsh
  * thread's title and details, what kits place at its end, and the stage's
  * toggle. It is the window's drag region over the conversation.
  */
-export function ThreadHeader({ lead, title, details, actions, stage }: {
+export function ThreadHeader({ lead, title, details, actions, tools, stage }: {
   /** Before the title: room for the traffic lights, a tablet's threads toggle. */
   lead?: ReactNode;
   title: ReactNode;
   details?: ReactNode;
   /** The `title-bar` region's slot. */
   actions?: ReactNode;
+  /** The stage strip's tools, here while the stage is hidden (design 1k). */
+  tools?: ReactNode;
   stage?: { shown: boolean; shortcut?: string; onToggle(): void };
 }) {
   const stageLabel = stage?.shown ? "Hide stage" : "Show stage";
@@ -92,6 +101,8 @@ export function ThreadHeader({ lead, title, details, actions, stage }: {
       {details}
     </div>
     <div className="thread-header-actions">{actions}</div>
+    {tools ? <div className="thread-header-tools" role="toolbar" aria-label="Tools">{tools}</div> : null}
+    {tools && stage ? <span className="thread-header-separator" aria-hidden /> : null}
     {stage ? <button
       type="button"
       className="stage-tool"
@@ -99,6 +110,6 @@ export function ThreadHeader({ lead, title, details, actions, stage }: {
       aria-pressed={stage.shown}
       {...tooltipProps(stageLabel, { side: "bottom", shortcut: stage.shortcut })}
       onClick={stage.onToggle}
-    >{stage.shown ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}</button> : null}
+    >{stage.shown ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</button> : null}
   </header>;
 }

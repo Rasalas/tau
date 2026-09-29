@@ -320,8 +320,9 @@ with the other placement. `width` is ignored since 1.27.0.
 Where a panel is reached from: the right end of the stage's tab strip holds a
 button for each panel with `stageButton: true` (API 1.27.0; Files and Terminal
 in Tau), what kits place in the `stage-bar` region (Workspace Kit's "Open in"),
-then a separator and the maximize. Every other panel is under the strip's
-"More tools" menu, by label and icon, and every panel stays reachable from
+then a separator and the maximize. While the stage is hidden the same tools
+sit in the thread header, before its stage toggle (design 1k). Every other
+panel is under "More tools", by label and icon, and every panel stays reachable from
 `actions.openPanel(id)`, a command in the palette and its keybinding. The
 button of a drawer panel opens and closes the drawer. The thread header's stage
 toggle opens an empty stage on the tool last picked in the project, else the
@@ -333,12 +334,18 @@ as icons, and no kit name.
 
 The conversation keeps at least 480 px beside the stage, and the stage starts
 at about half the window; the divider between them is kept per client (API
-1.16.0). Where both do not fit, or the user maximizes the stage (the strip's
-button, `rightPanel.toggleMaximized` on `mod+alt+shift+b`, or dragging the
-divider well below the chat's minimum), the conversation folds to its spine at
-the stage's left edge: the way back, and whether the thread works or waits for
-an answer. The thread header's toggle hides the stage and brings it back as it
-was. Both the maximize and the hiding belong to the thread, as its tabs do.
+1.16.0). A window short of that room narrows the chat to 360 px, a tablet's,
+before it gives up showing both. Chat and stage are side by side whenever both
+are open, except for two choices the user makes: the thread header's toggle
+hides the stage (and brings it back as it was), and the maximize gives the
+stage the whole centre (the strip's button, `rightPanel.toggleMaximized` on
+`mod+alt+shift+b`, or dragging the divider well below the chat's minimum). A
+maximized stage has no strip for the chat beside it; the strip's toggle, the
+keyboard, or a click on the thread in the sidebar (its own or another) brings
+the chat back beside it at the width it had. Only a window too narrow for 360 +
+360 px shows one of the two, with "Show chat" in the strip and the header's
+toggle to switch. Both the maximize and the hiding belong to the thread, as its
+tabs do; a restart keeps them, a switch to the thread shows its chat.
 
 `redirect(actions)` (new in API 1.18.0) lets a panel's entry open a view
 of its own instead: its button, `actions.openPanel(id)` and every command
@@ -477,8 +484,9 @@ shipped caller, and Review Kit's pull-request view (`review.pull-request`,
 params `{ url, number, service, workspace? }`) the second.
 
 **Stage tabs belong to a thread.** Each thread and each draft has its own
-stage (new in API 1.26.0): switching threads shows the tabs, the active one and
-the maximize that thread was left with, across restarts, and a new thread
+stage (new in API 1.26.0): switching threads shows the tabs and the active one
+that thread was left with, across restarts (a maximize only across a restart:
+a switch shows the chat beside the stage), and a new thread
 starts with none. Hiding a thread's stage unmounts your tab's content, like
 any tab behind another, but does not close it: `onClose` does not run and the
 handle stays, so keep what must outlive the view (a shell, a page, unsaved
@@ -533,7 +541,7 @@ plugin.registerComposerInline({
 | `Component` | Drawn inside the input frame, above the text. It gets the `ComposerInlineContext` — `scope`, `snapshot`, `fileAttachments`, `imageInput` — and `draftState`, the extension's own slot beside the draft's text in the draft store (`read()`, `write(json)`, `write(undefined)` to drop it), so a reload brings the chips back with the text. |
 | `triggers` | A character that opens core's autocomplete menu at the start of a word. `search` answers rows (`{ id, label, description?, hint? }`), `select` gets the chosen row once core has removed the typed trigger. `/` and `$` are core's; an extension's `@` replaces core's own file list. |
 | `pasteText` | Asked for every text paste; `true` keeps the text out of the field. |
-| `takeFiles` | Offered every file of a drop, a paste or the attach button before core; answers with the files it left, which core treats as images. While any contribution takes files, the attach button accepts any type and the thread-wide drop overlay lets any file through — the contribution checks its own limits. |
+| `takeFiles` | Offered every file of a drop, a paste or "Attach files" in the composer's "…" menu before core; answers with the files it left, which core treats as images. While any contribution takes files, "Attach files" accepts any type and the thread-wide drop overlay lets any file through — the contribution checks its own limits. |
 | `hasContent`, `subscribe` | Whether the draft has something worth sending with no text at all; Send enables on it. |
 | `prepareSend` | Runs once per prompt, after `beginSubmission` captured the draft. `context` is put before the user's text (after it when a skill is selected, which reads its instruction first); `attachments` join the images. A throw refuses the send and keeps the draft. A `/command` never asks. |
 | `settleSend` | The prompt `prepareSend` contributed to was accepted (clear what went) or refused (put it back). |
@@ -747,8 +755,9 @@ under the list, shown while any listed model wears the badge.
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. `title-bar` is the thread header's end,
 before the stage toggle (API 1.27.0: the window-wide title bar is gone): Workspace
-Kit's project actions, "N files changed ›" and the Git action sit there. It stays
-mounted while the conversation is folded to its spine, only out of sight, so a
+Kit's project actions, "N files changed ›" and the Git action sit there (not for
+a new thread's draft, which has nothing to run or commit). It stays mounted
+while a maximized stage hides the conversation, only out of sight, so a
 kit may keep a dialog layer there; on a phone it is the end of the phone's bar.
 `thread-details` and `thread-branch` (API 1.27.0) are the thread header's
 sub-line: `thread-details` adds items before the branch (Machines Kit names a
@@ -911,8 +920,8 @@ the bar's More menu, by label and icon.
 there (API 1.13.0), so a panel can close itself after it handed something to the composer.
 A tablet (a compact client on a tablet's screen, at least 720 px wide) is laid out
 as the desktop: the same panels open as stage tabs beside the chat, from the
-strip's tools, and the chat folds to its spine where the tablet has no room for
-both. Terminal, Review and Preview do this for their compact panels.
+strip's tools, and where the tablet has no room for both one of them shows,
+with "Show chat" in the strip. Terminal, Review and Preview do this for their compact panels.
 That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar; Review Kit registers a panel for `compact` alone, since the desktop reviews in an overlay. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
@@ -1003,8 +1012,8 @@ absent in a client without pages.
 On a desktop the page takes the place of the thread and the stage, in
 Settings' frame: Settings' page head (new in API 1.27.0) over the page — its
 label as the title, its `description`, and at the right the action it draws with
-`SettingsPageAction` — under the strip the window is dragged by. The sidebar stays beside it, and its foot leads with Back and marks the
-page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
+`SettingsPageAction` — under the strip the window is dragged by. The sidebar stays beside it, and its foot is Back to thread alone while
+the page shows (API 1.28.0; before, Back led the whole foot). Showing a thread, a file, a stage tab or a panel (`switchSession`,
 `newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
 `focusComposer`, `openWorkspace`) closes the page first, and so does another
 thread coming on screen. Settings opens over a page and returns to it. The
@@ -1026,7 +1035,10 @@ system's back gesture steps out of it, then out of the page to the thread list.
 `layout` is `"readable"` (Settings' reading column, the default), `"wide"`
 (1240 px) or `"fill"`: the page gets the whole area below the bar and scrolls
 itself, as a stage tab does. `PageProps` carries `actions`, the `params` of the
-view on screen, `navigate(params, { label?, replace? })` and `close()`. A page
+view on screen, `navigate(params, { label?, replace?, root? })` and `close()`;
+`root` (API 1.28.0) leaves every view for the page's own, opened on `params`
+(a page's `Sidebar` switching what the page lists while a detail is open), and
+an older host ignores it, so pass `replace` with it. A page
 steps into a view of itself with `navigate` — a request's detail, a sub-page —
 and `label` is the head's title then, with the page and the views below as a
 breadcrumb over it (on a phone the title sits in the bar beside Back); Escape
@@ -1044,6 +1056,33 @@ plugin.registerPage({
     : <ReportList onOpen={(report) => navigate({ report: report.id }, { label: report.title })} />,
 });
 plugin.registerCommand({ id: "acme.reports.open", label: "Reports", group: "Extensions", access: "read", run: (actions) => actions.openPage?.("acme.reports") });
+```
+
+`Sidebar` (API 1.28.0) is an optional component the sidebar draws in place of
+the thread list while the page is open on a desktop, in Settings' column: Back
+to thread above it and at its foot, the component between, filling the column
+and scrolling itself. It receives the page's own `PageProps` (the `params` of the
+view on screen, `navigate`, `close`, `actions`), so a click in it can
+`navigate` the page — `{ root: true, replace: true }` to switch what it lists,
+out of any detail — and it marks what the page shows from `params`. The thread list stays mounted out of sight and comes
+back as it was. `PageProps.sidebar` is `true` for the page while its `Sidebar`
+is on screen: the page then leaves out the navigation the sidebar carries (Review
+Kit drops its tabs). It is `false` on a phone, on a tablet's split layout
+(the touch thread list stays), with the sidebar hidden (`mod+b`) and on an
+older host, where the page keeps its own navigation. A page without `Sidebar`
+keeps the thread list. The component can use Settings' column classes
+(`settings-nav-search`, `settings-nav-group`, `settings-nav-heading`) and core's
+thread row (`thread-row`, `thread-main`, `thread-project-line`, `thread-title`,
+`thread-meta-line`) for rows that read like the rail's.
+
+```tsx
+plugin.registerPage({
+  id: "acme.reports", label: "Reports", layout: "fill",
+  Component: ({ params, sidebar }) => params.report ? <Report id={String(params.report)} /> : <Overview withTabs={!sidebar} />,
+  Sidebar: ({ params, navigate }) => (
+    <ReportList current={params.report} onOpen={(report) => navigate({ report: report.id }, { replace: true })} />
+  ),
+});
 ```
 
 `useBadge` (API 1.26.0) is an optional hook the page's entry calls — the
@@ -1836,7 +1875,9 @@ them; Composer Context's are reached through its chip service.
 The composer's footer is one slim row (API 1.27.0, the workbench design):
 the model chip with its marks, the reasoning level as text, the controls a
 package places in the row (`placement: "toolbar"`, the default), one "…"
-menu, and the context dial, attach and the round send at the end. A control
+menu, and the round send at the end (API 1.28.0: attach and the context dial
+are entries of the "…" menu; the dial comes back into the row once three
+quarters of the context are used). A control
 that is a setting rather than something to see all the time — Access Kit's
 level, Plan Kit's Build/Plan, Service Tier, Prompt Tools' stash — takes
 `placement: "menu"`: its `Component` is drawn inside that menu only while it
@@ -1847,9 +1888,8 @@ second line, `selected` for one choice of a section, `disabled` with
 unless `keepOpen`. `shortcuts` lists the `data-composer-shortcut` ids a
 command clicks to open such a control; the menu's trigger answers to them, so
 `composer.mode` still opens the access level. As the row narrows, the
-package chips first lose their labels and then move into the menu, then
-attach, then the context dial; the model and the reasoning level stay
-longest. A host older than 1.27.0 draws a `menu` control in the row.
+package chips first lose their labels and then move into the menu; the
+model and the reasoning level stay longest. A host older than 1.27.0 draws a `menu` control in the row.
 `placement: "lead"` (API 1.27.0) puts a control before the model chip, where
 a new thread's design has its machine: Machines Kit's "Run on" chip. Core's
 own project chip follows the kits' lead controls on a new thread (a click

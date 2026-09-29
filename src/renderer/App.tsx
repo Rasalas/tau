@@ -191,11 +191,12 @@ export default function App() {
   // A document opened beside the chat takes the tool that filled that space into the tabs.
   const revealDocuments = useRef(() => {});
   const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current() });
-  // Where the centre is too narrow for chat and stage side by side, one of them is folded to its spine.
+  // Where the centre is too narrow for chat and stage side by side, the one in front.
   const [chatFocused, setChatFocused] = useState(false);
-  // Another thread's stage may come back maximized; its chat is what was asked for.
-  useEffect(() => { setChatFocused(true); }, [shownOwner]);
-  // The stage over the whole centre, the conversation folded to its spine.
+  // Another thread's chat is what was asked for, beside its stage even if that was maximized; a restart keeps it.
+  const ownerShown = useRef(false);
+  useEffect(() => { setChatFocused(true); if (ownerShown.current) setStageMaximized(false); ownerShown.current = Boolean(shownOwner); }, [setStageMaximized, shownOwner]);
+  // The stage over the whole centre, the conversation out of sight.
   const maximized = stageMaximized;
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
@@ -628,7 +629,7 @@ export default function App() {
     registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions, panels, activePanel,
     openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
-    pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
+    pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
@@ -639,7 +640,7 @@ export default function App() {
     openNewThreadPicker, openPanel,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,
-    sidebarContributions, stage, stageWorkspace, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
+    sidebarContributions, stage, stageWorkspace, takeOverThread, threadStore, workspaceCwd,
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({

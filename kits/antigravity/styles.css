@@ -5,5 +5,5 @@
   color: var(--acid-text); font: 500 10.5px var(--sans); padding: 1px 6px; cursor: pointer;
 }
 .antigravity-sign-in:hover { background: var(--acid-chip); }
-.antigravity-progress { margin: 2px 0 0; color: var(--ink-2); font: 12.5px/1.45 var(--sans); }
-.antigravity-error { margin: 2px 0 0; color: var(--danger); font: 12.5px/1.45 var(--sans); overflow-wrap: anywhere; }
+.antigravity-progress { margin: 2px 0 0; color: var(--ink-2); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); }
+.antigravity-error { margin: 2px 0 0; color: var(--danger); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); overflow-wrap: anywhere; }

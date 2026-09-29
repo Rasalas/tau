@@ -178,6 +178,8 @@ export interface HostClient {
    * host's machine); undefined when the host did not say (API 1.13.0).
    */
   isOwner?(): boolean | undefined;
+  /** The host machine's name from its last hello (ADR 0025); undefined from a host that gives none. */
+  getHostName?(): string | undefined;
   /**
    * Whether this device may run a kit's host command: always with Full access;
    * Read only, just the commands registered `access: "read"`, and none until the
@@ -400,6 +402,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     hasCapability: connection.hasCapability,
     isReadOnly: connection.isReadOnly,
     isOwner: connection.isOwner,
+    getHostName: connection.getHostName,
     mayInvokeHostExtension: (extensionId, command) => !connection.isReadOnly() || readCommands.allows(extensionId, command) === true,
     onHostCommandsChanged: (listener) => readCommands.onChange(listener),
     getConnectionState: connection.getState,

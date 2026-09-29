@@ -214,14 +214,14 @@ export function ThreadBranch({ snapshot }: RegionProps) {
     <button
       ref={anchor}
       type="button"
-      className="thread-branch-trigger"
+      className={`thread-branch-trigger${planned ? " planned" : ""}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`Branch ${label}`}
       disabled={state.workspaceBusy}
       onClick={() => setOpen((value) => !value)}
     >
-      <GitBranch size={12} aria-hidden /><span>{label}</span><ChevronDown size={11} className="chev" />
+      <span>{label}</span><ChevronDown size={11} className="chev" />
     </button>
     {open ? <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={() => setOpen(false)}>
       {draft ? <DraftBranchSection /> : <CheckoutMenu onDone={() => setOpen(false)} />}

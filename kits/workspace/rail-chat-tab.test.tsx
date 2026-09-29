@@ -88,7 +88,7 @@ const chatInFront = (center: () => string) => screen.queryByRole("region", { nam
 
 describe("picking a thread in the rail while only one of chat and stage fits", () => {
   it("brings the chat forward for another thread and for the one on screen; each thread keeps its own terminal tab", async () => {
-    setWindowWidth(1000);
+    setWindowWidth(900);
     const { pick, center, switchSession } = await renderRail();
     const stage = await openTerminal();
     expect(center()).toContain("conversation-folded");
@@ -111,7 +111,7 @@ describe("picking a thread in the rail while only one of chat and stage fits", (
     expect(within(await screen.findByRole("region", { name: "Stage" })).getByRole("tab", { name: /Terminal/ })).toBeTruthy();
   });
 
-  it("keeps a maximized tool maximized and brings the chat forward", async () => {
+  it("brings the chat back beside a maximized tool, which stays in its tab", async () => {
     setWindowWidth(1728);
     const { pick, center } = await renderRail();
     fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
@@ -122,12 +122,12 @@ describe("picking a thread in the rail while only one of chat and stage fits", (
     expect(center()).toContain("conversation-folded");
 
     pick("a");
-    await waitFor(() => expect(chatInFront(center)).toBe(true));
-    // The maximize stays with the thread: showing the stage folds the chat again.
-    fireEvent.click(screen.getByRole("button", { name: "Show stage" }));
-    const again = await screen.findByRole("region", { name: "Stage" });
-    expect(within(again).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(again).getByRole("tab", { name: /Diffs/ })).toBeTruthy();
+    // Chat and stage side by side again: the row asks for the chat, not for the stage to go.
+    await waitFor(() => expect(center()).not.toContain("conversation-folded"));
+    expect(center()).toContain("stage-open");
+    const again = screen.getByRole("region", { name: "Stage" });
+    expect(within(again).getByRole("button", { name: "Maximize stage" }).getAttribute("aria-pressed")).toBe("false");
+    expect(selected(again, /Diffs/)).toBe("true");
   });
 
   it("leaves the stage alone where the chat is beside it", async () => {
@@ -140,7 +140,7 @@ describe("picking a thread in the rail while only one of chat and stage fits", (
     expect(center()).not.toContain("conversation-folded");
 
     // Narrowed afterwards, the stage keeps its own tab in front, the chat folded beside it.
-    act(() => setWindowWidth(1000));
+    act(() => setWindowWidth(900));
     expect(center()).toContain("conversation-folded");
     expect(selected(stage, /Terminal/)).toBe("true");
   });
@@ -184,7 +184,7 @@ function pressNewThreadShortcut(key = "n", shiftKey = false): void {
 
 describe("starting a new thread while only one of chat and stage fits", () => {
   it("shows the draft's chat with a stage of its own and focuses its composer from the shortcut, the rail, the palette and the start card", async () => {
-    setWindowWidth(1000);
+    setWindowWidth(900);
     await renderRail();
 
     // ⌘N, the rail and the palette open in the project on screen; ⇧⌘O and "New thread in…" ask.
@@ -215,7 +215,7 @@ describe("starting a new thread while only one of chat and stage fits", () => {
     expect(composerFocused()).toBe(true);
   });
 
-  it("starts the draft without the maximized tool, which its thread keeps", async () => {
+  it("starts the draft without the maximized tool; its thread shows the tool beside its chat again", async () => {
     setWindowWidth(1728);
     const { pick, center } = await renderRail();
     fireEvent.click(await screen.findByRole("button", { name: "Show stage" }));
@@ -233,12 +233,11 @@ describe("starting a new thread while only one of chat and stage fits", () => {
     await openTerminal();
 
     pick("a");
-    // Picked from a draft: the thread's chat comes to the front, its maximized tool behind.
-    await waitFor(() => expect(chatInFront(center)).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Show stage" }));
+    // Picked from a draft: the thread's chat, beside its tool rather than behind it.
     const again = await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(center()).not.toContain("conversation-folded"));
     expect(within(again).getByRole("tab", { name: /Diffs/ })).toBeTruthy();
-    expect(within(again).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(again).getByRole("button", { name: "Maximize stage" }).getAttribute("aria-pressed")).toBe("false");
   });
 });
 

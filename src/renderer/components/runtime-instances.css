@@ -9,14 +9,14 @@
   background: var(--overlay); box-shadow: var(--elevation-3);
   color: var(--ink); animation: fade-up .14s ease;
 }
-.runtime-instance-dialog > header h2 { margin: 0; font: 600 14px var(--sans); }
-.runtime-instance-dialog > header p { margin: 6px 0 0; color: var(--muted); font: 12px/1.5 var(--sans); }
+.runtime-instance-dialog > header h2 { margin: 0; font: 600 var(--text-lg) var(--sans); }
+.runtime-instance-dialog > header p { margin: 6px 0 0; color: var(--muted); font: var(--text-sm)/1.5 var(--sans); }
 .runtime-instance-dialog form { display: flex; flex-direction: column; gap: 12px; }
 .runtime-instance-field { display: flex; flex-direction: column; gap: 5px; }
-.runtime-instance-field > span:first-child { font: 500 12.5px var(--sans); color: var(--ink-2); }
-.runtime-instance-field > small { color: var(--muted); font: 12px/1.45 var(--sans); }
-.runtime-instance-field code { font: 11.5px var(--mono); }
-.runtime-instance-problem, .runtime-instance-field > small.runtime-instance-problem { margin: 0; color: var(--danger); font: 12px/1.45 var(--sans); }
+.runtime-instance-field > span:first-child { font: 500 calc(var(--text-sm) + .5px) var(--sans); color: var(--ink-2); }
+.runtime-instance-field > small { color: var(--muted); font: var(--text-sm)/1.45 var(--sans); }
+.runtime-instance-field code { font: calc(var(--text-xs) + .5px) var(--mono); }
+.runtime-instance-problem, .runtime-instance-field > small.runtime-instance-problem { margin: 0; color: var(--danger); font: var(--text-sm)/1.45 var(--sans); }
 .runtime-instance-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 
 /* After T3 Code's provider status banner: one line of title, the reason, the command. */
@@ -27,19 +27,19 @@
 }
 .runtime-version-banner > svg { flex: none; margin-top: 2px; color: var(--warn); }
 .runtime-version-banner[data-status="broken"] > svg { color: var(--danger); }
-.runtime-version-banner-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font: 12.5px/18px var(--sans); }
+.runtime-version-banner-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font: calc(var(--text-sm) + .5px)/18px var(--sans); }
 .runtime-version-banner-body > strong { color: var(--ink); font-weight: 500; }
 .runtime-version-banner-body > p { margin: 0; color: var(--muted); }
 .runtime-version-banner-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }
 .runtime-version-banner-actions > button:not(.runtime-version-banner-icon) {
   flex: none; display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--raised);
-  color: var(--ink); font: 500 12px var(--sans); padding: 4px 10px; cursor: pointer;
+  color: var(--ink); font: 500 var(--text-sm) var(--sans); padding: 4px 10px; cursor: pointer;
 }
 .runtime-version-banner-actions > button:not(.runtime-version-banner-icon):hover { background: var(--raised-hover); }
 .runtime-version-banner-actions > code {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 3px 6px; border-radius: var(--radius-xs); background: var(--inset); font: 11px var(--mono); color: var(--ink-2);
+  padding: 3px 6px; border-radius: var(--radius-xs); background: var(--inset); font: var(--text-xs) var(--mono); color: var(--ink-2);
 }
 .runtime-version-banner-icon {
   flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
@@ -48,4 +48,4 @@
 .runtime-version-banner-icon:hover { background: var(--hover); color: var(--ink); }
 
 /* A card row's failure, under its description. */
-.runtime-row-error { margin: 2px 0 0; color: var(--danger); font: 12.5px/1.45 var(--sans); overflow-wrap: anywhere; }
+.runtime-row-error { margin: 2px 0 0; color: var(--danger); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); overflow-wrap: anywhere; }

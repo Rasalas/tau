@@ -81,6 +81,7 @@ export class HostConnection {
   private readOnly = false;
   private owner: boolean | undefined;
   private hostVersion: string | undefined;
+  private hostName: string | undefined;
   private readonly helloListeners = new Set<() => void>();
   private jobMethods = new Set<string>();
   private readonly eventListeners = new Set<(event: HostEvent) => void>();
@@ -149,6 +150,9 @@ export class HostConnection {
 
   /** Whether the host said this connection manages access; undefined before a hello, or from an older host. */
   isOwner = (): boolean | undefined => this.owner;
+
+  /** The host machine's name from its last hello (ADR 0025). */
+  getHostName = (): string | undefined => this.hostName;
 
   onState(listener: (state: HostConnectionState) => void): () => void {
     this.stateListeners.add(listener);
@@ -388,6 +392,7 @@ export class HostConnection {
     this.capabilities = new Set(reply.capabilities);
     this.readOnly = reply.access === "read-only";
     this.owner = reply.owner;
+    this.hostName = reply.host?.name;
     this.confirmed = reply.capabilities.includes(HOST_CAPABILITY.subscriptions) ? subscription : undefined;
     this.requested = this.confirmed && JSON.stringify(this.confirmed);
     // A snapshot of a thread this client did not follow would miss what streams until it subscribes.

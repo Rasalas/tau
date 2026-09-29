@@ -5,14 +5,14 @@
   font: 600 32px/1 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; color: var(--ink);
 }
 .pairing-access { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
-.pairing-access > small { color: var(--muted); font: 12px/1.4 var(--sans); }
+.pairing-access > small { color: var(--muted); font: var(--text-sm)/1.4 var(--sans); }
 
 /* The pairing and connection dialogs: an X at the top right, the title clear of it. */
 .confirm-dialog:has(> .dialog-close) { position: relative; }
 .confirm-dialog:has(> .dialog-close) > h2 { padding-right: 32px; }
 .dialog-close { position: absolute; top: 14px; right: 14px; }
-.dialog-field { display: flex; flex-direction: column; gap: var(--space-2); color: var(--ink-2); font: 500 12px var(--sans); }
-.dialog-field > small { color: var(--muted); font: 400 12px/1.4 var(--sans); }
+.dialog-field { display: flex; flex-direction: column; gap: var(--space-2); color: var(--ink-2); font: 500 var(--text-sm) var(--sans); }
+.dialog-field > small { color: var(--muted); font: 400 var(--text-sm)/1.4 var(--sans); }
 .dialog-fields { display: flex; flex-direction: column; gap: var(--space-5); }
 .confirm-dialog > p.dialog-error { color: var(--danger); }
 .dialog-field > small.dialog-field-error { color: var(--danger); }

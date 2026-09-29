@@ -619,8 +619,9 @@ export interface PanelContribution extends ProfileScoped {
   Icon?: PanelIconComponent;
   order?: number;
   /**
-   * A button of its own at the right of the stage's tab strip and on its spine
-   * (API 1.27.0); every other panel is under the strip's "More tools" menu.
+   * A button of its own at the right of the stage's tab strip, and in the
+   * thread's header while the stage is hidden (API 1.27.0); every other panel
+   * is under "More tools" there.
    */
   stageButton?: boolean;
   /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */
@@ -683,17 +684,26 @@ export interface PageProps {
   /**
    * Steps into another view of the page (a detail, a sub-page): `label` follows
    * the page's own in the bar, and Escape, the bar and a phone's back gesture
-   * return. `replace` swaps the view on top instead of adding one.
+   * return. `replace` swaps the view on top instead of adding one; `root` (API
+   * 1.28.0) leaves every view for the page's own, opened on `params` — pass
+   * `replace` with it for an older host.
    */
-  navigate(params: Record<string, unknown>, options?: { label?: string; replace?: boolean }): void;
+  navigate(params: Record<string, unknown>, options?: { label?: string; replace?: boolean; root?: boolean }): void;
   /** Back to the thread. */
   close(): void;
+  /**
+   * The page's `Sidebar` is on screen beside it (API 1.28.0): the page can leave
+   * out the navigation the sidebar carries. False on a phone, with the sidebar
+   * hidden, and on an older host.
+   */
+  sidebar?: boolean;
 }
 
 /**
  * A page of the app, like Settings: it takes the place of the thread and the
- * stage, and the sidebar stays beside it with Back at its foot; on a phone it
- * is a screen of its own. The sidebar's foot lists every page, in `order`.
+ * stage, and the sidebar stays beside it with Back at its foot (or the page's
+ * own `Sidebar`); on a phone it is a screen of its own. The sidebar's foot
+ * lists every page, in `order`.
  */
 export interface PageContribution extends ProfileScoped {
   id: string;
@@ -722,6 +732,13 @@ export interface PageContribution extends ProfileScoped {
    */
   useSummary?(): PageSummary | undefined;
   Component: ComponentType<PageProps>;
+  /**
+   * What the sidebar shows while the page is open on a desktop, in place of the
+   * thread list (API 1.28.0): Settings' column, with Back to thread above and
+   * below it. It gets the page's own props, so a click in it can `navigate`
+   * the page. Without one the thread list stays.
+   */
+  Sidebar?: ComponentType<PageProps>;
 }
 
 /** A page's figure in the sidebar's foot: `short` stands in where `text` does not fit, `hint` is the tooltip. */

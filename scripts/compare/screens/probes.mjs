@@ -8,7 +8,7 @@ export const CHROME = {
     search: "label.thread-search",
     composer: ".composer-surface",
     composerInput: "textarea",
-    sendButton: "button.send-button",
+    sendButton: "button.send-button:not(.stop)",
   },
   t3: {
     header: "main[data-slot=sidebar-inset] header",

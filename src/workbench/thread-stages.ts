@@ -8,7 +8,7 @@ import { decodeStageState, takeProjectLayout, type ThreadDockState } from "./wor
 export interface ThreadStage {
   stage: StageState;
   maximized: boolean;
-  /** The stage was folded to its spine. */
+  /** The stage was hidden. */
   folded?: boolean;
   dock: ThreadDockState;
 }

@@ -1,8 +1,8 @@
 /* Push: Settings → Push, its key forms and the device rows. */
 .push-form { display: flex; flex-direction: column; gap: var(--space-5); margin-top: var(--space-5); }
 .push-form-row { display: flex; gap: var(--space-5); flex-wrap: wrap; }
-.push-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; font: 500 12px var(--sans); color: var(--ink-2); }
+.push-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; font: 500 var(--text-sm) var(--sans); color: var(--ink-2); }
 .push-form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
-.push-error { margin: 0; font-size: 12px; color: var(--danger); }
+.push-error { margin: 0; font-size: var(--text-sm); color: var(--danger); }
 .push-device-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
 .settings-screen.stacked .push-form-row > .push-field { flex: 1 1 100%; }

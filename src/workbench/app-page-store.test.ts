@@ -38,4 +38,12 @@ describe("AppPageStore", () => {
     store.root();
     expect(store.getSnapshot()?.views).toHaveLength(1);
   });
+
+  it("leaves every view for the page's own, opened anew", () => {
+    const store = new AppPageStore();
+    store.open("a", { tab: "x" });
+    store.navigate({ item: 1 }, { label: "1" });
+    store.navigate({ tab: "y" }, { root: true, replace: true });
+    expect(store.getSnapshot()?.views).toEqual([{ params: { tab: "y" } }]);
+  });
 });

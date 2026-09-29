@@ -104,10 +104,11 @@ describe("AppPageScreen's head", () => {
 
     // The bar only grows once it holds Back or a title; empty, it is Settings' drag strip.
     expect(page.filter((entry) => entry.selectors.includes(".app-page-bar") && /(^|[\s;])height:/u.test(entry.body)).map((entry) => entry.selectors)).toEqual([".app-page-bar:has(> *)"]);
-    expect(rule(settings, ".settings-topbar")).toMatch(/height: var\(--space-8\)/u);
+    // 28 px, the design's page padding (1i, 1j), with the title right under it.
+    expect(rule(settings, ".settings-topbar")).toMatch(/height: calc\(var\(--space-7\) \+ var\(--space-2\)\)/u);
     // A filling page's head has the reading column's inset, and the breadcrumb drops its markers.
-    expect(rule(page, ".app-page-head")).toMatch(/padding: var\(--space-2\) var\(--space-7\)/u);
-    expect(rule(settings, ".settings-content")).toMatch(/padding: var\(--space-2\) var\(--space-7\)/u);
+    expect(rule(page, ".app-page-head")).toMatch(/padding: 0 var\(--space-7\)/u);
+    expect(rule(settings, ".settings-content")).toMatch(/padding: 0 var\(--space-7\)/u);
     expect(rule(settings, ".settings-page-head ol")).toMatch(/list-style: none/u);
   });
 });

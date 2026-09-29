@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import appearanceExtension from "./desktop.js";
 import { APPEARANCE_EXTENSION_ID as ID, APPEARANCE_SETTINGS_PAGE, TERMINAL_FONT_SERVICE, type TerminalFontService, type TerminalFontServiceState } from "./protocol.js";
@@ -12,6 +12,8 @@ import { terminalSizeInput } from "./terminal-font.js";
 afterEach(() => {
   cleanup();
   document.documentElement.removeAttribute("data-density");
+  document.documentElement.removeAttribute("data-text-size");
+  setClientStorage(undefined);
   document.documentElement.removeAttribute("style");
 });
 
@@ -162,6 +164,35 @@ describe("Settings → Appearance", () => {
     const file = new File(["{ \"colors\": {} }"], "broken.json");
     fireEvent.change(screen.getByLabelText("VS Code theme file"), { target: { files: [file] } });
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith(expect.stringMatching(/broken.json: .*editor.background/u)));
+  });
+});
+
+describe("the text size", () => {
+  it("is this device's: the row sets it on the window and in client storage, and a new window reads it back", async () => {
+    const storage = createMemoryStorage();
+    setClientStorage(storage);
+    const { registry, preferences } = activate();
+    const page = registry.getSettingsPages().find((entry) => entry.id === APPEARANCE_SETTINGS_PAGE)!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    const control = await screen.findByRole("radiogroup", { name: "Text size" });
+    fireEvent.click(within(control).getByRole("radio", { name: "Large" }));
+    expect(document.documentElement.dataset.textSize).toBe("large");
+    expect(storage.get("tau.appearance.text-size")).toBe("large");
+    // The host's settings are not where it lives.
+    expect(preferences.value(ID, "text-size")).toBeUndefined();
+
+    registry.deactivate(appearanceExtension.id);
+    expect(document.documentElement.dataset.textSize).toBeUndefined();
+    activate();
+    expect(document.documentElement.dataset.textSize).toBe("large");
+    cleanup();
+
+    const again = activate();
+    const pageAgain = again.registry.getSettingsPages().find((entry) => entry.id === APPEARANCE_SETTINGS_PAGE)!;
+    render(<TestProviders preferences={again.preferences}><pageAgain.Component onNotify={vi.fn()} /></TestProviders>);
+    fireEvent.click(within(await screen.findByRole("radiogroup", { name: "Text size" })).getByRole("radio", { name: "Default" }));
+    expect(document.documentElement.dataset.textSize).toBeUndefined();
+    expect(storage.get("tau.appearance.text-size")).toBeNull();
   });
 });
 

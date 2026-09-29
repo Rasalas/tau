@@ -6,6 +6,7 @@ import { linkPullRequestMenu } from "./link-menu.js";
 import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
 import { needsYou, REVIEWS_PAGE } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
+import { ReviewsFilter } from "./reviews-filter.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
@@ -16,6 +17,7 @@ import type { RequestClient, RowRequests } from "./requests.js";
 // The list and the page are opened on demand; their code stays out of the kit's first evaluation.
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
 const ReviewsPage = lazy(() => import("./reviews-page.js"));
+const ReviewsSidebar = lazy(() => import("./reviews-page.js").then((module) => ({ default: module.ReviewsSidebar })));
 
 export { openPullRequest, openPullRequests } from "./pull-request-open.js";
 
@@ -33,6 +35,7 @@ export function registerPullRequestTab(
   shared: PullRequestViewShared & { dialogs: LinkDialogs },
   reviews: { store: LocalReviewsStore; host: HostExtensionClient },
 ): () => void {
+  const pageParts = { store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared }, filter: new ReviewsFilter() };
   const disposers = [
     plugin.registerStageTab<PullRequestTabParams>({
       kind: PULL_REQUEST_TAB,
@@ -69,7 +72,6 @@ export function registerPullRequestTab(
     plugin.registerPage({
       id: REVIEWS_PAGE,
       label: "Reviews",
-      description: "A thread that finished work on a branch of its own lands here with its diff and the checks it ran. Merge it, or send it back with a note.",
       // A phone's bottom navigation has it too, as a screen of its own.
       profiles: ["desktop", "compact"],
       Icon: GitPullRequest,
@@ -86,9 +88,11 @@ export function registerPullRequestTab(
       },
       Component: (props) => (
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading reviews" /></div>}>
-          <ReviewsPage {...props} parts={{ store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared } }} />
+          <ReviewsPage {...props} parts={pageParts} />
         </Suspense>
       ),
+      // The states, projects and Remote in the thread list's place; the page keeps the table.
+      Sidebar: (props) => <Suspense fallback={null}><ReviewsSidebar {...props} parts={pageParts} /></Suspense>,
     }),
     plugin.registerCommand({
       id: "review.reviews.open",

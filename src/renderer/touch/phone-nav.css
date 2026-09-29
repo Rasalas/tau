@@ -12,7 +12,7 @@ body[data-keyboard] .phone-nav { display: none; }
   flex: 1 1 0; min-width: 0; min-height: 60px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   padding: 6px 2px 8px; border: 0; background: transparent; cursor: pointer;
-  color: var(--muted); font: 500 12px/1.2 var(--sans);
+  color: var(--muted); font: 500 var(--text-sm)/1.2 var(--sans);
 }
 .phone-nav-icon {
   width: 56px; height: 30px; display: grid; place-items: center; border-radius: 15px;

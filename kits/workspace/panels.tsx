@@ -130,30 +130,72 @@ function FileDiffPane({ path, load }: { path: string; load(path: string): Promis
   return <div className="files-diff"><DiffView diff={diff} mode="unified" path={path} /></div>;
 }
 
-/** The changed files as a flat list with their Git status, the Files tab's "Changed" view. */
-function ChangedList({ files, current, onOpen, onPin }: {
-  files: readonly { path: string; name: string; status: string }[];
+const statusLetter = (status: string) => status === "added" || status === "untracked" ? "A" : status === "deleted" ? "D" : status === "renamed" ? "R" : "M";
+
+/** A changed file's folders and itself, in path order: the rows of the Changed view's tree. */
+export function changedTreeRows(files: readonly { path: string; status: string }[]): { path: string; name: string; depth: number; file?: { status: string } }[] {
+  const rows: { path: string; name: string; depth: number; file?: { status: string } }[] = [];
+  const shown = new Set<string>();
+  const sorted = [...files].sort((a, b) => {
+    // Folders before the files beside them, as a tree lists them.
+    const left = a.path.split("/");
+    const right = b.path.split("/");
+    for (let index = 0; index < Math.min(left.length, right.length); index++) {
+      if (left[index] === right[index]) continue;
+      const leftDir = index < left.length - 1;
+      const rightDir = index < right.length - 1;
+      if (leftDir !== rightDir) return leftDir ? -1 : 1;
+      return left[index]!.localeCompare(right[index]!);
+    }
+    return left.length - right.length;
+  });
+  for (const file of sorted) {
+    const parts = file.path.split("/");
+    parts.forEach((name, depth) => {
+      const path = parts.slice(0, depth + 1).join("/");
+      if (depth === parts.length - 1) rows.push({ path, name, depth, file: { status: file.status } });
+      else if (!shown.has(path)) { shown.add(path); rows.push({ path, name, depth }); }
+    });
+  }
+  return rows;
+}
+
+/** The changed files as a tree with their Git status, the Files tab's "Changed" view (design 1l). */
+function ChangedTree({ files, current, onOpen, onPin }: {
+  files: readonly { path: string; status: string }[];
   current?: string;
   onOpen(path: string): void;
   onPin(path: string): void;
 }) {
+  const rows = useMemo(() => changedTreeRows(files), [files]);
   if (files.length === 0) return <p className="empty-copy">The worktree is clean.</p>;
-  const letter = (status: string) => status === "added" || status === "untracked" ? "A" : status === "deleted" ? "D" : status === "renamed" ? "R" : "M";
-  return <div className="files-changed-list">
-    {files.map((file) => <button
-      key={file.path}
+  return <div className="files-changed-list" role="tree" aria-label="Changed files">
+    {rows.map((row) => row.file ? <button
+      key={row.path}
       type="button"
-      className={`file-row file ${file.path === current ? "active" : ""}`}
-      aria-current={file.path === current ? "true" : undefined}
-      title={file.path}
-      onClick={() => onOpen(file.path)}
-      onDoubleClick={() => onPin(file.path)}
+      role="treeitem"
+      className={`file-row file ${row.path === current ? "active" : ""}`}
+      style={{ paddingLeft: `${10 + row.depth * 14}px` }}
+      aria-current={row.path === current ? "true" : undefined}
+      title={row.path}
+      onClick={() => onOpen(row.path)}
+      onDoubleClick={() => onPin(row.path)}
     >
-      <span className="file-kind-icon"><FileKindIcon name={file.name} /></span>
-      <span className="name">{file.path}</span>
-      <em className={`files-status-${letter(file.status)}`}>{letter(file.status)}</em>
-    </button>)}
+      <span className="file-kind-icon"><FileKindIcon name={row.name} size={12} /></span>
+      <span className="name">{row.name}</span>
+      <em className={`files-status-${statusLetter(row.file.status)}`}>{statusLetter(row.file.status)}</em>
+    </button> : <div key={row.path} role="treeitem" aria-expanded="true" className="file-row directory" style={{ paddingLeft: `${10 + row.depth * 14}px` }} title={row.path}>
+      <span className="file-kind-icon"><FileKindIcon name={row.name} directory open size={12} /></span>
+      <span className="name">{row.name}</span>
+    </div>)}
   </div>;
+}
+
+/** What the file on show is to Git, as the design marks it beside its path: "new", "M", "deleted". */
+function statusWord(status?: string): string | undefined {
+  if (!status) return undefined;
+  const letter = statusLetter(status);
+  return letter === "A" ? "new" : letter === "D" ? "deleted" : letter;
 }
 
 /**
@@ -171,7 +213,12 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const inSheet = placement === "sheet";
   const onStage = placement === "stage";
   const [reading, setReading] = useState<string>();
-  const [view, setView] = useState<"changed" | "all">(() => changes.files.length > 0 ? "changed" : "all");
+  const [view, setViewState] = useState<"changed" | "all">(() => changes.files.length > 0 ? "changed" : "all");
+  // Until a view is picked, the changes the host reports after the tab opened bring Changed to the front.
+  const picked = useRef(false);
+  const setView = (next: "changed" | "all") => { picked.current = true; setViewState(next); };
+  const anyChanges = changes.files.length > 0;
+  useEffect(() => { if (!picked.current) setViewState(anyChanges ? "changed" : "all"); }, [anyChanges]);
   const [fileView, setFileView] = useState<"diff" | "source">("diff");
   const { filesFocus } = useWorkspaceKit();
   // "N files changed" asked for the Changed view and its first file.
@@ -207,7 +254,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     nodes={fileTree}
     changedPaths={changedPaths}
     activePaths={(onStage ? [reading] : [activePath, relativeHostPath(activePath, cwd)]).filter((path): path is string => Boolean(path))}
-    rowHeight={touch ? 44 : 30}
+    rowHeight={touch ? 44 : onStage ? 24 : 30}
     loadFiles={loadFiles}
     openFile={open}
     editFile={(path) => !inSheet && workspaceStore.editFile(path)}
@@ -222,32 +269,37 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
 
   if (onStage) {
     const project = cwd?.split(/[\\/]/u).filter(Boolean).at(-1);
+    const readingStatus = reading ? changes.files.find((file) => file.path === reading)?.status : undefined;
     return <section className="panel-body files-panel files-stage">
       <aside className="files-explorer" aria-label="Explorer">
         <header className="files-explorer-head">
           <span className="files-explorer-scope" title={cwd}>{project}{workspace?.branch ? <> · <b>{workspace.branch}</b></> : null}</span>
-          <div className="toggle-group files-explorer-view" role="group" aria-label="Show">
-            <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
-            <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
+          <div className="files-explorer-tools">
+            <div className="files-explorer-view" role="group" aria-label="Show">
+              <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
+              <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
+            </div>
+            {goToFile}
           </div>
-          {goToFile}
         </header>
         <div className="files-panel-tree">
-          {view === "changed" ? <ChangedList files={changes.files} current={reading} onOpen={open} onPin={pin} /> : tree}
+          {view === "changed" ? <ChangedTree files={changes.files} current={reading} onOpen={open} onPin={pin} /> : tree}
         </div>
         {editor ? <button type="button" className="files-open-editor" onClick={() => void workspaceStore.openInEditor(reading, editor.id)}>
-          <SquarePen size={14} aria-hidden="true" /><span>Open in your editor</span><kbd>{/mac|iphone|ipad/iu.test(navigator.platform) ? "⌘O" : "Ctrl+O"}</kbd>
+          <SquarePen size={11} aria-hidden="true" /><span>Open in your editor</span><kbd>{/mac|iphone|ipad/iu.test(navigator.platform) ? "⌘O" : "Ctrl+O"}</kbd>
         </button> : null}
       </aside>
       {reading ? <div className="files-reading">
         <header className="files-reading-head">
           <strong title={reading}>{reading}</strong>
-          {changedPaths.has(reading) ? <div className="toggle-group" role="group" aria-label="View">
+          {readingStatus ? <em className={`files-status-${statusLetter(readingStatus)}`}>{statusWord(readingStatus)}</em> : null}
+          <span className="spacer" />
+          {changedPaths.has(reading) ? <div className="files-reading-view" role="group" aria-label="View">
             <button type="button" className={fileView === "diff" ? "active" : ""} aria-pressed={fileView === "diff"} onClick={() => setFileView("diff")}>Diff</button>
             <button type="button" className={fileView === "source" ? "active" : ""} aria-pressed={fileView === "source"} onClick={() => setFileView("source")}>Source</button>
           </div> : null}
           <button type="button" className="icon-button" aria-label="Open as a tab" {...tooltipProps("Open as a tab", { side: "bottom" })} onClick={() => openFile(reading, { pin: true, ...(changedPaths.has(reading) && fileView === "diff" ? { view: "diff" as const } : {}) })}><PanelTop size={14} /></button>
-          <button type="button" className="icon-button" aria-label="Edit file" {...tooltipProps("Edit file", { side: "bottom" })} onClick={() => pin(reading)}><SquarePen size={14} /></button>
+          <button type="button" className="files-reading-edit" aria-label="Edit file" {...tooltipProps("Edit file", { side: "bottom" })} onClick={() => pin(reading)}><SquarePen size={11} aria-hidden="true" /><span>Edit</span></button>
         </header>
         {changedPaths.has(reading) && fileView === "diff"
           ? <FileDiffPane path={reading} load={readDiff} />

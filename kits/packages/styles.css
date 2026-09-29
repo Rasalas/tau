@@ -11,4 +11,4 @@
   border-left: 2px solid var(--line-strong); background: var(--inset);
   font: 10.5px var(--mono); color: var(--muted); line-height: 1.7;
 }
-.packages-failure { margin: 4px 0 0; font-size: 12px; color: var(--danger); }
+.packages-failure { margin: 4px 0 0; font-size: var(--text-sm); color: var(--danger); }

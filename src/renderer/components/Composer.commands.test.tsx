@@ -71,7 +71,7 @@ afterEach(cleanup);
 describe("Composer command menu", () => {
   it("grows and shrinks with multiline input", async () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     let scrollHeight = 118;
     Object.defineProperty(textarea, "scrollHeight", { configurable: true, get: () => scrollHeight });
 
@@ -85,7 +85,7 @@ describe("Composer command menu", () => {
 
   it("shows skills with the $ syntax and sends the user's shorthand unchanged", () => {
     const onSubmit = renderComposer();
-    const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "$td", selectionStart: 3 } });
     expect(screen.getByRole("listbox", { name: "Skills" })).toBeTruthy();
@@ -102,7 +102,7 @@ describe("Composer command menu", () => {
 
   it("finds and executes skills directly from slash", () => {
     const onSubmit = renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "/td", selectionStart: 3 } });
     expect(screen.getByRole("option", { name: /tdd/u }).textContent).not.toContain("skill:tdd");
@@ -116,7 +116,7 @@ describe("Composer command menu", () => {
 
   it("queues Enter and steers with Command-Enter while streaming", async () => {
     const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true);
-    const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "after this turn", selectionStart: 15 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -130,7 +130,7 @@ describe("Composer command menu", () => {
 
   it("sends with the modifier held as the alternate send while idle", async () => {
     const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })));
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "start it elsewhere", selectionStart: 18 } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
@@ -143,7 +143,7 @@ describe("Composer command menu", () => {
       queue: [queued("first", "after this turn"), queued("second", "and then this")],
       onSteerQueued,
     });
-    const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
 
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
     expect(onSteerQueued).toHaveBeenCalledWith("first");
@@ -161,7 +161,7 @@ describe("Composer command menu", () => {
       queue: [queued("first", "after this turn"), queued("second", "and then this")],
       onSteerQueued,
     });
-    const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "still typing", selectionStart: 12 } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, shiftKey: true });
     expect(onSteerQueued).toHaveBeenCalledWith("first");
@@ -194,7 +194,7 @@ describe("Composer command menu", () => {
 
   it("keeps the slash menu closed for a token after Escape, and opens it for the next one", () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "/rev", selectionStart: 4 } });
     expect(screen.getByRole("listbox", { name: "Commands" })).toBeTruthy();
     fireEvent.keyDown(textarea, { key: "Escape" });
@@ -208,7 +208,7 @@ describe("Composer command menu", () => {
 
   it("offers prompt templates and extension commands under slash", () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "/rev", selectionStart: 4 } });
     const menu = screen.getByRole("listbox", { name: "Commands" });
@@ -222,7 +222,7 @@ describe("Composer command menu", () => {
 
   it("walks the compact slash menu with the arrows and the pointer, and takes the row with Enter", () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "/re", selectionStart: 3 } });
     const selected = () => screen.getAllByRole("option").findIndex((option) => option.getAttribute("aria-selected") === "true");
     const options = screen.getAllByRole("option");
@@ -247,7 +247,7 @@ describe("Composer command menu", () => {
 
   it("passes indented command-looking Markdown to the host unchanged", () => {
     const onSubmit = renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "    /tdd keep this code", selectionStart: 23 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -256,7 +256,7 @@ describe("Composer command menu", () => {
 
   it("passes selected skill metadata while preserving instruction indentation", () => {
     const onSubmit = renderComposer();
-    const textarea = screen.getByPlaceholderText(/\$ skills/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "$td", selectionStart: 3 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -288,7 +288,7 @@ describe("Composer command menu", () => {
 
   it("navigates prompt history with ArrowUp and ArrowDown", async () => {
     const onSubmit = renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     // Send first prompt
     fireEvent.change(textarea, { target: { value: "first prompt", selectionStart: 12 } });
@@ -351,7 +351,7 @@ describe("Composer command menu", () => {
       </TestProviders>
     );
 
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "@ut", selectionStart: 3 } });
 
     await waitFor(() => {
@@ -396,7 +396,7 @@ describe("Composer command menu", () => {
       ],
     };
     renderComposer(undefined, false, snapshotWithModels);
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "/model cl", selectionStart: 9 } });
     await waitFor(() => {
@@ -410,7 +410,7 @@ describe("Composer command menu", () => {
 
   it("autocompletes /thinking arguments with valid levels", async () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "/thinking h", selectionStart: 11 } });
     await waitFor(() => {
@@ -428,7 +428,7 @@ describe("Composer command menu", () => {
     const onNotify = vi.fn();
 
     renderComposer(onSubmit, false, snapshot, {}, { onRunShellAction, onNotify });
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "!ls -la", selectionStart: 7 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -447,7 +447,7 @@ describe("Composer command menu", () => {
     const onNotify = vi.fn();
 
     renderComposer(onSubmit, false, snapshot, {}, { onRunShellAction, onNotify });
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "!!ls -la", selectionStart: 8 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -471,17 +471,15 @@ describe("Composer command menu", () => {
     expect(onOpenPromptEditor).toHaveBeenCalled();
   });
 
-  it("displays shell chip and updates placeholder when input starts with ! or !!", () => {
+  it("displays the shell chip when input starts with ! or !!", () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "!git status", selectionStart: 11 } });
     expect(screen.getByText("Shell")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/Shell mode — runs command and shares output/u)).toBeTruthy();
 
     fireEvent.change(textarea, { target: { value: "!!git status", selectionStart: 12 } });
     expect(screen.getByText("Silent Shell")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/Silent shell mode — runs command without LLM context/u)).toBeTruthy();
   });
 
   it("restores queued message into editor when Alt+Up or Alt+Q is pressed", () => {
@@ -490,7 +488,7 @@ describe("Composer command menu", () => {
       queue: [queued("q1", "queued prompt text")],
       onCancelQueued,
     });
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     expect(onCancelQueued).toHaveBeenCalledWith("q1");
@@ -499,7 +497,7 @@ describe("Composer command menu", () => {
 
   it("updates editor text when tau:composer-editor-action event is received", async () => {
     renderComposer();
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     window.dispatchEvent(new CustomEvent("tau:composer-editor-action", {
       detail: { type: "set", text: "text from extension" },
@@ -563,7 +561,7 @@ describe("Composer command menu", () => {
       </TestProviders>,
     );
 
-    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "inspect @test.ts", selectionStart: 16 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 

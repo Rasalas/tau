@@ -171,6 +171,7 @@ export function ModelPicker({
   multiSelect,
   thinking,
   onOpenSettings: openSettings,
+  focus,
   anchor,
   side = "top",
 }: {
@@ -205,6 +206,8 @@ export function ModelPicker({
    * By default the workbench's own Settings: the runtime's card under Providers, and its models there.
    */
   onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
+  /** "thinking": opens with the focus on the thinking column, as the composer's reasoning level asks. */
+  focus?: "thinking";
   /** The control the picker opens beside, as T3 Code's picker at its chip. */
   anchor: RefObject<HTMLElement | null>;
   /** Where it prefers to open; it flips when that side has no room. */
@@ -243,7 +246,7 @@ export function ModelPicker({
   useLayoutEffect(() => { sheetRef.current = asSheet ? surfaceRef.current?.closest<HTMLElement>(".model-picker") ?? null : null; }, [asSheet]);
   const runtimeColumnRef = useRef<HTMLElement>(null);
   const thinkingColumnRef = useRef<HTMLDivElement>(null);
-  const thinkingFocus = useRef(false);
+  const thinkingFocus = useRef(focus === "thinking");
   const chosen = useSyncExternalStore(
     multiSelect?.subscribe ?? noSubscription,
     () => multiSelect?.selected() ?? NO_SELECTION,
@@ -385,7 +388,8 @@ export function ModelPicker({
 
   // Again after the add-provider form, which a popover picker gives its place to.
   useEffect(() => {
-    if (!addProviderOpen) requestAnimationFrame(() => inputRef.current?.focus());
+    // Opened for its thinking column, the picker keeps the focus there.
+    if (!addProviderOpen) requestAnimationFrame(() => { if (!thinkingColumnRef.current?.contains(document.activeElement)) inputRef.current?.focus(); });
   }, [addProviderOpen]);
   useFocusTrap(surfaceRef, !addProviderOpen);
 
