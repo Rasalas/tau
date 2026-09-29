@@ -760,19 +760,21 @@ a new thread's draft, which has nothing to run or commit). It stays mounted
 while a maximized stage hides the conversation, only out of sight, so a
 kit may keep a dialog layer there; on a phone it is the end of the phone's bar.
 `thread-details` and `thread-branch` (API 1.27.0) are the thread header's
-sub-line: `thread-details` adds items before the branch (Machines Kit names a
-new thread's machine there, the design's project · machine · branch), and
+sub-line: `thread-details` adds items before the branch, and
 `thread-branch` draws the branch itself; while any kit registers for it,
 core's plain branch label steps aside. Both are drawn bare in the sub-line,
 so draw each item as a `span.thread-detail` (core puts the "·" between
 them) and render nothing when there is nothing to say. Workspace Kit's
 branch there opens a menu over the thread's checkout (switch or create a
 branch, open, add or remove a worktree) and, for a new thread, its Branch
-section. A phone's bar draws neither; an older core draws neither.
+section. A phone's bar draws neither; an older core draws neither. A new
+thread's draft has no sub-line since API 1.28.0 (K104): its pills in
+`draft-actions` already say project, machine and branch. A thread that exists
+but is still empty keeps it, since its branch has no pill.
 `draft-actions` (K98, for API 1.28.0) is the row of pills after a new
 thread's "What should <project> do next?" and its sentence: core's project
 pill leads it (a click opens the project picker at the pill and moves the
-draft), then the kits' pills, each a `button.draft-pill` that opens its own
+draft; a second click on the pill closes it), then the kits' pills, each a `button.draft-pill` that opens its own
 popover, or a sheet on a phone or tablet. Machines Kit draws "Run on" there,
 Workspace Kit the branch with its Branch section. Render nothing for a thread
 that started; an older core draws no such row.
@@ -1287,6 +1289,25 @@ until a package asks for it — and `Menu` with its `MenuItem` and `MenuSection`
 types, the popover list a composer chip drops, with the scrim, the keyboard
 and the shift that keeps it clear of a native view (below).
 
+#### Project icons (new in API 1.28.0)
+
+`context.setProjectIcons(icons)` publishes the pictures an extension draws
+projects with, keyed by a project's `workspaceId` or, for a host without ids,
+its `path`; each value is a `data:image/` URL (anything else is dropped), and
+`undefined` withdraws them, as deactivation does. Every project mark core
+draws takes them before the host's own picture (`UiProject.icon`: a
+`favicon.*`, `t3.json`) and before the initial: the new thread's project pill,
+the project picker, the thread rows and draft rows, the phone's and tablet's
+thread lists and project filter. When two extensions name the same project,
+the one activated first wins. Core never reads an extension's settings for
+this; Workspace Kit publishes the icon chosen in Project settings from its own
+values. `ProjectIcon` (`project`: `{ path, name, workspaceId?, icon? }`,
+optional `icon` as the caller's own fallback, `hue` for what the tint is
+hashed from, `className`) is that mark as a component, and `useProjectIcon(project)`
+answers the picture alone, so a kit's own lists (Workspace Kit's filter and
+thread card, Review Kit's page) draw the same mark. `ThreadRow`'s and
+`DraftRow`'s `projectIcon` is such a fallback: a published picture wins over it.
+
 #### The UI primitives (new in API 1.11.0)
 
 Core draws its menus, tooltips, toasts and dialogs with the pieces below, and
@@ -1485,6 +1506,7 @@ It also exports the renderer's shared state and presentation:
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) in front with the runtime's stacked behind it, fanned out side by side on hover or keyboard focus and always on a touch screen, in a box that keeps the fanned width ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it (Pi's threads), which the rail's "Order threads by: Created" reads. Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `threadRowStatus`, `ThreadRowStatus`, `THREAD_QUESTION_LABEL`, `threadLimitHint` | new in API 1.27.0: the one derivation of a thread row's state that the desktop rail and the tablet and phone lists share. `threadRowStatus(id, activity, thread?)` takes the thread store's activity (`useThreadStore().getActivity()`) and the thread's shell and answers `{ activity, label, hint?, startedAt? }` for `ThreadRow`: a question is "Question", a run "Working" with the host's start of the run, then Limited, Failed, Interrupted, Ready and Idle. A navigator that draws its own rows calls it rather than naming the states itself. |
 | `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and T3 Code's tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
+| `ProjectIcon`, `useProjectIcon`, `ProjectIconSubject`, `projectHue` | new in API 1.28.0 (`projectHue` 1.27.0): a project's mark as every core list draws it — a published picture (`context.setProjectIcons`), else the host's, else the initial on the project's hue. See "Project icons" above. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
@@ -1690,9 +1712,10 @@ its Branch section, `draftBranch` and `draftBase` in the store's state (set with
 base; both are forgotten with the draft.
 
 A new thread's Branch section (its own worktree or the checkout, the `tau/…`
-branch named when the prompt is sent or typed, "from" its base) opens from the
-branch in the draft's header and from Workspace Kit's branch pill in
-`draft-actions` (a sheet on a phone or tablet). The `tau.workspace/branch-section`
+branch named when the prompt is sent or typed, "from" its base) opens from
+Workspace Kit's branch pill in `draft-actions` (a sheet on a phone or tablet).
+Its "New worktree" row is the switch's label: a click or tap anywhere on the
+row switches. The `tau.workspace/branch-section`
 service that lent it to Machines Kit's "Run on" is gone (K98): "Run on" holds
 the machines only, as the design's two pills do.
 
@@ -3071,6 +3094,15 @@ The window's process answers all of it through client-side methods
 methods with `unsupported`. Every kit a page loads comes from the machine it shows,
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
+
+A phone or tablet has no `context.environments`, so Machines Kit draws no "Run
+on" pill there (K104). The list alone could come through the host (the kit's
+host half answers `agents`: the machines this host's agents reach), but a
+choice could not be carried out: "Run on" moves the client to the other
+machine's host, and a paired phone holds a token for its own host only, while a
+thread the host started there for it would stay out of the phone's reach. The
+way there is a `Platform.environments` of the phone app itself, over the hosts
+it paired with (`mobile/src/hosts.ts`), which a later change can add.
 
 ### `engines` and `engines.api`
 
