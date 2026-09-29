@@ -133,12 +133,12 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
         className="workspace-changes-link"
         {...tooltipProps("Review the changes", { side: "bottom" })}
         onClick={() => workspaceStore.showChangedFiles()}
-      >{changed} {changed === 1 ? "file" : "files"} changed<ChevronRight size={13} /></button> : null}
+      >{changed} {changed === 1 ? "file" : "files"}{collapse.changes === "label" ? <> changed<ChevronRight size={13} /></> : null}</button> : null}
 
       {readOnly ? null : <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">
           <button
-            className="chrome-button accent split-main"
+            className={`chrome-button accent split-main${collapse.git === "icon" ? " icon-only" : ""}`}
             disabled={gitAction.disabled}
             aria-label={gitAction.label}
             {...tooltipProps(collapse.git === "icon" ? `${gitAction.label}: ${gitAction.hint}` : gitAction.hint, { side: "bottom" })}

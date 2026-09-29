@@ -52,7 +52,7 @@ body[data-profile="compact"] .title-bar .chrome-ghost.glyph { width: 44px; heigh
 body[data-profile="compact"] .title-bar .chrome-ghost.glyph > svg { width: 20px; height: 20px; }
 /* The phone's details under the title (design 1n): machine and branch, then the model's name, whole, on a line
    of its own. A narrow bar leaves out turn and cost; the icons part the items, so no dot starts a line. */
-body[data-profile="compact"] .title-bar .thread-details { gap: 0 10px; max-height: calc(2 * 1.25em); overflow: hidden; line-height: 1.25; white-space: nowrap; font-size: var(--text-xs); }
+body[data-profile="compact"] .title-bar .thread-details { flex-wrap: wrap; gap: 0 10px; max-height: calc(2 * 1.25em); overflow: hidden; line-height: 1.25; white-space: nowrap; font-size: var(--text-xs); }
 body[data-profile="compact"] .title-bar .thread-detail { flex: 0 1 auto; }
 body[data-profile="compact"] .title-bar .thread-detail + .thread-detail::before { content: none; }
 /* The title keeps its 44 px to tap but lends 18 px of it to the details' second line. */

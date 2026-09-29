@@ -121,16 +121,16 @@ button > svg { pointer-events: none; }
   -webkit-app-region: drag;
 }
 .thread-header :is(button, input, form, .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
-/* The title takes up to 45 % and wraps, as the design's does; the kits' region the rest, which Workspace Kit's row measures to fold its actions. */
-.thread-heading { flex: 0 1 auto; min-width: 160px; max-width: 45%; display: flex; flex-direction: column; gap: 1px; }
+/* The title takes up to 45 %, its details one line that clips, as the design's do; the kits' region the rest, which Workspace Kit's row measures to fold its actions. */
+.thread-heading { flex: 0 1 auto; min-width: 140px; max-width: 45%; display: flex; flex-direction: column; gap: 1px; }
 .thread-heading-title { display: flex; align-items: center; min-width: 0; }
 .thread-header :is(.thread-title-trigger, .title-draft) { font: 600 var(--text-title)/1.2 var(--sans); letter-spacing: -.01em; }
 /* A draft's name is a placeholder until the thread names itself (design 1k). */
 .thread-header .title-draft { color: var(--muted); }
 .thread-header .thread-title-trigger { padding: 2px 6px; margin-left: -6px; }
 /* Narrow, the details wrap under the title as the design's do, rather than lose their words. */
-.thread-details { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
-.thread-detail { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.thread-details { display: flex; align-items: center; gap: 0 6px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
+.thread-detail { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 100%; }
 .thread-detail + .thread-detail::before { content: "·"; margin-right: 6px; }
 .thread-detail > span { overflow: hidden; text-overflow: ellipsis; }
 .thread-detail-cost { font-family: var(--mono); }

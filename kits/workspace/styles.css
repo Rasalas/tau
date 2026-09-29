@@ -18,6 +18,9 @@
 .thread-header .workspace-title-actions .chrome-button { min-height: 28px; border-color: transparent; background: transparent; box-shadow: none; }
 .thread-header .workspace-title-actions .chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--hover); }
 .thread-header .workspace-title-actions .chrome-group .split-trigger { width: 20px; border-left-color: transparent; }
+/* Folded to icons, the row takes a 380 px chat's room (design 1l): square buttons, a tighter gap. */
+.thread-header .workspace-title-actions:has(.icon-only) { gap: 4px; }
+.thread-header .workspace-title-actions :is(.title-more, .split-main.icon-only) { width: 28px; padding: 0; justify-content: center; }
 /* The design's "3 files changed ›": a link in the accent's ink, not a button. */
 .workspace-changes-link {
   flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 6px; border: 0; border-radius: var(--radius-sm);
@@ -321,6 +324,8 @@
 }
 /* As the design writes it: the checkout's branch in the sub-line's face, a draft's planned name in mono; the chevron shows on hover. */
 .thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Its negative margins make the header's detail 8 px narrower than the trigger; it may take those back. */
+.thread-header .thread-branch-trigger { max-width: calc(100% + 8px); }
 .thread-branch-trigger.planned > span { font-family: var(--mono); }
 .thread-branch-trigger .chev { flex: none; color: var(--faint); opacity: 0; }
 .thread-branch-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) .chev { opacity: 1; }

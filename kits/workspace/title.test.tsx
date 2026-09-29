@@ -104,18 +104,19 @@ describe("Workspace Kit title actions", () => {
   });
 
   it("folds labels first, then the project actions into More, and the Git action's label last", () => {
-    expect(TITLE_COLLAPSE_STEPS[0]).toEqual({ actions: "label", git: "label" });
+    expect(TITLE_COLLAPSE_STEPS[0]).toEqual({ actions: "label", git: "label", changes: "label" });
     // Each step takes one more thing away and gives nothing back.
-    const rank = { label: 0, icon: 1, overflow: 2 } as const;
+    const rank = { label: 0, icon: 1, short: 1, overflow: 2 } as const;
     for (let level = 1; level <= MAX_TITLE_COLLAPSE; level += 1) {
       const before = titleCollapse(level - 1);
       const after = titleCollapse(level);
-      const moved = (["actions", "git"] as const).filter((item) => rank[after[item]] !== rank[before[item]]);
+      const moved = (["actions", "git", "changes"] as const).filter((item) => rank[after[item]] !== rank[before[item]]);
       expect(moved).toHaveLength(1);
       expect(rank[after[moved[0]!]]).toBeGreaterThan(rank[before[moved[0]!]]);
     }
-    // The Git action keeps its words longest and never leaves the header.
-    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.git === "icon")).toBe(MAX_TITLE_COLLAPSE);
+    // The Git action keeps its words until only the changes' count can still give way; it never leaves the header.
+    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.git === "icon")).toBe(MAX_TITLE_COLLAPSE - 1);
+    expect(TITLE_COLLAPSE_STEPS.findIndex((step) => step.changes === "short")).toBe(MAX_TITLE_COLLAPSE);
     expect(titleCollapse(99)).toEqual(titleCollapse(MAX_TITLE_COLLAPSE));
   });
 
@@ -163,6 +164,12 @@ describe("Workspace Kit title actions", () => {
     const link = screen.getByRole("button", { name: /1 file changed/u });
     fireEvent.click(link);
     expect(showChangedFiles).toHaveBeenCalledOnce();
+  });
+
+  it("shortens the changes to \"N files\" at the tightest fold, the Git action a square icon", () => {
+    setup(workspace(), false, true, MAX_TITLE_COLLAPSE);
+    expect(screen.getByRole("button", { name: "1 file" }).textContent).toBe("1 file");
+    expect(screen.getByRole("button", { name: "Commit" }).className).toContain("icon-only");
   });
 
   it("chooses commit versus commit and push from upstream state", () => {
