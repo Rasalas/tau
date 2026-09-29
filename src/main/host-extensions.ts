@@ -1335,13 +1335,20 @@ interface ActiveHostExtension {
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
   fatal?: string;
+  /** When its activation finished. */
+  startedAt?: number;
 }
 
 export interface HostExtensionRegistryOptions {
   commandTimeoutMs?: number;
   /** The ids the user turned off (`disabledExtensions`); `activate` leaves them known but stopped. */
   disabled?: () => readonly string[];
+  now?: () => number;
 }
+
+/** A crashed extension starts again on its next call; again after a crash soon after, only once this has passed, doubling. */
+const RESTART_BACKOFF_MS = 10_000;
+const RESTART_BACKOFF_MAX_MS = 5 * 60_000;
 
 export class HostExtensionRegistry {
   private readonly active = new Map<string, ActiveHostExtension>();
@@ -1352,6 +1359,9 @@ export class HostExtensionRegistry {
   private readonly consecutiveFailures = new Map<string, number>();
   /** Halves the list of turned-off extensions kept from running; `followChoices` starts them when it lets go. */
   private readonly heldOff = new Set<string>();
+  /** Extensions that stopped on a failure while running, restarted by their next call. */
+  private readonly crashed = new Map<string, { at: number; restarts: number }>();
+  private readonly restarting = new Map<string, Promise<boolean>>();
 
   constructor(
     private readonly services: HostExtensionServices,
@@ -1368,6 +1378,7 @@ export class HostExtensionRegistry {
    * recorded and reported, never thrown.
    */
   async activate(extension: HostExtension): Promise<boolean> {
+    this.crashed.delete(extension.id);
     if (this.options.disabled?.().includes(extension.id)) {
       await this.deactivate(extension.id);
       this.known.set(extension.id, extension);
@@ -1449,6 +1460,7 @@ export class HostExtensionRegistry {
       const dispose = await extension.activate(context);
       if (dispose) record.disposers.push(dispose);
       if (record.fatal) throw new Error(record.fatal);
+      record.startedAt = this.now();
       this.active.set(extension.id, record);
       this.services.log("host-extension.activated", `${extension.name} · ${[...record.commands.keys()].join(", ") || "no commands"}`);
       return true;
@@ -1469,6 +1481,7 @@ export class HostExtensionRegistry {
     this.failures.set(extension.id, reason);
     this.services.log("host-extension.failed", `${extension.name}: ${reason}`);
     if (this.active.get(extension.id) === record) {
+      this.noteCrash(extension.id, record);
       this.announceDeactivation(extension, reason);
       void this.deactivate(extension.id).catch(() => undefined);
     }
@@ -1488,6 +1501,7 @@ export class HostExtensionRegistry {
     const extension = this.known.get(id);
     if (!extension) throw new Error(`Host extension ${id} is not installed.`);
     this.heldOff.delete(id);
+    this.crashed.delete(id);
     return this.active.has(id) ? true : this.start(extension);
   }
 
@@ -1514,6 +1528,7 @@ export class HostExtensionRegistry {
   /** Forgets an extension entirely, e.g. when its package left the disk. */
   async remove(id: string): Promise<void> {
     this.heldOff.delete(id);
+    this.crashed.delete(id);
     await this.deactivate(id);
     this.known.delete(id);
     this.failures.delete(id);
@@ -1540,6 +1555,41 @@ export class HostExtensionRegistry {
     return this.active.has(id);
   }
 
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  /** A crash of a half that had run for a while starts the count of quick restarts afresh. */
+  private noteCrash(id: string, record: ActiveHostExtension): void {
+    const previous = this.crashed.get(id);
+    const ranLong = record.startedAt !== undefined && this.now() - record.startedAt > RESTART_BACKOFF_MAX_MS;
+    this.crashed.set(id, { at: this.now(), restarts: previous && !ranLong ? previous.restarts : 0 });
+  }
+
+  /**
+   * Starts an extension that stopped on a failure while it ran (its worker
+   * died, hit its memory cap, a command hung), when a call asks for it: the
+   * first time at once, after a crash that follows a restart only once the
+   * backoff has passed. One the user turned off, or that never started,
+   * stays as it is.
+   */
+  private async restartCrashed(id: string): Promise<ActiveHostExtension | undefined> {
+    const crash = this.crashed.get(id);
+    const extension = this.known.get(id);
+    if (!crash || !extension || this.heldOff.has(id) || this.options.disabled?.().includes(id)) return undefined;
+    let pending = this.restarting.get(id);
+    if (!pending) {
+      const wait = crash.restarts === 0 ? 0 : Math.min(RESTART_BACKOFF_MAX_MS, RESTART_BACKOFF_MS * 2 ** (crash.restarts - 1));
+      if (this.now() - crash.at < wait) return undefined;
+      this.crashed.set(id, { at: this.now(), restarts: crash.restarts + 1 });
+      this.services.log("host-extension.restarting", `${extension.name}: after "${this.failures.get(id) ?? "a failure"}"`);
+      pending = this.start(extension).finally(() => this.restarting.delete(id));
+      this.restarting.set(id, pending);
+    }
+    await pending;
+    return this.active.get(id);
+  }
+
   private async runWithTimeout<T>(fn: () => T | Promise<T>, timeoutMs: number, command: string): Promise<T> {
     const signal = AbortSignal.timeout(timeoutMs);
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1564,7 +1614,7 @@ export class HostExtensionRegistry {
     input?: unknown,
     principal: HostInvocationPrincipal = HOST_CORE_PRINCIPAL,
   ): Promise<unknown> {
-    const record = this.active.get(extensionId);
+    const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
     if (!record) {
       const known = this.known.get(extensionId);
       throw new Error(known
@@ -1604,6 +1654,7 @@ export class HostExtensionRegistry {
         this.failures.set(extensionId, reason);
         this.services.log("host-extension.failed", `${record.extension.name}: ${reason}`);
         this.announceDeactivation(record.extension, reason);
+        this.noteCrash(extensionId, record);
         await this.deactivate(extensionId);
       }
       throw error;

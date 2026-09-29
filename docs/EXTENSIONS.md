@@ -3453,6 +3453,16 @@ its own. There is no revocation list: removing a key from
     stopping the host. A native addon loaded through `loadDependency` lives
     there. When the host passes its limit with no worker package to blame,
     it stops nothing.
+- **Starting again:** a package that stopped while it ran — its worker died,
+  hit a cap or the host's memory limit, a command timed out or failed three
+  times — starts again on the next call to one of its commands (a page's
+  "Try again" is such a call), and that call runs on the new start. If it
+  stops again soon after, the next start waits 10 s, then 20 s, doubling up
+  to 5 minutes; until then a call answers "Host extension … is not active."
+  A package that ran for more than 5 minutes before it stopped starts again
+  at once. One that failed to activate, or that the user turned off, is not
+  started this way; `host-extension.restarting` in the host log names each
+  start and why.
 - **Compiled code in a worker:** a crash in native code is a crash of the host
   process, with every thread in it; no worker boundary catches a segfault. That
   is why a worker package loads no addon without the `native` grant (§6). A
