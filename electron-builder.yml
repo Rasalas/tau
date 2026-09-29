@@ -163,7 +163,8 @@ linux:
   icon: assets/tau-icon.png
   category: Development
   executableName: tau
-  # package.json's description is the prototype's; packages and the menu entry show these.
+  # Packages and the menu entry show these, not package.json's description. Never rename
+  # package.json's `name`: Electron names every user's data folder after it.
   synopsis: Desktop workbench for the Pi coding agent
   description: Desktop workbench for the Pi coding agent
   # The .deb links /usr/bin/tau to it (packaging/linux/after-install.tpl).

@@ -15,7 +15,7 @@ npm run dev       # Electron with hot reload
 npm run dev:web   # the UI in a browser, with fixture data
 ```
 
-[README.md](README.md) explains the architecture; [docs/CORE.md](docs/CORE.md)
+[docs/architecture.md](docs/architecture.md) explains the architecture; [docs/CORE.md](docs/CORE.md)
 and [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describe the core and the extension
 API; [CONTEXT.md](CONTEXT.md) defines the words the code uses.
 

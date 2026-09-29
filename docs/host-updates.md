@@ -5,8 +5,8 @@ running only `tau-host.service` stays current like a laptop with the app open.
 Every client shows each machine's version and offers Update now; the
 integrator can update a machine from the command line over the connection
 that is already authenticated. This page describes the design, the Linux
-update helper and the threat model. The user-facing summary is in the
-README's *Install* section.
+update helper and the threat model. The user-facing summary is in
+[Install and run](install.md#updates).
 
 ## Who checks, who installs
 

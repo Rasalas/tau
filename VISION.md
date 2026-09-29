@@ -6,7 +6,7 @@ Tau is an extensible desktop workbench for coding agents. The shorthand is "Neov
 
 Pi is the agent runtime. Tau does not replace Pi, hide it behind a weaker abstraction, or reimplement its model and tool loop. Tau gives Pi a native, graphical workbench and lets extensions add project management, files, Git, observability, settings, tool presentation, and future workflows.
 
-The current Electron application is a prototype for testing this split. It is not yet a production desktop client.
+The Electron application is in alpha: it works for daily use, and its settings, interface and extension API can still change between releases.
 
 ## What Tau should feel like
 
@@ -55,7 +55,7 @@ Streaming text alone is not enough. Tool calls, thinking, queues, errors, state 
 
 ### Prove seams before hardening them
 
-The prototype should answer architecture and interaction questions with working code. Dynamic loading, permissions, isolation, packaging, and compatibility guarantees come after the contribution model survives real use.
+Tau answers architecture and interaction questions with working code. Dynamic loading, permissions, isolation, packaging, and compatibility guarantees come after the contribution model survives real use.
 
 ## What belongs in core
 

@@ -17,12 +17,19 @@ export const REPO_URL = "https://github.com/Rasalas/tau";
 /** The pages, in the order the docs navigation lists them. `source` is relative to the repository. */
 export const PAGES = [
   { slug: "get-started", source: "docs/site/get-started.md", group: "Guides", blurb: "Install Tau, connect your agents, start a thread, pair your phone." },
+  { slug: "install", source: "docs/install.md", group: "Guides", blurb: "Every installer, Linux details, updates, the tau command, and running from a checkout." },
   { slug: "make-a-change", source: "docs/site/make-a-change.md", group: "Guides", blurb: "Write a kit of your own, or change Tau and open a pull request." },
   { slug: "updates-and-machines", source: "docs/site/updates-and-machines.md", group: "Guides", blurb: "How Tau updates itself, other computers, and a host without a window." },
+  { slug: "servers", source: "docs/servers.md", group: "Guides", title: "Servers", blurb: "Work on a site that lives on a server: upload, drift, roll back." },
+  { slug: "runtimes", source: "docs/runtimes.md", group: "Reference", blurb: "Claude Code, Codex, Antigravity and Pi, pull request tools, and a live Pi session." },
+  { slug: "hosts", source: "docs/hosts.md", group: "Reference", title: "Hosts and devices", blurb: "The host as a service, over a socket or TLS, other machines, the web client and the phone app." },
   { slug: "extensions", source: "docs/EXTENSIONS.md", group: "Reference", title: "Writing a package", blurb: "The manifest, the API a kit uses, permissions, isolation and signing." },
+  { slug: "architecture", source: "docs/architecture.md", group: "Reference", blurb: "Core and kits, the window and the host, the extension seam." },
   { slug: "core", source: "docs/CORE.md", group: "Reference", title: "Core and kits", blurb: "What the core owns, and what each shipped kit does." },
   { slug: "host-updates", source: "docs/host-updates.md", group: "Reference", title: "Host updates", blurb: "The update design, the Linux helper and the threat model." },
   { slug: "contributing", source: "CONTRIBUTING.md", group: "Reference", title: "Contributing", blurb: "Setting up, where a change goes, and what a pull request needs." },
+  { slug: "features", source: "docs/features.md", group: "Project", blurb: "The workbench's features, in one list." },
+  { slug: "roadmap", source: "docs/roadmap.md", group: "Project", title: "Roadmap", blurb: "What is not done yet, and what Tau does not try to be." },
 ];
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
@@ -195,7 +202,7 @@ export function buildDocs({ root = ROOT, out = join(ROOT, "site", "docs"), pages
     written.push(file);
   }
   const cards = (group) => `<ul class="doc-cards">${rendered.filter((page) => page.group === group).map((page) => `<li><a href="${page.slug}.html"><strong>${escapeText(page.navTitle)}</strong>${escapeText(page.blurb)}</a></li>`).join("")}</ul>`;
-  const home = `<h1 id="docs">Docs</h1><p>Start with the guides. The reference pages are the documents Tau's own code follows.</p><h2 id="guides">Guides</h2>${cards("Guides")}<h2 id="reference">Reference</h2>${cards("Reference")}<p>The rest of the documentation, the decision records among it, lives in the <a href="${REPO_URL}/tree/main/docs">docs folder</a> on GitHub.</p>`;
+  const home = `<h1 id="docs">Docs</h1><p>Start with the guides. The reference pages are the documents Tau's own code follows.</p>${[...new Set(rendered.map((page) => page.group))].map((group) => `<h2 id="${slugify(group)}">${escapeText(group)}</h2>${cards(group)}`).join("")}<p>The rest of the documentation, the decision records among it, lives in the <a href="${REPO_URL}/tree/main/docs">docs folder</a> on GitHub.</p>`;
   writeFileSync(join(out, "index.html"), pageHtml({ title: "Docs", description: "Guides and reference for Tau, a workbench for coding agents.", body: home, nav: navigation(rendered), header, footer }));
   written.push(join(out, "index.html"));
   return written.map((file) => relative(root, file));

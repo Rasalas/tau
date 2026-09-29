@@ -33,7 +33,7 @@ jobs:
       # Sizes and counts are deterministic; the build-time budget only catches a runaway build.
       - name: Build and Git budgets
         run: npm run build:budget && npm run benchmark:git:check
-      # Structural checks plus timings; the tight ones are listed in README.md.
+      # Structural checks plus timings; the tight ones are listed in docs/PERFORMANCE.md.
       - name: Host budgets
         run: npm run benchmark:host:check && npm run benchmark:host:full:check
       # Frame and start timings from shared hardware are trend data, not a gate.

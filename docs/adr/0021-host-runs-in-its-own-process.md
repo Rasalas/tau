@@ -158,7 +158,7 @@ release cycle.
   host somebody else runs; nothing supervises it from here.
 - **A system service.** Installing a launchd/systemd service is a separate
   step; the background setting is the smaller version of it. *Amended
-  2026-09-24:* it is in (`src/main/host-service.ts`, README "Run the host as a
+  2026-09-24:* it is in (`src/main/host-service.ts`, `docs/hosts.md`, "Run the host as a
   system service"). A service host writes `host.json` itself with a `service`
   field, takes over from the host that file names on its port, and a window
   adopts it, never stops it, and follows it to a restart or back to a host of

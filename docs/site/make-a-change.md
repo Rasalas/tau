@@ -61,3 +61,7 @@ You need Node.js 22 and Git.
    Tests live next to the code. For a change you can see, try it in your dev instance too.
 
 5. **Open a pull request.** Keep commits small, in English, as [Conventional Commits](https://www.conventionalcommits.org/). Say what changed, why, and how you checked it; add a screenshot for anything visible. For anything bigger than a bug fix, open an issue first so we can agree on where it belongs. [Contributing](../../CONTRIBUTING.md) has the rest.
+
+## From inside the installed app
+
+Tau's own source can be changed from inside Tau too. A clean installation carries the editable source and build tools for its version. Run `/source` to create and open a versioned copy under Tau's user data, edit it like any other project, then run `/reload`. The installed Electron shell builds that managed copy and relaunches into its main process, renderer and bundled kits; the signed application itself stays untouched. Later reloads keep using the managed copy even while another project is open. Safe mode, or `TAU_IGNORE_WORKBENCH_SOURCE=1`, bypasses it for recovery. If threads are still running, Tau offers to wait or stop them first. An unpackaged checkout keeps building its own source directly.

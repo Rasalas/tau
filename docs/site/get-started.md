@@ -53,3 +53,5 @@ The phone then shows the same threads, their questions and your reviews. It talk
 
 - [Make a change](make-a-change.md): your own kit, or a change to Tau itself.
 - [Updates and machines](updates-and-machines.md): how Tau stays current, and how another computer joins in.
+- [Install and run](../install.md): every installer, Linux details, and the `tau` command.
+- [Runtimes and tools](../runtimes.md): what each agent runtime needs, and pull request tools.

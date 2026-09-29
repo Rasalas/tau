@@ -51,3 +51,5 @@ tau service uninstall   # stop and remove
 ```
 
 Settings → Connections → Background does the same. On macOS it is a LaunchAgent, on Linux a systemd user unit, on Windows a Task Scheduler task. On Linux, `tau service install --display` adds an invisible display, so an agent's browser and GUI apps run where nobody sees them.
+
+[Hosts, machines and devices](../hosts.md) has the details: the service, a host over a socket or TLS, work on other machines, the web client and the phone app.

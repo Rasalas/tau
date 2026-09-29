@@ -4,7 +4,7 @@
   "version": "0.7.15",
   "private": true,
   "type": "module",
-  "description": "THROWAWAY prototype: a Neovim-like desktop host for Pi",
+  "description": "A desktop workbench for coding agents, built on Pi",
   "author": "Torben Buck",
   "repository": {
     "type": "git",
