@@ -281,7 +281,12 @@ keeps every runtime's catalog, Pi's too, whether or not a thread of it ran
 restarts, with price, context, inputs and billing filled from Pi's model
 data), and the picker lists another runtime's models from it
 (`src/workbench/runtime-catalog-store.ts`); a runtime that cannot run says why
-(not installed, not signed in) instead of listing nothing. Picking another
+(not installed, not signed in) instead of listing nothing. A runtime whose
+program changed since its answer (`programKey`, the executable's fingerprint)
+is asked again at once, and the picker's Refresh asks every runtime; Tau's
+signed model catalog adds models Pi does not know yet
+(`src/main/model-catalog.ts`), and `src/main/runtime-tool-updates.ts` keeps the
+agent CLIs current from Settings → Runtimes ([runtimes.md](runtimes.md)). Picking another
 runtime's model binds a new thread's draft to that runtime, and the draft
 keeps model, level and mode per runtime (`runtimeSelections`), so switching back
 and forth loses nothing; for a thread that exists it starts a new thread in the
