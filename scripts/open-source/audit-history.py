@@ -90,6 +90,7 @@ def private_patterns(folder):
     for n, rx in left_sides("replace-message.txt"): found.append((f"replace-message.txt line {n}", re.compile(rx.encode()), True))
     for n, line in enumerate(open(f"{folder}/mailmap", encoding="utf-8").read().splitlines(), 1):
         for address in re.findall(r"<([^>]+)>", line)[1:]:
+            if "noreply" in address: continue  # GitHub's own addresses are public by design
             found.append((f"mailmap line {n}, old address", re.compile(re.escape(address).encode(), re.I), False))
     return found
 
