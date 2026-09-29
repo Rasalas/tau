@@ -115,11 +115,21 @@ export async function importBundle(bundle: DesktopExtensionBundle, platform: Pla
   }
 }
 
+/** Identity includes approval and origin as well as the code and stylesheet. */
+function sameBundle(left: DesktopExtensionBundle, right: DesktopExtensionBundle): boolean {
+  const identity = (bundle: DesktopExtensionBundle) => [
+    bundle.path, bundle.scope, bundle.projectPath,
+    bundle.hash ?? bundle.code, bundle.hash ?? bundle.styles,
+    bundle.url, bundle.stylesUrl, bundle.permissions, bundle.granted, bundle.theme, bundle.source,
+  ];
+  return JSON.stringify(identity(left)) === JSON.stringify(identity(right));
+}
+
 /**
  * Loads desktop extensions from disk into the registry, the way Pi loads its
- * own extensions from `.pi/extensions`. Each sync replaces what an earlier sync
- * activated, so a workspace switch swaps the project-level set and a reload
- * picks up edited files.
+ * own extensions from `.pi/extensions`. Each sync reconciles the workspace's
+ * packages with those already running,
+ * so unchanged contributions and styles survive navigation and background scans.
  */
 export class RuntimeExtensions {
   private loaded: RuntimeExtensionRecord[] = [];
@@ -316,10 +326,12 @@ export class RuntimeExtensions {
     }
     for (const skip of result.skipped) this.host.log("desktop-extension.skipped", `${skip.directory}: ${skip.reason}`);
 
-    for (const record of this.loaded) {
+    const retained = this.loaded.filter((record) => result.bundles.some((bundle) =>
+      bundle.id === record.bundle.id && sameBundle(bundle, record.bundle)));
+    for (const record of this.loaded.filter((entry) => !retained.includes(entry))) {
       try { this.registry.deactivate(record.extension.id); } catch (error) { this.host.log("desktop-extension.deactivate.failed", String(error)); }
     }
-    const next: RuntimeExtensionRecord[] = [];
+    const next: RuntimeExtensionRecord[] = [...retained];
     this.loaded = next;
     // A theme is only a stylesheet, and a stylesheet's rules are ordered by
     // where its <link> lands: last, so a theme's tokens beat core's and every
@@ -327,11 +339,14 @@ export class RuntimeExtensions {
     const ordered = [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false));
     // Fetched and compiled side by side, activated one after another in this order.
     const imports = ordered.map((bundle) => {
+      if (retained.some((record) => record.bundle.id === bundle.id)) return undefined;
       const imported = this.importModule(bundle);
       imported.catch(() => undefined);
       return imported;
     });
     for (const [index, bundle] of ordered.entries()) {
+      const existing = retained.find((record) => record.bundle.id === bundle.id);
+      if (existing) continue;
       try {
         const record = await this.activateBundle(bundle, next, () => generation === this.generation, undefined, imports[index]);
         if (!record) return this.loaded;
@@ -342,6 +357,20 @@ export class RuntimeExtensions {
         this.registry.noteLoadFailure(bundle.path, message);
         this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
         this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
+      }
+    }
+    // Newly added kit styles must still precede retained themes. Leave every
+    // node alone when their order is already right, as on an unchanged scan.
+    const sheets = [...document.head.querySelectorAll<HTMLElement>("[data-tau-extension]")];
+    const themes = new Set(next.filter((record) => record.bundle.theme).map((record) => record.extension.id));
+    let sawTheme = false;
+    const needsOrder = sheets.some((sheet) => {
+      if (themes.has(sheet.dataset.tauExtension ?? "")) { sawTheme = true; return false; }
+      return sawTheme;
+    });
+    if (needsOrder) {
+      for (const sheet of sheets) {
+        if (themes.has(sheet.dataset.tauExtension ?? "")) document.head.append(sheet);
       }
     }
     return this.loaded;

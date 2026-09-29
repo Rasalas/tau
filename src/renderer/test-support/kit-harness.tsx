@@ -98,6 +98,7 @@ export { useAppKeybindings } from "../use-app-keybindings";
 export { RendererServicesProvider } from "../renderer-services-context";
 export { WorkbenchContext, WorkbenchShellContext, ObservatoryContext, ThreadStoreContext } from "../workbench-context";
 export { ThreadStore } from "../../workbench/thread-store";
+export { ToastStore } from "../../workbench/toast-store";
 export { ClientStorageProvider } from "../client-storage-context";
 export { createMemoryStorage, getClientStorage, setClientStorage } from "../../workbench/client-storage";
 export { createNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft-store";

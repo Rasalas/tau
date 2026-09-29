@@ -249,7 +249,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(getClientStorage()?.get("tau.workspace.rail-shelves-open.v1")).toBe(JSON.stringify({ settled: true }));
   });
 
-  it("draws the sections and the row menu another kit's organizer decides, and no hover buttons in place of a row's state", async () => {
+  it("draws the sections, row menu and settle action another kit's organizer decides", async () => {
     const sessions = ["alpha", "beta", "gamma"].map((id, index) => ({
       id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 10 - index, projectPath: "/project", projectName: "project", messageCount: 1,
     }));
@@ -300,10 +300,9 @@ describe("Workspace Kit in the workbench", () => {
     // The page's own menu stands in for the OS's, which the fake host refuses; the choice arrives with the promise.
     await waitFor(() => expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "pin", expect.anything()));
 
-    // Settle and Snooze are the menu's and the keyboard's: a hovered row keeps its state.
-    expect(screen.queryByRole("button", { name: "Settle Thread gamma" })).toBeNull();
-    expect(screen.getByText("Thread gamma").closest(".thread-row")?.querySelector(".thread-row-actions")).toBeNull();
-    expect(toggleSettled).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Settle Thread gamma" }));
+    expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "settle", expect.anything());
+    expect(screen.queryByRole("button", { name: "Snooze Thread gamma" })).toBeNull();
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {
@@ -1741,7 +1740,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(pill.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("leaves out the branch each project names as its default, and shows main where it is not", async () => {
+  it("shows each thread's branch, including the project's default branch", async () => {
     const thread = (id: string, projectPath: string, projectLabel: string) => ({
       id, path: `/sessions/${id}.jsonl`, title: id, modifiedAt: 1, projectPath, projectName: projectPath.slice(1), projectLabel, messageCount: 1,
     });
@@ -1780,10 +1779,8 @@ describe("Workspace Kit in the workbench", () => {
     const branchOf = (title: string) => screen.getByText(title).closest(".thread-row")?.querySelector(".thread-branch")?.textContent ?? null;
     await screen.findByText("on-main");
     await waitFor(() => expect(branchOf("main-on-trunk")).toBe("main"));
-    expect(branchOf("on-trunk")).toBeNull();
-    expect(branchOf("on-main")).toBeNull();
-    // Once per project, however many rows it has.
-    expect(getDefaultBranch.mock.calls.map(([workspace]) => workspace).sort()).toEqual(["/classic", "/trunk"]);
+    expect(branchOf("on-trunk")).toBe("trunk");
+    expect(branchOf("on-main")).toBe("main");
   });
 });
 

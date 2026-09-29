@@ -5,6 +5,11 @@
 Accepted, 2026-09-29 (ticket K105). Builds on K96, which set the desktop to the
 design's sizes, and on K94's Text size setting.
 
+Revised 2026-09-30: desktop body and input are 14 px, matching T3 Code.
+The user found the 13 px desktop text too small on their screen. Meta,
+secondary, lead rows and code also increase by 1 px; headings and touch
+device sizes keep their existing values.
+
 ## Context
 
 The workbench design (`.scratch/design/tau-workbench-2026-09-29/`) draws a
@@ -72,18 +77,19 @@ tablet's sizes. The web client and the native app set `data-device` on
 
 ### The table
 
-Each role is a `--type-*` base per class; the desktop's are the design's.
+Each role is a `--type-*` base per class. Desktop sizes use the readability
+revision above; the design remains the layout reference.
 
-| Role | Token | Desktop (design) | Tablet | Phone | Why |
+| Role | Token | Desktop | Tablet | Phone | Why |
 |---|---|---|---|---|---|
-| Meta: age, branch, counts, section labels | `--text-xs` | 11 | 12 | 13 | never under 12 on a touch device; HIG Footnote 13, M3 Body Small 12 |
-| Secondary: sub-lines, controls, chips | `--text-sm` | 12 | 13 | 14 | M3 Body Medium 14; one step under body, as in the design |
-| Body: chat, rows, titles in a list | `--text-md` | 13 | 15 | 16 | HIG Callout 16, M3 Body Large 16; a tablet sits between |
-| Lead row of a sheet or menu | `--text-lg` | 14 | 16 | 17 | the design draws sheet rows one step over body; HIG Body 17 |
+| Meta: age, branch, counts, section labels | `--text-xs` | 12 | 12 | 13 | never under 12 on a touch device; HIG Footnote 13, M3 Body Small 12 |
+| Secondary: sub-lines, controls, chips | `--text-sm` | 13 | 13 | 14 | M3 Body Medium 14; one step under body, as in the design |
+| Body: chat, rows, titles in a list | `--text-md` | 14 | 15 | 16 | HIG Callout 16, M3 Body Large 16; a tablet sits between |
+| Lead row of a sheet or menu | `--text-lg` | 15 | 16 | 17 | the design draws sheet rows one step over body; HIG Body 17 |
 | A thread's heading, a sheet's title | `--text-title` | 17 | 17 | 17 | HIG Headline 17; already the desktop's |
 | A page's heading | `--text-display` | 24 | 24 | 27 | the mobile design's 22 over its 13 body, at a 16 body |
-| Code, diffs, the file tree | `--text-code` | 12 | 13 | 14 | a step under body: mono runs wider |
-| What the user types | `--text-input` | 13 | 16 | 16 | iOS zooms into a field under 16 |
+| Code, diffs, the file tree | `--text-code` | 13 | 13 | 14 | a step under body: mono runs wider |
+| What the user types | `--text-input` | 14 | 16 | 16 | iOS zooms into a field under 16 |
 
 Line heights stay relative (`1.3`, `normal`, `em`), so they scale with the text.
 The layout of the mobile design (spacing, order, pills, sheets) stays; its
@@ -139,7 +145,7 @@ Per platform:
 1. First use an existing role: the list above covers meta, secondary, body,
    a lead row, headings, code and input.
 2. A new role gets a `--type-<role>` base on `:root` in `tokens.css` (the
-   design's desktop size), a value in both `data-device` blocks (by the reasons
+   desktop size), a value in both `data-device` blocks (by the reasons
    in the table: body 16 on a phone, meta at least 12, input at least 16), and
    `--text-<role>: calc(var(--type-<role>) * var(--text-scale) + var(--text-step))`
    (a page-level heading leaves out the step).
@@ -150,8 +156,9 @@ Per platform:
 
 ## Consequences
 
-- The desktop is unchanged, with two exceptions. Inline code moves from 11 to
-  12 px, the design's size. Tau's Text size now moves code by a pixel too.
+- Desktop body and input read at 14 px; secondary text and code increase
+  with them. Tau's Text size still moves every role by a pixel except page
+  headings.
 - Screenshots of the phone no longer match the mobile design pixel for pixel.
   They match its layout, and sizes follow the table.
 - At the default size, the phone's title bar is about 61 px high rather than

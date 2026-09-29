@@ -54,13 +54,14 @@ export function hostMeta(row: HostRowInfo, now: number): string {
  * The start screen: hosts this phone paired with, hosts on this network it
  * could ask, and Add host as the floating button at the bottom right.
  */
-export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onScan, onAsk, now = Date.now() }: {
+export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onDemo, onScan, onAsk, now = Date.now() }: {
   rows: HostRowInfo[];
   nearby: NearbyState;
   notice?: string;
   onOpen(host: SavedHost): void;
   onRemove(host: SavedHost): void;
   onAdd(): void;
+  onDemo?(): void;
   onScan(): void;
   onAsk(host: DiscoveredHost): void;
   now?: number;
@@ -95,6 +96,10 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onS
         <NearbyList state={nearby} hosts={unknownNearby} onAsk={onAsk} />
       </section>
       <p className="shell-hint"><a href="https://rasalas.github.io/tau/docs/privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+      {onDemo ? <section className="shell-demo" aria-label="Local demo">
+        <button type="button" className="shell-secondary" onClick={onDemo}>Try demo</button>
+        <p className="shell-hint">Explore sample threads with scripted replies. No computer or AI account needed. Demo messages disappear when you exit.</p>
+      </section> : null}
     </div>
     <button type="button" className="shell-fab" aria-label="Add host" onClick={onAdd}><Plus size={28} /></button>
     {removing ? <RemoveDialog host={removing} onKeep={() => setRemoving(undefined)} onRemove={() => { onRemove(removing); setRemoving(undefined); }} /> : null}

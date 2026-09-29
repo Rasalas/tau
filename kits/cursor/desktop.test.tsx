@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { CursorInstances, CursorProviderCard, cursorExtension, loginCommand, searchRows } from "./desktop.js";
 
@@ -24,16 +23,11 @@ function instances(extra: Record<string, unknown> = {}) {
 }
 
 describe("Cursor desktop extension", () => {
-  it("marks Cursor threads in the status line and fills a card on Providers", () => {
+  it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(cursorExtension);
+    expect(registry.getStatusItems()).toEqual([]);
     expect(registry.getSettingsPages().find((page) => page.id === "cursor.settings")?.runtime).toBe("cursor");
-    const item = registry.getStatusItems().find((entry) => entry.id === "cursor.runtime")!;
-    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "cursor@work", runtimeBackends: [{ kind: "cursor@work", label: "Cursor · Work" }] } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByRole("img", { name: "Cursor · Work" }).getAttribute("title")).toMatch(/^Cursor · Work: /u);
-    expect(container.textContent).toBe("");
-    rerender(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("reports the CLI, the update that is out and the account", async () => {

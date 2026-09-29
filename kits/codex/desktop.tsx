@@ -1,5 +1,4 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { SquareTerminal } from "lucide-react";
 import {
   DEFAULT_INSTANCE_ID,
   SettingRow,
@@ -44,14 +43,6 @@ const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ def
 const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
 const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
-
-/** Marks the runtime behind a Codex thread with an icon, its name in the tooltip; other threads show nothing. */
-export function CodexStatus({ snapshot }: RegionProps) {
-  if (!isRuntimeInstanceOf(snapshot?.backendKind, CODEX_BACKEND_KIND)) return null;
-  const model = snapshot?.model?.name;
-  const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Codex";
-  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the installed Codex CLI through its app server${model ? ` on ${model}` : ""}.`}><SquareTerminal size={12} /></span>;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -386,7 +377,6 @@ export const codexExtension: DesktopExtension = {
     });
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "codex.runtime", align: "left", order: 42, profiles: ["desktop", "web"], Component: CodexStatus }),
       plugin.registerRegion({ id: "codex.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "codex.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

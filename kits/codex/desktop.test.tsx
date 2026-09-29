@@ -13,17 +13,11 @@ const host = (invoke: (command: string, input?: unknown) => Promise<unknown>) =>
 });
 
 describe("Codex desktop extension", () => {
-  it("marks Codex threads in the status line and stays silent for others", () => {
+  it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(codexExtension);
-    const item = registry.getStatusItems().find((entry) => entry.id === "codex.runtime")!;
-    // Codex has no page of its own: it is a card on Providers.
+    expect(registry.getStatusItems()).toEqual([]);
     expect(registry.getSettingsPages().find((page) => page.id === "codex.settings")?.runtime).toBe("codex");
-    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByRole("img", { name: "Codex" }).getAttribute("title")).toMatch(/^Codex: /u);
-    expect(container.textContent).toBe("");
-    rerender(<item.Component snapshot={{ backendKind: "pi" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByRole("img", { name: "Codex" })).toBeNull();
   });
 
   it("reports the CLI, the update that is out and the ChatGPT plan, and asks again on demand", async () => {

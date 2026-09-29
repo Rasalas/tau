@@ -1,9 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
-import { Download, ExternalLink, Orbit } from "lucide-react";
+import { Download, ExternalLink } from "lucide-react";
 import { Button, SettingRow, SettingsState, TextField, loadRuntimeInstanceUi, loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type RegionProps, type SettingsPageProps, type WorkbenchActions } from "tau";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, type AntigravityInstallEvent, type AntigravitySignInEvent } from "./protocol.js";
 
-/** The sign-in link the host half last reported; the status item opens it and offers it again. */
+/** The sign-in link the host half last reported; the composer notice opens it and offers it again. */
 export class SignInLinks {
   private link?: { url: string; sequence: number };
   private sequence = 0;
@@ -44,23 +44,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Marks the runtime behind an Antigravity thread with an icon, and opens Google's sign-in link when the agent asks for one. */
-export function AntigravityStatus({ snapshot, actions }: RegionProps) {
+/** Opens a requested Google sign-in link once, with a retry button above the composer. */
+export function AntigravitySignInLink({ actions }: RegionProps) {
   const link = useSyncExternalStore(signInLinks.subscribe, signInLinks.getSnapshot);
-  // Every reported link is opened once; the button below re-opens it.
   useEffect(() => {
     if (!link) return;
     actions.openExternal(link.url);
     actions.notify("Sign in with Google in your browser to continue with Antigravity.");
   }, [actions, link?.sequence]);
-  if (snapshot?.backendKind !== ANTIGRAVITY_BACKEND_KIND && !link) return null;
-  const model = snapshot?.model?.name;
-  return (
-    <span className="status-item" title={`Antigravity: this thread runs Google's Antigravity agent through the Agent Client Protocol${model ? ` on ${model}` : ""}.`}>
-      <Orbit size={12} role="img" aria-label="Antigravity" />
-      {link ? <button className="antigravity-sign-in" title="Open the Google sign-in link again" aria-label="Open the Google sign-in link" onClick={() => actions.openExternal(link.url)}><ExternalLink size={11} /> Sign in</button> : null}
-    </span>
-  );
+  if (!link) return null;
+  return <button className="antigravity-sign-in" title="Open the Google sign-in link again" aria-label="Open the Google sign-in link" onClick={() => actions.openExternal(link.url)}><ExternalLink size={11} /> Sign in</button>;
 }
 
 export interface AntigravityStatusReport {
@@ -268,7 +261,7 @@ export const antigravityExtension: DesktopExtension = {
   name: "Antigravity",
   activate(plugin) {
     const stops = [
-      plugin.registerStatusItem({ id: "antigravity.runtime", align: "left", order: 41, profiles: ["desktop", "web"], Component: AntigravityStatus }),
+      plugin.registerRegion({ id: "antigravity.sign-in", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: AntigravitySignInLink }),
       plugin.registerSettingsPage({
         id: "antigravity.settings",
         label: "Antigravity",

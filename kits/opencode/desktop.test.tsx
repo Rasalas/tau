@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { OpenCodeInstances, OpenCodeProviderCard, openCodeExtension, searchRows } from "./desktop.js";
 
@@ -24,16 +23,11 @@ function instances(extra: Record<string, unknown> = {}) {
 }
 
 describe("OpenCode desktop extension", () => {
-  it("marks OpenCode threads in the status line and fills a card on Providers", () => {
+  it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(openCodeExtension);
+    expect(registry.getStatusItems()).toEqual([]);
     expect(registry.getSettingsPages().find((page) => page.id === "opencode.settings")?.runtime).toBe("opencode");
-    const item = registry.getStatusItems().find((entry) => entry.id === "opencode.runtime")!;
-    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "opencode@work", runtimeBackends: [{ kind: "opencode@work", label: "OpenCode · Work" }] } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByRole("img", { name: "OpenCode · Work" }).getAttribute("title")).toMatch(/^OpenCode · Work: /u);
-    expect(container.textContent).toBe("");
-    rerender(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("reports the CLI, the update that is out and the providers OpenCode reaches", async () => {

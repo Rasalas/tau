@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
-import { createKitHarness, setHostClient, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, setHostClient, ToastStore, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import threadRailExtension from "./desktop.js";
@@ -138,11 +138,12 @@ describe("Thread Rail on the desktop", () => {
     }
   });
 
-  it("draws no hover clock: Snooze is the row menu's, with the presets and a time of one's own", async () => {
+  it("offers a Snooze hover clock with presets and a custom time", async () => {
     const { organizer, calls, actions, push } = setup();
     await flush();
     push({ threads: { d: { settledAt: 1, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } });
-    expect("rowActions" in organizer()).toBe(false);
+    expect(organizer().rowActions?.(thread("a"))).toMatchObject([{ id: "snooze", label: "Snooze thread" }]);
+    expect(organizer().rowActions?.(thread("d"))).toEqual([]);
     const snooze = organizer().menu(thread("a")).flatMap((section) => section.items).find((item) => item.id === "snooze");
     expect(snooze?.submenu?.[0]?.items[0]).toMatchObject({ id: "snooze:1h", label: "In 1 hour" });
     expect(organizer().menu(thread("d")).flatMap((section) => section.items).some((item) => item.id === "snooze")).toBe(false);
@@ -260,6 +261,38 @@ describe("Thread Rail on the desktop", () => {
     act(() => { shown.at(-1)!.actions![0]!.run(); });
     expect(dismiss).toHaveBeenCalled();
     expect(organizer().sections([thread("a", 2), thread("b", 1)]).flatMap((section) => section.threads.map((entry) => entry.id))).toEqual(["a", "b"]);
+  });
+
+  it("hides the settle toast after two seconds but keeps keyboard undo for five", async () => {
+    const { registry, organizer, actions, current } = setup();
+    await flush();
+    vi.useFakeTimers();
+    const toasts = new ToastStore();
+    actions.toast = toasts.show;
+    const Layer = organizer().Layer!;
+    const view = render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    try {
+      organizer().sections([thread("a")]);
+      await act(async () => { organizer().runMenu(thread("a"), "settle", actions); });
+      expect(toasts.getToasts()).toMatchObject([{ title: "Settled 1 thread" }]);
+      await act(async () => { vi.advanceTimersByTime(1_999); });
+      expect(toasts.getToasts()).toHaveLength(1);
+      await act(async () => { vi.advanceTimersByTime(1); });
+      expect(toasts.getToasts()).toEqual([]);
+      expect(current().threads.a?.settledAt).toBeDefined();
+
+      await act(async () => { vi.advanceTimersByTime(2_999); });
+      await act(async () => { await registry.executeCommand("thread.undo", actions); });
+      expect(current().threads.a?.settledAt).toBeUndefined();
+      expect(toasts.getToasts()).toEqual([]);
+    } finally {
+      view.unmount();
+      registry.deactivate(THREAD_RAIL_EXTENSION_ID);
+      toasts.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("opens a new thread in the project when the thread on screen is archived, and undo returns to it", async () => {

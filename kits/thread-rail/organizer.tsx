@@ -1,3 +1,4 @@
+import { AlarmClock } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
@@ -246,13 +247,13 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     useEffect(() => {
       if (!toast) return;
       if (!text) { undoToast?.dismiss(); undoToast = undefined; return; }
-      // The undo's own window decides when it goes, so the toast has no clock of its own.
+      // Hide the confirmation promptly without shortening the keyboard undo window.
       undoToast = toast({
         id: "tau.thread-rail.undo",
         type: "success",
         title: text,
         ...(shortcut ? { description: `${shortcut} to undo` } : {}),
-        timeoutMs: 0,
+        timeoutMs: 2_000,
         actions: [{ label: "Undo", run: () => { undo.undo(); } }],
         onClose: () => { undoToast = undefined; },
       });
@@ -316,6 +317,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
 
   return {
+    rowActions(session) {
+      const section = sectionOf(meta(session.id), now());
+      if (section === "settled" || section === "snoozed" || hostIsReadOnly()) return [];
+      return [{ id: "snooze", label: "Snooze thread", icon: <AlarmClock size={13} aria-hidden="true" />, menu: snoozeSubmenu }];
+    },
     subscribe: store.subscribe,
     getVersion: store.getVersion,
     sections(threads) {

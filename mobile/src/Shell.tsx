@@ -4,7 +4,7 @@ import { parsePairingPayload, type PairingPayload } from "../../src/shared/conne
 import type { ClientEnvironment } from "../../src/renderer/client-environment";
 import { setHostClient } from "../../src/renderer/host-client-context";
 import { createRendererServices, type RendererServices } from "../../src/renderer/renderer-services";
-import { setClientStorage, type ClientStorage } from "../../src/workbench/client-storage";
+import { createMemoryStorage, setClientStorage, type ClientStorage } from "../../src/workbench/client-storage";
 import type { HostClient } from "../../src/workbench/host-client";
 import type { HostWakeSource } from "../../src/workbench/host-link";
 import { pairingNotice } from "../../src/web/host-token";
@@ -23,6 +23,7 @@ import { clearHostStorage, hostStorage } from "./storage";
 import { AddHostScreen } from "./ui/AddHostScreen";
 import { HostsScreen, type HostRowInfo, type NearbyState } from "./ui/HostsScreen";
 import { PairingScreen } from "./ui/PairingScreen";
+import { createDemoHost } from "./demo-host";
 
 /** Everything the shell needs from the platform, so a test can hand it fakes. */
 export interface AppContext {
@@ -45,6 +46,7 @@ export interface AppContext {
 type View =
   | { name: "loading" }
   | { name: "hosts"; notice?: string }
+  | { name: "demo"; client: HostClient; storage: ClientStorage; services: RendererServices; environment: ClientEnvironment }
   | { name: "add"; error?: string; text?: string }
   | { name: "pairing"; hostName: string; verification?: string; address?: string; abort: AbortController; from: "hosts" | "add"; text?: string }
   | { name: "workbench"; host: SavedHost; client: HostClient; storage: ClientStorage; services: RendererServices; environment: ClientEnvironment };
@@ -285,6 +287,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
 
   switch (view.name) {
     case "loading": return null;
+    case "demo":
     case "workbench": return <WebWorkbench
       client={view.client}
       storage={view.storage}
@@ -315,6 +318,17 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         onOpen={(host) => void openHost(host)}
         onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
+        onDemo={() => {
+          const demo = createDemoHost();
+          const memory = createMemoryStorage();
+          setClientStorage(memory);
+          setHostClient(demo.client);
+          void demo.start();
+          setView({ name: "demo", client: demo.client, storage: memory, services: createRendererServices(), environment: {
+            ...context.environment,
+            shell: { hostLabel: "Local demo · simulated replies", actions: [{ id: "exit-demo", label: "Exit demo", Icon: Server, run: () => leaveTo("?view=hosts") }] },
+          } });
+        }}
         onScan={() => void scan("hosts")}
         onAsk={(found: DiscoveredHost) => startPairing({ hostId: found.hostId, name: found.name, ...targetPins(found), endpoints: found.endpoints }, "hosts")}
       />;

@@ -76,6 +76,18 @@ const selectedIds = () => [...document.querySelectorAll<HTMLElement>(".rail-row.
 describe("rail selection", () => {
   const threads = ["a", "b", "c", "d"].map((id, index) => shell(id, index));
 
+  it("offers Settle and Snooze from the row without opening the thread", async () => {
+    const { row, organizer, switchSession } = await renderRail(threads, {
+      rowActions: () => [{ id: "snooze", label: "Snooze thread", icon: <span>clock</span>, menu: () => [{ items: [{ id: "snooze:1h", label: "In 1 hour" }] }] }],
+    });
+    fireEvent.click(within(row("b")).getByRole("button", { name: "Settle Thread b" }));
+    expect(organizer.runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }), "settle", expect.anything());
+    fireEvent.click(within(row("b")).getByRole("button", { name: "Snooze thread" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "In 1 hour" }));
+    await waitFor(() => expect(organizer.runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }), "snooze:1h", expect.anything()));
+    expect(switchSession).not.toHaveBeenCalled();
+  });
+
   it("picks rows with mod-click and runs of rows with shift-click, and a plain click ends it", async () => {
     const { main, switchSession } = await renderRail(threads);
     fireEvent.click(main("b"), { metaKey: true });

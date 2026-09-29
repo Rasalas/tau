@@ -56,6 +56,8 @@ html, body { margin: 0; background: var(--shell); }
 }
 .shell-section > h2::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
 .shell-hint { margin: 8px 16px; font: var(--text-sm)/1.45 var(--sans); color: var(--muted); }
+.shell-demo { margin: 24px 16px; }
+.shell-demo .shell-hint { margin: 8px 0; }
 
 .shell-empty {
   display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 36px 24px 12px; text-align: center;

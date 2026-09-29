@@ -55,6 +55,8 @@ export interface HostProcessSupervisorOptions {
   serviceStartTimeoutMs?: number;
   /** How often an adopted service host's `host.json` is read for a restart or a new port. */
   serviceCheckMs?: number;
+  /** How often an adopted host without a service is checked for an exit. */
+  adoptedCheckMs?: number;
   /** How long a host that owns this userData but does not answer is waited for before the window gives up. */
   silentOwnerTimeoutMs?: number;
   silentOwnerPollMs?: number;
@@ -217,6 +219,7 @@ export class HostProcessSupervisor {
   private preferredPort = 0;
   /** Reads an adopted service host's `host.json` for a restart or a new port. */
   private serviceCheck: ReturnType<typeof setInterval> | undefined;
+  private adoptedCheck: ReturnType<typeof setInterval> | undefined;
   private checking = false;
   /** When an adopted service host was first found gone; it gets one start and some time. */
   private serviceGoneSince: number | undefined;
@@ -265,6 +268,7 @@ export class HostProcessSupervisor {
   async stop(): Promise<void> {
     this.stopping = true;
     this.stopServiceCheck();
+    this.stopAdoptedCheck();
     clearTimeout(this.restartTimer);
     this.restartTimer = undefined;
     const starting = this.child && this.child.pid !== this.running?.pid ? this.child : undefined;
@@ -295,6 +299,7 @@ export class HostProcessSupervisor {
     this.detached = true;
     this.stopping = true;
     this.stopServiceCheck();
+    this.stopAdoptedCheck();
     this.child?.unref();
   }
 
@@ -369,9 +374,24 @@ export class HostProcessSupervisor {
   }
 
   private settle(running: RunningHost): void {
+    this.stopAdoptedCheck();
     this.running = running;
     this.serviceGoneSince = undefined;
     if (running.service) this.startServiceCheck();
+    else if (running.adopted) {
+      // It is no longer our child, so no child exit event will reach this window.
+      this.adoptedCheck = setInterval(() => {
+        if (this.stopping || this.detached || this.running !== running || processAlive(running.pid)) return;
+        this.stopAdoptedCheck();
+        this.onExit(null, null);
+      }, this.options.adoptedCheckMs ?? SERVICE_CHECK_MS);
+      this.adoptedCheck.unref?.();
+    }
+  }
+
+  private stopAdoptedCheck(): void {
+    clearInterval(this.adoptedCheck);
+    this.adoptedCheck = undefined;
   }
 
   /** The service of this userData, started when it is installed and not running. */
@@ -460,9 +480,9 @@ export class HostProcessSupervisor {
         if (descriptor.pid === running.pid && descriptor.url === running.url) return;
         const token = await readFile(descriptor.tokenPath, "utf8").then((value) => value.trim()).catch(() => running.token);
         this.options.logger?.info("host-process.service-moved", { pid: descriptor.pid, url: descriptor.url });
-        this.running = this.adopted(descriptor, token);
-        // Somebody started a host that is not the service's; it is adopted like any other.
+        // Somebody started a host that is not the service's; watch it like any other adopted host.
         if (!descriptor.service) this.stopServiceCheck();
+        this.settle(this.adopted(descriptor, token));
         if (descriptor.url !== running.url) this.options.onUrlChanged?.(descriptor.url);
         return;
       }
