@@ -1,5 +1,5 @@
 // Type-only imports: both halves and other kits read this file.
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { MenuSection, UiSession, WorkbenchActions } from "tau";
 
 export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
@@ -133,6 +133,7 @@ export interface RailOrganizer {
   menu(session: UiSession): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   toggleSettled(session: UiSession): void;
+  rowActions?(session: UiSession): Array<{ id: string; label: string; icon: ReactNode; menu(): MenuSection[] }>;
   dropLabel(threadId: string, drop: RailDropTarget): string | undefined;
   drop(threadId: string, drop: RailDropTarget): void;
   Layer?: ComponentType<{ actions: WorkbenchActions }>;

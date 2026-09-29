@@ -138,11 +138,12 @@ describe("Thread Rail on the desktop", () => {
     }
   });
 
-  it("draws no hover clock: Snooze is the row menu's, with the presets and a time of one's own", async () => {
+  it("offers a Snooze hover clock with presets and a custom time", async () => {
     const { organizer, calls, actions, push } = setup();
     await flush();
     push({ threads: { d: { settledAt: 1, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } });
-    expect("rowActions" in organizer()).toBe(false);
+    expect(organizer().rowActions?.(thread("a"))).toMatchObject([{ id: "snooze", label: "Snooze thread" }]);
+    expect(organizer().rowActions?.(thread("d"))).toEqual([]);
     const snooze = organizer().menu(thread("a")).flatMap((section) => section.items).find((item) => item.id === "snooze");
     expect(snooze?.submenu?.[0]?.items[0]).toMatchObject({ id: "snooze:1h", label: "In 1 hour" });
     expect(organizer().menu(thread("d")).flatMap((section) => section.items).some((item) => item.id === "snooze")).toBe(false);
