@@ -6,7 +6,8 @@ import { createMemoryStorage, setClientStorage, type ClientStorage } from "../..
 import { ExtensionRegistry } from "../extension-system";
 import { storedPageCatalog } from "../../web/page-catalog";
 import { getClientStorage } from "../../workbench/client-storage";
-import { PhoneNav, phoneNavItems, RegistryPhoneNav, setPageCatalog } from "./PhoneNav";
+import { PhoneNav, phoneNavItems, RegistryPhoneNav } from "./PhoneNav";
+import { setPageCatalog } from "./page-catalog-slot";
 
 let storage: ClientStorage;
 beforeEach(() => { storage = createMemoryStorage(); setClientStorage(storage); setPageCatalog(storedPageCatalog(getClientStorage)); });

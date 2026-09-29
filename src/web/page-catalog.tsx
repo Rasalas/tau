@@ -1,5 +1,6 @@
 import type { PanelIconComponent } from "../renderer/components/PanelIcon";
-import type { PageCatalog, PhoneNavItem } from "../renderer/touch/PhoneNav";
+import type { PhoneNavItem } from "../renderer/touch/PhoneNav";
+import type { PageCatalog } from "../renderer/touch/page-catalog-slot";
 import type { ClientStorage } from "../workbench/client-storage";
 
 /** A page as the client remembers it; its icon is the SVG's markup, drawn back as a CSS mask, where none of it can run. */

@@ -3,6 +3,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ExtensionRegistry } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { sameTab, type PhoneTab } from "../../workbench/phone-route";
+import { pageCatalog } from "./page-catalog-slot";
 import "./phone-nav.css";
 
 /** Five destinations at most: home, three pages, Settings. */
@@ -17,29 +18,13 @@ export interface PhoneNavItem {
 }
 
 /**
- * Remembers a client's pages across starts, so the navigation has them before
- * the packages that register them came over the network. The web client sets
- * one (`src/web/page-catalog.tsx`); a window loads its packages from disk.
- */
-export interface PageCatalog {
-  /** The pages of the last start, the ones registered since in their place. */
-  read(live: PhoneNavItem[]): PhoneNavItem[];
-  /** The pages as drawn in `nav`, once the packages are in. */
-  write(nav: HTMLElement | null, items: readonly PhoneNavItem[]): void;
-}
-
-let catalog: PageCatalog | undefined;
-export function setPageCatalog(next: PageCatalog | undefined): void {
-  catalog = next;
-}
-
-/**
  * Threads first, the app pages that claim a phone in their order, Settings
  * last. While the packages are still loading, the remembered pages stand in
  * for the ones not registered yet.
  */
 export function phoneNavItems(registry: Pick<ExtensionRegistry, "getPages"> & Partial<Pick<ExtensionRegistry, "isLoadingExtensions">>): PhoneNavItem[] {
   const live = registry.getPages().map((page): PhoneNavItem => ({ tab: { kind: "page", page: page.id }, label: page.label, Icon: page.Icon, useBadge: page.useBadge }));
+  const catalog = pageCatalog();
   const pages = catalog && registry.isLoadingExtensions?.() ? catalog.read(live) : live;
   return [
     { tab: { kind: "threads" }, label: "Threads", Icon: MessagesSquare },
@@ -54,7 +39,7 @@ export function RegistryPhoneNav({ registry, current, onSelect }: { registry: Ex
   const items = phoneNavItems(registry);
   const nav = useRef<HTMLElement>(null);
   const loading = registry.isLoadingExtensions();
-  useEffect(() => { if (!loading) catalog?.write(nav.current, items); });
+  useEffect(() => { if (!loading) pageCatalog()?.write(nav.current, items); });
   return <PhoneNav ref={nav} items={items} current={current} onSelect={onSelect} />;
 }
 
