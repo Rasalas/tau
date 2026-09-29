@@ -176,14 +176,29 @@
   --label-font: var(--sans);                         /* a section or status label */
   --label-case: none;                                /* its text-transform */
   --label-tracking: normal;                          /* its letter-spacing */
-  --label-size: 11px;                                /* its size */
-  /* The type scale: the workbench design's sizes (its window reads 13px). */
-  --text-xs: 11px;                                   /* meta: a branch, an age, a status */
-  --text-sm: 12px;                                   /* a control, a chip, a menu */
-  --text-md: 13px;                                   /* body and a thread's title */
-  --text-lg: 14px;                                   /* prose on a touch screen */
-  --text-title: 17px;                                /* a thread's heading */
-  --text-display: 24px;                              /* a page's heading */
+  --label-size: var(--text-xs);                      /* its size */
+  /* The type scale (ADR 0029). A role's size on this device class: the workbench design's on a
+     desktop (its window reads 13px); a tablet and a phone set them again below. */
+  --type-xs: 11px;
+  --type-sm: 12px;
+  --type-md: 13px;
+  --type-lg: 14px;
+  --type-title: 17px;
+  --type-display: 24px;
+  --type-code: 12px;
+  --type-input: 13px;
+  --type-input-min: 0px;                             /* iOS zooms into a field under 16px */
+  --text-scale: 1;                                   /* the system's text size on a touch device (type-scale.ts) */
+  --text-step: 0px;                                  /* Tau's own Text size, on top of it */
+  --text-xs: calc(var(--type-xs) * var(--text-scale) + var(--text-step));       /* meta: a branch, an age, a status */
+  --text-sm: calc(var(--type-sm) * var(--text-scale) + var(--text-step));       /* a control, a chip, a menu */
+  --text-md: calc(var(--type-md) * var(--text-scale) + var(--text-step));       /* body and a thread's title */
+  --text-lg: calc(var(--type-lg) * var(--text-scale) + var(--text-step));       /* a row that leads a sheet or a menu */
+  --text-title: calc(var(--type-title) * var(--text-scale) + var(--text-step)); /* a thread's heading */
+  --text-display: calc(var(--type-display) * var(--text-scale));                /* a page's heading */
+  --text-code: calc(var(--type-code) * var(--text-scale) + var(--text-step));   /* code, a diff, a file tree */
+  --text-input: max(var(--type-input-min), calc(var(--type-input) * var(--text-scale) + var(--text-step))); /* what the user types */
+  --touch-target: calc(44px * var(--text-scale));    /* the least a finger needs, grown with the text */
 
   --radius-xs: 4px;                                  /* a tag */
   --radius-sm: 6px;                                  /* a button or a chip */
@@ -230,6 +245,10 @@
   --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%)); /* a project's mark */
   --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%)); /* its letters */
 }
+
+/* A touch device reads from further away than a desktop (ADR 0029); type-scale.ts sets data-device. */
+:root[data-device="tablet"] { --type-xs: 12px; --type-sm: 13px; --type-md: 15px; --type-lg: 16px; --type-code: 13px; --type-input: 16px; --type-input-min: 16px; }
+:root[data-device="phone"] { --type-xs: 13px; --type-sm: 14px; --type-md: 16px; --type-lg: 17px; --type-display: 27px; --type-code: 14px; --type-input: 16px; --type-input-min: 16px; }
 
 /* The preference, as the client writes it onto <html>. `system` is the base
    above; these two take the choice away from the OS. */
