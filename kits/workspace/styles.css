@@ -484,10 +484,12 @@
 .files-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .files-stage-empty { flex: 1; display: grid; place-items: center; padding: 24px; }
 /* A finger's rows and buttons on a phone or tablet: the rows are 44 px (FilesPanel's rowHeight). */
-body[data-profile="compact"] .file-row { height: 40px; font-size: var(--text-lg); gap: 10px; }
+/* The virtual list's pitch is fixed: a row holds one line of code up to the largest text size (ADR 0029). */
+body[data-profile="compact"] .file-row { height: 40px; font-size: var(--text-code); gap: 10px; }
+body[data-profile="compact"] .files-explorer .file-row > em { font-size: var(--text-xs); }
 body[data-profile="compact"] .file-row .file-disclosure { width: 16px; }
 body[data-profile="compact"] .files-panel .panel-header { min-height: 52px; }
-body[data-profile="compact"] .files-panel .panel-header .text-button { min-height: 44px; padding: 0 10px; font-size: var(--text-md); }
+body[data-profile="compact"] .files-panel .panel-header .text-button { min-height: var(--touch-target); padding: 0 10px; font-size: var(--text-sm); }
 body[data-profile="compact"] .files-panel-search { width: 44px; height: 44px; border-radius: 12px; }
 body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > button, body[data-profile="compact"] .files-reading-edit { min-height: 44px; padding: 0 12px; }
 
