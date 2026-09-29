@@ -1,6 +1,6 @@
 import { WebSocket, type ClientOptions } from "ws";
 import type { HostBootstrap, ThreadIndexSnapshot } from "../shared/contracts.js";
-import type { EnvironmentStatus } from "../shared/environments.js";
+import { applyIndexUpdate, type EnvironmentStatus, type IndexUpdate } from "../shared/environments.js";
 import {
   HOST_CAPABILITY,
   HOST_CLOSE_CODE,
@@ -81,24 +81,6 @@ const CALL_TIMEOUT_MS = 30_000;
 /** An unreachable machine is tried less and less often, but never less than twice a minute. */
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
-type IndexUpdate =
-  | { type: "thread-index"; index?: ThreadIndexSnapshot }
-  | { type: "thread-shell"; update?: { sessionId?: string; shell?: ThreadIndexSnapshot["sessions"][number]; removed?: boolean } }
-  | { type: string };
-
-/** The index after a host's `thread-index` or `thread-shell` update; undefined when it says nothing about the index. */
-export function applyIndexUpdate(index: ThreadIndexSnapshot | undefined, update: IndexUpdate): ThreadIndexSnapshot | undefined {
-  if (update.type === "thread-index") {
-    const next = (update as { index?: ThreadIndexSnapshot }).index;
-    return next && Array.isArray(next.sessions) && Array.isArray(next.projects) ? next : undefined;
-  }
-  if (update.type !== "thread-shell" || !index) return undefined;
-  const change = (update as { update?: { sessionId?: string; shell?: ThreadIndexSnapshot["sessions"][number]; removed?: boolean } }).update;
-  if (!change?.sessionId) return undefined;
-  const others = index.sessions.filter((session) => session.id !== change.sessionId);
-  if (change.removed) return { ...index, sessions: others };
-  return change.shell ? { ...index, sessions: [change.shell, ...others] } : undefined;
-}
 
 function defaultSocket(url: string, trust: EndpointTrust | undefined, onPresented: (certificate: ReachedCertificate) => void): MonitorSocket {
   const options: ClientOptions = url.startsWith("wss:")

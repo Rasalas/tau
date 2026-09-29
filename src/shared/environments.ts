@@ -27,6 +27,8 @@ export interface UiEnvironmentThread {
   backendKind?: ThreadBackendKind;
   modelProvider?: string;
   createdAt?: number;
+  /** Settled on this client, where it keeps that per machine (the phone app, API 1.30.0). */
+  settled?: boolean;
 }
 
 export interface UiEnvironmentProject {
@@ -248,6 +250,26 @@ export function addressPageUrl(text: string, defaultPort = 7788): string | undef
   } catch {
     return undefined;
   }
+}
+
+/** What a host pushes about its thread index: the whole index, or one thread's shell (`host-update`). */
+export type IndexUpdate =
+  | { type: "thread-index"; index?: ThreadIndexSnapshot }
+  | { type: "thread-shell"; update?: { sessionId?: string; shell?: ThreadIndexSnapshot["sessions"][number]; removed?: boolean } }
+  | { type: string };
+
+/** The index after a host's `thread-index` or `thread-shell` update; undefined when it says nothing about the index. */
+export function applyIndexUpdate(index: ThreadIndexSnapshot | undefined, update: IndexUpdate): ThreadIndexSnapshot | undefined {
+  if (update.type === "thread-index") {
+    const next = (update as { index?: ThreadIndexSnapshot }).index;
+    return next && Array.isArray(next.sessions) && Array.isArray(next.projects) ? next : undefined;
+  }
+  if (update.type !== "thread-shell" || !index) return undefined;
+  const change = (update as { update?: { sessionId?: string; shell?: ThreadIndexSnapshot["sessions"][number]; removed?: boolean } }).update;
+  if (!change?.sessionId) return undefined;
+  const others = index.sessions.filter((session) => session.id !== change.sessionId);
+  if (change.removed) return { ...index, sessions: others };
+  return change.shell ? { ...index, sessions: [change.shell, ...others] } : undefined;
 }
 
 /** The list a machine's row shows: the user's own threads, newest first, capped, the running ones marked. */

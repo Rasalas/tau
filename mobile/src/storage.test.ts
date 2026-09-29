@@ -17,4 +17,16 @@ describe("hostStorage", () => {
     expect(a.keys()).toEqual([]);
     expect(b.get("tau.composer-drafts.v1")).toBe("draft for b");
   });
+
+  it("shares the device's own keys across hosts, and keeps them when a host is forgotten", () => {
+    const base = createMemoryStorage();
+    const a = hostStorage(base, "a");
+    const b = hostStorage(base, "b");
+    a.set("device:tau.usage.juicebars", "{\"x\":true}");
+    expect(b.get("device:tau.usage.juicebars")).toBe("{\"x\":true}");
+    expect(b.keys("device:")).toEqual(["device:tau.usage.juicebars"]);
+    expect(a.keys()).toEqual([]);
+    clearHostStorage(base, "a");
+    expect(b.get("device:tau.usage.juicebars")).toBe("{\"x\":true}");
+  });
 });
