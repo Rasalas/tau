@@ -1,10 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
-import { dedupeLegalComments } from "../vite.legal-comments";
-import { stripIconKeys } from "../vite.icon-keys";
-import { rendererBuild } from "../vite.renderer-build";
-import { thirdPartyLicenses } from "../vite.third-party-licenses";
+import { dedupeLegalComments } from "../vite/legal-comments";
+import { stripIconKeys } from "../vite/icon-keys";
+import { rendererBuild } from "../vite/renderer-build";
+import { thirdPartyLicenses } from "../vite/third-party-licenses";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const repository = fileURLToPath(new URL("..", import.meta.url));

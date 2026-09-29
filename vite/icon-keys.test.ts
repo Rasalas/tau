@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Icon, type IconNode } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
-import { blankIconKeys } from "./vite.icon-keys";
+import { blankIconKeys } from "./icon-keys";
 
 const ICONS = join(dirname(createRequire(import.meta.url).resolve("lucide-react")), "..", "esm", "icons");
 

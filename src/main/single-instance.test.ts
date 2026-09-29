@@ -36,7 +36,7 @@ describe("single Electron instance", () => {
     const setAppUserModelId = vi.fn();
     const app = { getPath: () => "C:\\Users\\me\\AppData\\Roaming", setPath: vi.fn(), setName: vi.fn(), setAppUserModelId };
     configureAppIdentity(app, undefined, "win32");
-    const builder = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    const builder = await readFile(new URL("../../tooling/electron-builder.yml", import.meta.url), "utf8");
     expect(builder).toContain(`appId: ${APP_ID}`);
     expect(setAppUserModelId).toHaveBeenCalledWith(APP_ID);
     configureAppIdentity(app, undefined, "darwin");
@@ -44,7 +44,7 @@ describe("single Electron instance", () => {
   });
 
   it("keeps the Windows install the former appId made, so the installer replaces it", async () => {
-    const builder = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    const builder = await readFile(new URL("../../tooling/electron-builder.yml", import.meta.url), "utf8");
     expect(builder).toMatch(new RegExp(`^  guid: ${electronBuilderGuid("dev.tbuck.tau")}$`, "mu"));
     expect(builder).toContain("include: packaging/windows/installer.nsh");
   });

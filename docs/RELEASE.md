@@ -1,7 +1,8 @@
 # Releasing Tau
 
 Tau ships as an installable app built by [electron-builder](https://electron.build).
-`electron-builder.yml` is the whole configuration; `package.json` holds the
+`tooling/electron-builder.yml` is the whole configuration, so every call passes
+`-c tooling/electron-builder.yml` (the `dist` scripts do); `package.json` holds the
 version, and the version in an installed app is what the updater compares
 against the release feed.
 
@@ -147,7 +148,7 @@ only: esbuild's binary, rollup's and xa11y's. Before each Mac architecture is
 packed, electron-builder's `beforeBuild` hook
 (`scripts/packaging/mac-architectures.mjs`) unpacks the ones npm skipped, at
 the version and integrity `package-lock.json` pins, fetched through `npm pack`.
-`files` in `electron-builder.yml` then drops the other architecture's platform
+`files` in `tooling/electron-builder.yml` then drops the other architecture's platform
 packages and every `prebuilds/<platform>-<arch>` folder that is not the app's
 own, and the `afterPack` hook fails the build when a Mach-O file in the app
 cannot run on its architecture. The x64 app therefore holds only x64 or
@@ -202,7 +203,7 @@ matches the SVGs.
 
 ## How an update reaches a user
 
-`publish:` in `electron-builder.yml` names the GitHub repository,
+`publish:` in `tooling/electron-builder.yml` names the GitHub repository,
 `Rasalas/tau-releases`, and electron-builder writes it into
 `resources/app-update.yml` inside the app. The window's updater, the host's,
 the AppImage's `.deb` offer, the release notes and the `.deb`'s update helper
@@ -305,7 +306,7 @@ only an update signed like the running app.
 ## Where releases are published
 
 Installed apps read releases from `Rasalas/tau-releases`, a public repository
-that holds nothing but releases; `publish:` in `electron-builder.yml` writes
+that holds nothing but releases; `publish:` in `tooling/electron-builder.yml` writes
 its name into every app. It was created while the source was private, and it
 stays the one place installed apps look, so the source repository can move
 or be renamed without breaking an update. Every release and every nightly
@@ -608,7 +609,7 @@ same manifests itself. Users install with `winget install Rasalas.Tau`.
 Releases up to 0.4.0 name the installer `Tau.Setup.<version>.exe`; from the next
 one it is `Tau-Setup-<version>.exe`, the name `latest.yml` always used, so
 Windows installs finally find their updates (`nsis.artifactName` in
-`electron-builder.yml`).
+`tooling/electron-builder.yml`).
 
 ### AUR (Arch Linux)
 
@@ -741,7 +742,7 @@ workflow file and pick any runner label. How the move went is in
 
 ## What ships, and what has to stay outside the archive
 
-`files:` in `electron-builder.yml` starts from everything and names what to
+`files:` in `tooling/electron-builder.yml` starts from everything and names what to
 leave out: sources, scripts, docs, reports, tests, and the parts of Pi and of
 computer use that only another platform would use.
 

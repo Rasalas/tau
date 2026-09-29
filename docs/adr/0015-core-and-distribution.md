@@ -161,7 +161,7 @@ at — carrying the tree and its file identities across. Provenance is the core
 SHA in the root commit message.
 
 **What the distribution needs on its first day.** Its own `tsconfig` with the
-three `tau` path aliases (copy `tsconfig.kits.json`, drop `src`), its own Vitest
+three `tau` path aliases (copy `tooling/tsconfig.kits.json`, drop `src`), its own Vitest
 config with the same three resolve aliases, a lint config, a CI job that checks
 out a core and runs *its* `scripts/build-kits.mjs --kits . --out dist-kits`
 (the build script is core's and stays core's), a licence,

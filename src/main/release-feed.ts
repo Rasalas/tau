@@ -11,7 +11,7 @@ import type { UpdateChannel } from "../shared/app-version.js";
  * here may import Electron.
  */
 
-/** The repository `publish:` in electron-builder.yml names; the build writes it to `app-update.yml`. */
+/** The repository `publish:` in tooling/electron-builder.yml names; the build writes it to `app-update.yml`. */
 export interface UpdateFeed {
   owner: string;
   repo: string;
@@ -44,7 +44,7 @@ export type LinuxInstall = "appimage" | "deb" | "unpacked";
 
 /** Where the .deb puts Tau (electron-builder's `/opt/<productName>`). */
 export const DEB_EXECUTABLE = "/opt/Tau/tau";
-/** `deb.packageName` in electron-builder.yml. */
+/** `deb.packageName` in tooling/electron-builder.yml. */
 export const DEB_PACKAGE = "tau";
 
 /**

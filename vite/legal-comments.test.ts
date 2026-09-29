@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Rollup } from "vite";
-import { blankRepeatedLegalComments, dedupeLegalComments } from "./vite.legal-comments";
+import { blankRepeatedLegalComments, dedupeLegalComments } from "./legal-comments";
 
 const NOTICE = "/**\n * @license icons v1 - ISC\n *\n * See the LICENSE file.\n */";
 

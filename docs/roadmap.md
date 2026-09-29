@@ -2,7 +2,7 @@
 
 Tau is in alpha. The first builds proved the seams Tau was built to test: dynamic package loading, the extension
 permission and isolation model, a host reached over a socket, a browser client of that host, and the
-core/kit split into two artifacts. [PLAN.md](../PLAN.md) records the completion check for each and the phased roadmap.
+core/kit split into two artifacts. [PLAN.md](PLAN.md) records the completion check for each and the phased roadmap.
 
 ## Not done yet
 

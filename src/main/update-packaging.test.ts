@@ -15,7 +15,7 @@ const POLKIT_FILES = [
 /** The .deb's half of the update helper (K103); scripts/packaging/update-helper-container.sh runs it for real. */
 describe("the .deb's update helper", () => {
   it("is shipped where polkit's action and the host expect it", () => {
-    const builder = read("electron-builder.yml");
+    const builder = read("tooling/electron-builder.yml");
     expect(builder).toMatch(/- from: packaging\/linux\/tau-update-helper\n\s+to: bin\/tau-update-helper/u);
     expect(builder).toMatch(/- from: packaging\/linux\/polkit\n\s+to: resources\/polkit/u);
     const policy = read("packaging/linux/polkit/de.tbuck.tau.update.policy");

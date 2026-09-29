@@ -172,7 +172,7 @@ describe("the token contract", () => {
   it("paints the window and the browser bar in the dark ground before the first frame", async () => {
     const tokens = await readTokens();
     const shell = colour(tokens, "shell", "dark");
-    const pages = ["../../index.html", "../../index.web.html", "../../mobile/index.html"];
+    const pages = ["./index.html", "../web/index.html", "../../mobile/index.html"];
     const htmls = await Promise.all(pages.map((page) => readFile(new URL(page, import.meta.url), "utf8")));
     htmls.forEach((html, index) => expect(html, pages[index]).toMatch(new RegExp(`<meta name="theme-color" content="${shell}" data-scheme="dark"`, "u")));
     const main = await readFile(new URL("../main/index.ts", import.meta.url), "utf8");

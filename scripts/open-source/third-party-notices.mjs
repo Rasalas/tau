@@ -22,10 +22,10 @@ registerHooks({
     }
   },
 });
-const collector = await import(pathToFileURL(join(ROOT, "vite.third-party-licenses.ts")).href);
+const collector = await import(pathToFileURL(join(ROOT, "vite", "third-party-licenses.ts")).href);
 
-// Whole packages electron-builder.yml's `files` leaves out of the packaged app, e.g. "!node_modules/@scope/name-*/**".
-const NOT_PACKAGED = [...readFileSync(join(ROOT, "electron-builder.yml"), "utf8").matchAll(/^\s*-\s*"!node_modules\/((?:@[^/"]+\/)?[^/"]+)\/\*\*"/gmu)]
+// Whole packages tooling/electron-builder.yml's `files` leaves out of the packaged app, e.g. "!node_modules/@scope/name-*/**".
+const NOT_PACKAGED = [...readFileSync(join(ROOT, "tooling", "electron-builder.yml"), "utf8").matchAll(/^\s*-\s*"!node_modules\/((?:@[^/"]+\/)?[^/"]+)\/\*\*"/gmu)]
   .map(([, glob]) => new RegExp(`^${glob.replace(/[.+?^${}()|[\]\\]/gu, "\\$&").replace(/\*/gu, ".*")}$`, "u"));
 // Same pattern as the collector, plus notice files some packages name differently.
 const NOTICE_FILE = /^(?:licen[cs]e|copying|notice)(?:[.-]|$)|^third[-_]?party[-_]?notice/iu;

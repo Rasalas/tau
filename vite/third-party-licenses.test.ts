@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { BUILD_ONLY_DEV_DEPENDENCIES, bundledFileLicenses, collectMobileLicenses, collectThirdPartyLicenses, SUPPLIED_LICENSES_DIR } from "./vite.third-party-licenses";
-import { packLicenses, unpackLicenses } from "./src/shared/third-party-licenses";
+import { BUILD_ONLY_DEV_DEPENDENCIES, bundledFileLicenses, collectMobileLicenses, collectThirdPartyLicenses, SUPPLIED_LICENSES_DIR } from "./third-party-licenses";
+import { packLicenses, unpackLicenses } from "../src/shared/third-party-licenses";
 
 let root: string | undefined;
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); root = undefined; });
@@ -18,7 +18,7 @@ async function pkg(directory: string, manifest: Record<string, unknown>, license
 
 describe("the packages Tau ships", () => {
   it("names the interface font it bundles, with the font's own licence", () => {
-    const [figtree] = bundledFileLicenses(fileURLToPath(new URL(".", import.meta.url)));
+    const [figtree] = bundledFileLicenses(fileURLToPath(new URL("..", import.meta.url)));
     expect(figtree).toMatchObject({ name: "Figtree", license: "OFL-1.1" });
     expect(figtree?.text).toMatch(/Copyright 2022 The Figtree Project Authors[\s\S]*SIL OPEN FONT LICENSE Version 1\.1/u);
   });
@@ -66,17 +66,17 @@ describe("the packages Tau ships", () => {
   });
 
   it("carries the texts Pi and the vendored programs ship without", () => {
-    const here = fileURLToPath(new URL(".", import.meta.url));
-    const pi = collectThirdPartyLicenses(here).find((entry) => entry.name === "@earendil-works/pi-coding-agent");
+    const repository = fileURLToPath(new URL("..", import.meta.url));
+    const pi = collectThirdPartyLicenses(repository).find((entry) => entry.name === "@earendil-works/pi-coding-agent");
     expect(pi?.text).toMatch(/Copyright \(c\) 2025 Mario Zechner/u);
     for (const file of ["microsoft__terminal.txt", "trycua__cua.txt"]) {
-      expect(readFileSync(join(here, SUPPLIED_LICENSES_DIR, file), "utf8")).toMatch(/^(?:MIT License|Copyright)/u);
+      expect(readFileSync(join(repository, SUPPLIED_LICENSES_DIR, file), "utf8")).toMatch(/^(?:MIT License|Copyright)/u);
     }
   });
 
   // The mobile app's packages are installed only where it is built.
-  it.skipIf(!existsSync(fileURLToPath(new URL("./mobile/node_modules/@capacitor/core", import.meta.url))))("lists for the mobile app what its bundle reaches, not the desktop app's packages", () => {
-    const found = collectMobileLicenses(fileURLToPath(new URL(".", import.meta.url)));
+  it.skipIf(!existsSync(fileURLToPath(new URL("../mobile/node_modules/@capacitor/core", import.meta.url))))("lists for the mobile app what its bundle reaches, not the desktop app's packages", () => {
+    const found = collectMobileLicenses(fileURLToPath(new URL("..", import.meta.url)));
     const names = new Set(found.map((entry) => entry.name));
     expect(names.has("@capacitor/core")).toBe(true);
     expect(names.has("react")).toBe(true);
@@ -95,7 +95,7 @@ describe("the packages Tau ships", () => {
   });
 
   it("lists what the Servers kit ships and leaves out its test fakes", () => {
-    const found = collectThirdPartyLicenses(fileURLToPath(new URL(".", import.meta.url)));
+    const found = collectThirdPartyLicenses(fileURLToPath(new URL("..", import.meta.url)));
     const license = (name: string) => found.find((entry) => entry.name === name)?.license;
     expect(license("basic-ftp")).toBe("MIT");
     expect(license("@anthropic-ai/sandbox-runtime")).toBe("Apache-2.0");
@@ -103,7 +103,7 @@ describe("the packages Tau ships", () => {
   });
 
   it("names only devDependencies this repository has", async () => {
-    const manifest = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8")) as { devDependencies: Record<string, string> };
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { devDependencies: Record<string, string> };
     expect([...BUILD_ONLY_DEV_DEPENDENCIES].filter((name) => !(name in manifest.devDependencies))).toEqual([]);
   });
 });

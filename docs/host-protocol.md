@@ -697,7 +697,7 @@ browsing runs only on `connections-discover`. It lists for three seconds with
 `dns-sd -Z` (then looks up the `.local` name's addresses), `avahi-browse
 --parsable --resolve --terminate`, or `DnsServiceBrowse` and `DnsServiceResolve`,
 and marks the host's own record `self`. The macOS app declares
-`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`electron-builder.yml`).
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`tooling/electron-builder.yml`).
 
 **Endpoints.** `connections-list` names every URL a device may use, best
 first, each with a `kind` a device can choose by: `lan` (with its

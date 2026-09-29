@@ -1,12 +1,14 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { dedupeLegalComments } from "./vite.legal-comments";
-import { stripIconKeys } from "./vite.icon-keys";
-import { packIconSet } from "./vite.icon-set";
-import { mangleForGzip } from "./vite.mangle";
-import { rendererBuild } from "./vite.renderer-build";
-import { thirdPartyLicenses } from "./vite.third-party-licenses";
+import { dedupeLegalComments } from "./legal-comments";
+import { stripIconKeys } from "./icon-keys";
+import { packIconSet } from "./icon-set";
+import { mangleForGzip } from "./mangle";
+import { rendererBuild } from "./renderer-build";
+import { thirdPartyLicenses } from "./third-party-licenses";
+
+const path = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
 /**
  * The browser client (`dist-web/`), served by a listening host at its own root.
@@ -15,13 +17,15 @@ import { thirdPartyLicenses } from "./vite.third-party-licenses";
  */
 export default defineConfig(({ mode }) => ({
   plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), mangleForGzip(), thirdPartyLicenses()],
+  root: path("../src/web"),
   base: "/",
   // Favicon, touch icon and manifest, copied to the root as they are.
-  publicDir: fileURLToPath(new URL("src/web/public", import.meta.url)),
+  publicDir: path("../src/web/public"),
   build: {
-    outDir: "dist-web",
+    outDir: path("../dist-web"),
     emptyOutDir: true,
-    rollupOptions: { input: fileURLToPath(new URL("index.web.html", import.meta.url)) },
+    // The key keeps the entry chunk's name (`index.web-<hash>.js`) apart from the renderer's `index` chunks.
+    rollupOptions: { input: { "index.web": path("../src/web/index.html") } },
     sourcemap: mode === "development" || process.env.TAU_SOURCEMAP === "true",
     minify: "esbuild",
     target: rendererBuild.target,

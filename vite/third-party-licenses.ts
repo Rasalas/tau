@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import type { Plugin } from "vite";
-import { LICENSES_FILE, packLicenses, type ThirdPartyLicense } from "./src/shared/third-party-licenses";
+import { LICENSES_FILE, packLicenses, type ThirdPartyLicense } from "../src/shared/third-party-licenses";
 
 /** devDependencies that only build or test Tau; every other one ends up in a bundle. */
 export const BUILD_ONLY_DEV_DEPENDENCIES = new Set([

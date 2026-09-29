@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-/** Where releases are published (`publish:` in electron-builder.yml); public. */
+/** Where releases are published (`publish:` in tooling/electron-builder.yml); public. */
 export const REPO = "Rasalas/tau-releases";
 /** The source repository: issues, the license, the code. */
 export const SOURCE_REPO = "Rasalas/tau";

@@ -16,7 +16,7 @@ const run = (script, args) => execFileSync(process.execPath, [join(nodeModules, 
 
 const started = performance.now();
 const managedSource = existsSync(join(ROOT, ".tau-source.json"));
-run("typescript/bin/tsc", ["-p", "tsconfig.electron.json", ...(managedSource ? ["--noCheck"] : [])]);
+run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", ...(managedSource ? ["--noCheck"] : [])]);
 run("../scripts/build-preload.mjs", []);
 run("../scripts/build-host-worker.mjs", []);
 // The runtime loads prebuilt kits; an installed app keeps editable sources and build tools outside its archive.
@@ -28,7 +28,7 @@ const buildTimeMs = Math.round(performance.now() - started);
 const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs, kitsDirectory: join(ROOT, "dist-kits") });
 await mkdir(join(ROOT, "reports"), { recursive: true });
 await writeFile(join(ROOT, "reports/build-report.json"), `${JSON.stringify(report, null, 2)}\n`);
-// The host serves this to browsers and phones; a packaged app ships it (electron-builder.yml).
+// The host serves this to browsers and phones; a packaged app ships it (tooling/electron-builder.yml).
 // After the report, so the desktop build budget measures the desktop build alone.
 run("../scripts/build-web.mjs", []);
 // The extension API's declarations, which a release ships for `tau kit new`; outside the budget like the web build.
