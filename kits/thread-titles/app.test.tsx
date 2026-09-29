@@ -85,7 +85,7 @@ describe("Thread Title Generator in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));
-    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    const composer = screen.getByPlaceholderText(/Ask anything/u);
     fireEvent.change(composer, { target: { value: "Name this thread" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 

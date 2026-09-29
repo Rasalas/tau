@@ -26,6 +26,15 @@ describe("the workbench design language", () => {
     expect(send).toMatch(/border-radius: 50%/u);
     expect(send).toMatch(/background: var\(--acid\)/u);
     expect(send).toMatch(/color: var\(--acid-ink\)/u);
+    // With nothing to send it rests, still in the accent; stop beside it is quiet, never a second filled button.
+    expect(rule(STYLES, ".send-button:disabled")).toMatch(/background: color-mix\(in srgb, var\(--acid\)/u);
+    expect(rule(STYLES, ".send-button.stop")).toMatch(/background: transparent/u);
+  });
+
+  it("draws the model as a filled pill", () => {
+    const pill = rule(STYLES, ".runtime-chip.composer-model-chip");
+    expect(pill).toMatch(/background: var\(--raised\)/u);
+    expect(pill).toMatch(/border-radius: 6px/u);
   });
 
   it("tints the user's own message with the accent", () => {

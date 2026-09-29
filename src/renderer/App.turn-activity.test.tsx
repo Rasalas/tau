@@ -330,7 +330,7 @@ describe("last-turn activity", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
-    const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "after this turn" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
@@ -368,7 +368,7 @@ describe("last-turn activity", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
-    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    const composer = screen.getByPlaceholderText(/queue a follow-up/u);
     fireEvent.change(composer, { target: { value: "first" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
@@ -395,7 +395,7 @@ describe("last-turn activity", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
-    const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
     for (const [index, text] of ["first", "second", "third"].entries()) {
       fireEvent.change(composer, { target: { value: text } });
       fireEvent.keyDown(composer, { key: "Enter" });
@@ -420,7 +420,7 @@ describe("last-turn activity", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
-    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
+    const composer = screen.getByPlaceholderText(/queue a follow-up/u);
     fireEvent.change(composer, { target: { value: "use this now" } });
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
 
@@ -468,7 +468,7 @@ describe("last-turn activity", () => {
 
     renderApp(client);
     await screen.findByText("old reply");
-    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    const composer = screen.getByPlaceholderText(/Ask anything/u);
     fireEvent.change(composer, { target: { value: "new request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 

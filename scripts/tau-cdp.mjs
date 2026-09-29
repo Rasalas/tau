@@ -31,7 +31,7 @@ export const SNAPSHOT_EXPR = `(() => {
     active: row.classList.contains("active"),
   }));
   const textarea = document.querySelector("textarea");
-  const sendButton = document.querySelector(".send-button");
+  const sendButton = document.querySelector(".send-button:not(.stop)");
   const composer = textarea ? {
     value: textarea.value,
     streaming: !!document.querySelector(".send-button.stop"),

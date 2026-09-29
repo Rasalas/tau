@@ -1286,7 +1286,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   display: block; width: 100%; resize: none; border: 0; background: transparent;
   color: var(--ink); padding: var(--space-5) calc(14px * var(--density)) var(--space-3); line-height: 1.55;
   font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
-  outline: none; min-height: 46px; max-height: 220px; overflow-y: hidden;
+  outline: none; min-height: 40px; max-height: 220px; overflow-y: hidden;
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
 /* Chips in the text: the textarea's own glyphs turn transparent and the mirror behind it draws them with the same metrics. */
@@ -1326,14 +1326,19 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .composer-chip-preview { padding: 0; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken); cursor: zoom-in; overflow: hidden; }
 .composer-chip-preview img { display: block; width: 100%; max-height: 160px; object-fit: contain; }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-3) var(--space-3); }
-/* One row: model, reasoning, the "…" menu; context and attach at the end. Blocks drop their labels, then move into the menu (ComposerFooterControls). */
-.composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; }
+/* One row as the design draws it: model, reasoning, the "…" menu, send. Kits' blocks drop their labels, then move into the menu (ComposerFooterControls). */
+.composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 2px; }
 .composer-block { flex: none; display: flex; align-items: center; }
 .composer-block:empty { display: none; }
 .composer-chips > :not(.end) + .composer-block.end, .composer-chips > .composer-block.end:first-child { margin-left: auto; }
 .composer-block[data-icon-only] .runtime-chip:has(> svg) { gap: 0; font-size: 0; }
 .composer-block[data-icon-only] .runtime-chip .chev { display: none; }
+/* The model is a filled pill with its marks inside (design 1a). */
 .composer-model-chip { flex: 0 1 auto; min-width: 64px; }
+.runtime-chip.composer-model-chip { border-radius: 6px; background: var(--raised); }
+.runtime-chip.composer-model-chip:hover { background: var(--raised-hover); }
+/* The marks are drawn at 80 %; their box keeps the full width, so the name comes closer. */
+.composer-model-chip > .chip-icon { margin-right: -5px; }
 .runtime-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* A new thread's machine and project, before the model. */
 .composer-project-chip { flex: 0 1 auto; min-width: 48px; }
@@ -1341,8 +1346,8 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* The kits' lead controls drew nothing (a thread that started): no rule before the model. */
 .composer-lead-rule:first-child { display: none; }
 /* The reasoning level reads as text beside the model, as in the design. */
-.composer-thinking-chip { color: var(--muted); }
-.composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }
+.runtime-chip.composer-thinking-chip { color: var(--muted); }
+.runtime-chip.composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }
 .composer-menu-trigger { padding: 4px 6px; color: var(--muted); }
 .popover.composer-overflow { padding: 4px; }
 .composer-menu { display: flex; flex-direction: column; gap: 2px; min-width: 220px; max-width: 300px; }
@@ -1371,11 +1376,6 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   font: 400 var(--text-sm) var(--sans); padding: 4px 8px; cursor: pointer;
 }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
-.attach-button {
-  width: 28px; height: 28px; flex: none; display: grid; place-items: center;
-  border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
-}
-.attach-button:hover { background: var(--raised); color: var(--ink); }
 .attachment-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .attachment-lightbox {
   position: fixed; inset: 0; z-index: 92; display: grid; place-items: center; padding: 52px;
@@ -1401,9 +1401,12 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   display: grid; place-items: center; cursor: pointer;
 }
 .send-button:not(:disabled, .stop):hover { background: var(--acid-strong); }
-.send-button:disabled { background: var(--raised); color: var(--faint); cursor: default; }
-.send-button.stop { background: var(--stop); }
-.send-button.stop > i { width: 11px; height: 11px; background: var(--stop-ink); border-radius: 2.5px; }
+/* Nothing to send: the accent at rest, still the send button. */
+.send-button:disabled { background: color-mix(in srgb, var(--acid) 42%, var(--field)); cursor: default; }
+/* Stop is quiet beside send, a ring and a square, red only under the pointer; send stays the primary. */
+.send-button.stop { margin-right: 4px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-control); color: var(--muted); }
+.send-button.stop:hover { box-shadow: inset 0 0 0 1.5px var(--stop); color: var(--stop); }
+.send-button.stop > i { width: 9px; height: 9px; background: currentColor; border-radius: 2px; }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

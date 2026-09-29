@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
@@ -29,7 +29,7 @@ const snapshot: HostSnapshot = {
 
 afterEach(cleanup);
 
-function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode) {
+function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode, contextPercent = 20) {
   const { registry } = createKitHarness();
   registry.activate({
     id: "test.footer",
@@ -57,7 +57,7 @@ function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode) {
           scopeStore={new ComposerScopeStore()}
           snapshot={snapshot}
           queue={[]}
-          contextUsage={{ tokens: 20_000, contextWindow: 100_000, percent: 20 }}
+          contextUsage={{ tokens: contextPercent * 1_000, contextWindow: 100_000, percent: contextPercent }}
           contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
           textareaRef={createRef<HTMLTextAreaElement>()}
           onSubmit={vi.fn(async () => ({ accepted: true as const }))}
@@ -112,10 +112,38 @@ describe("the composer's slim footer", () => {
     expect(screen.queryByRole("dialog", { name: "More composer controls" })).toBeNull();
   });
 
-  it("offers the reasoning levels from the text", () => {
+  it("opens the picker at its thinking column from the reasoning level", async () => {
     renderFooter();
     fireEvent.click(screen.getByLabelText("Reasoning: Medium"));
-    expect(screen.getByRole("menuitem", { name: /High/u })).toBeTruthy();
+    const levels = await screen.findByRole("radiogroup", { name: /^Thinking for/u });
+    expect(within(levels).getByRole("radio", { name: /High/u })).toBeTruthy();
+    await waitFor(() => expect(levels.contains(document.activeElement)).toBe(true));
+    expect(screen.getByLabelText("Reasoning: Medium").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("draws the design's row: model, reasoning, the menu and send; attach and the context wait in the menu", () => {
+    renderFooter();
+    const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
+    const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Reasoning: Medium", "Kit chip", "More composer controls", "Send"]);
+    fireEvent.click(screen.getByLabelText("More composer controls"));
+    const menu = screen.getByRole("dialog", { name: "More composer controls" });
+    expect(within(menu).getByRole("button", { name: /Attach files/u })).toBeTruthy();
+    expect(within(menu).getByRole("button", { name: /Compact context/u }).textContent).toContain("20% of the context used");
+  });
+
+  it("brings the context dial into the row once the context runs short", () => {
+    renderFooter(vi.fn(), undefined, 80);
+    expect(screen.getByLabelText("Context 80 percent used")).toBeTruthy();
+  });
+
+  it("keeps send in view with nothing to send, resting until there is a draft", () => {
+    renderFooter();
+    const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.dataset.tooltip).toMatch(/⇧↵ newline, \$ skills, \/ commands, @ files/u);
+    fireEvent.change(screen.getByPlaceholderText("Ask anything, or hand it work…"), { target: { value: "go" } });
+    expect(send.disabled).toBe(false);
   });
 
   it("shows no reasoning level for a model that has none", () => {

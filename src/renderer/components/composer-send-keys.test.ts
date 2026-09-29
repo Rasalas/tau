@@ -32,15 +32,16 @@ describe("composer send keys", () => {
     expect(enter({ shortcut: "mod-enter", mod: true, shift: true })).toEqual({ delivery: "alternate" });
   });
 
-  it("names the chords in the placeholder", () => {
-    expect(sendHint("enter", false, "followUp")).toBe("Direct the agent — $ skills, / commands, @ files, ⇧↵ newline");
-    expect(sendHint("enter", true, "followUp")).toBe("Queue after this turn — ↵ queues, ⌘↵ steers now, ⌥↑ dequeues");
-    expect(sendHint("mod-enter", true, "steer")).toBe("Steer this turn — ⌘↵ steers now, ⌘⇧↵ queues, ⌥↑ dequeues");
+  it("names the chords in the send button's tooltip", () => {
+    expect(sendHint("enter", false, "followUp")).toEqual({ label: "Send", hint: "Send ↵ — ⇧↵ newline, $ skills, / commands, @ files" });
+    expect(sendHint("mod-enter", false, "followUp").hint).toBe("Send ⌘↵ — ↵ newline, $ skills, / commands, @ files");
+    expect(sendHint("enter", true, "followUp")).toEqual({ label: "Queue after this turn", hint: "Queue after this turn ↵ — ⌘↵ steers now, ⌥↑ dequeues" });
+    expect(sendHint("mod-enter", true, "steer")).toEqual({ label: "Steer this turn", hint: "Steer this turn ⌘↵ — ⌘⇧↵ queues, ⌥↑ dequeues" });
   });
 
   it("names no chord on a touch keyboard, whose return key writes a newline", () => {
-    expect(sendHint("mod-enter", false, "followUp", true)).toBe("Direct the agent");
-    expect(sendHint("mod-enter", true, "steer", true)).toBe("Steer this turn");
+    expect(sendHint("mod-enter", false, "followUp", true)).toEqual({ label: "Send", hint: "Send" });
+    expect(sendHint("mod-enter", true, "steer", true).hint).toBe("Steer this turn");
     expect(enter({ shortcut: "mod-enter" })).toBe("newline");
   });
 

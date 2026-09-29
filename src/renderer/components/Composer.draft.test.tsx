@@ -51,7 +51,7 @@ function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: Clie
       </RendererServicesProvider>
     </ClientStorageProvider>,
   );
-  return screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+  return screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 }
 
 afterEach(cleanup);

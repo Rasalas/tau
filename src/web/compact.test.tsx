@@ -465,7 +465,7 @@ describe("a phone with no thread open", () => {
 });
 
 describe("a new thread's draft in the phone's list", () => {
-  const composer = () => screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+  const composer = () => screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
   async function startDraft(): Promise<HTMLElement> {
     const home = await screen.findByRole("region", { name: "Threads" });
     fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
@@ -565,9 +565,9 @@ describe("the compact client on a tablet", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "New thread" }));
     const row = await within(sidebar).findByRole("button", { name: "Open draft New thread" });
     expect(row.getAttribute("aria-current")).toBe("true");
-    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "Tablet idea" } });
+    fireEvent.change(screen.getByPlaceholderText(/Ask anything/u), { target: { value: "Tablet idea" } });
     expect(await within(sidebar).findByRole("button", { name: "Open draft Tablet idea" })).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "" } });
+    fireEvent.change(screen.getByPlaceholderText(/Ask anything/u), { target: { value: "" } });
     fireEvent.click(within(sidebar).getByRole("button", { name: "Open thread Ship the web client" }));
     await waitFor(() => expect(within(sidebar).queryByRole("button", { name: /^Open draft / })).toBeNull());
   });
@@ -665,7 +665,7 @@ describe("a touch keyboard", () => {
       const client = renderCompactClient();
       await openChat();
       const textarea = await screen.findByRole("textbox");
-      expect(textarea.getAttribute("placeholder")).toBe("Direct the agent");
+      expect(textarea.getAttribute("placeholder")).toBe("Ask anything, or hand it work…");
       // The on-screen keyboard is up (TouchLayer marks it from the visual viewport).
       document.body.setAttribute("data-keyboard", "");
       fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });

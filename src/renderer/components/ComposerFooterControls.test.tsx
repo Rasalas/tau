@@ -123,6 +123,18 @@ describe("ComposerFooterControls", () => {
     expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Kit", "Compact context", "Attach files", "Access"]);
   });
 
+  it("keeps a menu-only block in the menu at any width, before the menu's own entries", () => {
+    available = 900;
+    render(<ComposerFooterControls revision="a" leading={null} blocks={[
+      { id: "reasoning", node: <button type="button" className="runtime-chip">Medium</button> },
+      { id: "attach", menuOnly: true, node: <button type="button">Attach files</button> },
+    ]} />);
+    expect(block("attach")).toBeNull();
+    fireEvent.click(screen.getByLabelText("More composer controls"));
+    const menu = screen.getByRole("dialog", { name: "More composer controls" });
+    expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Attach files"]);
+  });
+
   it("never reduces a text-only chip to nothing", () => {
     available = 400;
     const view = render(<ComposerFooterControls revision="a" leading={null} blocks={[{ id: "reasoning", node: <button type="button" className="runtime-chip">Medium</button> }]} />);
