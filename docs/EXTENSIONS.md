@@ -1003,8 +1003,8 @@ absent in a client without pages.
 On a desktop the page takes the place of the thread and the stage, in
 Settings' frame: Settings' page head (new in API 1.27.0) over the page — its
 label as the title, its `description`, and at the right the action it draws with
-`SettingsPageAction` — under the strip the window is dragged by. The sidebar stays beside it, and its foot leads with Back and marks the
-page. Showing a thread, a file, a stage tab or a panel (`switchSession`,
+`SettingsPageAction` — under the strip the window is dragged by. The sidebar stays beside it, and its foot is Back to thread alone while
+the page shows (API 1.28.0; before, Back led the whole foot). Showing a thread, a file, a stage tab or a panel (`switchSession`,
 `newSession`, `openFile`, `openThread`, `openStageTab`, `openPanel`,
 `focusComposer`, `openWorkspace`) closes the page first, and so does another
 thread coming on screen. Settings opens over a page and returns to it. The
@@ -1040,6 +1040,33 @@ plugin.registerPage({
     : <ReportList onOpen={(report) => navigate({ report: report.id }, { label: report.title })} />,
 });
 plugin.registerCommand({ id: "acme.reports.open", label: "Reports", group: "Extensions", access: "read", run: (actions) => actions.openPage?.("acme.reports") });
+```
+
+`Sidebar` (API 1.28.0) is an optional component the sidebar draws in place of
+the thread list while the page is open on a desktop, in Settings' column: Back
+to thread above it and at its foot, the component between, filling the column
+and scrolling itself. It receives the page's own `PageProps` (the `params` of the
+view on screen, `navigate`, `close`, `actions`), so a click in it can
+`navigate(…, { replace: true })` the page to a detail, and it can mark what the
+page shows from `params`. The thread list stays mounted out of sight and comes
+back as it was. `PageProps.sidebar` is `true` for the page while its `Sidebar`
+is on screen: the page then leaves out the navigation the sidebar carries (Review
+Kit drops its tabs). It is `false` on a phone, on a tablet's split layout
+(the touch thread list stays), with the sidebar hidden (`mod+b`) and on an
+older host, where the page keeps its own navigation. A page without `Sidebar`
+keeps the thread list. The component can use Settings' column classes
+(`settings-nav-search`, `settings-nav-group`, `settings-nav-heading`) and core's
+thread row (`thread-row`, `thread-main`, `thread-project-line`, `thread-title`,
+`thread-meta-line`) for rows that read like the rail's.
+
+```tsx
+plugin.registerPage({
+  id: "acme.reports", label: "Reports", layout: "fill",
+  Component: ({ params, sidebar }) => params.report ? <Report id={String(params.report)} /> : <Overview withTabs={!sidebar} />,
+  Sidebar: ({ params, navigate }) => (
+    <ReportList current={params.report} onOpen={(report) => navigate({ report: report.id }, { replace: true })} />
+  ),
+});
 ```
 
 `useBadge` (API 1.26.0) is an optional hook the page's entry calls — the

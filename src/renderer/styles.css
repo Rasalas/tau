@@ -75,7 +75,8 @@ button > svg { pointer-events: none; }
 .workbench-center.conversation-folded > .conversation-column { position: absolute; inset: 0 0 0 var(--spine-width); visibility: hidden; pointer-events: none; }
 /* The sidebar stays mounted while hidden, so its scroll and folds survive a toggle. */
 .sidebar-slot { display: contents; }
-.app-shell.sidebar-closed .sidebar-slot { display: none; }
+.app-shell.sidebar-closed .sidebar-slot, .sidebar-slot.covered { display: none; }
+.page-sidebar-frame { grid-area: 1 / 1 / -1 / 2; background: var(--rail); }
 /* The title-bar region while the conversation is folded: its layers stay, its buttons out of sight. */
 .title-actions-parked { position: fixed; width: 0; height: 0; overflow: hidden; }
 .workbench-drawer { animation: drawer-open var(--panel-motion, 0ms) var(--ease); }
