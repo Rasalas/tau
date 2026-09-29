@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { importSessionFile } from "./session-import.js";
-import { threadUsageFrom } from "./usage-pricing.js";
+import { threadUsageFrom, type UsageTally } from "./usage-pricing.js";
 import type { HostEvent, UiSession } from "../shared/contracts.js";
 import type { HostUpdate } from "../shared/host-protocol.js";
-import { HostThreadLifecycleSet } from "./host-extensions.js";
+import { HostThreadLifecycleSet, type HostBackendThreadRecord, type HostRuntimeBackendProvider } from "./host-extensions.js";
 import { ProjectFactsCache } from "./project-facts-cache.js";
-import { ThreadIndex } from "./thread-index.js";
+import { ThreadIndex, type ThreadIndexPort } from "./thread-index.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
@@ -35,6 +35,8 @@ function makeIndex(options: {
   threadLifecycle?: HostThreadLifecycleSet;
   inTrash?: (sessionId: string) => boolean;
   sessionsDir?: string;
+  backends?: HostRuntimeBackendProvider[];
+  priceUsage?: ThreadIndexPort["priceUsage"];
 } = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
@@ -46,7 +48,7 @@ function makeIndex(options: {
   const index = new ThreadIndex({
     ...(options.inTrash ? { inTrash: options.inTrash } : {}),
     cwd: () => "/repo",
-    safeMode: true,
+    safeMode: !options.backends,
     sessionsDir: options.sessionsDir,
     projects,
     workspaces: new WorkspaceIdentity("host"),
@@ -55,9 +57,9 @@ function makeIndex(options: {
       isHidden: () => false,
     } as never,
     threadLifecycle: options.threadLifecycle ?? new HostThreadLifecycleSet(),
-    backends: () => new Map(),
+    backends: () => new Map((options.backends ?? []).map((provider) => [provider.kind, provider])),
     liveThreads: () => options.live ?? [],
-    priceUsage: (tallies) => threadUsageFrom(tallies, { overrides: () => undefined, apiPrice: () => undefined, subscription: () => false }),
+    priceUsage: options.priceUsage ?? ((tallies) => threadUsageFrom(tallies, { overrides: () => undefined, apiPrice: () => undefined, subscription: () => false })),
     hostThread: (thread) => ({ sessionId: thread.threadId }) as never,
     emit: (event) => { events.push(event); },
     emitUpdate: (update) => { updates.push(update); },
@@ -337,5 +339,109 @@ describe("thread deletion", () => {
     await sweep([], [trashed], []);
 
     expect(seen).toEqual([]);
+  });
+});
+
+describe("threads of other runtimes", () => {
+  const tally = (costUsd: number, model = "gpt-5.6-luna"): UsageTally => ({ provider: "openai", model, inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 120, costUsd, turns: 1 });
+  const record = (threadId: string, usage?: UsageTally[]): HostBackendThreadRecord => ({
+    threadId, cwd: "/repo", updatedAt: 1, messages: [{ role: "user", text: `Prompt of ${threadId}` }], ...(usage ? { usage } : {}),
+  });
+  function backend(kind: string, records: HostBackendThreadRecord[]) {
+    const listThreads = vi.fn(async () => records);
+    const lookup = vi.fn(async () => { throw new Error("the index looked a thread up on its own"); });
+    return { provider: { kind, listThreads, lookup } as unknown as HostRuntimeBackendProvider, listThreads, lookup };
+  }
+  async function inSessionsDir(run: (sessionsDir: string) => Promise<void>): Promise<void> {
+    const root = await mkdtemp(join(tmpdir(), "tau-thread-index-backends-"));
+    try {
+      await mkdir(join(root, "sessions"));
+      await run(join(root, "sessions"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  it("shows what a thread cost before it is opened, from one listing per scan", () => inSessionsDir(async (sessionsDir) => {
+    const codex = backend("codex", [record("priced", [tally(0.25), tally(0.5, "gpt-5.6-sol")]), record("unused"), record("empty", [])]);
+    const { index } = makeIndex({ sessionsDir, backends: [codex.provider] });
+    const { sessions } = await index.refresh("none");
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    expect(byId.get("priced")?.usage).toMatchObject({ costUsd: 0.75, totalTokens: 240, inputTokens: 200, outputTokens: 40, turns: 2 });
+    expect(byId.get("unused")).not.toHaveProperty("usage");
+    expect(byId.get("empty")).not.toHaveProperty("usage");
+    expect(codex.listThreads).toHaveBeenCalledTimes(1);
+    expect(codex.lookup).not.toHaveBeenCalled();
+  }));
+
+  it("prices them again when prices change", () => inSessionsDir(async (sessionsDir) => {
+    let overrides: Record<string, { input: number; output: number }> | undefined;
+    const codex = backend("codex", [record("priced", [tally(0.25)])]);
+    const { index, updates } = makeIndex({
+      sessionsDir,
+      backends: [codex.provider],
+      priceUsage: (tallies) => threadUsageFrom(tallies, { overrides: () => overrides, apiPrice: () => undefined, subscription: () => false }),
+    });
+    await index.refresh("none");
+    expect(index.byId("priced")?.usage?.costUsd).toBe(0.25);
+    overrides = { "openai/gpt-5.6-luna": { input: 1_000, output: 1_000 } };
+    index.repriceAll();
+    await flush();
+    expect(index.byId("priced")?.usage?.costUsd).toBeCloseTo(0.12);
+    expect(updates).toContainEqual(expect.objectContaining({ type: "thread-shell", update: expect.objectContaining({ sessionId: "priced" }) }));
+    expect(codex.listThreads).toHaveBeenCalledTimes(1);
+  }));
+});
+
+describe("thread index scale with other runtimes' threads", () => {
+  const THREADS = 2_000;
+  const median = (values: number[]) => values.slice().sort((left, right) => left - right)[Math.floor(values.length / 2)]!;
+
+  it("prices each listed thread once per scan and never reads one on its own", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-thread-index-scale-"));
+    try {
+      const sessionsDir = join(root, "sessions");
+      await mkdir(sessionsDir);
+      const tallies = (index: number): UsageTally[] => ["gpt-5.6-luna", "gpt-5.6-sol", "claude-haiku-4-5"].map((model, slot) => ({
+        provider: slot === 2 ? "anthropic" : "openai", model, inputTokens: 1_000 + index, outputTokens: 200, cacheReadTokens: 5_000, cacheWriteTokens: 0, totalTokens: 6_200 + index, costUsd: 0.01 * slot, turns: 4,
+      }));
+      const providers = ["codex", "claude-code"].map((kind, half) => {
+        const records: HostBackendThreadRecord[] = Array.from({ length: THREADS / 2 }, (_, index) => ({
+          threadId: `${kind}-${index}`, cwd: `/projects/p${index % 12}`, updatedAt: 1_000_000 - index,
+          messages: Array.from({ length: 20 }, (__, turn) => ({ role: turn % 2 ? "assistant" as const : "user" as const, text: `Message ${turn} of thread ${index}` })),
+          usage: tallies(index + half),
+        }));
+        const listThreads = vi.fn(async () => records);
+        const lookup = vi.fn(async () => { throw new Error("the index looked a thread up on its own"); });
+        return { provider: { kind, listThreads, lookup } as unknown as HostRuntimeBackendProvider, listThreads, lookup };
+      });
+      let priced = 0;
+      const source = { overrides: () => undefined, apiPrice: () => ({ input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }), subscription: () => false };
+      const { index } = makeIndex({ sessionsDir, backends: providers.map((entry) => entry.provider), priceUsage: (list) => { priced += 1; return threadUsageFrom(list, source); } });
+      const cold = performance.now();
+      await index.refresh("none");
+      const coldMs = performance.now() - cold;
+      const warm: number[] = [];
+      for (let round = 0; round < 10; round += 1) {
+        const started = performance.now();
+        await index.refresh("none");
+        warm.push(performance.now() - started);
+      }
+      const reprice = performance.now();
+      index.repriceAll();
+      const repriceMs = performance.now() - reprice;
+      // Printed for docs/PERFORMANCE.md; the counts below are what the test holds.
+      console.info(`[thread-index-scale] threads=${THREADS} cold=${coldMs.toFixed(1)}ms warm=${median(warm).toFixed(1)}ms (median of 10) reprice=${repriceMs.toFixed(1)}ms priced=${priced}`);
+      const listed = index.list().filter((session) => session.backendKind !== undefined);
+      expect(listed).toHaveLength(THREADS);
+      expect(listed.every((session) => (session.usage?.totalTokens ?? 0) > 0)).toBe(true);
+      expect(priced).toBe(THREADS * 12);
+      for (const entry of providers) {
+        expect(entry.listThreads).toHaveBeenCalledTimes(11);
+        expect(entry.lookup).not.toHaveBeenCalled();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
