@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   DEFAULT_INSTANCE_ID,
@@ -6,16 +7,20 @@ import {
   RuntimeInstanceSettings,
   THREAD_TEXTS_COMMAND,
   TurnActivityStore,
+  cliMaintenance,
+  executableFingerprint,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
   threadTextsDelta,
   updateAvailable,
+  type CliPackageSpec,
   type HostBackendThreadRecord,
   type HostExtension,
   type HostExtensionServices,
   type HostRuntimeBackendProvider,
   type HostRuntimeNewThreadCatalog,
   type RuntimeInstanceConfig,
+  type RuntimeToolMaintenance,
   type RuntimeToolVersion,
 } from "tau/host-extension";
 import type { AcpProcess, AcpSpawnInput } from "../_acp/client.js";
@@ -43,6 +48,8 @@ export const CURSOR_COMMAND_VARIABLE = "TAU_CURSOR_COMMAND";
 /** The name the CLI installs itself under; it also installs `agent`, which is too generic to look for. */
 const EXECUTABLE = "cursor-agent";
 const PROBE_TTL_MS = 10 * 60 * 1000;
+/** Cursor's installer puts the CLI under ~/.local/share/cursor-agent and it updates itself. */
+export const CURSOR_PACKAGE: CliPackageSpec = { native: { args: ["update"], paths: ["/.local/share/cursor-agent/"] } };
 
 export interface CursorHostExtensionOptions {
   /** Replaces the agent process (tests hand in a fake); the real one spawns `cursor-agent acp`. */
@@ -57,7 +64,8 @@ export interface CursorHostExtensionOptions {
 
 interface Probe { models: CursorStoredModel[]; at: number }
 interface InstanceState {
-  installed?: { path: string; version?: string };
+  /** `key` is the executable's fingerprint: an update replaces the file, and it is read again. */
+  installed?: { path: string; version?: string; key?: string };
   probe?: Promise<Probe>;
   unregister?: () => void;
 }
@@ -120,7 +128,11 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
         const path = locate(id);
         if (!path) throw new Error(`The Cursor CLI "${cursorCommand(id)}" was not found on the PATH of your login shell. Install it (curl https://cursor.com/install -fsS | bash) or set its path under Settings → Providers.`);
         const entry = state(id);
-        if (entry.installed?.path !== path) entry.installed = { path, ...(await readVersion(path, instanceEnv(id)).then((version) => version ? { version } : {})) };
+        const key = await executableFingerprint(path);
+        if (entry.installed?.path !== path || entry.installed.key !== key) {
+          if (entry.installed) entry.probe = undefined;
+          entry.installed = { path, ...(key ? { key } : {}), ...(await readVersion(path, instanceEnv(id)).then((version) => version ? { version } : {})) };
+        }
         return entry.installed;
       };
       const updateCommand = (path: string) => runtimeUpdateCommand(CURSOR_BACKEND_KIND, cursorUpdateCommand(path), env);
@@ -157,8 +169,9 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       };
 
       /** The account's models, from a session that runs no thread. */
-      const runProbe = (id: string, fresh = false): Promise<Probe> => {
+      const runProbe = async (id: string, fresh = false): Promise<Probe> => {
         const entry = state(id);
+        await cli(id).catch(() => undefined);
         if (!fresh && entry.probe) return entry.probe.then((cached) => Date.now() - cached.at < PROBE_TTL_MS ? cached : runProbe(id, true));
         const next = (async (): Promise<Probe> => {
           await mkdir(services.stateDir, { recursive: true });
@@ -196,12 +209,30 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       };
       const modelNames = async (id: string) => new Map((await store.listModels(id)).map((model) => [model.id, model.name] as const));
 
+      // Test instances set TAU_NO_RUNTIME_UPDATES=1: no update is asked for or offered.
+      const latestOf = async (): Promise<string | undefined> => env.TAU_NO_RUNTIME_UPDATES === "1"
+        ? undefined
+        : cursorLatestVersion({ cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) });
+      const maintenanceOf = async (id: string): Promise<RuntimeToolMaintenance> => {
+        const { path, version } = await cli(id);
+        const latest = await latestOf();
+        return cliMaintenance({
+          tool: EXECUTABLE,
+          path,
+          ...(version ? { installed: version } : {}),
+          ...(latest ? { latest } : {}),
+          spec: CURSOR_PACKAGE,
+          findCommand: (name) => services.findCommand(name),
+          cacheFile: join(services.stateDir, "package-versions.json"),
+          env,
+          home: homedir(),
+          ...(options.fetch ? { fetch: options.fetch } : {}),
+        });
+      };
+
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { path, version } = await cli(id);
-        // Test instances set TAU_NO_RUNTIME_UPDATES=1: no update is asked for or offered.
-        const latest = env.TAU_NO_RUNTIME_UPDATES === "1"
-          ? undefined
-          : await cursorLatestVersion({ cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) });
+        const latest = await latestOf();
         const verdict = cursorCompatibility(policy, version);
         return {
           tool: "cursor-agent",
@@ -274,6 +305,8 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           },
           composerCommands: () => [],
           version: () => versionOf(id),
+          maintenance: async () => locate(id) ? maintenanceOf(id) : undefined,
+          programKey: () => executableFingerprint(locate(id)),
           newThreadCatalog: () => newThreadCatalog(id),
         };
       };

@@ -8,20 +8,24 @@ import {
   HostCommandError,
   RuntimeInstanceSettings,
   TurnActivityStore,
+  cliCommandText,
+  cliMaintenance,
   commandInvocation,
-  npmLatestVersion,
+  executableFingerprint,
   packageInstallCommand,
   packageUpdateCommand,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
   updateAvailable,
   versionCompatibility,
+  type CliPackageSpec,
   type HostBackendThreadRecord,
   type HostExtension,
   type HostExtensionServices,
   type HostRuntimeBackendProvider,
   type RuntimeCompatibility,
   type RuntimeInstanceConfig,
+  type RuntimeToolMaintenance,
   type RuntimeToolVersion,
   type VersionPolicy,
   THREAD_TEXTS_COMMAND,
@@ -100,8 +104,16 @@ export async function readOpenCodeVersion(path: string): Promise<string | undefi
   }
 }
 
+/** Where OpenCode comes from; its install script's copy upgrades itself. Only these names are ever updated. */
+export const OPENCODE_PACKAGE: CliPackageSpec = {
+  npm: OPENCODE_NPM_PACKAGE,
+  homebrew: { formulae: ["opencode"] },
+  native: { args: ["upgrade"], paths: ["/.opencode/bin/"] },
+};
+
 interface InstanceState {
-  installed?: { path: string; version?: string };
+  /** `key` is the executable's fingerprint: a replaced CLI is read again. */
+  installed?: { path: string; version?: string; key?: string };
   probe?: Promise<Probe>;
   unregister?: () => void;
 }
@@ -174,7 +186,11 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         const path = locate(id);
         if (!path) throw new Error(`The OpenCode CLI "${openCodeCommand(id)}" was not found on the PATH of your login shell. Install it (curl -fsSL https://opencode.ai/install | bash, or npm install -g ${OPENCODE_NPM_PACKAGE}), set its path under Settings → Providers, or connect to a running OpenCode server there.`);
         const entry = state(id);
-        if (entry.installed?.path !== path) entry.installed = { path, ...(await readVersion(path).then((version) => version ? { version } : {})) };
+        const key = await executableFingerprint(path);
+        if (entry.installed?.path !== path || entry.installed.key !== key) {
+          if (entry.installed) entry.probe = undefined;
+          entry.installed = { path, ...(key ? { key } : {}), ...(await readVersion(path).then((version) => version ? { version } : {})) };
+        }
         return entry.installed;
       };
       const refuseBroken = async (version: string | undefined, path?: string): Promise<void> => {
@@ -216,8 +232,9 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       };
 
       /** Providers, models and the configured model, from a server that runs no thread. */
-      const runProbe = (id: string, fresh = false): Promise<Probe> => {
+      const runProbe = async (id: string, fresh = false): Promise<Probe> => {
         const entry = state(id);
+        if (!servers.get(id)) await cli(id).catch(() => undefined);
         if (!fresh && entry.probe) return entry.probe.then((cached) => Date.now() - cached.at < PROBE_TTL_MS ? cached : runProbe(id, true));
         const next = (async (): Promise<Probe> => {
           await mkdir(services.stateDir, { recursive: true });
@@ -263,15 +280,31 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           return { tool: "opencode", ...(version ? { installed: version } : {}), updateCommand: "Update the OpenCode server you connect to.", ...(verdict ? { compatibility: verdict } : {}) };
         }
         const { path, version } = await cli(id);
-        const latest = await npmLatestVersion(OPENCODE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}) });
+        const maintenance = await maintenanceOf(id);
         const verdict = await compatibility(path, version);
         return {
           tool: "opencode",
           ...(version ? { installed: version } : {}),
-          ...(latest ? { latest } : {}),
-          updateCommand: await updateCommand(path),
+          ...(maintenance?.latest ? { latest: maintenance.latest } : {}),
+          updateCommand: maintenance?.update ? runtimeUpdateCommand(OPENCODE_BACKEND_KIND, cliCommandText(maintenance.update), env) : await updateCommand(path),
           ...(verdict ? { compatibility: verdict } : {}),
         };
+      };
+      /** How the local CLI is installed and what updates it; nothing for a server Tau only connects to. */
+      const maintenanceOf = async (id: string): Promise<RuntimeToolMaintenance | undefined> => {
+        if (servers.get(id)) return undefined;
+        const { path, version } = await cli(id);
+        return cliMaintenance({
+          tool: "opencode",
+          path,
+          ...(version ? { installed: version } : {}),
+          spec: OPENCODE_PACKAGE,
+          findCommand: (name) => services.findCommand(name),
+          cacheFile: join(services.stateDir, "latest-version.json"),
+          env,
+          home: homedir(),
+          ...(options.fetch ? { fetch: options.fetch } : {}),
+        });
       };
 
       const providerFor = (id: string): HostRuntimeBackendProvider => {
@@ -320,6 +353,8 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           },
           composerCommands: () => [],
           version: () => versionOf(id),
+          maintenance: async () => servers.get(id) || !locate(id) ? undefined : maintenanceOf(id),
+          programKey: async () => servers.get(id) ? undefined : executableFingerprint(locate(id)),
           // The connected providers' models; the host keeps the answer and asks again now and then.
           newThreadCatalog: async () => {
             if (!servers.get(id) && !locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The OpenCode CLI "${openCodeCommand(id)}" is not installed.` };
