@@ -3,7 +3,9 @@
 // `--version`, `auth status [--json|--text]`, `auth login [--claudeai|--console]`
 // and `auth logout`, in the shapes the real CLI (2.1.280) prints. The login is
 // a file in CLAUDE_CONFIG_DIR (or STUB_CLI_HOME); nothing reaches a network.
-// STUB_CLI_LOG names a file every call is appended to.
+// STUB_CLI_LOG names a file every call is appended to. STUB_CLI_MODELS (a JSON
+// array of the SDK's model rows) replaces the one stub model, and STUB_CLI_USAGE
+// names a JSON file the SDK's usage read answers with (the plan's windows).
 //
 // Driven by the Agent SDK (`--input-format stream-json`) it answers the SDK's
 // control requests and plays one scripted turn per prompt, with no model: two
@@ -32,7 +34,8 @@ function status() {
 function streamTurns() {
   const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
   const sessionId = flag("--resume") ?? flag("--session-id") ?? randomUUID();
-  const model = "stub-1";
+  const models = process.env.STUB_CLI_MODELS ? JSON.parse(process.env.STUB_CLI_MODELS) : [{ value: "stub-1", displayName: "Stub 1", description: "Scripted by the stub CLI" }];
+  const model = models[0].value;
   const send = (frame) => process.stdout.write(`${JSON.stringify({ uuid: randomUUID(), session_id: sessionId, ...frame })}\n`);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const assistant = (content) => send({ type: "assistant", parent_tool_use_id: null, message: { id: `msg_${randomUUID()}`, type: "message", role: "assistant", model, content, stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } });
@@ -92,9 +95,12 @@ function streamTurns() {
       answers.get(id)?.(message.response?.response);
       answers.delete(id);
     } else if (message.type === "control_request") {
-      const response = message.request?.subtype === "initialize"
-        ? { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models: [{ value: model, displayName: "Stub 1", description: "Scripted by the stub CLI" }], account }
-        : {};
+      const subtype = message.request?.subtype;
+      const response = subtype === "initialize"
+        ? { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models, account }
+        : subtype === "get_usage" && process.env.STUB_CLI_USAGE
+          ? JSON.parse(readFileSync(process.env.STUB_CLI_USAGE, "utf8"))
+          : {};
       send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } });
     } else if (message.type === "user") {
       const content = message.message?.content;
