@@ -2,7 +2,7 @@
  * The sidebar's width, the chat's beside the stage and the drawer's height, as T3 Code sizes
  * them. Pure, so the clamps are tested without a window; the caller passes the viewport.
  */
-import { CHAT_MIN_WIDTH, STAGE_DEFAULT_SHARE, STAGE_MIN_WIDTH } from "./center-layout";
+import { CHAT_DEFAULT_WIDTH, CHAT_MIN_WIDTH, STAGE_MIN_WIDTH } from "./center-layout";
 
 /** The design's rail (T3 Code starts at 256). */
 export const SIDEBAR_DEFAULT_WIDTH = 248;
@@ -51,20 +51,15 @@ export function storedChatWidth(stored: string | null | undefined): number | und
   return stored && Number.isFinite(width) ? Math.max(CHAT_MIN_WIDTH, Math.round(width)) : undefined;
 }
 
-/** `chatMin`: the chat's minimum on this client (`TABLET_CHAT_MIN_WIDTH` on a tablet). */
-export function chatMaxWidth(centerWidth: number, chatMin = CHAT_MIN_WIDTH): number {
-  return Math.max(chatMin, Math.floor(centerWidth) - STAGE_MIN_WIDTH);
+export function chatMaxWidth(centerWidth: number): number {
+  return Math.max(CHAT_MIN_WIDTH, Math.floor(centerWidth) - STAGE_MIN_WIDTH);
 }
 
-export function defaultChatWidth(centerWidth: number, chatMin = CHAT_MIN_WIDTH, windowWidth = centerWidth): number {
-  return shownChatWidth(undefined, centerWidth, chatMin, windowWidth);
+export function defaultChatWidth(centerWidth: number): number {
+  return shownChatWidth(undefined, centerWidth);
 }
 
-/**
- * The chat's width in a centre this wide: the preference, or what the stage's
- * default half of the window leaves, within both minimums.
- */
-export function shownChatWidth(preferred: number | undefined, centerWidth: number, chatMin = CHAT_MIN_WIDTH, windowWidth = centerWidth): number {
-  const wanted = preferred ?? Math.floor(centerWidth) - Math.round(windowWidth * STAGE_DEFAULT_SHARE);
-  return Math.min(chatMaxWidth(centerWidth, chatMin), Math.max(chatMin, wanted));
+/** The chat's width in a centre this wide: the preference, or the design's default, within both minimums. */
+export function shownChatWidth(preferred: number | undefined, centerWidth: number): number {
+  return Math.min(chatMaxWidth(centerWidth), Math.max(CHAT_MIN_WIDTH, preferred ?? CHAT_DEFAULT_WIDTH));
 }

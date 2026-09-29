@@ -176,7 +176,7 @@ const baseName = (path: string) => path.replace(/[\\/]+$/u, "").split(/[\\/]/u).
 function projectOf(rootWorkspace: string | undefined, root: string, projects: readonly UiProject[] | undefined): LocalReview["project"] {
   const found = projects?.find((project) => (rootWorkspace && project.workspaceId === rootWorkspace) || project.path === root);
   return {
-    key: rootWorkspace ?? root,
+    key: rootWorkspace ?? found?.workspaceId ?? root,
     root,
     // The main checkout's folder, not the thread's project: a worktree's thread may carry the worktree's name.
     name: found?.name ?? baseName(root),
@@ -307,6 +307,12 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       at: record.at,
       merged: record,
     });
+  }
+  // A record without `rootWorkspace` keys its project by path; give it the id another row found for that folder.
+  const ids = new Map(reviews.filter((review) => review.project.key !== review.project.root).map((review) => [review.project.root, review.project.key]));
+  for (const review of reviews) {
+    const id = review.project.key === review.project.root ? ids.get(review.project.root) : undefined;
+    if (id) review.project = { ...review.project, key: id };
   }
   return reviews.sort((left, right) => right.at - left.at);
 }

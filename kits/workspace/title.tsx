@@ -155,12 +155,12 @@ export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { col
         className="workspace-changes-link"
         {...tooltipProps(others > 0 ? `Review the changes; ${others} more uncommitted ${others === 1 ? "file is" : "files are"} not this thread's` : threadChanges?.scope === "branch" ? "Review the changes; committed ones on this branch count too" : "Review the changes", { side: "bottom" })}
         onClick={() => workspaceStore.showChangedFiles()}
-      >{changed} {changed === 1 ? "file" : "files"} changed<ChevronRight size={13} /></button> : null}
+      >{changed} {changed === 1 ? "file" : "files"}{collapse.changes === "label" ? <> changed<ChevronRight size={13} /></> : null}</button> : null}
 
       {readOnly ? null : <div className="menu-anchor">
         <div className="chrome-group" aria-label="Git actions">
           <button
-            className="chrome-button accent split-main"
+            className={`chrome-button accent split-main${collapse.git === "icon" ? " icon-only" : ""}`}
             disabled={gitAction.disabled}
             aria-label={gitAction.label}
             {...tooltipProps(collapse.git === "icon" ? `${gitAction.label}: ${gitAction.hint}` : gitAction.hint, { side: "bottom" })}

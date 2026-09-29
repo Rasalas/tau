@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { declareRuntimeMarks } from "../runtime-marks";
@@ -131,5 +133,16 @@ describe("ProviderIconStack", () => {
     expect(stack.querySelector(".provider-family-pi")).toBeNull();
     cleanup();
     expect(render(<ProviderIconStack modelProvider="openai" runtimeProvider="codex@work" runtimeName="Codex · work" modelName="GPT-5.6 Luna" />).getByLabelText("GPT-5.6 Luna · Codex · work (OpenAI)")).toBeTruthy();
+  });
+});
+
+describe("two marks on screen", () => {
+  it("stand side by side, the runtime's quieter, with no overlap or hover fan (design 1a, K96)", () => {
+    const css = readFileSync(join(import.meta.dirname, "..", "styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//gu, "");
+    const rules = [...css.matchAll(/([^{}]*\.provider-icon-stack\.stacked[^{}]*)\{([^}]*)\}/gu)].map((match) => `${match[1]!.trim()} {${match[2]}}`);
+    expect(rules.join("\n")).not.toMatch(/translate|position: absolute|:hover|mask-/u);
+    expect(rules).toContain(".provider-icon-stack.stacked { width: auto; gap: 6px; }");
+    expect(rules.find((rule) => rule.includes("> .provider-icon-runtime"))).toMatch(/opacity: \.7/u);
+    expect(rules.find((rule) => rule.startsWith(":is(.runtime-chip"))).toMatch(/gap: 3px/u);
   });
 });

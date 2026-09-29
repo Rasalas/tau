@@ -17,7 +17,7 @@
   border-radius: var(--radius-sm);
   background: var(--chip);
   color: var(--ink-2);
-  font: 12px/1 var(--mono);
+  font: var(--text-sm)/1 var(--mono);
   transition: background var(--motion-fast) var(--ease);
 }
 
@@ -55,18 +55,18 @@
   align-items: center;
   gap: 6px;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* An excerpt chip's popover: the excerpt and the user's comment on it. */
 .composer-context-excerpt { display: flex; flex-direction: column; gap: 6px; }
-.composer-context-excerpt > small { color: var(--faint); font: 11px var(--sans); }
+.composer-context-excerpt > small { color: var(--faint); font: var(--text-xs) var(--sans); }
 .composer-context-excerpt > pre {
   margin: 0; max-height: 140px; overflow: auto; padding: 6px 8px; border-left: 2px solid var(--line-control);
-  background: var(--sunken); color: var(--ink-2); font: 11px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--sunken); color: var(--ink-2); font: var(--text-xs)/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .composer-context-excerpt > textarea {
   width: 100%; resize: vertical; min-height: 56px; padding: 6px 8px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
-  background: var(--field); color: var(--ink); font: 12px/1.45 var(--sans); outline: none;
+  background: var(--field); color: var(--ink); font: var(--text-sm)/1.45 var(--sans); outline: none;
 }
 .composer-context-excerpt > textarea:focus { border-color: var(--line-focus); }

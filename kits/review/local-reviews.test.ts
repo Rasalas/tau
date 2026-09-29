@@ -127,6 +127,16 @@ describe("the page's counts and footer", () => {
     expect(needsYou(counts)).toBe(2);
   });
 
+  it("lists a project once when a merge record lacks the project's workspace", () => {
+    // A merge from before records kept `rootWorkspace`: its key would be the path, beside the id of the open branch.
+    const merged = { key: reviewKey("/repo/shop-api", "tau/old"), root: "/repo/shop-api", branch: "tau/old", target: "main", title: "Old", at: 9_000, files: 1, added: 1, removed: 0 };
+    const inputs = { answer: answer({ branches: [branch("a")], merged: [merged] }), threads: [thread("a", "ws-a")], busy: new Set<string>() };
+    expect(countReviews(deriveReviews(inputs)).projects).toEqual([{ key: "ws-shop", name: "shop-api", root: "/repo/shop-api", open: 1 }]);
+    // Alone, it takes the id of the project the window knows at that path.
+    const alone = deriveReviews({ ...inputs, answer: answer({ merged: [merged] }), projects: [{ path: "/repo/shop-api", workspaceId: "ws-shop", name: "shop-api", lastOpenedAt: 0 }] });
+    expect(alone[0]?.project.key).toBe("ws-shop");
+  });
+
   it("sums this month's merges and what their threads cost", () => {
     const now = new Date(2026, 8, 29, 12).getTime();
     const record = (key: string, at: number, costUsd: number) => ({ key, root: "/r", branch: key, target: "main", title: key, at, files: 1, added: 1, removed: 0, costUsd });

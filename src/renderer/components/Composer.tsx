@@ -440,6 +440,7 @@ export function Composer({
   const [modelPickerOpen, setModelPickerOpen] = useState<boolean | "thinking">(false);
   const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen !== false);
   const modelChipRef = useRef<HTMLButtonElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const modelChosenRef = useRef(false);
   const preferences = usePreferences();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
@@ -865,6 +866,7 @@ export function Composer({
         );
       })() : null}
       <div
+        ref={frameRef}
         className={`composer-frame ${prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
         onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
         onDrop={(event) => {
@@ -1070,7 +1072,7 @@ export function Composer({
               ) : null}
               <button
                 ref={modelChipRef}
-                className="runtime-chip composer-model-chip fan-marks"
+                className="runtime-chip composer-model-chip"
                 aria-expanded={modelPickerOpen === true}
                 aria-haspopup="dialog"
                 disabled={!modelPickerAvailable}
@@ -1191,6 +1193,7 @@ export function Composer({
             thinking={pickerThinking}
             {...(modelPickerOpen === "thinking" ? { focus: "thinking" as const } : {})}
             anchor={modelChipRef}
+            placeAgainst={frameRef}
           />
         </Suspense>
       ) : null}

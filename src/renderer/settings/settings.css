@@ -140,7 +140,7 @@
 .settings-section { display: flex; flex-direction: column; gap: 10px; }
 /* Flush with the card below it (design 1j). */
 .settings-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 28px; }
-.settings-section-head > h2 { margin: 0; font: 400 var(--text-md) var(--sans); letter-spacing: -.005em; color: var(--ink-3); }
+.settings-section-head > h2 { margin: 0; font: 400 var(--label-size) var(--sans); letter-spacing: -.005em; color: var(--ink-3); }
 /* A filled card on the page, the design's; a field inside it sits on the document's ground. */
 .settings-group { --field: var(--stage); border: 1px solid transparent; border-radius: var(--radius-md); background: var(--inset); }
 .settings-group > * + * { border-top: 1px solid var(--line); }

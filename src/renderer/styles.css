@@ -121,16 +121,16 @@ button > svg { pointer-events: none; }
   -webkit-app-region: drag;
 }
 .thread-header :is(button, input, form, .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
-/* The title takes up to 45 % and wraps, as the design's does; the kits' region the rest, which Workspace Kit's row measures to fold its actions. */
-.thread-heading { flex: 0 1 auto; min-width: 160px; max-width: 45%; display: flex; flex-direction: column; gap: 1px; }
+/* The title takes up to 45 %, its details one line that clips, as the design's do; the kits' region the rest, which Workspace Kit's row measures to fold its actions. */
+.thread-heading { flex: 0 1 auto; min-width: 140px; max-width: 45%; display: flex; flex-direction: column; gap: 1px; }
 .thread-heading-title { display: flex; align-items: center; min-width: 0; }
 .thread-header :is(.thread-title-trigger, .title-draft) { font: 600 var(--text-title)/1.2 var(--sans); letter-spacing: -.01em; }
 /* A draft's name is a placeholder until the thread names itself (design 1k). */
 .thread-header .title-draft { color: var(--muted); }
 .thread-header .thread-title-trigger { padding: 2px 6px; margin-left: -6px; }
 /* Narrow, the details wrap under the title as the design's do, rather than lose their words. */
-.thread-details { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
-.thread-detail { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.thread-details { display: flex; align-items: center; gap: 0 6px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
+.thread-detail { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 100%; }
 .thread-detail + .thread-detail::before { content: "·"; margin-right: 6px; }
 .thread-detail > span { overflow: hidden; text-overflow: ellipsis; }
 .thread-detail-cost { font-family: var(--mono); }
@@ -364,7 +364,6 @@ button > svg { pointer-events: none; }
   width: 18px; height: 18px; flex: none; margin-left: auto;
   display: inline-flex; align-items: center;
 }
-.provider-icon-stack.stacked { position: relative; }
 .provider-icon {
   width: 18px; height: 18px; flex: none; display: grid; place-items: center;
   color: var(--ink-3); font: 650 9px var(--mono);
@@ -379,51 +378,12 @@ button > svg { pointer-events: none; }
 .provider-icon-fallback {
   width: 17px; height: 17px; border: 1px solid var(--line-control); border-radius: 5px;
 }
-/*
- * Two marks as a card stack: the runtime's behind the access mark, up and to the left, fanned out side by side on
- * hover or focus (always on touch). The box keeps the fanned width, so nothing moves or is covered. Rest positions
- * start at the left; at the end of a thread row they start at the right, and only the runtime's mark slides.
- */
-.provider-icon-stack.stacked { position: relative; width: 33px; }
-.provider-icon-stack.stacked > .provider-icon {
-  position: absolute; left: 0; top: 0;
-  transition: transform 140ms ease-out, mask-position 140ms ease-out, -webkit-mask-position 140ms ease-out;
-}
-.provider-icon-stack.stacked > .provider-icon-model { width: 16px; height: 16px; z-index: 1; transform: translate(8px, 2px); }
-.provider-icon-stack.stacked > .provider-icon-runtime { width: 14px; height: 14px; transform: translate(0, 0); }
-.provider-icon-stack.stacked > .provider-icon-model > .provider-mark { width: 16px; height: 16px; }
-.provider-icon-stack.stacked > .provider-icon-runtime > .provider-mark { width: 14px; height: 14px; }
-.provider-icon-stack.stacked > .provider-icon-fallback { border-radius: 4px; font-size: 7px; }
-/* Where the access mark covers the runtime's, a 1.5px gap cut from the runtime's reads as a ring on any surface. */
-.provider-icon-stack.stacked > .provider-icon-runtime {
-  mask-image: linear-gradient(black, black), linear-gradient(black, black);
-  mask-size: 100% 100%, 19px 19px; mask-repeat: no-repeat; mask-composite: exclude;
-  mask-position: 0 0, 6.5px 0.5px;
-  -webkit-mask-image: linear-gradient(black, black), linear-gradient(black, black);
-  -webkit-mask-size: 100% 100%, 19px 19px; -webkit-mask-repeat: no-repeat; -webkit-mask-composite: xor;
-  -webkit-mask-position: 0 0, 6.5px 0.5px;
-}
-.thread-meta-end .provider-icon-stack.stacked > .provider-icon-model { transform: translate(17px, 2px); }
-.thread-meta-end .provider-icon-stack.stacked > .provider-icon-runtime { transform: translate(9px, 0); }
-.provider-icon-stack.stacked:hover > .provider-icon-model,
-:focus-visible .provider-icon-stack.stacked > .provider-icon-model,
-.fan-marks:hover .provider-icon-stack.stacked > .provider-icon-model,
-.fan-marks.selected .provider-icon-stack.stacked > .provider-icon-model { transform: translate(17px, 1px); }
-.provider-icon-stack.stacked:hover > .provider-icon-runtime,
-:focus-visible .provider-icon-stack.stacked > .provider-icon-runtime,
-.fan-marks:hover .provider-icon-stack.stacked > .provider-icon-runtime,
-.fan-marks.selected .provider-icon-stack.stacked > .provider-icon-runtime {
-  transform: translate(0, 2px); mask-position: 0 0, 15.5px -2.5px; -webkit-mask-position: 0 0, 15.5px -2.5px;
-}
-@media (pointer: coarse) {
-  .provider-icon-stack.stacked > .provider-icon-model, .thread-meta-end .provider-icon-stack.stacked > .provider-icon-model { transform: translate(17px, 1px); }
-  .provider-icon-stack.stacked > .provider-icon-runtime, .thread-meta-end .provider-icon-stack.stacked > .provider-icon-runtime {
-    transform: translate(0, 2px); mask-position: 0 0, 15.5px -2.5px; -webkit-mask-position: 0 0, 15.5px -2.5px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .provider-icon-stack.stacked > .provider-icon { transition: none; }
-}
+/* Two marks side by side, as the design draws them: the access mark, then the runtime's a shade quieter. */
+.provider-icon-stack.stacked { width: auto; gap: 6px; }
+.provider-icon-stack.stacked :is(.provider-icon, .provider-mark) { width: 12px; height: 12px; }
+.provider-icon-stack.stacked > .provider-icon-runtime { opacity: .7; }
+.provider-icon-stack.stacked > .provider-icon-fallback { border-radius: 3px; font-size: 6px; }
+:is(.runtime-chip, .model-recent-chip) .provider-icon-stack.stacked { gap: 3px; }
 .provider-family-ki-connect .provider-mark { width: 18px; height: 18px; }
 /* Hover actions take the status slot: shown on hover, keyboard focus or while their popover is open. */
 .thread-row-actions {
@@ -591,7 +551,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
   padding: 5px 7px; margin-left: -7px; border: 0; border-radius: 7px;
   background: transparent; color: var(--ink); cursor: pointer;
-  font: 600 var(--text-lg) var(--sans); text-align: left;
+  font: 600 calc(var(--text-lg) + 1px) var(--sans); text-align: left;
 }
 .thread-title-trigger:hover, .thread-title-trigger[aria-expanded="true"] { background: var(--raised); }
 .thread-title-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -906,7 +866,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 /* No wider than the column: a wide table or code block scrolls in its own box, not the transcript. */
 .message.assistant { display: flex; flex-direction: column; gap: 14px; max-width: 100%; min-width: 0; }
 .message.assistant .message-text {
-  font-size: var(--text-lg); line-height: 1.75; color: var(--ink-prose);
+  font-size: var(--text-md); line-height: 1.75; color: var(--ink-prose);
   letter-spacing: -.002em; word-break: break-word;
 }
 .message-shell.assistant.excluded-from-context { opacity: 0.88; }
@@ -1591,8 +1551,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
-.extension-prompt-pick { flex: none; color: var(--muted); white-space: nowrap; }
-.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-lg); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
+.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .extension-prompt-message { margin: 4px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; }
 .extension-prompt-subject {
   display: block; margin: 6px 0 0; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
@@ -1617,8 +1577,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-option.chosen .extension-option-indicator { border-color: var(--acid); background: var(--acid); }
 .extension-option.chosen .extension-option-indicator.is-radio { background: var(--field); box-shadow: inset 0 0 0 3px var(--field), inset 0 0 0 8px var(--acid); }
 .extension-option > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.extension-option strong { font-size: var(--text-md); font-weight: 400; line-height: 1.45; }
-.extension-option small { font-size: var(--text-sm); line-height: 1.45; color: var(--muted); }
+.extension-option strong { font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
+.extension-option small { font-size: var(--text-xs); line-height: 1.45; color: var(--muted); }
 .extension-option-preview {
   margin: 4px 0 2px; padding: 7px 9px; max-height: 180px; overflow: auto;
   background: var(--code-bg); border-radius: 6px;
@@ -1628,7 +1588,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-option.read:hover { background: transparent; }
 
 .extension-prompt > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 30px; }
-.extension-prompt > footer > span { font-size: var(--text-sm); color: var(--muted); }
+.extension-prompt > footer > span { font-size: var(--text-xs); color: var(--muted); }
 .extension-prompt > footer .spacer { flex: 1; }
 .extension-prompt > footer > button {
   height: 30px; border: 0; background: transparent; color: var(--muted);

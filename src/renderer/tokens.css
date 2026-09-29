@@ -176,13 +176,13 @@
   --label-font: var(--sans);                         /* a section or status label */
   --label-case: none;                                /* its text-transform */
   --label-tracking: normal;                          /* its letter-spacing */
-  --label-size: 12px;                                /* its size */
-  /* The type scale. */
-  --text-xs: 12px;                                   /* meta: a branch, an age, a status */
-  --text-sm: 13px;                                   /* a control, a chip, a menu */
-  --text-md: 14px;                                   /* body and a thread's title */
-  --text-lg: 15px;                                   /* prose on a touch screen */
-  --text-title: 18px;                                /* a thread's heading */
+  --label-size: 11px;                                /* its size */
+  /* The type scale: the workbench design's sizes (its window reads 13px). */
+  --text-xs: 11px;                                   /* meta: a branch, an age, a status */
+  --text-sm: 12px;                                   /* a control, a chip, a menu */
+  --text-md: 13px;                                   /* body and a thread's title */
+  --text-lg: 14px;                                   /* prose on a touch screen */
+  --text-title: 17px;                                /* a thread's heading */
   --text-display: 24px;                              /* a page's heading */
 
   --radius-xs: 4px;                                  /* a tag */

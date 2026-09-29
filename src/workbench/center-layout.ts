@@ -6,18 +6,16 @@
  * tested without a window; the minimums mirror styles.css.
  */
 
-/** The chat's column: the composer's toolbar stays on one line. */
-export const CHAT_MIN_WIDTH = 480;
+/**
+ * The chat's column beside the stage: the design's 380 px until its divider is dragged, and never
+ * under 360 px, where the thread header, the composer's footer and a question card still fit on one
+ * line each. A tablet's chat has the same bounds.
+ */
+export const CHAT_DEFAULT_WIDTH = 380;
+export const CHAT_MIN_WIDTH = 360;
 /** The stage's column: a file's header and a few dozen columns of code. */
 export const STAGE_MIN_WIDTH = 360;
 export const CENTER_SPLIT_MIN_WIDTH = CHAT_MIN_WIDTH + STAGE_MIN_WIDTH;
-/**
- * A tablet's chat: its touch composer folds to an upright phone's width, so a tool fits beside it on an iPad on its side.
- * A desktop window too narrow for the full chat beside the stage uses it too.
- */
-export const TABLET_CHAT_MIN_WIDTH = 360;
-/** The stage's share of the window until the divider is dragged: about half, as in the workbench design. */
-export const STAGE_DEFAULT_SHARE = 0.5;
 
 export interface CenterLayoutInput {
   windowWidth: number;
@@ -29,8 +27,6 @@ export interface CenterLayoutInput {
   folded?: boolean;
   /** The user asked for the stage over the whole centre. */
   maximized: boolean;
-  /** The chat's minimum on this client; `CHAT_MIN_WIDTH` unless a tablet says otherwise. */
-  chatMin?: number;
 }
 
 export interface CenterLayout {
@@ -42,9 +38,8 @@ export interface CenterLayout {
   canSplit: boolean;
 }
 
-export function centerLayout({ windowWidth, sidebarWidth, stageOpen, folded = false, maximized, chatMin = CHAT_MIN_WIDTH }: CenterLayoutInput): CenterLayout {
-  const room = windowWidth - sidebarWidth;
-  const canSplit = room >= chatMin + STAGE_MIN_WIDTH;
+export function centerLayout({ windowWidth, sidebarWidth, stageOpen, folded = false, maximized }: CenterLayoutInput): CenterLayout {
+  const canSplit = windowWidth - sidebarWidth >= CENTER_SPLIT_MIN_WIDTH;
   const stageShown = stageOpen && !folded;
   return { stageShown, tabs: stageShown && (maximized || !canSplit), canSplit };
 }

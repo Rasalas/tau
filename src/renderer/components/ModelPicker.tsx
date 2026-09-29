@@ -20,6 +20,7 @@ import {
 import { OfferingMarks, OfferingRow, modelFacts, wears, type RowCell } from "./ModelPickerRow";
 import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
+import { placeFloating, viewportSize } from "./ui/floating";
 import { useFocusTrap } from "./ui/focus";
 import { WorkbenchShellContext } from "../workbench-context";
 import { tooltipProps } from "./ui/Tooltip";
@@ -173,6 +174,7 @@ export function ModelPicker({
   onOpenSettings: openSettings,
   focus,
   anchor,
+  placeAgainst,
   side = "top",
 }: {
   models: readonly UiModel[];
@@ -208,8 +210,10 @@ export function ModelPicker({
   onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
   /** "thinking": opens with the focus on the thinking column, as the composer's reasoning level asks. */
   focus?: "thinking";
-  /** The control the picker opens beside, as T3 Code's picker at its chip. */
+  /** The control that opens the picker, as T3 Code's picker at its chip. */
   anchor: RefObject<HTMLElement | null>;
+  /** Where it opens when not at the anchor: the composer's frame, its left edge and 6 px above (design 1l). */
+  placeAgainst?: RefObject<HTMLElement | null>;
   /** Where it prefers to open; it flips when that side has no room. */
   side?: "top" | "bottom";
 }) {
@@ -844,7 +848,7 @@ export function ModelPicker({
         {recents.length ? <span className="model-recent-label">Recent</span> : null}
         {recents.length ? <span className="model-recent-list">
           {recents.map((offering) => (
-            <button key={offering.key} className="model-recent-chip fan-marks" aria-label={`${offering.model.name}, ${offering.runtimeLabel}`} onClick={() => choose(offering)}>
+            <button key={offering.key} className="model-recent-chip" aria-label={`${offering.model.name}, ${offering.runtimeLabel}`} onClick={() => choose(offering)}>
               <OfferingMarks offering={offering} />
               <span>{offering.model.name}</span>
             </button>
@@ -881,6 +885,22 @@ export function ModelPicker({
       />
     </Suspense>
   ) : null;
+
+  // Popover placed itself at the chip, in its own layout effect and resize listener; both run before these.
+  const adding = addProvider !== null;
+  useLayoutEffect(() => {
+    const popover = surfaceRef.current?.closest<HTMLElement>(".popover");
+    const frame = placeAgainst?.current;
+    if (!popover || !frame) return undefined;
+    const place = () => {
+      const placed = placeFloating(frame.getBoundingClientRect(), popover.getBoundingClientRect(), viewportSize(), { side, align: "start" });
+      popover.style.left = `${placed.left}px`;
+      popover.style.top = `${placed.top}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [adding, placeAgainst, side]);
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   return addProvider ?? (

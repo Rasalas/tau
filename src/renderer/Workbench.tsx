@@ -47,7 +47,7 @@ import type { PanelLayout } from "./use-panel-layout";
 import type { NewThreadPick } from "./use-app-overlays";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
-import { CHAT_MIN_WIDTH, STAGE_MIN_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
+import { CHAT_MIN_WIDTH } from "../workbench/center-layout";
 import {
   CHAT_MAXIMIZE_OVERDRAG, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
   chatMaxWidth, defaultChatWidth, drawerMaxHeight, shownChatWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
@@ -432,11 +432,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const pageSidebar = Boolean(openPage && sidebarShown && !compact && registry.getPage(openPage.id)?.Sidebar);
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
-  // Short of room for the full chat beside the stage, it narrows as a tablet's does rather than leave one of them alone.
-  const chatMin = split || windowWidth - drawnSidebar < CHAT_MIN_WIDTH + STAGE_MIN_WIDTH ? TABLET_CHAT_MIN_WIDTH : CHAT_MIN_WIDTH;
   // A phone draws no stage (profile-compact.css): its panels are sheets.
   const { stageShown, tabs, canSplit } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized, chatMin,
+    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized,
     tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
   });
   // Maximized, the stage takes the centre and the chat is out of sight; where only one fits, the one in front shows.
@@ -447,17 +445,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const stageExpanded = stageShown && !(stacked && !maximized && chatFocused);
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
-  const chatWidth = shownChatWidth(chatWidthPreference, centerWidth, chatMin, windowWidth);
+  const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
   // Opening another thread (from a panel, say) puts the thread in front again.
   useEffect(() => { setPanelSheet(undefined); }, [compact, snapshot?.sessionId]);
 
   const setChatWidth = (width: number) => {
     // Dragged well past the chat's minimum: the stage takes the whole centre.
-    if (width <= chatMin - CHAT_MAXIMIZE_OVERDRAG) {
+    if (width <= CHAT_MIN_WIDTH - CHAT_MAXIMIZE_OVERDRAG) {
       panelLayout?.maximizeStage();
       return;
     }
-    const bounded = Math.max(chatMin, width);
+    const bounded = Math.max(CHAT_MIN_WIDTH, width);
     setChatWidthPreference(bounded);
     clientStorage.set(STORAGE_KEYS.chatWidth, String(bounded));
   };
@@ -805,9 +803,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           orientation="vertical"
           grows="right"
           value={chatWidth}
-          min={chatMin - CHAT_MAXIMIZE_OVERDRAG}
-          max={chatMaxWidth(centerWidth, chatMin)}
-          defaultValue={defaultChatWidth(centerWidth, chatMin, windowWidth)}
+          min={CHAT_MIN_WIDTH - CHAT_MAXIMIZE_OVERDRAG}
+          max={chatMaxWidth(centerWidth)}
+          defaultValue={defaultChatWidth(centerWidth)}
           onChange={setChatWidth}
         /> : null}
         {stageExpanded ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>

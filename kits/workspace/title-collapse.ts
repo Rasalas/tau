@@ -6,8 +6,10 @@ import { useLayoutEffect, useState, type RefObject } from "react";
  *
  * 1. The project actions drop their label (Add action, the first action's name).
  * 2. The project actions move into the overflow menu: set up once, run rarely.
- * 3. The Git action drops its label last: it is the one whose label says what
- *    the next click does (Commit, Push, Pull, Up to date).
+ * 3. The Git action drops its label: it is the one whose label says what the
+ *    next click does (Commit, Push, Pull, Up to date).
+ * 4. "N files changed ›" shortens to "N files", as design 1l draws it in a
+ *    380 px chat.
  *
  * "Open in" is no longer here: it sits in the stage's tab strip and the thread's menu.
  */
@@ -16,13 +18,15 @@ export type TitleItemShape = "label" | "icon" | "overflow";
 export interface TitleCollapse {
   actions: TitleItemShape;
   git: Exclude<TitleItemShape, "overflow">;
+  changes: "label" | "short";
 }
 
 export const TITLE_COLLAPSE_STEPS: readonly TitleCollapse[] = [
-  { actions: "label", git: "label" },
-  { actions: "icon", git: "label" },
-  { actions: "overflow", git: "label" },
-  { actions: "overflow", git: "icon" },
+  { actions: "label", git: "label", changes: "label" },
+  { actions: "icon", git: "label", changes: "label" },
+  { actions: "overflow", git: "label", changes: "label" },
+  { actions: "overflow", git: "icon", changes: "label" },
+  { actions: "overflow", git: "icon", changes: "short" },
 ];
 
 export const MAX_TITLE_COLLAPSE = TITLE_COLLAPSE_STEPS.length - 1;

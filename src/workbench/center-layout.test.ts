@@ -19,24 +19,19 @@ describe("centerLayout", () => {
   it("keeps chat and stage side by side wherever both minimums fit beside the sidebar", () => {
     expect(desk(1920)).toEqual(SIDE_BY_SIDE);
     expect(desk(1280)).toEqual(SIDE_BY_SIDE);
-    // 256 + chat 480 + stage 360
-    expect(desk(1096)).toEqual(SIDE_BY_SIDE);
+    // 256 + chat 360 + stage 360, on a desktop and a tablet alike
+    expect(desk(976)).toEqual(SIDE_BY_SIDE);
   });
 
-  it("folds one of the two to its spine where the window is too narrow for both", () => {
-    expect(desk(1095)).toEqual(STACKED);
-    expect(desk(1095, { sidebarWidth: 0 })).toEqual(SIDE_BY_SIDE);
+  it("shows one of the two where the window is too narrow for both", () => {
+    expect(desk(975)).toEqual(STACKED);
+    expect(desk(975, { sidebarWidth: 0 })).toEqual(SIDE_BY_SIDE);
     expect(desk(390, { sidebarWidth: 0 })).toEqual(STACKED);
-  });
-
-  it("gives a tablet's narrower chat its own minimum", () => {
-    expect(desk(1000, { sidebarWidth: 280, chatMin: 360 })).toEqual(SIDE_BY_SIDE);
-    expect(desk(1000, { sidebarWidth: 280 })).toEqual(STACKED);
   });
 
   it("folds the conversation when the stage is maximized, and offers the way back only where it fits", () => {
     expect(desk(1728, { maximized: true })).toEqual(MAXIMIZED);
-    expect(desk(1095, { maximized: true })).toEqual(STACKED);
+    expect(desk(975, { maximized: true })).toEqual(STACKED);
   });
 
   it("draws a folded stage as its spine: no tabs shown, nothing stacked", () => {
