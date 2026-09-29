@@ -452,14 +452,21 @@ export class OutsideUsageCache {
   /** Units that skipped copies of a log that is gone: read again, they count what is theirs now. */
   private readonly orphaned = new Set<string>();
   private listed = new Map<string, Listed>();
-  private loaded = false;
+  private loading: Promise<void> | undefined;
   private dirty = false;
   private running: Promise<void> | undefined;
+  private finished = false;
 
   constructor(private readonly file: string | undefined, private readonly now: () => number) {}
 
   get reading(): boolean {
     return this.running !== undefined;
+  }
+
+  /** Whether a read has finished once, in this run or one the cache file keeps. */
+  async readBefore(): Promise<boolean> {
+    await this.load();
+    return this.finished;
   }
 
   /** Reads what changed under `roots`; a refresh already running is joined, not doubled. */
@@ -525,6 +532,7 @@ export class OutsideUsageCache {
     };
     await Promise.all(Array.from({ length: READ_CONCURRENCY }, worker));
     await this.save();
+    this.finished = true;
   }
 
   /** Forgets a unit; logs that skipped its copies read again next time. */
@@ -538,9 +546,13 @@ export class OutsideUsageCache {
     for (const other of this.units.values()) if (other.duplicates > 0) this.orphaned.add(other.path);
   }
 
-  private async load(): Promise<void> {
-    if (this.loaded || !this.file) return;
-    this.loaded = true;
+  private load(): Promise<void> {
+    this.loading ??= this.readFile();
+    return this.loading;
+  }
+
+  private async readFile(): Promise<void> {
+    if (!this.file) return;
     try {
       const lines = createInterface({ input: createReadStream(this.file, { encoding: "utf8" }), crlfDelay: Infinity });
       let first = true;
@@ -556,6 +568,7 @@ export class OutsideUsageCache {
         this.units.set(unit.path, unit);
         for (const key of unit.keys) this.claims.add(key);
       }
+      this.finished = this.units.size > 0;
     } catch {
       // A missing or unreadable cache only costs one full read.
       for (const unit of this.units.values()) releaseKeys(this.claims, unit.keys);

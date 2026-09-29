@@ -9,9 +9,11 @@ import usageExtension from "./desktop.js";
 import { UsagePage } from "./page.js";
 import { priceFromDraft } from "./prices.js";
 import { dayStarts, HISTORY_DAYS } from "./dashboard.js";
+import { forgetLastState } from "./last-state.js";
 import { USAGE_PAGE, type UsageEntry, type UsageLimitsSummary, type UsageRow, type UsageSummary } from "./protocol.js";
 import { resetsIn } from "./view-model.js";
 
+afterEach(() => { forgetLastState(); });
 afterEach(cleanup);
 
 const NOW = new Date(2026, 8, 22, 15, 30);
@@ -110,6 +112,38 @@ describe("Usage page", () => {
     expect(within(week).getByText("≈ $1.40")).toBeTruthy();
     expect(within(week).getByText(/1\.6k tokens · 3 turns · 2 threads/u)).toBeTruthy();
     expect(within(within(totals).getByRole("region", { name: "Last 30 days" })).getByText("$0.51")).toBeTruthy();
+  });
+
+  it("opens with what it read last time, at once, and replaces it with the fresh answer", async () => {
+    const first = renderPage(answers());
+    const totals = await screen.findByLabelText("Totals");
+    await within(within(totals).getByRole("region", { name: "Today" })).findByText("$0.01");
+    await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" });
+    first.unmount();
+
+    // The host is slow to answer the next time: the page does not wait for it.
+    const answers2 = new Map<string, (value: unknown) => void>();
+    renderPage(vi.fn((command: string) => new Promise((resolve) => { answers2.set(command, resolve); })));
+    expect(within(screen.getByRole("region", { name: "Today" })).getByText("$0.01")).toBeTruthy();
+    expect(within(screen.getByLabelText("Limits")).getByRole("region", { name: "Codex limits" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toMatch(/· updating…$/u);
+    answers2.get("summary")?.(summary({ entries: [entry({ costUsd: 0.05 })] }));
+    await within(screen.getByRole("region", { name: "Today" })).findByText("$0.05");
+  });
+
+  it("shows this host's figures without waiting for another machine", async () => {
+    const environments = {
+      getSnapshot: () => ({ shown: "here", secureStorage: true, environments: [
+        { id: "here", name: "This Mac", local: true, status: "connected", threads: [], threadCount: 0 },
+        { id: "slow-id", name: "slow", local: false, status: "connected", threads: [], threadCount: 0 },
+      ] }),
+      subscribe: () => () => undefined,
+      readExtension: vi.fn(() => new Promise(() => undefined)),
+    } as unknown as PlatformEnvironments;
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(answers())} environments={environments} now={() => NOW} navigate={vi.fn()} /></HostClientProvider></TestProviders>);
+    const today = await screen.findByRole("region", { name: "Today" });
+    expect(await within(today).findByText("$0.01")).toBeTruthy();
+    expect(await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" })).toBeTruthy();
   });
 
   it("marks work outside Tau, names its sessions and projects, and filters by where it ran", async () => {

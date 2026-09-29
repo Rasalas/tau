@@ -129,6 +129,13 @@ describe("Usage host half", () => {
     expect(result.entries?.filter((entry) => entry.outside).map((entry) => entry.threadId).sort()).toEqual(["c-1", "s-cli"]);
     expect(result.sources.find((source) => source.backend === "opencode-outside")?.status).toBe("unavailable");
     expect(await readFile(join(root, "state", "tau.usage", "outside-usage.json"), "utf8")).not.toContain("never be kept");
+
+    // After a first read, a summary answers with the last counts at once while a large new log is read.
+    const lines = Array.from({ length: 60_000 }, (_, index) => codexResponse(NOW - 3_000, `r-big-${index}`, { input: 1, output: 0 }));
+    await write(join(codexHome, "sessions", "2026", "09", "22", "rollout-c.jsonl"), [codexMeta("s-big", "/work/big", NOW - 5_000), ...lines]);
+    const later = await registry.invoke("tau.usage", "summary", { refresh: true, days: [NOW - DAY, NOW - 15 * 60_000] }) as UsageSummary;
+    expect(later.reading).toBe(true);
+    expect(later.rows.some((row) => row.cwd === "/work/side")).toBe(true);
   });
 
   it("takes only absolute folders of a known layout from a kit", () => {
