@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createMemoryStorage, setClientStorage } from "../../src/workbench/client-storage.js";
+import { createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import { choiceKey, createJuicebarChoices, juicebarGroups, shownByDefault } from "./juicebars.js";
 import { groupAccounts } from "./accounts.js";
 import { mergeLimits } from "./machines.js";
