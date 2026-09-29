@@ -2,7 +2,7 @@
 // Writes the third-party notices for what Tau ships: the desktop app (kits included) and the mobile app.
 // Usage: node scripts/open-source/third-party-notices.mjs [--out <file>] [--check]
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { builtinModules, registerHooks } from "node:module";
+import { registerHooks } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -63,7 +63,10 @@ const VENDORED = [
   { name: "Cua Driver", version: bundleVersion("node_modules/@amaster.ai/pi-computer-use/bin/darwin-universal/CuaDriver.app/Contents/Info.plist"), license: "MIT", repository: "https://github.com/trycua/cua", within: "@amaster.ai/pi-computer-use (bin/)", path: "node_modules/@amaster.ai/pi-computer-use/bin" },
   { name: "ConPTY (conpty.dll, OpenConsole.exe)", version: newestEntry("node_modules/node-pty/third_party/conpty"), license: "MIT", repository: "https://github.com/microsoft/terminal", within: "node-pty (third_party/conpty, Windows)", path: "node_modules/node-pty/third_party/conpty" },
   { name: "GNU C Library, statically linked into apply-seccomp", version: undefined, license: "LGPL-2.1-or-later", repository: "https://sourceware.org/glibc/", within: "@anthropic-ai/sandbox-runtime (vendor/seccomp, Linux)", path: "node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp" },
-].filter((entry) => existsSync(join(ROOT, entry.path))).map(({ path: _path, ...entry }) => ({ ...entry, version: entry.version ?? "unknown" }));
+].filter((entry) => existsSync(join(ROOT, entry.path))).map(({ path: _path, ...entry }) => {
+  const text = collector.suppliedLicenseText(ROOT, entry.repository);
+  return { ...entry, version: entry.version ?? "unknown", files: text ? [{ name: "LICENSE (from its repository)", text }] : [] };
+});
 
 function readJson(file) {
   try { return JSON.parse(readFileSync(file, "utf8")); } catch { return undefined; }
@@ -89,6 +92,11 @@ function licenseOf(pkg) {
     if (all.length > 0) return all.join(" OR ");
   }
   return "UNKNOWN";
+}
+
+function authorOf(pkg) {
+  const raw = typeof pkg.author === "string" ? pkg.author : pkg.author?.name;
+  return typeof raw === "string" ? raw.replace(/\s*[<(].*$/u, "").trim() || undefined : undefined;
 }
 
 function repositoryOf(pkg) {
@@ -127,7 +135,7 @@ function walk(requests, entries, artifact) {
     const key = `${pkg.name}@${pkg.version}`;
     let entry = entries.get(key);
     if (!entry) {
-      entry = { name: pkg.name, version: pkg.version, license: licenseOf(pkg), repository: repositoryOf(pkg), files: noticeFiles(directory), artifacts: new Set() };
+      entry = { name: pkg.name, version: pkg.version, license: licenseOf(pkg), repository: repositoryOf(pkg), author: authorOf(pkg), files: noticeFiles(directory), artifacts: new Set() };
       entries.set(key, entry);
     }
     entry.artifacts.add(artifact);
@@ -137,61 +145,11 @@ function walk(requests, entries, artifact) {
   for (const [name, from] of requests) visit(name, from);
 }
 
-// Import scanning: enough of the syntax to find the packages a bundle can reach, never the type-only ones.
-const STATIC_IMPORT = /(?:^|[\n;])\s*(?:import|export)\s+(type\s+)?([^'";]*?)\s*from\s*["']([^"']+)["']/gu;
-const SIDE_EFFECT_IMPORT = /(?:^|[\n;])\s*import\s*["']([^"']+)["']/gu;
-const CALL_IMPORT = /\b(?:import|require)\(\s*["']([^"']+)["']\s*\)/gu;
 const LOAD_DEPENDENCY = /\bloadDependency\(\s*(?:["']([^"']+)["']|([A-Z_]+)\s*\))/gu;
 const STRING_CONSTANT = /\bconst\s+([A-Z_]+)\s*=\s*["']([^"']+)["']/gu;
 const CODE_FILE = /\.(?:[cm]?[jt]sx?)$/u;
-const BUILTINS = new Set(builtinModules);
-
-const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/(^|[^:"'\\])\/\/.*$/gmu, "$1");
-const onlyTypes = (clause) => /^\{\s*(?:type\s+[\w$]+(?:\s+as\s+[\w$]+)?\s*,?\s*)+\}$/u.test(clause.trim());
-const packageName = (specifier) => specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
-
-function specifiersOf(source) {
-  const code = withoutComments(source);
-  const found = [];
-  for (const [, type, clause, specifier] of code.matchAll(STATIC_IMPORT)) if (!type && !onlyTypes(clause)) found.push(specifier);
-  for (const [, specifier] of code.matchAll(SIDE_EFFECT_IMPORT)) found.push(specifier);
-  for (const [, specifier] of code.matchAll(CALL_IMPORT)) found.push(specifier);
-  return found;
-}
-
-function resolveSource(specifier, from) {
-  const base = resolve(dirname(from), specifier.replace(/\?.*$/u, ""));
-  const candidates = [base, ...[".ts", ".tsx", ".mts", ".js", ".mjs"].map((extension) => base + extension),
-    base.replace(/\.[cm]?js$/u, ".ts"), base.replace(/\.[cm]?js$/u, ".tsx"), join(base, "index.ts"), join(base, "index.tsx")];
-  return candidates.find((candidate) => CODE_FILE.test(candidate) && existsSync(candidate) && statSync(candidate).isFile());
-}
-
-/** Bare packages reachable from `entries` through relative imports, as (name, importing directory) pairs. */
-function reachablePackages(entries) {
-  const seen = new Set();
-  const packages = new Map();
-  const unresolved = [];
-  const queue = [...entries];
-  while (queue.length > 0) {
-    const file = queue.pop();
-    if (seen.has(file)) continue;
-    seen.add(file);
-    const source = readFileSync(file, "utf8");
-    for (const specifier of specifiersOf(source)) {
-      if (specifier.startsWith(".")) {
-        const target = resolveSource(specifier, file);
-        if (target) queue.push(target);
-        else if (/\.(?:[cm]?[jt]sx?)$|^[^.]*$/u.test(specifier.replace(/\?.*$/u, "").split("/").pop())) unresolved.push(`${relative(ROOT, file)} → ${specifier}`);
-        continue;
-      }
-      const name = packageName(specifier);
-      if (specifier.startsWith("node:") || BUILTINS.has(name) || name === "tau" || /^(?:virtual|data|https?):/u.test(specifier)) continue;
-      const key = `${name}\0${dirname(file)}`;
-      if (!packages.has(key)) packages.set(key, [name, dirname(file)]);
-    }
-  }
-  return { packages: [...packages.values()], files: seen.size, unresolved };
-}
+const { withoutComments, packageName } = collector;
+const reachablePackages = (entries) => collector.reachablePackages(entries, ROOT);
 
 function kitSources(directory = KITS) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -311,9 +269,9 @@ function render({ version, packages, bundled, native, apacheText }) {
     "",
     "## Programs inside packages",
     "",
-    "| Program | Version | Licence | Source | Shipped inside |",
-    "| --- | --- | --- | --- | --- |",
-    ...VENDORED.map((entry) => `| ${cell(entry.name)} | ${entry.version} | ${entry.license} | ${entry.repository} | ${cell(entry.within)} |`),
+    "| Program | Version | Licence | Source | Shipped inside | Text |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...VENDORED.map((entry) => `| ${cell(entry.name)} | ${entry.version} | ${entry.license} | ${entry.repository} | ${cell(entry.within)} | ${refs(entry)} |`),
     "",
     "## Mobile app: native libraries",
     "",
@@ -362,13 +320,20 @@ function main(argv) {
   const kits = reachablePackages(kitFiles);
   walk([...kits.packages, ...loadedByKits(kitFiles)], entries, "kits");
 
-  const mobileEntry = join(MOBILE, "src", "main.tsx");
-  const mobileManifest = readPackage(MOBILE) ?? {};
-  const mobileGraph = reachablePackages([mobileEntry]);
-  const mobileDependencies = Object.entries(mobileManifest.dependencies ?? {}).filter(([, range]) => !String(range).startsWith("file:")).map(([name]) => [name, MOBILE]);
-  walk([...mobileGraph.packages, ...mobileDependencies], entries, "mobile");
+  const mobileGraph = collector.mobileStarts(ROOT);
+  walk(mobileGraph.starts, entries, "mobile");
 
   const packages = [...entries.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version, undefined, { numeric: true }));
+  // A package without a licence file gets its repository's text, a supplied one, or MIT's own words.
+  const byRepository = new Map();
+  for (const entry of packages) if (entry.repository && entry.files[0] && !byRepository.has(entry.repository)) byRepository.set(entry.repository, entry.files[0].text);
+  const filled = { repository: 0, supplied: 0, template: 0 };
+  for (const entry of packages.filter((candidate) => candidate.files.length === 0)) {
+    const found = collector.missingText(ROOT, entry, byRepository);
+    if (!found) continue;
+    filled[found.source] += 1;
+    entry.files = [{ name: found.source === "template" ? `MIT text, holder from package.json` : `LICENSE (from ${found.source === "supplied" ? "its repository" : "a package of the same repository"})`, text: found.text }];
+  }
   const bundled = collector.BUNDLED_FILES.map(({ notice, ...entry }) => {
     const path = join(ROOT, notice);
     return { ...entry, artifacts: new Set(["desktop", "mobile"]), files: existsSync(path) ? [{ name: notice.split("/").pop(), text: readFileSync(path, "utf8").trim() }] : [] };
@@ -407,7 +372,8 @@ function main(argv) {
     for (const warning of warnings) log(`  ${warning.reviewed ? "ok " : "!! "}${warning.line}`);
   }
   if (apacheNotices.length > 0) log(`\nNOTICE files carried (Apache-2.0 §4(d)): ${apacheNotices.map((entry) => `${entry.name}@${entry.version}`).join(", ")}`);
-  if (withoutText.length > 0) log(`\nNo licence file in the package (${withoutText.length}): ${withoutText.map((entry) => `${entry.name}@${entry.version} (${entry.license})`).join(", ")}`);
+  log(`\nTexts for packages that ship none: ${filled.repository} from a package of the same repository, ${filled.supplied} from ${collector.SUPPLIED_LICENSES_DIR}, ${filled.template} from the MIT template.`);
+  if (withoutText.length > 0) log(`No licence text at all (${withoutText.length}): ${withoutText.map((entry) => `${entry.name}@${entry.version} (${entry.license})`).join(", ")}`);
   if (onlyInApp.length > 0) log(`\nIn the in-app list but not packaged: ${onlyInApp.join(", ")}`);
   if (kitsOutsideDesktop.length > 0) log(`\nKits reach packages the desktop list lacks: ${kitsOutsideDesktop.map((entry) => entry.name).join(", ")}`);
   const unresolved = [...kits.unresolved, ...mobileGraph.unresolved];
