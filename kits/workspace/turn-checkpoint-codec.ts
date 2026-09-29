@@ -1,7 +1,10 @@
-import type { ChangeStatus, UiChangedFile, UiWorkspaceChanges } from "tau/host-extension";
+import type { ChangeStatus, UiChangedFile } from "tau/host-extension";
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type {
   StoredTurnCheckpoint,
+  TurnChangesSummary,
+  TurnHead,
+  TurnHeadMove,
   TurnRestoreBackup,
   TurnRestoreTransaction,
   TurnRestoreTransactionKind,
@@ -22,6 +25,9 @@ export const TURN_RESTORE_TRANSACTION_CUSTOM_TYPE = "tau.turn-restore-transactio
 
 /** Keep the persisted checkpoint small even when a turn changes thousands of files. */
 export const MAX_TURN_CHECKPOINT_PREVIEW_FILES = 8;
+
+/** Reflog steps kept per turn; a longer walk is recorded as an unknown move. */
+export const MAX_TURN_HEAD_STEPS = 16;
 
 const SNAPSHOT_REF_PREFIX = "refs/tau/checkpoints";
 
@@ -96,6 +102,56 @@ function changedFile(value: unknown): UiChangedFile | undefined {
   };
 }
 
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+function commitId(value: unknown): value is string {
+  return typeof value === "string" && (value === "" || OBJECT_ID.test(value));
+}
+
+function branchName(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 255 ? value : undefined;
+}
+
+/** Untrusted session data: a malformed head record is dropped, never guessed. */
+export function parseTurnHead(value: unknown): TurnHead | undefined {
+  const item = record(value);
+  if (!item || !commitId(item.before) || !commitId(item.after)) return undefined;
+  const beforeBranch = branchName(item.beforeBranch);
+  const afterBranch = branchName(item.afterBranch);
+  return {
+    before: item.before,
+    after: item.after,
+    ...(beforeBranch ? { beforeBranch } : {}),
+    ...(afterBranch ? { afterBranch } : {}),
+  };
+}
+
+export function parseTurnHeadMove(value: unknown): TurnHeadMove | undefined {
+  const item = record(value);
+  if (!item
+    || typeof item.kind !== "string"
+    || !/^[a-z][a-z -]{0,31}$/u.test(item.kind)
+    || !Array.isArray(item.steps)
+    || item.steps.length > MAX_TURN_HEAD_STEPS
+    || !Number.isSafeInteger(item.excludedFileCount) || (item.excludedFileCount as number) < 0
+    || !Number.isSafeInteger(item.uncertainFileCount) || (item.uncertainFileCount as number) < 0) return undefined;
+  const steps = item.steps.map(record);
+  if (!steps.every((step) => step && commitId(step.from) && commitId(step.to) && typeof step.commit === "boolean")) return undefined;
+  return {
+    kind: item.kind,
+    steps: steps.map((step) => ({ from: step!.from as string, to: step!.to as string, commit: step!.commit as boolean })),
+    excludedFileCount: item.excludedFileCount as number,
+    uncertainFileCount: item.uncertainFileCount as number,
+  };
+}
+
+function cloneHeadFields(checkpoint: Pick<TurnChangesSummary, "head" | "headMove">): Pick<TurnChangesSummary, "head" | "headMove"> {
+  return {
+    ...(checkpoint.head ? { head: { ...checkpoint.head } } : {}),
+    ...(checkpoint.headMove ? { headMove: { ...checkpoint.headMove, steps: checkpoint.headMove.steps.map((step) => ({ ...step })) } } : {}),
+  };
+}
+
 export function cloneTurnCheckpoint(checkpoint: UiTurnCheckpoint): UiTurnCheckpoint {
   const files = checkpoint.files.slice(0, MAX_TURN_CHECKPOINT_PREVIEW_FILES);
   const fileCount = checkpoint.fileCount === undefined
@@ -105,6 +161,7 @@ export function cloneTurnCheckpoint(checkpoint: UiTurnCheckpoint): UiTurnCheckpo
     ...checkpoint,
     files: files.map((file) => ({ ...file })),
     fileCount,
+    ...cloneHeadFields(checkpoint),
   };
 }
 
@@ -180,6 +237,8 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
       : -1);
   if (omittedFileCount === -1) return undefined;
   if (completeness === "partial" && omittedFileCount === undefined) return undefined;
+  const head = item.head === undefined ? undefined : parseTurnHead(item.head);
+  const headMove = item.headMove === undefined ? undefined : parseTurnHeadMove(item.headMove);
   const checkpoint: StoredTurnCheckpoint = {
     id: item.id,
     turnId: item.turnId,
@@ -199,6 +258,8 @@ export function parseStoredTurnCheckpoint(value: unknown, expectedSessionId?: st
       ? { incompleteReason: item.incompleteReason.slice(0, 320) }
       : {}),
     ...(omittedFileCount !== undefined ? { omittedFileCount } : {}),
+    ...(head ? { head } : {}),
+    ...(head && headMove ? { headMove } : {}),
     ...(typeof item.transactionId === "string" && item.transactionId.length > 0
       ? { transactionId: item.transactionId }
       : {}),
@@ -472,7 +533,7 @@ export function checkpointsForBranch(
 }
 
 /** Convert a full Git summary into the only file data allowed in a checkpoint entry. */
-export function boundedTurnCheckpointSummary(changes: UiWorkspaceChanges): Pick<UiTurnCheckpoint, "files" | "fileCount" | "added" | "removed" | "branch" | "completeness" | "incompleteReason" | "omittedFileCount"> {
+export function boundedTurnCheckpointSummary(changes: TurnChangesSummary): Pick<UiTurnCheckpoint, "files" | "fileCount" | "added" | "removed" | "branch" | "completeness" | "incompleteReason" | "omittedFileCount" | "head" | "headMove"> {
   const files = changes.files.slice(0, MAX_TURN_CHECKPOINT_PREVIEW_FILES);
   const fileCount = changes.fileCount === undefined
     ? changes.files.length
@@ -490,6 +551,7 @@ export function boundedTurnCheckpointSummary(changes: UiWorkspaceChanges): Pick<
     ...(changes.completeness === "partial" || changes.omittedFileCount !== undefined
       ? { omittedFileCount: Math.max(0, changes.omittedFileCount ?? 0) }
       : {}),
+    ...cloneHeadFields(changes),
   };
 }
 

@@ -1,11 +1,47 @@
 import type { UiWorkspaceChanges } from "tau/host-extension";
 
+/** HEAD at both ends of a turn: commit ids ("" while unborn) and the branch, when one was checked out. */
+export interface TurnHead {
+  before: string;
+  after: string;
+  beforeBranch?: string;
+  afterBranch?: string;
+}
+
+/**
+ * HEAD moved during the turn by something that rewrites files: a branch
+ * switch, pull, reset, merge or rebase. Commits alone never set this, since
+ * a commit leaves the files as they are.
+ */
+export interface TurnHeadMove {
+  /** The reflog verb of the first such step ("checkout", "pull", "reset", …); "unknown" without a reflog. */
+  kind: string;
+  /** Reflog steps from the before HEAD to the after HEAD; files of non-commit steps are not the turn's. */
+  steps: TurnHeadStep[];
+  /** Changed files the move explains, left out of the turn. */
+  excludedFileCount: number;
+  /** Files both the move and someone else changed; left out because they cannot be told apart. */
+  uncertainFileCount: number;
+}
+
+export interface TurnHeadStep {
+  from: string;
+  to: string;
+  commit: boolean;
+}
+
+/** A turn's file summary with what HEAD did meanwhile. */
+export interface TurnChangesSummary extends UiWorkspaceChanges {
+  head?: TurnHead;
+  headMove?: TurnHeadMove;
+}
+
 /**
  * Immutable workspace summary captured when one accepted user turn reaches its
  * final assistant boundary. The id is generated once for that client turn and
  * is reused as the durable identity after reload.
  */
-export interface UiTurnCheckpoint extends UiWorkspaceChanges {
+export interface UiTurnCheckpoint extends TurnChangesSummary {
   id: string;
   turnId: string;
   sessionId: string;
@@ -78,7 +114,7 @@ export interface TurnOutcomeEvent {
 export interface TurnCheckpointCaptureResult<Snapshot> {
   beforeSnapshot: Snapshot;
   afterSnapshot: Snapshot;
-  changes: UiWorkspaceChanges;
+  changes: TurnChangesSummary;
   anchorMessageId: string;
   endedAt: number;
 }
@@ -86,7 +122,7 @@ export interface TurnCheckpointCaptureResult<Snapshot> {
 export interface TurnCheckpointLifecycleAdapter<Snapshot> {
   createBefore(turnId: string): Promise<Snapshot | undefined>;
   createAfter(turnId: string): Promise<Snapshot | undefined>;
-  summarize(before: Snapshot, after: Snapshot, turnId: string): Promise<UiWorkspaceChanges>;
+  summarize(before: Snapshot, after: Snapshot, turnId: string): Promise<TurnChangesSummary>;
   /** Delete a provisional snapshot. Completed refs remain owned by the session. */
   discardSnapshot(snapshot: Snapshot): Promise<void> | void;
   /** Delete a phase by its deterministic id when capture failed before returning a snapshot. */
