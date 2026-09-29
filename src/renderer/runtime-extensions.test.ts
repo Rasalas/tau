@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type DesktopExtension } from "./extension-system";
 import type { DesktopExtensionLoadResult } from "../shared/contracts";
 import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
 import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
+
+afterEach(() => {
+  document.head.querySelectorAll("[data-tau-extension]").forEach((element) => element.remove());
+});
 
 function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<RuntimeExtensionHost> = {}) {
   const log = vi.fn();
@@ -48,10 +52,10 @@ describe("runtime desktop extensions", () => {
     await runtime.resync();
 
     expect(load.mock.calls.map((call) => call[0])).toEqual(["/project", "/project"]);
-    expect(activate).toHaveBeenCalledTimes(2);
+    expect(activate).toHaveBeenCalledTimes(1);
   });
 
-  it("activates a loaded module and replaces it on the next sync", async () => {
+  it("keeps a loaded module on an unchanged sync", async () => {
     const registry = new ExtensionRegistry();
     const activate = vi.fn((plugin: { registerCommand(command: { id: string; label: string; group: string; run(): void }): void }) => {
       plugin.registerCommand({ id: "hello.run", label: "Hello", group: "Extensions", run: () => {} });
@@ -61,9 +65,62 @@ describe("runtime desktop extensions", () => {
     await runtime.sync("/project");
     expect(registry.getCommands().map((command) => command.id)).toContain("hello.run");
     await runtime.sync("/project");
-    expect(activate).toHaveBeenCalledTimes(2);
+    expect(activate).toHaveBeenCalledTimes(1);
     expect(registry.getCommands().filter((command) => command.id === "hello.run")).toHaveLength(1);
     expect(log).toHaveBeenCalledWith("desktop-extension.loaded", expect.stringContaining("Hello"));
+  });
+
+  it("keeps unchanged sidebar contributions and their stylesheet throughout a workspace switch", async () => {
+    const registry = new ExtensionRegistry();
+    const dispose = vi.fn();
+    const activate = vi.fn(() => dispose);
+    const { host: h } = host([{ path: "/x/rail.tsx", module: { default: { id: "x.rail", name: "Rail", activate } } }]);
+    const originalLoad = h.load;
+    h.load = async (...args: Parameters<RuntimeExtensionHost["load"]>) => {
+      const result = await originalLoad(...args);
+      return { ...result, bundles: result.bundles.map((bundle) => Object.assign(bundle, { styles: ".rail { gap: 2px; }" })) };
+    };
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    const sheet = document.head.querySelector('[data-tau-extension="x.rail"]');
+    expect(sheet).not.toBeNull();
+    const importModule = vi.fn(h.importModule);
+    h.importModule = importModule;
+    await runtime.sync("/project/worktree");
+    await runtime.resync();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(importModule).not.toHaveBeenCalled();
+    expect(document.head.querySelector('[data-tau-extension="x.rail"]')).toBe(sheet);
+    registry.deactivate("x.rail");
+  });
+
+  it("replaces changed bundles, revokes approval and removes packages that left the workspace", async () => {
+    const registry = new ExtensionRegistry();
+    const dispose = vi.fn();
+    const activate = vi.fn(() => dispose);
+    let code = "first";
+    let granted = true;
+    let present = true;
+    const { host: h } = host([{ path: "/x/rail.tsx", module: { default: { id: "x.rail", name: "Rail", activate } } }]);
+    const originalLoad = h.load;
+    h.load = async (...args: Parameters<RuntimeExtensionHost["load"]>) => {
+      const result = await originalLoad(...args);
+      return { ...result, bundles: present ? result.bundles.map((bundle) => Object.assign(bundle, { code, granted })) : [] };
+    };
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    code = "second";
+    await runtime.resync();
+    expect(activate).toHaveBeenCalledTimes(2);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    granted = false;
+    await runtime.resync();
+    expect(registry.isActive("x.rail")).toBe(false);
+    expect(dispose).toHaveBeenCalledTimes(2);
+    present = false;
+    await runtime.sync("/elsewhere");
+    expect(runtime.list()).toEqual([]);
   });
 
   it("reports a module without a valid default export instead of throwing", async () => {
@@ -340,6 +397,28 @@ describe("replacing one extension", () => {
 });
 
 describe("theme packages", () => {
+  it("keeps a retained theme after a newly added kit's stylesheet", async () => {
+    const registry = new ExtensionRegistry();
+    const h: RuntimeExtensionHost = host([]).host;
+    let added = false;
+    h.load = async () => ({
+      bundles: [
+        { id: "theme", path: "/theme", scope: "global", code: "", styles: ":root {}", theme: true, permissions: [] },
+        ...(added ? [{ id: "kit", path: "/kit", scope: "bundled" as const, code: "", styles: ".kit {}", permissions: [] }] : []),
+      ], errors: [], skipped: [],
+    });
+    h.importModule = async (bundle) => ({ default: { id: bundle.id, name: bundle.id, activate() {} } });
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    const theme = document.head.querySelector('[data-tau-extension="theme"]');
+    added = true;
+    await runtime.resync();
+    expect([...document.head.querySelectorAll("[data-tau-extension]")].map((sheet) => sheet.getAttribute("data-tau-extension"))).toEqual(["kit", "theme"]);
+    expect(document.head.querySelector('[data-tau-extension="theme"]')).toBe(theme);
+    registry.deactivate("kit");
+    registry.deactivate("theme");
+  });
+
   it("links a theme's stylesheet after every other one, whatever order it arrived in", async () => {
     const registry = new ExtensionRegistry();
     const themed = {
