@@ -2,11 +2,10 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
-import { createKitHarness, setHostClient, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, setHostClient, ToastStore, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import threadRailExtension from "./desktop.js";
-import { ToastStore } from "../../src/workbench/toast-store.js";
 import {
   META_EVENT,
   SIBLINGS_SERVICE,

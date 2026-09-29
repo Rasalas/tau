@@ -83,16 +83,6 @@ export function visibleThreads(
     !(parents[session.id] ?? session.parentThreadId) && (session.messageCount > 0 || live(session.id)));
 }
 
-/**
- * The branch every checkout starts on says nothing on a row, so the row leaves
- * it out. Until the host names the project's own, `main` and `master` stand in
- * for it.
- */
-export function isDefaultBranch(label: string | undefined, defaultBranch?: string): boolean {
-  if (defaultBranch !== undefined) return label === defaultBranch;
-  return label === "main" || label === "master";
-}
-
 /** The main list as the rail draws it: flat, or in groups that show `preview` threads until opened. */
 export function navigationRowsFor(threads: readonly UiSession[], order: RailOrder, projects: readonly UiProject[], openGroups: ReadonlySet<string>): NavigationRow[] {
   if (order.grouping === "none") return threads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
@@ -636,11 +626,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   const workspace = useWorkspaceStore();
   const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
   const stat = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().turnStats[id]);
-  const project = session ? session.workspaceId ?? session.projectPath : undefined;
-  const defaultBranch = useSyncExternalStore(workspace.subscribe, () => project ? workspace.getSnapshot().defaultBranches[project] : undefined);
   const owner = useMemo(() => session ? findProjectForSession(projects, session) : undefined, [projects, session]);
   const icon = useProjectIcon(owner);
-  useEffect(() => { if (project) workspace.loadDefaultBranch(project); }, [project, workspace]);
   if (!session) return null;
   const age = sessionAge(session.modifiedAt);
   const diff = stat && !compact && activity !== "settled"
@@ -650,7 +637,6 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   return (
     <ThreadRow
       session={session}
-      showLabel={!isDefaultBranch(session.projectLabel, defaultBranch)}
       accessory={diff || marks.length > 0 ? <>{diff}{marks}</> : undefined}
       projectIcon={icon}
       active={active}
@@ -746,7 +732,6 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
       <ThreadRow
         session={session}
         machine={machine}
-        showLabel={!isDefaultBranch(session.projectLabel)}
         active={false}
         age={age}
         activity={activity}

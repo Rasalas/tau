@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "tau";
-import { defaultRailSections, findProjectForSession, isDefaultBranch, navigationRowKey, visibleThreads } from "./navigation.js";
+import { defaultRailSections, findProjectForSession, navigationRowKey, visibleThreads } from "./navigation.js";
 import { railDropAt } from "./rail-drag.js";
 
 function session(id: string): UiSession {
@@ -51,22 +51,6 @@ describe("empty drafts", () => {
     const threads = [session("sent"), { ...session("draft"), messageCount: 0 }];
     expect(visibleThreads(threads, {}).map((entry) => entry.id)).toEqual(["sent"]);
     expect(visibleThreads(threads, {}, (id) => id === "draft").map((entry) => entry.id)).toEqual(["sent", "draft"]);
-  });
-});
-
-describe("branch on a row", () => {
-  it("leaves out the default branch and shows any other", () => {
-    expect(isDefaultBranch("main")).toBe(true);
-    expect(isDefaultBranch("master")).toBe(true);
-    expect(isDefaultBranch("tau/rail-density")).toBe(false);
-    expect(isDefaultBranch(undefined)).toBe(false);
-  });
-
-  it("takes the project's own default branch once the host named it", () => {
-    expect(isDefaultBranch("trunk", "trunk")).toBe(true);
-    expect(isDefaultBranch("main", "trunk")).toBe(false);
-    expect(isDefaultBranch("master", "trunk")).toBe(false);
-    expect(isDefaultBranch(undefined, "trunk")).toBe(false);
   });
 });
 
