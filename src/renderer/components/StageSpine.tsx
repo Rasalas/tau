@@ -47,7 +47,7 @@ export function StageTools({ panels, shown, onOpen, side = "bottom" }: {
       aria-pressed={shown.has(panel.id)}
       {...tooltipProps(panel.label, { side })}
       onClick={() => onOpen(panel.id)}
-    ><PanelIcon Icon={panel.Icon} size={16} /></button>)}
+    ><PanelIcon Icon={panel.Icon} size={14} /></button>)}
     {rest.length > 0 ? <span className="menu-anchor">
       <button
         type="button"
@@ -57,7 +57,7 @@ export function StageTools({ panels, shown, onOpen, side = "bottom" }: {
         aria-expanded={more}
         {...tooltipProps("More tools", { side })}
         onClick={() => setMore((open) => !open)}
-      ><Ellipsis size={16} /></button>
+      ><Ellipsis size={14} /></button>
       {more ? <Menu
         align="right"
         label="More tools"

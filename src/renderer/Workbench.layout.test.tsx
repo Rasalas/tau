@@ -128,6 +128,21 @@ describe("workbench layout", () => {
     await waitFor(() => expect(within(stage).queryByRole("tab", { name: /Counter/ })).toBeNull());
   });
 
+  it("keeps the stage's tools in the thread header while the stage is hidden, and in the strip while it shows (design 1k)", async () => {
+    const buttons: DesktopExtension = { id: "test.buttons", name: "Buttons", activate(plugin) {
+      plugin.registerPanel({ id: "shell-tab", label: "Shell tab", order: 1, stageButton: true, Component: () => <div>shell tab body</div> });
+      plugin.registerPanel({ id: "other", label: "Other", order: 2, stageButton: true, Component: () => <div>other body</div> });
+    } };
+    renderApp(undefined, { extensions: [buttons] });
+    const tools = await screen.findByRole("toolbar", { name: "Tools" });
+    expect(tools.closest(".thread-header")).not.toBeNull();
+    fireEvent.click(await within(tools).findByRole("button", { name: "Other" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    expect(await within(stage).findByText("other body")).toBeTruthy();
+    expect(screen.queryByRole("toolbar", { name: "Tools" })).toBeNull();
+    expect(within(stage).getByRole("button", { name: "Other" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("gives a panel that asks for it a button of its own, pressed while its tab is in front, and opens the stage on it", async () => {
     const buttons: DesktopExtension = { id: "test.buttons", name: "Buttons", activate(plugin) {
       plugin.registerPanel({ id: "shell-tab", label: "Shell tab", order: 1, stageButton: true, Component: () => <div>shell tab body</div> });

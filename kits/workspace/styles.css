@@ -317,35 +317,40 @@
 
 /* The branch in the thread header (K84): a quiet trigger that opens the checkout menu or a new thread's Branch section. */
 .thread-branch-trigger {
-  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; margin: -2px 0; padding: 2px 4px;
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; margin: -2px -4px; padding: 2px 4px;
   border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer;
 }
-.thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
-.thread-branch-trigger .chev { flex: none; color: var(--faint); }
+/* As the design writes it: the checkout's branch in the sub-line's face, a draft's planned name in mono; the chevron shows on hover. */
+.thread-branch-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-branch-trigger.planned > span { font-family: var(--mono); }
+.thread-branch-trigger .chev { flex: none; color: var(--faint); opacity: 0; }
+.thread-branch-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) .chev { opacity: 1; }
 .thread-branch-trigger:hover:not(:disabled), .thread-branch-trigger[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
 .popover.branch-popover { width: min(380px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 80px)); padding: 0; overflow: auto; }
-.branch-menu .menu-heading, .branch-section .menu-heading { padding: 10px 12px 4px; color: var(--faint); font-size: 12px; }
+.branch-menu .menu-heading { padding: 10px 12px 4px; color: var(--faint); font-size: 12px; }
+/* A new thread's Branch section, drawn as design 1k's popover draws it. */
+.branch-section .menu-heading { padding: 6px 16px 4px; color: var(--muted); font: var(--text-xs) var(--sans); letter-spacing: normal; text-transform: none; }
 .branch-note { margin: 0; padding: 4px 12px 12px; color: var(--muted); font: 12px/1.5 var(--sans); }
 .branch-section { padding-bottom: 6px; }
 .branch-section.picking { padding: 0; }
 .branch-name {
-  display: flex; align-items: center; gap: 8px; margin: 2px 6px; padding: 7px 9px; border-radius: 7px;
-  background: var(--raised); color: var(--muted);
+  display: flex; align-items: center; gap: 8px; margin: 0 6px; padding: 6px 10px; border-radius: 7px;
+  background: var(--rail); color: var(--muted);
 }
-.branch-name > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 12.5px var(--mono); outline: none; }
+.branch-name > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-xs) var(--mono); outline: none; }
 .branch-name > input::placeholder { color: var(--ink-3); }
-.branch-name > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: 12.5px var(--mono); }
-.branch-name > small { color: var(--faint); font-size: 11px; }
+.branch-name > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: var(--text-xs) var(--mono); }
+.branch-name > small { color: var(--muted); font-size: var(--text-xs); }
 .branch-section button.branch-base {
-  width: auto; display: inline-flex; align-items: center; gap: 6px; margin: 2px 6px; padding: 5px 9px;
-  border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 12px var(--sans); cursor: pointer;
+  width: auto; display: inline-flex; align-items: center; gap: 8px; margin: 1px 6px 0; padding: 6px 10px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer;
 }
-.branch-base > code { color: var(--ink-2); font: 12px var(--mono); }
+.branch-base > code { color: var(--ink-3); font: var(--text-xs) var(--mono); }
 .branch-base:hover { background: var(--raised); }
-.branch-worktree { display: flex; align-items: center; gap: 10px; margin: 4px 6px 0; padding: 7px 9px; }
+.branch-worktree { display: flex; align-items: center; gap: 10px; margin: 2px 6px 0; padding: 6px 10px; }
 .branch-worktree > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.branch-worktree strong { color: var(--ink-2); font: 500 12.5px var(--sans); }
-.branch-worktree small { color: var(--faint); font-size: 11px; }
+.branch-worktree strong { color: var(--ink); font: 400 var(--text-md) var(--sans); }
+.branch-worktree small { color: var(--muted); font-size: var(--text-xs); }
 /* Inside "Run on" (a menu), whose button rule would flatten the switch. */
 .branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }

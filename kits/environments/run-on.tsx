@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ComponentType } from "react";
+import { useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties } from "react";
 import { ChevronDown, Scale } from "lucide-react";
 import { Menu, tooltipProps, type ComposerControlProps, type HostExtensionClient, type PlatformEnvironments, type RegionProps, type UiEnvironment, type WorkbenchActions } from "tau";
 import { autoApplies, autoRunOn, chooseInput, threadTargets, useAutoPreview, useAutoRunOn } from "./auto.js";
@@ -24,6 +24,18 @@ export function runOnDetail(machine: UiEnvironment, now: number): string {
   const load = running > 0 ? `${running} running` : "idle";
   if (machine.local) return `this machine · ${load}`;
   return machine.status === "connected" ? `online · ${load}` : statusText(machine, now);
+}
+
+/**
+ * How far "Run on" rises from its chip to stand over the composer, and how
+ * far left it moves to line up with it, as in design 1k.
+ */
+export function overComposer(chip: HTMLElement | null): CSSProperties | undefined {
+  const card = chip?.closest(".composer-frame");
+  if (!chip || !card) return undefined;
+  const from = chip.getBoundingClientRect();
+  const to = card.getBoundingClientRect();
+  return { "--run-on-up": `${Math.max(0, from.top - to.top)}px`, "--run-on-left": `${Math.min(0, to.left - from.left)}px` } as CSSProperties;
 }
 
 /** A new thread's machine in the header's sub-line: project · machine · branch. */
@@ -59,6 +71,8 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
     const auto = useAutoRunOn();
     const [open, setOpen] = useState(false);
     const [moving, setMoving] = useState(false);
+    const anchor = useRef<HTMLSpanElement>(null);
+    const [place, setPlace] = useState<CSSProperties>();
     const current = list ? shownMachine(list) : undefined;
     const active = actions?.activeThread();
     // A draft, or a thread nothing was sent in yet, may still move; a started one stays where it runs.
@@ -92,7 +106,7 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
     const names = new Map(list.environments.map((machine) => [machine.id, machine.name]));
     const label = moving ? "Moving…" : automatic ? "Automatic" : current.name;
     return (
-      <span className="menu-anchor composer-runtime-menu-anchor">
+      <span ref={anchor} className="menu-anchor composer-runtime-menu-anchor run-on-anchor" style={open ? place : undefined}>
         <button
           className="runtime-chip machine-chip"
           aria-label={`Run on ${automatic ? "Automatic" : current.name}`}
@@ -100,7 +114,7 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
           aria-expanded={open}
           disabled={moving}
           {...tooltipProps(automatic ? autoTooltip(preview, names, targets.size) : `Run on ${current.name}: the machine this thread starts on`)}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => { if (!open) setPlace(overComposer(anchor.current)); setOpen(!open); }}
         >
           {automatic ? <Scale size={13} aria-hidden /> : <MachineIcon environment={current} />}
           <span>{label}</span>
@@ -124,7 +138,6 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
                 label: machine.name,
                 icon: <MachineIcon environment={machine} />,
                 selected: !automatic && machine.id === current.id,
-                ...(machine.local ? { badge: "This computer" } : {}),
                 // Offline reads as a state, as in the design; Read only and refused say why.
                 description: machine.readOnly || machine.status === "refused" ? cannotStartReason(machine, now) : runOnDetail(machine, now),
                 disabled: machine.id !== current.id && cannotStartReason(machine, now) !== undefined,

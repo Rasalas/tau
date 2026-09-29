@@ -286,6 +286,24 @@ describe("Run on, as in the design", () => {
     expect(screen.queryByRole("textbox", { name: "Branch name" })).toBeNull();
   });
 
+  it("stands over the composer, lined up with it, and checks the machine without a badge (design 1k)", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const RunOn = createRunOnControl(environments);
+    const { container } = render(<div className="composer-frame"><textarea /><RunOn actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} /></div>);
+    const frame = container.querySelector(".composer-frame") as HTMLElement;
+    const chip = screen.getByRole("button", { name: "Run on laptop" });
+    frame.getBoundingClientRect = () => ({ top: 600, left: 100, bottom: 700, right: 780, width: 680, height: 100, x: 100, y: 600, toJSON: () => ({}) });
+    chip.parentElement!.getBoundingClientRect = () => ({ top: 660, left: 108, bottom: 684, right: 220, width: 112, height: 24, x: 108, y: 660, toJSON: () => ({}) });
+    fireEvent.click(chip);
+    const anchor = chip.parentElement!;
+    expect(anchor.style.getPropertyValue("--run-on-up")).toBe("60px");
+    expect(anchor.style.getPropertyValue("--run-on-left")).toBe("-8px");
+    const menu = screen.getByRole("menu");
+    const row = within(menu).getByRole("menuitem", { name: /^laptop/u });
+    expect(row.className).toContain("selected");
+    expect(row.querySelector(".menu-label b")).toBeNull();
+  });
+
   it("names a new thread's machine in the header, and nothing for a running thread", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Machine = createDraftMachine(environments);
