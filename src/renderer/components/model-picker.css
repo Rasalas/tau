@@ -263,23 +263,28 @@
 .model-picker-content.stacked .model-thinking-note { padding: 6px 0; }
 
 /* A phone or an iPad: every control a finger's size (44 px), no hover to uncover the star, and hiding is left to a pointer. */
-body[data-profile="compact"] .model-search { height: 44px; margin: 8px 10px 4px; padding-right: 0; }
-body[data-profile="compact"] .model-search > input { font-size: 16px; height: 44px; }
+body[data-profile="compact"] .model-search { height: var(--touch-target); margin: 8px 10px 4px; padding-right: 0; }
+body[data-profile="compact"] .model-search > input { font-size: max(16px, var(--text-input)); height: var(--touch-target); }
 body[data-profile="compact"] .model-tool-button { width: 44px; height: 44px; border-radius: 10px; }
 body[data-profile="compact"] .model-menu { top: 48px; }
-body[data-profile="compact"] .model-menu > button { height: 44px; font-size: var(--text-lg); }
+body[data-profile="compact"] .model-menu > button { height: var(--touch-target); font-size: var(--text-lg); }
 body[data-profile="compact"] .model-rail { width: 48px; padding-top: 30px; }
 body[data-profile="compact"] .model-rail button { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-picker-content.stacked .model-rail { width: auto; padding: 2px 8px; }
-body[data-profile="compact"] .model-column-head { height: 30px; font-size: calc(var(--text-sm) + .5px); }
+body[data-profile="compact"] .model-column-head { height: calc(30px * var(--text-scale)); font-size: var(--text-xs); }
 body[data-profile="compact"] .model-provider-filter > button { width: 44px; height: 30px; border-radius: 8px; }
+/* The virtual list's pitch is fixed (touchRowHeight): a row holds its name up to the largest text size. */
 body[data-profile="compact"] .model-row { height: 48px; padding-right: 0; }
-body[data-profile="compact"] .model-row .model-line > strong { font-size: 15px; }
+body[data-profile="compact"] .model-row .model-line { font-size: var(--text-lg); height: 1.25em; }
+body[data-profile="compact"] .model-row .model-line > strong { font-size: var(--text-lg); line-height: 1.25; }
+/* Meta never under 12px on a touch device (ADR 0029). */
+body[data-profile="compact"] :is(.model-id, .model-fold .model-line > small, .model-menu > button > small, .model-group > small) { font-size: var(--text-xs); }
+body[data-profile="compact"] .model-group { height: 28px; }
 body[data-profile="compact"] .model-row-action { width: 44px; height: 44px; }
 body[data-profile="compact"] .model-row-action:not(.model-star.on) { opacity: 1; color: var(--faint); }
 body[data-profile="compact"] .model-hide { display: none; }
-body[data-profile="compact"] .model-levels > button { height: 44px; font-size: 15px; border-radius: 10px; }
-body[data-profile="compact"] .model-recent-chip { height: 44px; font-size: var(--text-lg); border-radius: 10px; }
-body[data-profile="compact"] .model-footer-link { min-height: 44px; font-size: var(--text-md); }
-body[data-profile="compact"] :is(.model-note-action, .model-runtime-pane-actions > button) { min-height: 44px; padding-inline: 14px; font-size: var(--text-md); }
-body[data-profile="compact"] .model-detail { height: 30px; font-size: var(--text-sm); }
+body[data-profile="compact"] .model-levels > button { height: var(--touch-target); font-size: var(--text-sm); border-radius: 10px; }
+body[data-profile="compact"] .model-recent-chip { height: var(--touch-target); font-size: var(--text-sm); border-radius: 10px; }
+body[data-profile="compact"] .model-footer-link { min-height: var(--touch-target); font-size: var(--text-sm); }
+body[data-profile="compact"] :is(.model-note-action, .model-runtime-pane-actions > button) { min-height: var(--touch-target); padding-inline: 14px; font-size: var(--text-sm); }
+body[data-profile="compact"] .model-detail { height: calc(30px * var(--text-scale)); font-size: var(--text-xs); }

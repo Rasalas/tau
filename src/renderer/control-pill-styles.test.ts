@@ -34,10 +34,10 @@ describe("the row's pill family", () => {
     expect(tokens).toMatch(/--control-pill-icon: 14px;/u);
     const compact = await rules("./profile-compact.css");
     expect(compact.find((rule) => rule.selector === 'body[data-profile="compact"]' && rule.body.includes("--control-pill-height"))?.body)
-      .toMatch(/--control-pill-height: 36px;/u);
-    // 44 px to a finger, whatever the pill's height; `::before` starts inside the 1 px border.
+      .toMatch(/--control-pill-height: calc\(36px \* var\(--text-scale\)\);/u);
+    // 44 px to a finger (more at a larger system text size), whatever the pill's height; `::before` starts inside the 1 px border.
     expect(compact.find((rule) => rule.selector === 'body[data-profile="compact"] .control-pill::before')?.body)
-      .toMatch(/inset: calc\(\(44px - var\(--control-pill-height\)\) \/ -2 - 1px\);/u);
+      .toMatch(/inset: calc\(\(var\(--touch-target\) - var\(--control-pill-height\)\) \/ -2 - 1px\);/u);
   });
 
   it("leaves no pill a size, edge or fill of its own", async () => {

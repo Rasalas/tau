@@ -551,7 +551,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
   padding: 5px 7px; margin-left: -7px; border: 0; border-radius: 7px;
   background: transparent; color: var(--ink); cursor: pointer;
-  font: 600 calc(var(--text-lg) + 1px) var(--sans); text-align: left;
+  font: 600 var(--text-title) var(--sans); text-align: left;
 }
 .thread-title-trigger:hover, .thread-title-trigger[aria-expanded="true"] { background: var(--raised); }
 .thread-title-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
