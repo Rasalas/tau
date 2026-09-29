@@ -724,13 +724,22 @@ export interface PageContribution extends ProfileScoped {
    * navigation), say open pull requests; nothing is drawn for `undefined` or 0 (API 1.26.0).
    */
   useBadge?(): number | undefined;
-  /** The sidebar's foot leads with the entry and writes its label and count beside the icon (API 1.27.0). */
+  /**
+   * The sidebar's foot leads with the entry (API 1.27.0). Since API 1.28.0 it is
+   * an icon with the count as a badge, the label in the tooltip.
+   */
   prominent?: boolean;
   /**
    * A hook for a short figure the sidebar's foot shows at its end in place of
    * the icon, say this month's usage; `undefined` draws the icon (API 1.27.0).
    */
   useSummary?(): PageSummary | undefined;
+  /**
+   * What the sidebar's foot draws for the page at its end, before Settings, in
+   * place of the icon and `useSummary` (API 1.28.0): Usage's juicebars. It opens
+   * the page itself (`actions.openPage`) and draws the icon when it has nothing.
+   */
+  Summary?: ComponentType<PageSummaryProps>;
   Component: ComponentType<PageProps>;
   /**
    * What the sidebar shows while the page is open on a desktop, in place of the
@@ -739,6 +748,10 @@ export interface PageContribution extends ProfileScoped {
    * the page. Without one the thread list stays.
    */
   Sidebar?: ComponentType<PageProps>;
+}
+
+export interface PageSummaryProps {
+  actions: WorkbenchActions;
 }
 
 /** A page's figure in the sidebar's foot: `short` stands in where `text` does not fit, `hint` is the tooltip. */

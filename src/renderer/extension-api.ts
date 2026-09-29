@@ -34,7 +34,8 @@ export { DiffView, ReviewMode } from "./extension-components";
 export { ChangesTree } from "./deferred-surfaces";
 // A text file with line numbers and highlighting, as a file tab shows it (API 1.20.0).
 export { FileSource } from "./deferred-surfaces";
-export { usePreferences } from "./renderer-services-context";
+export { useAppUpdate, usePreferences } from "./renderer-services-context";
+export type { AppUpdate } from "./app-update";
 // The rows a Settings page is built from, and one config key read across the levels.
 export { SettingRow, SettingsSection } from "./deferred-surfaces";
 // A page's action at the right of its head (API 1.26.0).
@@ -158,6 +159,7 @@ export type {
   SettingsPageProps,
   PageContribution,
   PageSummary,
+  PageSummaryProps,
   PageProps,
   SettingsSectionContribution,
   SettingsSectionPage,

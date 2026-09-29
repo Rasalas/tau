@@ -1,5 +1,6 @@
 import type { DesktopExtension } from "./extension-system";
 import { PreferencesStore } from "./preferences";
+import { AppUpdateStore } from "./app-update";
 
 /**
  * The renderer's non-component singletons, created once at the composition
@@ -9,6 +10,8 @@ import { PreferencesStore } from "./preferences";
  */
 export interface RendererServices {
   preferences: PreferencesStore;
+  /** The Tau release the host downloaded, for the toast and the sidebar's foot; `createRendererServices` makes one. */
+  appUpdate?: AppUpdateStore;
   /**
    * Desktop extensions the client is constructed with, beside the ones it
    * imports from the host. The desktop app hands over none — its kits arrive
@@ -19,5 +22,5 @@ export interface RendererServices {
 }
 
 export function createRendererServices(extensions?: readonly DesktopExtension[]): RendererServices {
-  return { preferences: new PreferencesStore(), ...(extensions ? { extensions } : {}) };
+  return { preferences: new PreferencesStore(), appUpdate: new AppUpdateStore(), ...(extensions ? { extensions } : {}) };
 }

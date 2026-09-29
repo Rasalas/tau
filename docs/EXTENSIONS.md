@@ -1003,7 +1003,7 @@ New in API 1.17.0.
 
 `registerPage` adds a page of the app like Settings — Usage and Reviews
 are two — typed `PageContribution`: `id`, `label`, an `Icon` and an `order`
-(the sidebar's foot lists every page after Settings in that order,
+(the sidebar's foot lists every page in that order,
 `registry.getPages()`, which a phone's navigation can take as well), optional `description`, `keywords`, `profiles`, a `layout`
 and a `Component` receiving `PageProps`. `actions.openPage(id, params?)` opens
 it and `actions.closePage()` closes it; both are optional on `WorkbenchActions`,
@@ -1092,14 +1092,25 @@ page's icon, and read out with its label ("Pull requests, 3"); `undefined` or
 merge or in conflict) and the open pull requests of the threads the rail knows. Being a hook, it may subscribe to a store with
 `useSyncExternalStore`, and it should stay cheap: it runs with the foot.
 
-The sidebar's foot is the design's (API 1.27.0): pages with `prominent: true`
-lead it with their label beside the icon and their `useBadge` count after it in
-the accent ("Reviews 4"), then Settings, then the other pages as icons and the
-commands kits put there. `useSummary()` is an optional hook for a short figure
-`{ text, short?, hint? }` the foot shows at its end instead of the page's icon
-(Usage's "$12.40 · 22 · 3.1M tok"); `short` stands in where the foot has no room
-for `text`, `hint` is the tooltip, and `undefined` draws the icon. A click on
-either opens the page.
+The sidebar's foot (API 1.28.0): pages with `prominent: true` lead it, then
+the other pages and the commands kits put there, each as its icon with its
+`useBadge` count as a badge and its label in the tooltip ("Reviews, 4"); at
+its end come what pages sum up, a Tau release waiting for a restart and
+Settings. Before API 1.28.0 a prominent page wrote its label and count beside
+the icon ("Reviews 4") and Settings came second. `Summary` (API 1.28.0) is an
+optional component the foot draws for the page at its end, in place of the
+icon and of `useSummary`: Usage's juicebars. It gets `{ actions }`, opens the
+page itself (`actions.openPage(id, params)`, Usage at `{ section: "limits" }`)
+and draws the page's icon when it has nothing to show. `useSummary()` (API
+1.27.0) is an optional hook for a short figure `{ text, short?, hint? }` the
+foot shows at its end instead of the icon when there is no `Summary`; `short`
+stands in where the foot has no room for `text`, `hint` is the tooltip, and
+`undefined` draws the icon. A click on either opens the page.
+
+`useAppUpdate()` from `tau` (API 1.28.0) answers the Tau release the host
+downloaded, `{ version, install() }`, or undefined; `install()` restarts into
+it. Core offers it in a toast; Workspace Kit's foot keeps an icon for it after
+the toast is closed.
 
 `useOpenPage()` from `tau` answers the page on screen (`{ id, views }`) or
 undefined, for a sidebar that marks it. A `standalone` Settings page (API
@@ -1460,6 +1471,7 @@ It also exports the renderer's shared state and presentation:
 | Export | What it is |
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
+| `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
 | `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
