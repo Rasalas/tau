@@ -3,41 +3,48 @@
  * the one in front on the document's ground and joined to it, the tools and
  * the maximize at the strip's right end. Loaded with the stage's chunk.
  */
-.stage-strip { flex: none; display: flex; align-items: stretch; min-width: 0; height: 40px; background: var(--rail); -webkit-app-region: drag; }
+.stage-strip { position: relative; flex: none; display: flex; align-items: stretch; min-width: 0; height: 40px; background: var(--rail); -webkit-app-region: drag; }
+/* The document's ground meets the strip with a rounded top-left corner (design 1l), whatever the tab draws. */
+.stage-strip::after {
+  content: ""; position: absolute; z-index: 1; left: 0; top: 100%; width: var(--radius-md); height: var(--radius-md); pointer-events: none;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--radius-md) - .5px), var(--rail) var(--radius-md));
+}
 .stage-tabs-frame { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; }
 .stage-tabs {
-  flex: 0 1 auto; min-width: 0; display: flex; align-items: flex-end; gap: 2px; padding: 6px 6px 0;
+  flex: 0 1 auto; min-width: 0; display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0;
   overflow-x: auto; scrollbar-width: none;
 }
 .stage-tabs::-webkit-scrollbar { display: none; }
 .stage-tab {
-  position: relative; flex: none; display: flex; align-items: center; gap: 7px;
-  max-width: 220px; height: 34px; padding: 0 6px 0 12px;
-  border-radius: var(--radius-row) var(--radius-row) 0 0; color: var(--muted);
-  font: var(--text-md) var(--sans); white-space: nowrap; cursor: pointer; user-select: none; -webkit-app-region: no-drag;
+  position: relative; flex: none; display: flex; align-items: center; gap: 6px;
+  max-width: 220px; height: 34px; padding: 0 10px;
+  border-radius: var(--radius-row) var(--radius-row) 0 0; color: var(--ink-3);
+  font: var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer; user-select: none; -webkit-app-region: no-drag;
 }
-.stage-tab:hover { background: var(--hover); color: var(--ink-2); }
+.stage-tab:hover { background: color-mix(in srgb, var(--ink) 5%, var(--rail)); color: var(--ink-2); }
 .stage-tab.active { background: var(--stage); color: var(--ink); font-weight: 600; }
 .stage-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .stage-tab.preview .stage-tab-label { font-style: italic; }
-.stage-tab-icon { flex: none; display: grid; place-items: center; color: var(--muted-2); }
-.stage-tab.active .stage-tab-icon { color: var(--ink-3); }
+.stage-tab-icon { flex: none; display: grid; place-items: center; color: var(--muted); }
 .stage-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.stage-tab-changed { flex: none; color: var(--working); font: 600 var(--text-xs) var(--sans); font-style: normal; }
+.stage-tab-changed { flex: none; color: var(--acid-text); font: 600 10px var(--sans); font-style: normal; }
 .stage-tab-dirty { flex: none; color: var(--ink-3); font-size: 9px; font-style: normal; }
 .stage-tab-badge { flex: none; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
-/* No padding: the browser's default button padding pushed the 12 px glyph right of its box's centre. */
+/*
+ * No padding: the browser's default button padding pushed the 12 px glyph right of its box's centre.
+ * Hidden until the tab is hovered or focused, and then over the tab's end, so a tab is as wide as its name (design 1l).
+ */
 .stage-tab-close {
+  position: absolute; top: 50%; right: 5px; translate: 0 -50%;
   width: 20px; height: 20px; flex: none; display: grid; place-items: center; padding: 0;
-  border: 0; border-radius: 5px; background: transparent; color: var(--faint);
-  cursor: pointer; opacity: 0;
+  border: 0; border-radius: 5px; background: inherit; color: var(--muted); cursor: pointer; opacity: 0;
 }
-.stage-tab:hover .stage-tab-close, .stage-tab.active .stage-tab-close, .stage-tab:focus-visible .stage-tab-close { opacity: 1; }
-.stage-tab-close:hover { background: var(--hover); color: var(--ink); }
+.stage-tab:hover .stage-tab-close, .stage-tab:focus-visible .stage-tab-close { opacity: 1; }
+.stage-tab-close:hover { color: var(--ink); }
 .stage-tabs-overflow { align-self: center; margin-left: 2px; }
-.stage-strip-actions { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 6px; }
-.stage-strip-actions > .workbench-region { flex-direction: row; align-items: center; gap: 2px; }
-.stage-strip-separator { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
+.stage-strip-actions { flex: none; display: flex; align-items: center; gap: 1px; padding: 6px 8px 0 6px; }
+.stage-strip-actions > .workbench-region { flex-direction: row; align-items: center; gap: 1px; }
+.stage-strip-separator { width: 1px; height: 28px; margin: 0 4px; background: var(--line); }
 .stage-strip :is(button, [role="tab"], .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
 .stage-pane-stat { font: var(--text-xs) var(--mono); white-space: nowrap; }
 /* The tab strip scrolls, so its context menu hangs off a fixed point instead. */
@@ -47,7 +54,8 @@
 /* A tablet: the strip and its targets at a finger's size; names stay whole and the strip scrolls. */
 body[data-profile="compact"] .stage-strip { height: 52px; }
 body[data-profile="compact"] .stage-tab { height: 44px; font-size: var(--text-lg); padding-left: 14px; }
-body[data-profile="compact"] .stage-tab-close { width: 36px; height: 36px; opacity: 1; }
+body[data-profile="compact"] .stage-tab { padding-right: 44px; }
+body[data-profile="compact"] .stage-tab-close { width: 36px; height: 36px; right: 4px; opacity: 1; }
 body[data-profile="compact"] .stage-strip-actions .stage-tool { width: 44px; height: 44px; }
 /* On the stage the tab names the panel: its own header keeps only its controls. */
 .panel-pane .panel-header > h2 { display: none; }

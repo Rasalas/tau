@@ -130,7 +130,7 @@ export function Stage({
             aria-label={maximize.maximized ? "Show chat beside the stage" : "Maximize stage"}
             {...tooltipProps(maximize.maximized ? "Show chat beside the stage" : "Maximize stage", { side: "bottom" })}
             onClick={maximize.onToggle}
-          >{maximize.maximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
+          >{maximize.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
         </> : null}
       </div>
     </div>
