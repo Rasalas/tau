@@ -1,5 +1,5 @@
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
-import { HOST_UPDATE_METHODS, type HostUpdateAction, type HostUpdateSettings, type HostUpdateStatus } from "../shared/host-updates";
+import type { HostUpdateAction, HostUpdateSettings, HostUpdateStatus } from "../shared/host-updates";
 import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
@@ -465,7 +465,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
     updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
 
-    hostUpdate: (action) => call<HostUpdateStatus>(action === "install" ? HOST_UPDATE_METHODS.install : action === "check" ? HOST_UPDATE_METHODS.check : HOST_UPDATE_METHODS.status),
-    setHostUpdateSettings: (settings) => call<HostUpdateStatus>(HOST_UPDATE_METHODS.settings, [settings]),
+    // Literal names: the protocol contract test reads them from this file.
+    hostUpdate: (action) => action === "install" ? call<HostUpdateStatus>("update-install") : action === "check" ? call<HostUpdateStatus>("update-check") : call<HostUpdateStatus>("update-status"),
+    setHostUpdateSettings: (settings) => call<HostUpdateStatus>("update-settings", [settings]),
   };
 }
