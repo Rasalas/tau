@@ -315,12 +315,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     socket.on("message", (data) => {
       alive.add(socket);
       let payload: unknown;
-      try { payload = JSON.parse(String(data)) as unknown; }
-      catch { socket.close(UNAUTHORIZED, "malformed frame"); return; }
+      try { payload = JSON.parse(String(data)) as unknown; } catch { payload = undefined; }
       const frame = decodeHostClientFrame(payload);
       if (!frame) {
         options.logger?.warn("host-transport-socket.malformed-frame");
-        socket.close(UNAUTHORIZED, "malformed frame");
+        // Not 4401: a client forgets its token on that, and a proxy or a bad link can garble a frame.
+        socket.close(HOST_CLOSE_CODE.protocolError, "malformed frame");
         return;
       }
       if (frame.type === "pair" || frame.type === "pair-reveal") {
@@ -398,7 +398,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       }
       const session = authenticated.get(socket);
       if (!session) {
-        socket.close(UNAUTHORIZED, ACCESS_CLOSE_REASON.unauthorized);
+        socket.close(HOST_CLOSE_CODE.protocolError, "hello first");
         return;
       }
       // Not activity of the user's: a heartbeat leaves "last seen" alone.

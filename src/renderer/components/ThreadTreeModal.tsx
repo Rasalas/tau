@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GitFork, MessageSquare, Sparkles, User } from "lucide-react";
 import type { UiThreadTree, UiThreadTreeNode } from "../../shared/contracts";
+import "./thread-tree.css";
 
 export type ThreadTreeMode = "navigate" | "fork";
 
