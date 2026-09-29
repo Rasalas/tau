@@ -52,8 +52,11 @@ the release order that keeps a wrong pairing from shipping.
 runners — macOS (arm64 and x64 on the same runner), Linux x64, Windows x64 —
 with `--publish never`. A `sign` job signs each platform's `latest*.yml` with
 the secret `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)), then one
-job attaches every artifact and the `.sig` files to a single GitHub Release
-named after the tag. Without the secret the run fails before it builds.
+job publishes every artifact, the `.sig` files and `LICENSE` twice. One copy
+is a GitHub Release named after the tag in `Rasalas/tau`, the other the same
+release in the public `Rasalas/tau-releases`, where installed apps look
+([Where releases are published](#where-releases-are-published)). Without the
+signing secret or the publishing app's secrets the run fails before it builds.
 
 The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
@@ -77,7 +80,8 @@ gh run download --dir /tmp/artifacts
 
 The `release` job stays skipped unless the ref is a tag starting with `v` or
 `publish` is `true`, so a dispatch with `publish=false` cannot attach anything
-to a GitHub Release; the three `tau-*` artifacts (and `latest*.yml`) land as
+to a GitHub Release in either repository, and never asks for a token for
+`Rasalas/tau-releases`; the three `tau-*` artifacts (and `latest*.yml`) land as
 workflow run artifacts instead, good for a day. The `push` trigger above only
 ever delivers `v*.*.*` tags; the `v`-prefix check on `release` is what keeps a
 `workflow_dispatch` run against some other tag from also publishing.
@@ -101,10 +105,14 @@ npm run install:mac -- --version v0.1.1
 npm run install:mac -- --open          # and launch it
 ```
 
-`scripts/install-mac.mjs` downloads the `.dmg` for this machine's
-architecture with `gh` (the repository is private, so `gh auth status` must
-be logged in), quits a running Tau, replaces `/Applications/Tau.app`, and
-removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
+`scripts/install-mac.mjs` reads the release's `latest-mac.yml` from the
+public `Rasalas/tau-releases` over HTTPS, without a login, and refuses it
+without Tau's release signature (`latest-mac.yml.sig`). It downloads the
+`.dmg` for this machine's architecture and keeps it only when it matches the
+SHA-512 the feed lists. A tag that only `Rasalas/tau` has (anything released
+before the public repository) falls back to `gh`, which must be logged in
+there (`gh auth status`). It then quits a running Tau, replaces
+`/Applications/Tau.app`, and removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
 block an unsigned download, which is why an unsigned Tau otherwise needs
 right-click → Open on first launch.
 
@@ -187,8 +195,12 @@ matches the SVGs.
 
 ## How an update reaches a user
 
-`publish:` in `electron-builder.yml` names the GitHub repository, and
-electron-builder writes it into `app-update.yml` inside the app. From there:
+`publish:` in `electron-builder.yml` names the GitHub repository,
+`Rasalas/tau-releases`, and electron-builder writes it into
+`resources/app-update.yml` inside the app. The window's updater, the host's,
+the AppImage's `.deb` offer, the release notes and the `.deb`'s update helper
+all read it from there (`scripts/packaging/public-feed.test.mjs` follows it
+through each). From there:
 
 1. An installed Tau asks that repository for a newer release a few seconds
    after it starts and then every hour, on the update track the config holds at
@@ -207,8 +219,8 @@ electron-builder writes it into `app-update.yml` inside the app. From there:
    *Tau 0.3.0 is installed*, whose What's new opens the list; it goes after
    eight seconds unread or at the next click elsewhere
    (`src/main/release-notes.ts`, state in `<userData>/release-notes.json`). The
-   notes are the ones the download brought, else the GitHub release of that
-   version read through the public API (the moving `nightly` tag for a
+   notes are the ones the download brought, else the release of that
+   version in `Rasalas/tau-releases`, read through the public API (the moving `nightly` tag for a
    nightly). A dev instance reads `TAU_RELEASE_NOTES_FILE` instead and fetches
    nothing; set `lastVersion` in that file to an older version to see them.
 
@@ -274,12 +286,61 @@ both require. The Linux job's check of the `.deb` looks for the helper, the
 script it runs and the three polkit files, and checks that `postinst`
 installs the polkit action.
 
-`Rasalas/tau` is private today, so the updater's request for the release feed
-comes back as a 404 and every check fails with it (visible in
+A Tau built before the move to `Rasalas/tau-releases` still names
+`Rasalas/tau`, which is private, so its checks fail with a 404 (visible in
 `<userData>/logs/host.log` as `update.failed`, and in the host's
-`host-process.log` as `host-update.check.failed`). Making the repository public is
-the fix. Keeping it private means shipping a GitHub token to every user, which
-is worse than having no updates.
+`host-process.log` as `host-update.check.failed`). Such an install has to be
+replaced by hand once, with a build that names the public repository.
+
+## Where releases are published
+
+The source repository `Rasalas/tau` is private; installed apps must read
+releases without a token. Every release and every nightly therefore goes to
+two repositories:
+
+| | `Rasalas/tau` | `Rasalas/tau-releases` (public) |
+|---|---|---|
+| what | the release as before: tag on the built commit, notes GitHub generates from the pull requests, every file | the same files and the same notes; the tag sits on the repository's default branch, which holds only a README |
+| who reads it | the integrator, `gh`, `install:mac` for old tags | installed apps (window, host, Linux helper), `install:mac`, the package managers |
+| written with | the workflow's `GITHUB_TOKEN` | a token from the GitHub App *Tau Releases (Rasalas)*, installed on this repository only with `contents: write` |
+
+Files in both: the installers (`.dmg`, `.zip`, `.AppImage`, `.deb`, `.exe`),
+their `.blockmap` files, `latest-mac.yml`, `latest.yml`, `latest-linux.yml`,
+their `.sig` files, and `LICENSE`, which the AUR package installs.
+
+The `release` job in `.github/workflows/release.yml`:
+
+1. downloads the build artifacts and `tau-signatures`, and adds `LICENSE`;
+2. checks every feed's signature (`release-signing.mjs check`) and that the
+   folder is complete: every feed with its `.sig`, every file a feed names, a
+   blockmap for each `.dmg`, `.zip` and `.exe`, and `LICENSE`
+   (`scripts/packaging/publish-release.mjs check`);
+3. publishes the release in `Rasalas/tau` with generated notes;
+4. reads that release's notes back, since GitHub would write them for
+   `tau-releases` from a history it does not have;
+5. asks `actions/create-github-app-token` (pinned to a commit) for a token
+   limited to `Rasalas/tau-releases` and `contents: write`, from the secrets
+   `TAU_RELEASES_APP_ID` (the app's ID) and `TAU_RELEASES_APP_KEY` (its private
+   key, PEM);
+6. uploads everything to a **draft** release under the same tag in
+   `Rasalas/tau-releases`, with those notes;
+7. publishes the draft as the latest release only when every file is uploaded
+   (`publishDraft`). Until then, installed apps keep seeing the previous
+   release instead of a feed that names files not yet there.
+
+A failed run can be re-run. The action reuses the release of the tag in
+either repository, keeps a published one published, and replaces files of the
+same name.
+
+The `nightly` job does the same under the tag `nightly` (below), with the
+previous nightly removed from each repository first. The `verify` job fails a
+publishing run before it builds when the app's secrets are missing.
+
+The GitHub App's key can upload to `Rasalas/tau-releases`, but it cannot
+make an installed Tau accept an update, because hosts and the Linux helper
+require the release signature ([host-updates.md](host-updates.md#release-signing)).
+Rotate it in the app's settings (Generate a private key, replace the secret,
+delete the old key).
 
 ### Stable and nightly
 
@@ -292,7 +353,7 @@ switch checks at once.
 
 | | Stable | Nightly |
 |---|---|---|
-| feed | the GitHub provider from `app-update.yml`: the latest release, never a prerelease | `https://github.com/Rasalas/tau/releases/download/nightly/latest*.yml`, read as a generic feed |
+| feed | the GitHub provider from `app-update.yml`: the latest release, never a prerelease | `https://github.com/Rasalas/tau-releases/releases/download/nightly/latest*.yml`, read as a generic feed |
 | `allowPrerelease` | off | on |
 | `allowDowngrade` | on only when the running build is a nightly | off |
 
@@ -387,8 +448,12 @@ A run that passes builds the same three platforms as a release, with
 `0.4.1-nightly.20260922.42`, from `scripts/packaging/nightly-version.mjs`). The
 `nightly` job then deletes the previous release tagged `nightly` (only if it is
 a prerelease) and the tag, and publishes the new build as a prerelease under
-the same tag, never marked latest. The stable `release` job never runs for a
-nightly.
+the same tag, never marked latest. It does so in `Rasalas/tau`, whose tag the
+`gate` compares with `main`, and in `Rasalas/tau-releases`, which installed
+apps read; there the new nightly is a draft until every file is uploaded, and
+its tag sits on the default branch, since the built commit is not in that
+repository (the release text names it). The stable `release` job never runs
+for a nightly.
 
 Switch the schedule on (repository admin, once):
 
@@ -409,13 +474,13 @@ Before switching it on, know what it costs and needs:
 - Each nightly spends GitHub-hosted Linux and Windows minutes (Windows counts
   double on a private repository) plus the self-hosted `tau-linux` and
   `tau-macos` runners. Days without commits cost one short gate job.
-- While `Rasalas/tau` is private, an installed Tau cannot read the nightly
-  feed either (404, as for stable).
+- It needs the publishing app's secrets like a release
+  ([Where releases are published](#where-releases-are-published)).
 - A nightly is signed like a release and fails without
   `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)).
-- The tag `nightly` must stay movable: do not enable *immutable releases* for
-  the repository, and do not put `nightly` under a tag ruleset or protection
-  that forbids deleting it.
+- The tag `nightly` must stay movable in both repositories: do not enable
+  *immutable releases* for either, and do not put `nightly` under a tag
+  ruleset or protection that forbids deleting it.
 
 ## Package managers
 
@@ -427,8 +492,8 @@ npm run packaging:update -- --tag v0.4.1
 git add packaging && git commit -m "chore(packaging): v0.4.1"
 ```
 
-It reads the release with `gh api` (logged in, since the repository is
-private), takes each installer's SHA-256 from GitHub's asset `digest`, and
+It reads the release from `Rasalas/tau-releases` through GitHub's public API
+(no login), takes each installer's SHA-256 from GitHub's asset `digest`, and
 writes `packaging/homebrew/tau.rb`, `packaging/winget/Rasalas.Tau*.yaml`,
 `packaging/aur/tau-bin/PKGBUILD` and `.SRCINFO`, plus
 `packaging/release.json`, the release they were written from.
@@ -436,9 +501,12 @@ writes `packaging/homebrew/tau.rb`, `packaging/winget/Rasalas.Tau*.yaml`,
 the committed files disagree with it, so edit the scripts, never the output.
 `--release-json <file>` works without network. Nightlies are not packaged.
 
-All three need the release downloadable without a login: **make
-`Rasalas/tau` public first.** Homebrew, winget and makepkg download the assets
-anonymously, and winget's validation rejects a URL it cannot fetch.
+All three download the assets anonymously, and winget's validation rejects
+a URL it cannot fetch, so the installers, the homepage and `LICENSE` all
+point at the release in `Rasalas/tau-releases`. Only winget's `PublisherSupportUrl` names `Rasalas/tau/issues`,
+which answers once the source repository is public. The committed files still
+describe 0.4.0, which exists only in `Rasalas/tau`; the next
+`packaging:update` writes them for a release in `Rasalas/tau-releases`.
 
 ### Homebrew (macOS)
 
