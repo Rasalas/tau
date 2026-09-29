@@ -48,19 +48,21 @@ the release order that keeps a wrong pairing from shipping.
    git push origin main v0.2.0
    ```
 
-`.github/workflows/release.yml` runs on any `v*.*.*` tag. It builds on three
-GitHub-hosted runners with `--publish never`: macOS (`macos-26`, arm64 and x64
-on the same runner, signed and notarized), Linux x64 (`ubuntu-24.04`) and
-Windows x64 (`windows-2025`). A `sign` job signs each platform's `latest*.yml`
+`.github/workflows/release.yml` runs on any `v*.*.*` tag. It builds on
+GitHub-hosted runners with `--publish never`: macOS arm64 and macOS x64 on a
+`macos-26` runner each, signed and notarized side by side, Linux x64
+(`ubuntu-24.04`), Windows x64 (`windows-2025`), and the phone apps ([Phone
+apps](#phone-apps)). A `sign` job merges the two Mac builds' `latest-mac.yml`
+into one and signs each platform's `latest*.yml`
 with the secret `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)), then
-one job publishes every artifact, the `.sig` files and `LICENSE` twice. One
+one job publishes every artifact, the Android APK, the `.sig` files and `LICENSE` twice. One
 copy is a GitHub Release named after the tag in `Rasalas/tau`, the other the
 same release in `Rasalas/tau-releases`, where installed apps look, together
 with the [fixed download names](#fixed-download-names)
 ([Where releases are published](#where-releases-are-published)). Without the
-signing secret or the publishing app's secrets the run fails before it builds.
-Every secret lives in the environment `release` ([Runners and
-environments](#runners-and-environments)).
+signing secret, the publishing app's secrets or the phone apps' keys the run
+fails in `preflight`, before it builds. Every secret lives in the environment
+`release` ([Runners and environments](#runners-and-environments)).
 
 The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
@@ -69,9 +71,44 @@ updater will compare against that one. Keep them equal.
 4. Once the release is published, update the package managers
    ([Package managers](#package-managers)).
 
+### How long a release takes
+
+About a quarter of an hour from the tag to the published release; 0.7.14 took
+35 minutes, 9 of them in `verify` and 23 in one Mac job that built and notarized
+both apps one after the other.
+
+| Job | When | About |
+|---|---|---|
+| `gate`, `preflight` | first | 1 min |
+| `verify` | only when CI has not passed on the commit, beside the builds | 9 min |
+| macOS arm64, macOS x64 | side by side | 12 min each, most of it Apple's notarization |
+| Windows, Linux | side by side | 8 and 5 min |
+| `android` | side by side | 8 min |
+| `sign`, `release` | after the builds | 3 min |
+| `ios` | beside the rest; the release does not wait for it | 15 min, then TestFlight's processing |
+| `play` | after `release` | 1 min |
+
+The Mac, Windows, Linux and `verify` times are those of 0.7.14; the rest are
+estimates until a release has run them.
+
+**`verify` is skipped when CI already passed on the commit.** The gate asks the
+API for the runs of `ci.yml` and `performance.yml` on exactly the tagged commit
+(`scripts/packaging/verified-commit.mjs`, with `actions: read`). Only a
+successful `push` or `workflow_dispatch` run counts; a pull request's run
+tested a merge commit, not this one. CI runs everything `verify` does and
+more, so a second pass would only repeat it. The usual order gets the skip:
+land on `main`, wait until CI and the performance gates are green, then tag.
+
+When they have not passed (still running because main and the tag went up
+together, red, or missing), `verify` runs as it always did: lint, typecheck
+and the whole suite. It runs beside the builds, not before them, and `sign`
+and `ios` wait for it, so nothing is signed, published or uploaded from a
+commit that failed; only the build minutes are spent. An API error counts as
+not passed.
+
 ## Build all platforms without publishing
 
-`workflow_dispatch` runs the same three build jobs on a branch, with no tag
+`workflow_dispatch` runs the same build jobs on a branch, with no tag
 and no release. Use it to prove all three platforms still build, which no
 ordinary pull request or push to `main` does, before cutting a real release:
 
@@ -84,17 +121,24 @@ gh run download --dir /tmp/artifacts
 The `release` job stays skipped unless the ref is a tag starting with `v` or
 `publish` is `true`, so a dispatch with `publish=false` cannot attach anything
 to a GitHub Release in either repository, and never asks for a token for
-`Rasalas/tau-releases`; the three `tau-*` artifacts (and `latest*.yml`) land as
-workflow run artifacts instead, good for a day. The `push` trigger above only
+`Rasalas/tau-releases`; the `tau-*` artifacts (the installers, the Android APK,
+and `tau-feeds` with the merged `latest*.yml`) land as workflow run artifacts
+instead, good for a day. The phone apps build too: `android` makes the App
+Bundle (artifact `play-bundle`) and the APK, `ios` archives. Neither uploads to
+a store; `play` runs only after a published release, and `ios` uploads only
+for a tag or `publish`. The `push` trigger above only
 ever delivers `v*.*.*` tags; the `v`-prefix check on `release` is what keeps a
 `workflow_dispatch` run against some other tag from also publishing.
 
 A dry run on a branch runs in the environment `release-dry-run`, which holds
-no secrets: the Mac apps come out unsigned and the `sign` job warns and leaves
-the feeds unsigned. A dry run dispatched on `main` runs in `release` like a
-real one: the Mac apps are signed and notarized, and `sign` signs the three
-feeds, checks them against the keys the commit ships, and uploads
-`tau-signatures`, so it also shows that the secrets are right. A missing
+no secrets: the Mac apps come out unsigned, the `sign` job warns and leaves
+the feeds unsigned, the APK is named `Tau-<version>-unsigned.apk`, and the iOS
+app is archived without signing. A dry run dispatched on `main` runs in
+`release` like a real one: the Mac apps are signed and notarized, `sign` signs
+the three feeds, checks them against the keys the commit ships, and uploads
+them with their signatures as `tau-feeds`, the APK and App Bundle are signed
+with the upload key, and the iOS archive is signed through the App Store
+Connect key, so it also shows that the secrets are right. A missing
 `latest*.yml` fails the job either way.
 
 A build job that fails uploads a `diagnostics-<platform>` artifact
@@ -134,7 +178,7 @@ Each runs `npm run build` first and writes to `release/`, which is not in Git.
 Stop a running `npm run dev:instance` of the same worktree first: while it
 runs, its `.tau-dev/userdata` holds dangling `Singleton*` symlinks and
 electron-builder aborts on the first one it cannot `stat`.
-`npm run dist:mac -- --arm64 --x64` builds both Mac apps, as the release does.
+`npm run dist:mac -- --arm64 --x64` builds both Mac apps, which the release builds on two runners.
 macOS produces a `.dmg` and a `.zip`, Linux an `.AppImage` and a `.deb`,
 Windows an NSIS `.exe`. Cross-building macOS from another platform is not possible; Linux and
 Windows builds need their own runners for the same reason Tau ships a native
@@ -318,7 +362,7 @@ goes to both repositories:
 | written with | the workflow's `GITHUB_TOKEN` | a token from the GitHub App *Tau Releases (Rasalas)*, installed on this repository only with `contents: write` |
 
 Files in both: the installers (`.dmg`, `.zip`, `.AppImage`, `.deb`, `.exe`),
-their `.blockmap` files, `latest-mac.yml`, `latest.yml`, `latest-linux.yml`,
+the Android APK (`Tau-<version>.apk`), their `.blockmap` files, `latest-mac.yml`, `latest.yml`, `latest-linux.yml`,
 their `.sig` files, and `LICENSE`, which the AUR package installs. Releases
 before 0.7.14 exist only in `Rasalas/tau-private`, the repository the source
 lived in before it went public; `install:mac --version` falls back to `gh`
@@ -326,7 +370,8 @@ there for them.
 
 The `release` job in `.github/workflows/release.yml`:
 
-1. downloads the build artifacts and `tau-signatures`, and adds `LICENSE`;
+1. downloads the build artifacts and `tau-feeds` (the merged feeds with their
+   signatures), and adds `LICENSE`;
 2. checks every feed's signature (`release-signing.mjs check`) and that the
    folder is complete: every feed with its `.sig`, every file a feed names, a
    blockmap for each `.dmg`, `.zip` and `.exe`, and `LICENSE`
@@ -364,15 +409,17 @@ which needs a name without a version. Every stable release in
 | `Tau-Setup-<version>.exe` | `Tau-windows-x64.exe` |
 | `Tau_<version>_amd64.deb` | `Tau-linux-amd64.deb` |
 | `Tau-<version>.AppImage` | `Tau-linux-x86_64.AppImage` |
+| `Tau-<version>.apk` | `Tau-android.apk` |
 
 `STABLE_NAMES` in `scripts/packaging/publish-release.mjs` is the list.
-`check --stable` fails when a copy is missing or its size differs from its
+`check --stable` fails when a copy or the versioned file behind it is missing
+(a stable release without its APK, say), or a copy's size differs from its
 source, and a plain `check` fails when a nightly carries one. The feeds keep
 the versioned names, so updates and the package managers are unaffected. A
 nightly has none: `latest/download` never points at a prerelease.
 
 The `nightly` job does the same under the tag `nightly` (below), with the
-previous nightly removed from each repository first. The `verify` job fails a
+previous nightly removed from each repository first. The `preflight` job fails a
 publishing run before it builds when the app's secrets are missing.
 
 The GitHub App's key can upload to `Rasalas/tau-releases`, but it cannot
@@ -481,7 +528,7 @@ decides whether anything runs:
 - only once the repository variable `NIGHTLY` is `true`;
 - only when `main` moved since the commit the tag `nightly` points at.
 
-A run that passes builds the same three platforms as a release, with
+A run that passes builds the same desktop apps as a release, without the phone apps, with
 `package.json`'s version replaced by
 `<next patch>-nightly.<UTC date>.<run number>` (for 0.4.0:
 `0.4.1-nightly.20260922.42`, from `scripts/packaging/nightly-version.mjs`). The
@@ -510,7 +557,7 @@ gh workflow run release.yml --ref main -f nightly=true
 
 Before switching it on, know what it costs and needs:
 
-- Each nightly builds on three GitHub-hosted runners, which cost nothing on a
+- Each nightly builds on four GitHub-hosted runners, which cost nothing on a
   public repository. Days without commits cost one short gate job.
 - It needs the publishing app's secrets like a release
   ([Where releases are published](#where-releases-are-published)).
@@ -519,6 +566,113 @@ Before switching it on, know what it costs and needs:
 - The tag `nightly` must stay movable in both repositories: do not enable
   *immutable releases* for either, and do not put `nightly` under a tag
   ruleset or protection that forbids deleting it.
+
+## Phone apps
+
+A stable release also builds the app in `mobile/` for both phones. A nightly
+does not.
+
+| | Android | iOS |
+|---|---|---|
+| job | `android` (`ubuntu-24.04`, the image's JDK 21) | `ios` (`macos-26`, Xcode 26.6) |
+| starts | with the desktop builds | after `preflight` and `verify` (when that runs) |
+| signed with | the upload key (`ANDROID_UPLOAD_KEYSTORE`) | automatic signing through the App Store Connect key |
+| goes to | the release (APK) and Play's internal testing (App Bundle, `play` job) | TestFlight |
+| version | `package.json`'s | `package.json`'s |
+| build number | `versionCode` = major·10000 + minor·100 + patch (0.7.15 → 715) | 100 + the run number of `release.yml` |
+
+Both build the web layer as a release (`vite build` without the development
+mode) and fail when it holds the automation bridge the simulator scripts use.
+
+### Android
+
+`mobile/android/app/build.gradle` signs the release build with the upload key
+when `TAU_ANDROID_KEYSTORE` names a keystore; `TAU_ANDROID_KEYSTORE_PASSWORD`
+is the store's password and the key's, `TAU_ANDROID_KEY_ALIAS` the alias
+(`upload` by default). Without it the release build stays unsigned. The job
+decodes `ANDROID_UPLOAD_KEYSTORE` (base64 of the PKCS12 file) into the
+runner's temp folder, runs `./gradlew bundleRelease assembleRelease`, and
+deletes it again. It then checks the APK's signature (`apksigner verify`) and
+that it says `de.tbuck.tau` with the expected versionCode and versionName.
+
+- **Push.** `ANDROID_GOOGLE_SERVICES_JSON` (base64) becomes
+  `google-services.json`: the Firebase project `tau-push-e3c95`, which holds
+  the Android app `de.tbuck.tau`. Google's Gradle plugin fails a build whose
+  project lacks that app with an error that does not say so, so the job checks
+  first. A release without the secret, or with a project lacking the app,
+  fails (`preflight`, then `android`); a dry run warns and builds an app that
+  cannot take pushes. The app asks Firebase for a token only after the
+  user allowed notifications (`firebase_messaging_auto_init_enabled` is off in
+  the manifest).
+- **versionCode** is computed from the version by `build.gradle` (and
+  `scripts/packaging/mobile-version.mjs android-code`, which the job compares
+  with the APK): major·10000 + minor·100 + patch. It rises with every release as
+  long as minor and patch stay below 100. Play takes each versionCode once, so
+  a version reaches Play once; a re-run finds it there and skips the upload.
+- **The APK** goes into the release as `Tau-<version>.apk` and, in
+  `tau-releases`, also as `Tau-android.apk`, for sideloading
+  (`releases/latest/download/Tau-android.apk`). No feed names it; a sideloaded
+  app does not update itself.
+- **Play.** `play` runs after `release` has published and uploads the App
+  Bundle to the `internal` track with `scripts/packaging/play-upload.mjs`,
+  which talks to the Google Play Developer API directly: a service account's
+  JSON key in `PLAY_SERVICE_ACCOUNT_JSON`, a token for the
+  `androidpublisher` scope, then one edit that uploads the bundle, sets it on
+  the track and commits. The secret is set in `release` (a service account
+  invited in the Play Console with release rights for the testing tracks). Without it the job says so
+  and succeeds; the bundle stays in the run's `play-bundle` artifact for a day. While Play still
+  treats the app as a draft (before its first release was rolled out in the
+  Play Console), it takes only draft releases; the script then makes one, and
+  it has to be rolled out by hand. What the Play Console needs before that:
+  a developer account, the app `de.tbuck.tau`, the service account invited
+  with release rights for the testing tracks.
+
+A signed build on this Mac, for a first upload by hand (the password is read,
+not typed on the command line):
+
+```bash
+cd mobile && npx vite build && npx cap sync android && cd android
+export TAU_ANDROID_KEYSTORE=/path/to/android-upload-key.jks TAU_ANDROID_KEY_ALIAS=upload
+read -rs TAU_ANDROID_KEYSTORE_PASSWORD && export TAU_ANDROID_KEYSTORE_PASSWORD
+./gradlew --no-daemon bundleRelease assembleRelease
+# app/build/outputs/bundle/release/app-release.aab, app/build/outputs/apk/release/app-release.apk
+```
+
+### iOS
+
+`ios` archives the app with the App Store Connect key that also notarizes the
+Mac apps (`APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`), for team
+`V4MWQ28RZ2`:
+
+```bash
+xcodebuild archive -project mobile/ios/App/App.xcodeproj -scheme App -configuration Release \
+  -destination generic/platform=iOS -archivePath Tau.xcarchive \
+  MARKETING_VERSION=<version> CURRENT_PROJECT_VERSION=<build> DEVELOPMENT_TEAM=V4MWQ28RZ2 \
+  -allowProvisioningUpdates -authenticationKeyPath AuthKey_<id>.p8 \
+  -authenticationKeyID <id> -authenticationKeyIssuerID <issuer>
+xcodebuild -exportArchive -archivePath Tau.xcarchive -exportOptionsPlist export.plist \
+  -exportPath export -allowProvisioningUpdates -authenticationKeyPath … # the same key
+```
+
+`export.plist` says `method` `app-store-connect`, `destination` `upload`,
+`teamID` `V4MWQ28RZ2` and `signingStyle` `automatic`, so the export step is
+the upload. Xcode creates or fetches the certificates and profiles through the
+key (cloud signing); the key needs a role in App Store Connect that may manage
+certificates, which Admin has. The key file lives in the runner's temp folder
+for the step and is deleted when it ends.
+
+- **When it uploads:** for a `v*` tag or a `publish` dispatch. A dispatch on
+  `main` archives signed and uploads nothing; a branch's dry run, which has no
+  key, archives unsigned. The release job does not wait for `ios`: TestFlight
+  gets the build even if a desktop platform fails, and a failed upload leaves
+  the release alone.
+- **Build number:** `CFBundleVersion` is 100 plus the run number of
+  `release.yml` (`scripts/packaging/mobile-version.mjs ios-build`). The builds
+  up to 0.7.14 were numbered 1 to 9 by hand, so the automatic ones start above
+  them, and every run counts up, dry runs and nightlies included. Gaps are
+  normal. A re-run of the same run keeps its number, and App Store Connect
+  refuses a number it has seen for that version: dispatch a new run instead of
+  re-running `ios`.
 
 ## Package managers
 
@@ -698,7 +852,7 @@ refuses a feed without one ([host-updates.md](host-updates.md#release-signing)).
 |---|---|
 | `TAU_RELEASE_SIGNING_KEY` | the Ed25519 private key (PKCS#8 PEM) whose public key is in `src/shared/release-keys.ts` and `bin/tau-update-helper.mjs`; during a rotation, two PEM blocks |
 
-Only the `sign` job reads it (and `verify` checks that it is set). The job fails when the secret signs with a key
+Only the `sign` job reads it (and `preflight` checks that it is set). The job fails when the secret signs with a key
 the commit does not list, so a wrong secret cannot publish feeds that every
 host would refuse. How to rotate the key: [host-updates.md](host-updates.md#rotating-the-key).
 
@@ -725,14 +879,18 @@ from a fork runs with a read-only token and no secret.
 
 - **`release`** holds `TAU_RELEASE_SIGNING_KEY`, `TAU_RELEASES_APP_ID`,
   `TAU_RELEASES_APP_KEY`, `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`,
-  `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`. Only `main` and `v*` tags may
-  deploy to it. `verify`, the macOS build, `sign`, `release` and `nightly` run
-  in it for a tag, a nightly, a `publish` dispatch, or any dispatch on `main`.
+  `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, the phone apps' `ANDROID_UPLOAD_KEYSTORE`,
+  `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`,
+  `ANDROID_GOOGLE_SERVICES_JSON` and `PLAY_SERVICE_ACCOUNT_JSON`
+  ([Phone apps](#phone-apps)). Only `main` and `v*` tags may
+  deploy to it. `preflight`, the macOS builds, `android`, `ios`, `sign`,
+  `release`, `nightly` and `play` run in it for a tag, a nightly, a `publish`
+  dispatch, or any dispatch on `main`.
 - **`release-dry-run`** holds nothing. A dispatch on any other branch runs in
   it and builds unsigned.
 
-The gate job decides which one a run gets. The Linux and Windows builds never
-enter an environment.
+The gate job decides which one a run gets. The Linux and Windows builds and
+`verify` never enter an environment.
 
 The runners used to be self-hosted machines, for the minutes. A public
 repository must not have self-hosted runners: a pull request can change a

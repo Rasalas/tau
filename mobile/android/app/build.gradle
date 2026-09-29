@@ -4,6 +4,10 @@ apply plugin: 'com.android.application'
 def tauVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../../package.json')).version
 def tauVersionCode = tauVersion.tokenize('.-')[0..2].collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
 
+// The upload key signs a release build when the environment names it (the release workflow, or a
+// local build for Play); without it the release build stays unsigned. The key's password is the store's.
+def uploadKeystore = System.getenv('TAU_ANDROID_KEYSTORE')
+
 android {
     namespace = "de.tbuck.tau"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -20,8 +24,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (uploadKeystore) {
+            upload {
+                storeFile file(uploadKeystore)
+                storePassword System.getenv('TAU_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('TAU_ANDROID_KEY_ALIAS') ?: 'upload'
+                keyPassword System.getenv('TAU_ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (uploadKeystore) signingConfig signingConfigs.upload
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

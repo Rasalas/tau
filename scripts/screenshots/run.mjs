@@ -23,7 +23,7 @@ export const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 2 };
 const wait = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 export function parseArgs(argv) {
-  const options = { out: undefined, only: [], theme: "light", format: "png", build: false, keep: false };
+  const options = { out: undefined, only: [], theme: "light", format: "png", phone: "iphone", build: false, keep: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const value = () => {
@@ -35,13 +35,15 @@ export function parseArgs(argv) {
     else if (arg === "--only") options.only.push(...value().split(",").map((name) => name.trim()).filter(Boolean));
     else if (arg === "--theme") options.theme = value();
     else if (arg === "--format") options.format = value();
+    else if (arg === "--phone") options.phone = value();
     else if (arg === "--build") options.build = true;
     else if (arg === "--keep") options.keep = true;
-    else throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --out <dir>, --only <shot,...>, --theme light|dark|both, --format png|webp, --build, --keep)`);
+    else throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --out <dir>, --only <shot,...>, --theme light|dark|both, --format png|webp, --phone <device>, --build, --keep)`);
   }
   if (!options.out) throw new Error("--out <dir> is required");
   if (!["light", "dark", "both"].includes(options.theme)) throw new Error("--theme is light, dark or both");
   if (!["png", "webp"].includes(options.format)) throw new Error("--format is png or webp");
+  if (!Object.hasOwn(DEVICES, options.phone) || DEVICES[options.phone].width > DEVICES[options.phone].height) throw new Error(`--phone is one of ${Object.keys(DEVICES).filter((name) => DEVICES[name].width < DEVICES[name].height).join(", ")}`);
   return options;
 }
 
@@ -183,6 +185,15 @@ function driver(session, viewport, outputs) {
       await mouse("mouseReleased", x, y);
       await wait(400);
     },
+    /** A finger's tap, for the phone: touch start and end at the element's centre. */
+    async tap(expr) {
+      await ctx.waitForElement(expr);
+      const box = await rect(expr);
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await wait(400);
+    },
     async hover(expr) {
       await ctx.waitForElement(expr);
       const box = await rect(expr);
@@ -227,16 +238,16 @@ async function resetDesktop(session, theme) {
   await wait(500);
 }
 
-async function startPhone(root, theme, host) {
+async function startPhone(root, theme, host, device) {
   const profile = join(root, "phone-profile");
   mkdirSync(profile, { recursive: true });
   const port = await freePort();
   const log = openSync(join(root, "logs", "phone.log"), "a");
-  const chrome = spawn(findChromium(), chromeArgs({ port, profile, device: "iphone" }), { stdio: ["ignore", log, log] });
+  const chrome = spawn(findChromium(), chromeArgs({ port, profile, device }), { stdio: ["ignore", log, log] });
   const page = await waitForPage(port, { timeoutMs: 30_000 });
   const session = await connect(page.webSocketDebuggerUrl);
-  for (const [method, params] of emulationSteps("iphone", theme)) await session.send(method, params).catch((error) => { if (method !== "Emulation.setSafeAreaInsetsOverride") throw error; });
-  const label = "iPhone";
+  for (const [method, params] of emulationSteps(device, theme)) await session.send(method, params).catch((error) => { if (method !== "Emulation.setSafeAreaInsetsOverride") throw error; });
+  const label = DEVICES[device].platform === "iPhone" ? "iPhone" : "Pixel";
   const created = await hostCall({ ...host, method: "connections-create-link", params: [{ label, access: "full" }] });
   await session.send("Page.navigate", { url: pickPairingUrl(created.urls) });
   let request;
@@ -252,7 +263,7 @@ async function startPhone(root, theme, host) {
     if (await evaluate(session, `!!document.body.dataset.profile && !document.querySelector(".token-gate")`).catch(() => false)) break;
     await wait(300);
   }
-  return { chrome, session, viewport: DEVICES.iphone };
+  return { chrome, session, viewport: DEVICES[device] };
 }
 
 async function main() {
@@ -323,7 +334,7 @@ async function main() {
           } else {
             if (!phone) {
               const descriptor = JSON.parse(readFileSync(join(fixture.userData, "host.json"), "utf8"));
-              phone = await startPhone(root, theme, { url: descriptor.url, token: readFileSync(env.TAU_HOST_TOKEN_FILE, "utf8").trim() });
+              phone = await startPhone(root, theme, { url: descriptor.url, token: readFileSync(env.TAU_HOST_TOKEN_FILE, "utf8").trim() }, options.phone);
             }
             await phone.session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
             await wait(500);

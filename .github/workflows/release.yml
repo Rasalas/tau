@@ -34,10 +34,16 @@ jobs:
     if: github.event_name != 'schedule' || (github.repository == 'Rasalas/tau' && vars.NIGHTLY == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # Reads CI's runs on this commit (verified below).
+      actions: read
     outputs:
       build: ${{ steps.decide.outputs.build }}
       nightly: ${{ steps.decide.outputs.nightly }}
       version: ${{ steps.decide.outputs.version }}
+      # true when ci.yml and performance.yml passed on exactly this commit; verify is then skipped.
+      verified: ${{ steps.verified.outputs.verified }}
       # `release` holds the secrets and admits only main and v* tags; a branch's dry run gets
       # `release-dry-run`, which holds none, and builds unsigned.
       environment: ${{ steps.decide.outputs.environment }}
@@ -90,14 +96,20 @@ jobs:
           echo "build=true" >> "$GITHUB_OUTPUT"
           echo "nightly=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - id: verified
+        if: steps.decide.outputs.build == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: node scripts/packaging/verified-commit.mjs "$SHA" >> "$GITHUB_OUTPUT" || echo "verified=false" >> "$GITHUB_OUTPUT"
 
-  # Same gates as ci.yml, so a tag on a red commit stops here.
-  verify:
+  # Fails a publishing run in seconds, before any runner builds, when a secret it needs is missing.
+  preflight:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-24.04
     environment: ${{ needs.gate.outputs.environment }}
-    timeout-minutes: 45
+    timeout-minutes: 5
     steps:
       - name: Require a tag ref for publishing
         if: inputs.publish && github.ref_type != 'tag'
@@ -125,6 +137,30 @@ jobs:
             echo "::error::The secrets TAU_RELEASES_APP_ID and TAU_RELEASES_APP_KEY are not both set; installed Tau reads releases from Rasalas/tau-releases only."
             exit 1
           fi
+      # Every stable release carries a signed APK, and TestFlight takes only a signed build.
+      - name: Require the phone apps' signing keys for a stable release
+        if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
+        env:
+          HAS_ANDROID: ${{ secrets.ANDROID_UPLOAD_KEYSTORE != '' && secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD != '' && secrets.ANDROID_UPLOAD_KEY_ALIAS != '' && secrets.ANDROID_GOOGLE_SERVICES_JSON != '' }}
+          HAS_APPLE: ${{ secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
+        run: |
+          if [ "$HAS_ANDROID" != true ]; then
+            echo "::error::ANDROID_UPLOAD_KEYSTORE, ANDROID_UPLOAD_KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEY_ALIAS and ANDROID_GOOGLE_SERVICES_JSON are not all set; a release needs a signed APK that can take pushes."
+            exit 1
+          fi
+          if [ "$HAS_APPLE" != true ]; then
+            echo "::error::APPLE_API_KEY_P8, APPLE_API_KEY_ID and APPLE_API_ISSUER are not all set; the iOS build cannot be signed or uploaded."
+            exit 1
+          fi
+
+  # The checks ci.yml runs, for a commit CI has not passed yet. They run beside the builds; nothing
+  # is signed or published before they pass (sign, ios).
+  verify:
+    needs: gate
+    if: needs.gate.outputs.build == 'true' && needs.gate.outputs.verified != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -138,22 +174,29 @@ jobs:
       - run: npx vitest run
 
   build:
-    needs: [gate, verify]
+    needs: [gate, preflight]
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    # Only the macOS build signs, so only it enters the environment with Apple's credentials.
-    environment: ${{ matrix.artifact == 'macos' && needs.gate.outputs.environment || '' }}
+    # Only the macOS builds sign, so only they enter the environment with Apple's credentials.
+    environment: ${{ matrix.mac && needs.gate.outputs.environment || '' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Both Mac architectures on one runner, so they write a single latest-mac.yml.
+          # One runner per Mac architecture, so the two notarizations wait side by side; the sign job
+          # merges their latest-mac.yml files (scripts/packaging/merge-feeds.mjs).
           # macos-26 is arm64 and ships Xcode 26 (actool for assets/icon/Tau.icon).
-          - name: macOS (arm64 and x64)
+          - name: macOS arm64
             runner: macos-26
-            platform: --mac --arm64 --x64
-            artifact: macos
+            platform: --mac --arm64
+            artifact: macos-arm64
+            mac: true
+          - name: macOS x64
+            runner: macos-26
+            platform: --mac --x64
+            artifact: macos-x64
+            mac: true
           - name: Linux x64
             runner: ubuntu-24.04
             platform: --linux --x64
@@ -203,14 +246,14 @@ jobs:
       - name: Package
         shell: bash
         env:
-          # Empty outside the macOS build: Windows would try the Developer ID certificate for Authenticode.
+          # Empty outside the macOS builds: Windows would try the Developer ID certificate for Authenticode.
           # CSC_LINK is the base64 of the .p12; electron-builder imports it into a temporary keychain.
-          CSC_LINK: ${{ matrix.artifact == 'macos' && secrets.CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.artifact == 'macos' && secrets.CSC_KEY_PASSWORD || '' }}
+          CSC_LINK: ${{ matrix.mac && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.mac && secrets.CSC_KEY_PASSWORD || '' }}
           # Notarization through the App Store Connect API key; the .p8 is written to a file below.
-          APPLE_API_KEY_P8: ${{ matrix.artifact == 'macos' && secrets.APPLE_API_KEY_P8 || '' }}
-          APPLE_API_KEY_ID: ${{ matrix.artifact == 'macos' && secrets.APPLE_API_KEY_ID || '' }}
-          APPLE_API_ISSUER: ${{ matrix.artifact == 'macos' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY_P8: ${{ matrix.mac && secrets.APPLE_API_KEY_P8 || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.mac && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.mac && secrets.APPLE_API_ISSUER || '' }}
           # Writes release/builder-debug.yml, from which a failing platform is diagnosed.
           DEBUG: electron-builder
         run: |
@@ -263,6 +306,7 @@ jobs:
           if-no-files-found: error
           # Consumed by the release job in this run; published files live in the GitHub releases.
           retention-days: 1
+          # The feeds travel apart: the sign job merges and signs them into tau-feeds.
           path: |
             release/*.dmg
             release/*.zip
@@ -270,7 +314,6 @@ jobs:
             release/*.deb
             release/*.exe
             release/*.blockmap
-            release/latest*.yml
 
       # The update feed alone, for the sign job; the installers stay in tau-<platform>.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -299,10 +342,202 @@ jobs:
           path: diagnostics
           retention-days: 7
 
-  # Signs every latest*.yml with TAU_RELEASE_SIGNING_KEY; installed hosts refuse a
-  # feed without the .sig (docs/host-updates.md). A branch's dry run has no key and stays unsigned.
+  # The Android app for a stable release: a signed App Bundle for Play (the play job) and an APK the
+  # release carries for sideloading. versionCode comes from the version (build.gradle).
+  android:
+    needs: [gate, preflight]
+    if: needs.gate.outputs.build == 'true' && needs.gate.outputs.nightly != 'true'
+    runs-on: ubuntu-24.04
+    environment: ${{ needs.gate.outputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('mobile/android/**/*.gradle', 'mobile/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+      # The web layer builds from the repository's sources; Electron itself is not needed.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: npm ci
+        working-directory: mobile
+      - name: Build the web layer
+        working-directory: mobile
+        run: |
+          npx vite build
+          npx cap sync android
+          if grep -l tauAutomation dist/assets/*.js; then echo "::error::The release web layer contains the automation bridge."; exit 1; fi
+      - name: Write the Firebase project
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+          PUBLISHING: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
+        run: |
+          if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
+            echo "::warning::ANDROID_GOOGLE_SERVICES_JSON is not set; this Android build cannot take pushes."
+            exit 0
+          fi
+          file=mobile/android/app/google-services.json
+          printf '%s' "$GOOGLE_SERVICES_JSON" | base64 -d > "$file"
+          # Google's Gradle plugin fails on a project without this package, with an error that does not say so.
+          if ! node -e 'const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.exit((d.client ?? []).some((c) => c.client_info?.android_client_info?.package_name === "de.tbuck.tau") ? 0 : 1)' "$file"; then
+            rm -f "$file"
+            if [ "$PUBLISHING" = true ]; then
+              echo "::error::The Firebase project in ANDROID_GOOGLE_SERVICES_JSON has no Android app de.tbuck.tau; a release would ship without pushes."
+              exit 1
+            fi
+            echo "::warning::The Firebase project in ANDROID_GOOGLE_SERVICES_JSON has no Android app de.tbuck.tau; this dry run cannot take pushes."
+          fi
+      - name: Build the App Bundle and the APK
+        working-directory: mobile/android
+        env:
+          UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          TAU_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          TAU_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+        run: |
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          if [ -n "${UPLOAD_KEYSTORE:-}" ]; then
+            export TAU_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.p12"
+            printf '%s' "$UPLOAD_KEYSTORE" | base64 -d > "$TAU_ANDROID_KEYSTORE"
+            chmod 600 "$TAU_ANDROID_KEYSTORE"
+          else
+            echo "::warning::ANDROID_UPLOAD_KEYSTORE is not set; this dry run builds an unsigned App Bundle and APK."
+          fi
+          unset UPLOAD_KEYSTORE
+          status=0
+          ./gradlew --no-daemon bundleRelease assembleRelease || status=$?
+          rm -f "$RUNNER_TEMP/upload.p12"
+          exit "$status"
+      - name: Name and check the files
+        shell: bash
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          out=mobile/android/app/build/outputs
+          mkdir -p android play
+          if [ -f "$out/apk/release/app-release.apk" ]; then
+            apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
+            "$apksigner" verify "$out/apk/release/app-release.apk"
+            cp "$out/apk/release/app-release.apk" "android/Tau-$version.apk"
+          else
+            cp "$out/apk/release/app-release-unsigned.apk" "android/Tau-$version-unsigned.apk"
+          fi
+          cp "$out/bundle/release/app-release.aab" "play/Tau-$version.aab"
+          aapt2="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/aapt2"
+          # Whole, then its first line: head closing the pipe would fail aapt2 under pipefail.
+          badging="$("$aapt2" dump badging android/Tau-"$version"*.apk)"
+          badging="${badging%%$'\n'*}"
+          echo "$badging"
+          grep -q "name='de.tbuck.tau' versionCode='$(node scripts/packaging/mobile-version.mjs android-code)' versionName='$version'" <<< "$badging"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tau-android
+          if-no-files-found: error
+          retention-days: 1
+          path: android/*.apk
+      # Not in tau-*: the bundle goes to Play, not into the release.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: play-bundle
+          if-no-files-found: error
+          retention-days: 1
+          path: play/*.aab
+
+  # The iPhone and iPad app to TestFlight, signed automatically with the App Store Connect key. It
+  # waits for verify (when that runs) and is not part of the release: TestFlight gets the build
+  # whatever becomes of the desktop release. A dry run archives without uploading.
+  ios:
+    needs: [gate, preflight, verify]
+    if: ${{ !cancelled() && needs.gate.outputs.build == 'true' && needs.gate.outputs.nightly != 'true' && needs.preflight.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
+    runs-on: macos-26
+    environment: ${{ needs.gate.outputs.environment }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: npm ci
+        working-directory: mobile
+      - name: Build the web layer
+        working-directory: mobile
+        run: |
+          npx vite build
+          npx cap sync ios
+          if grep -l tauAutomation dist/assets/*.js; then echo "::error::The release web layer contains the automation bridge."; exit 1; fi
+      - name: Archive, and upload to TestFlight
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          RUN_NUMBER: ${{ github.run_number }}
+          UPLOAD: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          build="$(node scripts/packaging/mobile-version.mjs ios-build --run "$RUN_NUMBER")"
+          echo "Tau for iOS $version ($build)"
+          archive="$RUNNER_TEMP/Tau.xcarchive"
+          settings=(MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build")
+          project=(-project mobile/ios/App/App.xcodeproj -scheme App -configuration Release -destination generic/platform=iOS -archivePath "$archive")
+          if [ -z "${APPLE_API_KEY_P8:-}" ]; then
+            echo "::warning::No App Store Connect key; this dry run archives unsigned and uploads nothing."
+            xcodebuild archive "${project[@]}" "${settings[@]}" CODE_SIGNING_ALLOWED=NO
+            exit 0
+          fi
+          key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$key"
+          chmod 600 "$key"
+          unset APPLE_API_KEY_P8
+          trap 'rm -f "$key"' EXIT
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER")
+          xcodebuild archive "${project[@]}" "${settings[@]}" DEVELOPMENT_TEAM=V4MWQ28RZ2 CODE_SIGN_STYLE=Automatic "${auth[@]}"
+          if [ "$UPLOAD" != true ]; then
+            echo "A dry run: archived $version ($build), not uploaded."
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/export.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>V4MWQ28RZ2</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
+          echo "::notice::Uploaded Tau for iOS $version ($build) to TestFlight."
+
+  # Merges the Mac feeds of the two architectures, then signs every latest*.yml with
+  # TAU_RELEASE_SIGNING_KEY; installed hosts refuse a feed without the .sig (docs/host-updates.md).
+  # A branch's dry run has no key and stays unsigned. Waits for verify when that runs.
   sign:
-    needs: [gate, build]
+    needs: [gate, build, verify]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: ubuntu-24.04
     environment: ${{ needs.gate.outputs.environment }}
     timeout-minutes: 10
@@ -313,11 +548,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
+      # One folder per build: both Mac builds wrote a latest-mac.yml.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: feed-*
-          path: feed
-          merge-multiple: true
+          path: feeds-by-build
+      - name: Merge the Mac feeds
+        run: node scripts/packaging/merge-feeds.mjs feeds-by-build feed
       - id: sign
         name: Sign the update feeds
         shell: bash
@@ -340,21 +577,20 @@ jobs:
           node scripts/packaging/release-signing.mjs sign feed/latest*.yml
           # Fails when the secret is not a key this commit's hosts trust.
           node scripts/packaging/release-signing.mjs check feed/latest*.yml
-          echo "signed=true" >> "$GITHUB_OUTPUT"
-      - if: steps.sign.outputs.signed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      # The feeds a release publishes, with their .sig files once signed.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tau-signatures
+          name: tau-feeds
           if-no-files-found: error
           retention-days: 1
-          path: feed/latest*.yml.sig
+          path: feed/latest*
 
   # The release goes to two places: Rasalas/tau (tag, generated notes, every
   # file), and the public Rasalas/tau-releases, where installed apps and
   # install:mac read. Only tau-releases gets the fixed download names.
   release:
-    needs: [gate, build, sign]
-    if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
+    needs: [gate, sign, android]
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.android.result == 'success' && needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish) }}
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 20
@@ -367,7 +603,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      # tau-<platform> and tau-signatures; the feed-* copies are not needed again.
+      # tau-<platform>, tau-android and tau-feeds (the merged, signed feeds).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: tau-*
@@ -440,8 +676,8 @@ jobs:
   # reads Rasalas/tau's tag; an installed Tau on the nightly channel reads
   # tau-releases' latest*.yml.
   nightly:
-    needs: [gate, build, sign]
-    if: needs.gate.outputs.nightly == 'true'
+    needs: [gate, sign]
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.gate.outputs.nightly == 'true' }}
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 20
@@ -524,3 +760,33 @@ jobs:
             const { PUBLIC_REPO, publishDraft, releaseFiles } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
             const url = await publishDraft(github, { ...PUBLIC_REPO, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles("artifacts"), latest: false });
             core.notice(`Published ${url}`);
+
+  # The App Bundle of a published release to Play's internal testing track, once the
+  # secret PLAY_SERVICE_ACCOUNT_JSON exists (docs/RELEASE.md, "Phone apps").
+  play:
+    needs: [gate, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: play-bundle
+          path: play
+      - name: Upload to Google Play (internal testing)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "::notice::PLAY_SERVICE_ACCOUNT_JSON is not set; the App Bundle was not uploaded to Play. It stays in the run's play-bundle artifact for a day."
+            exit 0
+          fi
+          version="$(node -p 'require("./package.json").version')"
+          node scripts/packaging/play-upload.mjs "play/Tau-$version.aab" --version "$version" --track internal

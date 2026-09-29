@@ -42,6 +42,9 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- No Firebase token before the user allows notifications; register() turns it on. -->
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
     </application>
 
     <!-- Permissions -->

@@ -1,0 +1,17 @@
+version: 0.7.14
+files:
+  - url: Tau-0.7.14-mac.zip
+    sha512: xkDBIXvqnNvTd0s1fpe0dbQ28F+3i2unTS+08en7TaqytXbsS7qlqDD2GknHbB4t3TF8Lu6uoUkX4kC9nrsISw==
+    size: 248970973
+  - url: Tau-0.7.14-arm64-mac.zip
+    sha512: SqKEqeZx1Da34ON7MjxhNvFILg6RmY4KC504PJDNIUOlH++sR+c16pwxVolIR5xuSZv8oW0VW0diA7kLu4jS5A==
+    size: 240963222
+  - url: Tau-0.7.14.dmg
+    sha512: 2Pr2tabLgQ+uy5/iChTq6lwOq/UGJ91RWGH5JZG09WuSioQc8wGRZtVm5R44Rr1xcbpjZWdarh50A/z5sBUlJQ==
+    size: 239396758
+  - url: Tau-0.7.14-arm64.dmg
+    sha512: 6XBsgNEOsCny2HWm7WGSGHW+kw06L/Qb8reREqM7314Nmb3YpGQXALYvj57BfxlOcyXf0ge5CxzhIMvrTE566Q==
+    size: 231414358
+path: Tau-0.7.14-mac.zip
+sha512: xkDBIXvqnNvTd0s1fpe0dbQ28F+3i2unTS+08en7TaqytXbsS7qlqDD2GknHbB4t3TF8Lu6uoUkX4kC9nrsISw==
+releaseDate: '2026-09-29T19:38:15.002Z'

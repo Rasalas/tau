@@ -12,7 +12,7 @@ const TAU_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 describe("screenshot scenarios", () => {
   it("names each shot once, the ones the website uses", () => {
-    expect(SHOT_NAMES).toEqual(["reviews", "workbench", "juicebars", "threads", "stage", "runtimes", "usage", "kits", "machines", "phone"]);
+    expect(SHOT_NAMES).toEqual(["reviews", "workbench", "juicebars", "threads", "stage", "runtimes", "usage", "kits", "machines", "phone", "phone-thread", "phone-reviews", "phone-diff", "phone-terminal", "phone-usage"]);
     for (const shot of SHOTS) {
       expect(["desktop", "phone"]).toContain(shot.device);
       expect(typeof shot.run).toBe("function");
@@ -31,6 +31,9 @@ describe("screenshot scenarios", () => {
     expect(() => parseArgs(["--out", "x", "--theme", "blue"])).toThrow(/light, dark or both/u);
     expect(parseArgs(["--out", "x", "--theme", "both", "--format", "webp"])).toMatchObject({ theme: "both", format: "webp" });
     expect(() => parseArgs(["--out", "x", "--format", "gif"])).toThrow(/png or webp/u);
+    expect(parseArgs(["--out", "x"]).phone).toBe("iphone");
+    expect(parseArgs(["--out", "x", "--phone", "android-store"]).phone).toBe("android-store");
+    expect(() => parseArgs(["--out", "x", "--phone", "iphone-landscape"])).toThrow(/--phone is one of/u);
   });
 
   it("names a run's files by theme and size", () => {

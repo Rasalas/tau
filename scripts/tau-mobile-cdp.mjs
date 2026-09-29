@@ -29,6 +29,8 @@ export const DEVICES = {
   ipad: { width: 820, height: 1180, deviceScaleFactor: 2, insets: { top: 24, bottom: 20, left: 0, right: 0 }, userAgent: IPAD_UA, platform: "iPad" },
   "ipad-landscape": { width: 1180, height: 820, deviceScaleFactor: 2, insets: { top: 24, bottom: 20, left: 0, right: 0 }, userAgent: IPAD_UA, platform: "iPad" },
   android: { width: 412, height: 915, deviceScaleFactor: 2.625, insets: { top: 24, bottom: 0, left: 0, right: 0 }, userAgent: ANDROID_UA, platform: "Linux armv8l" },
+  // 9:16 at 1080 × 1920: Play refuses phone screenshots longer than twice their width.
+  "android-store": { width: 432, height: 768, deviceScaleFactor: 2.5, insets: { top: 24, bottom: 0, left: 0, right: 0 }, userAgent: ANDROID_UA, platform: "Linux armv8l" },
 };
 
 const USAGE = `usage: tau-mobile-cdp.mjs <command> [...args]

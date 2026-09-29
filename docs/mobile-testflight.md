@@ -1,7 +1,9 @@
 # Tau on your iPhone through TestFlight
 
 The app in `mobile/` is built for the simulator by the repository's scripts and never
-signed there. To use it on your own iPhone you sign it with your Apple Developer account,
+signed there. Every release from 0.7.16 on uploads Tau's own build to TestFlight and
+Play's internal testing by itself ([RELEASE.md](RELEASE.md#phone-apps)); this guide is
+for a build of your own. To use it on your own iPhone you sign it with your Apple Developer account,
 upload it to App Store Connect and install it with TestFlight. Internal testing needs no
 App Review; the build is available to you minutes after processing.
 
@@ -195,7 +197,11 @@ was used in the last three minutes, the notification appears there instead.
 
 ## Android
 
-There is no Play Store build yet. For your own phone: `node mobile/scripts/native-build.mjs
-android` writes a debug APK (`mobile/android/app/build/outputs/apk/debug/app-debug.apk`),
-which `adb install` puts on a phone with USB debugging on. A Play Store build needs your
-own upload key in Android Studio (**Build → Generate Signed App Bundle**).
+Each release carries a signed APK,
+[`Tau-android.apk`](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-android.apk),
+for installing without a store, and sends the App Bundle to Play's internal testing
+([RELEASE.md](RELEASE.md#phone-apps)). For a build of your own:
+`node mobile/scripts/native-build.mjs android` writes a debug APK
+(`mobile/android/app/build/outputs/apk/debug/app-debug.apk`), which `adb install` puts on
+a phone with USB debugging on; a signed release build needs an upload key of your own
+(RELEASE.md, "A signed build on this Mac").
