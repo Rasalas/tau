@@ -3,11 +3,12 @@ import react from "@vitejs/plugin-react";
 import { dedupeLegalComments } from "./vite.legal-comments";
 import { stripIconKeys } from "./vite.icon-keys";
 import { packIconSet } from "./vite.icon-set";
+import { mangleForGzip } from "./vite.mangle";
 import { rendererBuild } from "./vite.renderer-build";
 import { thirdPartyLicenses } from "./vite.third-party-licenses";
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), thirdPartyLicenses()],
+  plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), mangleForGzip(), thirdPartyLicenses()],
   base: "./",
   build: {
     outDir: "dist",

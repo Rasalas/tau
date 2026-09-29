@@ -317,7 +317,8 @@ Two transports implement this. Electron IPC uses two channels, `tau:request` and
 `tau:host-event`; `src/main/ipc-contract.test.ts` checks that the client and the
 method table name the same methods. The socket transport (`ws`) serves the same
 table on `TAU_HOST_LISTEN=host:port`; every hello repeats a token, and a wrong
-one, or a request before a hello, closes the connection with 4401. Without TLS
+one closes the connection with 4401. A frame the host cannot read closes it with
+4400 `malformed frame`, a request before a hello with 4400 `hello first`. Without TLS
 the token is unencrypted on the wire, so a plaintext listener refuses a
 non-loopback address unless `TAU_HOST_INSECURE=1` says otherwise; with TLS
 (below) any interface is fine.
@@ -495,6 +496,21 @@ that expired unused), `revoked`, `token-rotated`. The socket client hands it
 to `onUnauthorized` and stops reconnecting. A window's own process re-reads its
 supervised host's token file once after a 4401 and tries again, which is how
 it follows a rotation.
+
+Only a 4401 with one of those three reasons refuses a token
+(`tokenRefused`, `src/shared/host-transport.ts`), and only then does a browser
+or the app forget the token it stored. A 4400 is the frame's fault, not the
+token's: a proxy, a bad link or a client bug can garble a frame. Every client
+treats it as a drop, keeps its token and reconnects with backoff; an open
+socket does not reset the backoff, only an answered hello does, so a host that
+closes every hello is not hammered. Across versions:
+
+- Hosts up to 0.7.13 closed a malformed frame, and a request before a hello,
+  with 4401 `malformed frame` and 4401 `unauthorized`. Clients from 0.7.14 read
+  4401 `malformed frame`, and a 4401 with any reason not listed above, as a
+  drop. They never send a request before their hello.
+- Clients up to 0.7.13 stop on every 4401 and reconnect on any other code, so
+  they meet a newer host's 4400 as a drop and keep their token.
 
 A Full token is not a sandbox: a device that holds one may call every method a
 workbench uses, including the ones that open a workspace or a terminal. A client
@@ -812,7 +828,7 @@ process keeps the rest:
   (`bufferedAmount` shrank since the last check): the ping waits behind it. Its addresses are tried in turn,
   the one that answered last first, then loopback, LAN, `.local`, Tailscale and
   MagicDNS; an unreachable machine is tried after 1, 2, 5, 10, then every 30 s.
-  4401 is final (the token was revoked or expired there), and so is a key
+  A refused token (4401, see above) is final, and so is a key
   other than the pinned one. Each address is trusted on its own: pinned to the
   key, or checked by chain and name where the host flagged a CA. After a hello
   that a certificate pin let in, that pin becomes a key pin.

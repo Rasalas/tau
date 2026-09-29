@@ -1,0 +1,48 @@
+/* Loaded with the curtain's chunk, which the idle preload fetches (deferred-surfaces.ts). */
+/* Reload is a full lifecycle boundary, so the curtain hides stale UI until the new bundle owns the window.
+   It is Tau's splash, so it wears the mark (`--brand`, the τ of assets/icon/tau-glyph.svg), not the accent. */
+.reload-curtain {
+  position: fixed; inset: 0; z-index: 1000;
+  display: grid; place-content: center; justify-items: center;
+  overflow: hidden; cursor: progress;
+  background:
+    radial-gradient(circle at 50% 46%, var(--reload-core) 0, var(--reload-halo) 20%, transparent 48%),
+    var(--shell);
+  color: var(--ink);
+}
+.reload-curtain::before {
+  content: ""; position: absolute; inset: -20%; opacity: .2;
+  background: repeating-radial-gradient(circle at center, transparent 0 42px, color-mix(in srgb, var(--brand) 4%, transparent) 43px 44px);
+  animation: reload-field 4s ease-in-out infinite;
+}
+.reload-mark { position: relative; width: 176px; height: 176px; margin-bottom: 34px; }
+.reload-orbit, .reload-pulse, .reload-constant { position: absolute; border-radius: 50%; }
+.reload-orbit { border: 1px solid color-mix(in srgb, var(--brand-ink) 25%, transparent); }
+.reload-orbit::after {
+  content: ""; position: absolute; left: 50%; top: -4px;
+  width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%;
+  background: var(--brand); box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 73%, transparent);
+}
+.reload-orbit-outer { inset: 0; border-left-color: transparent; animation: reload-orbit 4.8s linear infinite; }
+.reload-orbit-inner { inset: 22px; border-right-color: transparent; animation: reload-orbit 3.2s linear infinite reverse; }
+.reload-pulse {
+  inset: 39px; background: color-mix(in srgb, var(--brand) 7%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 14%, transparent);
+  box-shadow: 0 0 52px color-mix(in srgb, var(--brand) 9%, transparent); animation: reload-breathe 1.55s cubic-bezier(.4, 0, .2, 1) infinite;
+}
+.reload-constant {
+  inset: 50px; display: grid; place-content: center; justify-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); background: var(--reload-panel);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--brand) 4%, transparent), 0 12px 45px var(--shadow-strong);
+}
+.reload-glyph { width: 34px; height: 34px; color: var(--brand-ink); }
+.reload-constant small { margin-top: 5px; color: var(--muted); font: 500 9px var(--mono); letter-spacing: .16em; }
+.reload-curtain p { position: relative; margin: 0 0 8px; color: var(--brand-ink); font-weight: 600; }
+.reload-curtain h2 { position: relative; margin: 0; color: var(--ink-2); font: 400 15px var(--sans); }
+.reload-ellipsis { display: inline-block; width: 12px; color: var(--muted); animation: blink 1s ease-in-out infinite; }
+@keyframes reload-orbit { to { transform: rotate(360deg); } }
+@keyframes reload-breathe { 50% { transform: scale(1.22); opacity: .55; } }
+@keyframes reload-field { 50% { transform: scale(1.08); opacity: .32; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .reload-curtain::before, .reload-orbit-outer, .reload-orbit-inner, .reload-pulse, .reload-ellipsis { animation: none; }
+}

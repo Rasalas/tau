@@ -3,6 +3,7 @@ import {
   HOST_CLOSE_CODE,
   HOST_ERROR,
   decodeHostServerFrame,
+  tokenRefused,
   type HostPush,
   type HostResponse,
 } from "../shared/host-transport";
@@ -43,7 +44,7 @@ export interface HostSocket {
 
 export interface SocketTransportOptions {
   /**
-   * The host refused the token. Retrying cannot help, so the transport stops
+   * The host refused the token (`tokenRefused`). Retrying cannot help, so the transport stops
    * and the client asks for another one instead of reconnecting forever.
    * `reason` is `ACCESS_CLOSE_REASON`'s: refused, revoked or rotated away.
    */
@@ -103,7 +104,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   let probe: Probe | undefined;
   /** Set once this socket's hello was answered by a host that answers pings. */
   let heartbeat = false;
-  /** A hello went out on the current socket; the host refuses any frame before one (4401). */
+  /** A hello went out on the current socket; the host closes on any frame before one (4400). */
   let greeted = false;
   /** Frames the current socket delivered. */
   let received = 0;
@@ -182,11 +183,13 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     failPending("The host connection dropped.");
     for (const listener of closeListeners) listener();
     if (closed) return;
-    if (code === HOST_CLOSE_CODE.unauthorized || code === HOST_CLOSE_CODE.forbiddenOrigin) {
+    // Anything short of an explicit refusal (a malformed frame included) keeps the token and retries.
+    const refused = tokenRefused(code, reason);
+    if (refused || code === HOST_CLOSE_CODE.forbiddenOrigin) {
       closed = true;
       stopWakes?.();
       setLink({ phase: "closed" });
-      if (code === HOST_CLOSE_CODE.unauthorized) options?.onUnauthorized?.(reason ?? "");
+      if (refused) options?.onUnauthorized?.(reason!);
       else options?.onOriginRefused?.();
       return;
     }
@@ -239,7 +242,6 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     connectTimer = setTimeout(() => { if (socket === current && current.readyState !== SOCKET_OPEN) abandon(); }, SOCKET_CONNECT_TIMEOUT_MS);
     current.onopen = () => {
       clearTimeout(connectTimer);
-      delayMs = RECONNECT_MIN_MS;
       received = 0;
       // A socket that opened contradicts an `offline` that no `online` followed.
       offline = false;
@@ -302,6 +304,8 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     }
     if (frame.type === "hello-reply") {
       clearTimeout(helloTimer);
+      // Not at open: a host that closes every hello (a protocol error) must meet a growing backoff.
+      delayMs = RECONNECT_MIN_MS;
       if (!heartbeat && frame.reply.capabilities.includes(HOST_CAPABILITY.heartbeat)) {
         heartbeat = true;
         heartbeatTimer = setInterval(() => sendProbe(HEARTBEAT_TIMEOUT_MS), HEARTBEAT_INTERVAL_MS);
