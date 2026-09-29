@@ -32,6 +32,9 @@ const RUNTIME_PROPERTIES = [
   "--menu-shift-x",
   "--menu-shift-y",
   "--composer-inset",
+  // How far Run on rises over the composer and moves to its edge (kits/environments/run-on.tsx).
+  "--run-on-up",
+  "--run-on-left",
   // The unfolded dock's height, kept free at the transcript's end (components/ComposerReserve.tsx).
   "--composer-reserve",
   // The chat's width beside the stage, from its divider (Workbench.tsx).
