@@ -122,7 +122,12 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
       if (!sessionId || !hostAvailable() || (listed && !state.supportStale)) return;
       let cancelled = false;
       workspaceStore.host.checkpoints(sessionId)
-        .then((list) => { if (!cancelled) store.loaded(sessionId, list); })
+        .then((list) => {
+          if (cancelled) return;
+          store.loaded(sessionId, list);
+          // The host may have read an old record again; the rail's stat follows it.
+          for (const checkpoint of list.checkpoints) workspaceStore.recordTurnStat(sessionId, turnStatOf(checkpoint));
+        })
         .catch((error) => { if (!cancelled) actions.notify(errorMessage(error)); });
       return () => { cancelled = true; };
     }, [actions, listed, state.supportStale, sessionId]);

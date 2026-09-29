@@ -12,7 +12,7 @@ import {
   recordedAttribution,
   reflogStepKind,
 } from "./turn-attribution.js";
-import { attributeSnapshotPair, pageAttribution } from "./workspace-kit-checkpoints.js";
+import { attributeSnapshotPair, pageAttribution, reviseLegacyCheckpoint } from "./workspace-kit-checkpoints.js";
 import { createTurnWorkspaceSnapshot, diffWorkspaceSnapshotPage, diffWorkspaceSnapshots, type WorkspaceSnapshot } from "./workspace-git.js";
 import { boundedTurnCheckpointSummary, parseStoredTurnCheckpoint, turnSnapshotRef } from "./turn-checkpoint-codec.js";
 import type { StoredTurnCheckpoint, TurnChangesSummary } from "./turn-checkpoint-types.js";
@@ -215,6 +215,39 @@ describe("turn attribution when HEAD moves", () => {
     expect(summary.headMove?.excludedFileCount).toBe(6);
     // Outside the turn's time the reflog says nothing about it.
     expect(legacyHeadMove(reflog!, endedAt + 5_000, endedAt + 10_000)).toBeUndefined();
+  });
+
+  it("revises a stored record without HEAD, and says the branch changed once its refs are gone", async () => {
+    const cwd = await repo();
+    await stageBranch(cwd, 7);
+    await new Promise((resolve) => setTimeout(resolve, 1_000 - (Date.now() % 1_000) + 20));
+    const startedAt = Date.now();
+    const { summary, before, after, turnId } = await runTurn(cwd, async () => {
+      await writeFile(join(cwd, "notes.md"), "agent\n");
+      git(cwd, "switch", "-q", "stage");
+    });
+    const endedAt = Date.now();
+    const full = await diffWorkspaceSnapshots(cwd, before.id, after.id);
+    // What an older Tau wrote: the whole tree diff and no HEAD.
+    const legacy = parseStoredTurnCheckpoint({
+      id: turnId, turnId, sessionId: "session", anchorMessageId: "answer",
+      beforeSnapshotId: before.id, afterSnapshotId: after.id, startedAt, endedAt,
+      ...boundedTurnCheckpointSummary(full),
+    }, "session")!;
+    expect(legacy.fileCount).toBe(8);
+    expect(legacy.head).toBeUndefined();
+    const reflog = await readHeadReflog(cwd);
+
+    const revised = await reviseLegacyCheckpoint(cwd, legacy, reflog);
+    expect(revised.fileCount).toBe(1);
+    expect(revised.files.map((file) => file.path)).toEqual(["notes.md"]);
+    expect(revised.headMove).toEqual(summary.headMove);
+    expect(await reviseLegacyCheckpoint(cwd, { ...legacy, startedAt: endedAt + 5_000, endedAt: endedAt + 9_000 }, reflog)).toMatchObject({ fileCount: 8 });
+    expect(await reviseLegacyCheckpoint(cwd, revised, reflog)).toBe(revised);
+
+    git(cwd, "update-ref", "-d", before.id);
+    const orphaned = await reviseLegacyCheckpoint(cwd, legacy, reflog);
+    expect(orphaned).toMatchObject({ fileCount: 0, files: [], headMove: { kind: "unknown", uncertainFileCount: 8 } });
   });
 });
 

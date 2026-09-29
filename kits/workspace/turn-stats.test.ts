@@ -20,6 +20,21 @@ describe("turn stats", () => {
     expect(Object.keys(stats).sort()).toEqual(["b", "c"]);
   });
 
+  it("lets a revised record replace or clear its own turn's stat", async () => {
+    let stats = recordTurnStat({}, "a", stat(4, 251));
+    stats = recordTurnStat(stats, "a", stat(4, 1));
+    expect(stats.a?.files).toBe(1);
+    stats = recordTurnStat(stats, "a", stat(4, 0));
+    expect(stats.a).toBeUndefined();
+
+    const writes: string[] = [];
+    const scheduled: Array<() => void> = [];
+    const file = createTurnStatsFile({ read: async () => JSON.stringify({ a: stat(4, 251) }), write: async (text) => { writes.push(text); }, schedule: (run) => scheduled.push(run) });
+    await file.record("a", stat(4, 0));
+    scheduled.forEach((run) => run());
+    expect(JSON.parse(writes[0]!)).toEqual({});
+  });
+
   it("ignores a file that is not a stat map", () => {
     expect(parseTurnStats("{nope")).toEqual({});
     expect(parseTurnStats(JSON.stringify({ a: stat(1), b: { added: "x" } }))).toEqual({ a: stat(1) });

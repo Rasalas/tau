@@ -31,9 +31,11 @@ import {
   TURN_RESTORE_BACKUP_CUSTOM_TYPE,
   TURN_RESTORE_TRANSACTION_CUSTOM_TYPE,
 } from "./turn-checkpoint-codec.js";
+import { readHeadReflog, type ReflogEntry } from "./turn-attribution.js";
 import {
   createWorkspaceKitCheckpointFeature,
   createWorkspaceKitCheckpointMaintenance,
+  reviseLegacyCheckpoint,
   type WorkspaceKitCheckpointFeature,
   type WorkspaceKitCheckpointMaintenance,
   type WorkspaceKitLiveCheckpointSession,
@@ -53,6 +55,8 @@ export interface WorkspaceKitLifecycleOptions {
   branch?(cwd: string): string | undefined;
   /** Whether a checkpoint's snapshot refs still exist in the workspace; Git by default. */
   hasSnapshotRefs?(cwd: string, checkpoint: StoredTurnCheckpoint): Promise<boolean>;
+  /** An old record read again after a branch change inside its turn. */
+  revised?(sessionId: string, checkpoint: StoredTurnCheckpoint): void;
 }
 
 /** The checkpoint side of Workspace Kit's host entry: capture, restore, recovery and ref upkeep. */
@@ -699,10 +703,35 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     });
   };
 
-  const historical = (sessionId: string, checkpointId: string) => {
+  /** Records without HEAD, read again once each; they never change. */
+  const revisions = new Map<string, Promise<StoredTurnCheckpoint>>();
+  const revise = async (cwd: string, checkpoints: readonly StoredTurnCheckpoint[]): Promise<StoredTurnCheckpoint[]> => {
+    let reflog: Promise<ReflogEntry[] | undefined> | undefined;
+    return Promise.all(checkpoints.map((checkpoint) => {
+      if (checkpoint.head) return checkpoint;
+      const key = `${checkpoint.sessionId}/${checkpoint.id}`;
+      let revision = revisions.get(key);
+      if (!revision) {
+        if (revisions.size >= 5_000) revisions.clear();
+        reflog ??= readHeadReflog(cwd).catch(() => undefined);
+        revision = reflog.then((entries) => reviseLegacyCheckpoint(cwd, checkpoint, entries)).then((next) => {
+          if (next !== checkpoint) {
+            services.log("turn.checkpoint.revised", `${checkpoint.id}: ${checkpoint.fileCount ?? checkpoint.files.length} → ${next.fileCount} files, HEAD moved`);
+            try { options.revised?.(checkpoint.sessionId, next); } catch { /* stats are best effort */ }
+          }
+          return next;
+        }, () => checkpoint);
+        revisions.set(key, revision);
+      }
+      return revision;
+    }));
+  };
+
+  const historical = async (sessionId: string, checkpointId: string) => {
     const thread = services.thread(sessionId);
     if (!thread) throw new Error("That thread is not open any more. Open it again to continue.");
-    const checkpoint = checkpointsOf(thread.entries(), sessionId).find((entry) => entry.id === checkpointId);
+    const recorded = checkpointsOf(thread.entries(), sessionId).find((entry) => entry.id === checkpointId);
+    const checkpoint = recorded ? (await revise(thread.cwd, [recorded]))[0] : undefined;
     const feature = features.get(sessionId)?.feature;
     return { thread, checkpoint, feature };
   };
@@ -894,12 +923,12 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         const stored = (await services.sessions.list()).find((session) => session.sessionId === sessionId);
         if (!stored) return { checkpoints: [], restoreSupported: false };
         return {
-          checkpoints: checkpointsOf(services.sessions.open(stored.path).entries(), sessionId).map(cloneTurnCheckpoint),
+          checkpoints: (await revise(stored.cwd || services.cwd(), checkpointsOf(services.sessions.open(stored.path).entries(), sessionId))).map(cloneTurnCheckpoint),
           restoreSupported: false,
         };
       }
       return {
-        checkpoints: checkpointsOf(thread.entries(), sessionId).map(cloneTurnCheckpoint),
+        checkpoints: (await revise(thread.cwd, checkpointsOf(thread.entries(), sessionId))).map(cloneTurnCheckpoint),
         restoreSupported: thread.backendKind === "pi",
       };
     },
@@ -931,7 +960,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         if (result && typeof result === "object" && Array.isArray((result as { hunks?: unknown }).hunks)) return result as UiFileDiff;
         return { path, added: 0, removed: 0, hunks: [], note: "Pi did not return this historical diff." };
       }
-      const { thread, checkpoint, feature } = historical(sessionId, checkpointId);
+      const { thread, checkpoint, feature } = await historical(sessionId, checkpointId);
       await workspaceGit.assertWorkspacePath(thread.cwd, path);
       if (!checkpoint) return { path, added: 0, removed: 0, hunks: [], note: "This turn checkpoint is no longer available." };
       if (!feature) return { path, added: 0, removed: 0, hunks: [], note: "Turn checkpoint history is unavailable." };
@@ -949,7 +978,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         }
         return page as UiWorkspaceChangesPage;
       }
-      const { thread, checkpoint, feature } = historical(sessionId, checkpointId);
+      const { thread, checkpoint, feature } = await historical(sessionId, checkpointId);
       if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
       if (!feature) throw new Error("Turn checkpoint history is unavailable.");
       return feature.historicalFiles(thread.cwd, checkpoint, cursor, limit);

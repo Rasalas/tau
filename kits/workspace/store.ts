@@ -714,7 +714,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** A turn ended: one that changed files replaces the thread's stat, one that changed none leaves it. */
   recordTurnStat(sessionId: string, stat: TurnStat): void {
     const turnStats = recordTurnStat(this.state.turnStats, sessionId, stat);
-    if (turnStats[sessionId] === stat) this.update({ turnStats });
+    if (turnStats[sessionId] !== this.state.turnStats[sessionId]) this.update({ turnStats });
   }
 
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {

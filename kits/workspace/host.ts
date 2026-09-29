@@ -634,6 +634,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         },
         git,
         branch: (project) => labels.get(project),
+        revised: (sessionId, checkpoint) => void turnStats.record(sessionId, turnStatOf(checkpoint)),
       });
       const disposers = [
         services.describeProjects({

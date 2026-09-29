@@ -10,11 +10,16 @@ export function turnStatOf(checkpoint: Pick<UiTurnCheckpoint, "added" | "removed
 
 /**
  * The newest file-changing turn per thread. A turn that changed nothing
- * leaves the thread's last stat alone; the oldest threads drop off at `limit`.
+ * leaves the thread's last stat alone, unless it is that same turn read
+ * again (a revised record); the oldest threads drop off at `limit`.
  */
 export function recordTurnStat(stats: Readonly<Record<string, TurnStat>>, sessionId: string, stat: TurnStat, limit = TURN_STATS_LIMIT): Record<string, TurnStat> {
-  if (stat.files === 0) return { ...stats };
   const previous = stats[sessionId];
+  if (stat.files === 0) {
+    const next = { ...stats };
+    if (previous?.at === stat.at) delete next[sessionId];
+    return next;
+  }
   if (previous && previous.at > stat.at) return { ...stats };
   const next = { ...stats, [sessionId]: stat };
   const ids = Object.keys(next);
@@ -54,7 +59,7 @@ export function createTurnStatsFile(io: { read(): Promise<string | undefined>; w
     async record(sessionId: string, stat: TurnStat): Promise<void> {
       const current = await load();
       stats = recordTurnStat(current, sessionId, stat);
-      if (stats[sessionId] !== stat) return;
+      if (stats[sessionId] === current[sessionId]) return;
       dirty = true;
       io.schedule(flush);
     },
