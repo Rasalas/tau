@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Must equal RELEASE_PUBLIC_KEYS in src/shared/release-keys.ts; a test checks. */
-export const RELEASE_PUBLIC_KEYS = [];
+export const RELEASE_PUBLIC_KEYS = ["8hB4AtWuF6uBYObUdffh+1Ib9FMY5S8RCqm0RRp2Smg="];
 export const PACKAGE = "tau";
 export const APP_UPDATE_FILE = "/opt/Tau/resources/app-update.yml";
 export const ADMIN_CONFIG = "/etc/tau/update-helper.json";
@@ -127,10 +127,10 @@ export function parseReleaseInfo(text) {
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
+/** One base64 signature per line; any line by any listed key will do (verifyReleaseSignature in release-feed.ts). */
 export function verifySignature(text, signature, keys) {
-  const bytes = Buffer.from(String(signature).trim(), "base64");
-  if (bytes.length !== 64) return false;
-  return keys.some((key) => {
+  const signatures = String(signature).split(/\s+/u).filter(Boolean).map((line) => Buffer.from(line, "base64")).filter((bytes) => bytes.length === 64);
+  return signatures.some((bytes) => keys.some((key) => {
     try {
       const publicKey = key.includes("-----BEGIN")
         ? createPublicKey({ key, format: "pem" })
@@ -139,7 +139,7 @@ export function verifySignature(text, signature, keys) {
     } catch {
       return false;
     }
-  });
+  }));
 }
 
 const DEB_TO_INFO = { amd64: "latest-linux.yml", arm64: "latest-linux-arm64.yml" };

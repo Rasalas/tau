@@ -50,8 +50,10 @@ the release order that keeps a wrong pairing from shipping.
 
 `.github/workflows/release.yml` runs on any `v*.*.*` tag. It builds on three
 runners — macOS (arm64 and x64 on the same runner), Linux x64, Windows x64 —
-with `--publish never`, then one job attaches every artifact to a single GitHub
-Release named after the tag.
+with `--publish never`. A `sign` job signs each platform's `latest*.yml` with
+the secret `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)), then one
+job attaches every artifact and the `.sig` files to a single GitHub Release
+named after the tag. Without the secret the run fails before it builds.
 
 The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
@@ -76,9 +78,15 @@ gh run download --dir /tmp/artifacts
 The `release` job stays skipped unless the ref is a tag starting with `v` or
 `publish` is `true`, so a dispatch with `publish=false` cannot attach anything
 to a GitHub Release; the three `tau-*` artifacts (and `latest*.yml`) land as
-workflow run artifacts instead, good for a week. The `push` trigger above only
+workflow run artifacts instead, good for a day. The `push` trigger above only
 ever delivers `v*.*.*` tags; the `v`-prefix check on `release` is what keeps a
 `workflow_dispatch` run against some other tag from also publishing.
+
+The `sign` job runs in a dry run too. With the secret it signs the three
+feeds, checks them against the keys the branch ships, and uploads
+`tau-signatures`, so a dry run also shows that the secret matches the
+listed key. Without the secret it warns and leaves the feeds unsigned. A
+missing `latest*.yml` fails the job either way.
 
 A build job that fails uploads a `tau-<platform>-diagnostics` artifact
 alongside it — `release/builder-debug.yml` (electron-builder's own verbose
@@ -261,10 +269,10 @@ verifies the file its install takes, and installs it when no turn runs; the
 Settings → About and Settings → Machines show each machine's version and
 offer Update now; `tau update` and `tau machines update` do the same from a
 terminal. [host-updates.md](host-updates.md) describes it, the helper, the
-threat model, and the step the release workflow needs to sign the feed
-(`latest*.yml.sig`, Ed25519). The Linux job's check of the `.deb` should also
-look for `./opt/Tau/bin/tau-update-helper` and
-`./opt/Tau/resources/polkit/de.tbuck.tau.update.policy`.
+threat model and the release signature (`latest*.yml.sig`, Ed25519) that
+both require. The Linux job's check of the `.deb` looks for the helper, the
+script it runs and the three polkit files, and checks that `postinst`
+installs the polkit action.
 
 `Rasalas/tau` is private today, so the updater's request for the release feed
 comes back as a 404 and every check fails with it (visible in
@@ -403,6 +411,8 @@ Before switching it on, know what it costs and needs:
   `tau-macos` runners. Days without commits cost one short gate job.
 - While `Rasalas/tau` is private, an installed Tau cannot read the nightly
   feed either (404, as for stable).
+- A nightly is signed like a release and fails without
+  `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)).
 - The tag `nightly` must stay movable: do not enable *immutable releases* for
   the repository, and do not put `nightly` under a tag ruleset or protection
   that forbids deleting it.
@@ -565,6 +575,20 @@ extension code it compiled itself.
 Windows signing is not wired up. Adding it means a `win.signtoolOptions` (or
 Azure Trusted Signing) block and the same unset-if-empty treatment for its
 secrets.
+
+### Update feeds
+
+Separate from code signing, and not optional: every `latest*.yml` a release
+publishes carries a `latest*.yml.sig`, and a host or the Linux update helper
+refuses a feed without one ([host-updates.md](host-updates.md#release-signing)).
+
+| Secret | What it is |
+|---|---|
+| `TAU_RELEASE_SIGNING_KEY` | the Ed25519 private key (PKCS#8 PEM) whose public key is in `src/shared/release-keys.ts` and `bin/tau-update-helper.mjs`; during a rotation, two PEM blocks |
+
+Only the `sign` job reads it. The job fails when the secret signs with a key
+the commit does not list, so a wrong secret cannot publish feeds that every
+host would refuse. How to rotate the key: [host-updates.md](host-updates.md#rotating-the-key).
 
 ## What ships, and what has to stay outside the archive
 

@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostUpdateStatus } from "../shared/host-updates.js";
+import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostUpdater, createUpdateMethods, localWindowUpdatePort, type HostUpdaterOptions, type WindowUpdatePort } from "./host-updater.js";
+import { releaseKeysFor } from "./release-feed.js";
 import type { StagedUpdate, UpdateInstaller } from "./update-installers.js";
 
 const FEED = { owner: "Rasalas", repo: "tau" };
@@ -185,6 +187,29 @@ describe("HostUpdater", () => {
       const { instance } = updater({ fetch: feed.fetch, installer, releaseKeys: [raw] });
       expect((await instance.install()).phase).toBe(entry.phase);
     }
+  });
+
+  it("refuses an unsigned or foreign-signed feed with the keys this build ships", async () => {
+    const throwaway = generateKeyPairSync("ed25519").privateKey;
+    const keys = releaseKeysFor({}, RELEASE_PUBLIC_KEYS);
+    expect(keys).toEqual(RELEASE_PUBLIC_KEYS);
+    for (const signWith of [undefined, (text: string) => sign(null, Buffer.from(text), throwaway).toString("base64")]) {
+      const feed = fakeFeed("0.7.14", signWith ? { sign: signWith } : {});
+      const { installer, installed } = fakeInstaller();
+      const { instance } = updater({ fetch: feed.fetch, installer, releaseKeys: keys });
+      const status = await instance.install();
+      expect(status.phase).toBe("failed");
+      expect(status.reason).toMatch(/signature|release key/u);
+      expect(feed.requests.some((url) => url.endsWith(".deb"))).toBe(false);
+      expect(installed).toHaveLength(0);
+    }
+  });
+
+  it("trusts a test feed's own key only for a test feed", () => {
+    const test = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
+    expect(releaseKeysFor({ TAU_UPDATE_FEED_URL: LOCAL, TAU_UPDATE_FEED_KEY: test }, RELEASE_PUBLIC_KEYS)).toEqual([test]);
+    expect(releaseKeysFor({ TAU_UPDATE_FEED_KEY: test }, RELEASE_PUBLIC_KEYS)).toEqual(RELEASE_PUBLIC_KEYS);
+    expect(releaseKeysFor({ TAU_UPDATE_FEED_URL: LOCAL }, RELEASE_PUBLIC_KEYS)).toEqual(RELEASE_PUBLIC_KEYS);
   });
 
   it("reads nightly from the moving tag and stable from the latest release", async () => {

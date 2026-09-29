@@ -114,6 +114,17 @@ describe("tau-update-helper", () => {
     await expect(installUpdate({ argv: ARGS, system, keys: [raw] })).resolves.toMatchObject({ version: "0.7.14" });
   });
 
+  it("refuses an unsigned or foreign-signed feed with the keys it ships", async () => {
+    expect(RELEASE_PUBLIC_KEYS.length).toBeGreaterThan(0);
+    const forged = sign(null, Buffer.from(FEED_TEXT), generateKeyPairSync("ed25519").privateKey).toString("base64");
+    await Promise.all([undefined, forged].map(async (signature) => {
+      const { system, runs } = machine(signature ? { signature } : {});
+      await expect(installUpdate({ argv: ARGS, system })).rejects.toMatchObject({ code: EXIT.refused, message: expect.stringMatching(/release key/u) });
+      expect(system.receive).not.toHaveBeenCalled();
+      expect(apt(runs)).toBeUndefined();
+    }));
+  });
+
   it("runs only as root, only where tau is installed, and reports apt's failure", async () => {
     await expect(installUpdate({ argv: ARGS, system: machine({ root: false }).system, keys: [] })).rejects.toMatchObject({ code: EXIT.notRoot });
     await expect(installUpdate({ argv: ARGS, system: machine({ installed: "" }).system, keys: [] })).rejects.toMatchObject({ code: EXIT.refused });
