@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tau · A workbench for coding agents</title>
+<meta name="description" content="Pi, Claude Code, Codex, OpenCode and Gemini in one window: threads side by side, terminal and files beside the chat, reviews for finished work. For macOS, Windows and Linux, with an app for your phone. Free and open source.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1116" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/figtree-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<meta property="og:title" content="Tau · A workbench for coding agents">
+<meta property="og:description" content="Pi, Claude Code, Codex, OpenCode and Gemini in one window. Free and open source.">
+<meta property="og:image" content="https://rasalas.github.io/tau/assets/workbench.webp">
+<script src="downloads.js" defer></script>
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<!-- site-header: build-docs.mjs copies this header into every docs page -->
+<header class="site-header wrap">
+  <a class="brand" href="./"><svg viewBox="0 0 32 32" aria-hidden="true"><rect class="plate" width="32" height="32" rx="7"/><g class="glyph" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 10L22.52 10"/><path d="M15 10L15 19.15C15 21.29 16.74 23.03 18.88 23.03C20.33 23.03 21.04 22.63 22.03 21.94"/></g></svg>Tau</a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="./#download">Download</a>
+    <a href="docs/">Docs</a>
+    <a href="https://tbuck.de/en/project/tau/">The story</a>
+    <a href="https://github.com/Rasalas/tau">Source</a>
+  </nav>
+</header>
+<!-- /site-header -->
+<main id="main">
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <h1 id="hero-title">A workbench for coding agents</h1>
+    <p class="lead">Pi, Claude Code, Codex, OpenCode and Gemini in one window. Threads on the left, the conversation in the middle, terminal, files and preview on the right. Finished work waits in Reviews like a local merge request.</p>
+    <div class="actions">
+      <a class="button" data-download href="https://github.com/Rasalas/tau-releases/releases/latest"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 19h14"/></svg><span data-download-label>Download Tau</span></a>
+      <a class="quiet-link" href="#download">All downloads</a>
+    </div>
+    <p class="note"><span data-download-note>macOS, Windows and Linux</span> · Free and open source (MIT)</p>
+    <figure class="hero-shot">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/workbench-dark-sm.webp 1280w, assets/workbench-dark.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)">
+        <img src="assets/workbench-sm.webp" srcset="assets/workbench-sm.webp 1280w, assets/workbench.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)" width="1280" height="800" alt="Tau's window: the thread list on the left; a thread in the middle where the agent explains the cursor pagination it added; on the right the stage with the thread's changed files and the diff of envelope.ts." fetchpriority="high" decoding="async">
+      </picture></button>
+      <nav class="window-map" aria-label="Parts of the window">
+        <a class="rail" href="#threads">Threads</a>
+        <a class="chat" href="#agents">Conversation</a>
+        <a class="stage" href="#stage">Stage: terminal, files, preview</a>
+      </nav>
+    </figure>
+  </section>
+
+  <section class="feature wrap" id="agents" aria-labelledby="agents-title">
+    <div class="feature-text">
+      <h2 id="agents-title">Every agent, through its official route</h2>
+      <p>Pick the runtime for each thread. Tau starts the tool its maker ships and uses the sign-in you already have there. It never borrows a subscription for a tool it wasn't sold for.</p>
+    </div>
+    <ul class="runtimes">
+      <li><strong>Claude Code</strong>Anthropic's models run in the Claude Code you installed, on your Claude plan. Tau doesn't offer them through Pi with an Anthropic login: Anthropic sells that plan for Claude Code only, and using it elsewhere puts the account at risk.</li>
+      <li><strong>Codex</strong>OpenAI's models through the Codex CLI, on your ChatGPT plan or an API key.</li>
+      <li><strong>Gemini</strong>Through Google's own tool, which is Antigravity right now. Tau can download and update it for you.</li>
+      <li><strong>Pi</strong>The agent you can reshape yourself, with OpenAI, Google, OpenCode Go and other providers.</li>
+      <li><strong>OpenCode, Cursor and Grok</strong>Each through its own command-line tool, with the models its account offers.</li>
+      <li><strong>Your own</strong>Add a custom runtime, or write a kit that brings one along.</li>
+    </ul>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/runtimes-dark-sm.webp 1280w, assets/runtimes-dark.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)">
+        <img src="assets/runtimes-sm.webp" srcset="assets/runtimes-sm.webp 1280w, assets/runtimes.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)" width="1280" height="800" alt="Settings, Runtimes: Pi built in and set as default; Claude Code, Codex, Antigravity, OpenCode, Cursor and Grok installed, each with its version and the providers it talks to." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="feature wrap split tall" id="threads" aria-labelledby="threads-title">
+    <div class="feature-text">
+      <h2 id="threads-title">Every thread in view</h2>
+      <p>The list shows each thread with its project, title, branch, runtime and age, newest first. Press <kbd>/</kbd> to search. Threads that run on your other machines sit in the same list.</p>
+      <p>A thread can work in a Git worktree of its own. Three agents can change one project at once without touching each other's files.</p>
+    </div>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/threads-dark-sm.webp 248w, assets/threads-dark.webp 496w" sizes="(min-width: 600px) 320px, calc(100vw - 32px)">
+        <img src="assets/threads-sm.webp" srcset="assets/threads-sm.webp 248w, assets/threads.webp 496w" sizes="(min-width: 600px) 320px, calc(100vw - 32px)" width="248" height="800" alt="The thread list: threads from shop-api, desk-app, garden-planner and nightly-jobs, each with its branch, the runtime's icon and how long ago it ran." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="feature wrap split reverse" id="stage" aria-labelledby="stage-title">
+    <div class="feature-text">
+      <h2 id="stage-title">Terminal, files and preview beside the chat</h2>
+      <p>The stage opens next to the conversation. A terminal in the thread's folder, the files with the thread's diff, a browser preview of what the agent builds. Split it, maximize it, or open a file in your editor.</p>
+    </div>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/stage-dark-sm.webp 652w, assets/stage-dark.webp 1304w" sizes="(min-width: 1228px) 660px, (min-width: 901px) 54vw, calc(100vw - 32px)">
+        <img src="assets/stage-sm.webp" srcset="assets/stage-sm.webp 652w, assets/stage.webp 1304w" sizes="(min-width: 1228px) 660px, (min-width: 901px) 54vw, calc(100vw - 32px)" width="652" height="500" alt="The stage with a terminal tab: git log shows the thread's branch next to the others, and git status lists the seven files the agent changed." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="feature wrap" id="reviews" aria-labelledby="reviews-title">
+    <div class="feature-text">
+      <h2 id="reviews-title">Check finished work like a merge request</h2>
+      <p>When a thread is done, its branch lands in Reviews with what changed, which model did it and what it cost. Merge it, or send it back to the thread with a note. A branch that conflicts gets a button that asks its thread to rebase.</p>
+    </div>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/reviews-dark-sm.webp 1280w, assets/reviews-dark.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)">
+        <img src="assets/reviews-sm.webp" srcset="assets/reviews-sm.webp 1280w, assets/reviews.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)" width="1280" height="800" alt="Reviews: four branches ready to merge, one with changes requested and a note, one with conflicts and an Ask thread to rebase button; each row shows files changed, model, cost and age." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="feature wrap" id="usage" aria-labelledby="usage-title">
+    <div class="feature-text">
+      <h2 id="usage-title">Know what's left of your plans</h2>
+      <p>Small bars at the foot of the sidebar show your Codex and Claude Code limits, the way <a href="https://rasalas.github.io/juicebar/">Juicebars</a> does in the Mac menu bar. The Usage page adds up what you spent and what your plans would have cost at API prices, including the work you did in the CLIs outside Tau.</p>
+    </div>
+    <div class="media pair">
+      <figure>
+        <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/juicebars-dark-sm.webp 488w, assets/juicebars-dark.webp 976w" sizes="(min-width: 1228px) 330px, (min-width: 901px) 28vw, calc(100vw - 32px)">
+        <img src="assets/juicebars-sm.webp" srcset="assets/juicebars-sm.webp 488w, assets/juicebars.webp 976w" sizes="(min-width: 1228px) 330px, (min-width: 901px) 28vw, calc(100vw - 32px)" width="488" height="398" alt="The limit bars at the foot of the sidebar with their card open: Codex Pro and Claude Code Max, each with a 5-hour and a weekly limit and when it resets." loading="lazy" decoding="async">
+      </picture></button>
+      </figure>
+      <figure>
+        <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/usage-dark-sm.webp 1280w, assets/usage-dark.webp 2560w" sizes="(min-width: 1228px) 830px, (min-width: 901px) 70vw, calc(100vw - 32px)">
+        <img src="assets/usage-sm.webp" srcset="assets/usage-sm.webp 1280w, assets/usage.webp 2560w" sizes="(min-width: 1228px) 830px, (min-width: 901px) 70vw, calc(100vw - 32px)" width="1280" height="324" alt="The Usage page: September's spend and plan value, an activity calendar of the last 90 days and a daily chart split by provider." loading="lazy" decoding="async">
+      </picture></button>
+      </figure>
+    </div>
+  </section>
+
+  <section class="feature wrap" id="machines" aria-labelledby="machines-title">
+    <div class="feature-text">
+      <h2 id="machines-title">Put another computer to work</h2>
+      <p>Pair a second Mac or a Linux box once, with a link or over SSH. Its threads show up in your list, and a new thread can start there. Automatic picks the machine with the most room when you send.</p>
+      <p>Work handed to another machine comes back as a branch. Nothing is pushed to your Git remote on the way. On a server, Tau runs as a service without a window.</p>
+    </div>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/machines-dark-sm.webp 1280w, assets/machines-dark.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)">
+        <img src="assets/machines-sm.webp" srcset="assets/machines-sm.webp 1280w, assets/machines.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)" width="1280" height="800" alt="A new thread's Run on menu with Automatic, MacBook Pro (this machine) and studio (online, idle); the thread list shows studio's threads from the nightly-jobs project." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="feature wrap split tall" id="phone" aria-labelledby="phone-title">
+    <div class="feature-text">
+      <h2 id="phone-title">Answer your agents from your phone</h2>
+      <p>The app for iPhone and Android pairs with your computer through a QR code and shows the same threads. Read along, answer an agent's question, check a review, start the next task.</p>
+      <p>There is no account and no Tau server in between. The phone talks to your computer directly, on your network or over Tailscale, and checks its key on every connection.</p>
+    </div>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/phone-dark-sm.webp 590w, assets/phone-dark.webp 1179w" sizes="(min-width: 600px) 320px, calc(100vw - 32px)">
+        <img src="assets/phone-sm.webp" srcset="assets/phone-sm.webp 590w, assets/phone.webp 1179w" sizes="(min-width: 600px) 320px, calc(100vw - 32px)" width="590" height="1278" alt="Tau on an iPhone: the thread list with the same threads as on the computer, and tabs for Threads, Reviews, Usage and Settings." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="feature wrap" id="kits" aria-labelledby="kits-title">
+    <div class="feature-text">
+      <h2 id="kits-title">Rebuild it yourself</h2>
+      <p>Terminal, files, reviews, usage, even the connection to Claude Code are kits: packages that use the same interface that is open to you. If something bothers you, you don't have to wait for someone else. Write a kit, load it into your Tau, and it's there. Save the file and it reloads.</p>
+      <p class="links"><a href="docs/make-a-change.html">Make your first change</a><a href="docs/extensions.html">Package reference</a></p>
+    </div>
+    <figure class="media">
+      <button class="shot" type="button" data-zoom><span class="sr-only">Enlarge: </span><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/kits-dark-sm.webp 1280w, assets/kits-dark.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)">
+        <img src="assets/kits-sm.webp" srcset="assets/kits-sm.webp 1280w, assets/kits.webp 2560w" sizes="(min-width: 1228px) 1180px, calc(100vw - 32px)" width="1280" height="800" alt="Settings, Extensions: 46 kits bundled with Tau, among them Access Kit, Agents, Antigravity, Appearance, Claude Code, Codex, Composer Context, Computer Use and Cursor, each with a switch." loading="lazy" decoding="async">
+      </picture></button>
+    </figure>
+  </section>
+
+  <section class="download wrap" id="download" aria-labelledby="download-title">
+    <h2 id="download-title">Download Tau</h2>
+    <div class="download-grid">
+      <div>
+        <ul class="download-list" data-download-list>
+          <li><a class="download-row" href="https://github.com/Rasalas/tau-releases/releases/latest"><span class="download-name">All installers on the release page</span><span class="download-meta">macOS, Windows, Linux</span></a></li>
+        </ul>
+        <p class="note"><a data-release-notes href="https://github.com/Rasalas/tau-releases/releases/latest">Release notes</a> · <a href="docs/get-started.html">Getting started</a></p>
+      </div>
+      <div class="updates">
+        <h3>Updates itself</h3>
+        <p>You install Tau once. After that it keeps itself current without a terminal: it looks for a new release every six hours, checks the download against the release's SHA-512 checksum, and installs it when no agent is working.</p>
+        <p>A machine you paired updates the same way, and Settings shows where each one stands.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="thanks wrap" aria-labelledby="thanks-title">
+    <h2 id="thanks-title">Thanks</h2>
+    <p>Tau wouldn't exist without two projects. <a href="https://github.com/earendil-works/pi">Pi</a> gave me the idea that an agent is yours and that you can rebuild it. <a href="https://github.com/pingdotgg/t3code">T3 Code</a> showed how a workbench like this can feel, and I followed it in a lot of places. I have a lot of respect for both teams.</p>
+  </section>
+</main>
+<!-- site-footer: build-docs.mjs copies this footer into every docs page -->
+<footer class="site-footer wrap">
+  <span>Made by <a href="https://tbuck.de/en/">Torben Buck</a>. MIT licence.</span>
+  <nav aria-label="Footer">
+    <a href="docs/">Docs</a>
+    <a href="https://github.com/Rasalas/tau-releases/releases">Releases</a>
+    <a href="https://github.com/Rasalas/tau">Source on GitHub</a>
+    <a href="https://tbuck.de/en/project/tau/">The story</a>
+  </nav>
+</footer>
+<!-- /site-footer -->
+<dialog class="viewer" data-viewer aria-label="Screenshot">
+  <div class="viewer-bar"><p data-viewer-caption></p><button class="viewer-close" type="button"><span class="sr-only">Close</span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div data-viewer-frame></div>
+</dialog>
+</body>
+</html>
