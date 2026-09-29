@@ -374,8 +374,9 @@ function main(argv) {
     return { ...entry, artifacts: new Set(["desktop", "mobile"]), files: existsSync(path) ? [{ name: notice.split("/").pop(), text: readFileSync(path, "utf8").trim() }] : [] };
   });
   const native = nativeLibraries();
-  const ownLicense = existsSync(join(ROOT, "LICENSE")) ? readFileSync(join(ROOT, "LICENSE"), "utf8").trim() : "";
-  const apacheText = /^\s*Apache License\s+Version 2\.0/u.test(ownLicense) ? ownLicense : undefined;
+  // The native Apache-2.0 libraries bring no text of their own; carry the licence once, from a package that ships it.
+  const isApache = (text) => /^\s*Apache License\s+Version 2\.0/u.test(text);
+  const apacheText = packages.flatMap((entry) => entry.files).find((file) => isApache(file.text))?.text;
 
   const markdown = render({ version: manifest.version, packages, bundled, native, apacheText });
   mkdirSync(dirname(out), { recursive: true });
