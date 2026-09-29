@@ -4,16 +4,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizePath, type Plugin } from "vite";
 import type { IconNode } from "lucide-react";
-import { encodeIconSet } from "./src/renderer/icon-set-codec";
+import { encodeIconSet, type IconAliases } from "./src/renderer/icon-set-codec";
 
 const ICON_SET = normalizePath(fileURLToPath(new URL("src/renderer/icon-set.ts", import.meta.url)));
 const CODEC = normalizePath(fileURLToPath(new URL("src/renderer/icon-set-codec.ts", import.meta.url)));
 const EXPORT = /^export \{ default as (\w+) \} from '\.\/([\w-]+)\.mjs';$/gmu;
 const NODE = /const __iconNode = (\[[\s\S]*?\]);\n/u;
+const NAMES = /^export \{ ([^}]+) \} from '\.\/icons\/([\w-]+)\.mjs';$/gmu;
+
+const esmDirectory = () => join(dirname(createRequire(import.meta.url).resolve("lucide-react")), "..", "esm");
 
 /** Each icon of lucide's `icons` export by its file name, without the React keys. */
 export function readLucideIcons(): Record<string, IconNode> {
-  const directory = join(dirname(createRequire(import.meta.url).resolve("lucide-react")), "..", "esm", "icons");
+  const directory = join(esmDirectory(), "icons");
   const icons: Record<string, IconNode> = {};
   for (const [, , file] of readFileSync(join(directory, "index.mjs"), "utf8").matchAll(EXPORT)) {
     const literal = NODE.exec(readFileSync(join(directory, `${file}.mjs`), "utf8"))?.[1];
@@ -25,11 +28,34 @@ export function readLucideIcons(): Record<string, IconNode> {
   return icons;
 }
 
-export function iconSetModule(icons = readLucideIcons()): string {
+/** Each icon file's own export name (`check` → `Check`). */
+function ownNames(): Map<string, string> {
+  const own = new Map<string, string>();
+  for (const [, name, file] of readFileSync(join(esmDirectory(), "icons", "index.mjs"), "utf8").matchAll(EXPORT)) own.set(file!, name!);
+  return own;
+}
+
+/**
+ * The older names lucide's entry still exports for each icon file: every name
+ * but the icon's own and the `…Icon` and `Lucide…` forms of each.
+ */
+export function readLucideAliases(icons: Record<string, IconNode> = readLucideIcons()): IconAliases {
+  const own = ownNames();
+  const aliases: Record<string, string[]> = {};
+  for (const [, list, file] of readFileSync(join(esmDirectory(), "lucide-react.mjs"), "utf8").matchAll(NAMES)) {
+    if (!(file! in icons)) continue;
+    const older = list!.split(", ").map((entry) => entry.replace(/^default as /u, ""))
+      .filter((name) => name !== own.get(file!) && !name.startsWith("Lucide") && !name.endsWith("Icon"));
+    if (older.length > 0) aliases[file!] = older;
+  }
+  return aliases;
+}
+
+export function iconSetModule(icons = readLucideIcons(), aliases = readLucideAliases(icons)): string {
   return [
     'import { createLucideIcon } from "lucide-react";',
     `import { decodeIconSet } from ${JSON.stringify(CODEC)};`,
-    `export const icons = decodeIconSet(${JSON.stringify(encodeIconSet(icons))}, createLucideIcon);`,
+    `export const { icons, aliases } = decodeIconSet(${JSON.stringify(encodeIconSet(icons, aliases))}, createLucideIcon);`,
   ].join("\n");
 }
 
