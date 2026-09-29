@@ -233,8 +233,6 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         if (running.current && !hostIsReadOnly()) void terminalKit.resize({ id, cols: instance.cols, rows: instance.rows }).catch(report);
       };
       refitRef.current = refit;
-      const observer = new ResizeObserver(refit);
-      observer.observe(element);
       const onFocus = () => terminalStore.updateLayout((layout) => focusPane(layout, id));
       instance.textarea?.addEventListener("focus", onFocus);
       const takeFocus = () => {
@@ -243,8 +241,12 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         // A panel pane about to hand its shell to the stage must leave the request to the tab.
         if ((place === "stage") !== isStaged(layout, id)) return;
         instance.focus();
-        terminalStore.focusDone(request.seq);
+        // A view in a panel host not attached yet, or in a hidden tab, cannot take it; the request waits until it is shown.
+        if (element.contains(document.activeElement)) terminalStore.focusDone(request.seq);
       };
+      // Being shown (attached, a tab brought forward, the stage unfolded) resizes the view from nothing.
+      const observer = new ResizeObserver(() => { refit(); takeFocus(); });
+      observer.observe(element);
       const stopFocus = terminalStore.subscribe(takeFocus);
       // A theme switched while the shell is open repaints it, light or dark.
       const stopTheme = watchTheme(() => { if (!disposed && element.isConnected) instance.options.theme = themeFrom(element); });

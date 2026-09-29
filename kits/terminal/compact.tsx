@@ -178,10 +178,6 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const wasActive = useRef(false);
 
   useEffect(() => { terminalServices.actions = actions; }, [actions]);
-  useEffect(() => {
-    terminalStore.setPanelVisible(active);
-    return () => terminalStore.setPanelVisible(false);
-  }, [active]);
   // A shell someone asked to type into (a new one, a restart, another kit's run) comes to the front.
   useEffect(() => { if (focusRequest) setPicked(focusRequest.id); }, [focusRequest]);
   // Another thread's shell shown here goes back to its thread when the thread changes.

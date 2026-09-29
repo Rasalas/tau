@@ -551,21 +551,29 @@ describe("TerminalPanel", () => {
 });
 
 describe("terminal commands", () => {
-  it("toggles the panel with mod+j: shows it with a new shell, then hides the dock", async () => {
+  it("toggles the panel with mod+j: shows it with a new shell, then from that shell hides the dock", async () => {
     const fake = fakeHost();
     const disconnect = connectTerminalHost(fake.host);
     const actions = workbenchActions();
+    const view = document.createElement("div");
     try {
       await toggleTerminal(actions);
       expect(actions.openPanel).toHaveBeenCalledWith(TERMINAL_PANEL);
       expect(fake.invoke).toHaveBeenCalledWith("open", { workspaceId: "workspace-one" });
       expect(terminalStore.getSnapshot().focusRequest?.id).toBe("t1");
 
-      terminalStore.setPanelVisible(true);
+      view.dataset.terminalId = "t1";
+      const input = document.createElement("textarea");
+      view.append(input);
+      document.body.append(view);
+      input.focus();
       await toggleTerminal(actions);
       expect(actions.toggleDock).toHaveBeenCalledOnce();
-      terminalStore.setPanelVisible(false);
+      expect(actions.focusComposer).toHaveBeenCalledOnce();
+      // The request the view never took is dropped with the panel.
+      expect(terminalStore.getSnapshot().focusRequest).toBeUndefined();
     } finally {
+      view.remove();
       disconnect();
     }
   });
@@ -575,13 +583,19 @@ describe("terminal commands", () => {
     const disconnect = connectTerminalHost(fake.host);
     const closePanel = vi.fn();
     const actions = workbenchActions({ closePanel });
+    const view = document.createElement("div");
     try {
-      terminalStore.setPanelVisible(true);
+      await toggleTerminal(actions);
+      view.dataset.terminalId = "t1";
+      const input = document.createElement("textarea");
+      view.append(input);
+      document.body.append(view);
+      input.focus();
       await toggleTerminal(actions);
       expect(closePanel).toHaveBeenCalledWith(TERMINAL_PANEL);
       expect(actions.toggleDock).not.toHaveBeenCalled();
     } finally {
-      terminalStore.setPanelVisible(false);
+      view.remove();
       disconnect();
     }
   });
@@ -598,6 +612,30 @@ describe("terminal commands", () => {
       expect(actions.openStageTab).toHaveBeenCalledWith(TERMINAL_STAGE_TAB, { id: "t1", label: "shell 1" });
       expect(actions.openPanel).not.toHaveBeenCalled();
     } finally {
+      disconnect();
+    }
+  });
+
+  it("from a shell on the stage hands the keyboard to the composer and leaves its tab where it is", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const closePanel = vi.fn();
+    const actions = workbenchActions({ closePanel });
+    const view = document.createElement("div");
+    try {
+      await toggleTerminal(actions);
+      terminalStore.updateLayout((current) => ({ ...current, groups: [], stage: [{ id: "t1", root: { kind: "pane", id: "t1" }, focused: "t1" }] }));
+      view.dataset.terminalId = "t1";
+      const input = document.createElement("textarea");
+      view.append(input);
+      document.body.append(view);
+      input.focus();
+      await toggleTerminal(actions);
+      expect(actions.focusComposer).toHaveBeenCalledOnce();
+      expect(closePanel).not.toHaveBeenCalled();
+      expect(actions.closeStageTab).not.toHaveBeenCalled();
+    } finally {
+      view.remove();
       disconnect();
     }
   });

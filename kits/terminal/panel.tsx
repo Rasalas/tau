@@ -44,10 +44,6 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
   };
 
   useEffect(() => { terminalServices.actions = actions; }, [actions]);
-  useEffect(() => {
-    terminalStore.setPanelVisible(active);
-    return () => terminalStore.setPanelVisible(false);
-  }, [active]);
   // Opening the panel is asking for a terminal: a thread without one gets it.
   useEffect(() => {
     if (active && !wasActive.current && wantsFirstShell(actions)) run(() => openTerminal(actions));

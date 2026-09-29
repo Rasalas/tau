@@ -250,15 +250,21 @@ export function onStage(id: string): boolean {
 }
 
 /**
- * `mod+j`: shows or hides the panel, in the dock or the drawer. Showing it puts the keyboard in the
- * last shell, starting one when there is none; a shell that is on the stage
- * brings its tab forward instead.
+ * `mod+j`, as in VS Code: from a shell it hides the panel and hands the keyboard to the composer;
+ * from anywhere else it shows the panel and puts the keyboard in the last shell, starting one when
+ * there is none. A shell that is on the stage brings its tab forward instead.
  */
 export async function toggleTerminal(actions: WorkbenchActions): Promise<void> {
   const state = terminalStore.getSnapshot();
-  if (state.panelVisible) {
-    if (actions.closePanel) actions.closePanel(TERMINAL_PANEL);
-    else actions.toggleDock();
+  const typing = keyboardShell();
+  if (typing) {
+    if (state.focusRequest) terminalStore.focusDone(state.focusRequest.seq);
+    // A shell in a stage tab of its own stays there; closing the tab would move it to the panel.
+    if (!onStage(typing)) {
+      if (actions.closePanel) actions.closePanel(TERMINAL_PANEL);
+      else actions.toggleDock();
+    }
+    actions.focusComposer();
     return;
   }
   const staged = state.layout.stage.at(-1);
