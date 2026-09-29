@@ -16,13 +16,11 @@ import {
   WORKSPACE_FILES_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_STORE_SERVICE,
-  BRANCH_SECTION_SERVICE,
-  type BranchSectionService,
 } from "./protocol.js";
 import { addProjectMenu } from "./add-project-menu.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
-import { DraftBranchSection, ThreadBranch } from "./branch-menu.js";
+import { createDraftBranchPill, ThreadBranch } from "./branch-menu.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
@@ -114,7 +112,9 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
     // The branch in the thread header: a menu over the checkout, or a new thread's Branch section.
     context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(ThreadBranch) });
-    context.provideService<BranchSectionService>(BRANCH_SECTION_SERVICE, { Section: bind(DraftBranchSection) });
+    // A new thread's branch as a pill under its heading, beside project and machine; a sheet on touch.
+    context.registerRegion({ id: "workspace.draft-branch", placement: "draft-actions", order: 10, profiles: ["desktop"], Component: bind(createDraftBranchPill(false)) });
+    context.registerRegion({ id: "workspace.draft-branch-sheet", placement: "draft-actions", order: 10, profiles: ["compact"], Component: bind(createDraftBranchPill(true)) });
     const documents = documentStates(store);
     context.registerDocumentSource({
       profiles: ["desktop", "compact"],

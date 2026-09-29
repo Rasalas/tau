@@ -350,9 +350,13 @@
 .branch-worktree > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .branch-worktree strong { color: var(--ink); font: 400 var(--text-md) var(--sans); }
 .branch-worktree small { color: var(--muted); font-size: var(--text-xs); }
-/* Inside "Run on" (a menu), whose button rule would flatten the switch. */
+/* Kept against menu button rules that would flatten the switch. */
 .branch-worktree .switch, .branch-worktree .switch:hover:not(:disabled) { width: var(--switch-w); padding: 0; border-radius: var(--radius-pill); background: var(--track); }
 .branch-worktree .switch.on, .branch-worktree .switch.on:hover:not(:disabled) { background: var(--acid); }
+/* The Branch pill's sheet on touch: the sheet names it; rows of 44 px. */
+.branch-sheet { text-align: left; }
+.branch-sheet .branch-section > .menu-heading { display: none; }
+.branch-sheet :is(.branch-name, .branch-worktree, button.branch-base) { min-height: 44px; }
 .ref-create { max-height: none; padding-top: 0; }
 .ref-create code, .ref-list code { font: var(--text-sm) var(--mono); }
 .branch-menu .worktree-list { max-height: 240px; overflow: auto; padding: 2px 6px 6px; }
