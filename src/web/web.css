@@ -9,18 +9,18 @@
   padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--chrome);
 }
 .token-gate h1 { margin: 0; font: 650 17px var(--sans); }
-.token-gate p { margin: 0; font: 12px/1.5 var(--sans); color: var(--ink-3); }
-.token-gate code { font: 11.5px var(--mono); color: var(--ink-2); }
+.token-gate p { margin: 0; font: var(--text-sm)/1.5 var(--sans); color: var(--ink-3); }
+.token-gate code { font: calc(var(--text-xs) + .5px) var(--mono); color: var(--ink-2); }
 .token-gate-notice { color: #d88c83; }
 .token-gate label { display: flex; flex-direction: column; gap: 5px; }
-.token-gate label span { font: 550 11px var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.token-gate label span { font: 550 var(--text-xs) var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .token-gate input {
   border: 1px solid var(--line-control); border-radius: 8px; padding: 9px 10px;
-  background: var(--raised); color: var(--ink); font: 12px var(--mono);
+  background: var(--raised); color: var(--ink); font: var(--text-sm) var(--mono);
 }
 .token-gate button {
   border: 1px solid var(--line-control); border-radius: 8px; padding: 9px;
-  background: var(--raised); color: var(--ink-2); font: 550 12px var(--sans); cursor: pointer;
+  background: var(--raised); color: var(--ink-2); font: 550 var(--text-sm) var(--sans); cursor: pointer;
 }
 .token-gate button:disabled { opacity: .5; cursor: default; }
 .token-gate button.token-gate-ask { background: var(--ink); border-color: var(--ink); color: var(--stage); }

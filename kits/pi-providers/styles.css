@@ -1,10 +1,10 @@
 /* Pi's providers inside its Providers card: a filter, two groups, rows that open into the account rows core draws. */
 .pi-provider-filter { padding: var(--space-5) var(--space-6); outline: none; }
 .pi-provider-filter > .settings-filter { height: var(--control-h); }
-.pi-provider-error { margin: var(--space-3) 0 0; color: var(--danger); font: 12.5px/1.45 var(--sans); }
+.pi-provider-error { margin: var(--space-3) 0 0; color: var(--danger); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); }
 .pi-provider-group { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-6) var(--space-6) var(--space-2); }
-.pi-provider-group > h4 { margin: 0; font: 500 12.5px var(--sans); color: var(--ink-3); }
-.pi-provider-group > small { font: 12px var(--sans); color: var(--faint); }
+.pi-provider-group > h4 { margin: 0; font: 500 calc(var(--text-sm) + .5px) var(--sans); color: var(--ink-3); }
+.pi-provider-group > small { font: var(--text-sm) var(--sans); color: var(--faint); }
 .pi-provider-mark { display: inline-flex; justify-content: center; width: 18px; margin-right: 8px; vertical-align: -2px; }
 /* The line under a provider's name starts where the name does. */
 .settings-row-title:has(.pi-provider-mark:not(:empty)) + p { padding-left: 26px; }

@@ -38,7 +38,7 @@ body[data-profile="compact"] .workbench-center.stage-open .composer-zone { paddi
 body[data-profile="compact"] .stage-pane-header { height: 56px; gap: 6px; padding: 0 8px 0 16px; }
 /* Beside the chat a tablet's pane is narrow: the path gives way before the buttons are cut. */
 body[data-profile="compact"] .stage-pane-header > strong { min-width: 48px; }
-body[data-profile="compact"] .stage-pane-header :is(.text-button, .toggle-group > button) { min-height: 44px; padding: 0 12px; font-size: 13px; }
+body[data-profile="compact"] .stage-pane-header :is(.text-button, .toggle-group > button) { min-height: 44px; padding: 0 12px; font-size: var(--text-md); }
 
 /* Keys and chords a touch screen has none of: esc, ↑↓, ⌘5, ⇧click. */
 body[data-profile="compact"] .keyboard-hint { display: none; }
@@ -114,7 +114,7 @@ body[data-profile="compact"] .tool-output-pending { height: 180px; }
 body[data-profile="compact"] .message-shell[data-touch-actions] :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
 /* A tapped message's actions take their room in the flow, each 44 px high. */
 body[data-profile="compact"] .message-shell[data-touch-actions] .message-actions { position: static; }
-body[data-profile="compact"] .message-actions button { min-height: 44px; padding: 0 12px; font-size: 13px; }
+body[data-profile="compact"] .message-actions button { min-height: 44px; padding: 0 12px; font-size: var(--text-md); }
 body[data-profile="compact"] .message-shell.assistant .message-actions { margin-left: -12px; }
 @media (hover: none) {
   .tool-run.stoppable > .tool-run-stop { opacity: 1; }

@@ -6,9 +6,9 @@
 }
 .evidence-card-head {
   display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 8px 0 13px;
-  color: var(--faint); font: 12px var(--sans);
+  color: var(--faint); font: var(--text-sm) var(--sans);
 }
-.evidence-card-head > strong { color: var(--ink); font-size: 12.5px; font-weight: 700; }
+.evidence-card-head > strong { color: var(--ink); font-size: calc(var(--text-sm) + .5px); font-weight: 700; }
 .evidence-card-meta { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-card-paused {
   flex: none; border-radius: var(--radius-pill); padding: 2px 8px;
@@ -48,10 +48,10 @@
 .evidence-viewer-body { display: flex; flex-direction: column; min-height: 0; outline: none; }
 .evidence-viewer-head { display: flex; align-items: center; gap: 4px; padding: 10px 10px 8px 16px; }
 .evidence-viewer-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.evidence-viewer-title > strong { font: 600 13.5px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.evidence-viewer-title > span { color: var(--muted); font: 11.5px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.evidence-viewer-count { flex: none; margin-right: 6px; color: var(--muted); font: 11.5px var(--mono); }
-.evidence-viewer-note { margin: 0 16px 8px; color: var(--muted); font: 12px var(--sans); }
+.evidence-viewer-title > strong { font: 600 calc(var(--text-md) + .5px) var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-viewer-title > span { color: var(--muted); font: calc(var(--text-xs) + .5px) var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-viewer-count { flex: none; margin-right: 6px; color: var(--muted); font: calc(var(--text-xs) + .5px) var(--mono); }
+.evidence-viewer-note { margin: 0 16px 8px; color: var(--muted); font: var(--text-sm) var(--sans); }
 .evidence-viewer-stage {
   position: relative; min-height: 0; flex: 1; display: flex; align-items: center; justify-content: center;
   padding: 0 52px; background: var(--sunken);

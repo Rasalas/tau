@@ -13,7 +13,7 @@
   align-items: center;
   gap: 4px;
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .remote-work-step small {
@@ -36,7 +36,7 @@
 .remote-work-files {
   margin: 4px 0 0;
   padding-left: 16px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .remote-work-actions {

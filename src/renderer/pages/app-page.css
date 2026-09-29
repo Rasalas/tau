@@ -5,7 +5,7 @@
 .app-page-back {
   flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
   border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted);
-  font: 500 13px var(--sans); cursor: pointer;
+  font: 500 var(--text-md) var(--sans); cursor: pointer;
 }
 .app-page-back:hover { background: var(--hover-strong); color: var(--ink); }
 .app-page-content.wide { max-width: 1240px; }

@@ -22,7 +22,7 @@ describe("the row's pill family", () => {
     expect(pill).toMatch(/height: var\(--control-pill-height\);/u);
     expect(pill).toMatch(/border: 1px solid var\(--line-control\); border-radius: var\(--radius-pill\);/u);
     expect(pill).toMatch(/background: var\(--chrome\);.*box-shadow: var\(--elevation-1\);/u);
-    expect(pill).toMatch(/font: 500 13px\/1 var\(--sans\); font-variant-numeric: tabular-nums;/u);
+    expect(pill).toMatch(/font: 500 var\(--text-md\)\/1 var\(--sans\); font-variant-numeric: tabular-nums;/u);
     // Hover and an open detail look the same on every pill.
     expect(body(".control-pill:hover")).toBe(body('.control-pill[aria-expanded="true"]'));
     expect(body(".control-pill:focus-visible")).toMatch(/outline: 2px solid var\(--focus\)/u);
