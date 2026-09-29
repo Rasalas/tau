@@ -1,7 +1,7 @@
 import type { HostEvent, UiMessage, UiToolRun } from "./contracts.js";
 import { isHostUpdate, type HostUpdate } from "./host-protocol.js";
 import type { ToolOutputDelta } from "./tool-output-delta.js";
-import { decodePairingEndpoints, type PairingEndpoint } from "./connections.js";
+import { ACCESS_CLOSE_REASON, decodePairingEndpoints, type PairingEndpoint } from "./connections.js";
 import { isPairingCommitment, isPairingNonce, type HostPairReply, type HostPairRequest } from "./pairing.js";
 
 /**
@@ -250,6 +250,8 @@ export type HostServerFrame =
  * `forbiddenOrigin`, since retrying cannot help; any other close is a drop.
  */
 export const HOST_CLOSE_CODE = {
+  /** A frame the host could not read, or one before the hello. Says nothing about the token. */
+  protocolError: 4400,
   /** The hello carried no token or the wrong one, or its access was taken away. */
   unauthorized: 4401,
   /** The page that opened the socket is not one this host serves or trusts. */
@@ -257,6 +259,15 @@ export const HOST_CLOSE_CODE = {
   /** No hello arrived in time after the socket opened. */
   helloTimeout: 4408,
 } as const;
+
+/**
+ * Whether a close refused this client's token. Only a 4401 with one of
+ * `ACCESS_CLOSE_REASON`'s reasons does; hosts before 4400 closed a malformed
+ * frame with 4401 `malformed frame`, which is a drop like any other.
+ */
+export function tokenRefused(code?: number, reason?: string): boolean {
+  return code === HOST_CLOSE_CODE.unauthorized && Object.values<string>(ACCESS_CLOSE_REASON).includes(reason ?? "");
+}
 
 export const HOST_ERROR = {
   invalidRequest: "invalid-request",
