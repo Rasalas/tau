@@ -177,16 +177,16 @@
   --label-case: none;                                /* its text-transform */
   --label-tracking: normal;                          /* its letter-spacing */
   --label-size: var(--text-xs);                      /* its size */
-  /* The type scale (ADR 0029). A role's size on this device class: the workbench design's on a
-     desktop (its window reads 13px); a tablet and a phone set them again below. */
-  --type-xs: 11px;
-  --type-sm: 12px;
-  --type-md: 13px;
-  --type-lg: 14px;
+  /* The type scale (ADR 0029): desktop body is 14px for readability, matching T3 Code.
+     A tablet and a phone set their own role sizes below. */
+  --type-xs: 12px;
+  --type-sm: 13px;
+  --type-md: 14px;
+  --type-lg: 15px;
   --type-title: 17px;
   --type-display: 24px;
-  --type-code: 12px;
-  --type-input: 13px;
+  --type-code: 13px;
+  --type-input: 14px;
   --type-input-min: 0px;                             /* iOS zooms into a field under 16px */
   --text-scale: 1;                                   /* the system's text size on a touch device (type-scale.ts) */
   --text-step: 0px;                                  /* Tau's own Text size, on top of it */

@@ -203,14 +203,14 @@ describe("the token contract", () => {
     expect(mark).toMatch(/--project-ink:\s*light-dark\(hsl\(var\(--project-hue\)/u);
   });
 
-  it("sets each role per device class: the design on a desktop, larger on a tablet and a phone (ADR 0029)", async () => {
+  it("sets each role per device class: readable desktop defaults and touch sizes (ADR 0029)", async () => {
     const tokens = await readFile(TOKENS, "utf8");
     const roles = (css: string) => Object.fromEntries([...css.matchAll(/--type-(xs|sm|md|lg|title|display|code|input):\s*(\d+)px/gu)].map((m) => [m[1]!, Number(m[2])]));
     const root = /^:root\s*\{([\s\S]*?)^\}/mu.exec(tokens)?.[1] ?? "";
     const desktop = roles(root);
     const device = (name: string) => ({ ...desktop, ...roles(new RegExp(`:root\\[data-device="${name}"\\]\\s*\\{([^}]*)\\}`, "u").exec(tokens)?.[1] ?? "") });
-    // Design K96 measured: meta 11, controls 12, body 13, a thread's heading 17, a page's 24.
-    expect(desktop).toEqual({ xs: 11, sm: 12, md: 13, lg: 14, title: 17, display: 24, code: 12, input: 13 });
+    // Desktop readability revision: body 14, with secondary roles one pixel larger.
+    expect(desktop).toEqual({ xs: 12, sm: 13, md: 14, lg: 15, title: 17, display: 24, code: 13, input: 14 });
     expect(device("tablet")).toEqual({ xs: 12, sm: 13, md: 15, lg: 16, title: 17, display: 24, code: 13, input: 16 });
     expect(device("phone")).toEqual({ xs: 13, sm: 14, md: 16, lg: 17, title: 17, display: 27, code: 14, input: 16 });
     // Every size is the role times the system's text size, then Tau's own step; a page head takes no step.
