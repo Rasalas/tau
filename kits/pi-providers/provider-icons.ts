@@ -118,25 +118,34 @@ export async function applySiteIcon(sync: Pick<SiteIconSync, "fetch" | "rasteriz
   return true;
 }
 
+/** A picked file larger than this is refused before it is read. */
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+/** A picked file as a data URL: the page's policy allows `data:` pictures, not `blob:` ones. */
+function readAsDataUrl(file: Blob): Promise<string> {
+  if (file.size > MAX_UPLOAD_BYTES) return Promise.reject(new Error("The picture is larger than 4 MB."));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("The picture could not be read.")));
+    reader.onerror = () => reject(reader.error ?? new Error("The picture could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Draws a picture (a data URL or a picked file) into a square PNG of `size` pixels. */
 export async function rasterizeIcon(source: string | Blob, size = 64): Promise<string> {
-  const url = typeof source === "string" ? source : URL.createObjectURL(source);
-  try {
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    if (!image.naturalWidth || !image.naturalHeight) throw new Error("The picture has no size.");
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("This window cannot draw pictures.");
-    const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
-    const width = image.naturalWidth * scale;
-    const height = image.naturalHeight * scale;
-    context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
-    return canvas.toDataURL("image/png");
-  } finally {
-    if (typeof source !== "string") URL.revokeObjectURL(url);
-  }
+  const image = new Image();
+  image.src = typeof source === "string" ? source : await readAsDataUrl(source);
+  await image.decode();
+  if (!image.naturalWidth || !image.naturalHeight) throw new Error("The picture has no size.");
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This window cannot draw pictures.");
+  const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
+  const width = image.naturalWidth * scale;
+  const height = image.naturalHeight * scale;
+  context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+  return canvas.toDataURL("image/png");
 }
