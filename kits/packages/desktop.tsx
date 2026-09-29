@@ -60,7 +60,7 @@ const SOURCE_HELP = "An npm source installs into ~/.tau/npm, a Git source is clo
  * Settings page of `tau.packages`: Pi's install verbs with a form, above the
  * packages a source installed. Installing never activates a package.
  */
-export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps & PageServices) {
+export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: SettingsPageProps & PageServices) {
   const [source, setSource] = useState("");
   const [scope, setScope] = useState<"global" | "project">("global");
   const [packages, setPackages] = useState<PackageRow[]>();
@@ -206,6 +206,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
               description={[entry.id ?? entry.directory, entry.version, entry.scope === "global" ? "every project" : "this project", entry.error ?? entry.signatureLabel].filter(Boolean).join(" · ")}
               status={<><code className="settings-value" {...tooltipProps(entry.directory, { variant: "code" })}>{entry.source}</code>{failed(`update:${entry.source}`)}{failed(`remove:${entry.source}`)}</>}
               control={<>
+                {waiting && entry.id && onOpenSettings ? <Button variant="primary" aria-label={`Review ${name}`} onClick={() => onOpenSettings(`extensions/${entry.id}`)}>Review</Button> : null}
                 <span {...tooltipProps(busy ? busyReason : undefined)}>
                   <Button aria-label={`Update ${name}`} busy={busy === `update:${entry.source}`} disabled={busy !== undefined} onClick={() => void run(`update:${entry.source}`, "update", { source: entry.source })}>
                     {busy === `update:${entry.source}` ? "Updating…" : "Update"}

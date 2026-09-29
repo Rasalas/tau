@@ -49,6 +49,16 @@ describe("install arguments", () => {
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Pi trusts /project now."));
   });
 
+  it("offers Review on a package that waits for approval", async () => {
+    const invoke = vi.fn(async (command: string) => command === "list"
+      ? { packages: [{ source: "/k", scope: "global", directory: "/k", id: "me.kit", name: "My kit", signatureLabel: "unsigned" }] }
+      : { builds: [] });
+    const onOpenSettings = vi.fn();
+    render(<PackagesPage cwd="/project" onNotify={vi.fn()} onOpenSettings={onOpenSettings} host={host(invoke)} inspect={async () => inspection([{ id: "me.kit", name: "My kit", permissions: [], granted: false, scope: "global", directory: "/k", desktop: true, host: false }])} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review My kit" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("extensions/me.kit");
+  });
+
   it("names the distribution the shipped kits came in", async () => {
     const invoke = vi.fn(async () => ({ packages: [] }));
     render(

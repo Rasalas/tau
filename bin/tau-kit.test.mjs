@@ -66,6 +66,10 @@ describe("tau kit", () => {
     expect(install).toHaveBeenCalledWith(join(cwd, "my-kit"), "global");
     expect(lines.join("\n")).toMatch(/approve it in Tau's Settings → Extensions → My kit/u);
     await expect(runKit(parseKitArgs(["new", "my-kit"]), { cwd, out: () => undefined, types: { env: { TAU_TYPES_DIR: types } } })).rejects.toThrow(/is not empty/u);
+    // A project install in a project Pi does not trust is skipped until it is trusted; the next step says so.
+    lines.length = 0;
+    await runKit(parseKitArgs(["new", "other", "--install", "--local"]), { cwd, out: (line) => lines.push(line), types: { env: { TAU_TYPES_DIR: types } }, install: async () => ({ message: "skipped", untrusted: true }) });
+    expect(lines.at(-1)).toMatch(/Trust this project; then approve Other/u);
   });
 
   it("copies the types into a folder and writes a tsconfig only where there is none", async () => {

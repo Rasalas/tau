@@ -345,7 +345,9 @@ export async function runKit(options, io = {}) {
   if (options.install) {
     const answer = await io.install?.(folder, options.local ? "project" : "global");
     out(answer?.message ?? `Installed ${folder}.`);
-    out(`Next: approve it in Tau's Settings → Extensions → ${name}, then edit and save.`);
+    out(answer?.untrusted
+      ? `Next: in Tau, Settings → Packages → Trust this project; then approve ${name} in Settings → Extensions, and edit and save.`
+      : `Next: approve it in Tau's Settings → Extensions → ${name}, then edit and save.`);
   } else {
     out(`Next: in Tau, type /install ${folder} in the composer, approve it in Settings → Extensions, then edit and save.`);
   }
