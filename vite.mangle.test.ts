@@ -11,12 +11,12 @@ const CHUNK = [
 ].join("");
 
 describe("mangleChunk", () => {
-  it("renames local names and nothing else", async () => {
+  it("renames local names and folds what it can, keeping strings", async () => {
     const { code } = await mangleChunk(CHUNK, false);
 
     expect(code).not.toMatch(/initialValue|makeCounter|importedHelper/u);
     expect(code).toContain('"currentValue"');
-    expect(code).toContain("1+2");
+    expect(code).not.toContain("1+2");
     expect(code).toMatch(/from"\.\/helper\.js"/u);
     expect(code).toMatch(/export\{.* as m,.* as l,.* as h\}/u);
     expect(code.length).toBeLessThan(CHUNK.length);
