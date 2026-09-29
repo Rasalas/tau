@@ -770,7 +770,8 @@ branch, open, add or remove a worktree) and, for a new thread, its Branch
 section. A phone's bar draws neither; an older core draws neither. A new
 thread's draft has no sub-line since API 1.28.0 (K104): its pills in
 `draft-actions` already say project, machine and branch. A thread that exists
-but is still empty keeps it, since its branch has no pill.
+but is still empty shows only `thread-details` and its branch there, since its
+branch has no pill.
 `draft-actions` (K98, for API 1.28.0) is the row of pills after a new
 thread's "What should <project> do next?" and its sentence: core's project
 pill leads it (a click opens the project picker at the pill and moves the
