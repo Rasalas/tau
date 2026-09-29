@@ -391,15 +391,6 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
  */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 
-/**
- * A new thread's "Branch" section (worktree or checkout, branch name, base),
- * for another kit's popover: Machines Kit's "Run on" draws it under the machines.
- */
-export const BRANCH_SECTION_SERVICE = "tau.workspace/branch-section";
-export interface BranchSectionService {
-  Section: ComponentType<{ actions: WorkbenchActions }>;
-}
-
 /** What the kit knows about the project the workbench is showing. */
 export interface WorkspaceKitState {
   /** The project the store follows: the draft's project while a new thread is pending, else the thread's. */

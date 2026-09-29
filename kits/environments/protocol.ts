@@ -5,12 +5,6 @@ import type { MachineRailThread } from "./rail.js";
 export const ENVIRONMENTS_EXTENSION_ID = "tau.environments";
 export const MACHINES_SETTINGS_PAGE = "environments.machines";
 
-/** Workspace Kit's new-thread Branch section (`kits/workspace/protocol.ts`), for the "Run on" popover. */
-export const BRANCH_SECTION_SERVICE = "tau.workspace/branch-section";
-export interface BranchSectionService {
-  Section: ComponentType<{ actions: WorkbenchActions }>;
-}
-
 /** Workspace Kit's desktop service (`kits/workspace/protocol.ts`); the rail draws what is registered here. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceRailSlice {

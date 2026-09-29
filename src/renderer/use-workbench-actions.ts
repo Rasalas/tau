@@ -16,6 +16,9 @@ import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { newThreadProject } from "../workbench/new-thread-project";
+import { namesWorkspace } from "../shared/workspace-identity";
+import { isFilesystemRoot } from "../shared/filesystem-root";
+import type { NewThreadPick } from "./use-app-overlays";
 import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
@@ -44,7 +47,7 @@ export interface UseWorkbenchActionsOptions {
   togglePanelMaximized?: () => void;
   openPalette: (options?: { menu?: string }) => void;
   setSettingsPage: (page?: string) => void;
-  openNewThreadPicker: () => void;
+  openNewThreadPicker: (pick?: NewThreadPick) => void;
   /** Puts a new thread's draft in a project without the picker. */
   createThreadInProject?: (project: UiProject) => void;
   switchSession: WorkbenchActions["switchSession"];
@@ -108,19 +111,26 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   return useMemo<WorkbenchActions>(() => {
     // `unlisted`: a project the window does not list yet is chosen in the picker.
     const newSession = (request?: { workspace?: string; pick?: boolean }, unlisted = false) => {
-      if (request?.pick) { options.openNewThreadPicker(); return; }
       const workspace = request?.workspace;
       const projects = options.threadStore.getProjects();
+      const named = workspace ? projects.find((candidate) => namesWorkspace(workspace, candidate.workspaceId, candidate.path)) : undefined;
+      // A caller that names the project starts there: a settled thread's, a machine's.
+      if (workspace && !request.pick) {
+        if (named) options.createThreadInProject?.(named);
+        else if (unlisted) options.openNewThreadPicker();
+        return;
+      }
+      // Nothing to choose from yet: adding a project comes first (design 2a); with one, only `pick` asks (T3 Code).
+      const choices = projects.filter((project) => !isFilesystemRoot(project.path));
+      if (choices.length === 0) { options.openProjectSources(); return; }
+      if (choices.length === 1 && !request?.pick) { options.createThreadInProject?.(choices[0]!); return; }
       const draft = pendingNewThreadRef.current;
       const thread = options.viewStore.getSnapshot();
-      // Unnamed: the project on screen, as T3 Code's new thread; with none on screen, where the host last worked.
-      const project = workspace
-        ? projects.find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace)
-        : newThreadProject(projects, options.threadStore.getSnapshot().threads, {
-          covered: Boolean(options.threadView?.()?.covered), ...(draft ? { draft } : {}), ...(thread ? { thread } : {}),
-        });
-      if (project) options.createThreadInProject?.(project);
-      else if (!workspace || unlisted) options.openNewThreadPicker();
+      // Otherwise it asks, as T3 Code, with the project in context first: the named one, else the one on screen.
+      const context = named ?? newThreadProject(projects, options.threadStore.getSnapshot().threads, {
+        covered: Boolean(options.threadView?.()?.covered), ...(draft ? { draft } : {}), ...(thread ? { thread } : {}),
+      });
+      options.openNewThreadPicker(context ? { preselect: context.workspaceId ?? context.path } : undefined);
     };
     const actions: WorkbenchActions = {
       openPanel,

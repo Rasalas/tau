@@ -151,7 +151,7 @@ export default function App() {
   const transcriptUserRevision = useSyncExternalStore(viewStore.subscribeToUserMessages, viewStore.getUserRevision);
   const {
     paletteOpen, paletteMenu, openPalette, closePalette,
-    newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
+    newThreadPick, openNewThreadPicker, closeNewThreadPicker,
     projectSourcesOpen, projectSource, openProjectSources, closeProjectSources,
     activeOverlayId, openOverlay, closeOverlay,
     settingsPage, setSettingsPage, pages,
@@ -630,13 +630,13 @@ export default function App() {
     openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, paletteOpen, paletteMenu, closePalette,
-    commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
+    commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadPick, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
   }), [
     activePanel, activeOverlayId, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
-    documentSource, documentState, drawer, panelLayout, setStageFolded, stageFolded, newThreadOpen,
+    documentSource, documentState, drawer, panelLayout, setStageFolded, stageFolded, newThreadPick,
     openNewThreadPicker, openPanel,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,

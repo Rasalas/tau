@@ -78,23 +78,40 @@ const rail = () => screen.getByRole("navigation", { name: "Threads" });
 const draftProject = () => screen.findByRole("button", { name: /^Change project, current project / });
 const composer = () => screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
+/** The new thread's picker (K98): the project in context leads it, selected; Enter starts the draft there. */
+async function pickProject(expected: string): Promise<void> {
+  const picker = await screen.findByRole("dialog", { name: "Search projects" });
+  const first = (await within(picker).findAllByRole("option"))[0]!;
+  expect(first.getAttribute("aria-selected")).toBe("true");
+  expect(first.textContent).toContain(expected);
+  fireEvent.keyDown(within(picker).getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
+}
+
 describe("a new thread in the project on screen", () => {
-  it("opens from ⌘N and the rail's button in the thread's project, without the picker", async () => {
+  it("asks for the project from ⌘N and the rail's button, the thread's project first; Escape leaves no draft", async () => {
     start();
     await screen.findByText("Alpha answer");
     press("n");
+    await pickProject("alpha");
     expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project alpha");
-    expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());
 
-    // From the draft, the rail's button stays in the draft's project.
+    // From the draft, the rail's button offers the draft's project first.
     fireEvent.change(composer(), { target: { value: "Keep me" } });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    await pickProject("alpha");
     await waitFor(() => expect(composer().value).toBe(""));
     expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project alpha");
     // The draft with text stays a row beside the fresh one.
     await waitFor(() => expect(within(rail()).getAllByRole("button", { name: /^Open draft / }).map((row) => row.getAttribute("aria-label")))
       .toEqual(["Open draft New thread", "Open draft Keep me"]));
-    expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull();
+
+    // Escape closes the picker and starts nothing.
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.keyDown(within(picker).getByRole("textbox", { name: "Search projects" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());
+    expect(within(rail()).getAllByRole("button", { name: /^Open draft / })).toHaveLength(2);
   });
 
   it("starts on the thread's runtime, model, level and mode, and leaves the preference for new threads alone", async () => {
@@ -103,6 +120,7 @@ describe("a new thread in the project on screen", () => {
     // The host sends its catalog again once connected; the thread's mode arrives with it.
     act(() => client.emit({ type: "host-update", update: { version: 1, type: "catalog", catalog } }));
     press("n");
+    await pickProject("alpha");
     await draftProject();
     fireEvent.change(composer(), { target: { value: "carry on" } });
     fireEvent.keyDown(composer(), { key: "Enter" });
@@ -125,9 +143,10 @@ describe("a new thread in the project on screen", () => {
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /beta/u }));
     expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project beta");
-    // ⌘N from that draft stays in beta.
+    // ⌘N from that draft offers beta first.
     fireEvent.change(composer(), { target: { value: "Beta idea" } });
     press("n");
+    await pickProject("beta");
     await waitFor(() => expect(composer().value).toBe(""));
     expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project beta");
   });
@@ -141,12 +160,13 @@ describe("a new thread in the project on screen", () => {
     await waitFor(async () => expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project alpha"));
   });
 
-  it("opens where the host last worked while Settings covers the thread", async () => {
+  it("offers where the host last worked first while Settings covers the thread", async () => {
     start();
     await screen.findByText("Alpha answer");
     press(",");
     await screen.findByRole("dialog", { name: "Settings" });
     press("n");
+    await pickProject("beta");
     expect((await draftProject()).getAttribute("aria-label")).toBe("Change project, current project beta");
     // The draft is not left behind Settings.
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());

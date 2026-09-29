@@ -1,22 +1,11 @@
-import { useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties } from "react";
+import { useState } from "react";
 import { ChevronDown, Scale } from "lucide-react";
-import { Menu, tooltipProps, type ComposerControlProps, type HostExtensionClient, type PlatformEnvironments, type RegionProps, type UiEnvironment, type WorkbenchActions } from "tau";
+import { Menu, tooltipProps, type HostExtensionClient, type PlatformEnvironments, type RegionProps, type UiEnvironment } from "tau";
 import { autoApplies, autoRunOn, chooseInput, threadTargets, useAutoPreview, useAutoRunOn } from "./auto.js";
 import { cannotStartReason, shownMachine, statusText } from "./machines.js";
 import { MachineIcon, useEnvironments } from "./rail.js";
 
 const AUTO = "auto";
-
-/** Workspace Kit's Branch section, drawn under the machines while that kit is on. */
-export const branchSection = (() => {
-  const listeners = new Set<() => void>();
-  let current: ComponentType<{ actions: WorkbenchActions }> | undefined;
-  return {
-    get: () => current,
-    set(next: typeof current) { current = next; for (const listener of [...listeners]) listener(); },
-    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-  };
-})();
 
 /** A machine's line under its name in "Run on" (design 1k): this one or online, and how busy. */
 export function runOnDetail(machine: UiEnvironment, now: number): string {
@@ -24,18 +13,6 @@ export function runOnDetail(machine: UiEnvironment, now: number): string {
   const load = running > 0 ? `${running} running` : "idle";
   if (machine.local) return `this machine · ${load}`;
   return machine.status === "connected" ? `online · ${load}` : statusText(machine, now);
-}
-
-/**
- * How far "Run on" rises from its chip to stand over the composer, and how
- * far left it moves to line up with it, as in design 1k.
- */
-export function overComposer(chip: HTMLElement | null): CSSProperties | undefined {
-  const card = chip?.closest(".composer-frame");
-  if (!chip || !card) return undefined;
-  const from = chip.getBoundingClientRect();
-  const to = card.getBoundingClientRect();
-  return { "--run-on-up": `${Math.max(0, from.top - to.top)}px`, "--run-on-left": `${Math.min(0, to.left - from.left)}px` } as CSSProperties;
 }
 
 /** A new thread's machine in the header's sub-line: project · machine · branch. */
@@ -60,19 +37,18 @@ export function autoTooltip(preview: { answer?: { machine: string | null; reason
 }
 
 /**
- * "Run on" for a new thread's draft (T3's environment selector): which
+ * "Run on" for a new thread (T3's environment selector), a pill under its
+ * heading (`draft-actions`): which
  * machine the thread starts on. Another machine takes the draft's text with
  * it and opens this window there; a started thread stays where it runs.
  * "Automatic" leaves the choice to the moment the prompt is sent.
  */
 export function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient) {
-  return function RunOnControl({ actions, snapshot }: ComposerControlProps) {
+  return function RunOnControl({ actions, snapshot }: Partial<RegionProps>) {
     const list = useEnvironments(environments);
     const auto = useAutoRunOn();
     const [open, setOpen] = useState(false);
     const [moving, setMoving] = useState(false);
-    const anchor = useRef<HTMLSpanElement>(null);
-    const [place, setPlace] = useState<CSSProperties>();
     const current = list ? shownMachine(list) : undefined;
     const active = actions?.activeThread();
     // A draft, or a thread nothing was sent in yet, may still move; a started one stays where it runs.
@@ -83,8 +59,7 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
     const automatic = auto && offerAuto && isDraft;
     const targets = list && offerAuto ? threadTargets(list, active?.cwd) : new Map<string, string | undefined>();
     const preview = useAutoPreview(host, automatic && targets.size > 0 ? chooseInput(targets, active?.cwd, active?.backendKind, active?.model) : undefined);
-    const Branch = useSyncExternalStore(branchSection.subscribe, branchSection.get);
-    // Shown for every new thread, even with one machine: the popover holds its Branch section too (design 1k).
+    // Shown for every new thread, even with one machine: it says where the thread runs.
     if (!list || !current || !actions || !unstarted) return null;
     const now = Date.now();
     const move = (id: string) => {
@@ -106,15 +81,15 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
     const names = new Map(list.environments.map((machine) => [machine.id, machine.name]));
     const label = moving ? "Moving…" : automatic ? "Automatic" : current.name;
     return (
-      <span ref={anchor} className="menu-anchor composer-runtime-menu-anchor run-on-anchor" style={open ? place : undefined}>
+      <span className="menu-anchor run-on-anchor">
         <button
-          className="runtime-chip machine-chip"
+          className="draft-pill machine-chip"
           aria-label={`Run on ${automatic ? "Automatic" : current.name}`}
           aria-haspopup="menu"
           aria-expanded={open}
           disabled={moving}
           {...tooltipProps(automatic ? autoTooltip(preview, names, targets.size) : `Run on ${current.name}: the machine this thread starts on`)}
-          onClick={() => { if (!open) setPlace(overComposer(anchor.current)); setOpen(!open); }}
+          onClick={() => setOpen(!open)}
         >
           {automatic ? <Scale size={13} aria-hidden /> : <MachineIcon environment={current} />}
           <span>{label}</span>
@@ -122,7 +97,6 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
         </button>
         {open ? (
           <Menu
-            placement="above"
             heading="Run on"
             items={[
               ...(offerAuto ? [{
@@ -143,7 +117,6 @@ export function createRunOnControl(environments: PlatformEnvironments, host?: Ho
                 disabled: machine.id !== current.id && cannotStartReason(machine, now) !== undefined,
               })),
             ]}
-            {...(Branch && isDraft ? { footer: <div className="run-on-branch" onKeyDown={(event) => event.stopPropagation()}><hr /><Branch actions={actions} /></div> } : {})}
             onSelect={(id) => { setOpen(false); move(id); }}
             onClose={() => setOpen(false)}
           />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, Folder, FolderGit2, GitBranch, Plus, Search, Trash2 } from "lucide-react";
-import { Popover, Switch, VirtualList, type RegionProps, type UiRef, type UiWorktree, type UiWorktreeStatus } from "tau";
+import { Popover, Sheet, Switch, VirtualList, type RegionProps, type UiRef, type UiWorktree, type UiWorktreeStatus } from "tau";
 import type { UiWorktreeRemoval } from "./protocol.js";
 import { useWorkspaceStore } from "./store-context.js";
 
@@ -227,4 +227,35 @@ export function ThreadBranch({ snapshot }: RegionProps) {
       {draft ? <DraftBranchSection /> : <CheckoutMenu onDone={() => setOpen(false)} />}
     </Popover> : null}
   </span>;
+}
+
+/**
+ * A new thread's branch as a pill under its heading (`draft-actions`), beside
+ * the project and the machine: its Branch section in a popover, or a sheet.
+ */
+export function createDraftBranchPill(sheet: boolean) {
+  return function DraftBranchPill() {
+    const { state } = useWorkspaceState();
+    const anchor = useRef<HTMLButtonElement>(null);
+    const [open, setOpen] = useState(false);
+    const info = state.workspace;
+    if (!state.draftPending || !info) return null;
+    const label = !info.isRepo ? "No Git" : state.workspaceMode === "worktree" ? state.draftBranch || AUTO_BRANCH : info.branch ?? "detached";
+    const close = () => setOpen(false);
+    return <>
+      <button
+        ref={anchor}
+        type="button"
+        className="draft-pill"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Change branch, current branch ${label}`}
+        disabled={state.workspaceBusy}
+        onClick={() => setOpen((value) => !value)}
+      ><GitBranch size={13} aria-hidden /><span>{label}</span><ChevronDown size={12} /></button>
+      {open ? sheet
+        ? <Sheet title="Branch" className="branch-sheet" onClose={close}><DraftBranchSection /></Sheet>
+        : <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={close}><DraftBranchSection /></Popover> : null}
+    </>;
+  };
 }

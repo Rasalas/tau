@@ -1156,7 +1156,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
             aria-label="New thread"
             disabled={readOnlyDevice}
-            onClick={() => actions.newSession()}
+            // A filtered rail offers its project first; the picker still asks (T3 Code's new thread).
+            onClick={() => {
+              const shown = projectFilter ? projects.find((project) => project.name === projectFilter) : undefined;
+              actions.newSession(shown ? { workspace: shown.workspaceId ?? shown.path, pick: true } : undefined);
+            }}
           >
             <Plus size={15} />
           </button>

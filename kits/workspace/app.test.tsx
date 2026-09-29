@@ -630,6 +630,8 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    const firstPicker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.keyDown(within(firstPicker).getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
     const composer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "first request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
@@ -1622,7 +1624,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("button", { name: "Branch fix/header" })).toBeTruthy();
   });
 
-  it("draws a new thread as a chat: its project and branch in the header, its Branch section behind the branch", async () => {
+  it("draws a new thread as a chat: its project and branch in the header and as pills, its Branch section behind the branch", async () => {
     const storage = createMemoryStorage();
     writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: "/project", projectName: "shop-api" }));
     const client = createFakeHostClient({
@@ -1649,9 +1651,15 @@ describe("Workspace Kit in the workbench", () => {
     const header = document.querySelector(".thread-header") as HTMLElement;
     expect(within(header).getByText("New thread")).toBeTruthy();
     expect(within(header).getByText("shop-api")).toBeTruthy();
-    // The composer carries the project; the checkout row under it is gone.
-    expect(screen.getByRole("button", { name: "Change project, current project shop-api" }).closest(".composer-chips")).toBeTruthy();
+    // Project and branch are pills under the heading (K98), not in the composer; the checkout row is gone.
+    const pills = screen.getByRole("heading", { name: "What should shop-api do next?" }).parentElement!.querySelector(".region-draft-actions") as HTMLElement;
+    expect(within(pills).getByRole("button", { name: "Change project, current project shop-api" })).toBeTruthy();
+    expect(document.querySelector(".composer-frame [aria-label^='Change project']")).toBeNull();
     expect(document.querySelector(".workspace-bar")).toBeNull();
+    fireEvent.click(await within(pills).findByRole("button", { name: "Change branch, current branch main" }));
+    expect(within(await screen.findByRole("dialog", { name: "Branch" })).getByRole("switch", { name: "Run in a new worktree" })).toBeTruthy();
+    fireEvent.click(within(pills).getByRole("button", { name: "Change branch, current branch main" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Branch" })).toBeNull());
 
     // The header's checkout branch is plain text as in the design; a planned worktree's name is mono.
     expect((await within(header).findByRole("button", { name: "Branch main" })).className).toBe("thread-branch-trigger");

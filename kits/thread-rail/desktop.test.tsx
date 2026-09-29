@@ -376,7 +376,8 @@ describe("Thread Rail on the desktop", () => {
     await flush();
     const branched = { ...thread("a"), projectLabel: "feature/rail", workspaceId: "ws-a" };
     organizer().runMenu(branched, "new-on-branch", actions);
-    expect(actions.newSession).toHaveBeenCalledWith({ workspace: "ws-a" });
+    // The picker still asks, with the thread's project first (K98).
+    expect(actions.newSession).toHaveBeenCalledWith({ workspace: "ws-a", pick: true });
     organizer().runMenu(branched, "copy-branch", actions);
     organizer().runMenu(branched, "copy-thread-id", actions);
     organizer().runMenu(branched, "copy-path", actions);

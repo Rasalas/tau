@@ -1,11 +1,18 @@
 import { useCallback, useState } from "react";
 import { AppPageStore } from "../workbench/app-page-store";
 
+/** How the new thread's project picker opens: the project in context, and whether it moves the draft on screen. */
+export interface NewThreadPick {
+  preselect?: string | undefined;
+  carry?: boolean;
+  anchor?: { x: number; y: number };
+}
+
 export function useAppOverlays() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** The command whose level the palette opened on, if any. */
   const [paletteMenu, setPaletteMenu] = useState<string>();
-  const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [newThreadPick, setNewThreadPick] = useState<NewThreadPick>();
   const [projectSourcesOpen, setProjectSourcesOpen] = useState(false);
   /** The source whose own view the project sources opened on, if any. */
   const [projectSource, setProjectSource] = useState<string>();
@@ -18,10 +25,10 @@ export function useAppOverlays() {
     setPaletteOpen(true);
   }, []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
-  const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
-  const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
+  const openNewThreadPicker = useCallback((pick: NewThreadPick = {}) => setNewThreadPick(pick), []);
+  const closeNewThreadPicker = useCallback(() => setNewThreadPick(undefined), []);
   const openProjectSources = useCallback((source?: string) => {
-    setNewThreadOpen(false);
+    setNewThreadPick(undefined);
     setProjectSource(source);
     setProjectSourcesOpen(true);
   }, []);
@@ -35,8 +42,8 @@ export function useAppOverlays() {
     setPaletteOpen,
     openPalette,
     closePalette,
-    newThreadOpen,
-    setNewThreadOpen,
+    newThreadOpen: newThreadPick !== undefined,
+    newThreadPick,
     openNewThreadPicker,
     closeNewThreadPicker,
     projectSourcesOpen,

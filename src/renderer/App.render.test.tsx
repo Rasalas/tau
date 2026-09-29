@@ -450,10 +450,11 @@ describe("App render isolation", () => {
     fireEvent.keyDown(oldComposer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalled());
 
-    // The title menu's new thread opens in the thread's own project, as ⌘N does.
+    // The title menu's new thread asks as ⌘N does, the thread's own project first.
     fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
     fireEvent.click(await screen.findByText("New thread"));
-    expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull();
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.keyDown(within(picker).getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
     const draftComposer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     await waitFor(() => expect(draftComposer.value).toBe(""));
     fireEvent.change(draftComposer, { target: { value: "new draft" } });

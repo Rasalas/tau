@@ -84,6 +84,7 @@ body[data-profile="compact"] .conversation-column:not(.conversation-start) .stat
 }
 body[data-profile="compact"] .conversation-empty { padding: 24px max(20px, var(--safe-right)) 20px max(20px, var(--safe-left)); }
 body[data-profile="compact"] .conversation-empty > h1 { font-size: 19px; }
+body[data-profile="compact"] .draft-pill { height: 44px; padding: 0 14px; border-radius: 12px; }
 
 /* Touch sizes: a finger needs 40 px or so, and iOS zooms into any field under 16 px. */
 body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: 16px; }
