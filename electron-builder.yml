@@ -212,7 +212,10 @@ nsis:
   # upload, while latest.yml names it "Tau-Setup-1.2.3.exe", so Windows found no update.
   artifactName: ${productName}-Setup-${version}.${ext}
 
+# Written into the app as `app-update.yml`: the window's updater, the host's and
+# the .deb's helper all read releases from here. The source repository is
+# private; release.yml publishes every release to this public one as well.
 publish:
   provider: github
   owner: Rasalas
-  repo: tau
+  repo: tau-releases

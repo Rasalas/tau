@@ -106,6 +106,17 @@ jobs:
             echo "::error::The secret TAU_RELEASE_SIGNING_KEY is not set; a release without signed update feeds would be refused by every installed Tau."
             exit 1
           fi
+      # Installed apps read releases from the public Rasalas/tau-releases; the
+      # GitHub App "Tau Releases (Rasalas)" is what may write there.
+      - name: Require the app that publishes to tau-releases
+        if: needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        env:
+          HAS_APP: ${{ secrets.TAU_RELEASES_APP_ID != '' && secrets.TAU_RELEASES_APP_KEY != '' }}
+        run: |
+          if [ "$HAS_APP" != true ]; then
+            echo "::error::The secrets TAU_RELEASES_APP_ID and TAU_RELEASES_APP_KEY are not both set; installed Tau reads releases from Rasalas/tau-releases only."
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -297,11 +308,14 @@ jobs:
           retention-days: 1
           path: feed/latest*.yml.sig
 
+  # The release goes to two places: Rasalas/tau keeps it as it always had
+  # (notes, tag, every file), and the public Rasalas/tau-releases carries the
+  # same files and notes, which is where installed apps and install:mac read.
   release:
     needs: [gate, build, sign]
     if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
     runs-on: tau-linux
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -313,26 +327,72 @@ jobs:
           pattern: tau-*
           path: artifacts
           merge-multiple: true
+      - name: Add the license
+        run: cp LICENSE artifacts/LICENSE
       - name: List what will be published
         run: ls -lh artifacts
       - name: Require the release key's signature on every update feed
         run: node scripts/packaging/release-signing.mjs check artifacts/latest*.yml
       # The latest*.yml files are what electron-updater reads; a release without
       # them installs fine and then never updates.
-      - uses: softprops/action-gh-release@v2
+      - name: Require every file the feeds name, their blockmaps and the license
+        run: node scripts/packaging/publish-release.mjs check artifacts
+      - id: source
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+      # GitHub writes the notes from this repository's history; tau-releases has none.
+      - name: Take the notes along
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.source.outputs.id }}
+        with:
+          script: |
+            const { releaseBody } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            const body = await releaseBody(github, { ...context.repo, releaseId: Number(process.env.RELEASE_ID) });
+            require("node:fs").writeFileSync("release-notes.md", body);
+      - id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.TAU_RELEASES_APP_ID }}
+          private-key: ${{ secrets.TAU_RELEASES_APP_KEY }}
+          owner: Rasalas
+          repositories: tau-releases
+          permission-contents: write
+      # A draft first: installed apps keep seeing the previous release until
+      # every file is up. Its tag lands on tau-releases' default branch.
+      - id: public
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Rasalas/tau-releases
+          token: ${{ steps.token.outputs.token }}
+          tag_name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          draft: true
+          files: artifacts/*
+          fail_on_unmatched_files: true
+      - name: Publish the public release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.public.outputs.id }}
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          script: |
+            const { PUBLIC_REPO, publishDraft, releaseFiles } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            const url = await publishDraft(github, { ...PUBLIC_REPO, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles("artifacts"), latest: true });
+            core.notice(`Published ${url}`);
 
-  # One prerelease under the moving tag `nightly`: the previous one and its tag
-  # go first, so the tag points at this commit and no stale asset stays behind.
-  # An installed Tau on the nightly channel reads its latest*.yml from there.
+  # One prerelease under the moving tag `nightly`, in both repositories: the
+  # previous one and its tag go first, so no stale asset stays behind. The gate
+  # reads Rasalas/tau's tag; an installed Tau on the nightly channel reads
+  # tau-releases' latest*.yml.
   nightly:
     needs: [gate, build, sign]
     if: needs.gate.outputs.nightly == 'true'
     runs-on: tau-linux
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -343,27 +403,20 @@ jobs:
           pattern: tau-*
           path: artifacts
           merge-multiple: true
+      - name: Add the license
+        run: cp LICENSE artifacts/LICENSE
       - name: List what will be published
         run: ls -lh artifacts
       - name: Require the release key's signature on every update feed
         run: node scripts/packaging/release-signing.mjs check artifacts/latest*.yml
+      - name: Require every file the feeds name, their blockmaps and the license
+        run: node scripts/packaging/publish-release.mjs check artifacts
       - name: Remove the previous nightly
         uses: actions/github-script@v7
         with:
           script: |
-            const { owner, repo } = context.repo;
-            try {
-              const { data } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: "nightly" });
-              if (!data.prerelease) throw new Error("The release tagged nightly is not a prerelease; refusing to delete it.");
-              await github.rest.repos.deleteRelease({ owner, repo, release_id: data.id });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-            }
-            try {
-              await github.rest.git.deleteRef({ owner, repo, ref: "tags/nightly" });
-            } catch (error) {
-              if (error.status !== 404 && error.status !== 422) throw error;
-            }
+            const { removeNightly } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            await removeNightly(github, context.repo);
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
@@ -375,3 +428,43 @@ jobs:
           make_latest: false
           files: artifacts/*
           fail_on_unmatched_files: true
+      - id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.TAU_RELEASES_APP_ID }}
+          private-key: ${{ secrets.TAU_RELEASES_APP_KEY }}
+          owner: Rasalas
+          repositories: tau-releases
+          permission-contents: write
+      - name: Remove the previous public nightly
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          script: |
+            const { PUBLIC_REPO, removeNightly } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            await removeNightly(github, PUBLIC_REPO);
+      # No target_commitish: the source commit does not exist in tau-releases,
+      # so the tag lands on its default branch and the body names the commit.
+      - id: public
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Rasalas/tau-releases
+          token: ${{ steps.token.outputs.token }}
+          tag_name: nightly
+          name: Nightly ${{ needs.gate.outputs.version }}
+          body: |
+            Built from ${{ github.sha }} on main. Nightly builds are untested; Settings → Defaults → Update track switches an installed Tau between Stable and Nightly.
+          prerelease: true
+          draft: true
+          files: artifacts/*
+          fail_on_unmatched_files: true
+      - name: Publish the public nightly
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.public.outputs.id }}
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          script: |
+            const { PUBLIC_REPO, publishDraft, releaseFiles } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            const url = await publishDraft(github, { ...PUBLIC_REPO, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles("artifacts"), latest: false });
+            core.notice(`Published ${url}`);

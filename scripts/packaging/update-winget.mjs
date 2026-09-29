@@ -1,7 +1,7 @@
 // The three winget manifests for a release, kept in packaging/winget/. A pull
 // request to microsoft/winget-pkgs copies them to manifests/r/Rasalas/Tau/<version>/
 // (docs/RELEASE.md); `npm run packaging:update` writes them with the other packages.
-import { REPO } from "./release.mjs";
+import { SOURCE_REPO } from "./release.mjs";
 
 export const PACKAGE_ID = "Rasalas.Tau";
 export const MANIFEST_VERSION = "1.9.0";
@@ -36,11 +36,11 @@ ${footer("installer")}`,
 ${identity}PackageLocale: en-US
 Publisher: Torben Buck
 PublisherUrl: https://github.com/Rasalas
-PublisherSupportUrl: https://github.com/${REPO}/issues
+PublisherSupportUrl: https://github.com/${SOURCE_REPO}/issues
 PackageName: Tau
-PackageUrl: https://github.com/${REPO}
+PackageUrl: ${assets.repoUrl}
 License: MIT
-LicenseUrl: https://github.com/${REPO}/blob/main/LICENSE
+LicenseUrl: ${assets.license?.url ?? `https://github.com/${SOURCE_REPO}/blob/main/LICENSE`}
 ShortDescription: Desktop workbench for the Pi coding agent.
 Moniker: tau
 Tags:

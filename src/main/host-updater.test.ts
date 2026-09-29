@@ -10,7 +10,7 @@ import { HostUpdater, createUpdateMethods, localWindowUpdatePort, type HostUpdat
 import { releaseKeysFor } from "./release-feed.js";
 import type { StagedUpdate, UpdateInstaller } from "./update-installers.js";
 
-const FEED = { owner: "Rasalas", repo: "tau" };
+const FEED = { owner: "Rasalas", repo: "tau-releases" };
 const LOCAL = "http://127.0.0.1:1/feed/";
 
 /** A release feed in memory: `latest-linux.yml` and the files it lists, served by a fake fetch. */
@@ -221,8 +221,8 @@ describe("HostUpdater", () => {
     const nightly = updater({ fetch, installer, feedOverride: undefined, channel: async () => "nightly" });
     await nightly.instance.check();
     expect(requests).toEqual([
-      "https://github.com/Rasalas/tau/releases/latest/download/latest-linux.yml",
-      "https://github.com/Rasalas/tau/releases/download/nightly/latest-linux.yml",
+      "https://github.com/Rasalas/tau-releases/releases/latest/download/latest-linux.yml",
+      "https://github.com/Rasalas/tau-releases/releases/download/nightly/latest-linux.yml",
     ]);
     expect(nightly.instance.status()).toMatchObject({ channel: "nightly", phase: "failed" });
   });

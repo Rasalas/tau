@@ -15,7 +15,9 @@ It runs as Node (Electron's binary with `ELECTRON_RUN_AS_NODE`), so it cannot
 use electron-updater, which needs Electron's `app`. It reads the same release
 feed electron-builder publishes (`latest-mac.yml`, `latest.yml`,
 `latest-linux*.yml`, `src/main/release-feed.ts`) on the channel in
-`updates.channel` of the machine's config.
+`updates.channel` of the machine's config, from the repository the app's
+`resources/app-update.yml` names, the public `Rasalas/tau-releases`
+([RELEASE.md](RELEASE.md#where-releases-are-published)). Nothing needs a token.
 
 | What runs on the machine | Checks | Downloads and installs |
 |---|---|---|
@@ -80,8 +82,8 @@ Anything else ends with exit 64. It takes no path and no URL. It:
    for a mirror or a test);
 3. refuses a version that is not newer than the installed `tau` (exit 66): it
    never goes back, so an old signed release cannot be replayed;
-4. fetches that version's `latest-linux*.yml` itself (`releases/download/v<version>/`,
-   or `nightly/`) over HTTPS, and `latest-linux*.yml.sig` beside it; the feed
+4. fetches that version's `latest-linux*.yml` itself from the repository
+   `app-update.yml` names (`releases/download/v<version>/`, or `nightly/`) over HTTPS, and `latest-linux*.yml.sig` beside it; the feed
    needs an Ed25519 signature by one of the helper's release keys (below);
 5. reads standard input into a root-only temporary folder, at most the size
    the release names, and compares size and SHA-512 with the release's entry
@@ -149,7 +151,9 @@ In `.github/workflows/release.yml` each build job uploads its feed as
 `latest-linux.yml` with the repository secret `TAU_RELEASE_SIGNING_KEY` (the
 private key, PKCS#8 PEM), runs `check`, and uploads the `.sig` files as
 `tau-signatures`. `release` and `nightly` run `check` once more on what they
-downloaded and publish the `.sig` files with the rest. A publishing run
+downloaded, check that every feed has its `.sig` (`publish-release.mjs check`),
+and publish the `.sig` files with the rest, to `Rasalas/tau` and to
+`Rasalas/tau-releases`. A publishing run
 without the secret fails in `verify`, before anything is built. A dry run
 without it only warns (see [RELEASE.md](RELEASE.md#build-all-platforms-without-publishing)).
 
@@ -224,7 +228,9 @@ moment.
   the container).
 - **The network** sees only HTTPS to GitHub. Whoever can serve files as the
   project's GitHub release (or break that TLS) still cannot ship an update
-  to a host or the helper without the release key (above). A mirror in
+  to a host or the helper without the release key (above). That includes
+  whoever holds the key of the GitHub App that publishes to
+  `Rasalas/tau-releases`. It can upload files there, but not sign them. A mirror in
   `/etc/tau/update-helper.json` has to serve the `.sig` files too. The
   window's own updater (electron-updater) and its AppImage-to-`.deb` offer
   (`appimage-install.ts`) do not read the `.sig`; they trust the checksum

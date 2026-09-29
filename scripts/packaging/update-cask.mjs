@@ -1,13 +1,11 @@
 // packaging/homebrew/tau.rb for a release: the version and the SHA-256 of both
 // disk images. The tap holds a copy of this file (docs/RELEASE.md);
 // `npm run packaging:update` writes it with the other packages.
-import { REPO } from "./release.mjs";
-
 export const CASK_PATH = "packaging/homebrew/tau.rb";
 
 /** An asset's URL with the version left to the cask, so `brew livecheck` and a bump touch one line. */
 function caskUrl(assets, asset) {
-  return `https://github.com/${REPO}/releases/download/v#{version}/${asset.name.replaceAll(assets.version, "#{version}")}`;
+  return asset.url.replaceAll(assets.version, "#{version}");
 }
 
 export function renderCask(assets) {
@@ -28,7 +26,7 @@ cask "tau" do
 
   name "Tau"
   desc "Desktop workbench for the Pi coding agent"
-  homepage "https://github.com/${REPO}"
+  homepage "${assets.repoUrl}"
 
   livecheck do
     url :url

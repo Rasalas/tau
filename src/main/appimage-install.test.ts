@@ -174,9 +174,9 @@ describe("environmentOutsideAppImage", () => {
 
 describe("the release of this version", () => {
   it("is the version's tag, the moving nightly tag, or a local feed", () => {
-    const feed = { owner: "Rasalas", repo: "tau" };
-    expect(releaseFeedUrl("0.7.5", feed, {})).toBe("https://github.com/Rasalas/tau/releases/download/v0.7.5/");
-    expect(releaseFeedUrl("0.7.6-nightly.20260927.3", feed, {})).toBe("https://github.com/Rasalas/tau/releases/download/nightly/");
+    const feed = { owner: "Rasalas", repo: "tau-releases" };
+    expect(releaseFeedUrl("0.7.5", feed, {})).toBe("https://github.com/Rasalas/tau-releases/releases/download/v0.7.5/");
+    expect(releaseFeedUrl("0.7.6-nightly.20260927.3", feed, {})).toBe("https://github.com/Rasalas/tau-releases/releases/download/nightly/");
     expect(releaseFeedUrl("0.7.5", feed, { TAU_INSTALL_FEED_URL: "http://127.0.0.1:1/feed" })).toBe("http://127.0.0.1:1/feed/");
     expect(releaseFeedUrl("0.7.5", undefined, {})).toBeUndefined();
     expect(releaseInfoFile("x64")).toBe("latest-linux.yml");

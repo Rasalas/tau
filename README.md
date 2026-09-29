@@ -121,11 +121,13 @@ What follows from that:
 ## Install
 
 Download the newest build for your platform from the
-[releases page](https://github.com/Rasalas/tau/releases): a `.dmg` or `.zip` on
+[releases page](https://github.com/Rasalas/tau-releases/releases): a `.dmg` or `.zip` on
 macOS (arm64 and x64), a `.deb` and an `.AppImage` on Linux (x64), an NSIS
 installer on Windows. The builds are unsigned, so the first launch needs the
 usual confirmation — open the app from Finder's context menu once on macOS,
-and tell Windows SmartScreen to run it anyway.
+and tell Windows SmartScreen to run it anyway. From a checkout on a Mac,
+`npm run install:mac` downloads the newest one, checks it against the
+release's signature and SHA-512, and puts it into `/Applications`.
 
 On **Ubuntu and Debian**, install the `.deb` — with your software center, or
 `sudo apt install ./Tau_<version>_amd64.deb`. It puts Tau into `/opt/Tau` and
@@ -146,12 +148,13 @@ for the next version. Without a desktop session that can show the password
 dialog, it shows the one `sudo apt install` command to run instead. A copy
 unpacked by hand (an extracted AppImage) runs, but cannot update itself.
 
-Once the repository is public, the package managers carry it too:
+Once they are set up, the package managers carry it too:
 `brew install --cask rasalas/tau/tau` on macOS, `winget install Rasalas.Tau` on
 Windows, `yay -S tau-bin` (or any AUR helper) on Arch Linux. How each is
 published is in [docs/RELEASE.md](docs/RELEASE.md#package-managers).
 
-An installed Tau keeps itself current, with or without a window. Each
+An installed Tau keeps itself current, with or without a window, from the
+same releases page; no account or token is needed. Each
 machine's host looks for a newer release on its update track two minutes after
 it starts and then every six hours, downloads it in the background, checks it
 against the release's SHA-512, and installs it once no turn has run for a
