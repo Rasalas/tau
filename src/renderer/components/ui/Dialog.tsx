@@ -44,10 +44,8 @@ export function Dialog({ label, className, onClose, children }: {
  * the other side when this one has no room and slides along the edge. A press
  * outside it or Escape closes it, and focus goes back where it was.
  */
-export function Popover({ anchor, placeAgainst, side = "bottom", align = "start", label, className, onClose, children }: {
+export function Popover({ anchor, side = "bottom", align = "start", label, className, onClose, children }: {
   anchor: RefObject<HTMLElement | null> | { x: number; y: number };
-  /** The element it is placed against when that is not the anchor, a press on which still counts as outside. */
-  placeAgainst?: RefObject<HTMLElement | null>;
   side?: FloatingSide;
   align?: FloatingAlign;
   label?: string;
@@ -65,7 +63,7 @@ export function Popover({ anchor, placeAgainst, side = "bottom", align = "start"
     const element = surface.current;
     if (!element) return undefined;
     const place = () => {
-      const rect = placeAgainst?.current?.getBoundingClientRect() ?? ("current" in anchor ? anchor.current?.getBoundingClientRect() : pointRect(anchor.x, anchor.y));
+      const rect = "current" in anchor ? anchor.current?.getBoundingClientRect() : pointRect(anchor.x, anchor.y);
       if (!rect) return;
       const placed = placeFloating(rect, element.getBoundingClientRect(), viewportSize(), { side, align });
       element.style.left = `${placed.left}px`;
@@ -75,7 +73,7 @@ export function Popover({ anchor, placeAgainst, side = "bottom", align = "start"
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [align, anchor, placeAgainst, side]);
+  }, [align, anchor, side]);
 
   useEffect(() => {
     const onDown = (event: PointerEvent) => {

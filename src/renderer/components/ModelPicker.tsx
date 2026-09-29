@@ -20,6 +20,7 @@ import {
 import { OfferingMarks, OfferingRow, modelFacts, wears, type RowCell } from "./ModelPickerRow";
 import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
+import { placeFloating, viewportSize } from "./ui/floating";
 import { useFocusTrap } from "./ui/focus";
 import { WorkbenchShellContext } from "../workbench-context";
 import { tooltipProps } from "./ui/Tooltip";
@@ -885,9 +886,27 @@ export function ModelPicker({
     </Suspense>
   ) : null;
 
+  // Popover placed itself at the chip, in its own layout effect and resize listener; both run before these.
+  const adding = addProvider !== null;
+  useLayoutEffect(() => {
+    const popover = surfaceRef.current?.closest<HTMLElement>(".popover");
+    if (!popover || !placeAgainst || asSheet || adding) return undefined;
+    const place = () => {
+      const frame = placeAgainst.current?.getBoundingClientRect();
+      if (!frame) return;
+      const placed = placeFloating(frame, popover.getBoundingClientRect(), viewportSize(), { side, align: "start" });
+      popover.style.left = `${placed.left}px`;
+      popover.style.top = `${placed.top}px`;
+      popover.dataset.side = placed.side;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [adding, asSheet, placeAgainst, side]);
+
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   return addProvider ?? (
-    <Popover anchor={anchor} placeAgainst={placeAgainst} side={side} align="start" label="Select model" className={`model-picker${thinking ? " with-thinking" : ""}`} onClose={dismiss}>
+    <Popover anchor={anchor} side={side} align="start" label="Select model" className={`model-picker${thinking ? " with-thinking" : ""}`} onClose={dismiss}>
       {content}
     </Popover>
   );

@@ -541,3 +541,29 @@ describe("ModelPicker", () => {
     });
   });
 });
+
+describe("where the picker opens", () => {
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  it("sits 6 px above the composer's frame at its left edge, not at the chip that opened it (design 1l)", () => {
+    const frame = document.createElement("div");
+    const chip = document.createElement("button");
+    frame.append(chip);
+    document.body.append(frame);
+    frame.getBoundingClientRect = () => rect(260, 600, 360, 110);
+    chip.getBoundingClientRect = () => rect(268, 660, 120, 28);
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      return this.classList.contains("popover") ? rect(0, 0, 460, 300) : original.call(this);
+    };
+    try {
+      render(<TestProviders><ModelPicker models={models} onSelect={vi.fn()} onClose={() => {}} anchor={{ current: chip }} placeAgainst={{ current: frame }} /></TestProviders>);
+      const popover = screen.getByRole("dialog", { name: "Select model" });
+      expect(popover.style.left).toBe("260px");
+      expect(popover.style.top).toBe(`${600 - 6 - 300}px`);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+      frame.remove();
+    }
+  });
+});
