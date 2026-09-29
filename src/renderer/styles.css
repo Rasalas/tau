@@ -938,7 +938,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .markdown hr { margin: 16px 0; border: 0; height: 1px; background: var(--line); }
 
 .markdown :not(pre) > code {
-  font: var(--text-xs) var(--mono); background: var(--code-bg);
+  font: var(--text-code) var(--mono); background: var(--code-bg);
   border: 1px solid transparent; border-radius: 5px;
   padding: 1px 5px; color: var(--ink-2); word-break: break-word;
 }
@@ -977,7 +977,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .md-code-head > button.copied { color: var(--ready); }
 .md-code-head > button.failed { color: var(--removed); }
 .md-code pre { margin: 0; padding: 11px 13px; overflow-x: auto; }
-.md-code code { font: calc(12px * var(--code-font-scale, 1))/1.4 var(--code-font-family, var(--mono)); color: var(--ink-code); white-space: pre; }
+.md-code code { font: calc(var(--text-code) * var(--code-font-scale, 1))/1.4 var(--code-font-family, var(--mono)); color: var(--ink-code); white-space: pre; }
 
 /* highlight.js tokens, on the workbench palette */
 .hljs-comment, .hljs-quote { color: var(--faint); font-style: italic; }
@@ -1774,7 +1774,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .remote-thread-band > small { color: var(--muted); font-size: 11px; }
 .remote-thread-band[data-level="question"] { background: var(--warn-chip); color: var(--ink); }
 .remote-thread-band[data-level="error"] { background: var(--danger-bg); color: var(--danger); }
-.source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: calc(12px * var(--code-font-scale, 1))/1.75 var(--code-font-family, var(--mono)); }
+.source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: calc(var(--text-code) * var(--code-font-scale, 1))/1.75 var(--code-font-family, var(--mono)); }
 .source-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; flex: 1; position: relative; isolation: isolate; }
 .source-line-mark {
   position: absolute; left: 0; right: 0; z-index: -1; pointer-events: none;
