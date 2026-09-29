@@ -39,6 +39,7 @@
     "smoke:attached": "node scripts/attached-smoke.mjs",
     "smoke:cli-app": "node scripts/cli-app-smoke.mjs",
     "smoke:ssh-pairing": "node scripts/ssh-pairing-smoke.mjs",
+    "smoke:host-update": "node scripts/host-update-smoke.mjs",
     "install:mac": "node scripts/install-mac.mjs",
     "packaging:update": "node scripts/packaging/update-packages.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",

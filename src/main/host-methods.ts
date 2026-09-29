@@ -24,6 +24,7 @@ import { createMachinePairingMethods, localWindowPort } from "./host-machine-pai
 import type { ClientCalls } from "./client-calls.js";
 import { createResourceMethods, type HostResourceSampler } from "./host-resources.js";
 import { createBlobMethods, type HostBlobStore } from "./host-blobs.js";
+import { createUpdateMethods, type HostUpdater } from "./host-updater.js";
 import { authorizeMethod } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
 import {
@@ -174,6 +175,8 @@ export interface HostMethodDeps {
   resources?(): HostResourceSampler | undefined;
   /** Files other machines send here; absent for a host in the window's process. */
   blobs?(): HostBlobStore | undefined;
+  /** The machine's own Tau updates (K103); absent for a host in the window's process. */
+  updates?(): HostUpdater | undefined;
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
@@ -431,6 +434,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createMachinePairingMethods({ machines: () => deps.machines?.(), window: () => localWindowPort(deps.clientCalls) }),
     ...createResourceMethods({ resources: () => deps.resources?.(), runtimes: host }),
     ...createBlobMethods(() => deps.blobs?.()),
+    ...createUpdateMethods(() => deps.updates?.()),
 
     // The other direction of the protocol: a client answering a `client-call`.
     // Only the connection it was sent to may answer (ADR 0023).

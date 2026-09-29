@@ -57,6 +57,8 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "rebuild-workbench": { label: "rebuilt the workbench" },
   "relaunch-workbench": { label: "relaunched the workbench" },
   "install-update": { label: "installed an update" },
+  "update-install": { label: "started a Tau update" },
+  "update-settings": { label: "changed automatic updates" },
   "open-project": { label: "opened a project" },
   "remove-project": { label: "removed a project" },
   "update-config": { label: "changed settings" },

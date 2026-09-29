@@ -116,6 +116,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
     case "app-update":
       targets.setUpdateReady(event.version);
       return;
+    // The machine's own Tau; `update-store` follows it on the connection itself.
+    case "update-status":
+      return;
     case "window-title":
       targets.setWindowTitle?.(event.title);
       return;

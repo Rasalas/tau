@@ -576,6 +576,9 @@ async function loadWindowHalves(): Promise<void> {
   windowHost.extensions.register(WINDOW_SERVICES_ID, () => ({
     handle: (command, input) => {
       if (command === "pick-directory") return hostOptions.platform.pickDirectory(input as Parameters<typeof hostOptions.platform.pickDirectory>[0]);
+      // The host asks the window of its machine to install; the window's updater owns that (K103).
+      if (command === "update-state") return { installs: updates?.installs() ?? false, ...(updates?.downloaded() ? { downloaded: updates.downloaded() } : {}) };
+      if (command === "update-install") return updates?.installWhenReady() ?? { started: false, reason: "This window has no updater." };
       return answerEnvironmentCommand(environments, command, input);
     },
   }));
@@ -864,6 +867,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     ...(feed ? { feed } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
+    interactive: process.env.TAU_NO_NATIVE_DIALOGS !== "1",
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, app.name, {
     checkForUpdates: () => void updates?.checkForUpdates(),

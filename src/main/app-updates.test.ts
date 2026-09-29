@@ -50,7 +50,36 @@ function updates(overrides: { enabled?: boolean; unsupported?: string; installOn
   return { subject, updater, emit, told, downloaded, log };
 }
 
+function fakeUnseen() {
+  const { updater } = fakeUpdater();
+  const subject = createAppUpdates({ updater, enabled: true, interactive: false, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, onDownloaded: () => undefined, tell: () => undefined });
+  return { updater, subject };
+}
+
 describe("app updates", () => {
+  it("installs for the host of its machine: at once when downloaded, else once the download is done (K103)", async () => {
+    const { subject, updater, emit } = updates();
+    expect(subject.installs()).toBe(true);
+    expect(subject.installWhenReady()).toMatchObject({ started: false });
+    await vi.waitFor(() => expect(updater.checkForUpdates).toHaveBeenCalledOnce());
+    expect(updater.quitAndInstall).not.toHaveBeenCalled();
+    emit("update-downloaded", { version: "0.7.14" });
+    expect(updater.quitAndInstall).toHaveBeenCalledOnce();
+    const again = updates();
+    again.emit("update-downloaded", { version: "0.7.14" });
+    expect(again.subject.installWhenReady()).toEqual({ started: true });
+    expect(again.updater.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
+  it("leaves installing to the host where nobody sees the window or it cannot update", () => {
+    expect(updates({ unsupported: UNPACKED_UPDATES }).subject.installs()).toBe(false);
+    expect(updates({ enabled: false }).subject.installs()).toBe(false);
+    const { updater, subject } = fakeUnseen();
+    expect(subject.installs()).toBe(false);
+    expect(subject.installWhenReady().started).toBe(false);
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
   it("downloads by itself and installs on quit", () => {
     const { updater } = updates();
     expect(updater.autoDownload).toBe(true);

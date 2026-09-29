@@ -682,6 +682,8 @@ export type GlobalHostEvent =
   | { type: "window-title"; title: string; sessionId?: undefined }
   /** A new Tau finished downloading and installs on the next restart. */
   | { type: "app-update"; version: string; sessionId?: undefined }
+  /** The host's machine: which Tau it runs and how its update stands (K103). */
+  | { type: "update-status"; status: import("./host-updates.js").HostUpdateStatus; sessionId?: undefined }
   /** The window's own process to its page: the app menu, the quit shortcut, a quit waiting for an answer. */
   | { type: "window-shell"; event: import("./window-shell.js").WindowShellEvent; sessionId?: undefined }
   /** The window's own process to its page: the machines it knows and how each is doing (ADR 0025). */

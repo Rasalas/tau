@@ -1,13 +1,12 @@
 import { execFile, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { isNightlyVersion } from "../shared/app-version.js";
 import { compareVersions } from "../shared/runtime-version.js";
-import { DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, type UpdateFeed, type UpdateLog } from "./app-updates.js";
+import { ChecksumMismatch, DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, downloadVerified, parseReleaseInfo, type ReleaseFile, type UpdateFeed, type UpdateLog } from "./release-feed.js";
+
+export { ChecksumMismatch, downloadVerified, parseReleaseInfo, type ReleaseFile } from "./release-feed.js";
 
 /**
  * On Ubuntu 24.04+ an AppImage runs without Chromium's sandbox: AppRun adds
@@ -125,50 +124,6 @@ export function releaseInfoFile(arch: string): string {
   return arch === "x64" ? "latest-linux.yml" : `latest-linux-${arch}.yml`;
 }
 
-export interface ReleaseFile {
-  url: string;
-  /** Base64, as electron-builder writes it. */
-  sha512: string;
-  size?: number;
-}
-
-/** The `version` and `files` of a `latest-linux.yml`; only the flat shape electron-builder writes. */
-export function parseReleaseInfo(text: string): { version?: string; files: ReleaseFile[] } {
-  const unquote = (value: string) => value.trim().replace(/^(['"])(.*)\1$/u, "$2");
-  const files: ReleaseFile[] = [];
-  let version: string | undefined;
-  let entry: Partial<ReleaseFile> | undefined;
-  let inFiles = false;
-  const flush = () => {
-    if (entry?.url && entry.sha512) files.push(entry as ReleaseFile);
-    entry = undefined;
-  };
-  for (const line of text.split(/\r?\n/u)) {
-    const top = /^([A-Za-z]\w*):\s*(.*)$/u.exec(line);
-    if (top) {
-      flush();
-      inFiles = top[1] === "files";
-      if (top[1] === "version") version = unquote(top[2]!);
-      continue;
-    }
-    if (!inFiles) continue;
-    const item = /^\s*-\s+(\w+):\s*(.*)$/u.exec(line);
-    const field = item ?? /^\s+(\w+):\s*(.*)$/u.exec(line);
-    if (!field) continue;
-    if (item) {
-      flush();
-      entry = {};
-    }
-    if (!entry) continue;
-    const [, key, raw] = field;
-    if (key === "url") entry.url = unquote(raw!);
-    else if (key === "sha512") entry.sha512 = unquote(raw!);
-    else if (key === "size" && /^\d+$/u.test(raw!.trim())) entry.size = Number(raw!.trim());
-  }
-  flush();
-  return { ...(version ? { version } : {}), files };
-}
-
 /** The .deb of this architecture in a release, with the name it is saved under. */
 export function packageFile(info: { files: ReleaseFile[] }, arch: string, base: string): (ReleaseFile & { href: string; name: string }) | undefined {
   const debArch = DEB_ARCH[arch];
@@ -178,50 +133,6 @@ export function packageFile(info: { files: ReleaseFile[] }, arch: string, base: 
   const href = new URL(file.url, base).href;
   const name = decodeURIComponent(basename(new URL(href).pathname));
   return /^[\w.+~-]+\.deb$/u.test(name) ? { ...file, href, name } : undefined;
-}
-
-export class ChecksumMismatch extends Error {}
-
-async function fileSha512(path: string): Promise<string> {
-  const hash = createHash("sha512");
-  await pipeline(createReadStream(path), hash);
-  return hash.digest("base64");
-}
-
-/**
- * Downloads `url` to `target` and keeps it only when size and SHA-512 match
- * the release; a file already there that matches is kept as it is.
- */
-export async function downloadVerified(
-  fetchUrl: PackageInstallOptions["fetch"],
-  url: string,
-  target: string,
-  expected: { sha512: string; size?: number },
-  signal?: AbortSignal,
-): Promise<void> {
-  if (existsSync(target) && await fileSha512(target) === expected.sha512) return;
-  const response = await fetchUrl(url, signal ? { signal } : {});
-  if (!response.ok || !response.body) throw new Error(`${url} answered ${response.status}.`);
-  const partial = `${target}.part`;
-  const hash = createHash("sha512");
-  let size = 0;
-  const count = new Transform({
-    transform(chunk: Buffer, _encoding, done) {
-      hash.update(chunk);
-      size += chunk.length;
-      done(null, chunk);
-    },
-  });
-  try {
-    await pipeline(Readable.fromWeb(response.body as never), count, createWriteStream(partial), signal ? { signal } : {});
-    const digest = hash.digest("base64");
-    if (digest !== expected.sha512 || (expected.size !== undefined && size !== expected.size)) {
-      throw new ChecksumMismatch(`The download of ${basename(target)} does not match the release's checksum; nothing was installed.`);
-    }
-    renameSync(partial, target);
-  } finally {
-    rmSync(partial, { force: true });
-  }
 }
 
 /**

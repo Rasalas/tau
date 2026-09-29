@@ -65,6 +65,11 @@ export const HOST_METHOD_ACCESS = {
   "workbench-source": "read",
   "relaunch-workbench": "write",
   "install-update": "write",
+  // This machine's own Tau (K103): anyone may look; installing also needs the owner's leave for devices.
+  "update-status": "read",
+  "update-check": "read",
+  "update-install": "write",
+  "update-settings": "write",
   // Adds the folder to the host's projects and runs the kits' workspace hooks.
   "open-project": "write",
   "remove-project": "write",
