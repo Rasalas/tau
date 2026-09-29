@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # A first run on a repository whose history arrived while Actions were off.
+  workflow_dispatch:
 
 concurrency:
   group: performance-${{ github.workflow }}-${{ github.ref }}
