@@ -94,6 +94,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onAdd, onS
         <h2 id="nearby-title">On this network</h2>
         <NearbyList state={nearby} hosts={unknownNearby} onAsk={onAsk} />
       </section>
+      <p className="shell-hint"><a href="https://rasalas.github.io/tau/docs/privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
     </div>
     <button type="button" className="shell-fab" aria-label="Add host" onClick={onAdd}><Plus size={28} /></button>
     {removing ? <RemoveDialog host={removing} onKeep={() => setRemoving(undefined)} onRemove={() => { onRemove(removing); setRemoving(undefined); }} /> : null}

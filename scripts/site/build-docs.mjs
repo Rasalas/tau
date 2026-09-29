@@ -30,6 +30,8 @@ export const PAGES = [
   { slug: "contributing", source: "CONTRIBUTING.md", group: "Reference", title: "Contributing", blurb: "Setting up, where a change goes, and what a pull request needs." },
   { slug: "features", source: "docs/features.md", group: "Project", blurb: "The workbench's features, in one list." },
   { slug: "roadmap", source: "docs/roadmap.md", group: "Project", title: "Roadmap", blurb: "What is not done yet, and what Tau does not try to be." },
+  { slug: "privacy", source: "docs/site/privacy.md", group: "Project", title: "Privacy policy", blurb: "How the Android app handles connections, notifications and your data." },
+  { slug: "privacy-de", source: "docs/site/privacy-de.md", group: "Project", title: "Datenschutzerklärung", lang: "de", blurb: "Datenschutz für die Android-App, auf Deutsch." },
 ];
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
@@ -152,7 +154,7 @@ function navigation(pages, currentSlug) {
   return groups.map((group) => `<p class="nav-group">${escapeText(group)}</p><ul>${pages.filter((page) => page.group === group).map((page) => `<li><a href="${page.slug}.html"${page.slug === currentSlug ? ' aria-current="page"' : ""}>${escapeText(page.navTitle)}</a></li>`).join("")}</ul>`).join("");
 }
 
-function pageHtml({ title, description, body, nav, header, footer }) {
+function pageHtml({ title, description, body, nav, header, footer, lang = "en" }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -170,7 +172,7 @@ function pageHtml({ title, description, body, nav, header, footer }) {
 <a class="skip" href="#main">Skip to content</a>
 ${header}<div class="docs wrap">
 <nav class="docs-nav" aria-label="Docs">${nav}</nav>
-<main id="main" class="doc">
+<main id="main" class="doc" lang="${escapeAttr(lang)}">
 ${body}
 </main>
 </div>
@@ -198,7 +200,7 @@ export function buildDocs({ root = ROOT, out = join(ROOT, "site", "docs"), pages
       : "";
     const body = page.html.replace(/(<\/h1>)/, `$1${contents}`) + `<p class="source">This page is <a href="${REPO_URL}/blob/main/${page.source}">${escapeText(page.source)}</a> in Tau's repository.</p>`;
     const file = join(out, `${page.slug}.html`);
-    writeFileSync(file, pageHtml({ title: page.navTitle, description: page.description, body, nav: navigation(rendered, page.slug), header, footer }));
+    writeFileSync(file, pageHtml({ title: page.navTitle, description: page.description, body, nav: navigation(rendered, page.slug), header, footer, lang: page.lang }));
     written.push(file);
   }
   const cards = (group) => `<ul class="doc-cards">${rendered.filter((page) => page.group === group).map((page) => `<li><a href="${page.slug}.html"><strong>${escapeText(page.navTitle)}</strong>${escapeText(page.blurb)}</a></li>`).join("")}</ul>`;
