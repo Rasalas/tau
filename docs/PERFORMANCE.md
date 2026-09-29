@@ -693,6 +693,42 @@ Checked and left alone:
 
 - Making `DraftRow` or `draft-threads.ts` lazy would move about 4 KB out of the entry but not lower the total. The rail draws the active draft at first paint, so a stand-in would draw it a moment late.
 
+### Script headroom, 0.7.14
+
+On `fix/0.7.14` (`9e28b211`) two budgets failed and the third was close: 803,302 bytes of initial JavaScript (budget 800,000; v0.7.13 793,915), 505,912 bytes of total gzip (budget 500,000; v0.7.13 498,935) and 3,980,496 of 4,000,000 bytes of kit desktop JavaScript (v0.7.13 3,916,203). The release's thread header, stage spine, compaction divider and new rail status added about 9 KB to the entry by source map; Reviews added 46 KB to Review Kit. Ticket K90 (2026-09-29), one change at a time, desktop build, `reports/build-report.json`:
+
+| change | initial JavaScript | total gzip | kit desktop JavaScript |
+| --- | ---: | ---: | ---: |
+| before | 803,302 | 505,912 | 3,980,496 |
+| `@tanstack/react-virtual` is a shared module | +1,494 | +185 | −53,902 |
+| TypeScript highlighting on the JavaScript grammar | +96 | −2,172 | |
+| lucide's older icon names packed with their icons | 0 | −1,552 | |
+| Markdown's hast without `mdast-util-to-hast` | −7,872 | −1,969 | |
+| no script preload lists in the desktop build | −2,236 | −1,294 | |
+| stage tools and conversation spine with the stage chunk | −2,264 | +222 | |
+| after | 792,520 | 499,332 | 3,926,594 |
+| budget | 800,000 | 500,000 | 4,000,000 |
+
+That leaves 7,480 bytes under the initial budget, 668 bytes of gzip under the total and 73,406 bytes under the kit budget. The browser client went from 809,145 to 800,643 bytes of initial JavaScript (253,416 → 251,088 gzip; budget 820,000) and from 508,894 to 503,744 bytes of total gzip (budget 510,000).
+
+- **The virtualizer is shared.** Workspace Kit's rail and Agents Kit's list each bundled `@tanstack/react-virtual` with its core, about 27 KB unminified per kit, while the transcript already runs it. It is on the shared-module list now (`src/shared/shared-modules.ts`), bound to the renderer's copy like React. The renderer publishes the whole namespace, so the exports the transcript leaves unused stay in the entry.
+- **TypeScript on JavaScript.** highlight.js's TypeScript grammar carries its own copy of the JavaScript grammar. `highlight-typescript.ts` builds TypeScript on the JavaScript module, with the changes highlight.js makes; its chunk is 1.3 KB and loads with the JavaScript one. `highlight-typescript.test.ts` compares the grammar object and the highlighted HTML with highlight.js's own.
+- **Older icon names.** The shared icon chunk kept a table of 254 renamed icons with old and new names. The packed set now lists each icon's older names after its own name, read from lucide's entry at build time (`readLucideAliases` in `vite.icon-set.ts`), and `icon-set.ts` derives the same list from lucide in development and tests. A lucide upgrade no longer needs the table edited.
+- **Markdown's hast.** `toHast` in `markdown-pipeline.ts` builds what `mdast-util-to-hast` built for GFM trees: wrapping newlines, loose and tight lists, task boxes, tables with alignment, reference links and their fallback text, footnotes with back references. It turns raw HTML into text and empties unsafe URLs as it goes, so the sanitizing walk, `html-url-attributes` and the `structuredClone` stand-in are gone. `markdown-pipeline.test.tsx` compares its tree with the package's (positions aside) for every fixture, besides the markup comparison with `react-markdown`.
+- **Preload lists.** Vite gives each dynamic import the list of files to fetch with it; the entry alone named 75. Electron reads the chunks from disk, so the desktop build (`vite.config.ts`) keeps only the stylesheets in those lists. The browser client keeps them.
+- **Stage chunk.** `StageTools` and `ConversationSpine` are drawn only beside the stage, so they come with its chunk. This one moves code rather than removing it.
+
+`npm run start:budget` passes, first paint 112 ms under a load average of 8. In an isolated instance on the fake model a prompt drew an aligned table, task boxes, a footnote and its section, a file chip, and highlighted TypeScript (`interface`, `satisfies`, `string`) and JavaScript fences; the stage opened Files with a diff, maximized to the spine and back, opened Terminal and Agents; Reviews with its Remote tab, the model picker, a new thread's draft and Settings → Runtimes opened.
+
+Tried and left out:
+
+- Taking icons the entry already imports out of the packed set: −259 bytes of gzip, +201 bytes of initial script. Lucide's path data compresses well in the set, and the entry has to export each component.
+- Loading the `tau` API with the kits instead of the first paint: −12.5 KB of initial script but +3.8 KB of total gzip in eight more chunks.
+- Moving the phone's title bar into the touch chunk: −1,365 bytes initial, +546 bytes gzip (its icon became a chunk of its own).
+- Rollup's `experimentalMinChunkSize`: at 1,000 bytes −427 gzip and +732 initial, at 2,000 bytes −984 gzip and +2.6 KB initial. Grouping the lazy icons with `manualChunks` pulled lucide's runtime into a preloaded chunk.
+- Other orders for the packed icon set: alphabetical compresses best.
+- The dock fields `useWorkbenchLayoutState` still returns (`dockOpen`, `dockWidth`, `openedPanels`): about 0.5 KB, and their tests describe what older stored layouts restore.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension

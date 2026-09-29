@@ -40,7 +40,6 @@ import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
 import { DraftDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
 import { projectHue, projectInitial } from "./components/ThreadRow";
-import { ConversationSpine, StageTools } from "./components/StageSpine";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
 import { ResizeHandle } from "./components/ResizeHandle";
@@ -86,6 +85,9 @@ import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 const LazyCommandPalette = retryableLazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
 const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
+// Drawn only beside the stage, so they come with its chunk.
+const LazyStageTools = retryableLazy(() => import("./components/Stage").then(({ StageTools }) => ({ default: StageTools })));
+const LazyConversationSpine = retryableLazy(() => import("./components/Stage").then(({ ConversationSpine }) => ({ default: ConversationSpine })));
 const LazyAppPageScreen = retryableLazy(() => import("./pages/AppPageScreen").then(({ AppPageScreen }) => ({ default: AppPageScreen })));
 const LazySettingsScreen = retryableLazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
@@ -474,7 +476,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   ]), [drawerPanel, frontTab, stageExpanded]);
   const openTool = (id: string) => (drawerPanel?.id === id ? actions.closePanel?.(id) : openPanel(id));
   const stageTools = <>
-    <StageTools panels={panels} shown={shownTools} onOpen={openTool} />
+    <Suspense fallback={null}><LazyStageTools panels={panels} shown={shownTools} onOpen={openTool} /></Suspense>
     <Region registry={registry} placement="stage-bar" snapshot={snapshot} actions={actions} />
   </>;
 
@@ -728,12 +730,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
       <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px` } as CSSProperties}>
-        {conversationFolded ? <ConversationSpine
+        {conversationFolded ? <Suspense fallback={null}><LazyConversationSpine
           title={showStartScreen ? "New thread" : conversationSnapshot?.sessionTitle || "Untitled thread"}
           streaming={visibleStreaming}
           waiting={composer.prompts.length > 0}
           onShow={() => { setChatFocused(true); if (maximized) panelLayout?.restore(); }}
-        /> : null}
+        /></Suspense> : null}
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
           data-keybinding-context="chat"

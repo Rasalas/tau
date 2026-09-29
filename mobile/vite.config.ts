@@ -19,7 +19,6 @@ export default defineConfig(({ mode }) => {
   return {
     root: here,
     plugins: [react(), stripIconKeys(), dedupeLegalComments(), thirdPartyLicenses(repository)],
-    resolve: rendererBuild.resolve,
     base: "./",
     // The browser client's favicon and manifest.
     publicDir: fileURLToPath(new URL("../src/web/public", import.meta.url)),

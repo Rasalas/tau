@@ -28,7 +28,7 @@ const LANGUAGE_LOADERS: Record<string, () => Promise<{ default: LanguageDefiniti
   rust: () => import("highlight.js/lib/languages/rust"),
   shell: () => import("highlight.js/lib/languages/shell"),
   sql: () => import("highlight.js/lib/languages/sql"),
-  typescript: () => import("highlight.js/lib/languages/typescript"),
+  typescript: () => import("./highlight-typescript"),
   xml: () => import("highlight.js/lib/languages/xml"),
   yaml: () => import("highlight.js/lib/languages/yaml"),
 };

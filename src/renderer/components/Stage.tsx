@@ -14,6 +14,8 @@ import { ThreadDocument } from "./ThreadDocument";
 import { tooltipProps } from "./ui/Tooltip";
 import "./stage-panels.css";
 
+export { ConversationSpine, StageTools } from "./StageSpine";
+
 function relativeTo(cwd: string | undefined, path: string): string {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
 }
