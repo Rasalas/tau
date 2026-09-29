@@ -74,7 +74,7 @@ describe("Access Kit desktop extension", () => {
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");
   });
 
-  it("opens the composer menu with composer.mode, as T3 Code's chord does", () => {
+  it("opens the composer menu with composer.mode", () => {
     const { registry } = activate();
     const opened = vi.fn();
     render(<button type="button" data-composer-shortcut="composer.mode" onClick={opened}>…</button>);

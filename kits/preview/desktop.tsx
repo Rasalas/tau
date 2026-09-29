@@ -30,7 +30,7 @@ const LookInPreview = lazy(() => import("./look-in.js"));
 const pageFrames: LiveFrameSource = async (maxWidth, since) =>
   await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
 
-/** T3 Code's `preview.focusUrl`: the panel's address field, its text selected. */
+/** Focuses the panel's address field, its text selected. */
 function focusAddress(app: Pick<WorkbenchActions, "openPanel">): void {
   app.openPanel(PREVIEW_PANEL);
   requestAnimationFrame(() => {
@@ -142,11 +142,11 @@ export const previewExtension: DesktopExtension = {
       run: (args, app) => open(args.trim(), app),
     });
     plugin.registerKeybinding({ keys: "mod+shift+b", commandId: "preview.open" });
-    // T3 Code's chord for the same panel.
+    // The chord other workbenches use for the same panel.
     plugin.registerKeybinding({ keys: "mod+shift+j", commandId: "preview.toggle" });
     plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", access: "write", run: (app) => focusAddress(app) });
     plugin.registerKeybinding({ keys: "mod+l", commandId: "preview.focus-url", when: "previewFocus" });
-    // T3 Code's preview.refresh and zoom commands. Their chords are the app menu's; the page takes them while it has the keyboard.
+    // Reload and zoom for the page. Their chords are the app menu's; the page takes them while it has the keyboard.
     const report = (app: Pick<WorkbenchActions, "notify">) => (error: unknown) => app.notify(errorMessage(error));
     plugin.registerCommand({ id: "preview.refresh", label: "Reload the preview", group: "Extensions", access: "write", run: (app) => { void previewKit.navigate({ action: "reload" }).catch(report(app)); } });
     plugin.registerCommand({ id: "preview.zoom-in", label: "Zoom the preview in", group: "Extensions", access: "write", run: (app) => { void previewKit.zoom({ step: "in" }).catch(report(app)); } });

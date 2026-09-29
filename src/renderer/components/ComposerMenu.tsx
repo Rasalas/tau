@@ -8,7 +8,7 @@ import { focusableElements, openedByKeyboard } from "./ui/focus";
 /** The composer menu ("…") a control is drawn in; picking an entry closes it. */
 export const ComposerMenuContext = createContext<{ close(): void }>({ close() {} });
 
-/** A heading and its entries in the composer menu, as T3 Code groups Mode and Access. */
+/** A heading and its entries in the composer menu, such as Mode or Access. */
 export function ComposerMenuSection({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <div className="composer-menu-section" role="group" aria-label={heading}>

@@ -62,7 +62,7 @@ const NAME_LIMIT = 60;
 const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : days === 365 ? "1 year unused" : `${days} days unused`);
 
 /**
- * Settings → Connections, after T3 Code's: where this host listens, devices
+ * Settings → Connections: where this host listens, devices
  * waiting to be let in, who holds a token for it, single-use pairing links
  * for another device, and the host token's rotation (ADR 0023, ADR 0024).
  * Only a connection with the host token sees it.

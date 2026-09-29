@@ -20,7 +20,7 @@ async function open(app: WorkbenchActions, workspace: string): Promise<void> {
 }
 
 /**
- * One folder as a palette level, as T3 Code's add-project browse: add it,
+ * One folder as a palette level: add it,
  * go up, or drill into a folder inside it. Each level lists its folder once.
  */
 export function folderMenu(host: AddProjectHost, path?: string): PaletteMenu {

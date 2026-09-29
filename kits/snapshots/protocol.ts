@@ -20,7 +20,7 @@ export const SETTING_ENABLED = "shortcut-enabled";
 export const SETTING_SHORTCUT = "shortcut";
 export const SETTING_ACCESSIBILITY = "accessibility";
 
-/** T3 Code's bounds for what one capture may carry to the model. */
+/** Bounds for what one capture may carry to the model. */
 export const MAX_ACCESSIBILITY_NODES = 10_000;
 export const MAX_ACCESSIBILITY_CHARS = 32_000;
 export const MAX_TEXT_CHARS = 32_000;

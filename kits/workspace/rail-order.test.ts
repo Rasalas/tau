@@ -14,7 +14,7 @@ function preferences(values: Record<string, string>, options: Record<string, boo
 }
 
 describe("readRailOrder", () => {
-  it("falls back to T3 Code's defaults, and to repository grouping for the old toggle", () => {
+  it("falls back to the defaults, and to repository grouping for the old toggle", () => {
     expect(readRailOrder(preferences({}))).toEqual({ grouping: "none", projectSort: "activity", threadSort: "updated", preview: 6 });
     expect(readRailOrder(preferences({}, { "group-by-project": true })).grouping).toBe("repository");
     expect(readRailOrder(preferences({ "rail-grouping": "separate" }, { "group-by-project": true })).grouping).toBe("separate");

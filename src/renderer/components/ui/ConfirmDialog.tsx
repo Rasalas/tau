@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Dialog } from "./Dialog";
 
 /**
- * A yes-or-no question over the window, after T3 Code's: the title asks, the
+ * A yes-or-no question over the window: the title asks, the
  * message says what follows, Cancel and the action sit at the bottom right.
  * The action has focus, so Enter answers it and Escape cancels. With
  * `dontAskAgain` a box under the message lets the user turn the question off;

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Dialog, getClientStorage, type PreferencesStore } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, type MergeMethod, type MergeOutcome, type PullRequestStackLayer, type RequestService } from "./protocol.js";
 
-/** T3 Code's words for the three methods. */
+/** Labels for the three methods. */
 export const METHOD_LABELS: Record<MergeMethod, string> = { merge: "Merge", squash: "Squash and merge", rebase: "Rebase and merge" };
 export const METHOD_WORDS: Record<MergeMethod, string> = { merge: "a merge commit", squash: "squash", rebase: "rebase" };
 
@@ -35,7 +35,7 @@ export function outcomeText(outcome: MergeOutcome | undefined): string {
 export type MergeConfirmKind = "merge" | "auto-merge" | "revert";
 
 /**
- * The question before a merge, an armed merge or a revert, after T3 Code's:
+ * The question before a merge, an armed merge or a revert:
  * what happens in one sentence, the method where there is a choice, and
  * whether the branch goes too. Nothing reaches the host before the button.
  */

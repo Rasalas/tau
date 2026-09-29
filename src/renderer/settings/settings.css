@@ -1,7 +1,7 @@
 /*
  * Settings is a page of its own, over the whole window: the section column on
  * the rail's surface, the page in a readable column on the shell's. Sections
- * are a muted heading over one card of rows (T3 Code's settings layout).
+ * are a muted heading over one card of rows.
  * Loaded with the settings chunk; the frame and the controls kits share stay
  * in styles.css.
  */
@@ -504,7 +504,7 @@
 .network-certificate-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
 .network-warning { margin: 4px 0 0; font-size: var(--text-sm); color: var(--warn); }
 
-/* Stacked, as on a phone: the section list is one screen and a page the next (T3 Code's settings). */
+/* Stacked, as on a phone: the section list is one screen and a page the next. */
 .settings-screen.stacked { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .settings-screen.stacked[data-view="sections"] .settings-main,
 .settings-screen.stacked[data-view="page"] .settings-nav { display: none; }

@@ -28,7 +28,7 @@ export function nextZoomLevel(current: number, direction: ZoomDirection): number
 }
 
 /**
- * The app menu, after T3 Code's. The zoom items are not Electron's zoom roles:
+ * The app menu. The zoom items are not Electron's zoom roles:
  * those zoom whatever has focus, which is the preview's page while it has the
  * keyboard. A kit that wants ⌘+, ⌘− and ⌘0 for a view of its own takes them in
  * that view's `before-input-event` and calls `preventDefault`, which also keeps

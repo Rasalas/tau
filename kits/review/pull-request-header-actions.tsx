@@ -12,7 +12,7 @@ import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 /** A step the view moves into the menu where its header has no room for it, a phone's. */
 export type HeaderMenuStep = Pick<MenuItem, "id" | "label" | "icon" | "disabled" | "description"> & { run(): void };
 
-/** Which merge control the header shows in its one slot, after T3 Code's primary control. */
+/** Which merge control the header shows in its one slot. */
 export type PrimaryControl = "merge" | "auto-merge" | "armed" | undefined;
 
 export function primaryControl(detail: Pick<PullRequestDetail, "state" | "draft" | "autoMerge">, checks: readonly PullRequestCheck[], capabilities: { merge: readonly MergeMethod[]; autoMerge: boolean }): PrimaryControl {

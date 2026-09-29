@@ -25,7 +25,7 @@ function useNow(now: () => number, dueAt: number | undefined): number {
 }
 
 /**
- * "Resume with less context" above the composer, after T3 Code: a thread
+ * "Resume with less context" above the composer: a thread
  * whose context is large and whose prompt cache has gone cold offers a
  * compaction before the next turn rewrites all of it into the cache.
  */

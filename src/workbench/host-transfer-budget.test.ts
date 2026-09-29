@@ -56,7 +56,7 @@ function diagnosticLines(seed: number, length: number): string {
 }
 
 /**
- * A heavy turn in the spirit of T3's transfer fixture: thinking, twenty short
+ * A heavy turn: thinking, twenty short
  * tools, one tool streaming 1.1 MB (so the host's tail window slides), and a
  * 4 KB answer, streamed at a model's pace.
  */

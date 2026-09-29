@@ -210,7 +210,7 @@ export function ModelPicker({
   onOpenSettings?(kind: ThreadBackendKind, part: "runtime" | "models"): void;
   /** "thinking": opens with the focus on the thinking column, as the composer's reasoning level asks. */
   focus?: "thinking";
-  /** The control that opens the picker, as T3 Code's picker at its chip. */
+  /** The control that opens the picker; the picker opens at it. */
   anchor: RefObject<HTMLElement | null>;
   /** Where it opens when not at the anchor: the composer's frame, its left edge and 6 px above (design 1l). */
   placeAgainst?: RefObject<HTMLElement | null>;
@@ -503,7 +503,7 @@ export function ModelPicker({
       if (offering) { event.preventDefault(); choose(offering); }
       return;
     }
-    // ⌘⇧↑/↓ as in T3 Code: the next entry of the left column, from anywhere in the picker.
+    // ⌘⇧↑/↓: the next entry of the left column, from anywhere in the picker.
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       event.preventDefault();
       const index = Math.max(0, views.findIndex((entry) => entry.key === current?.key));

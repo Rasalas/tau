@@ -58,7 +58,7 @@ export interface PreviewHistoryEntry {
   visitedAt: number;
 }
 
-/** What the preview page's own keys asked for: T3 Code's `preview.refresh` and zoom chords. */
+/** What the preview page's own keys asked for: the `preview.refresh` and zoom chords. */
 export type PreviewChord = "reload" | "hard-reload" | "zoom-in" | "zoom-out" | "zoom-reset";
 
 /** Where the panel wants the view drawn, in the window's CSS pixels. */

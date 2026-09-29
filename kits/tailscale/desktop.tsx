@@ -12,7 +12,7 @@ const tailscaleKitExtension: DesktopExtension = {
   id: TAILSCALE_EXTENSION_ID,
   name: "Tailscale",
   activate(context) {
-    // Under Network access, where T3 Code keeps its Tailscale HTTPS row.
+    // Under Network access.
     return context.registerSettingsSection({
       id: "tailscale.connections",
       page: "connections",

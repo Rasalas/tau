@@ -43,7 +43,7 @@ export function readLinkInput(value: string): { kind: "url"; label: string } | {
 }
 
 /**
- * T3 Code's "Link pull request": a URL from any repository on a host the
+ * "Link pull request": a URL from any repository on a host the
  * project reaches, or a number in the thread's own; Enter links.
  */
 function LinkPullRequestDialog({ target, client, rows, onClose, notify }: {

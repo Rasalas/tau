@@ -25,7 +25,7 @@ export const SOURCE_CONTROL_SETTINGS_ROWS = [
 ];
 
 /**
- * Settings → Source control, after T3 Code's: where new threads and projects
+ * Settings → Source control: where new threads and projects
  * start, how a new worktree fills its submodules, and whether the default
  * branch keeps itself current. A project may override all but the folder.
  */

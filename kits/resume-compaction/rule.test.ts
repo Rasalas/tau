@@ -35,7 +35,7 @@ describe("the resume compaction rule", () => {
     expect(dismissalKey("t1", context(153_000, at + 1))).not.toBe(dismissalKey("t1", context(153_000, at)));
   });
 
-  it("writes sizes the way T3 Code does", () => {
+  it("writes sizes in compact thousands", () => {
     expect(formatContextTokens(153_412)).toBe("153k");
     expect(formatContextTokens(4_000)).toBe("4k");
     expect(formatContextTokens(4_250)).toBe("4.3k");

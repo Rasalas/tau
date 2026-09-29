@@ -109,7 +109,7 @@ function createFanOutChip(selection: FanOutSelection, workspace: () => Workspace
   };
 }
 
-/** T3 Code's quiet bar over a settled thread's composer, with the way back. */
+/** A quiet bar over a settled thread's composer, with the way back. */
 function createSettledNote(store: RailStore, unsettle: (threadId: string) => void) {
   return function SettledNote({ snapshot, actions }: RegionProps) {
     useSyncExternalStore(store.subscribe, store.getVersion);
@@ -503,19 +503,19 @@ export const threadRailExtension: DesktopExtension = {
           },
         }),
       }),
-      // As in T3 Code: outside a text field, where mod+z is the field's own undo.
+      // Only outside a text field, where mod+z is the field's own undo.
       context.registerKeybinding({ keys: "mod+z", commandId: "thread.undo", when: "!terminalFocus && !editableFocus" }),
       context.registerCommand({ id: "thread.next", label: "Next thread in the rail", group: "Thread", access: "read", run: (app) => go(app, 1) }),
       context.registerCommand({ id: "thread.prev", label: "Previous thread in the rail", group: "Thread", access: "read", run: (app) => go(app, -1) }),
       context.registerKeybinding({ keys: "mod+shift+p", commandId: "thread.pin" }),
       context.registerKeybinding({ keys: "mod+shift+s", commandId: "thread.settle", replaces: "workspace.settle" }),
-      // T3 Code's chords, and the arrows Tau had before them.
+      // The common chords, and the arrows Tau had before them.
       context.registerKeybinding({ keys: "mod+shift+]", commandId: "thread.next" }),
       context.registerKeybinding({ keys: "mod+shift+[", commandId: "thread.prev" }),
       context.registerKeybinding({ keys: "mod+alt+arrowdown", commandId: "thread.next" }),
       context.registerKeybinding({ keys: "mod+alt+arrowup", commandId: "thread.prev" }),
     ];
-    // As in T3 Code; the open model picker answers the same digits with its own jumps.
+    // The open model picker answers the same digits with its own jumps.
     for (let position = 1; position <= 9; position += 1) {
       const id = `thread.jump-${position}`;
       disposers.push(

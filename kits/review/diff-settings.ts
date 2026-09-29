@@ -13,7 +13,7 @@ export function diffColorScheme(preferences: PreferencesStore): DiffColorScheme 
   return preferences.value(REVIEW_HOST_EXTENSION_ID, COLORS_KEY) === "blue-orange" ? "blue-orange" : "red-green";
 }
 
-/** Long lines wrap unless the user turned that off, as in T3 Code. */
+/** Long lines wrap unless the user turned that off. */
 export function diffWordWrap(preferences: PreferencesStore): boolean {
   return preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WRAP_OPTION, true);
 }

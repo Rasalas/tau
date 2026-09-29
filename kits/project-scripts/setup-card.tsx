@@ -36,7 +36,7 @@ export class SetupStore {
 
 const trimmed = (path: string | undefined) => path?.replace(/[\\/]+$/u, "");
 
-/** A clean finish leaves the transcript, as in T3 Code; failures and cancels stay until dismissed. */
+/** A clean finish leaves the transcript; failures and cancels stay until dismissed. */
 export function worthShowing(setup: UiWorktreeSetup): boolean {
   if (setup.phase !== "done") return true;
   return setup.stages.some((stage) => stage.status === "failed");

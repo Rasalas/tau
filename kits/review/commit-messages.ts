@@ -27,7 +27,7 @@ export function writingInstructions(preferences: PreferencesStore): string {
   return preferences.value(REVIEW_HOST_EXTENSION_ID, INSTRUCTIONS_OPTION)?.trim() ?? "";
 }
 
-/** Whether a request's description fills in the repository's template; on by default, as in T3 Code. */
+/** Whether a request's description fills in the repository's template; on by default. */
 export function followRequestTemplate(preferences: PreferencesStore): boolean {
   return preferences.optionValue(REVIEW_HOST_EXTENSION_ID, TEMPLATE_OPTION, true);
 }

@@ -37,7 +37,7 @@ export function tableDelimiter(path: string): "," | "\t" {
 }
 
 /**
- * Rendered or source when a file opens, as T3 Code does it: Markdown opens as
+ * Rendered or source when a file opens: Markdown opens as
  * source, a page and a table rendered. The user's last choice per mode wins.
  */
 export const RENDERED_BY_DEFAULT: Record<RenderedMode, boolean> = { markdown: false, html: true, table: true };

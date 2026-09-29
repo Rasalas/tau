@@ -1,4 +1,4 @@
-/* Tucked onto the composer's frame like the other notices above it, after T3 Code's composer banner. */
+/* Tucked onto the composer's frame like the other notices above it. */
 .resume-compaction {
   position: relative; z-index: 1; width: min(752px, calc(100% - 92px)); box-sizing: border-box; margin: 0 auto -14px;
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 12px;

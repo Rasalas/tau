@@ -224,7 +224,7 @@ export function ThreadCard({ thread, onReply, onSend, onResolve, canEdit, onEdit
   );
 }
 
-/** Write or preview; ⌘↵ saves and Escape cancels, as T3 Code's editor does. */
+/** Write or preview; ⌘↵ saves and Escape cancels. */
 export function MarkdownEditor({ initial, label, allowEmpty = false, onSave, onCancel }: {
   initial: string;
   label: string;

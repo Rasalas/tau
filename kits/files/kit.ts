@@ -31,7 +31,7 @@ export const kit: { current?: FilesKit } = {};
 export const AUTOSAVE_OPTION = "autosave";
 export const AUTOSAVE_DELAY_MS = 1_000;
 
-/** Soft wrap in the editor, like T3 Code's word-wrap switch; one choice for every file. */
+/** Soft wrap in the editor, a word-wrap switch; one choice for every file. */
 export const WRAP_OPTION = "wordWrap";
 
 export function wrapLines(preferences: PreferencesStore): boolean {

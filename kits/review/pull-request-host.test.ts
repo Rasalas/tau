@@ -44,7 +44,7 @@ describe("gh fixtures", () => {
       draft: false,
       author: { login: "Rasalas", name: "Torben Buck" },
       baseRef: "main",
-      headRef: "t3/02-terminal-kit",
+      headRef: "feat/02-terminal-kit",
       additions: 1437,
       deletions: 10,
       changedFiles: 31,

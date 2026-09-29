@@ -44,7 +44,7 @@ export function shellLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
 }
 
-/** T3 Code's terminal mark on a rail row: a program runs in one of the thread's shells. */
+/** The terminal mark on a rail row: a program runs in one of the thread's shells. */
 export function TerminalRowStatus({ session }: { session: { id: string } }) {
   const busy = useSyncExternalStore(busyShells.subscribe, busyShells.get);
   const count = useSyncExternalStore(terminalStore.subscribe, () => runningShells(terminalStore.getSnapshot().sessions, busy, session.id));
@@ -57,7 +57,7 @@ export function TerminalRowStatus({ session }: { session: { id: string } }) {
   );
 }
 
-/** The same count as a line of the row's hover card, as T3 Code's card says it. */
+/** The same count as a line of the row's hover card. */
 export function TerminalCardRow({ session, Row }: ThreadCardRowSlotProps) {
   const busy = useSyncExternalStore(busyShells.subscribe, busyShells.get);
   const count = useSyncExternalStore(terminalStore.subscribe, () => runningShells(terminalStore.getSnapshot().sessions, busy, session.id));

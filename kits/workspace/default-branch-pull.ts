@@ -21,8 +21,8 @@ const FETCH_TIMEOUT_MS = 60_000;
 const defaultGit: GitRunner = (cwd, args, maxBuffer, signal) => runGitCommand(cwd, args, maxBuffer, signal, undefined, FETCH_TIMEOUT_MS);
 
 /**
- * Keeps a checkout of the default branch current, the way T3 Code's automatic
- * pull does: only on the default branch, only with an upstream, only with no
+ * Keeps a checkout of the default branch current:
+ * only on the default branch, only with an upstream, only with no
  * changed or untracked file and no local commit, and only as a fast-forward.
  * `merge --ff-only` is the one writing step and git itself refuses anything
  * but a fast-forward there; nothing here merges, rebases or resets.

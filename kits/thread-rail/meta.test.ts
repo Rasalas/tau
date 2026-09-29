@@ -215,7 +215,7 @@ describe("the sweep", () => {
 describe("snooze presets", () => {
   const until = (now: Date, id: string) => snoozePresets(now).find((preset) => preset.id === id)?.until;
 
-  it("offers T3 Code's presets, in local time", () => {
+  it("offers the snooze presets, in local time", () => {
     const wednesday = new Date(2026, 8, 23, 15, 30);
     expect(snoozePresets(wednesday).map((preset) => preset.label)).toEqual(["In 1 hour", "In 3 hours", "This evening", "Tomorrow", "Next week"]);
     expect(until(wednesday, "snooze:1h")! - wednesday.getTime()).toBe(60 * 60 * 1_000);
@@ -267,7 +267,7 @@ describe("archive and undo", () => {
     expect(fallbackThread([leaving], leaving)).toBeUndefined();
   });
 
-  it("moves past a parked thread to the next one that stays, wrapping round to the top, as T3 Code does", () => {
+  it("moves past a parked thread to the next one that stays, wrapping round to the top", () => {
     const order = ["p", "a", "b", "c", "d"];
     const all = () => true;
     expect(nextActiveThread(order, "b", all)).toBe("c");

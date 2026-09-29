@@ -135,7 +135,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
   }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
 
   /**
-   * A new thread's draft in `project`. As in T3 Code a draft with something in
+   * A new thread's draft in `project`. A draft with something in
    * it stays in the list and a fresh one opens; `carry` moves it instead (the
    * start screen's project button).
    */

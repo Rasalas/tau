@@ -124,7 +124,7 @@ export const filesExtension: DesktopExtension = {
         await saveDocument(document, fileName(path), actions);
       },
     });
-    // As in T3 Code, in the editor only: everywhere else `mod+s` stashes the draft.
+    // In the editor only: everywhere else `mod+s` stashes the draft.
     context.registerKeybinding({ keys: "mod+s", commandId: "files.save", when: "editorFocus" });
 
     context.registerCommand({

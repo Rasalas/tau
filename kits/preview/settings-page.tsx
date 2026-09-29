@@ -34,7 +34,7 @@ export const PREVIEW_SETTINGS_ROWS = [
 ];
 
 /**
- * Settings → Preview, after T3 Code's Browser settings: what a page opens
+ * Settings → Preview: what a page opens
  * with, where links from a thread go, what a recording shows, and the
  * floating preview. Every row takes a project override.
  */

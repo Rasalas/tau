@@ -41,7 +41,7 @@ function setup(options: Partial<RuntimeUpdateToastsOptions> = {}) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("runtime update toasts", () => {
-  it("offers a newer release once per window, with Settings and Update, as T3 Code does", () => {
+  it("offers a newer release once per window, with Settings and Update", () => {
     const { toasts, actions, shown } = setup();
     toasts.sync([codex()], actions);
     toasts.sync([codex()], actions);

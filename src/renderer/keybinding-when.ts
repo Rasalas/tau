@@ -1,6 +1,6 @@
 /**
  * `when` clauses on keybindings: identifiers joined by `!`, `&&`, `||` and
- * parentheses, as in VS Code and T3 Code ("terminalFocus && !stageFocus").
+ * parentheses, as in VS Code ("terminalFocus && !stageFocus").
  * `true` and `false` are constants; every other identifier is a context the
  * window answers when a key goes down (see `keybinding-context.ts`).
  */

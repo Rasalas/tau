@@ -31,7 +31,7 @@ import {
 } from "./protocol.js";
 
 const PROFILES = ["desktop", "web", "compact"] as const;
-/** A plan longer than this opens folded, as in T3 Code. */
+/** A plan longer than this opens folded. */
 const FOLD_CHARS = 900;
 const FOLD_LINES = 20;
 const PREVIEW_LINES = 10;
@@ -177,8 +177,8 @@ async function implementInNewThread(host: HostExtensionClient, store: ThreadStor
 
 /**
  * "Plan ready" above the composer while a plan-mode thread waits on its plan.
- * Typing refines it; Implement leaves plan mode and sends it. T3 Code turns
- * the send button into Implement; a kit cannot, so the banner carries it.
+ * Typing refines it; Implement leaves plan mode and sends it. A kit cannot
+ * turn the send button into Implement, so the banner carries it.
  */
 function createFollowUp(host: HostExtensionClient) {
   return function PlanFollowUp({ snapshot, actions }: RegionProps) {

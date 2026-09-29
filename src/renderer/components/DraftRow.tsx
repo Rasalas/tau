@@ -5,7 +5,7 @@ import { plainChipText } from "./composer-chip-token";
 import { ProjectIcon } from "./ProjectIcon";
 import { tooltipProps } from "./ui/Tooltip";
 
-/** The first line typed, else what is attached, else "New thread", as T3 Code's draft rows. */
+/** The first line typed, else what is attached, else "New thread". */
 export function draftTitle(draft: Pick<DraftThread, "preview" | "attachments">): string {
   const text = plainChipText(draft.preview).trim();
   if (text) return text;

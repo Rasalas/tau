@@ -1,7 +1,7 @@
 import type { PreferencesStore } from "tau";
 import { WORKSPACE_HOST_EXTENSION_ID } from "./protocol.js";
 
-/** A project's chosen icon (T3 Code's picker). Every kind keeps the picture it draws as, so a row only shows an `<img>`. */
+/** A project's chosen icon. Every kind keeps the picture it draws as, so a row only shows an `<img>`. */
 export type ProjectIconChoice =
   | { kind: "icon"; name: string; hue: number; image: string }
   | { kind: "emoji"; emoji: string; image: string }
@@ -98,7 +98,7 @@ export function monogramImage(text: string, hue: number): string {
   return svgUrl(`<svg ${SVG}><rect width="32" height="32" rx="8" fill="hsl(${hue} 42% 36%)"/><text x="16" y="17" fill="#fff" font-family="system-ui,sans-serif" font-weight="600" font-size="${size}" text-anchor="middle" dominant-baseline="central">${escapeXml(text)}</text></svg>`);
 }
 
-/** One or two letters or digits, as T3 Code allows. */
+/** One or two letters or digits. */
 export function monogramText(value: string): string | undefined {
   const text = value.normalize("NFKC").trim().toUpperCase();
   return /^[\p{L}\p{N}]{1,2}$/u.test(text) ? text : undefined;

@@ -344,7 +344,7 @@ describe("Thread Rail on the desktop", () => {
     expect(calls("archive")).toEqual([{ threadId: "a" }, { threadId: "b" }]);
   });
 
-  it("builds T3 Code's full row menu: a new thread on the branch, names, filter, copy and the project", async () => {
+  it("builds the full row menu: a new thread on the branch, names, filter, copy and the project", async () => {
     const { organizer, registry } = setup();
     await flush();
     const branched = { ...thread("a"), projectLabel: "feature/rail" };
@@ -561,7 +561,7 @@ describe("Thread Rail on the desktop", () => {
   });
 });
 
-describe("parking the thread on screen, as in T3 Code", () => {
+describe("parking the thread on screen", () => {
   const settled = (sections: ReturnType<RailOrganizer["sections"]>) => sections.find((section) => section.id === "settled")!.threads.map((entry) => entry.id);
   const opened = (actions: WorkbenchActions) => vi.mocked(actions.switchSession).mock.calls.map((call) => call[0]);
   const onScreen = (actions: WorkbenchActions, sessionId: string, extra: object = {}) =>

@@ -31,7 +31,7 @@ export function fileName(path: string): string {
   return path.split("/").filter(Boolean).at(-1) ?? path;
 }
 
-/** Rendered or source is a preference per kind of document, kept on this client like T3 Code keeps it. */
+/** Rendered or source is a preference per kind of document, kept on this client. */
 function readStoredRendered(): Partial<Record<RenderedMode, boolean>> {
   try {
     return JSON.parse(getClientStorage()?.get(RENDERED_KEY) ?? "{}") as Partial<Record<RenderedMode, boolean>>;
@@ -67,7 +67,7 @@ function useWorkspaceStore(): WorkspaceStoreLike | undefined {
   return useSyncExternalStore(subscribe, () => kit.current?.workspace);
 }
 
-/** Where the path's folders read quietly and the name stands out, as T3 Code's breadcrumbs do. */
+/** Breadcrumbs: the path's folders read quietly and the name stands out. */
 function Breadcrumbs({ path }: { path: string }) {
   const parts = path.split("/").filter(Boolean);
   const name = parts.pop() ?? path;

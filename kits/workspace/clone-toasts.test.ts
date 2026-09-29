@@ -22,7 +22,7 @@ function harness() {
 const running = (patch: Partial<CloneSnapshot> = {}): CloneSnapshot => ({ id: "c1", name: "app", destination: "/code/app", phase: "running", stage: "connecting", ...patch });
 
 describe("clone toasts", () => {
-  it("writes progress the way T3 Code does", () => {
+  it("writes progress as stage, percent and detail", () => {
     expect(cloneProgressSummary({ stage: "receiving", percent: 45, detail: "12.30 MiB | 5.00 MiB/s" })).toBe("Receiving objects · 45% · 12.30 MiB | 5.00 MiB/s");
     expect(cloneProgressSummary({ stage: "connecting" })).toBe("Connecting");
   });

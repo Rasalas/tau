@@ -1,6 +1,6 @@
 import type { HostReadiness, HostResources, RuntimeReadinessState } from "tau/host-extension";
 
-/** T3's limits: a reading older than 15 s (from when it arrived here), CPU at 95 %, 5 % memory free. */
+/** Limits: a reading older than 15 s (from when it arrived here), CPU at 95 %, 5 % memory free. */
 export const READING_MAX_AGE_MS = 15_000;
 export const CPU_LIMIT = 0.95;
 export const MEMORY_FLOOR = 0.05;
@@ -88,7 +88,7 @@ function runtimeProblem(readiness: HostReadiness | undefined, needs: MachineNeed
   return undefined;
 }
 
-/** Why a machine is left out, or its score. T3's filter, then readiness and the budget of one turn per core. */
+/** Why a machine is left out, or its score. The limits above, then readiness and the budget of one turn per core. */
 function judge(candidate: MachineCandidate, needs: MachineNeeds, now: number): MachineVerdict {
   const base = { id: candidate.id, name: candidate.name, ...(candidate.local ? { local: true } : {}) };
   const out = (excluded: string): MachineVerdict => ({ ...base, excluded });

@@ -9,7 +9,7 @@ type Visibility = "private" | "public";
 type Protocol = "https" | "ssh";
 
 /**
- * "Publish repository" in the Changes panel, after T3 Code's dialog: where to
+ * "Publish repository" in the Changes panel: where to
  * host it, its name and visibility, then one sentence that says exactly what
  * happens. Only that last step's button reaches the host with `confirm`.
  */

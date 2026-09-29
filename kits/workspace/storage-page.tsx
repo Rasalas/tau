@@ -81,7 +81,7 @@ export const STORAGE_SETTINGS_ROWS = [
   { id: "setting-workspace-storage-worktrees", label: "Worktrees", keywords: ["disk space", "size", "measure", "clean up now", "remove worktree"] },
 ];
 
-/** Days since the last activity; switched on, T3 Code's eight. */
+/** Days since the last activity, as first set when the rule is switched on. */
 const DEFAULT_DAYS = 8;
 
 function RuleRows({ rules, onChange }: { rules: WorktreeCleanupRules; onChange(patch: Partial<WorktreeCleanupRules>): void }) {

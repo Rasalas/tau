@@ -38,7 +38,7 @@ interface Tracked {
 /**
  * The worktree setup of a new thread, one step at a time: fetching the base,
  * creating the checkout, then every `runOnWorktreeCreate` script. It lives in
- * memory, like T3 Code's tracker; the durable record is the worktree and the
+ * memory; the durable record is the worktree and the
  * script runs. Workspace Kit reports the Git steps, the script runs report
  * themselves.
  */

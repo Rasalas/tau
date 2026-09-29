@@ -87,7 +87,7 @@
 }
 .thread-search-row > .sidebar-action.new-thread:hover { background: var(--chip); }
 
-/* The project filter between the search and "+" (T3 Code's scope icon): a folder, or the shown project's tile. */
+/* The project filter between the search and "+": a folder, or the shown project's tile. */
 .thread-search-row > .sidebar-action.project-filter { width: calc(30px * var(--density)); height: calc(30px * var(--density)); }
 .thread-search-row > .sidebar-action.project-filter[aria-expanded="true"] { background: var(--raised); color: var(--ink); }
 .project-filter-tile.thread-project-icon { width: 16px; height: 16px; font-size: 9px; }
@@ -137,7 +137,7 @@
 .project-switcher-option:is(:hover, .selected) .project-switcher-settings, .project-switcher-settings:focus-visible { opacity: 1; }
 .project-switcher-settings:hover { background: var(--chip); color: var(--ink); }
 @media (hover: none) { .project-switcher-settings { opacity: 1; } }
-/* As the rail's filter the rows are T3 Code's 34 px, the tiles the rows' own. */
+/* As the rail's filter the rows are 34 px, the tiles the rows' own. */
 .project-filter-popover .project-switcher-pick { height: 34px; }
 .project-filter-popover .project-switcher-pick > i { width: 18px; height: 18px; border-radius: 5px; font-size: 9px; }
 .project-switcher-results > p { margin: 12px 8px; color: var(--faint); font-size: var(--text-xs); }
@@ -155,7 +155,7 @@
 }
 .thread-search button:hover { color: var(--ink); }
 
-/* One scroll, as in T3 Code: the shelves (snoozed, settled) follow right after the active threads, the design's. */
+/* One scroll: the shelves (snoozed, settled) follow right after the active threads, the design's. */
 .session-list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rail-active {
   flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
@@ -215,7 +215,7 @@
   background: var(--acid-chip); color: var(--acid-text); font: 500 var(--text-sm) var(--sans);
 }
 .rail-selection-bar > button { border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
-/* The last turn's `+N −N`, T3 Code's mono counts; its own class, not the diff view's. */
+/* The last turn's `+N −N` in mono; its own class, not the diff view's. */
 .thread-diff-stat { flex: none; font: var(--text-xs) var(--mono); white-space: nowrap; }
 .thread-diff-stat > b { font-weight: 400; color: var(--diff-add-edge); }
 .thread-diff-stat > i { font-style: normal; color: var(--diff-del-edge); }
@@ -625,7 +625,7 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 }
 .workspace-storage-confirm > span { flex: 1 1 240px; }
 
-/* Project settings: the project and its icon (T3 Code's picker). */
+/* Project settings: the project and its icon. */
 .project-settings-dialog {
   width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 96px);
   display: flex; flex-direction: column; gap: 12px; padding: 18px;
@@ -666,7 +666,7 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .project-settings-dialog footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
 .project-settings-dialog footer > button.primary:disabled { opacity: .45; cursor: default; }
 
-/* A rail row's hover card (T3 Code's thread tooltip): the title, a line per fact with its icon, then other kits' sections. */
+/* A rail row's hover card: the title, a line per fact with its icon, then other kits' sections. */
 .thread-card {
   position: fixed; z-index: 130; left: 0; top: 0; width: max-content; min-width: 220px; max-width: 320px;
   display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;

@@ -63,7 +63,7 @@ const rail: DesktopExtension = { id: "test.rail", name: "Rail probe", activate(p
 const shell = (container: HTMLElement) => container.querySelector(".app-shell") as HTMLElement;
 
 describe("workbench layout", () => {
-  it("resizes the sidebar by keyboard within T3's bounds and keeps the width for this client", async () => {
+  it("resizes the sidebar by keyboard within its bounds and keeps the width for this client", async () => {
     const view = renderApp(undefined, { extensions: [rail] });
     const handle = await screen.findByRole("separator", { name: "Resize sidebar" });
     expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("248px");

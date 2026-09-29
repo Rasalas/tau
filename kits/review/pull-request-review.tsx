@@ -10,7 +10,7 @@ const EVENTS: Array<{ value: PullRequestReviewEvent; label: string; hint: string
 ];
 
 /**
- * T3 Code's one composer for both: a plain comment on the request, or a
+ * One composer for both: a plain comment on the request, or a
  * review that carries a verdict, a summary and every line comment held for
  * it. The verdicts are the ones the provider takes: GitLab has no request
  * for changes, Azure DevOps no review without a vote.

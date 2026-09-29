@@ -1,4 +1,4 @@
-/* Onboarding: the welcome wizard, laid out as T3 Code's — identity, step bar, one tinted panel per step. */
+/* Onboarding: the welcome wizard — identity, step bar, one tinted panel per step. */
 .onboarding-screen {
   --onboarding-edge: 24px;
   position: fixed;

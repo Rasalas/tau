@@ -22,7 +22,7 @@ function decode(raw: string | undefined): Map<string, PendingReviewComment[]> {
 
 /**
  * Line comments held for a review not yet submitted, per request, in this
- * client's storage: they outlive the tab and a restart, as T3 Code's do, and
+ * client's storage: they outlive the tab and a restart, and
  * go to the host only with the review.
  */
 export class PendingReviewStore {

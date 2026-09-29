@@ -1,5 +1,5 @@
 /*
- * The toast stack, top right under the title bar as in T3 Code: the newest in
+ * The toast stack, top right under the title bar: the newest in
  * front, the others peeking under it until the pointer or focus opens the
  * stack. Positions come from `ToastViewport`; these rules draw the frame.
  * Loaded with the stack's own chunk on the first toast, so it costs the first

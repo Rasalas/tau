@@ -299,7 +299,7 @@ describe("useWorkbenchActions", () => {
     expect(options.openNewThreadPicker).toHaveBeenLastCalledWith({ preselect: "ws1_app" });
   });
 
-  describe("a new thread nobody named a project for asks, as T3 Code", () => {
+  describe("a new thread nobody named a project for asks", () => {
     const app = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
     const site = { path: "/work/site", workspaceId: "ws1_site", name: "site", lastOpenedAt: 5 };
     const setup = (screen: { thread?: Partial<HostSnapshot>; draft?: object; covered?: boolean; projects?: object[] }) => {

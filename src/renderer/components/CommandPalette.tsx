@@ -92,7 +92,7 @@ export function CommandPalette({
   // The workbench hands a new actions object on some renders; that is no reason to search again.
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
-  // As in T3 Code: closing gives focus back to where it was, else to the composer.
+  // Closing gives focus back to where it was, else to the composer.
   useFocusReturn(open, surface, () => actionsRef.current.focusComposer?.());
   useFocusTrap(surface, open);
 

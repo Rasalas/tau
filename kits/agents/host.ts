@@ -89,7 +89,7 @@ const MAX_REMEMBERED_REQUESTS = 500;
 
 /**
  * The message a parent gets when children it was not waiting for finished,
- * the way T3's orchestrator follows a delegated task up with its result.
+ * so a delegated task is followed up with its result.
  */
 export function wakeMessage(children: ReadonlyArray<{ threadId: string; title: string; status: string; answer?: string; error?: string; machine?: string }>): string {
   const head = children.length === 1
@@ -819,8 +819,8 @@ export function createAgentsHostExtension(options: {
 
       /**
        * Tells a parent what finished while it was not waiting: one new message
-       * once it is idle, as T3's orchestrator follows a delegated task up with
-       * its result. A busy parent hears when its own turn ends.
+       * once it is idle, so a delegated task is followed up with its result.
+       * A busy parent hears when its own turn ends.
        */
       /** Parents a wake is on its way to: the turn it starts ends with the next flush. */
       const waking = new Set<string>();

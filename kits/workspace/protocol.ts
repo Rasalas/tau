@@ -31,7 +31,7 @@ import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./b
 import type { CheckoutTurn } from "./checkout-turns.js";
 import type { ThreadChangesCount } from "./thread-changes.js";
 
-/** Keep the default branch current by fast-forward; off by default, as in T3 Code. */
+/** Keep the default branch current by fast-forward; off by default. */
 export const AUTO_PULL_OPTION = "auto-pull-default-branch";
 
 /** The changes of a thread's last turn that changed files, as its checkpoint counted them. */
@@ -72,7 +72,7 @@ export interface UiWorktreeRemoval {
 
 /**
  * What a project says about new threads, from `.tau/project.json`. A repository
- * can check the answer in, the way T3 Code reads `t3.json`.
+ * can check the answer in, as some other tools do with `t3.json`.
  */
 export interface ProjectDefaults {
   /** Where a new thread runs: the checkout it was started from, or its own worktree. */

@@ -305,7 +305,7 @@ button > svg { pointer-events: none; }
   flex: 1; min-width: 0; font-size: var(--text-xs); font-weight: 600; color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* The age as T3 Code shows it: the row's own face, tabular, muted; the same on a settled row. */
+/* The age: the row's own face, tabular, muted; the same on a settled row. */
 .thread-project-line > time { font: var(--text-xs) var(--sans); font-variant-numeric: tabular-nums; color: var(--muted); }
 /* One triplet on every client: a run in blue with a spinner, a question in amber, done in green. */
 .thread-status-age {
@@ -1507,7 +1507,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .release-notes > ul > li + li { margin-top: 4px; }
 .release-notes > footer { align-items: center; }
 .release-notes-link { display: inline-flex; align-items: center; gap: 4px; margin-right: auto; }
-/* The quit shortcut's hint, as T3 Code draws it: a pill high in the window. */
+/* The quit shortcut's hint: a pill high in the window. */
 .quit-hint {
   position: fixed; inset: 22% 0 auto; z-index: 120; width: max-content; margin: 0 auto; padding: 14px 28px;
   border-radius: 999px; background: color-mix(in srgb, var(--ink) 88%, transparent); color: var(--stage);

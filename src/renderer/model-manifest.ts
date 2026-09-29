@@ -1,7 +1,7 @@
 /**
  * What the catalog does not say about a model: whether it is a legacy
  * generation, and whether it deserves a "new" badge for a while. Hand
- * maintained, like T3 Code's manifest; unmatched models are current.
+ * maintained; unmatched models are current.
  * Last reviewed 2026-09-07.
  */
 export interface ModelManifestEntry {

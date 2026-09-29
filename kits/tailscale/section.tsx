@@ -71,7 +71,7 @@ function describe(view: TailscaleView, open: (url: string) => void): { descripti
 }
 
 /**
- * Settings → Connections → Tailscale, after T3 Code's "Tailscale HTTPS" row:
+ * Settings → Connections → Tailscale, the "Tailscale HTTPS" row:
  * one switch that asks first, a consent step that names what becomes public,
  * and the machine name with a way to rename it.
  */

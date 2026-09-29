@@ -35,7 +35,7 @@ function compactPath(path: string): string {
   return home ? path.replace(home, "~") : path;
 }
 
-/** "New thread" asks for the project first, as T3 Code: search, recent first, then "Add project…". */
+/** "New thread" asks for the project first, so a thread never starts in the wrong project: search, recent first, then "Add project…". */
 export function ProjectPicker({
   open,
   projects,

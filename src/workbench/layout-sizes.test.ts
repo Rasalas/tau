@@ -16,7 +16,7 @@ describe("layout sizes", () => {
     expect(shownSidebarWidth(300, 1440)).toBe(300);
   });
 
-  it("sizes the drawer as T3 Code does: 280 by default, 180 at least, three quarters of the window at most", () => {
+  it("sizes the drawer: 280 by default, 180 at least, three quarters of the window at most", () => {
     expect(storedDrawerHeight(undefined)).toBe(280);
     expect(storedDrawerHeight("90")).toBe(180);
     expect(drawerMaxHeight(900)).toBe(675);

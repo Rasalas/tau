@@ -7,7 +7,7 @@ export const PROJECT_SCRIPTS_HOST_EXTENSION_ID = "tau.project-scripts";
 /** Where a repository describes its scripts, relative to the checkout. */
 export const PROJECT_FILE = ".tau/project.json";
 
-/** Glyphs a script may ask for; the set T3 Code's `t3.json` uses. */
+/** Glyphs a script may ask for; the set other tools' `t3.json` uses. */
 export const SCRIPT_ICONS = ["play", "test", "lint", "configure", "build", "debug"] as const;
 export type ScriptIcon = typeof SCRIPT_ICONS[number];
 

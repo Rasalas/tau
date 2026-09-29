@@ -161,7 +161,7 @@ function menuRows(props: ComposerAutocompleteMenuProps): { label: string; empty:
   };
 }
 
-/** One list for every trigger: 32 px rows, name and description on one line, as in T3 Code. */
+/** One list for every trigger: 32 px rows, name and description on one line. */
 export function ComposerAutocompleteMenu(props: ComposerAutocompleteMenuProps): ReactNode {
   const { label, empty, rows } = menuRows(props);
   const list = useRef<HTMLDivElement>(null);

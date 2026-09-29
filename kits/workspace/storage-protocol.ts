@@ -4,7 +4,7 @@
  * without pulling either one's code.
  */
 
-/** The four rules T3 Code offers, under Tau's names. Every one is off by default. */
+/** The four cleanup rules. Every one is off by default. */
 export interface WorktreeCleanupRules {
   /** Remove a worktree nobody worked in for this many days; `null` is off. */
   afterDays: number | null;

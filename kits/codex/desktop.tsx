@@ -310,7 +310,7 @@ function settingsPageOf(instance: string): string {
 
 /**
  * Offers each new release of the CLI once, as a toast with Update and
- * Settings (T3 Code's provider update notification). Update runs the update
+ * Settings. Update runs the update
  * command in a Terminal Kit shell; the chunk loads only once a release is out.
  */
 export function createUpdateToasts(host: HostExtensionClient, terminal: () => TerminalRunService | undefined) {

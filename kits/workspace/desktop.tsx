@@ -33,7 +33,7 @@ import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT
 import { OpenRequests } from "./open-requests.js";
 import { SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage } from "./source-control-page.js";
 
-/** T3 Code asks every 30 s while it fetches anyway; a tick, a focus and a project switch are enough here. */
+/** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
 
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
@@ -304,7 +304,7 @@ export const workspaceExtension: DesktopExtension = {
       if (!branch) { app.notify("Branch is unavailable."); return; }
       try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }
     } });
-    // T3 Code's composer chords: each opens the composer control that carries its id.
+    // Composer chords: each opens the composer control that carries its id.
     for (const [id, label, keys] of [["composer.workspace", "Choose where the thread runs", "mod+shift+x"], ["composer.branch", "Choose the branch", "mod+shift+g"]] as const) {
       context.registerCommand({ id, label, group: "Composer", access: "write", run: (app) => {
         const control = document.querySelector<HTMLElement>(`[data-composer-shortcut~="${id}"]`);

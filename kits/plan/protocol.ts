@@ -45,7 +45,7 @@ export function planOf(text: string): string | undefined {
 
 /**
  * The plan the thread is waiting on: one in the reply to the last prompt,
- * the way T3 Code offers it only for the turn that just settled.
+ * so it is offered only for the turn that just settled.
  */
 export function pendingPlan(messages: readonly UiMessage[]): { plan: string; messageId: string } | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {

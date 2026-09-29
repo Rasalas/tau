@@ -32,7 +32,7 @@ export function newThreadProject(projects: readonly UiProject[], threads: readon
 }
 
 /**
- * What a new draft takes from the draft or thread on screen, as in T3 Code:
+ * What a new draft takes from the draft or thread on screen:
  * the runtime with its model and level, and the mode. Access and the
  * workspace mode stay at their defaults.
  */
@@ -83,7 +83,7 @@ export function rootLast<T extends Pick<UiProject, "path">>(projects: readonly T
 }
 
 /**
- * The new thread's picker order, as T3 Code's: `first` (the project in
+ * The new thread's picker order: `first` (the project in
  * context), then by the last thread worked in or the last opening, `/` last.
  */
 export function pickerOrder(projects: readonly UiProject[], threads: readonly Pick<UiSession, "workspaceId" | "projectPath" | "modifiedAt" | "messageCount">[], first?: string): UiProject[] {

@@ -17,7 +17,7 @@ export interface ViewerRequest {
 }
 
 /**
- * A turn's pictures one at a time, large (T3 Code's media dialog): arrows,
+ * A turn's pictures one at a time, large, in a media dialog: arrows,
  * Home and End step, Space plays, the slider scrubs, the strip jumps. It can
  * save the picture on screen, the turn as a short video, or drop the turn's
  * pictures.

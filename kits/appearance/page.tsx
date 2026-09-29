@@ -71,7 +71,7 @@ function draftOf(card: { id: string; name: string; tokens: Partial<Record<Appear
   };
 }
 
-/** Mode tiles and theme cards after T3 Code's: each tile paints with the themes it would use. */
+/** Mode tiles and theme cards: each tile paints with the themes it would use. */
 function ColorsAndThemes({ themes, mode, scheme, preferences, onEdit, onImport, onNew }: {
   themes: readonly UserTheme[];
   preferences: PreferencesStore;

@@ -24,7 +24,7 @@ const message = (error: unknown): string => error instanceof Error ? error.messa
 const SERVICE_LIST: readonly RequestService[] = ["github", "gitlab"];
 
 /**
- * "Publish repository" for a checkout without a remote, as T3 Code offers it:
+ * "Publish repository" for a checkout without a remote:
  * `gh repo create` or GitLab's API through `glab`, then `origin` and a push.
  * Nothing is created unless the call carries `confirm: true`, which only the
  * form's last step sends.

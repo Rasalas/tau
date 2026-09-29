@@ -5,7 +5,7 @@ import { tooltipProps } from "./ui/Tooltip";
 
 /**
  * Messages sent during a run wait at the end of the conversation as dashed
- * bubbles, as in T3 Code: the arrow sends one now, the X puts it back into
+ * bubbles: the arrow sends one now, the X puts it back into
  * the composer. The grip (or ⌥↑/⌥↓ on it) reorders them. The host keeps
  * the queue, so it survives a restart; a restored one is held for the user.
  */

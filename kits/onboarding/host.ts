@@ -37,7 +37,7 @@ const run: Run = (command, args) => new Promise((resolve) => {
   }
 });
 
-/** The vendors' own installers and login commands, as T3 Code offers them. */
+/** The vendors' own installers and login commands. */
 export function toolCommands(platform: string): Record<ToolId, { command: string; install: string; login: string }> {
   const windows = platform === "win32";
   return {

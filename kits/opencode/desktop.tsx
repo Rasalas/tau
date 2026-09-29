@@ -81,8 +81,8 @@ export async function typeIntoTerminal(terminal: HostExtensionClient, actions: W
 }
 
 /**
- * The server an instance connects to instead of starting one (T3 Code's
- * Server URL and password). The password field stays empty: a saved one is
+ * The server an instance connects to instead of starting one: its URL and
+ * password. The password field stays empty: a saved one is
  * never sent back, and leaving the field empty keeps it.
  */
 export function ServerFields({ view, onSave, ids = { server: "setting-opencode-server", password: "setting-opencode-server-password" } }: {

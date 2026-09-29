@@ -10,7 +10,7 @@ function storedLevel(preferences: PreferencesStore): AccessLevel {
   return isAccessLevel(value) ? value : DEFAULT_ACCESS_LEVEL;
 }
 
-/** The level as a section of the composer's "…" menu, as T3 Code's Access group. */
+/** The level as the Access section of the composer's "…" menu. */
 function createControl(preferences: PreferencesStore, choose: (level: string) => void) {
   return function AccessControl({ snapshot, actions }: ComposerControlProps) {
     const readLevel = () => storedLevel(preferences);
@@ -68,7 +68,7 @@ export const accessKitExtension: DesktopExtension = {
       rows: [{ id: PERMISSIONS_ROW, label: "Before a runtime may…", keywords: ["access level", "permissions", "approvals", "read only", "ask before edits", "full access"] }],
       Component: createPermissionsSection(plugin.preferences, choose),
     });
-    // T3 Code's `composer.mode` opens the menu that holds the access level, its runtime mode.
+    // `composer.mode` opens the menu that holds the access level, its runtime mode.
     plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", access: "write", run: (app) => {
       const control = document.querySelector<HTMLElement>('[data-composer-shortcut~="composer.mode"]');
       if (control) control.click();

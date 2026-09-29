@@ -54,9 +54,8 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Settings → Connections → Network access, after T3 Code's "Network access"
- * and "Tailscale HTTPS" rows. Tau's listeners open and close in the running
- * host, so a switch asks once and applies at once; nothing restarts.
+ * Settings → Connections → Network access. Tau's listeners open and close in
+ * the running host, so a switch asks once and applies at once; nothing restarts.
  */
 export function NetworkAccessSection({ network, busy, onChange, onReload }: {
   network: UiNetworkAccess;

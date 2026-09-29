@@ -116,7 +116,7 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
 }
 
 /**
- * The toast stack in the window's top-right corner, after T3 Code's: the
+ * The toast stack in the window's top-right corner: the
  * newest in front, up to `maxVisible` peeking behind it, all of them laid out
  * apart while the pointer or focus is on the stack. F6 moves focus into it.
  *

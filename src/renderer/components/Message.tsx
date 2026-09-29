@@ -32,7 +32,7 @@ export function parseAsyncActivity(text: string): AsyncActivity | undefined {
 }
 
 /**
- * Thinking as one row before the answer, as T3 Code draws it: folded in a
+ * Thinking as one row before the answer: folded in a
  * focused transcript, open from detailed on. `onToggle` lets the transcript
  * keep the reader's choice when the row is recycled.
  */

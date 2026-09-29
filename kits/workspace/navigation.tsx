@@ -61,7 +61,7 @@ function ShowMoreThreadRow({ remaining, all = false, onClick }: { remaining: num
 }
 
 /**
- * A thread nobody has written to yet is a draft, not a row (as in T3 Code),
+ * A thread nobody has written to yet is a draft, not a row,
  * unless it is already at work. Threads an agent spawned are never in the rail — not in the settled shelf,
  * not in a search, not even while one is the thread on screen after a take-over
  * (the header above the transcript names it). Fifty of them would bury the
@@ -82,9 +82,9 @@ export function visibleThreads(
 }
 
 /**
- * The branch every checkout starts on says nothing on a row; T3 Code's card
- * leaves it out too. Until the host names the project's own, `main` and
- * `master` stand in for it.
+ * The branch every checkout starts on says nothing on a row, so the row leaves
+ * it out. Until the host names the project's own, `main` and `master` stand in
+ * for it.
  */
 export function isDefaultBranch(label: string | undefined, defaultBranch?: string): boolean {
   if (defaultBranch !== undefined) return label === defaultBranch;
@@ -148,7 +148,7 @@ function namesMatching<T extends { name: string }>(entries: readonly T[], typed:
 const MOD_LABEL = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘" : "Ctrl";
 
 /**
- * Browse the host's folders by typing a path, as T3 Code's add-project browse:
+ * Browse the host's folders by typing a path:
  * the part before the last `/` is the folder listed, the rest filters it.
  */
 export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProps) {
@@ -362,7 +362,7 @@ type ProjectEntry = { kind: "all" } | { kind: "project"; project: UiProject };
 /**
  * A searchable list of the host's projects under the rail's search. As the
  * switcher (`workspace.switch-project`) a pick opens the project; as the
- * rail's project filter (T3 Code's scope menu) "All projects" leads it, the
+ * rail's project filter "All projects" leads it, the
  * shown one is checked, and each row has its project's settings.
  */
 export function ProjectSwitcherPopover({
@@ -438,7 +438,7 @@ export function ProjectSwitcherPopover({
           if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, Math.max(0, entries.length - 1))); }
           if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(0, value - 1)); }
           if (event.key === "Enter") { event.preventDefault(); pick(entries[selected]); }
-          // As T3 Code's: the menu key opens the highlighted project's settings.
+          // The menu key opens the highlighted project's settings.
           const highlighted = entries[selected];
           if (onSettings && highlighted?.kind === "project" && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
@@ -498,7 +498,7 @@ export function ProjectSwitcherPopover({
 /**
  * The rail's project filter as an icon between the search and "+": a folder
  * for every project, the shown project's tile while one is. Its list adds a
- * project too. T3 Code's scope menu; the design has no project block.
+ * project too. The design has no project block.
  */
 function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const threadStore = useThreadStore();
@@ -565,7 +565,7 @@ function ProjectSwitcher({ actions }: { actions: WorkbenchActions }) {
 
 /** The rail's tooltip for a thread a provider limit stopped. */
 
-/** T3 Code's compact age: `now`, `5m`, `3h`, then days however many (`40d`), never a date. */
+/** A compact age: `now`, `5m`, `3h`, then days however many (`40d`), never a date. */
 export function sessionAge(timestamp: number, now = Date.now()): string {
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
   if (minutes < 1) return "now";
@@ -641,7 +641,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
 
 /**
  * The drafts a new thread leaves, which the rail shows at the top of the
- * active threads (after T3 Code's draft rows): the one on screen from the
+ * active threads: the one on screen from the
  * moment it opens, and every one left with something in it. A draft whose
  * thread the host already lists is that thread's row now.
  */
@@ -863,7 +863,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const compactRows = option("compact-rows", false);
   const order = useMemo(() => readRailOrder(preferences), [preferences, settings]);
 
-  // As in T3 Code, a new scope starts without a selection and with the settled tail at its first page.
+  // A new scope starts without a selection and with the settled tail at its first page.
   useEffect(() => { setSelection(NO_SELECTION); setShelfLimits({}); }, [projectFilter]);
 
   useEffect(() => {
@@ -1128,7 +1128,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             {...tooltipProps(readOnlyDevice ? READ_ONLY_REASON : "New thread", { side: "bottom", ...(readOnlyDevice ? {} : { shortcut: registry.keybindingLabel("runtime.new-session") }) })}
             aria-label="New thread"
             disabled={readOnlyDevice}
-            // A filtered rail offers its project first; the picker still asks (T3 Code's new thread).
+            // A filtered rail offers its project first; the picker still asks.
             onClick={() => {
               const shown = projectFilter ? projects.find((project) => project.name === projectFilter) : undefined;
               actions.newSession(shown ? { workspace: shown.workspaceId ?? shown.path, pick: true } : undefined);
@@ -1149,7 +1149,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           const target = event.target as Element;
           const id = rowIdOf(target);
           if (!id || target.closest(".thread-row-actions")) return;
-          // As in T3 Code: mod-click picks rows, shift-click picks the run from the last one.
+          // Mod-click picks rows, shift-click picks the run from the last one.
           if (event.metaKey || event.ctrlKey || event.shiftKey) {
             event.preventDefault();
             event.stopPropagation();
@@ -1197,7 +1197,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
-        {/* One scroll, as in T3 Code; the shelves follow the active threads right after the last one, as in the design. */}
+        {/* One scroll; the shelves follow the active threads right after the last one, as in the design. */}
         <div ref={listRef} className="rail-active">
         <div className="rail-active-rows">
         {sections.slice(0, mainIndex).map(renderSection)}
@@ -1221,7 +1221,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
               >
                 {row.kind === "group" ? (
                   <div className="thread-group-label">{row.label} · {row.count}<i />
-                    {/* As T3 Code's project header: a new thread in this project, whatever is on screen. */}
+                    {/* The project header's "+": a new thread in this project, whatever is on screen. */}
                     {row.project && !readOnlyDevice ? <button
                       type="button"
                       className="thread-group-new"

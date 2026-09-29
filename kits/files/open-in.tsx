@@ -11,7 +11,7 @@ function menuLabel(editor: UiEditor): string {
 }
 
 /**
- * T3 Code's "Open in" picker: the editor used last opens with one click, the
+ * The "Open in" picker: the editor used last opens with one click, the
  * chevron lists every editor this machine has, and the file manager reveals
  * the file rather than becoming the default.
  */

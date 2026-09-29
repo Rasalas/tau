@@ -50,10 +50,9 @@ export function createReviewSettingsPage(host: HostExtensionClient) {
 }
 
 /**
- * Settings → Review: how commit messages and request descriptions are written
- * (T3 Code's writing settings), how diffs are drawn and which Git hosts this
- * machine reaches. The model that writes them stays on Review Kit's own page,
- * beside the extension's switch.
+ * Settings → Review: how commit messages and request descriptions are written,
+ * how diffs are drawn and which Git hosts this machine reaches. The model that
+ * writes them stays on Review Kit's own page, beside the extension's switch.
  */
 export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?: HostExtensionClient; onNotify?(message: string): void } = {}) {
   const propose = useSetting<boolean>(option("propose-message"), { defaultValue: true, read: readBoolean });

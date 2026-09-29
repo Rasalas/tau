@@ -204,7 +204,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         if (typeof id !== "string" || !id) throw new HostCommandError("Name the thread with \"threadId\".");
         return id;
       };
-      // Archive rejects a thread with a turn in flight, as in T3 Code.
+      // Archive rejects a thread with a turn in flight.
       context.registerCommand("archive", (input) => {
         const id = threadId(input);
         if (running.has(id)) throw new HostCommandError("Cannot archive a running thread.");

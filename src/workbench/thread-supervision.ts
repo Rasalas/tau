@@ -125,7 +125,7 @@ export function inProject(thread: Pick<UiSession, "workspaceId" | "projectPath">
 export const THREAD_LIST_PAGE: Record<"active" | "settled", number> = { active: 40, settled: 10 };
 
 /**
- * The compact thread list, after T3 Code's: pinned threads, then the active
+ * The compact thread list: pinned threads, then the active
  * ones worst first, then a shelf of settled ones by recency. A thread an agent
  * spawned stays with its parent (the Agents panel lists it) unless it asks the
  * user something.
@@ -193,7 +193,7 @@ export const THREAD_SUPERVISION_LABELS: Record<ThreadSupervisionStatus, string> 
   done: "Done",
 };
 
-/** A row's age as T3 Code's list and the desktop rail show it: `now`, `5m`, `3h`, then days (`40d`). */
+/** A row's age as the compact list and the desktop rail show it: `now`, `5m`, `3h`, then days (`40d`). */
 export function threadAge(modifiedAt: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - modifiedAt) / 60_000);
   if (minutes < 1) return "now";

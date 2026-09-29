@@ -8,7 +8,7 @@ import type { ThreadLinkRows } from "./thread-links-store.js";
 
 type BadgeState = "open" | "draft" | "merged" | "closed";
 
-/** T3 Code's glyphs; the colour comes from the state class. */
+/** The state glyphs; the colour comes from the state class. */
 const ICON = { open: GitPullRequestArrow, draft: GitPullRequestDraft, merged: GitMerge, closed: GitPullRequestClosed } as const;
 
 interface BadgeEntry {
@@ -53,9 +53,9 @@ function newestInCheckout(threads: readonly UiSession[], projectPath: string): s
 }
 
 /**
- * The requests of a thread on its rail row, T3 Code's way: the state's glyph
+ * The requests of a thread on its rail row: the state's glyph
  * and the number, or the glyph and "+N" for several, the list in the tooltip.
- * A thread on a stack shows T3 Code's layers glyph and the stack's size.
+ * A thread on a stack shows the layers glyph and the stack's size.
  * A row shows the requests linked to its thread, and its checkout's branch
  * request only on that checkout's newest thread.
  */
@@ -98,7 +98,7 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
     const line = (entry: BadgeEntry) => [`${entry.label} · ${entry.state}${entry.stack ? ` · stack #${entry.stack.number} of ${entry.stack.size}` : ""}${entry.checks ? ` · checks ${entry.checks}` : ""}`, entry.title].filter(Boolean).join(": ");
     const single = entries.length === 1;
     const state = single ? first.state : aggregateState(entries.map((entry) => entry.state));
-    // A thread that works on a stack shows the stack, T3 Code's layers and its size.
+    // A thread that works on a stack shows the stack: the layers glyph and its size.
     const stack = entries.find((entry) => entry.stack)?.stack;
     const Icon = stack ? Layers : ICON[state];
     const label = stack
@@ -116,7 +116,7 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
 }
 
 /**
- * The thread's requests on its rail row's hover card, after T3 Code's: the
+ * The thread's requests on its rail row's hover card: the
  * state's glyph in its colour, the number and the title, newest first. A
  * line opens the request's view on the stage.
  */

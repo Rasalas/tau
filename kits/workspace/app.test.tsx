@@ -235,7 +235,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(toggle.textContent).toBe("Settled · 71");
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    // Folded, the shelf still draws the thread on screen, as T3 Code does.
+    // Folded, the shelf still draws the thread on screen.
     expect(screen.getByText("Settled thread 0")).toBeTruthy();
     expect(screen.queryByText("Settled thread 1")).toBeNull();
     expect(getClientStorage()?.get("tau.workspace.rail-shelves-open.v1")).toBe(JSON.stringify({ settled: false }));
