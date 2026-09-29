@@ -63,6 +63,9 @@ describe("the mirror state", () => {
   it("writes nothing into the project, not even an object's mtime, and reads the project's blobs when asked", async () => {
     const project = join(dir, "project");
     execFileSync("git", ["init", "-q", project]);
+    // A commit may start Git's background maintenance, whose lock file would change the fingerprint under the test.
+    git(project, "config", "maintenance.auto", "false");
+    git(project, "config", "gc.auto", "0");
     writeFileSync(join(project, "shared.php"), "same content on both sides");
     writeFileSync(join(project, "only-here.txt"), "the project has this one");
     git(project, "add", ".");
