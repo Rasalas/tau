@@ -5,7 +5,7 @@ import { railState, startTurn, waitTurnDone } from "./steps.mjs";
 
 const PROBES = probes(CHROME, RAIL, {
   tau: { pinnedLabel: ".thread-group-label@[Pp][Ii][Nn][Nn][Ee][Dd]", settledToggle: ".settled-shelf-toggle", runningRow: "article.thread-row.activity-working", rowHover: "article.thread-row:hover" },
-  t3: { pinnedLabel: "[data-testid=sidebar-pinned-header]", settledToggle: "[data-testid=sidebar-settled-shelf-toggle]", runningRow: "[data-testid=sidebar-row-card]@Working", rowHover: "[data-testid=sidebar-row-card]:hover" },
+  reference: { pinnedLabel: "[data-testid=sidebar-pinned-header]", settledToggle: "[data-testid=sidebar-settled-shelf-toggle]", runningRow: "[data-testid=sidebar-row-card]@Working", rowHover: "[data-testid=sidebar-row-card]:hover" },
 });
 
 async function run(ctx, { shot }) {
@@ -21,4 +21,4 @@ async function run(ctx, { shot }) {
   await shot("hover", { probes: PROBES, settleMs: 300 });
 }
 
-export default { id: "02-rail", title: "Rail with 30 threads in every state", tau: run, t3: run };
+export default { id: "02-rail", title: "Rail with 30 threads in every state", tau: run, reference: run };

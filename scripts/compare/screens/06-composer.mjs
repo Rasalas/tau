@@ -16,7 +16,7 @@ const PROBES = probes(CHROME, {
     footerRow: ".composer-chips",
     overflow: "[aria-label='More composer controls']",
   },
-  t3: {
+  reference: {
     slashMenu: "[data-slot=composer-shell] ~ *, [role=listbox]",
     slashItem: "[role=option]",
     mentionMenu: "[role=listbox]",
@@ -71,11 +71,11 @@ async function run(ctx, { shot }) {
   await ctx.eval(`[...document.querySelectorAll("button")].filter((b) => /^Remove|remove attachment|Remove image/i.test(b.getAttribute("aria-label") ?? "")).forEach((b) => b.click())`);
   await startTurn(ctx, "Small thread 7");
   await ctx.type("Also run the tests once more.");
-  // Tau queues on Enter while a turn runs; T3 queues through its "Queue message" button.
+  // Tau queues on Enter while a turn runs; the reference app queues through its "Queue message" button.
   if (ctx.id === "tau") await ctx.press("Enter");
   else await ctx.click("button[aria-label='Queue message']");
   await ctx.wait(800);
   await shot("queue", { probes: PROBES, settleMs: 100 });
 }
 
-export default { id: "06-composer", title: "Composer: lines, chips, menus, queue", tau: run, t3: run };
+export default { id: "06-composer", title: "Composer: lines, chips, menus, queue", tau: run, reference: run };

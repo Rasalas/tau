@@ -46,8 +46,8 @@ export const railState = {
     await ctx.click("section.thread-rail-snooze button", /^Snooze$/u);
     await ctx.wait(400);
   },
-  /** T3 files every imported thread under Settled: un-settle the newest five. */
-  async t3(ctx) {
+  /** The reference app files every imported thread under Settled: un-settle the newest five. */
+  async reference(ctx) {
     for (const title of ["Large thread", "Small thread 1", "Small thread 2", "Small thread 3", "Small thread 4"]) {
       await ctx.eval(`(() => {
         const row = [...document.querySelectorAll("[data-testid=sidebar-row-slim]")].find((row) => ${titled(title)}.test(row.textContent.trim()));
@@ -60,7 +60,7 @@ export const railState = {
       await ctx.press("mod+shift+p");
       await ctx.wait(600);
     }
-    await t3OpenSnooze(ctx, "Small thread 3");
+    await referenceOpenSnooze(ctx, "Small thread 3");
     await ctx.click("[data-slot=popover-popup] button", /^In 1 hour/u);
     await ctx.wait(400);
   },
@@ -87,15 +87,15 @@ export async function tauOpenSnooze(ctx, title) {
   await ctx.waitFor(`!!document.querySelector(".rail-row-popover")`);
 }
 
-export async function t3OpenSnooze(ctx, title) {
+export async function referenceOpenSnooze(ctx, title) {
   await ctx.hover("[data-testid=sidebar-row-card]", titled(title));
   await ctx.wait(300);
   await ctx.eval(`[...document.querySelectorAll("[data-testid=sidebar-row-card]")].find((row) => /${title}:/u.test(row.textContent)).querySelector("button[aria-label='Snooze thread']").click()`);
   await ctx.waitFor(`!!document.querySelector("[data-slot=popover-popup]")`);
 }
 
-// T3's rail row reads "Working 3s" for as long as the turn runs.
-const T3_WORKING = `/Working\\s*\\d/u.test(document.querySelector("[data-slot=sidebar-inner]")?.innerText ?? "")`;
+// The reference app's rail row reads "Working 3s" for as long as the turn runs.
+const REFERENCE_WORKING = `/Working\\s*\\d/u.test(document.querySelector("[data-slot=sidebar-inner]")?.innerText ?? "")`;
 
 /** Opens a thread by title and sends the replay prompt; resolves once the app shows the turn running. */
 export async function startTurn(ctx, title) {
@@ -104,9 +104,9 @@ export async function startTurn(ctx, title) {
   await ctx.type(SCREEN_TURN_PROMPT);
   await ctx.wait(200);
   await ctx.press("Enter");
-  await ctx.waitFor(ctx.id === "tau" ? `!!document.querySelector("button.send-button.stop")` : T3_WORKING, { timeoutMs: 20_000 });
+  await ctx.waitFor(ctx.id === "tau" ? `!!document.querySelector("button.send-button.stop")` : REFERENCE_WORKING, { timeoutMs: 20_000 });
 }
 
 export async function waitTurnDone(ctx) {
-  await ctx.waitFor(ctx.id === "tau" ? `!document.querySelector("button.send-button.stop")` : `!(${T3_WORKING})`, { timeoutMs: 60_000, pollMs: 200 });
+  await ctx.waitFor(ctx.id === "tau" ? `!document.querySelector("button.send-button.stop")` : `!(${REFERENCE_WORKING})`, { timeoutMs: 60_000, pollMs: 200 });
 }

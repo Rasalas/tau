@@ -1,16 +1,16 @@
 // Screen 11: first run: the onboarding's three steps, on a profile with the
 // session fixture waiting to be imported.
-// Tau: Agents → Projects → Conversations. T3: Connect → Agents → Projects.
+// Tau: Agents → Projects → Conversations. The reference app: Connect → Agents → Projects.
 import { probes } from "./probes.mjs";
 import { SCREEN_PLAN } from "./harness.mjs";
 import { writeCodexSessions } from "../sessions-fixture.mjs";
 
 const PROBES = probes({
   tau: { dialog: "section.onboarding-dialog", title: ".onboarding-title", stepper: ".onboarding-steps, [class*=onboarding-step]", primary: "section.onboarding-dialog button@^(Continue|Add|Import|Do not)", secondary: "section.onboarding-dialog button@^(Back|Skip)" },
-  t3: { dialog: "[role=dialog]", title: "[role=dialog] h2", stepper: "[role=dialog] ol, [role=dialog] [class*=step]", primary: "[role=dialog] button@^(Continue|Import)", secondary: "[role=dialog] button@^(Back|Skip)" },
+  reference: { dialog: "[role=dialog]", title: "[role=dialog] h2", stepper: "[role=dialog] ol, [role=dialog] [class*=step]", primary: "[role=dialog] button@^(Continue|Import)", secondary: "[role=dialog] button@^(Back|Skip)" },
 });
 
-const DIALOG = { tau: "section.onboarding-dialog", t3: "[role=dialog]" };
+const DIALOG = { tau: "section.onboarding-dialog", reference: "[role=dialog]" };
 
 async function run(ctx, { shot, note }) {
   const dialog = DIALOG[ctx.id];
@@ -35,5 +35,5 @@ export default {
   fresh: true,
   beforeLaunch: ({ sessionsHome, workspace }) => { writeCodexSessions(sessionsHome, { cwd: workspace, ...SCREEN_PLAN }); },
   tau: run,
-  t3: run,
+  reference: run,
 };

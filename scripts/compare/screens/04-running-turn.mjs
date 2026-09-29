@@ -22,4 +22,4 @@ async function run(ctx, { shot }) {
   await waitTurnDone(ctx);
 }
 
-export default { id: "04-running-turn", title: "A running turn: thinking, commands, streaming", tau: run, t3: run };
+export default { id: "04-running-turn", title: "A running turn: thinking, commands, streaming", tau: run, reference: run };

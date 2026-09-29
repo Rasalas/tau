@@ -1,8 +1,8 @@
-// Tau ↔ T3 Code comparison (gap analysis §3.4): launches both apps isolated,
+// Tau against a reference app: launches both isolated,
 // seeds the same Codex sessions through each onboarding, then measures start,
 // a large thread's scroll and one replayed turn over CDP.
-// Usage: node scripts/compare/run.mjs [--apps tau,t3] [--runs 5] [--warmup 1] [--seed] [--check] [--out <file>]
-//        node scripts/compare/run.mjs --thread-switch [--apps tau,t3] [--runs 5] [--warmup 1] [--check]   (the switch launch alone)
+// Usage: node scripts/compare/run.mjs [--apps tau,reference] [--runs 5] [--warmup 1] [--seed] [--check] [--out <file>]
+//        node scripts/compare/run.mjs --thread-switch [--apps tau,reference] [--runs 5] [--warmup 1] [--check]   (the switch launch alone)
 //        node scripts/compare/run.mjs --large-thread [--runs 5] [--warmup 1] [--seed] [--check]   (Tau only)
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -33,7 +33,7 @@ const PROMPT = "Replay the recorded comparison turn.";
 const wait = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 export function parseArgs(argv) {
-  const options = { apps: ["tau", "t3"], runs: 5, warmup: 1, seed: false, check: false, out: undefined, idleMs: 5_000, scrollSteps: 60, largeThread: false, threadSwitch: false };
+  const options = { apps: ["tau", "reference"], runs: 5, warmup: 1, seed: false, check: false, out: undefined, idleMs: 5_000, scrollSteps: 60, largeThread: false, threadSwitch: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = () => {
@@ -52,7 +52,7 @@ export function parseArgs(argv) {
     else if (arg === "--thread-switch") options.threadSwitch = true;
     else throw new Error(`unknown flag ${arg} (known: --apps, --runs, --warmup, --seed, --check, --out, --idle-ms, --large-thread, --thread-switch)`);
   }
-  // T3 has no way to hold a Pi session; its importers also stop at 200 messages.
+  // The reference app has no way to hold a Pi session; its importers also stop at 200 messages.
   if (options.largeThread) options.apps = ["tau"];
   for (const id of options.apps) if (!APPS[id]) throw new Error(`unknown app ${id} (known: ${Object.keys(APPS).join(", ")})`);
   if (!Number.isInteger(options.runs) || options.runs < 1) throw new Error("--runs must be a positive integer");
@@ -100,7 +100,7 @@ function sentKind(response) {
   }
 }
 
-/** WebSocket frames (decoded payload) plus HTTP bodies (encoded), since T3 also loads snapshots over HTTP. */
+/** WebSocket frames (decoded payload) plus HTTP bodies (encoded), since the reference app also loads snapshots over HTTP. */
 function wireCounter(session) {
   const counter = { reset() { Object.assign(this, { received: 0, receivedBytes: 0, sent: 0, sentBytes: 0, sentKinds: {}, http: 0, httpBytes: 0 }); } };
   counter.reset();

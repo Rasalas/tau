@@ -6,7 +6,7 @@ import { CHROME, probes } from "./probes.mjs";
 
 const PROBES = probes(CHROME, {
   tau: { providerRow: ".settings-row@Codex", status: ".settings-row-status", composerNotice: ".composer-zone [class*=notice], .composer-zone [class*=warning]" },
-  t3: { providerRow: "main [class*=rounded-2xl]@Codex", status: "main [class*=text-destructive], main [class*=text-warning]", composerNotice: "[data-slot=composer-shell] [class*=warning], [data-slot=composer-shell] [role=alert]" },
+  reference: { providerRow: "main [class*=rounded-2xl]@Codex", status: "main [class*=text-destructive], main [class*=text-warning]", composerNotice: "[data-slot=composer-shell] [class*=warning], [data-slot=composer-shell] [role=alert]" },
 });
 
 const shim = (root) => join(root, "bin", "codex");
@@ -31,5 +31,5 @@ export default {
   beforeLaunch: ({ root }) => { if (existsSync(shim(root))) renameSync(shim(root), `${shim(root)}.off`); },
   afterClose: ({ root }) => { if (existsSync(`${shim(root)}.off`)) renameSync(`${shim(root)}.off`, shim(root)); },
   tau: run,
-  t3: run,
+  reference: run,
 };

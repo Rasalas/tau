@@ -1268,11 +1268,11 @@ The code that remembers the navigation's pages lives in the browser client (`src
 
 ### Isolation
 
-The reference app runs from its own clone and never touches an installed copy or its data. `scripts/compare/apps.mjs` holds how each app is built, launched and pointed at its root.
+The reference app runs from its own clone and never touches an installed copy or its data. The clone is `COMPARE_REFERENCE_SOURCE` (default `/tmp/reference-harness`), built beforehand; `--apps tau` runs Tau alone without one. `scripts/compare/apps.mjs` holds how each app is built, launched and pointed at its root.
 
 **Both apps**
 
-- Everything lives under one root per app, `/tmp/tau-harness-home` for Tau.
+- Everything lives under one root per app: `/tmp/tau-harness-home` for Tau (`COMPARE_TAU_ROOT`), `/tmp/reference-harness-home` for the reference app (`COMPARE_REFERENCE_ROOT`).
 - `HOME` and `CFFIXED_USER_HOME` both point at `<root>/run/home`. Foundation reads `CFFIXED_USER_HOME`, so Chromium's own paths follow it too.
 - `ZDOTDIR` points at an empty directory, so the login shell both apps read `PATH` from never loads real dotfiles.
 - Electron gets `--use-mock-keychain`.

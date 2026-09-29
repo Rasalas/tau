@@ -6,6 +6,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 /** Directories no compared process may open, whatever its environment says. */
 export function forbiddenPaths(home = homedir()) {
   return [
+    // The reference app's data folders.
     join(home, ".t3"),
     join(home, "Library", "Application Support", "t3code"),
     join(home, "Library", "Application Support", "t3code-dev"),

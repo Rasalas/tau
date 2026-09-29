@@ -1,5 +1,5 @@
 // Tau alone: a Pi thread of 20,000 session entries in the window, with every
-// kit loaded. T3 cannot take part; its importers keep 200 messages at most.
+// kit loaded. The reference app cannot take part; its importers keep 200 messages at most.
 // Per run, two launches from the seeded profile: one opens the thread from
 // the rail, one starts with it as the workspace's newest session.
 import { utimesSync } from "node:fs";

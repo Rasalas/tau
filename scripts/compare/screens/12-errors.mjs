@@ -1,4 +1,4 @@
-// Screen 12a: a turn that fails, then the host (Tau) or server (T3) gone.
+// Screen 12a: a turn that fails, then the host (Tau) or server (the reference app) gone.
 // The backend is killed by its own pid, found in the app's process tree.
 import { CHROME, TRANSCRIPT, probes } from "./probes.mjs";
 import { startTurn } from "./steps.mjs";
@@ -8,7 +8,7 @@ export const FAILURE = "stream disconnected before completion: the replay ended 
 
 const PROBES = probes(CHROME, TRANSCRIPT, {
   tau: { errorRow: "#thread-transcript [class*=error], #thread-transcript [class*=fail]", banner: "[class*=connection], [class*=reconnect], .toast", toast: ".toast, [class*=toast]" },
-  t3: { errorRow: "[class*=destructive], [role=alert]", banner: "[class*=reconnect], [role=status], [data-slot=toast]", toast: "[data-slot=toast], [role=status]" },
+  reference: { errorRow: "[class*=destructive], [role=alert]", banner: "[class*=reconnect], [role=status], [data-slot=toast]", toast: "[data-slot=toast], [role=status]" },
 });
 
 async function run(ctx, { shot, note }) {
@@ -27,4 +27,4 @@ async function run(ctx, { shot, note }) {
   await shot("backend-gone-later", { probes: PROBES, settleMs: 100 });
 }
 
-export default { id: "12-errors", title: "Errors: a failed turn, the backend gone", turn: { failWith: FAILURE }, tau: run, t3: run };
+export default { id: "12-errors", title: "Errors: a failed turn, the backend gone", turn: { failWith: FAILURE }, tau: run, reference: run };

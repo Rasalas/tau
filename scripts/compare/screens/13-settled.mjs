@@ -1,7 +1,7 @@
 // Screen 13: the settled and snoozed shelves with many and with few active
 // threads, folded and open, at the top and the end of the rail's scroll.
 import { CHROME, RAIL, probes } from "./probes.mjs";
-import { openThread, t3OpenSnooze, tauPaletteRun } from "./steps.mjs";
+import { openThread, referenceOpenSnooze, tauPaletteRun } from "./steps.mjs";
 
 const UI = {
   tau: {
@@ -12,7 +12,7 @@ const UI = {
     settle: "button.thread-settle",
     unsettle: "button.thread-settle",
   },
-  t3: {
+  reference: {
     scroller: "[data-slot=sidebar-inner] [data-slot=scroll-area-viewport]",
     toggle: (id) => `[data-testid=sidebar-${id}-shelf-toggle]`,
     activeRows: "[data-testid=sidebar-row-card]",
@@ -24,7 +24,7 @@ const UI = {
 
 const PROBES = probes(CHROME, RAIL, {
   tau: { settledToggle: "[data-rail-heading=settled]", snoozedToggle: "[data-rail-heading=snoozed]", scroller: "aside.session-rail .rail-active" },
-  t3: { settledToggle: "[data-testid=sidebar-settled-shelf-toggle]", snoozedToggle: "[data-testid=sidebar-snoozed-shelf-toggle]", scroller: "[data-slot=sidebar-inner] [data-slot=scroll-area-viewport]" },
+  reference: { settledToggle: "[data-testid=sidebar-settled-shelf-toggle]", snoozedToggle: "[data-testid=sidebar-snoozed-shelf-toggle]", scroller: "[data-slot=sidebar-inner] [data-slot=scroll-area-viewport]" },
 });
 
 const count = (ctx, selector) => ctx.eval(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
@@ -83,7 +83,7 @@ async function tauSettled(ctx) {
 
 async function run(ctx, { shot, note }) {
   const ui = UI[ctx.id];
-  // Tau imports every thread as active, T3 as settled: both start from twenty active threads.
+  // Tau imports every thread as active, the reference app as settled: both start from twenty active threads.
   await setShelf(ctx, "settled", true);
   if (ctx.id === "tau") {
     await repeat(ctx, ui.activeRows, ui.settle, { last: true, done: async () => (await tauSettled(ctx)) >= 10 });
@@ -104,7 +104,7 @@ async function run(ctx, { shot, note }) {
     await tauPaletteRun(ctx, "Snooze thread");
     await ctx.click("section.thread-rail-snooze button", /^Snooze$/u);
   } else {
-    await t3OpenSnooze(ctx, title);
+    await referenceOpenSnooze(ctx, title);
     await ctx.click("[data-slot=popover-popup] button", /^In 1 hour/u);
   }
   await ctx.wait(500);
@@ -113,4 +113,4 @@ async function run(ctx, { shot, note }) {
   await shot("few-snoozed", { probes: PROBES });
 }
 
-export default { id: "13-settled", title: "Settled and snoozed shelves with many and few active threads", tau: run, t3: run };
+export default { id: "13-settled", title: "Settled and snoozed shelves with many and few active threads", tau: run, reference: run };

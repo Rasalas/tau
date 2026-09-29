@@ -3812,7 +3812,7 @@ stylesheet, a new accent and a new code face. Two more sit beside it:
 `examples/theme-mono-labels/` sets the four label tokens back to the
 monospace capitals Tau's labels had before API 1.11.0 (label texts are written
 in sentence case, so `--label-case: uppercase` is all it takes), and
-`examples/theme-t3-like/` lays zinc greys, an indigo primary and smaller radii
+`examples/theme-zinc/` lays zinc greys, an indigo primary and smaller radii
 over the tokens, for telling a difference of colour from one of layout.
 
 ### The table

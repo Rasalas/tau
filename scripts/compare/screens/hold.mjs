@@ -1,6 +1,6 @@
 // Opens one app in the screen comparison's profile and keeps it open for
 // inspection over CDP (`npm run cdp -- <port> snapshot`) until Ctrl-C.
-// Usage: node scripts/compare/screens/hold.mjs <tau|t3> [--fresh] [--theme t3-like] [--scheme light|dark]
+// Usage: node scripts/compare/screens/hold.mjs <tau|reference> [--fresh] [--theme zinc] [--scheme light|dark]
 import { openApp } from "./harness.mjs";
 
 const [id, ...rest] = process.argv.slice(2);

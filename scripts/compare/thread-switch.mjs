@@ -2,7 +2,7 @@
 // row to the thread's newest reply painted beside a composer, for a short, a
 // medium and a long thread, the first time (cold) and again (warm).
 // Both apps switch between the same imported Codex threads; Tau also between
-// Pi threads, which T3 cannot hold.
+// Pi threads, which the reference app cannot hold.
 import { execFileSync } from "node:child_process";
 import { utimesSync } from "node:fs";
 import { join } from "node:path";

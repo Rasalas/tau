@@ -1,14 +1,14 @@
 // Screen 09: the terminal split in two, then the preview with its element picker.
 // Tau's preview draws the page in a native view over its panel, which
-// Page.captureScreenshot does not see; T3's page shows in the capture.
-// T3 calls its element picker "Annotate preview".
+// Page.captureScreenshot does not see; the reference app's page shows in the capture.
+// The reference app calls its element picker "Annotate preview".
 import { createServer } from "node:http";
 import { CHROME, probes } from "./probes.mjs";
 import { openThread } from "./steps.mjs";
 
 const PROBES = probes(CHROME, {
   tau: { terminal: ".xterm", terminalPane: ".terminal-pane, [class*=terminal-split] > *", panelHeader: ".panel-header, .stage-tabs, [class*=stage-tab]", previewBar: "[class*=preview] input, [class*=preview-address]", previewPanel: "[class*=preview]" },
-  t3: { terminal: "aside.thread-terminal-drawer", terminalPane: "aside.thread-terminal-drawer canvas", panelHeader: "[data-slot=tabs-list], [role=tablist]", previewBar: "input[aria-label*=URL i], input[placeholder*=URL i], input[placeholder*=localhost i]", previewPanel: "[data-preview-panel], [aria-label*=Preview]" },
+  reference: { terminal: "aside.thread-terminal-drawer", terminalPane: "aside.thread-terminal-drawer canvas", panelHeader: "[data-slot=tabs-list], [role=tablist]", previewBar: "input[aria-label*=URL i], input[placeholder*=URL i], input[placeholder*=localhost i]", previewPanel: "[data-preview-panel], [aria-label*=Preview]" },
 });
 
 const PAGE = `<!doctype html><title>Preview fixture</title><body style="font:16px system-ui;margin:40px"><h1>Preview fixture</h1><p>A page for the element picker.</p><button>Primary action</button></body>`;
@@ -19,8 +19,8 @@ async function withServer(fn) {
   try { return await fn(`http://127.0.0.1:${server.address().port}/`); } finally { server.close(); }
 }
 
-// Tau's terminal is xterm.js; T3's is ghostty-web on a canvas.
-const TERMINAL = { tau: ".xterm", t3: "aside.thread-terminal-drawer canvas" };
+// Tau's terminal is xterm.js; the reference app's is ghostty-web on a canvas.
+const TERMINAL = { tau: ".xterm", reference: "aside.thread-terminal-drawer canvas" };
 
 async function run(ctx, { shot, note }) {
   const terminal = TERMINAL[ctx.id];
@@ -37,7 +37,7 @@ async function run(ctx, { shot, note }) {
   note("terminals", await ctx.eval(`document.querySelectorAll(${JSON.stringify(terminal)}).length`));
   await ctx.moveMouse(700, 300);
   await shot("terminal-split", { probes: PROBES });
-  // Tau opens a maximized panel as a stage tab; T3 widens its right panel, which the terminal drawer is not.
+  // Tau opens a maximized panel as a stage tab; the reference app widens its right panel, which the terminal drawer is not.
   if (ctx.id === "tau" && await ctx.eval(`!!document.querySelector("[aria-label='Open Terminal as a tab']")`)) {
     await ctx.press("mod+alt+shift+b");
     await ctx.wait(1_500);
@@ -76,4 +76,4 @@ async function run(ctx, { shot, note }) {
   });
 }
 
-export default { id: "09-terminal-preview", title: "Terminal with a split, preview with the element picker", tau: run, t3: run };
+export default { id: "09-terminal-preview", title: "Terminal with a split, preview with the element picker", tau: run, reference: run };

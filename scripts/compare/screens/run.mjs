@@ -1,8 +1,8 @@
-// Screen-by-screen UI comparison of Tau and T3 Code (gap analysis §2.3).
+// Screen-by-screen UI comparison of Tau and the reference app.
 // Each screen script brings both apps into the same state and calls `shot`,
 // which captures the page in dark and light and measures the named elements.
-// Usage: node scripts/compare/screens/run.mjs [--seed] [--apps tau,t3] [--screens 02,05]
-//          [--out <dir>] [--theme t3-like] [--tag <suffix>] [--schemes dark,light]
+// Usage: node scripts/compare/screens/run.mjs [--seed] [--apps tau,reference] [--screens 02,05]
+//          [--out <dir>] [--theme zinc] [--tag <suffix>] [--schemes dark,light]
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ const SCREENS_DIR = fileURLToPath(new URL("./", import.meta.url));
 const WINDOWS_SWIFT = join(SCREENS_DIR, "windows.swift");
 
 export function parseArgs(argv) {
-  const options = { apps: ["tau", "t3"], screens: undefined, seed: false, out: join(ROOT, ".scratch", "t3-parity-2", "shots"), theme: undefined, tag: undefined, schemes: ["dark", "light"] };
+  const options = { apps: ["tau", "reference"], screens: undefined, seed: false, out: join(ROOT, ".scratch", "compare-shots"), theme: undefined, tag: undefined, schemes: ["dark", "light"] };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = () => {
@@ -33,12 +33,12 @@ export function parseArgs(argv) {
     else throw new Error(`unknown flag ${arg} (known: --apps, --screens, --seed, --out, --theme, --tag, --schemes)`);
   }
   for (const id of options.apps) if (!APPS[id]) throw new Error(`unknown app ${id} (known: ${Object.keys(APPS).join(", ")})`);
-  if (options.theme && options.apps.includes("t3")) throw new Error("--theme restyles Tau only; pass --apps tau");
+  if (options.theme && options.apps.some((id) => id !== "tau")) throw new Error("--theme restyles Tau only; pass --apps tau");
   for (const scheme of options.schemes) if (!["dark", "light"].includes(scheme)) throw new Error(`unknown scheme ${scheme}`);
   return options;
 }
 
-/** `02-rail` + state `menu` + app `tau` + tag → `02-rail-menu-tau-t3like-dark.png`. */
+/** `02-rail` + state `menu` + app `tau` + tag → `02-rail-menu-tau-zinc-dark.png`. */
 export function shotName({ screen, state, app, tag, scheme }) {
   return `${[screen, state, app, tag, scheme].filter(Boolean).join("-")}.png`;
 }

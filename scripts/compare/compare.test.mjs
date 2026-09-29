@@ -170,22 +170,22 @@ describe("isolation", () => {
 
   it("builds both apps' environments without inheriting the caller's", () => {
     const tauEnv = APPS.tau.env(join(root, "tau"));
-    const t3Env = APPS.t3.env(join(root, "t3"), { backendPort: 1234 });
-    for (const env of [tauEnv, t3Env]) {
+    const referenceEnv = APPS.reference.env(join(root, "reference"), { backendPort: 1234 });
+    for (const env of [tauEnv, referenceEnv]) {
       expect(env.HOME).toBe(env.CFFIXED_USER_HOME);
       expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
       expect(env.PATH.split(":")[0]).toMatch(/\/bin$/u);
     }
-    expect(t3Env.T3CODE_HOME.startsWith(join(root, "t3"))).toBe(true);
-    expect(t3Env.T3CODE_TELEMETRY_ENABLED).toBe("false");
+    expect(referenceEnv.T3CODE_HOME.startsWith(join(root, "reference"))).toBe(true);
+    expect(referenceEnv.T3CODE_TELEMETRY_ENABLED).toBe("false");
     expect(tauEnv.TAU_USER_DATA.startsWith(join(root, "tau"))).toBe(true);
   });
 
-  it("starts both apps without taking focus, T3 through a preload in its main process only", () => {
+  it("starts both apps without taking focus, the reference app through a preload in its main process only", () => {
     const tauEnv = APPS.tau.env(join(root, "tau"));
-    const t3Env = APPS.t3.env(join(root, "t3"), { backendPort: 1234 });
+    const referenceEnv = APPS.reference.env(join(root, "reference"), { backendPort: 1234 });
     expect(tauEnv.TAU_NO_FOCUS).toBe("1");
-    expect(t3Env.NODE_OPTIONS).toMatch(/^--require ".*\/scripts\/compare\/background-preload\.cjs"$/u);
+    expect(referenceEnv.NODE_OPTIONS).toMatch(/^--require ".*\/scripts\/compare\/background-preload\.cjs"$/u);
     const preload = readFileSync(new URL("./background-preload.cjs", import.meta.url), "utf8");
     expect(preload).toContain('process.type === "browser"');
     expect(preload).toContain("delete process.env.NODE_OPTIONS");
@@ -195,7 +195,7 @@ describe("isolation", () => {
     vi.stubEnv("TAU_FOREGROUND", "1");
     try {
       expect(APPS.tau.env(join(root, "tau")).TAU_NO_FOCUS).toBeUndefined();
-      expect(APPS.t3.env(join(root, "t3"), { backendPort: 1234 }).NODE_OPTIONS).toBeUndefined();
+      expect(APPS.reference.env(join(root, "reference"), { backendPort: 1234 }).NODE_OPTIONS).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
     }
@@ -213,9 +213,9 @@ describe("isolation", () => {
 
   it("finds open files inside forbidden directories from lsof output", () => {
     const home = "/Users/someone";
-    const output = ["p1", "n/private/tmp/ok", `n${home}/.t3/userdata/state.sqlite`, `n${home}/Library/Application Support/t3code/Cookies`, `n${home}/Library/Fonts/a.ttf`].join("\n");
+    const output = ["p1", "n/private/tmp/ok", `n${home}/.tau/config.json`, `n${home}/Library/Application Support/tau/Cookies`, `n${home}/Library/Fonts/a.ttf`].join("\n");
     expect(parseLsofNames(output)).toHaveLength(4);
-    expect(openForbiddenFiles([1], { home, run: () => output })).toEqual([`${home}/.t3/userdata/state.sqlite`, `${home}/Library/Application Support/t3code/Cookies`]);
+    expect(openForbiddenFiles([1], { home, run: () => output })).toEqual([`${home}/.tau/config.json`, `${home}/Library/Application Support/tau/Cookies`]);
   });
 });
 
@@ -268,30 +268,30 @@ describe("stats and reporting", () => {
     expect(parseArgs(["--apps", "tau", "--runs", "3", "--check"])).toMatchObject({ apps: ["tau"], runs: 3, check: true });
     expect(() => parseArgs(["--nope"])).toThrow(/unknown flag/u);
     expect(() => parseArgs(["--apps", "vscode"])).toThrow(/unknown app/u);
-    expect(parseArgs(["--large-thread", "--apps", "tau,t3"])).toMatchObject({ largeThread: true, apps: ["tau"] });
+    expect(parseArgs(["--large-thread", "--apps", "tau,reference"])).toMatchObject({ largeThread: true, apps: ["tau"] });
   });
 
   it("renders a side-by-side table from a report", () => {
     const table = markdownTable({
-      apps: { tau: { app: "Tau" }, t3: { app: "T3 Code" } },
+      apps: { tau: { app: "Tau" }, reference: { app: "Reference" } },
       turn: { durationMs: 100 },
-      aggregate: { tau: { "startup.firstPaintMs": { median: 10, p95: 12 } }, t3: {} },
-      results: { tau: [], t3: [] },
+      aggregate: { tau: { "startup.firstPaintMs": { median: 10, p95: 12 } }, reference: {} },
+      results: { tau: [], reference: [] },
     });
-    expect(table).toContain("| metric (median / p95) | Tau | T3 Code |");
+    expect(table).toContain("| metric (median / p95) | Tau | Reference |");
     expect(table).toContain("| first paint (ms) | 10 / 12 | – |");
   });
 });
 
 describe("the screen comparison", () => {
   it("names a capture by screen, state, app, tag and scheme", () => {
-    expect(shotName({ screen: "02-rail", app: "t3", scheme: "dark" })).toBe("02-rail-t3-dark.png");
-    expect(shotName({ screen: "03-row-menu", state: "menu", app: "tau", tag: "t3like", scheme: "light" })).toBe("03-row-menu-menu-tau-t3like-light.png");
+    expect(shotName({ screen: "02-rail", app: "reference", scheme: "dark" })).toBe("02-rail-reference-dark.png");
+    expect(shotName({ screen: "03-row-menu", state: "menu", app: "tau", tag: "zinc", scheme: "light" })).toBe("03-row-menu-menu-tau-zinc-light.png");
   });
 
-  it("parses flags, and keeps a Tau theme away from T3", () => {
-    expect(parseScreenArgs(["--apps", "tau", "--screens", "02,05", "--theme", "t3-like"])).toMatchObject({ apps: ["tau"], screens: ["02", "05"], theme: "t3-like", schemes: ["dark", "light"] });
-    expect(() => parseScreenArgs(["--theme", "t3-like"])).toThrow(/Tau only/u);
+  it("parses flags, and keeps a Tau theme away from the reference app", () => {
+    expect(parseScreenArgs(["--apps", "tau", "--screens", "02,05", "--theme", "zinc"])).toMatchObject({ apps: ["tau"], screens: ["02", "05"], theme: "zinc", schemes: ["dark", "light"] });
+    expect(() => parseScreenArgs(["--theme", "zinc"])).toThrow(/Tau only/u);
     expect(() => parseScreenArgs(["--schemes", "sepia"])).toThrow(/unknown scheme/u);
   });
 
@@ -301,7 +301,7 @@ describe("the screen comparison", () => {
     for (const screen of screens) {
       expect(screen.id).toMatch(/^\d\d-[a-z-]+$/u);
       expect(screen.title).toBeTruthy();
-      for (const id of ["tau", "t3"]) expect(typeof screen[id] === "function" || Boolean(screen.skip?.[id])).toBe(true);
+      for (const id of ["tau", "reference"]) expect(typeof screen[id] === "function" || Boolean(screen.skip?.[id])).toBe(true);
     }
   });
 
