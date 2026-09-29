@@ -1072,7 +1072,7 @@ export function Composer({
               ) : null}
               <button
                 ref={modelChipRef}
-                className="runtime-chip composer-model-chip fan-marks"
+                className="runtime-chip composer-model-chip"
                 aria-expanded={modelPickerOpen === true}
                 aria-haspopup="dialog"
                 disabled={!modelPickerAvailable}

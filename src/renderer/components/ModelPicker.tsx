@@ -848,7 +848,7 @@ export function ModelPicker({
         {recents.length ? <span className="model-recent-label">Recent</span> : null}
         {recents.length ? <span className="model-recent-list">
           {recents.map((offering) => (
-            <button key={offering.key} className="model-recent-chip fan-marks" aria-label={`${offering.model.name}, ${offering.runtimeLabel}`} onClick={() => choose(offering)}>
+            <button key={offering.key} className="model-recent-chip" aria-label={`${offering.model.name}, ${offering.runtimeLabel}`} onClick={() => choose(offering)}>
               <OfferingMarks offering={offering} />
               <span>{offering.model.name}</span>
             </button>

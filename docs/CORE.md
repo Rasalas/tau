@@ -302,8 +302,8 @@ Antigravity with Google). The runtime says which providers those are
 (`homeProviders` on its backend, published on `runtimeBackends`); core knows
 only that a runtime owns the provider of its own name (Cursor's `cursor`). Any
 other pair, Pi included, shows
-the access mark in front and the runtime's behind it, fanned out on hover or
-focus (`ProviderIconStack`); a subscription plan wears its product's mark (Pi's
+the access mark and the runtime's side by side, the runtime's a shade quieter
+(`ProviderIconStack`); a subscription plan wears its product's mark (Pi's
 `openai-codex` is Codex's; an Anthropic plan login the Agent SDK runtime's),
 unless the runtime says its plans are its own (`ownPlan`: Cursor, Antigravity),
 where Claude on the Cursor plan stays "Cursor via Anthropic".

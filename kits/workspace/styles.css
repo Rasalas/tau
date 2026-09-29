@@ -684,11 +684,8 @@ button.thread-card-row { width: 100%; cursor: pointer; border-radius: var(--radi
 button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(--ink); background: var(--wash-2); outline: none; }
 .thread-card-icon { flex: none; width: 14px; height: 14px; display: grid; place-items: center; color: var(--muted-2); }
 .thread-card-icon > .thread-project-icon { width: 14px; height: 14px; border-radius: 4px; font-size: 9px; }
-/* The model's stack keeps its resting shape here: fanned out it would run into the text. */
-.thread-card-icon:has(> .provider-icon-stack.stacked) { width: 24px; }
-.thread-card-icon > .provider-icon-stack.stacked { width: 24px; }
-.thread-card-icon > .provider-icon-stack.stacked:hover > .provider-icon-model { transform: translate(8px, 2px); }
-.thread-card-icon > .provider-icon-stack.stacked:hover > .provider-icon-runtime { transform: translate(0, 0); mask-position: 0 0, 6.5px 0.5px; -webkit-mask-position: 0 0, 6.5px 0.5px; }
+/* Two marks side by side take their own width. */
+.thread-card-icon:has(> .provider-icon-stack.stacked) { width: auto; }
 .thread-card-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-card-muted { color: var(--faint); }
 .thread-card-row.tone-working, .thread-card-row.tone-working .thread-card-icon { color: var(--info-ink); }

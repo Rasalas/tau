@@ -137,8 +137,8 @@ export function providerStackLabel(modelProvider: string | undefined, runtimePro
 }
 
 /**
- * The marks `providerMarks` gives a model provider and the runtime that runs it: the provider's (or plan's) mark,
- * with the runtime's stacked behind it (fanned out on hover), or one mark alone. `hint` names them on hover: a native title
+ * The marks `providerMarks` gives a model provider and the runtime that runs it: the provider's (or plan's) mark
+ * and the runtime's side by side, or one mark alone. `hint` names them on hover: a native title
  * by default, the tooltip layer's with options, nothing with `false` (inside a control that names itself). `name`
  * replaces the whole name; `runtimeName` only the runtime's (an instance's), and `modelName` leads it. `plan` says
  * the provider is reached through a subscription plan, where its id alone does not tell. `runtimeMark: false` leaves

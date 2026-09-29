@@ -72,7 +72,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, cells, onP
       aria-selected={selected}
       aria-label={`${model.name}, ${offering.runtimeLabel}${access ? `, ${access.label}` : ""}${current ? ", in use" : ""}`}
       data-provider={model.provider}
-      className={`model-row fan-marks${grouped ? " grouped" : ""}${selected ? " selected" : ""}${current ? " current" : ""}${offering.hidden ? " hidden-model" : ""}`}
+      className={`model-row${grouped ? " grouped" : ""}${selected ? " selected" : ""}${current ? " current" : ""}${offering.hidden ? " hidden-model" : ""}`}
       onMouseMove={onPoint}
       onClick={(event) => onChoose(event.shiftKey)}
     >
