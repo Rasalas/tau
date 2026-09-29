@@ -110,7 +110,8 @@ export interface HostClient {
   /** Re-announces the open questions and lists them; a host from before the list answers nothing. */
   syncExtensionUi(): Promise<readonly ExtensionUiPrompt[] | undefined>;
   /** `only` asks for just those extension ids, so a client can swap one module instead of all of them. */
-  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
+  /** `held`: the bundle digests the client keeps; the host leaves out their code (`DesktopExtensionBundle.cached`). */
+  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[], held?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
   listHostExtensions(): Promise<HostExtensionSummary[]>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
@@ -344,7 +345,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     reloadExtensions: () => call<void>("reload-extensions"),
     answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
     syncExtensionUi: () => call<readonly ExtensionUiPrompt[] | undefined>("sync-extension-ui"),
-    loadDesktopExtensions: (cwd, sharedExports, only) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]),
+    loadDesktopExtensions: (cwd, sharedExports, only, held) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only, held]),
     // A command an extension declared long-running waits on `job-done` instead
     // of on one long response, so the host can report progress and be cancelled.
     invokeHostExtension: async (extensionId, command, input) => {

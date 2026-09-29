@@ -1,4 +1,4 @@
-import { useLayoutEffect } from "react";
+import { useLayoutEffect, useMemo } from "react";
 import App from "../renderer/App";
 import { ClientEnvironmentProvider, type ClientEnvironment } from "../renderer/client-environment";
 import { ClientStorageProvider } from "../renderer/client-storage-context";
@@ -10,6 +10,7 @@ import type { ClientProfile } from "../workbench/client-profile";
 import type { HostClient } from "../workbench/host-client";
 import { followThemePreference } from "../renderer/theme";
 import { createWebPlatform } from "./platform-web";
+import { indexedBundleStore, withBundleStore } from "./bundle-cache";
 
 /** What a browser tab is, as the workbench's `ClientEnvironment`. */
 export function webClientEnvironment(profile: ClientProfile): ClientEnvironment {
@@ -30,8 +31,10 @@ export function WebWorkbench({ client, storage, services, environment }: {
 }) {
   // The Electron entry does this before its first render; here the services come with the host.
   useLayoutEffect(() => followThemePreference(services.preferences), [services]);
+  // The packages come from the store where they did not change since the last start.
+  const kept = useMemo(() => client && withBundleStore(client, indexedBundleStore()), [client]);
   return <ClientEnvironmentProvider environment={environment}>
-    <HostClientProvider client={client}>
+    <HostClientProvider client={kept}>
       <ClientStorageProvider storage={storage}>
         <RendererServicesProvider services={services}>
           <App />
