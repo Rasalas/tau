@@ -17,6 +17,12 @@ afterAll(() => {
 process.env.TAU_NO_WATCH = "1";
 // The Servers kit refuses any target but loopback, as in an isolated instance.
 process.env.TAU_SERVERS_LOOPBACK_ONLY = "1";
+// Test repositories are deleted right after use; Git's background maintenance would still be writing into them.
+process.env.GIT_CONFIG_COUNT = "2";
+process.env.GIT_CONFIG_KEY_0 = "maintenance.auto";
+process.env.GIT_CONFIG_VALUE_0 = "false";
+process.env.GIT_CONFIG_KEY_1 = "gc.auto";
+process.env.GIT_CONFIG_VALUE_1 = "0";
 
 // Every process a test starts inherits this run's tag; the global teardown
 // (src/test-global-setup.ts) fails the run on any that outlive it.
