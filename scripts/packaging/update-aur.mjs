@@ -48,7 +48,7 @@ pkgrel=1
 pkgdesc='${PKGDESC}'
 arch=('x86_64')
 url='${URL}'
-license=('Apache-2.0')
+license=('MIT')
 depends=(${quoted(DEPENDS)})
 optdepends=(
 ${OPTDEPENDS.map((entry) => `  '${entry}'`).join("\n")}
@@ -119,7 +119,7 @@ export function renderSrcinfo(assets, license) {
     "pkgrel = 1",
     `url = ${URL}`,
     "arch = x86_64",
-    "license = Apache-2.0",
+    "license = MIT",
     ...DEPENDS.map((entry) => `depends = ${entry}`),
     ...OPTDEPENDS.map((entry) => `optdepends = ${entry}`),
     "provides = tau",

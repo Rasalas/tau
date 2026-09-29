@@ -53,7 +53,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
       { label: "Host", value: versions.host!, mono: true, copy: versions.host! },
     ]
     : [{ label: "Version", value: version ?? "Unknown", mono: Boolean(version), ...(version ? { copy: version } : {}) }];
-  facts.push({ label: "Licence", value: "Apache-2.0, open source" });
+  facts.push({ label: "Licence", value: "MIT, open source" });
 
   return (
     <div className="settings-page">

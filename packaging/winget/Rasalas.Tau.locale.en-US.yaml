@@ -9,7 +9,7 @@ PublisherUrl: https://github.com/Rasalas
 PublisherSupportUrl: https://github.com/Rasalas/tau/issues
 PackageName: Tau
 PackageUrl: https://github.com/Rasalas/tau
-License: Apache-2.0
+License: MIT
 LicenseUrl: https://github.com/Rasalas/tau/blob/main/LICENSE
 ShortDescription: Desktop workbench for the Pi coding agent.
 Moniker: tau

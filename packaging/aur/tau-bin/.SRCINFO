@@ -4,7 +4,7 @@ pkgbase = tau-bin
 	pkgrel = 1
 	url = https://github.com/Rasalas/tau
 	arch = x86_64
-	license = Apache-2.0
+	license = MIT
 	depends = alsa-lib
 	depends = at-spi2-core
 	depends = gtk3
@@ -29,6 +29,6 @@ pkgbase = tau-bin
 	source = Tau-0.4.0.AppImage::https://github.com/Rasalas/tau/releases/download/v0.4.0/Tau-0.4.0.AppImage
 	source = LICENSE-0.4.0::https://raw.githubusercontent.com/Rasalas/tau/v0.4.0/LICENSE
 	sha256sums = 575d2258af61696957684356fd7e9be57bce37bb36c34311596b6a98ab385aaa
-	sha256sums = cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+	sha256sums = 0fa5f57f09e2e9ba3b07d5c0c9f342bfb03d8fbb13e416565ae195430fb35e8f
 
 pkgname = tau-bin

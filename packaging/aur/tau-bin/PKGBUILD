@@ -8,7 +8,7 @@ pkgrel=1
 pkgdesc='Desktop workbench for the Pi coding agent'
 arch=('x86_64')
 url='https://github.com/Rasalas/tau'
-license=('Apache-2.0')
+license=('MIT')
 depends=('alsa-lib' 'at-spi2-core' 'gtk3' 'libcups' 'libdrm' 'libxcomposite' 'libxdamage' 'libxkbcommon' 'libxrandr' 'mesa' 'nss' 'xdg-utils')
 optdepends=(
   'git: the Review, worktrees and checkpoints'
@@ -26,7 +26,7 @@ source=(
   "LICENSE-${_version}::https://raw.githubusercontent.com/Rasalas/tau/v${_version}/LICENSE"
 )
 sha256sums=('575d2258af61696957684356fd7e9be57bce37bb36c34311596b6a98ab385aaa'
-            'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30')
+            '0fa5f57f09e2e9ba3b07d5c0c9f342bfb03d8fbb13e416565ae195430fb35e8f')
 
 prepare() {
   cd "${srcdir}"

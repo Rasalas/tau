@@ -10,7 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/Rasalas/tau.git"
   },
-  "license": "Apache-2.0",
+  "license": "MIT",
   "main": "dist-electron/main/launcher.js",
   "bin": {
     "tau": "bin/tau.mjs"
