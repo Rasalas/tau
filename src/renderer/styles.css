@@ -10,7 +10,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-body { font-size: var(--font-size-override, 13px); }
+body { font-size: var(--font-size-override, var(--text-md)); }
 
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }

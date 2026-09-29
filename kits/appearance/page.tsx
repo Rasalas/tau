@@ -138,7 +138,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
   const density = useSetting<Density>(value(SETTING_KEYS.density), { defaultValue: "normal", scope: "both", read: readDensity, format: (next) => DENSITY_LABELS[next] });
   const contrast = useSetting<number>(value(SETTING_KEYS.contrast), { defaultValue: 0, read: readContrast, write: String, format: (next) => `${next}%` });
   const interfaceFamily = useSetting<string>("fontFamily", { defaultValue: "", read: readString, format: (next) => next || "Figtree", offline: (next) => preferences.setFontFamily(next || undefined) });
-  const interfaceSize = useSetting<number | undefined>("fontSize", { defaultValue: undefined, read: (raw) => (typeof raw === "number" ? raw : undefined), format: (next) => (next ? `${next}px` : "13px"), offline: (next) => preferences.setFontSize(next) });
+  const interfaceSize = useSetting<number | undefined>("fontSize", { defaultValue: undefined, read: (raw) => (typeof raw === "number" ? raw : undefined), format: (next) => (next ? `${next}px` : "14px"), offline: (next) => preferences.setFontSize(next) });
   const promptFamily = useSetting<string>(value(SETTING_KEYS.promptFontFamily), { defaultValue: "", read: readString, format: (next) => next || "Interface font" });
   const promptSize = useSetting<number | undefined>(value(SETTING_KEYS.promptFontSize), { defaultValue: undefined, read: readSize, write: String, format: (next) => (next ? `${next}px` : `${DEFAULT_PROMPT_FONT_SIZE}px`) });
   const codeFamily = useSetting<string>(value(SETTING_KEYS.codeFontFamily), { defaultValue: "", read: readString, format: (next) => next || "System monospace" });
@@ -216,7 +216,7 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
           title="Interface font"
           description="Everything outside code and the terminal."
           setting={interfaceFamily}
-          control={<><TextSetting label="Interface font family" placeholder="Figtree" setting={interfaceFamily} /><SizeSetting label="Interface font size" setting={interfaceSize} fallback={13} /></>}
+          control={<><TextSetting label="Interface font family" placeholder="Figtree" setting={interfaceFamily} /><SizeSetting label="Interface font size" setting={interfaceSize} fallback={14} /></>}
         />
         <SettingRow
           id="setting-appearance-prompt-font"
