@@ -1,4 +1,5 @@
 import { TauGlyph } from "./TauGlyph";
+import "./reload-curtain.css";
 
 export type ReloadPhase = "building" | "extensions" | "restarting";
 

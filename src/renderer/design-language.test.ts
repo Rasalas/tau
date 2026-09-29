@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const STYLES = read("./styles.css");
 const WORKSPACE = read("../../kits/workspace/styles.css");
+const RELOAD_CURTAIN = read("./components/reload-curtain.css");
 
 /** The declarations of the first rule whose selector list is exactly `selector`. */
 function rule(css: string, selector: string): string {
@@ -56,8 +57,8 @@ describe("the workbench design language", () => {
   });
 
   it("draws Tau's splash in the mark's lime, never in the accent", () => {
-    const start = STYLES.indexOf(".reload-curtain {");
-    const curtain = STYLES.slice(start, STYLES.indexOf("@keyframes reload-orbit", start));
+    const start = RELOAD_CURTAIN.indexOf(".reload-curtain {");
+    const curtain = RELOAD_CURTAIN.slice(start, RELOAD_CURTAIN.indexOf("@keyframes reload-orbit", start));
     expect(curtain).toMatch(/var\(--brand\)/u);
     expect(curtain).not.toMatch(/var\(--acid/u);
   });
@@ -66,7 +67,7 @@ describe("the workbench design language", () => {
 describe("a run in flight is blue (K70)", () => {
   it.each([
     [STYLES, ".spinner", "--info"],
-    [STYLES, ".thread-tree-node > small", "--info-ink"],
+    [read("./components/thread-tree.css"), ".thread-tree-node > small", "--info-ink"],
     [read("../../kits/terminal/styles.css"), ".terminal-row-status", "--info-ink"],
     [read("../../kits/remote-work/styles.css"), ".remote-work-step.running", "--info-ink"],
     [WORKSPACE, ".turn-changes-live", "--info"],
