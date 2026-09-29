@@ -1,0 +1,10 @@
+// Tau's update helper (K103), polkit 0.106 and later: the machine's
+// administrators run it without a password, also from a service with no session.
+// The helper installs only a newer Tau release that matches its checksum.
+polkit.addRule(function (action, subject) {
+  if (action.id !== "de.tbuck.tau.update") return polkit.Result.NOT_HANDLED;
+  if (subject.isInGroup("sudo") || subject.isInGroup("admin") || subject.isInGroup("wheel") || subject.isInGroup("tau-update")) {
+    return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});

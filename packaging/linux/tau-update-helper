@@ -1,0 +1,6 @@
+#!/bin/sh
+# /opt/Tau/bin/tau-update-helper: what pkexec runs as root for polkit's action
+# de.tbuck.tau.update (K103). Tau's own binary runs the helper as Node, with
+# nothing from the caller's environment; the helper checks every argument.
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 ELECTRON_RUN_AS_NODE=1 \
+  /opt/Tau/tau /opt/Tau/resources/app.asar.unpacked/bin/tau-update-helper.mjs "$@"

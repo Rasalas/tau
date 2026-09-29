@@ -162,6 +162,11 @@ linux:
   extraFiles:
     - from: packaging/linux/tau
       to: bin/tau
+    # The .deb's update helper and its polkit files, which after-install.tpl puts in place (K103).
+    - from: packaging/linux/tau-update-helper
+      to: bin/tau-update-helper
+    - from: packaging/linux/polkit
+      to: resources/polkit
 
 deb:
   packageName: tau

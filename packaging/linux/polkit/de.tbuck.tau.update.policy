@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Tau's update helper (K103): installs a verified Tau release, nothing else. -->
+<policyconfig>
+  <vendor>Tau</vendor>
+  <action id="de.tbuck.tau.update">
+    <description>Install a Tau update</description>
+    <message>Authentication is required to install a Tau update</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/opt/Tau/bin/tau-update-helper</annotate>
+  </action>
+</policyconfig>

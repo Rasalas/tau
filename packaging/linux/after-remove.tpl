@@ -1,6 +1,7 @@
 #!/bin/bash
 # electron-builder's after-remove.tpl (app-builder-lib 26.16), for the link
-# after-install.tpl makes to /opt/${sanitizedProductName}/bin/${executable}.
+# after-install.tpl makes to /opt/${sanitizedProductName}/bin/${executable}
+# and the update helper's polkit files.
 
 # `remove` also runs in the middle of an upgrade; the new package's after-install
 # puts both back, so only a real removal takes them away.
@@ -25,3 +26,8 @@ if [ -f "$APPARMOR_PROFILE_DEST" ]; then
   fi
   rm -f "$APPARMOR_PROFILE_DEST"
 fi
+
+# The update helper's polkit files (K103).
+rm -f /usr/share/polkit-1/actions/de.tbuck.tau.update.policy \
+  /usr/share/polkit-1/rules.d/50-tau-update.rules \
+  /var/lib/polkit-1/localauthority/10-vendor.d/50-tau-update.pkla
