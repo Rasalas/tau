@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { HostEvent, UiMessage } from "../shared/contracts";
+import type { HostEvent, PackageBuildError, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
@@ -125,6 +125,8 @@ export default function App() {
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
       notify: (message) => viewStore.setNotice(message),
+      toast: (options) => workbenchSession.toasts.show(options),
+      openSettings: (target) => actionsRef.current?.openSettings(target),
       log: (label, detail) => viewStore.addEvent(label, detail),
     });
   });
@@ -368,8 +370,8 @@ export default function App() {
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
-  const syncDesktopExtensions = useCallback((only?: readonly string[]) => {
-    void runtimeExtensions.resync(only).catch((error) => setNotice(errorMessage(error)));
+  const syncDesktopExtensions = useCallback((only?: readonly string[], buildErrors?: readonly PackageBuildError[]) => {
+    void runtimeExtensions.resync(only, buildErrors).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, setNotice]);
 
   const windowShell = useWindowShell({

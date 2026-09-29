@@ -96,6 +96,15 @@ export function createPackagesHostExtension(): HostExtension {
         return { installed, message: `${describeInstalled(installed)} — approve it in Settings → Extensions to start it.` };
       }, { long: true });
 
+      // The last build of each package half, and each new one as it lands: Settings → Packages' development view.
+      context.registerCommand("builds", () => ({ builds: services.packageBuilds?.list() ?? [] }), { access: "read" });
+      const stopBuilds = services.packageBuilds?.observe((build) => context.emit("build", build));
+
+      context.registerCommand("rebuild", async () => {
+        await rescan();
+        return { message: "Rebuilt the installed packages; a half whose code did not change kept running." };
+      });
+
       context.registerCommand("trust", async (input) => {
         const trust = services.projectTrust;
         if (!trust) throw new HostCommandError("This host cannot record Pi's project trust.");
@@ -131,6 +140,7 @@ export function createPackagesHostExtension(): HostExtension {
             : `${updated.length - failed.length} of ${updated.length} updated and re-activated.`,
         };
       }, { long: true });
+      return () => { stopBuilds?.(); };
     },
   };
 }

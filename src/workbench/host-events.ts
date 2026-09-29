@@ -1,5 +1,5 @@
 import type { WindowShellEvent } from "../shared/window-shell";
-import type { ExtensionUiAnswer, HostEvent, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
+import type { ExtensionUiAnswer, HostEvent, PackageBuildError, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { HostUpdate } from "../shared/host-protocol";
 import type { HostClient } from "./host-client";
 import type { HostConnectionState } from "./host-connection";
@@ -64,7 +64,8 @@ export interface HostEventTargets {
    * `only` names the extensions that moved, so the client can swap those
    * modules alone.
    */
-  syncDesktopExtensions(only?: readonly string[]): void;
+  /** `buildErrors`: host halves that did not compile, for the client to show. */
+  syncDesktopExtensions(only?: readonly string[], buildErrors?: readonly PackageBuildError[]): void;
   /** A downloaded Tau waiting for a restart. */
   setUpdateReady(version: string): void;
   /** A Pi extension retitled the window; the page title is what the OS shows for it. */
@@ -108,7 +109,7 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       // A package the user just approved, installed or updated, or one whose
       // files the host saw change: its desktop half is built and served now, so
       // the slots appear without a reload.
-      targets.syncDesktopExtensions(event.extensionIds);
+      targets.syncDesktopExtensions(event.extensionIds, event.buildErrors);
       return;
     case "config-changed":
       // Config and themes are read from the host on demand; this is the one

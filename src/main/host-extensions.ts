@@ -7,6 +7,7 @@ import type {
   ExtensionUiPrompt,
   GlobalHostEvent,
   HostExtensionSummary,
+  PackageBuild,
   RuntimeToolVersion,
   UiRuntimeBackend,
   UiRuntimeCatalog,
@@ -900,6 +901,13 @@ export interface HostSkill {
  * the event channel; a host extension owns a feature and reaches the renderer
  * through commands and events routed by id, never through a core IPC entry.
  */
+/** What `services.packageBuilds` offers. */
+export interface HostPackageBuilds {
+  /** Newest first, one per half and entry file. */
+  list(): PackageBuild[];
+  observe(listener: (build: PackageBuild) => void): () => void;
+}
+
 /** Pi's project trust, as `services.projectTrust` offers it. */
 export interface HostProjectTrust {
   /** Whether Pi trusts the folder (the open workspace by default), or the nearest parent it has an answer for. */
@@ -1021,6 +1029,12 @@ export interface HostExtensionServices {
    * way Pi's `/trust` does. Absent in a worker; new with K112.
    */
   readonly projectTrust?: HostProjectTrust;
+  /**
+   * The last compile of each half of the installed packages, with esbuild's
+   * errors, and each new one as it happens (`packages`). Absent in a worker;
+   * new with K112.
+   */
+  readonly packageBuilds?: HostPackageBuilds;
   readonly sessions: HostSessionServices;
   /**
    * The clients attached to this host. Ungated: it reports how many there are,

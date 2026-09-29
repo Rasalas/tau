@@ -2,7 +2,9 @@ import * as React from "react";
 import * as ReactDom from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
 import * as ReactVirtual from "@tanstack/react-virtual";
-import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts";
+import type { DesktopExtensionBundle, DesktopExtensionLoadResult, PackageBuildError } from "../shared/contracts";
+import { diagnosticLine } from "../shared/build-diagnostics";
+import type { ToastOptions } from "../workbench/toast-store";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import * as tauApi from "./extension-api";
 import { DEFERRED_SHARED_MODULES, type SharedModuleSpecifier } from "../shared/shared-modules";
@@ -72,7 +74,16 @@ export interface RuntimeExtensionHost {
   importModule?(bundle: DesktopExtensionBundle): Promise<unknown>;
   isEnabled(id: string): boolean;
   notify(message: string): void;
+  /** A toast with a type, lines and actions; without it, `notify` carries the first line. */
+  toast?(options: ToastOptions): void;
+  /** Opens a place in Settings, for a toast's action. */
+  openSettings?(target: string): void;
   log(label: string, detail?: string): void;
+}
+
+/** The entry's folder and file, which is what an author recognises: `my-kit/desktop.tsx`. */
+function entryLabel(path: string): string {
+  return path.split(/[\\/]/u).slice(-2).join("/");
 }
 
 /**
@@ -118,7 +129,8 @@ export class RuntimeExtensions {
    * extensions that moved — a watched file edit knows them — and then nothing
    * else is rebuilt, re-imported or re-activated.
    */
-  async resync(only?: readonly string[]): Promise<readonly RuntimeExtensionRecord[]> {
+  async resync(only?: readonly string[], hostBuildErrors: readonly PackageBuildError[] = []): Promise<readonly RuntimeExtensionRecord[]> {
+    for (const failure of hostBuildErrors) this.reportBuildFailure(failure, "host-extension.build.failed");
     if (this.cwd === undefined) return this.loaded;
     return only && only.length > 0 ? this.replace(this.cwd, only) : this.sync(this.cwd);
   }
@@ -139,8 +151,7 @@ export class RuntimeExtensions {
     }
     for (const failure of result.errors) {
       this.registry.noteLoadFailure(failure.path, failure.message);
-      this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
-      this.host.notify(`${failure.path.split("/").pop()}: ${failure.message.split("\n")[0]}`);
+      this.reportBuildFailure(failure, "desktop-extension.failed");
     }
     for (const id of only) {
       const bundle = result.bundles.find((candidate) => candidate.id === id);
@@ -214,6 +225,32 @@ export class RuntimeExtensions {
     return { extension, bundle };
   }
 
+  /**
+   * A package entry that did not compile: the whole message in the log, and a
+   * toast with the first error's file, line and column. The version that was
+   * running stays, so the toast says so rather than asking for anything.
+   */
+  private reportBuildFailure(failure: PackageBuildError, label: string): void {
+    this.host.log(label, `${failure.path}: ${failure.message}`);
+    const first = failure.diagnostics?.[0];
+    const more = (failure.diagnostics?.length ?? 0) - 1;
+    const line = first ? `${diagnosticLine(first)}${more > 0 ? ` (and ${more} more)` : ""}` : failure.message.split("\n")[0] ?? failure.message;
+    if (!this.host.toast) {
+      this.host.notify(`${entryLabel(failure.path)} did not build: ${line}`);
+      return;
+    }
+    const openSettings = this.host.openSettings;
+    this.host.toast({
+      id: `build:${failure.path}`,
+      type: "error",
+      title: `${entryLabel(failure.path)} did not build`,
+      description: `${line}. The version that was running stays.`,
+      timeoutMs: 15_000,
+      copyText: failure.message,
+      ...(openSettings ? { actions: [{ label: "Details", run: () => openSettings("inspector") }] } : {}),
+    });
+  }
+
   private importModule(bundle: DesktopExtensionBundle): Promise<unknown> {
     return (this.host.importModule ?? importBundle)(bundle);
   }
@@ -239,8 +276,7 @@ export class RuntimeExtensions {
     }
     for (const failure of result.errors) {
       this.registry.noteLoadFailure(failure.path, failure.message);
-      this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
-      this.host.notify(`Desktop extension failed to build: ${failure.message.split("\n")[0]}`);
+      this.reportBuildFailure(failure, "desktop-extension.failed");
     }
     for (const skip of result.skipped) this.host.log("desktop-extension.skipped", `${skip.directory}: ${skip.reason}`);
 

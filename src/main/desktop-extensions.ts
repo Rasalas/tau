@@ -8,6 +8,7 @@ import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shar
 import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources, packagesHome } from "./extension-sources.js";
+import { describeBuildError, packageBuilds } from "./package-builds.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
 import { DEFERRED_SHARED_MODULES } from "../shared/shared-modules.js";
 
@@ -40,6 +41,8 @@ export interface DesktopEntryDetailed {
   styles?: string;
   /** The package is only that stylesheet; there is no entry to compile. */
   theme?: boolean;
+  /** The package folder, for a package. */
+  directory?: string;
 }
 
 /**
@@ -53,11 +56,11 @@ export function themeExtensionModule(manifest: ExtensionManifest): string {
 }
 
 /** One package folder's desktop entry, or the theme it is instead. */
-function packageEntry(parsed: ReturnType<typeof parseExtensionManifest>): DesktopEntryDetailed | undefined {
+function packageEntry(parsed: ReturnType<typeof parseExtensionManifest>, directory: string): DesktopEntryDetailed | undefined {
   const styles = parsed.stylesEntry ? { styles: parsed.stylesEntry } : {};
-  if (parsed.desktopEntry) return { path: parsed.desktopEntry, manifest: parsed.manifest, ...styles };
+  if (parsed.desktopEntry) return { path: parsed.desktopEntry, manifest: parsed.manifest, ...styles, directory };
   if (!isThemeManifest(parsed.manifest)) return undefined;
-  return { path: parsed.stylesEntry!, manifest: parsed.manifest, ...styles, theme: true };
+  return { path: parsed.stylesEntry!, manifest: parsed.manifest, ...styles, theme: true, directory };
 }
 
 /** A desktop entry that came from a source in `packages.json` rather than from a folder scan. */
@@ -90,7 +93,7 @@ export async function listDesktopExtensionEntriesDetailed(directory: string, opt
     if (manifest !== undefined) {
       try {
         const parsed = parseExtensionManifest(path, manifest);
-        const entry = manifestIncompatibility(parsed.manifest, options.versions) ? undefined : packageEntry(parsed);
+        const entry = manifestIncompatibility(parsed.manifest, options.versions) ? undefined : packageEntry(parsed, path);
         if (entry) entries.push(entry);
       } catch {
         // The host reports manifest errors when it loads packages; the desktop side stays quiet.
@@ -256,7 +259,7 @@ export async function loadDesktopExtensions(
     if (manifest === undefined) return [];
     try {
       const parsed = parseExtensionManifest(installed.directory, manifest);
-      const entry = manifestIncompatibility(parsed.manifest, options.versions) ? undefined : packageEntry(parsed);
+      const entry = manifestIncompatibility(parsed.manifest, options.versions) ? undefined : packageEntry(parsed, installed.directory);
       return entry ? [{ scope: installed.scope, entry }] : [];
     } catch {
       // The host reports manifest errors when it loads packages; the desktop side stays quiet.
@@ -276,8 +279,11 @@ export async function loadDesktopExtensions(
       continue;
     }
     for (const entry of entries) {
+      const folder = entry.directory ?? dirname(entry.path);
+      const attempt = { ...(entry.manifest ? { id: entry.manifest.id } : {}), directory: folder, half: "desktop" as const, entry: entry.path };
       try {
         const code = entry.theme ? themeExtensionModule(entry.manifest!) : await bundleDesktopExtension(entry.path, options);
+        if (!entry.theme) packageBuilds.record({ ...attempt, at: Date.now(), ok: true });
         const styles = entry.styles ? await readFile(entry.styles, "utf8") : undefined;
         const permissions = entry.manifest?.permissions ?? [];
         // A theme runs no code and asks for nothing, so there is no grant to wait for.
@@ -295,7 +301,9 @@ export async function loadDesktopExtensions(
           ...(entry.manifest?.source ? { source: entry.manifest.source } : {}),
         });
       } catch (error) {
-        errors.push({ path: entry.path, message: error instanceof Error ? error.message : String(error) });
+        const failure = describeBuildError(error, folder);
+        if (!entry.theme) packageBuilds.record({ ...attempt, at: Date.now(), ok: false, ...failure });
+        errors.push({ path: entry.path, ...failure });
       }
     }
   }

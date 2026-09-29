@@ -270,6 +270,43 @@ describe("replacing one extension", () => {
     expect(runtime.list().map((record) => record.extension)).toEqual([running]);
     expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("Unexpected token"));
   });
+
+  it("toasts a build error with its file, line and column, and the whole text to copy", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: base } = partialHost([]);
+    const toast = vi.fn();
+    const openSettings = vi.fn();
+    const diagnostics = [
+      { file: "desktop.tsx", line: 3, column: 7, text: "Expected \";\" but found \"y\"", lineText: "const x y = 1;" },
+      { file: "title.ts", line: 1, column: 0, text: "Unexpected end of file" },
+    ];
+    const h = {
+      ...base,
+      toast,
+      openSettings,
+      load: async () => ({ bundles: [], errors: [{ path: "/k/my-kit/desktop.tsx", message: "desktop.tsx:3:7: … full text", diagnostics }], skipped: [] }),
+    };
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    const shown = toast.mock.calls[0]?.[0] as { type: string; title: string; description: string; copyText: string; actions: Array<{ label: string; run(): void }> };
+    expect(shown).toMatchObject({ type: "error", title: "my-kit/desktop.tsx did not build", copyText: "desktop.tsx:3:7: … full text" });
+    expect(shown.description).toBe("desktop.tsx:3:7: Expected \";\" but found \"y\" (and 1 more). The version that was running stays.");
+    shown.actions[0]?.run();
+    expect(openSettings).toHaveBeenCalledWith("inspector");
+    expect(h.log).toHaveBeenCalledWith("desktop-extension.failed", "/k/my-kit/desktop.tsx: desktop.tsx:3:7: … full text");
+    expect(registry.getLoadFailures()).toEqual([{ path: "/k/my-kit/desktop.tsx", message: "desktop.tsx:3:7: … full text" }]);
+  });
+
+  it("toasts a host half that did not compile, which the host reports with the change", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: base } = partialHost(["x.hello"]);
+    const toast = vi.fn();
+    const runtime = new RuntimeExtensions(registry, { ...base, toast });
+    await runtime.sync("/project");
+    await runtime.resync(["x.hello"], [{ path: "/k/my-kit/host.ts", message: "host.ts:2:1: boom", diagnostics: [{ file: "host.ts", line: 2, column: 1, text: "boom" }] }]);
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "my-kit/host.ts did not build", description: "host.ts:2:1: boom. The version that was running stays." }));
+    expect(base.log).toHaveBeenCalledWith("host-extension.build.failed", "/k/my-kit/host.ts: host.ts:2:1: boom");
+  });
 });
 
 describe("theme packages", () => {

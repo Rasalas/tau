@@ -20,6 +20,7 @@ import {
   type SettingsSectionProps,
   type WorkbenchActions,
 } from "tau";
+import { DevelopSection } from "./develop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
 
 /** What a command of the host half answers with. */
@@ -48,6 +49,7 @@ export const PACKAGES_ROWS = [
   { id: "setting-packages-source", label: "Install from a source", keywords: ["install", "npm", "git", "folder", "package", "extension"] },
   { id: "setting-packages-scope", label: "Install for", keywords: ["global", "project", "every project", "this project only", "local"] },
   { id: "setting-packages-installed", label: "Installed packages", keywords: ["update", "remove", "uninstall", "sources", "signature"] },
+  { id: "setting-packages-develop", label: "Develop a package", keywords: ["develop", "build", "error", "compile", "kit new", "scaffold", "types", "reload"] },
 ];
 
 const SOURCE_HELP = "An npm source installs into ~/.tau/npm, a Git source is cloned shallowly into ~/.tau/git, and a folder is loaded where it lies. "
@@ -218,6 +220,8 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         })}
       </SettingsSection>
       {failed("update-all")}
+
+      <DevelopSection host={host} nameOf={(id) => packages?.find((entry) => entry.id === id)?.name ?? summaryOf(id)?.name} onNotify={onNotify} />
 
       <p className="settings-footnote">
         The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.

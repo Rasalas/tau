@@ -122,6 +122,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   updatePackages: "packages",
   // Trusting a project lets its .tau packages load, as installing one does.
   projectTrust: "packages",
+  packageBuilds: "packages",
   // Another machine's host, with the key its owner gave this machine's agents.
   machines: "machines",
   // Files those machines' agents sent here: the same work, seen from the other side.

@@ -30,7 +30,7 @@ describe("Packages host extension", () => {
   it("registers install, remove, update and list, with the long ones as jobs", async () => {
     const registry = await activateHostKit(createPackagesHostExtension(), installer());
     const summary = registry.summaries().find((entry) => entry.id === PACKAGES_EXTENSION_ID);
-    expect(summary?.commands).toEqual(["install", "list", "remove", "trust", "update"]);
+    expect(summary?.commands).toEqual(["builds", "install", "list", "rebuild", "remove", "trust", "update"]);
     // A client runs these off the request path, so a clone or an npm install can report progress.
     expect(registry.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/install`);
     expect(registry.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/update`);
@@ -87,6 +87,17 @@ describe("Packages host extension", () => {
     // A global install needs no trust at all.
     trusted.clear();
     expect((await registry.invoke(PACKAGES_EXTENSION_ID, "install", { source: "/src/hello" }) as { untrusted?: boolean }).untrusted).toBeUndefined();
+  });
+
+  it("answers the last builds and passes each new one on to the page", async () => {
+    let observer: ((build: unknown) => void) | undefined;
+    const build = { id: "me.kit", directory: "/k", half: "desktop" as const, entry: "/k/desktop.tsx", at: 1, ok: true };
+    const services = installer({ packageBuilds: { list: () => [build], observe: (listener) => { observer = listener as never; return () => { observer = undefined; }; } } });
+    const registry = await activateHostKit(createPackagesHostExtension(), services);
+    expect(await registry.invoke(PACKAGES_EXTENSION_ID, "builds")).toEqual({ builds: [build] });
+    expect(observer).toBeDefined();
+    await registry.invoke(PACKAGES_EXTENSION_ID, "rebuild");
+    expect(services.refreshExtensionPackages).toHaveBeenCalledTimes(1);
   });
 
   it("refuses to trust a relative path", async () => {

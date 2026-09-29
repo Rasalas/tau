@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { packageBuilds } from "./package-builds.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { bundleDesktopExtension, desktopExtensionLabel, listDesktopExtensionEntries, loadDesktopExtensions, isGeneratedOrVendored } from "./desktop-extensions.js";
 
@@ -77,6 +78,10 @@ describe("desktop extension bundling", () => {
     const trusted = await loadDesktopExtensions(project, home, { sharedExports: {}, home, trusted: () => true });
     expect(trusted.bundles.map((bundle) => `${bundle.scope}:${bundle.path.split("/").pop()}`)).toEqual(["global:mine.ts", "project:theirs.ts"]);
     expect(trusted.errors[0]?.path).toContain("broken.ts");
+    // The whole compile error, with where it is, reaches the client and the build journal.
+    expect(trusted.errors[0]?.diagnostics?.[0]).toMatchObject({ file: "broken.ts", line: 1, text: expect.any(String) });
+    expect(trusted.errors[0]?.message).toMatch(/^broken\.ts:1:\d+: /u);
+    expect(packageBuilds.list().find((build) => build.entry.endsWith("broken.ts"))).toMatchObject({ half: "desktop", ok: false });
   }, 20_000);
 });
 

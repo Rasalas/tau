@@ -1,5 +1,5 @@
 import { sep } from "node:path";
-import type { GlobalHostEvent, HostExtensionSummary } from "../shared/contracts.js";
+import type { GlobalHostEvent, HostExtensionSummary, PackageBuildError } from "../shared/contracts.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
@@ -58,9 +58,13 @@ export class ExtensionPackageActivator {
   private enqueue(announce: boolean, force: boolean, only?: ReadonlySet<string>): Promise<void> {
     const next = (this.running ?? Promise.resolve()).then(async () => {
       if (this.queued === next) this.queued = undefined;
-      await this.sync(force, only);
+      const buildErrors = await this.sync(force, only);
       if (announce) {
-        this.options.publish({ type: "extension-packages-changed", ...(only ? { extensionIds: [...only] } : {}) });
+        this.options.publish({
+          type: "extension-packages-changed",
+          ...(only ? { extensionIds: [...only] } : {}),
+          ...(buildErrors.length > 0 ? { buildErrors } : {}),
+        });
       }
     });
     if (announce && !force && !only) this.queued = next;
@@ -95,14 +99,18 @@ export class ExtensionPackageActivator {
       }));
   }
 
-  /** Replaces the host halves of extension packages with what the workspace's folders hold now. */
-  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<void> {
+  /**
+   * Replaces the host halves of extension packages with what the workspace's
+   * folders hold now, and answers the compile errors of the packages it was
+   * asked about, for the client to show.
+   */
+  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<PackageBuildError[]> {
     let loaded: HostPackageLoadResult;
     try {
       loaded = await this.options.load(this.options.cwd());
     } catch (error) {
       this.options.log("host-extension.packages.failed", message(error));
-      return;
+      return [];
     }
     for (const failure of loaded.errors) this.options.log("host-extension.package.failed", `${failure.path}: ${failure.message}`);
     for (const skip of loaded.skipped) this.options.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
@@ -165,6 +173,9 @@ export class ExtensionPackageActivator {
     }
     this.activeIds = next;
     this.activeKeys = keys;
+    return loaded.errors
+      .filter((failure) => failure.diagnostics && (!only || (failure.id !== undefined && only.has(failure.id))))
+      .map(({ path, message: text, diagnostics }) => ({ path, message: text, ...(diagnostics ? { diagnostics } : {}) }));
   }
 }
 

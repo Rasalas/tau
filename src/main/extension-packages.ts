@@ -10,7 +10,8 @@ import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { HostExtension } from "./host-extensions.js";
-import type { ExtensionInspection, ExtensionSkip } from "../shared/contracts.js";
+import type { BuildDiagnostic, ExtensionInspection, ExtensionSkip } from "../shared/contracts.js";
+import { describeBuildError, packageBuilds } from "./package-builds.js";
 import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { DEFAULT_PACKAGE_ISOLATION, isExtensionIsolation, isExtensionPermission, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
@@ -585,7 +586,8 @@ export interface HostPackageLoadResult {
   extensions: LoadedHostPackage[];
   /** Packages the user has not approved; their code was never compiled or imported. */
   ungranted: ExtensionPackage[];
-  errors: Array<{ path: string; message: string }>;
+  /** `id` for a package whose host half did not compile or load; `diagnostics` for a compile error. */
+  errors: Array<{ path: string; message: string; id?: string; diagnostics?: BuildDiagnostic[] }>;
   skipped: ExtensionSkip[];
 }
 
@@ -615,8 +617,18 @@ export async function loadHostExtensionPackages(
       result.ungranted.push(pkg);
       continue;
     }
+    const attempt = { id: pkg.manifest.id, directory: pkg.directory, half: "host" as const, entry: pkg.hostEntry };
+    let code: string;
     try {
-      const code = await bundleHostExtension(pkg.hostEntry);
+      code = await bundleHostExtension(pkg.hostEntry);
+      packageBuilds.record({ ...attempt, at: Date.now(), ok: true });
+    } catch (error) {
+      const failure = describeBuildError(error, pkg.directory);
+      packageBuilds.record({ ...attempt, at: Date.now(), ok: false, ...failure });
+      result.errors.push({ path: pkg.hostEntry, id: pkg.manifest.id, ...failure });
+      continue;
+    }
+    try {
       const bundlePath = await writeHostExtensionBundle(code, pkg.manifest, options.cacheDir);
       // A package runs in a worker unless it declared, and was granted, the
       // privilege of running inside the host process.
@@ -631,7 +643,7 @@ export async function loadHostExtensionPackages(
         });
       result.extensions.push({ extension, package: pkg, bundleHash: hostBundleHash(code), bundlePath });
     } catch (error) {
-      result.errors.push({ path: pkg.hostEntry, message: error instanceof Error ? error.message : String(error) });
+      result.errors.push({ path: pkg.hostEntry, id: pkg.manifest.id, message: error instanceof Error ? error.message : String(error) });
     }
   }
   return result;

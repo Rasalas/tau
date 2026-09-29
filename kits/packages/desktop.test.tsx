@@ -88,7 +88,7 @@ describe("Packages kit", () => {
   it("toasts where an installed package waits, or that the project's trust skips it", async () => {
     const toast = vi.fn();
     const app = { ...actions(), toast } as unknown as WorkbenchActions;
-    const invoke = vi.fn(async (_id: string, command: string) => command === "install"
+    const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => command === "install"
       ? { installed: { source: "/k", scope: "project", directory: "/k", id: "me.kit", name: "My kit", signatureLabel: "unsigned" }, untrusted: true, message: "skipped" }
       : { message: "Pi trusts /project now." });
     const { registry } = createKitHarness(invoke);
@@ -150,6 +150,7 @@ describe("Packages kit", () => {
   it("installs on Return, and says under the field why an install failed", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "list") return { packages: [] };
+      if (command === "builds") return { builds: [] };
       throw new Error("npm could not find @acme/nope.");
     });
     render(<PackagesPage cwd="/project" onNotify={vi.fn()} host={host(invoke)} inspect={async () => inspection([])} />);
@@ -200,7 +201,7 @@ describe("Packages kit", () => {
     registry.activate(packagesExtension);
     const page = registry.getSettingsPages().find((entry) => entry.id === PACKAGES_SETTINGS_PAGE)!;
     render(<page.Component cwd="/project" onNotify={vi.fn()} />);
-    expect(page.rows?.length).toBe(3);
+    expect(page.rows?.length).toBe(4);
     for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 

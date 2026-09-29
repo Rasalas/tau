@@ -29,6 +29,7 @@ import {
   type InstallerOptions,
 } from "./extension-installer.js";
 import { packagesHome } from "./extension-sources.js";
+import { packageBuilds } from "./package-builds.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy } from "./host-execution-policy.js";
@@ -352,6 +353,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
     updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },
+    packageBuilds: {
+      list: () => packageBuilds.list(),
+      observe: (listener) => packageBuilds.observe(listener),
+    },
     projectTrust: {
       trusted: (cwd = port.cwd()) => new ProjectTrustStore(getAgentDir()).get(cwd) === true,
       trust: (cwd = port.cwd()) => {
