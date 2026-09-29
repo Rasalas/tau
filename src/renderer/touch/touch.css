@@ -246,3 +246,7 @@ body[data-keyboard] .model-picker.popover { padding-bottom: 0; }
 
 /* A question's buttons are touch targets too. */
 .confirm-dialog footer button { min-height: 44px; padding-inline: 16px; }
+
+/* A question on the composer reads a step larger on touch, as design 1n draws it (13 and 12 against the desktop's 12 and 11). */
+body[data-profile="compact"] :is(.extension-prompt > header, .extension-prompt-title, .extension-option strong) { font-size: var(--text-md); }
+body[data-profile="compact"] :is(.extension-prompt-pick, .extension-option small, .extension-prompt > footer > span) { font-size: var(--text-sm); }
