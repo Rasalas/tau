@@ -890,19 +890,17 @@ export function ModelPicker({
   const adding = addProvider !== null;
   useLayoutEffect(() => {
     const popover = surfaceRef.current?.closest<HTMLElement>(".popover");
-    if (!popover || !placeAgainst || asSheet || adding) return undefined;
+    const frame = placeAgainst?.current;
+    if (!popover || !frame) return undefined;
     const place = () => {
-      const frame = placeAgainst.current?.getBoundingClientRect();
-      if (!frame) return;
-      const placed = placeFloating(frame, popover.getBoundingClientRect(), viewportSize(), { side, align: "start" });
+      const placed = placeFloating(frame.getBoundingClientRect(), popover.getBoundingClientRect(), viewportSize(), { side, align: "start" });
       popover.style.left = `${placed.left}px`;
       popover.style.top = `${placed.top}px`;
-      popover.dataset.side = placed.side;
     };
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [adding, asSheet, placeAgainst, side]);
+  }, [adding, placeAgainst, side]);
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   return addProvider ?? (
