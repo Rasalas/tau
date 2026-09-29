@@ -30,6 +30,7 @@ import type {
   CustomProviderInput,
   UiModel,
   UiRuntimeCatalog,
+  UiRuntimeToolsState,
   SystemPromptInspection,
   UserTheme,
   ExternalEditorResult,
@@ -145,6 +146,13 @@ export interface HostClient {
    * `runtime-catalog` event.
    */
   runtimeCatalogs(revalidate?: boolean, known?: Record<string, number>): Promise<UiRuntimeCatalog[]>;
+  /**
+   * Settings → Runtimes, keeping the agent CLIs current: `state` and `refresh`
+   * (every runtime's version and catalog asked again) read; with `input`,
+   * `automatic` (`{ on }`), `update` and `switch` (`{ kind }`) need the owner.
+   */
+  runtimeTools?(action: "state" | "refresh"): Promise<UiRuntimeToolsState>;
+  runtimeTools?(action: "automatic" | "update" | "switch", input: { on?: boolean; kind?: string }): Promise<UiRuntimeToolsState>;
   addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
   inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
   listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
@@ -392,6 +400,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
     runtimeCatalog: (kind) => call<UiRuntimeCatalog | undefined>("runtime-catalog", [kind]),
     runtimeCatalogs: (revalidate, known) => call<UiRuntimeCatalog[]>("runtime-catalogs", [revalidate === true, known ?? {}]),
+    runtimeTools: (action: string, input?: object) => input ? call<UiRuntimeToolsState>("runtime-tools-change", [action, input]) : call<UiRuntimeToolsState>("runtime-tools", [action]),
     addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
     inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
     listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),

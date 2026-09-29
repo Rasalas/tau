@@ -16,6 +16,7 @@ import type {
   UiComposerCommand,
   UiModel,
   UiRuntimeCatalog,
+  UiRuntimeToolsState,
   UiPromptAttachment,
   UiRuntimeBackend,
   UiSkillDraft,
@@ -159,6 +160,7 @@ export class PiHost {
   private readonly sessionsDirOverride: string | undefined;
   private extensionCount = 0;
   private readonly catalogs: PiHostComponents["catalogs"];
+  private readonly toolUpdates: PiHostComponents["toolUpdates"];
   private readonly pricing: PiHostComponents["pricing"];
   private readonly lifecycleMetrics: HostLifecycleInstrumentation;
   /** Everything host extensions contribute; only the seam writes those registries. */
@@ -317,7 +319,7 @@ export class PiHost {
     this.prompts = components.prompts;
     this.turns = components.turns;
     this.turnsInFlight = components.turnsInFlight;
-    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, pricing: this.pricing } = components);
+    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, toolUpdates: this.toolUpdates, pricing: this.pricing } = components);
     this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
@@ -763,6 +765,7 @@ export class PiHost {
           await this.reconcileInterruptedTurns();
           this.prewarm.scheduleThreads();
           this.catalogs.start();
+          this.toolUpdates.start();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
@@ -1841,6 +1844,7 @@ export class PiHost {
       this.threads.stopIdleRelease();
       this.prewarm.dispose();
       this.catalogs.dispose();
+      this.toolUpdates.dispose();
       this.trash.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
@@ -1960,6 +1964,8 @@ export class PiHost {
   runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> { return this.catalogs.get(kind); }
   /** Every runtime's the client does not hold (`known`); `revalidate` asks again behind the answer those some minutes old. */
   runtimeCatalogs(revalidate = false, known?: Record<string, number>): Promise<UiRuntimeCatalog[]> { return this.catalogs.list(revalidate, known); }
+  /** Settings → Runtimes: keeping the agent CLIs current (`RuntimeToolUpdates.act`). */
+  runtimeTools(action: string, input?: { on?: unknown; kind?: unknown }): Promise<UiRuntimeToolsState> { return this.toolUpdates.act(action, input); }
   /** The user edited `modelPrices`; totals already published are worked out again. */
   modelPricesChanged(): void { this.pricing.reloadPrices(); }
   /** `extensions.watch` changed: follow Tau's files again, or stop. */

@@ -2,6 +2,8 @@ import type { RuntimeToolVersion, UiRuntimeBackend } from "../shared/contracts";
 import { compareVersions, updateAvailable } from "../shared/runtime-version";
 import type { ClientStorage } from "../workbench/client-storage";
 import { getClientStorage } from "../workbench/client-storage";
+import { errorMessage } from "../workbench/error-message";
+import { getHostClient } from "./host-client-context";
 import type { ToastOptions } from "../workbench/toast-store";
 import type { WorkbenchActions } from "./extension-system";
 
@@ -37,6 +39,43 @@ export interface RuntimeUpdateToasts {
 
 /** Keys offered in this window, across every kit that uses these toasts. */
 const offered = new Set<string>();
+/** "Keep agent tools up to date?" is asked once per window, whichever kit's update came first; `open` while on screen. */
+let question: "open" | "closed" | undefined;
+
+/**
+ * The one question before the first update Tau could run itself: keep the
+ * agent CLIs current on this machine, or leave them to the user. Answered,
+ * the host stops asking; unanswered, each release is offered as before.
+ */
+function askAutomatic(backends: readonly UiRuntimeBackend[], actions: WorkbenchActions, unanswered: () => void): boolean {
+  const client = getHostClient();
+  const asking = backends.filter((backend) => backend.version?.updates === "ask" && updateAvailable(backend.version));
+  if (question || asking.length === 0 || !client?.runtimeTools || client.isOwner?.() === false || !actions.toast) return false;
+  question = "open";
+  let answered = false;
+  const answer = (on: boolean) => {
+    answered = true;
+    client.runtimeTools!("automatic", { on }).then(
+      () => actions.notify(on ? "Tau keeps the agent tools up to date." : "Tau leaves updating the agent tools to you."),
+      (error: unknown) => actions.toast?.({ type: "error", title: "Could not save the choice", description: errorMessage(error) }),
+    );
+  };
+  const names = asking.map((backend) => backend.label).join(", ");
+  actions.toast({
+    id: "runtime-tools:ask",
+    type: "info",
+    title: "Keep agent tools up to date?",
+    description: `An update of ${names} is out. Tau can install such updates itself while none of their turns runs; Settings → Runtimes shows each one.`,
+    timeoutMs: 0,
+    actions: [{ label: "Not now", run: () => answer(false) }, { label: "Keep up to date", run: () => answer(true) }],
+    // Closed without an answer: the releases are offered one by one, and the next window asks again.
+    onClose: () => {
+      question = "closed";
+      if (!answered) unanswered();
+    },
+  });
+  return true;
+}
 
 function formatVersion(version: string): string {
   return /^\d/u.test(version) ? `v${version}` : version;
@@ -54,7 +93,8 @@ function readDismissed(storage: ClientStorage | undefined): string[] {
 /** A newer release to offer: the installed one is known, older, and not one the policy warns about (its banner says so). */
 export function offerableUpdate(backend: UiRuntimeBackend): (RuntimeToolVersion & { installed: string; latest: string }) | undefined {
   const version = backend.version;
-  if (!updateAvailable(version)) return undefined;
+  // Tau updates this one itself (Settings → Runtimes).
+  if (!updateAvailable(version) || version.updates === "automatic") return undefined;
   if (version.compatibility && version.compatibility.status !== "supported") return undefined;
   return version;
 }
@@ -137,6 +177,18 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
     });
   };
 
+  const offerAll = (backends: readonly UiRuntimeBackend[], actions: WorkbenchActions) => {
+    const dismissed = new Set(readDismissed(storage()));
+    for (const backend of backends) {
+      const version = offerableUpdate(backend);
+      if (!version || updating.has(backend.kind)) continue;
+      const key = `${backend.kind}@${version.latest}`;
+      if (offered.has(key) || dismissed.has(key)) continue;
+      offered.add(key);
+      offer(backend, version, key, actions);
+    }
+  };
+
   return {
     refresh() {
       const now = runnable();
@@ -144,15 +196,9 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
     },
     sync(backends, actions) {
       if (!actions.toast) return;
-      const dismissed = new Set(readDismissed(storage()));
-      for (const backend of backends) {
-        const version = offerableUpdate(backend);
-        if (!version || updating.has(backend.kind)) continue;
-        const key = `${backend.kind}@${version.latest}`;
-        if (offered.has(key) || dismissed.has(key)) continue;
-        offered.add(key);
-        offer(backend, version, key, actions);
-      }
+      if (askAutomatic(backends, actions, () => offerAll(backends, actions))) return;
+      // While the question is open, a release it covers is not offered beside it.
+      offerAll(question === "open" ? backends.filter((backend) => backend.version?.updates !== "ask") : backends, actions);
     },
   };
 }
@@ -160,4 +206,5 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
 /** Forgets what this window offered; for tests. */
 export function resetOfferedUpdates(): void {
   offered.clear();
+  question = undefined;
 }

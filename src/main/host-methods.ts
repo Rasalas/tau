@@ -414,6 +414,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeOptionalBoolean("runtime-catalogs", "revalidate", params[0]) === true,
       decodeKnownCatalogs("runtime-catalogs", "known", params[1]),
     ),
+    // Settings → Runtimes: reading and refreshing the agent CLIs' state, and changing it (owner).
+    "runtime-tools": async (params) => (await host()).runtimeTools(runtimeToolsAction("runtime-tools", params[0], ["state", "refresh"])),
+    "runtime-tools-change": async (params) => (await host()).runtimeTools(
+      runtimeToolsAction("runtime-tools-change", params[0], ["automatic", "update", "switch"]),
+      runtimeToolsInput(params[1]),
+    ),
     "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
     "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
       decodeOptionalString("inspect-system-prompt", "threadId", params[0]),
@@ -529,5 +535,21 @@ export function withBundleDigests(result: DesktopExtensionLoadResult, held: Read
       const { styles: _styles, ...rest } = bundle;
       return { ...rest, code: "", hash, cached: true };
     }),
+  };
+}
+
+function runtimeToolsAction(channel: string, value: unknown, allowed: readonly string[]): string {
+  const action = decodeString(channel, "action", value);
+  if (!allowed.includes(action)) throw new Error(`${channel}: action must be one of ${allowed.join(", ")}.`);
+  return action;
+}
+
+function runtimeToolsInput(value: unknown): { on?: boolean; kind?: string } {
+  if (value === undefined) return {};
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("runtime-tools-change: input must be an object.");
+  const { on, kind } = value as { on?: unknown; kind?: unknown };
+  return {
+    ...(on === undefined ? {} : { on: decodeBoolean("runtime-tools-change", "on", on) }),
+    ...(kind === undefined ? {} : { kind: decodeString("runtime-tools-change", "kind", kind) }),
   };
 }

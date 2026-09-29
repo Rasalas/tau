@@ -56,6 +56,10 @@ export interface HostPublicationDeps {
   /** The modes Pi's runtime extensions add to its threads. */
   piModes(): readonly string[];
   defaultBackendKind: ThreadBackendKind;
+  /** Whether Tau keeps a backend's program current itself (`RuntimeToolVersion.updates`). */
+  toolUpdates?(kind: ThreadBackendKind): "automatic" | "ask" | undefined;
+  /** Learns how a backend's program is installed before its version is published. */
+  prepareToolUpdates?(kind: ThreadBackendKind): Promise<void>;
   isCurrentActivation(epoch: number): boolean;
   log(label: string, detail?: string): void;
   errorMessage(error: unknown): string;
@@ -81,6 +85,7 @@ export class HostPublication {
     this.runtimeVersions = new RuntimeVersions({
       providers: () => deps.backends(),
       onChange: () => void this.publishActiveCatalog().catch(() => undefined),
+      ...(deps.prepareToolUpdates ? { prepare: (kind: ThreadBackendKind) => deps.prepareToolUpdates!(kind) } : {}),
       log: (label, detail) => deps.log(label, detail),
     });
   }
@@ -269,10 +274,17 @@ export class HostPublication {
   runtimeBackends(): UiRuntimeBackend[] {
     const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
     const registered = sortByRuntimeOrder([...this.deps.backends()]).map((provider) => {
-      const version = this.runtimeVersions.get(provider.kind);
+      const found = this.runtimeVersions.get(provider.kind);
+      const updates = found ? this.deps.toolUpdates?.(provider.kind) : undefined;
+      const version = found && updates ? { ...found, updates } : found;
       return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}), ...withModes(provider.adapter.capabilities.modes), ...runtimeBackendMarks(provider) };
     });
     return [{ kind: "pi", label: "Pi", ...withModes(this.deps.piModes()) }, ...registered];
+  }
+
+  /** A backend's program changed (an update): its version is asked again and published. */
+  recheckVersion(kind: ThreadBackendKind): Promise<void> {
+    return this.runtimeVersions.recheck(kind);
   }
 
   /** `catalogFromSnapshot(await this.snapshot())` without projecting the transcript. */

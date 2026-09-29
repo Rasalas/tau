@@ -81,6 +81,9 @@ export const HOST_METHOD_ACCESS = {
   "get-models-config": "read",
   "runtime-catalog": "read",
   "runtime-catalogs": "read",
+  // Refresh asks the programs again, as a picker that opens does; running a package manager is the owner's.
+  "runtime-tools": "read",
+  "runtime-tools-change": "owner",
   "add-model-provider": "write",
   "inspect-system-prompt": "read",
   "list-user-themes": "read",
