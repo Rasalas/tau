@@ -40,7 +40,9 @@ describe("desktop extension bundling", () => {
     expect(code).toContain('globalThis.__tauShared?.["react"]');
     expect(code).toContain('globalThis.__tauShared?.["react/jsx-runtime"]');
     expect(code).not.toMatch(/from\s+["']react["']/u);
-    expect(code).toContain("export {");
+    expect(code).toMatch(/export\s*\{/u);
+    // Minified whitespace: no indented lines.
+    expect(code.split("\n").filter((line) => /^\s/u.test(line))).toEqual([]);
   });
 
   it("ships only the shared bindings the extension imports, in the code and in the map", async () => {
