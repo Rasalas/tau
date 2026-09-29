@@ -46,12 +46,9 @@ function SlotDetails({ slots, snapshot, branch }: { slots?: ThreadDetailSlots; s
   </>;
 }
 
-/** A new thread's sub-line: project · machine · branch, the last two from kits. */
-export function DraftDetails({ project, projectPath, snapshot, slots }: { project: string; projectPath: string; snapshot?: HostSnapshot; slots?: ThreadDetailSlots }) {
-  return <div className="thread-details">
-    <span className="thread-detail" {...tooltipProps(projectPath, { side: "bottom", variant: "code" })}>{project}</span>
-    <SlotDetails slots={slots} snapshot={snapshot} />
-  </div>;
+/** An empty thread's sub-line on the start screen: its branch alone, which no pill offers there. */
+export function StartDetails({ snapshot, slots }: { snapshot?: HostSnapshot; slots?: ThreadDetailSlots }) {
+  return <div className="thread-details"><SlotDetails slots={slots} snapshot={snapshot} {...(snapshot?.projectLabel ? { branch: snapshot.projectLabel } : {})} /></div>;
 }
 
 /** [Machine ·] branch · model · turn · cost, each only where the thread has it, as in the workbench design. */

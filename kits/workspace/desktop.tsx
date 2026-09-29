@@ -26,6 +26,7 @@ import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type Searc
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
+import { publishProjectIcons } from "./project-icons.js";
 import { WorkspaceEditorButton, WorkspaceTitleActions } from "./title.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
@@ -66,6 +67,8 @@ export const workspaceExtension: DesktopExtension = {
     const store = new WorkspaceStore(context.preferences, host);
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    // Pill, picker, phone list and Reviews draw the icon chosen in Project settings too.
+    const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
     context.registerProjectSource({
@@ -407,6 +410,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
     return () => {
+      unpublishIcons();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);
     };

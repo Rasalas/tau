@@ -18,6 +18,7 @@ export interface ThreadSupervisionRow {
   projectName: string;
   /** What the project's mark is coloured by, as on a rail row. */
   projectPath?: string;
+  workspaceId?: string;
   /** The project's short label, e.g. its Git branch. */
   projectLabel?: string;
   usage?: UiThreadUsage;
@@ -59,6 +60,7 @@ function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organizatio
     title: thread.title || "Untitled thread",
     projectName: thread.projectName,
     projectPath: thread.projectPath,
+    ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}),
     ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
     ...(thread.usage ? { usage: thread.usage } : {}),
     status,

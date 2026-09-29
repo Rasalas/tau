@@ -38,8 +38,8 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
-import { DraftDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
-import { projectHue, projectInitial } from "./components/ThreadRow";
+import { StartDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
+import { ProjectIcon } from "./components/ProjectIcon";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
 import { ResizeHandle } from "./components/ResizeHandle";
@@ -373,6 +373,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const threadViewRef = useRef({ covered: false, project: touchProject });
   threadViewRef.current = { covered: phoneHome || Boolean(settingsPage || openPage || activeOverlayId), project: touchProject };
   const stageRef = useRef<HTMLElement>(null);
+  const projectPill = useRef<HTMLButtonElement>(null);
   useImperativeHandle(layout.controlRef, () => ({
     openInstructions: () => setSystemPromptOpen(true),
     focusStage: () => stageRef.current?.focus(),
@@ -643,8 +644,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>);
 
   const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
-  // The icon the host found for the draft's project (favicon, t3.json), as the picker and the phone's list draw it.
-  const startIcon = showStartScreen ? projects.find((project) => project.path === startProjectPath)?.icon : undefined;
+  const startProject = showStartScreen ? projects.find((project) => project.path === startProjectPath) : undefined;
   const threadTitle = showStartScreen ? <span className="title-draft">New thread</span> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
@@ -673,9 +673,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
     title={threadTitle}
-    details={showStartScreen
-      ? <DraftDetails project={startProjectName} projectPath={startProjectPath} snapshot={conversationSnapshot} slots={detailSlots} />
-      : <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />}
+    // A draft's pills say project, machine and branch; an empty thread's branch has no pill.
+    details={!showStartScreen ? <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />
+      : pendingNewThread ? undefined : <StartDetails snapshot={conversationSnapshot} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
     {...(firstTool || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}
@@ -776,16 +776,19 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 <h1 id="start-screen-title">What should {startProjectName} do next?</h1>
                 <p>Just chat, or hand it work. Files, Terminal and your editor sit top right.</p>
                 <Region registry={registry} placement="draft-actions" snapshot={snapshot} actions={actions} lead={<button
+                  ref={projectPill}
                   type="button"
                   className="draft-pill"
                   aria-label={`Change project, current project ${startProjectName}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={newThreadPick?.anchor === projectPill}
                   {...tooltipProps(displayPath(startProjectPath), { variant: "code" })}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    openNewThreadPicker({ carry: true, preselect: startProjectPath, ...(compact ? {} : { anchor: { x: rect.left, y: rect.bottom } }) });
-                  }}
+                  // The popover ignores a press on its anchor, so this click closes what it opened.
+                  onClick={() => newThreadPick?.anchor === projectPill
+                    ? closeNewThreadPicker()
+                    : openNewThreadPicker({ carry: true, preselect: startProjectPath, ...(compact ? {} : { anchor: projectPill }) })}
                 >
-                  <i className={`thread-project-icon${startIcon ? " has-image" : ""}`} style={{ "--project-hue": projectHue(startProjectPath) } as CSSProperties}>{startIcon ? <img src={startIcon} alt="" /> : projectInitial(startProjectName)}</i>
+                  <ProjectIcon project={startProject ?? { path: startProjectPath, name: startProjectName }} />
                   <span>{startProjectName}</span><ChevronDown size={12} />
                 </button>} />
               </div> : null}

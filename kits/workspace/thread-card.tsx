@@ -1,8 +1,9 @@
-import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Bot, CircleAlert, CircleDollarSign, Clock, FileDiff, GitBranch, Hourglass, MessageCircleQuestion, PlugZap, CircleCheck, LoaderCircle, Archive } from "lucide-react";
 import {
   MiddleTruncate,
+  ProjectIcon,
   ProviderIconStack,
   providerStackLabel,
   threadCostLabel,
@@ -347,9 +348,7 @@ export function ThreadCard(props: ThreadCardProps) {
   const rows: CardRow[] = [
     {
       // The rail row's own mark, so the card's reads the same.
-      order: 10, key: "project", node: <ThreadCardRow icon={<i className={`thread-project-icon${projectIcon ? " has-image" : ""}`} style={{ "--project-hue": projectHueOf(session.projectPath) } as CSSProperties}>
-        {projectIcon ? <img src={projectIcon} alt="" /> : session.projectName.trim().charAt(0).toUpperCase() || "·"}
-      </i>}>{session.projectName}</ThreadCardRow>,
+      order: 10, key: "project", node: <ThreadCardRow icon={<ProjectIcon project={{ path: session.projectPath, name: session.projectName, workspaceId: session.workspaceId }} icon={projectIcon} />}>{session.projectName}</ThreadCardRow>,
     },
   ];
   if (machine) rows.push({ order: 20, key: "machine", node: <ThreadCardRow icon={machine.icon}>{machine.name}</ThreadCardRow> });
@@ -388,11 +387,4 @@ export function ThreadCard(props: ThreadCardProps) {
       ))}
     </CloseCard.Provider>
   );
-}
-
-/** ThreadRow's hash, so the card's mark has the row's colour. */
-function projectHueOf(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  return Math.abs(hash) % 360;
 }

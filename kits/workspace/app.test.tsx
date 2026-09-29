@@ -16,6 +16,7 @@ import {
 } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
 import { requestProjectSwitcher } from "./navigation.js";
+import { emojiImage, writeProjectIcon } from "./project-icons.js";
 import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
 
 /** The latest turn's pill over the composer; a click opens its detail. */
@@ -695,8 +696,8 @@ describe("Workspace Kit in the workbench", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("/other"));
-    // The draft's header names the pending project's branch, not the host's folder.
-    expect(await screen.findByRole("button", { name: "Branch main" })).toBeTruthy();
+    // The draft's branch pill names the pending project's branch, not the host's folder.
+    expect(await screen.findByRole("button", { name: "Change branch, current branch main" })).toBeTruthy();
   });
 
   it("keeps an unsubmitted draft when changing its project from the sidebar", async () => {
@@ -1648,7 +1649,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("button", { name: "Branch fix/header" })).toBeTruthy();
   });
 
-  it("draws a new thread as a chat: its project and branch in the header and as pills, its Branch section behind the branch", async () => {
+  it("draws a new thread as a chat: project and branch as pills under the heading, its Branch section behind the branch", async () => {
     const storage = createMemoryStorage();
     writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: "/project", projectName: "shop-api" }));
     const client = createFakeHostClient({
@@ -1674,7 +1675,8 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("heading", { name: "What should shop-api do next?" })).toBeTruthy();
     const header = document.querySelector(".thread-header") as HTMLElement;
     expect(within(header).getByText("New thread")).toBeTruthy();
-    expect(within(header).getByText("shop-api")).toBeTruthy();
+    // The pills say project, machine and branch; the header repeats none of them (K104).
+    expect(header.querySelector(".thread-details")).toBeNull();
     // Project and branch are pills under the heading (K98), not in the composer; the checkout row is gone.
     const pills = screen.getByRole("heading", { name: "What should shop-api do next?" }).parentElement!.querySelector(".region-draft-actions") as HTMLElement;
     expect(within(pills).getByRole("button", { name: "Change project, current project shop-api" })).toBeTruthy();
@@ -1685,20 +1687,58 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(within(pills).getByRole("button", { name: "Change branch, current branch main" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Branch" })).toBeNull());
 
-    // The header's checkout branch is plain text as in the design; a planned worktree's name is mono.
-    expect((await within(header).findByRole("button", { name: "Branch main" })).className).toBe("thread-branch-trigger");
     // Nothing to run or commit in a draft's header.
     expect(within(header).queryByRole("button", { name: "Add action" })).toBeNull();
-    fireEvent.click(within(header).getByRole("button", { name: "Branch main" }));
+    fireEvent.click(within(pills).getByRole("button", { name: "Change branch, current branch main" }));
     const section = await screen.findByRole("dialog", { name: "Branch" });
-    fireEvent.click(await within(section).findByRole("switch", { name: "Run in a new worktree" }));
-    expect((await within(header).findByRole("button", { name: "Branch tau/auto-named" })).className).toContain("planned");
+    // The whole "New worktree" row switches, not only the switch (K104).
+    fireEvent.click(within(section).getByText("New worktree"));
+    expect(await within(pills).findByRole("button", { name: "Change branch, current branch tau/auto-named" })).toBeTruthy();
+    expect(within(section).getByRole("switch", { name: "Run in a new worktree" }).getAttribute("aria-checked")).toBe("true");
     await waitFor(() => expect(within(section).getByRole("button", { name: /from origin\/main/u })).toBeTruthy());
     fireEvent.change(within(section).getByRole("textbox", { name: "Branch name for the new worktree" }), { target: { value: "feat/pages" } });
-    expect(within(header).getByRole("button", { name: "Branch feat/pages" })).toBeTruthy();
+    expect(within(pills).getByRole("button", { name: "Change branch, current branch feat/pages" })).toBeTruthy();
     fireEvent.click(within(section).getByRole("button", { name: /from origin\/main/u }));
     fireEvent.click(within(section).getByRole("button", { name: "origin/release" }));
     expect(within(section).getByRole("button", { name: /from origin\/release/u })).toBeTruthy();
+  });
+
+  it("draws the icon chosen in Project settings on the project pill and in the picker, and the pill toggles the picker", async () => {
+    const storage = createMemoryStorage();
+    writeNewThreadDraft(storage, createNewThreadDraft({ projectPath: "/project", projectName: "shop-api" }));
+    const rocket = emojiImage("🚀");
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [
+          { path: "/project", name: "shop-api", lastOpenedAt: 2, workspaceId: "ws1_shop", icon: "data:image/png;base64,AAAA" },
+          { path: "/other", name: "other", lastOpenedAt: 1 },
+        ], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({ listEditors: async () => [], getChanges: async () => ({ files: [], added: 0, removed: 0 }), getFileTree: async () => [] }),
+    });
+    renderApp(client, {
+      storage,
+      extensions: [workspaceExtension],
+      seed: ({ preferences }) => writeProjectIcon(preferences, { workspaceId: "ws1_shop", path: "/project" }, { kind: "emoji", emoji: "🚀", image: rocket }),
+    });
+    const pill = await screen.findByRole("button", { name: "Change project, current project shop-api" });
+    await waitFor(() => expect(pill.querySelector("img")?.getAttribute("src")).toBe(rocket));
+    // A press on the pill leaves the popover to the pill's click, which closes it (K104).
+    fireEvent.pointerDown(pill);
+    fireEvent.click(pill);
+    const picker = await screen.findByRole("dialog", { name: "Search projects" });
+    expect(pill.getAttribute("aria-expanded")).toBe("true");
+    const row = within(picker).getByRole("option", { name: /shop-api/u });
+    expect(row.querySelector("img")?.getAttribute("src")).toBe(rocket);
+    expect(within(picker).getByRole("option", { name: /other/u }).querySelector(".thread-project-icon")?.textContent).toBe("O");
+    fireEvent.pointerDown(pill);
+    fireEvent.click(pill);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search projects" })).toBeNull());
+    expect(pill.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("leaves out the branch each project names as its default, and shows main where it is not", async () => {

@@ -1,11 +1,14 @@
-import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import { ArchiveRestore, Check, CircleAlert, CircleHelp, GitBranch, Hourglass, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
+import { ProjectIcon } from "./ProjectIcon";
 import type { ThreadActivity } from "../../workbench/thread-row-status";
+
+export { projectHue, projectInitial } from "./ProjectIcon";
 
 export type { ThreadActivity };
 
@@ -49,18 +52,6 @@ interface ThreadRowProps {
   onSelect(path: string): void;
   /** Absent for a thread this rail cannot settle (another machine's): the row has no Settle button. */
   onToggleSettled?(id: string): void;
-}
-
-export function projectHue(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash) % 360;
-}
-
-export function projectInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "·";
 }
 
 function elapsedLabel(milliseconds: number): string {
@@ -118,11 +109,8 @@ export const ThreadRow = memo(function ThreadRow({
   onSelect,
   onToggleSettled,
 }: ThreadRowProps) {
-  const iconStyle = { "--project-hue": projectHue(session.projectPath) } as CSSProperties;
   const settled = activity === "settled";
-  const projectMark = projectIcon
-    ? <img src={projectIcon} alt="" aria-hidden="true" />
-    : projectInitial(session.projectName);
+  const projectMark = <ProjectIcon project={{ path: session.projectPath, name: session.projectName, workspaceId: session.workspaceId }} icon={projectIcon} />;
   const label = activityLabel ?? (
     settled ? "Settled" : activity === "ready" ? "Ready" : activity === "idle" ? "Idle" : "Working"
   );
@@ -142,7 +130,7 @@ export const ThreadRow = memo(function ThreadRow({
     return (
       <article className={`thread-row compact ${active ? "active" : ""} activity-${activity}`}>
         <button className="thread-main" onClick={() => onSelect(session.path)} {...hover}>
-          <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
+          {projectMark}
           <span className="thread-title" {...titleTip}>{session.title}</span>
           {childCount}
           {accessory}
@@ -168,7 +156,7 @@ export const ThreadRow = memo(function ThreadRow({
     <article className={`thread-row ${active ? "active" : ""} activity-${activity}`}>
       <button className="thread-main" onClick={() => onSelect(session.path)} {...hover}>
         <span className="thread-project-line">
-          <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
+          {projectMark}
           <strong>{session.projectName}</strong>
           {showStatus
             ? <ThreadStatus activity={activity} label={working ? "Working" : label} {...(activityHint ? { hint: activityHint } : {})} startedAt={startedAt ?? session.modifiedAt} />

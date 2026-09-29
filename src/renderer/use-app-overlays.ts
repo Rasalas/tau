@@ -1,11 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type RefObject } from "react";
 import { AppPageStore } from "../workbench/app-page-store";
 
 /** How the new thread's project picker opens: the project in context, and whether it moves the draft on screen. */
 export interface NewThreadPick {
   preselect?: string | undefined;
   carry?: boolean;
-  anchor?: { x: number; y: number };
+  /** A press on an element anchor leaves its popover alone, so the element can close it. */
+  anchor?: RefObject<HTMLElement | null> | { x: number; y: number };
 }
 
 export function useAppOverlays() {

@@ -103,10 +103,11 @@ export function DraftBranchSection() {
       </label>
       <button type="button" className="branch-base" onClick={() => setPicking(true)}>from <code>{base}</code><ChevronDown size={12} /></button>
     </> : <div className="branch-name"><GitBranch size={13} aria-hidden /><code>{info.branch ?? "detached"}</code><small>checkout</small></div>}
-    <div className="branch-worktree">
+    {/* The whole row is the switch's label, so a tap anywhere on it switches (a 44 px target on touch). */}
+    <label className="branch-worktree">
       <span><strong>New worktree</strong><small>{worktree ? "Its own folder; the checkout stays as it is" : "Runs in the project's checkout"}</small></span>
       <Switch label="Run in a new worktree" checked={worktree} onChange={(on) => store.setWorkspaceMode(on ? "worktree" : "current")} />
-    </div>
+    </label>
   </div>;
 }
 

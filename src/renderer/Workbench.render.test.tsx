@@ -16,7 +16,7 @@ vi.mock("./components/ThreadHeader", () => ({
     return <header data-testid="title-bar" />;
   },
   ThreadDetails: () => null,
-  DraftDetails: () => null,
+  StartDetails: () => null,
 }));
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, GitBranch, Mail, MailOpen, Pin, PinOff, RotateCcw, Square, SquarePen, Trash2 } from "lucide-react";
 import {
   THREAD_LIST_PAGE,
@@ -8,13 +8,15 @@ import {
   threadListGroups,
   type ThreadListGroup,
   type ThreadSupervisionRow,
+  inProject,
 } from "../../workbench/thread-supervision";
 import type { UiProject } from "../../shared/contracts";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { DraftRow, draftTitle } from "../components/DraftRow";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
-import { projectHue, projectInitial, showsThreadStatus, ThreadStatus } from "../components/ThreadRow";
+import { showsThreadStatus, ThreadStatus } from "../components/ThreadRow";
+import { ProjectIcon } from "../components/ProjectIcon";
 import { MiddleTruncate } from "../components/ui/MiddleTruncate";
 import { threadCostLabel } from "../cost-format";
 import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
@@ -268,7 +270,11 @@ function sheetCost(row: ThreadSupervisionRow, showCosts: boolean): string | unde
  * as the rail's slim row.
  */
 function ThreadCard({ row, onOpen }: { row: ThreadSupervisionRow; onOpen(): void }) {
-  const mark = <i className="thread-project-icon" style={{ "--project-hue": projectHue(row.projectPath ?? row.projectName) } as CSSProperties}>{projectInitial(row.projectName)}</i>;
+  const store = useThreadStore();
+  const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
+  const place = { path: row.projectPath ?? row.projectName, workspaceId: row.workspaceId };
+  const project = projects.find((candidate) => inProject({ projectPath: place.path, workspaceId: place.workspaceId }, candidate));
+  const mark = <ProjectIcon project={{ ...place, ...project, name: row.projectName }} hue={place.path} />;
   const label = { "aria-label": `Open thread ${row.title}`, "aria-description": THREAD_SUPERVISION_LABELS[row.status] };
   if (row.settled) {
     return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>

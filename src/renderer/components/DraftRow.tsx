@@ -1,8 +1,8 @@
-import { memo, type CSSProperties, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { plainChipText } from "./composer-chip-token";
-import { projectHue, projectInitial } from "./ThreadRow";
+import { ProjectIcon } from "./ProjectIcon";
 import { tooltipProps } from "./ui/Tooltip";
 
 /** The first line typed, else what is attached, else "New thread", as T3 Code's draft rows. */
@@ -30,7 +30,6 @@ export interface DraftRowProps {
  */
 export const DraftRow = memo(function DraftRow({ draft, projectIcon, onOpen, onDiscard, actions }: DraftRowProps) {
   const title = draftTitle(draft);
-  const iconStyle = { "--project-hue": projectHue(draft.projectPath) } as CSSProperties;
   return (
     <article className={`thread-row thread-draft-row${draft.active ? " active" : ""}`} data-draft-id={draft.draftId}>
       <button
@@ -42,9 +41,7 @@ export const DraftRow = memo(function DraftRow({ draft, projectIcon, onOpen, onD
         onClick={() => onOpen(draft.draftId)}
       >
         <span className="thread-project-line">
-          <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>
-            {projectIcon ? <img src={projectIcon} alt="" aria-hidden="true" /> : projectInitial(draft.projectName)}
-          </i>
+          <ProjectIcon project={{ path: draft.projectPath, name: draft.projectName, workspaceId: draft.workspaceId }} icon={projectIcon} />
           <strong>{draft.projectName}</strong>
           <span className="thread-draft-mark">draft</span>
         </span>

@@ -28,8 +28,7 @@ export function projectIconKey(project: { workspaceId?: string; path: string }):
 
 type Values = Pick<PreferencesStore, "value">;
 
-export function readProjectIcon(preferences: Values, project: { workspaceId?: string; path: string }): ProjectIconChoice | undefined {
-  const raw = preferences.value(WORKSPACE_HOST_EXTENSION_ID, projectIconKey(project));
+function parseChoice(raw: string | undefined): ProjectIconChoice | undefined {
   if (!raw) return undefined;
   try {
     const choice = JSON.parse(raw) as ProjectIconChoice;
@@ -37,6 +36,44 @@ export function readProjectIcon(preferences: Values, project: { workspaceId?: st
   } catch {
     return undefined;
   }
+}
+
+export function readProjectIcon(preferences: Values, project: { workspaceId?: string; path: string }): ProjectIconChoice | undefined {
+  return parseChoice(preferences.value(WORKSPACE_HOST_EXTENSION_ID, projectIconKey(project)));
+}
+
+const STORED_PREFIX = `${WORKSPACE_HOST_EXTENSION_ID}.${projectIconKey({ path: "" })}`;
+
+/** Every chosen picture by the workspace id or path it was chosen for: what core's `setProjectIcons` takes. */
+export function chosenProjectIcons(values: Readonly<Record<string, string>>): Record<string, string> {
+  const icons: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(values)) {
+    const image = key.startsWith(STORED_PREFIX) ? parseChoice(raw)?.image : undefined;
+    if (image) icons[key.slice(STORED_PREFIX.length)] = image;
+  }
+  return icons;
+}
+
+/** Hands core the chosen pictures now and whenever one changes, so every project mark draws them. */
+export function publishProjectIcons(
+  preferences: Pick<PreferencesStore, "getSnapshot" | "subscribe">,
+  publish: (icons: Readonly<Record<string, string>> | undefined) => void,
+): () => void {
+  let values: unknown;
+  let published = "";
+  const update = () => {
+    const next = preferences.getSnapshot().extensionValues;
+    if (next === values) return;
+    values = next;
+    const icons = chosenProjectIcons(next);
+    const signature = JSON.stringify(icons);
+    if (signature === published) return;
+    published = signature;
+    publish(icons);
+  };
+  update();
+  const unsubscribe = preferences.subscribe(update);
+  return () => { unsubscribe(); publish(undefined); };
 }
 
 /** `undefined` goes back to the automatic icon (favicon, `t3.json` or initial). */

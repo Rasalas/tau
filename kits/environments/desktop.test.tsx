@@ -8,7 +8,7 @@ import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { createDraftMachine, createRunOnControl, runOnDetail } from "./run-on.js";
+import { createRunOnControl, runOnDetail } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 
@@ -285,15 +285,6 @@ describe("Run on, as in the design", () => {
     const row = within(menu).getByRole("menuitem", { name: /^laptop/u });
     expect(row.className).toContain("selected");
     expect(row.querySelector(".menu-label b")).toBeNull();
-  });
-
-  it("names a new thread's machine in the header, and nothing for a running thread", () => {
-    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
-    const Machine = createDraftMachine(environments);
-    const { container, rerender } = render(<Machine actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
-    expect(container.textContent).toBe("laptop");
-    rerender(<Machine actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s" }) })} />);
-    expect(container.innerHTML).toBe("");
   });
 });
 

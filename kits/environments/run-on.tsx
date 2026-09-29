@@ -15,17 +15,6 @@ export function runOnDetail(machine: UiEnvironment, now: number): string {
   return machine.status === "connected" ? `online · ${load}` : statusText(machine, now);
 }
 
-/** A new thread's machine in the header's sub-line: project · machine · branch. */
-export function createDraftMachine(environments: PlatformEnvironments, host?: HostExtensionClient) {
-  return function DraftMachine({ actions }: RegionProps) {
-    const list = useEnvironments(environments);
-    const auto = useAutoRunOn();
-    const current = list ? shownMachine(list) : undefined;
-    if (!current || !actions.activeThread()?.draftPending) return null;
-    return <span className="thread-detail">{auto && host && autoApplies(environments, list) ? "Automatic" : current.name}</span>;
-  };
-}
-
 /** The chip's tooltip while Automatic is chosen: what it does, and where it would go now. */
 export function autoTooltip(preview: { answer?: { machine: string | null; reason: string }; error?: string }, names: ReadonlyMap<string, string>, targets: number): string {
   const head = "Automatic: when you send, the thread starts on the machine with the most room (Settings → Machines weighs them).";
