@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { Bot, CircleHelp, Ellipsis, MessageSquare, PanelLeftOpen, Server, SquareDashed } from "lucide-react";
+import { Bot, Ellipsis, Server, SquareDashed } from "lucide-react";
 import type { StageTab } from "../../workbench/stage";
-import { THREAD_QUESTION_LABEL } from "../../workbench/thread-row-status";
 import type { ExtensionRegistry, PanelContribution } from "../extension-system";
 import { Menu } from "../deferred-surfaces";
 import { FileKindIcon } from "./FileKindIcon";
@@ -12,7 +11,7 @@ function fileName(path: string): string {
   return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
 }
 
-/** A tab's glyph and name as the strip and the spine draw it; a thread tab's title comes from the index where it is shown. */
+/** A tab's glyph and name as the strip draws it; a thread tab's title comes from the index where it is shown. */
 export function stageTabGlyph(tab: StageTab, registry?: ExtensionRegistry, size = 14): { icon: ReactNode; label: string } {
   if (tab.kind === "file") return { icon: <FileKindIcon name={fileName(tab.path)} size={size} />, label: fileName(tab.path) };
   if (tab.kind === "thread") return { icon: tab.machine ? <Server size={size} /> : <Bot size={size} />, label: "Thread" };
@@ -67,26 +66,4 @@ export function StageTools({ panels, shown, onOpen, side = "bottom" }: {
       /> : null}
     </span> : null}
   </>;
-}
-
-/**
- * The conversation folded to the stage's left edge while the stage fills the
- * centre: the way back, and whether the thread runs or waits for an answer.
- */
-export function ConversationSpine({ title, streaming, waiting, onShow }: {
-  title: string;
-  streaming: boolean;
-  waiting: boolean;
-  onShow(): void;
-}) {
-  const state = waiting ? THREAD_QUESTION_LABEL : streaming ? "Working" : undefined;
-  return <nav className="conversation-spine" aria-label="Conversation">
-    <button type="button" className="stage-tool" aria-label="Show chat" {...tooltipProps("Show chat", { side: "right" })} onClick={onShow}>
-      <PanelLeftOpen size={16} />
-    </button>
-    <button type="button" className="conversation-spine-title" aria-label={`Show chat: ${title}${state ? `, ${state}` : ""}`} {...tooltipProps(title, { side: "right" })} onClick={onShow}>
-      {waiting ? <CircleHelp size={14} className="spine-waiting" /> : streaming ? <span className="spinner info spinner-sm" aria-hidden /> : <MessageSquare size={14} />}
-      <span>{title}</span>
-    </button>
-  </nav>;
 }

@@ -46,7 +46,7 @@ import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import { panelTabId } from "../workbench/stage";
 import { useCenterLayout } from "./use-center-layout";
-import { CHAT_MIN_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
+import { CHAT_MIN_WIDTH, STAGE_MIN_WIDTH, TABLET_CHAT_MIN_WIDTH } from "../workbench/center-layout";
 import {
   CHAT_MAXIMIZE_OVERDRAG, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
   chatMaxWidth, defaultChatWidth, drawerMaxHeight, shownChatWidth, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth,
@@ -87,7 +87,6 @@ const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ Li
 const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 // Drawn only beside the stage, so they come with its chunk.
 const LazyStageTools = retryableLazy(() => import("./components/Stage").then(({ StageTools }) => ({ default: StageTools })));
-const LazyConversationSpine = retryableLazy(() => import("./components/Stage").then(({ ConversationSpine }) => ({ default: ConversationSpine })));
 const LazyAppPageScreen = retryableLazy(() => import("./pages/AppPageScreen").then(({ AppPageScreen }) => ({ default: AppPageScreen })));
 const LazySettingsScreen = retryableLazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
@@ -157,10 +156,10 @@ export interface WorkbenchLayout {
   panelLayout?: PanelLayout;
   /** The drawer panel showing below the conversation. */
   drawer?: string;
-  /** The user folded the thread's stage to its spine. */
+  /** The user hid the thread's stage. */
   stageFolded: boolean;
   setStageFolded(folded: boolean): void;
-  /** The stage fills the centre, the conversation folded to its spine. */
+  /** The stage fills the centre, the conversation out of sight. */
   maximized: boolean;
   /** Where only one of the two is shown: the conversation rather than the stage. */
   chatFocused: boolean;
@@ -179,7 +178,6 @@ export interface WorkbenchLayout {
   takeOverThread(sessionId: string): void;
   documentState: { changes: UiWorkspaceChanges; editor?: UiEditor };
   documentSource: ReturnType<ExtensionRegistry["getDocumentSource"]>;
-  visibleStreaming: boolean;
   paletteOpen: boolean;
   /** The command whose level the palette opens on. */
   paletteMenu?: string;
@@ -297,7 +295,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openPanel, panelLayout, drawer, stageFolded, setStageFolded,
     chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
-    documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette, commands,
+    documentState, documentSource, paletteOpen, paletteMenu, closePalette, commands,
     projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, pages,
@@ -346,7 +344,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const clientProfile = useClientEnvironment().profile;
   const compactForm = useCompactForm(clientProfile);
   const split = compact && compactForm === "split";
-  const compactRef = useRef({ compact, split, stacked: false, sheets: [] as readonly string[] });
+  const compactRef = useRef({ compact, split, stacked: false, maximized: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
   // The project the touch thread list is narrowed to; a new thread from it starts there.
@@ -400,7 +398,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     showThread: (options) => {
       setPanelSheet(undefined);
       phoneNav.showChat();
-      // Beside the stage the chat is already in view; the choice made there stays.
+      // Beside the stage the chat is already in view. A maximized stage makes room for it again, beside it.
+      if (compactRef.current.maximized) setStageMaximized(false);
       if (compactRef.current.stacked) setChatFocused(true);
       if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
@@ -432,17 +431,19 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const touchSidebarShown = split && touchSidebarOpen;
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
-  const chatMin = split ? TABLET_CHAT_MIN_WIDTH : CHAT_MIN_WIDTH;
+  // Short of room for the full chat beside the stage, it narrows as a tablet's does rather than leave one of them alone.
+  const chatMin = split || windowWidth - drawnSidebar < CHAT_MIN_WIDTH + STAGE_MIN_WIDTH ? TABLET_CHAT_MIN_WIDTH : CHAT_MIN_WIDTH;
   // A phone draws no stage (profile-compact.css): its panels are sheets.
   const { stageShown, tabs, canSplit } = useCenterLayout({
     windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized, chatMin,
     tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
   });
-  // Only one of the two fits, or the stage is maximized: the one not in front is folded to its spine.
+  // Maximized, the stage takes the centre and the chat is out of sight; where only one fits, the one in front shows.
   const stacked = tabs;
   compactRef.current.stacked = stacked;
-  const conversationFolded = stacked && !chatFocused;
-  const stageExpanded = stageShown && !(stacked && chatFocused);
+  compactRef.current.maximized = maximized;
+  const conversationFolded = stacked && (maximized || !chatFocused);
+  const stageExpanded = stageShown && !(stacked && !maximized && chatFocused);
   const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth, chatMin, windowWidth);
@@ -731,12 +732,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       /> : null}
       <div className="workbench-main" inert={Boolean(openPage) && !pageScreen}>
       <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px` } as CSSProperties}>
-        {conversationFolded ? <Suspense fallback={null}><LazyConversationSpine
-          title={showStartScreen ? "New thread" : conversationSnapshot?.sessionTitle || "Untitled thread"}
-          streaming={visibleStreaming}
-          waiting={composer.prompts.length > 0}
-          onShow={() => { setChatFocused(true); if (maximized) panelLayout?.restore(); }}
-        /></Suspense> : null}
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
           data-keybinding-context="chat"
@@ -815,7 +810,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 setChatFocused(false);
                 if (maximized) panelLayout.restore();
                 else panelLayout.maximizeStage();
-              } } : undefined}
+              } } : stacked ? { maximized: true, label: "Show chat", onToggle: () => setChatFocused(true) } : undefined}
               tools={stageTools}
               registry={registry}
               stageTabs={stageTabs}

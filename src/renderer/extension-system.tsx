@@ -619,8 +619,9 @@ export interface PanelContribution extends ProfileScoped {
   Icon?: PanelIconComponent;
   order?: number;
   /**
-   * A button of its own at the right of the stage's tab strip and on its spine
-   * (API 1.27.0); every other panel is under the strip's "More tools" menu.
+   * A button of its own at the right of the stage's tab strip, and in the
+   * thread's header while the stage is hidden (API 1.27.0); every other panel
+   * is under "More tools" there.
    */
   stageButton?: boolean;
   /** A hook for a count beside the panel's tab title, say running agents; nothing for `undefined` or 0 (API 1.27.0). */

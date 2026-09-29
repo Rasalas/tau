@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
@@ -192,6 +192,30 @@ describe("App stage per thread", () => {
     };
     return { storage: kept, loads, actions, show };
   }
+
+  it("brings the chat back beside a maximized stage when a thread's row is clicked, its own or another's", async () => {
+    const { actions, show } = await start();
+    act(() => { actions().openStageTab("test.note", { name: "alpha" }); });
+    await screen.findByText("note alpha in ws-a");
+    const center = () => document.querySelector(".workbench-center")?.className ?? "";
+    const maximize = () => fireEvent.click(within(screen.getByRole("region", { name: "Stage" })).getByRole("button", { name: "Maximize stage" }));
+
+    maximize();
+    expect(center()).toContain("conversation-folded");
+    // No strip of its own for the folded chat: the stage has the centre.
+    expect(screen.queryByRole("navigation", { name: "Conversation" })).toBeNull();
+    await show("a1");
+    await waitFor(() => expect(center()).not.toContain("conversation-folded"));
+    expect(center()).toContain("stage-open");
+    expect(screen.getByText("note alpha in ws-a")).toBeTruthy();
+
+    maximize();
+    await show("a2");
+    await show("a1");
+    await screen.findByText("note alpha in ws-a");
+    expect(center()).toContain("stage-open");
+    expect(center()).not.toContain("conversation-folded");
+  });
 
   it("shows each thread's own tabs again after A → B → A, and a new draft starts empty", async () => {
     const { actions, show } = await start();

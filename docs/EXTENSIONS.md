@@ -320,8 +320,9 @@ with the other placement. `width` is ignored since 1.27.0.
 Where a panel is reached from: the right end of the stage's tab strip holds a
 button for each panel with `stageButton: true` (API 1.27.0; Files and Terminal
 in Tau), what kits place in the `stage-bar` region (Workspace Kit's "Open in"),
-then a separator and the maximize. Every other panel is under the strip's
-"More tools" menu, by label and icon, and every panel stays reachable from
+then a separator and the maximize. While the stage is hidden the same tools
+sit in the thread header, before its stage toggle (design 1k). Every other
+panel is under "More tools", by label and icon, and every panel stays reachable from
 `actions.openPanel(id)`, a command in the palette and its keybinding. The
 button of a drawer panel opens and closes the drawer. The thread header's stage
 toggle opens an empty stage on the tool last picked in the project, else the
@@ -333,12 +334,18 @@ as icons, and no kit name.
 
 The conversation keeps at least 480 px beside the stage, and the stage starts
 at about half the window; the divider between them is kept per client (API
-1.16.0). Where both do not fit, or the user maximizes the stage (the strip's
-button, `rightPanel.toggleMaximized` on `mod+alt+shift+b`, or dragging the
-divider well below the chat's minimum), the conversation folds to its spine at
-the stage's left edge: the way back, and whether the thread works or waits for
-an answer. The thread header's toggle hides the stage and brings it back as it
-was. Both the maximize and the hiding belong to the thread, as its tabs do.
+1.16.0). A window short of that room narrows the chat to 360 px, a tablet's,
+before it gives up showing both. Chat and stage are side by side whenever both
+are open, except for two choices the user makes: the thread header's toggle
+hides the stage (and brings it back as it was), and the maximize gives the
+stage the whole centre (the strip's button, `rightPanel.toggleMaximized` on
+`mod+alt+shift+b`, or dragging the divider well below the chat's minimum). A
+maximized stage has no strip for the chat beside it; the strip's toggle, the
+keyboard, or a click on the thread in the sidebar (its own or another) brings
+the chat back beside it at the width it had. Only a window too narrow for 360 +
+360 px shows one of the two, with "Show chat" in the strip and the header's
+toggle to switch. Both the maximize and the hiding belong to the thread, as its
+tabs do; a restart keeps them, a switch to the thread shows its chat.
 
 `redirect(actions)` (new in API 1.18.0) lets a panel's entry open a view
 of its own instead: its button, `actions.openPanel(id)` and every command
@@ -477,8 +484,9 @@ shipped caller, and Review Kit's pull-request view (`review.pull-request`,
 params `{ url, number, service, workspace? }`) the second.
 
 **Stage tabs belong to a thread.** Each thread and each draft has its own
-stage (new in API 1.26.0): switching threads shows the tabs, the active one and
-the maximize that thread was left with, across restarts, and a new thread
+stage (new in API 1.26.0): switching threads shows the tabs and the active one
+that thread was left with, across restarts (a maximize only across a restart:
+a switch shows the chat beside the stage), and a new thread
 starts with none. Hiding a thread's stage unmounts your tab's content, like
 any tab behind another, but does not close it: `onClose` does not run and the
 handle stays, so keep what must outlive the view (a shell, a page, unsaved
@@ -747,8 +755,9 @@ under the list, shown while any listed model wears the badge.
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. `title-bar` is the thread header's end,
 before the stage toggle (API 1.27.0: the window-wide title bar is gone): Workspace
-Kit's project actions, "N files changed ›" and the Git action sit there. It stays
-mounted while the conversation is folded to its spine, only out of sight, so a
+Kit's project actions, "N files changed ›" and the Git action sit there (not for
+a new thread's draft, which has nothing to run or commit). It stays mounted
+while a maximized stage hides the conversation, only out of sight, so a
 kit may keep a dialog layer there; on a phone it is the end of the phone's bar.
 `thread-details` and `thread-branch` (API 1.27.0) are the thread header's
 sub-line: `thread-details` adds items before the branch (Machines Kit names a
@@ -911,8 +920,8 @@ the bar's More menu, by label and icon.
 there (API 1.13.0), so a panel can close itself after it handed something to the composer.
 A tablet (a compact client on a tablet's screen, at least 720 px wide) is laid out
 as the desktop: the same panels open as stage tabs beside the chat, from the
-strip's tools, and the chat folds to its spine where the tablet has no room for
-both. Terminal, Review and Preview do this for their compact panels.
+strip's tools, and where the tablet has no room for both one of them shows,
+with "Show chat" in the strip. Terminal, Review and Preview do this for their compact panels.
 That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar; Review Kit registers a panel for `compact` alone, since the desktop reviews in an overlay. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 

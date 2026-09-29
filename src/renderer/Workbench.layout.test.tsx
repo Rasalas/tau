@@ -134,9 +134,9 @@ describe("workbench layout", () => {
       plugin.registerPanel({ id: "other", label: "Other", order: 2, stageButton: true, Component: () => <div>other body</div> });
     } };
     renderApp(undefined, { extensions: [buttons] });
-    const tools = await screen.findByRole("toolbar", { name: "Tools" });
-    expect(tools.closest(".thread-header")).not.toBeNull();
-    fireEvent.click(await within(tools).findByRole("button", { name: "Other" }));
+    const toolbar = await screen.findByRole("toolbar", { name: "Tools" });
+    expect(toolbar.closest(".thread-header")).not.toBeNull();
+    fireEvent.click(await within(toolbar).findByRole("button", { name: "Other" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     expect(await within(stage).findByText("other body")).toBeTruthy();
     expect(screen.queryByRole("toolbar", { name: "Tools" })).toBeNull();
@@ -233,7 +233,8 @@ describe("workbench layout", () => {
     fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
     fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
     await waitFor(() => expect(view.container.querySelector(".workbench-center")?.className).toContain("conversation-folded"));
-    expect(await screen.findByRole("navigation", { name: "Conversation" })).toBeTruthy();
+    // The way back is the strip's toggle.
+    expect(within(stage).getByRole("button", { name: "Show chat beside the stage" })).toBeTruthy();
   });
 
   it("draws a drawer panel below the conversation from its tool, resizes it and keeps the height for this client", async () => {
@@ -312,7 +313,7 @@ describe("workbench layout", () => {
       expect(within(stage).getByRole("tab", { name: /notes\.txt/ }).getAttribute("aria-selected")).toBe("true");
     });
 
-    it("maximizes the stage over the centre, folding the conversation to its spine, and the spine brings the chat back", async () => {
+    it("maximizes the stage over the whole centre, with no strip for the chat, and its toggle brings the chat back", async () => {
       setWindowWidth(1728);
       const view = renderApp(undefined, { extensions: [rail, files] });
       const stage = await openFile();
@@ -320,13 +321,13 @@ describe("workbench layout", () => {
       expect(center()).toContain("stage-open");
       fireEvent.click(within(stage).getByRole("button", { name: "Maximize stage" }));
       expect(center()).toContain("conversation-folded");
-      const spine = screen.getByRole("navigation", { name: "Conversation" });
-      expect(within(stage).getByRole("button", { name: "Show chat beside the stage" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.queryByRole("navigation", { name: "Conversation" })).toBeNull();
+      // The stage is the centre's only child in the flow; the chat stays mounted out of sight.
+      expect(view.container.querySelector(".workbench-center > .conversation-column")).not.toBeNull();
 
-      fireEvent.click(within(spine).getByRole("button", { name: "Show chat" }));
+      fireEvent.click(within(stage).getByRole("button", { name: "Show chat beside the stage" }));
       await waitFor(() => expect(center()).toContain("stage-open"));
       expect(center()).not.toContain("conversation-folded");
-      expect(screen.queryByRole("navigation", { name: "Conversation" })).toBeNull();
 
       // The keyboard's maximize does the same, both ways.
       pressMod("b", { altKey: true, shiftKey: true });
@@ -335,8 +336,18 @@ describe("workbench layout", () => {
       await waitFor(() => expect(center()).not.toContain("conversation-folded"));
     });
 
-    it("folds the conversation in a window too narrow for both, with nothing to restore", async () => {
+    it("keeps chat and stage side by side in a window short of the full chat, the chat narrower", async () => {
       setWindowWidth(1000);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      await openFile();
+      const center = view.container.querySelector(".workbench-center") as HTMLElement;
+      expect(center.className).toContain("stage-open");
+      expect(center.className).not.toContain("conversation-folded");
+      expect(Number.parseInt(center.style.getPropertyValue("--chat-width"), 10)).toBeGreaterThanOrEqual(360);
+    });
+
+    it("shows one of the two in a window too narrow for both, with nothing to restore", async () => {
+      setWindowWidth(900);
       const view = renderApp(undefined, { extensions: [rail, files] });
       const stage = await openFile();
       expect(within(stage).queryByRole("button", { name: "Maximize stage" })).toBeNull();

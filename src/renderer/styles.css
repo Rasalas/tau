@@ -54,7 +54,6 @@ button > svg { pointer-events: none; }
 
 .app-shell {
   --sidebar-width: 248px;
-  --spine-width: 44px;
   --window-top: 0px;
   width: 100vw; height: 100vh;
   display: grid;
@@ -67,14 +66,14 @@ button > svg { pointer-events: none; }
 .sidebar-top { grid-area: 1 / 1 / 2 / 2; align-self: start; z-index: 2; height: var(--window-top, 0px); -webkit-app-region: drag; }
 /* The centre cell: conversation and stage, and a drawer panel below both. */
 .workbench-main { grid-area: 1 / 2 / -1 / 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-/* Conversation, then the stage or its spine; --chat-width comes from the divider. The minimums mirror center-layout.ts. */
+/* Conversation, then the stage; --chat-width comes from the divider. The minimums mirror center-layout.ts. */
 .workbench-center { position: relative; flex: 1; display: flex; min-width: 0; min-height: 0; }
 .workbench-center > .conversation-column { flex: 1 1 0; }
 .workbench-center.stage-open > .conversation-column { flex: 0 0 var(--chat-width); }
 .workbench-center > .stage { flex: 1 1 0; }
 .chat-resizer { left: calc(var(--chat-width) - 4px); }
-/* Folded behind the stage at the size it had, not display:none: the transcript keeps its scroll. */
-.workbench-center.conversation-folded > .conversation-column { position: absolute; inset: 0 0 0 var(--spine-width); visibility: hidden; pointer-events: none; }
+/* Out of sight behind a maximized stage at the size it had, not display:none: the transcript keeps its scroll. */
+.workbench-center.conversation-folded > .conversation-column { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 /* The sidebar stays mounted while hidden, so its scroll and folds survive a toggle. */
 .sidebar-slot { display: contents; }
 .app-shell.sidebar-closed .sidebar-slot { display: none; }
@@ -157,7 +156,7 @@ button > svg { pointer-events: none; }
 .title-identity > strong { font-weight: 700; font-size: 13px; }
 .title-identity > span { font: 11px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-spacer { flex: 1; }
-/* The stage's and the spines' glyph buttons, the design's 28 px squares. */
+/* The stage's and the header's glyph buttons, the design's 28 px squares. */
 .stage-tool {
   flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
   border: 0; border-radius: var(--radius-row); background: transparent; color: var(--ink-3); cursor: pointer;
@@ -165,19 +164,6 @@ button > svg { pointer-events: none; }
 .stage-tool:hover, .stage-tool[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
 /* On, as the design draws it: darker ink, no plate (1l's Files button beside the Files tab). */
 .stage-tool[aria-pressed="true"], .stage-tool.current { color: var(--ink); }
-/* The conversation folded while the stage fills the centre: a column on the side surface. */
-.conversation-spine {
-  flex: none; width: var(--spine-width); display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: calc(var(--window-top, 0px) + 12px) 0 12px; background: var(--rail); min-height: 0; overflow: hidden auto;
-}
-.conversation-spine { border-right: 1px solid var(--line); }
-.conversation-spine-title {
-  display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 0; padding: 8px 0; border: 0;
-  background: transparent; color: var(--muted); cursor: pointer; font: 500 var(--text-sm) var(--sans);
-}
-.conversation-spine-title > span { writing-mode: vertical-rl; max-height: 60vh; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-spine-title:hover { color: var(--ink); }
-.spine-waiting { color: var(--warn); }
 
 .chrome-button {
   min-height: 31px; display: flex; align-items: center; gap: 7px; flex: none;

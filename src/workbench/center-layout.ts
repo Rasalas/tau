@@ -1,9 +1,9 @@
 /**
  * How the centre holds the conversation and the stage in a window this wide:
- * side by side, or one of them folded to its spine — the stage when the user
- * folds it or it holds nothing, the conversation when the stage is maximized
- * or the window is too narrow for both. Pure, so the decision is tested
- * without a window; the minimums mirror styles.css.
+ * side by side, or one of them alone — the conversation when the user hides
+ * the stage or it holds nothing, the stage when it is maximized, and the one
+ * in front where the window is too narrow for both. Pure, so the decision is
+ * tested without a window; the minimums mirror styles.css.
  */
 
 /** The chat's column: the composer's toolbar stays on one line. */
@@ -11,7 +11,10 @@ export const CHAT_MIN_WIDTH = 480;
 /** The stage's column: a file's header and a few dozen columns of code. */
 export const STAGE_MIN_WIDTH = 360;
 export const CENTER_SPLIT_MIN_WIDTH = CHAT_MIN_WIDTH + STAGE_MIN_WIDTH;
-/** A tablet's chat: its touch composer folds to an upright phone's width, so a tool fits beside it on an iPad on its side. */
+/**
+ * A tablet's chat: its touch composer folds to an upright phone's width, so a tool fits beside it on an iPad on its side.
+ * A desktop window too narrow for the full chat beside the stage uses it too.
+ */
 export const TABLET_CHAT_MIN_WIDTH = 360;
 /** The stage's share of the window until the divider is dragged: about half, as in the workbench design. */
 export const STAGE_DEFAULT_SHARE = 0.5;
@@ -22,7 +25,7 @@ export interface CenterLayoutInput {
   sidebarWidth: number;
   /** The stage holds tabs. */
   stageOpen: boolean;
-  /** The user folded the stage to its spine. */
+  /** The user hid the stage. */
   folded?: boolean;
   /** The user asked for the stage over the whole centre. */
   maximized: boolean;
@@ -31,9 +34,9 @@ export interface CenterLayoutInput {
 }
 
 export interface CenterLayout {
-  /** The stage shows its tabs; otherwise it is its spine, or nothing. */
+  /** The stage shows its tabs; otherwise it is hidden. */
   stageShown: boolean;
-  /** Only one of the two fits, or the stage is maximized: the other is folded to its spine. */
+  /** Only one of the two fits, or the stage is maximized: the other is out of sight. */
   tabs: boolean;
   /** Chat and stage would fit side by side, so maximizing is a choice to offer. */
   canSplit: boolean;
