@@ -11,8 +11,10 @@ function response(key: string, at: number, model = "anthropic/claude-haiku-4-5",
   return { key, at, model, input: tokens, output: 0, cacheRead: 0, cacheWrite: 0, total: tokens, cost, requests: 1 };
 }
 
+/** A file as the cache hands it on: each response its own quarter-hour sum. */
 function session(sessionId: string, cwd: string, createdAt: number, records: PiUsageRecord[]): PiSessionUsage {
-  return { path: `/sessions/${sessionId}.jsonl`, size: 1, mtimeMs: 1, sessionId, cwd, createdAt, records, skippedLines: 0 };
+  const buckets = records.map(({ key: _key, at, ...rest }) => ({ ...rest, at: at === undefined ? -1 : at }));
+  return { path: `/sessions/${sessionId}.jsonl`, size: 1, mtimeMs: 1, sessionId, cwd, createdAt, buckets, skippedLines: 0, duplicates: 0, keys: new Float64Array() };
 }
 
 function scan(overrides: Partial<UsageScan> = {}): UsageScan {
@@ -24,8 +26,8 @@ function scan(overrides: Partial<UsageScan> = {}): UsageScan {
       failed: 0,
       sessions: [
         session("old", "/work/alpha", NOW - 40 * DAY, [response("a1", NOW - 40 * DAY), response("a2", NOW - 3 * DAY)]),
-        // A fork copies its parent's entries; only the response it added is its own.
-        session("fork", "/work/alpha", NOW - 2 * DAY, [response("a1", NOW - 40 * DAY), response("a2", NOW - 3 * DAY), response("f1", NOW - 1_000, "openai/gpt-5.6-luna", 50, 0)]),
+        // A fork copies its parent's entries; the cache counted those in the parent, and only the response it added is its own.
+        session("fork", "/work/alpha", NOW - 2 * DAY, [response("f1", NOW - 1_000, "openai/gpt-5.6-luna", 50, 0)]),
         session("beta", "/work/beta", NOW - DAY, [response("b1", NOW - 2_000, "anthropic/claude-haiku-4-5", 1_000, 0.1)]),
       ],
     },

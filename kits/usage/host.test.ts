@@ -169,9 +169,9 @@ describe("Usage host half", () => {
     expect(result.rows[0]).toMatchObject({ billing: "subscription", costUsd: 0, apiValueUsd: 0.12 });
     expect(result.totals).toMatchObject({ costUsd: 0, subscription: { apiValueUsd: 0.12, totalTokens: 110 } });
 
-    // Split by the client's days, each entry is priced too.
+    // Split by the client's days, each entry is priced too. A day starts on a quarter hour, as every time zone's midnight does.
     asked.length = 0;
-    const byDay = await registry.invoke("tau.usage", "summary", { since: NOW - DAY, days: [NOW - DAY, NOW - 10_000] }) as UsageSummary;
+    const byDay = await registry.invoke("tau.usage", "summary", { since: NOW - DAY, days: [NOW - DAY, NOW - 15 * 60_000] }) as UsageSummary;
     expect(asked).toHaveLength(2);
     expect(byDay.entries).toEqual([expect.objectContaining({ day: 1, threadId: "s1", billing: "subscription", costUsd: 0, apiValueUsd: 0.12, totalTokens: 110 })]);
   });

@@ -248,7 +248,7 @@ function backendReport(scan: BackendScan, threads: number): UsageSourceReport {
 /**
  * Sums a scan for one period, unpriced: costs are the runtimes' own until
  * `applyPrices` sets core's. A Pi response copied into a fork is counted once,
- * for the session it was first written to; a backend turn counts when it
+ * for the session it was first written to (the cache sees to that); a backend turn counts when it
  * falls inside the period, and a thread kept before turns were counts whole
  * when its last activity does.
  */
@@ -264,27 +264,26 @@ export function summarize(scan: UsageScan, options: SummarizeOptions = {}): Usag
     if (day >= 0) entries.add(day, key, threadId, tally);
   };
 
-  const seen = new Set<string>();
   const piThreads = new Set<string>();
+  // A response a fork copied was counted where it was read first, its original.
   const sessions = [...scan.pi.sessions].sort((left, right) => left.createdAt - right.createdAt || left.path.localeCompare(right.path));
   for (const session of sessions) {
-    for (const record of session.records) {
-      if (seen.has(record.key)) continue;
-      seen.add(record.key);
-      if (!inPeriod(record.at)) continue;
-      const key: RowKey = { backend: PI_BACKEND, backendLabel: "Pi", cwd: session.cwd, model: record.model, ...splitModel(record.model) };
+    for (const bucket of session.buckets) {
+      const at = bucket.at < 0 ? undefined : bucket.at;
+      if (!inPeriod(at)) continue;
+      const key: RowKey = { backend: PI_BACKEND, backendLabel: "Pi", cwd: session.cwd, model: bucket.model, ...splitModel(bucket.model) };
       const row = rows.row(key);
-      split(record.at, key, session.sessionId, {
-        requests: record.requests, inputTokens: record.input, outputTokens: record.output, cacheReadTokens: record.cacheRead,
-        cacheWriteTokens: record.cacheWrite, totalTokens: record.total, costUsd: record.cost,
+      split(at, key, session.sessionId, {
+        requests: bucket.requests, inputTokens: bucket.input, outputTokens: bucket.output, cacheReadTokens: bucket.cacheRead,
+        cacheWriteTokens: bucket.cacheWrite, totalTokens: bucket.total, costUsd: bucket.cost,
       });
-      row.requests += record.requests;
-      row.inputTokens += record.input;
-      row.outputTokens += record.output;
-      row.cacheReadTokens += record.cacheRead;
-      row.cacheWriteTokens += record.cacheWrite;
-      row.totalTokens += record.total;
-      row.costUsd += record.cost;
+      row.requests += bucket.requests;
+      row.inputTokens += bucket.input;
+      row.outputTokens += bucket.output;
+      row.cacheReadTokens += bucket.cacheRead;
+      row.cacheWriteTokens += bucket.cacheWrite;
+      row.totalTokens += bucket.total;
+      row.costUsd += bucket.cost;
       row.threadIds.add(session.sessionId);
       piThreads.add(session.sessionId);
     }
@@ -348,7 +347,7 @@ type Split = (at: number | undefined, key: RowKey, threadId: string, tally: Tall
  * the log is skipped, since Tau's figure is the one it shows; where it kept
  * none (an imported session), the log's count goes to the thread. The rest
  * is work outside Tau. A response copied into a resumed or archived session
- * counts once.
+ * counts once: the cache counted it where it read it first.
  */
 function countOutside(scan: UsageScan, rows: Rows, inPeriod: (at: number | undefined) => boolean, split: Split): UsageSourceReport[] {
   const logs = scan.outside!;
@@ -358,7 +357,6 @@ function countOutside(scan: UsageScan, rows: Rows, inPeriod: (at: number | undef
       if (thread.sessionId) tau.set(thread.sessionId, { threadId: thread.threadId, cwd: thread.cwd, kept: Boolean(thread.usage || thread.turns?.length) });
     }
   }
-  const seen = new Set<string>();
   const stats = new Map<string, { sessions: Set<string>; tau: Set<string>; skipped: number }>();
   const units = [...logs.scan.units].sort((left, right) => left.unit.path.localeCompare(right.unit.path));
   for (const { root, unit } of units) {
@@ -370,33 +368,32 @@ function countOutside(scan: UsageScan, rows: Rows, inPeriod: (at: number | undef
       if (own) stat.tau.add(session.sessionId);
       if (own?.kept) continue;
       let any = false;
-      for (const record of session.records) {
-        if (seen.has(record.key)) continue;
-        seen.add(record.key);
-        if (!inPeriod(record.at)) continue;
+      // A response copied into another log was counted once already, where it was read first.
+      for (const bucket of session.buckets) {
+        if (!inPeriod(bucket.at)) continue;
         const key: RowKey = {
           backend: root.backend,
           backendLabel: root.label,
           cwd: own?.cwd ?? session.cwd,
-          model: record.model,
-          ...(record.provider ? { provider: record.provider } : {}),
-          modelId: record.model,
+          model: bucket.model,
+          ...(bucket.provider ? { provider: bucket.provider } : {}),
+          modelId: bucket.model,
           ...(root.billing ? { billing: root.billing } : {}),
           ...(own ? {} : { outside: true }),
         };
         const threadId = own?.threadId ?? session.sessionId;
         const row = rows.row(key);
-        split(record.at, key, threadId, {
-          requests: 1, inputTokens: record.input, outputTokens: record.output, cacheReadTokens: record.cacheRead,
-          cacheWriteTokens: record.cacheWrite, totalTokens: record.total, costUsd: record.cost,
+        split(bucket.at, key, threadId, {
+          requests: bucket.requests, inputTokens: bucket.input, outputTokens: bucket.output, cacheReadTokens: bucket.cacheRead,
+          cacheWriteTokens: bucket.cacheWrite, totalTokens: bucket.total, costUsd: bucket.cost,
         });
-        row.requests += 1;
-        row.inputTokens += record.input;
-        row.outputTokens += record.output;
-        row.cacheReadTokens += record.cacheRead;
-        row.cacheWriteTokens += record.cacheWrite;
-        row.totalTokens += record.total;
-        row.costUsd += record.cost;
+        row.requests += bucket.requests;
+        row.inputTokens += bucket.input;
+        row.outputTokens += bucket.output;
+        row.cacheReadTokens += bucket.cacheRead;
+        row.cacheWriteTokens += bucket.cacheWrite;
+        row.totalTokens += bucket.total;
+        row.costUsd += bucket.cost;
         row.threadIds.add(threadId);
         any = true;
       }

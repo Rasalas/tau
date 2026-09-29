@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claudeLine, codexMeta, codexResponse } from "./fixtures.js";
+import { appendFile } from "node:fs/promises";
+import { claudeLine, codexMeta, codexResponse, codexTokenCount } from "./fixtures.js";
 import { OUTSIDE_HORIZON_MS, OutsideUsageCache, type OutsideRoot, type OutsideScan } from "./outside-cache.js";
+import { openSqlite } from "./opencode-store.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -42,7 +44,7 @@ async function fixture() {
 
 function totals(scan: OutsideScan): Record<string, number> {
   const sums: Record<string, number> = {};
-  for (const { unit } of scan.units) for (const session of unit.sessions) for (const record of session.records) sums[session.sessionId] = (sums[session.sessionId] ?? 0) + record.total;
+  for (const { unit } of scan.units) for (const session of unit.sessions) for (const bucket of session.buckets) sums[session.sessionId] = (sums[session.sessionId] ?? 0) + bucket.total;
   return sums;
 }
 
@@ -63,7 +65,9 @@ describe("OutsideUsageCache", () => {
     const scan = cache.snapshot();
     expect(scan.reading).toBe(false);
     expect(scan.units).toHaveLength(4);
-    expect(totals(scan)).toEqual({ x1: 88, "c-1": 17 });
+    // The archived copy's response was counted where it was read first.
+    expect(totals(scan)).toEqual({ x1: 44, "c-1": 17 });
+    expect(scan.units.find(({ unit }) => unit.path.includes("archived"))?.unit.duplicates).toBe(1);
     expect(scan.roots.map((report) => [report.root.path.split("/").slice(-2).join("/"), report.found, report.files])).toEqual([
       ["codex-home/sessions", true, 1],
       ["codex-home/archived_sessions", true, 1],
@@ -97,6 +101,95 @@ describe("OutsideUsageCache", () => {
     await cache.refresh(roots);
     expect(cache.snapshot().units.map(({ unit }) => unit.path)).not.toContain(agent);
     expect(cache.snapshot().units.map(({ unit }) => unit.path)).not.toContain(archived);
+  });
+
+  it("reads a log that grew from where the last read stopped", async () => {
+    const { roots, cacheFile, session } = await fixture();
+    // A first kilobyte without usage, as a log's opening lines are; the read checks it is unchanged.
+    const opening = JSON.stringify({ type: "user", message: { role: "user", content: "x".repeat(1500) } });
+    await writeFile(session, `${opening}\n${await readFile(session, "utf8")}`);
+    const cache = new OutsideUsageCache(cacheFile, () => NOW);
+    await cache.refresh(roots);
+    // Same length, other figures, before the offset: a read from the offset never sees it.
+    await tamper(session, "\"input_tokens\":10", "\"input_tokens\":90");
+    await appendFile(session, `${claudeLine({ sessionId: "c-1", cwd: "/work/beta", at: NOW - 20_000, messageId: "m3", requestId: "r3", input: 100, output: 0 })}\n`);
+    const restarted = new OutsideUsageCache(cacheFile, () => NOW);
+    await restarted.refresh(roots);
+    expect(totals(restarted.snapshot())["c-1"]).toBe(117);
+  });
+
+  it("reads a log written anew from its start", async () => {
+    const { roots, cacheFile, session } = await fixture();
+    const cache = new OutsideUsageCache(cacheFile, () => NOW);
+    await cache.refresh(roots);
+    await writeFile(session, [
+      claudeLine({ sessionId: "c-1", cwd: "/work/beta", at: NOW - 60_000, messageId: "n1", requestId: "q1", input: 50, output: 5 }),
+      claudeLine({ sessionId: "c-1", cwd: "/work/beta", at: NOW - 50_000, messageId: "n2", requestId: "q2", input: 50, output: 5 }),
+    ].join("\n") + "\n");
+    await cache.refresh(roots);
+    expect(totals(cache.snapshot())["c-1"]).toBe(112);
+  });
+
+  it("counts a copy once the log it copied is gone", async () => {
+    const { roots, cacheFile, rollout } = await fixture();
+    const cache = new OutsideUsageCache(cacheFile, () => NOW);
+    await cache.refresh(roots);
+    await rm(rollout);
+    await cache.refresh(roots);
+    const scan = cache.snapshot();
+    expect(totals(scan).x1).toBe(44);
+    expect(scan.units.find(({ unit }) => unit.path.includes("archived"))?.unit.duplicates).toBe(0);
+  });
+
+  it("drops counters a later response record of a grown rollout covers", async () => {
+    const { roots, cacheFile, rollout } = await fixture();
+    await writeFile(rollout, [
+      codexMeta("x1", "/work/alpha", NOW - 3_600_000),
+      codexTokenCount(NOW - 3_000_000, { input: 10, output: 1 }, { input: 10, output: 1 }),
+      codexTokenCount(NOW - 1_000_000, { input: 20, output: 2 }, { input: 30, output: 3 }),
+    ].join("\n") + "\n");
+    const cache = new OutsideUsageCache(cacheFile, () => NOW);
+    await cache.refresh(roots.slice(0, 1));
+    expect(totals(cache.snapshot()).x1).toBe(33);
+    // A newer CLI took over: its record is dated before the last counter counted.
+    await appendFile(rollout, `${codexResponse(NOW - 2_000_000, "resp-9", { input: 40, output: 4 })}\n`);
+    await cache.refresh(roots.slice(0, 1));
+    expect(totals(cache.snapshot()).x1).toBe(11 + 44);
+  });
+
+  it("reads an OpenCode database past its final rows, and the recent ones again", async () => {
+    if (!await openSqlite()) return;
+    const { root, cacheFile } = await fixture();
+    const home = join(root, "opencode-data");
+    await mkdir(home, { recursive: true });
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(join(home, "opencode.db"));
+    db.exec("CREATE TABLE session (id text PRIMARY KEY, directory text NOT NULL, parent_id text)");
+    db.exec("CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL)");
+    db.prepare("INSERT INTO session VALUES ('ses-a', '/work/gamma', NULL)").run();
+    const data = (input: number, at: number) => JSON.stringify({ role: "assistant", providerID: "anthropic", modelID: "claude-haiku-4-5", tokens: { input, output: 0 }, time: { created: at } });
+    const insert = db.prepare("INSERT INTO message VALUES (?, 'ses-a', ?, ?, ?)");
+    const old = NOW - 3 * 86_400_000;
+    insert.run("m-old", old, old, data(100, old));
+    insert.run("m-new", NOW - 60_000, NOW - 60_000, data(1, NOW - 60_000));
+    const roots: OutsideRoot[] = [{ format: "opencode", backend: "opencode", label: "OpenCode", path: home }];
+    const cache = new OutsideUsageCache(cacheFile, () => NOW);
+    await cache.refresh(roots);
+    expect(totals(cache.snapshot())["ses-a"]).toBe(101);
+    // A final row is not read again; a recent one is, with what it holds now; a new one is added.
+    db.prepare("UPDATE message SET data = ? WHERE id = 'm-old'").run(data(900, old));
+    db.prepare("UPDATE message SET data = ? WHERE id = 'm-new'").run(data(5, NOW - 60_000));
+    insert.run("m-next", NOW - 30_000, NOW - 30_000, data(10, NOW - 30_000));
+    const restarted = new OutsideUsageCache(cacheFile, () => NOW);
+    await restarted.refresh(roots);
+    expect(totals(restarted.snapshot())["ses-a"]).toBe(115);
+    // Rows numbered anew (the final row's number now holds another): everything is read again.
+    db.exec("DELETE FROM message WHERE id = 'm-old'");
+    insert.run("m-late", NOW - 10_000, NOW - 10_000, data(1000, NOW - 10_000));
+    db.exec("VACUUM");
+    db.close();
+    await restarted.refresh(roots);
+    expect(totals(restarted.snapshot())["ses-a"]).toBe(1015);
   });
 
   it("keeps counts and digests, never a word of the conversation or a raw id", async () => {

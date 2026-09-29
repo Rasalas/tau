@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summarize, type UsageScan } from "./aggregate.js";
-import type { OutsideRoot, OutsideUnit } from "./outside-cache.js";
-import type { OutsideRecord, OutsideSession } from "./outside-logs.js";
+import type { OutsideBucket, OutsideRoot, OutsideSessionUsage, OutsideUnit } from "./outside-cache.js";
 import { BACKEND_USAGE_SOURCES, OUTSIDE_LOG_SOURCES } from "./protocol.js";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -11,12 +10,12 @@ const codexRoot: OutsideRoot = { format: "codex", backend: "codex", label: "Code
 const archiveRoot: OutsideRoot = { format: "codex", backend: "codex", label: "Codex", path: "/codex-home/archived_sessions", billing: "subscription" };
 const claudeRoot: OutsideRoot = { format: "agent-sdk", backend: "claude-code", label: "Claude Code", path: "/claude-home/projects" };
 
-function record(key: string, at: number, total = 10): OutsideRecord {
-  return { key, at, model: "gpt-5.6-luna", provider: "openai", input: total, output: 0, cacheRead: 0, cacheWrite: 0, total, cost: 0 };
+function bucket(at: number, total = 10): OutsideBucket {
+  return { at, model: "gpt-5.6-luna", provider: "openai", requests: 1, input: total, output: 0, cacheRead: 0, cacheWrite: 0, total, cost: 0 };
 }
 
-function unit(path: string, sessions: OutsideSession[]): OutsideUnit {
-  return { path, format: path.includes("claude") ? "agent-sdk" : "codex", size: 1, mtimeMs: 1, sessions, skipped: 0 };
+function unit(path: string, sessions: OutsideSessionUsage[], duplicates = 0): OutsideUnit {
+  return { path, format: path.includes("claude") ? "agent-sdk" : "codex", size: 1, mtimeMs: 1, sessions, skipped: 0, duplicates, keys: new Float64Array() };
 }
 
 const usage = { inputTokens: 5, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 5, costUsd: 0, turns: 1 };
@@ -48,12 +47,12 @@ function scan(): UsageScan {
           { root: claudeRoot, found: false, files: 0, failed: 0 },
         ],
         units: [
-          { root: codexRoot, unit: unit("/codex-home/sessions/a.jsonl", [{ sessionId: "s-tau", cwd: "/work/alpha", records: [record("t1", NOW - 1_000)] }]) },
-          { root: codexRoot, unit: unit("/codex-home/sessions/b.jsonl", [{ sessionId: "s-child", parentId: "s-tau", cwd: "/work/alpha", records: [record("k1", NOW - 1_000)] }]) },
-          { root: codexRoot, unit: unit("/codex-home/sessions/c.jsonl", [{ sessionId: "s-imported", cwd: "/elsewhere", records: [record("i1", NOW - 2 * DAY, 7)] }]) },
-          { root: codexRoot, unit: unit("/codex-home/sessions/d.jsonl", [{ sessionId: "s-cli", cwd: "/work/side", records: [record("o1", NOW - 3 * DAY, 20), record("o2", NOW - 1_000, 30)] }]) },
-          // The same session again after the CLI archived it.
-          { root: archiveRoot, unit: unit("/codex-home/archived_sessions/d.jsonl", [{ sessionId: "s-cli", cwd: "/work/side", records: [record("o1", NOW - 3 * DAY, 20), record("o2", NOW - 1_000, 30)] }]) },
+          { root: codexRoot, unit: unit("/codex-home/sessions/a.jsonl", [{ sessionId: "s-tau", cwd: "/work/alpha", buckets: [bucket(NOW - 1_000)] }]) },
+          { root: codexRoot, unit: unit("/codex-home/sessions/b.jsonl", [{ sessionId: "s-child", parentId: "s-tau", cwd: "/work/alpha", buckets: [bucket(NOW - 1_000)] }]) },
+          { root: codexRoot, unit: unit("/codex-home/sessions/c.jsonl", [{ sessionId: "s-imported", cwd: "/elsewhere", buckets: [bucket(NOW - 2 * DAY, 7)] }]) },
+          { root: codexRoot, unit: unit("/codex-home/sessions/d.jsonl", [{ sessionId: "s-cli", cwd: "/work/side", buckets: [bucket(NOW - 3 * DAY, 20), bucket(NOW - 1_000, 30)] }]) },
+          // The same session again after the CLI archived it: the cache counted its responses in the first copy.
+          { root: archiveRoot, unit: unit("/codex-home/archived_sessions/d.jsonl", [], 2) },
         ],
       },
     },
