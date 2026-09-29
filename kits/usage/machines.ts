@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { PlatformEnvironments } from "tau";
-import type { UsageEntry, UsageLimitsSummary, UsageSummary } from "./protocol.js";
+import { errorMessage, type PlatformEnvironments } from "tau";
+import { USAGE_EXTENSION_ID, type UsageEntry, type UsageLimitsSummary, type UsageSummary } from "./protocol.js";
 
 /** Another machine this window reaches, by its host id. */
 export interface UsageMachine {
@@ -67,4 +67,17 @@ export function mergeLimits(local: UsageLimitsSummary | undefined, reads: readon
     ],
     history: [...(local?.history ?? []), ...remote.flatMap((read) => (read.limits!.history ?? []).map((sample) => ({ ...sample, account: tag(read)(sample.account) })))],
   };
+}
+
+/** A Usage command on each other machine; one that fails says why and keeps the rest. */
+export async function readMachines(environments: PlatformEnvironments | undefined, machines: readonly UsageMachine[], command: string, input: unknown): Promise<Array<{ machine: UsageMachine; answer?: unknown; error?: string }>> {
+  const read = environments?.readExtension;
+  if (!read || machines.length === 0) return [];
+  return Promise.all(machines.map(async (machine) => {
+    try {
+      return { machine, answer: await read(machine.id, USAGE_EXTENSION_ID, command, input) };
+    } catch (failure) {
+      return { machine, error: errorMessage(failure) };
+    }
+  }));
 }

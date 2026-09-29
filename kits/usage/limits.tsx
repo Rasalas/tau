@@ -1,8 +1,9 @@
-import type { CSSProperties } from "react";
+import { useSyncExternalStore, type CSSProperties } from "react";
 import { CircleAlert, RotateCw, TriangleAlert } from "lucide-react";
 import { formatCost, ProviderIconStack, tooltipProps } from "tau";
 import { groupAccounts, memberCosts, memberName, type LimitGroup, type MemberCost } from "./accounts.js";
 import { PI_BACKEND, type UsageEntry, type UsageLimitAccount, type UsageLimitSample, type UsageLimitWindow, type UsageLimitsSummary } from "./protocol.js";
+import { choiceKey, orderWindows, shownByDefault, type JuicebarChoices } from "./juicebars.js";
 import { isFresh, quotaState, steadyPercent, type QuotaState } from "./quota.js";
 import { toneOf } from "./tones.js";
 import { formatWait, resetsIn } from "./view-model.js";
@@ -13,7 +14,7 @@ function clockTime(at: number, now: number): string {
 }
 
 /** What a state says beside the reset, and why on hover; nothing while a window is on its way. Texts as Juicebar's. */
-function stateText(state: QuotaState, window: UsageLimitWindow, now: number): { label: string; hint: string; level: "fail" | "warn" | "note" } | undefined {
+export function stateText(state: QuotaState, window: UsageLimitWindow, now: number): { label: string; hint: string; level: "fail" | "warn" | "note" } | undefined {
   switch (state.kind) {
     case "exhausted": return { label: "Limit reached", hint: "The reported quota is used up. Wait for the reset.", level: "fail" };
     case "forecast": return { label: `Limit in ${formatWait(state.at - now)}`, hint: `At your recently measured pace the quota runs out around ${clockTime(state.at, now)}, before the reset. The estimate changes with your usage.`, level: "warn" };
@@ -126,12 +127,28 @@ function SharedCost({ costs, period }: { costs: MemberCost[]; period: string }) 
   );
 }
 
+/** Which of the account's windows the sidebar's foot draws as juicebars; chosen on this device. */
+function SidebarChoice({ group, choices }: { group: LimitGroup; choices: JuicebarChoices }) {
+  const chosen = useSyncExternalStore(choices.subscribe, choices.getSnapshot);
+  const windows = group.shown.windows;
+  return (
+    <div className="usage-show-in-sidebar" role="group" aria-label="Show in sidebar">
+      <span>Show in sidebar</span>
+      {orderWindows(windows).map((window) => {
+        const key = choiceKey(group, window);
+        const on = chosen[key] ?? shownByDefault(window, windows);
+        return <button key={window.id} type="button" aria-pressed={on} onClick={() => choices.set(key, !on)}>{window.label}</button>;
+      })}
+    </div>
+  );
+}
+
 /**
  * One account: who it is and its plan, then each window, then where the
  * reading came from. A shared account names its provider and shows the
  * runtimes signed in to it as marks.
  */
-function AccountCard({ group, costs, period, history, failed, now }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number }) {
+function AccountCard({ group, costs, period, history, failed, now, choices }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined }) {
   const shown: UsageLimitAccount = failed ? { ...group.shown, unavailable: { reason: "failed", message: failed } } : group.shown;
   const shared = group.members.length > 1;
   const fresh = isFresh(shown, now);
@@ -156,6 +173,7 @@ function AccountCard({ group, costs, period, history, failed, now }: { group: Li
       </header>
       {shown.windows.map((window) => <WindowLine key={window.id} account={shown} window={window} history={history} now={now} />)}
       {shared && costs ? <SharedCost costs={costs} period={period} /> : null}
+      {choices ? <SidebarChoice group={group} choices={choices} /> : null}
       <footer className="usage-account-updated">{updated(shown.checkedAt, now)}{shared ? ` via ${memberName(group.shown)}` : ""}</footer>
     </section>
   );
@@ -166,13 +184,14 @@ function AccountCard({ group, costs, period, history, failed, now }: { group: Li
  * left first; accounts without windows say why in one line. Runtimes
  * signed in to one account show as one, with their costs summed.
  */
-export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", onRetry }: {
+export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", choices, onRetry }: {
   limits: UsageLimitsSummary | undefined;
   error: string | undefined;
   now: number;
   entries?: readonly UsageEntry[];
   fromDay?: number;
   period?: string;
+  choices?: JuicebarChoices;
   onRetry?(): void;
 }) {
   if (!limits) {
@@ -195,7 +214,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
       ) : (
         <>
           <div className="usage-accounts">
-            {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} />)}
+            {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} choices={choices} />)}
           </div>
           <p className="usage-pace-legend"><i aria-hidden="true" />Target: what would be left now at an even pace over the window.</p>
         </>
