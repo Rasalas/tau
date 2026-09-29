@@ -111,3 +111,16 @@ describe("AppPageScreen's head", () => {
     expect(rule(settings, ".settings-page-head ol")).toMatch(/list-style: none/u);
   });
 });
+
+describe("a page still on its way", () => {
+  it("says it is loading while the packages load, and that it is gone once they have", () => {
+    const registry = new ExtensionRegistry();
+    registry.setLoadingExtensions(true);
+    const store = new AppPageStore();
+    store.open("later");
+    render(<AppPageScreen registry={registry} store={store} actions={{} as WorkbenchActions} stacked />);
+    expect(screen.getByRole("status").textContent).toBe("Loading …");
+    act(() => registry.setLoadingExtensions(false));
+    expect(screen.getByText("This page is gone; its extension may have been turned off.")).toBeTruthy();
+  });
+});
