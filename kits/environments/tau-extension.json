@@ -5,7 +5,7 @@
   "icon": "Network",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.28.0"
+    "api": "^1.30.0"
   },
   "permissions": [
     "machines"

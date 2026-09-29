@@ -4,7 +4,7 @@
   "description": "Installs, updates and removes extension packages from npm, Git or a folder.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.18.0"
+    "api": "^1.30.0"
   },
   "permissions": [
     "packages"
