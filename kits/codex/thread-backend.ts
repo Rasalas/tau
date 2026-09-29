@@ -31,7 +31,6 @@ import {
   type UsageTally,
   type UsageTurn,
   appendUsageTurn,
-  legacyUsageTurn,
   mergeTallies,
   unpricedUsage,
 } from "tau/host-extension";
@@ -40,7 +39,7 @@ import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, po
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexConfiguredModel } from "./config.js";
-import type { CodexSessionStore, CodexStoredModel } from "./session-store.js";
+import { usageTurnsOf, type CodexSessionStore, type CodexStoredModel } from "./session-store.js";
 import { codexToolsWrite } from "./tools.js";
 import { PLAN_MODE } from "./events.js";
 
@@ -278,8 +277,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
-    this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
-      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: MODEL_PROVIDER, ...(record.model ?? record.observedModel ? { model: record.model ?? record.observedModel } : {}) })] : []);
+    this.usageTurns = usageTurnsOf(record);
     this.chosenModel = record.model;
     this.chosenEffort = record.effort;
     this.mode = record.mode ?? DEFAULT_MODE;

@@ -318,4 +318,17 @@ describe("the model a thread ran on", () => {
     await store.put("thread", JSON.parse(JSON.stringify(taken)));
     expect(await new ClaudeRuntimeSessionStore({ filePath }).get("thread")).toMatchObject({ claudeSessionId: record.claudeSessionId, cwd: "/repo" });
   });
+
+  it("answers what a thread was billed for, and a new turn counts at once", async () => {
+    const store = new ClaudeRuntimeSessionStore({ filePath: (await temporaryStore()).filePath, now: () => 10 });
+    const turn = (at: number) => ({ provider: "anthropic", model: "claude-haiku-4-5", inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.5, turns: 1, at });
+    const total = { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.5, turns: 1 };
+    await store.ensure("tau-1", "/repo");
+    await store.recordUsage("tau-1", "/repo", total, [turn(1)]);
+    expect(store.talliesOf("tau-1")).toEqual([{ provider: "anthropic", model: "claude-haiku-4-5", ...total }]);
+    store.talliesOf("tau-1")[0]!.costUsd = 99;
+    await store.recordUsage("tau-1", "/repo", total, [turn(2)]);
+    expect(store.talliesOf("tau-1")).toEqual([{ provider: "anthropic", model: "claude-haiku-4-5", ...total, inputTokens: 20, outputTokens: 4, totalTokens: 24, costUsd: 1, turns: 2 }]);
+    expect(store.talliesOf("missing")).toEqual([]);
+  });
 });

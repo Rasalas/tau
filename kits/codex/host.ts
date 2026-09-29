@@ -354,13 +354,17 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return models;
       };
 
-      const record = (entry: Awaited<ReturnType<CodexSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
-        threadId: entry.tauThreadId,
-        cwd: entry.cwd,
-        ...(entry.title ? { title: entry.title } : {}),
-        updatedAt: entry.updatedAt,
-        messages: entry.messages,
-      });
+      const record = (entry: Awaited<ReturnType<CodexSessionStore["list"]>>[number]): HostBackendThreadRecord => {
+        const usage = store.talliesOf(entry.tauThreadId);
+        return {
+          threadId: entry.tauThreadId,
+          cwd: entry.cwd,
+          ...(entry.title ? { title: entry.title } : {}),
+          updatedAt: entry.updatedAt,
+          messages: entry.messages,
+          ...(usage.length ? { usage } : {}),
+        };
+      };
 
       const versionOf = async (id: string): Promise<RuntimeToolVersion | undefined> => {
         const { path, version } = await cli(id);

@@ -515,4 +515,23 @@ describe("Codex host half", () => {
       await expect(registry.invoke("tau.codex", "sign-in", { method: "chatgpt" })).rejects.toThrow(/Install Codex first/u);
     });
   });
+
+  it("lists what each thread cost from its store, without opening it", async () => {
+    const { provider, root } = await harness();
+    const turn = (model: string, at: number) => ({ provider: "openai", model, billing: "subscription", inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 4_000, cacheWriteTokens: 0, totalTokens: 5_100, costUsd: 0, turns: 1, at });
+    const total = { inputTokens: 2_000, outputTokens: 200, cacheReadTokens: 8_000, cacheWriteTokens: 0, totalTokens: 10_200, costUsd: 0, turns: 2 };
+    const thread = (tauThreadId: string, extra: Record<string, unknown>) => ({ tauThreadId, cwd: "/repo", updatedAt: 9, messages: [{ role: "user", text: "Say hi.", timestamp: 1 }], ...extra });
+    // A synthetic store: never the user's own.
+    await mkdir(join(root, "agent", "tau"), { recursive: true });
+    await writeFile(join(root, "agent", "tau", "codex-runtime-sessions.json"), JSON.stringify({ version: 1, models: [], sessions: [
+      thread("turns", { codexThreadId: "codex-1", usage: total, usageTurns: [turn("gpt-5.6-luna", 2), turn("gpt-5.6-luna", 3)] }),
+      thread("legacy", { codexThreadId: "codex-2", usage: total, model: "gpt-5.6-sol" }),
+      thread("unused", {}),
+    ] }));
+    const listed = new Map((await provider.listThreads()).map((record) => [record.threadId, record.usage]));
+    expect(listed.get("turns")).toEqual([{ provider: "openai", model: "gpt-5.6-luna", billing: "subscription", ...total }]);
+    expect(listed.get("legacy")).toEqual([{ provider: "openai", model: "gpt-5.6-sol", ...total }]);
+    expect(listed.has("unused")).toBe(true);
+    expect(listed.get("unused")).toBeUndefined();
+  });
 });
