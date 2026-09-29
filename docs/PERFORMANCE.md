@@ -1178,6 +1178,32 @@ On the merged tree, with the layer in its own chunk and a load average of 15 to 
 
 With no chip, mention or selected skill in the text there is no mirror, and typing costs what it did before. With chips, the mirror is one block per line, and a line re-renders only when what it draws changed. The first version drew the whole mirror as one block, and the long draft measured 3.3 / 5.6 / 9.9 ms. What remains is the second layout of the changed line and the token scan, which only runs when the text contains a chip mark or an `@`. Both scenarios stay well inside the renderer's 24 ms commit budget, and a long frame did not occur on either side.
 
+### Usage on a phone, and the logs it reads (2026-09-29)
+
+On a Pixel 9a the Usage entry reached the bottom navigation long after the app opened, and a tap on it took another 4 s or so; on a Mac with several GB of agent CLI logs the Usage worker ran out of its 256 MB heap and stayed inactive (ticket K92). Measured with the web client in a headless Chromium as an Android phone (`cdp:mobile --device android`, CPU throttled 4×), paired through a TCP proxy on loopback that holds the link to one of two profiles: "4G" (9 / 3 Mbit/s, 80 ms round trip) and "slow 4G" (1.6 / 0.75 Mbit/s, 150 ms). The host ran an isolated instance with 900 Pi sessions (36 MB), about 390,000 responses in Codex rollouts, Agent SDK project files and an OpenCode database (426 MB), and a Codex app server stub that starts 1.5 s late, as a real one does. Times from the page load and from the tap, three runs each, with a warm HTTP cache:
+
+| phone | before | after |
+| --- | ---: | ---: |
+| slow 4G: Usage in the navigation | 6,336–6,803 ms | 525–558 ms |
+| slow 4G: tap on it right away → page with figures | (not there to tap) | 439–502 ms |
+| slow 4G: tap once loaded → figures | 677–755 ms | 167–250 ms (last reading), 579–610 ms (fresh) |
+| 4G: Usage in the navigation | 1,707–1,902 ms | 317–357 ms |
+| 4G: first tap → figures | 424–652 ms | 465–659 ms (last reading), 693–1,071 ms (fresh, kits still arriving) |
+| 4G: second tap → figures | 290–333 ms | 181–190 ms (last reading), 291–300 ms (fresh) |
+
+The desktop window (same host, no throttling): the sidebar foot's figure 214–375 ms after a reload (before 293–412 ms); a first open draws the page, the figures and the limits at 336–350 ms, fresh at 363–406 ms (before: figures 355–376 ms, limits up to 1,938 ms while the Codex limits were read); a second open 44–70 ms, fresh 82–109 ms (before 65–69 ms).
+
+What took the time, and what changed:
+
+- **Every start sent every package's code.** A browser or the phone app loads the kits' desktop halves inline over the socket, 4.4 MB for the shipped kits, and a page appears in the navigation only once its package is activated. The client now keeps the bundles in IndexedDB by a digest of their code and stylesheet and names the digests it holds; the host names each bundle's digest and leaves out the code of those held (`desktop-extensions`' fourth parameter, `DesktopExtensionBundle.hash` and `cached`; `src/web/bundle-cache.ts`). A start that changed nothing gets names instead of code.
+- **The navigation waited for the packages.** It now remembers the pages it drew, with the SVG of each icon drawn back as a CSS mask, and shows them while `ExtensionRegistry.isLoadingExtensions()` is true; a page opened that way says "Loading…" until its package registers it (`PhoneNav.tsx`, `AppPageScreen.tsx`).
+- **The page waited for the host.** Usage keeps its last summary and limits in memory and in the client's storage, per machine it shows (`kits/usage/last-state.ts`), and draws them at once; the fresh answers replace them section by section. This host's figures no longer wait for other machines' answers, and after a first read of the CLIs' logs a summary no longer waits up to 1.5 s for new logs.
+- **The worker ran out of memory.** It held every response of every log as an object, wrote and read its caches as one JSON string, read a changed file from its first byte and a changed OpenCode database whole. It now sums responses per session, model and quarter hour as it reads (a quarter hour keeps every time zone's midnight), recognises copies by 53-bit hashes in a typed-array set outside the JS heap, reads a grown log on from its last complete line, reads OpenCode past its final rows with SQLite extracting only the fields a count needs, and streams both caches as JSONL. On a 5 GB fixture of 4.66 million responses the previous code runs out of memory at 64 MB and at 256 MB; the new one peaks at 48 MB of heap, 27 s for a first read and about 1 s from its cache after a restart. A worker that did fail starts again on the next call to one of its commands (backoff from 10 s to 5 minutes when it keeps failing).
+
+What guards it, in `npm test`: `kits/usage/scan-memory.test.ts` reads 400,000 responses (250 MB of logs, an OpenCode database with oversized rows, Pi sessions with forks) in a worker with a 64 MB heap and checks the totals; `PhoneNav.test.tsx` draws the remembered pages while the registry loads; `kits/usage/desktop.test.tsx` draws the last reading before a host that never answers, and this host's figures before a machine that never answers; `kits/usage/host.test.ts` answers a summary while a large new log is still being read; `src/web/bundle-cache.test.ts` and `host-methods-bundles.test.ts` check that held bundles travel as names. None of them measures time.
+
+The desktop build's total gzip is 499,955 of 500,000 bytes after this (initial JavaScript 792,780 of 800,000); the browser client's 504,872 of 510,000.
+
 ## T3 Code comparison
 
 `scripts/compare/` runs Tau and T3 Code side by side on the same machine, with the same data and the same agent turn (tier A of the benchmark plan in `.scratch/t3-parity-2/gap-analysis.md` §3.4). No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer.

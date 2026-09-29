@@ -1015,7 +1015,11 @@ takes the key. On a phone (`compact` without the split list)
 the page is a screen of its own, addressed as `?page=<id>`: a link opens it.
 The first three pages that claim `compact` are destinations of the phone's
 bottom navigation, beside Threads and Settings, so a page for a phone keeps its
-label short. There the page is a main page without a back button; a view it
+label short. The navigation remembers them, label and drawn icon, so on the next
+start they are there before the packages load; one opened then shows "Loading…"
+until its package registers it (`ExtensionRegistry.isLoadingExtensions()`). A
+package whose page draws a host's answer does well to draw the last one it had
+at once and replace it when the fresh one arrives, as Usage does. There the page is a main page without a back button; a view it
 steps into hides the navigation, gets Back and a history entry, and the
 system's back gesture steps out of it, then out of the page to the thread list.
 
