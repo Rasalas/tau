@@ -50,9 +50,8 @@ npm run lint && npm run typecheck && npm test
 
 ## Licence
 
-Tau is licensed under the [Apache License 2.0](LICENSE). By contributing, you
-agree that your contribution is licensed under the same terms (section 5 of the
-licence). Don't add code copied from another project unless its licence allows
+Tau is licensed under the [MIT License](LICENSE). By contributing, you agree
+that your contribution is licensed under the same terms. Don't add code copied from another project unless its licence allows
 it; if you do, keep its copyright notice and say where it came from in the pull
 request.
 
