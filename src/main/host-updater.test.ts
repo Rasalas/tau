@@ -89,7 +89,16 @@ describe("HostUpdater", () => {
     const { installer, installed } = fakeInstaller();
     const { instance, restart, published, advance } = updater({ fetch: feed.fetch, installer });
     advance(120_000);
-    const status = await instance.check();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    let status: HostUpdateStatus;
+    try {
+      status = await instance.check();
+      // The answer goes out first; the host leaves a moment later.
+      expect(restart).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2_000);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(status.phase).toBe("installed");
     expect(status.latest).toBe("0.7.14");
     expect(installed).toEqual([expect.objectContaining({ version: "0.7.14", channel: "stable", sha512: feed.sha512 })]);

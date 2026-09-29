@@ -76,6 +76,8 @@ const DEFAULT_STARTUP_DELAY_MS = 2 * 60_000;
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60_000;
 const DEFAULT_QUIET_MS = 15 * 60_000;
 const SETTINGS_FILE = "settings.json";
+/** The answer to the install request goes out before the host leaves. */
+const LEAVE_DELAY_MS = 1_500;
 
 function message(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
@@ -396,10 +398,10 @@ export class HostUpdater {
       if (after === "restart" && this.options.restart) {
         this.set("installed", `Tau ${staged.version} is installed; the host restarts into it.`);
         this.options.log.info("host-update.restart", staged.version);
-        this.options.restart();
+        setTimeout(() => this.options.restart!(), LEAVE_DELAY_MS);
       } else if (after === "exit" && this.options.exit) {
         this.set("installed", `Tau ${staged.version} installs now; the host starts again after it.`);
-        this.options.exit();
+        setTimeout(() => this.options.exit!(), LEAVE_DELAY_MS);
       } else {
         this.set("installed", `Tau ${staged.version} is installed; it runs from the next start.`);
       }

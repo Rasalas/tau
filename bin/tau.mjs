@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseMachinesArgs, runMachines } from "./tau-machines.mjs";
+import { UPDATE_WAIT_MS, describeUpdate, parseMachinesArgs, runMachines } from "./tau-machines.mjs";
 
 /** `configureAppIdentity` in `src/main/single-instance.ts` names the folder the same way. */
 export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
@@ -23,8 +23,10 @@ export const SERVICE_ACTIONS = ["install", "status", "uninstall", "restart"];
 export const USAGE = `Usage: tau app [path]
        tau service <install|status|uninstall|restart>
        tau service install --display | --no-display
+       tau update [--check | --status] [--json]
        tau machines add --ssh <target> [--name <name>] [--agents] [--access full|read-only] [--json]
        tau machines list [--json]
+       tau machines update <name or id> [--check | --status] [--json]
        tau machines remove <name or id> [--json]
 
 tau app opens a folder in the running Tau with a new thread, and brings its
@@ -38,6 +40,13 @@ starts at login and keeps threads running without a window. On Linux,
 --display gives it an invisible display (Xvfb): agents' shells get its
 DISPLAY, and a Tau window starts there when a thread needs the preview.
 --no-display removes it.
+
+tau update updates Tau on this machine through its running host: it
+downloads the release, checks it against the release's checksum, and
+installs it as soon as no turn runs; a service host restarts into it.
+--check only looks for a newer release, --status only tells where it stands.
+tau machines update does the same on another machine, over this computer's
+window's own connection there.
 
 tau machines add pairs this computer with a machine you reach over ssh:
 Tau's command line there allows it with that machine's own host token, so
@@ -59,11 +68,30 @@ export function parseArgs(argv) {
     return { command, action, flags };
   }
   if (command === "machines") return { command, machines: parseMachinesArgs(rest) };
+  if (command === "update") return { command, update: parseUpdateFlags(rest, "tau update") };
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
   const paths = rest.filter((arg) => arg !== "--");
   if (paths.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
   if (paths.length > 1) throw new Error("tau app takes one folder.");
   return { command, path: paths[0] };
+}
+
+/** `--check`, `--status` and `--json`; install is the default. */
+export function parseUpdateFlags(args, name) {
+  const flags = { action: "install", json: false };
+  for (const arg of args.filter((entry) => entry !== "--")) {
+    if (arg === "--json") flags.json = true;
+    else if ((arg === "--check" || arg === "--status") && flags.action === "install") flags.action = arg.slice(2);
+    else throw new Error(`${name} takes --check or --status, and --json.`);
+  }
+  return flags;
+}
+
+const UPDATE_METHODS = { status: "update-status", check: "update-check", install: "update-install" };
+export function reportUpdate(status, { name, json }, out) {
+  if (json) out(JSON.stringify(name ? { name, update: status } : status));
+  else out(`${name ? `${name}: ` : ""}Tau ${status.version}. ${describeUpdate(status)}`);
+  return status.phase === "failed" || status.phase === "unsupported" ? 1 : 0;
 }
 
 /** Electron's `appData` joined with the folder the app names itself. */
@@ -264,6 +292,17 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     // The binary runs as Node; the userData is named, so the unit serves the same instance the app does.
     const childEnv = { ...env, ELECTRON_RUN_AS_NODE: "1", TAU_USER_DATA: userDataDir(env) };
     return (io.runService ?? runServiceCli)(launcher, options.action, childEnv, options.flags);
+  }
+  if (options.command === "update") {
+    const host = (io.readRunningHost ?? readRunningHost)(userDataDir(env));
+    if (!host) throw new Error("Tau is not running on this machine. Start it (or run tau service install), then try again.");
+    const session = await (io.openSession ?? ((target) => openHostSession(target, io.WebSocket)))(host);
+    try {
+      const status = await session.request(UPDATE_METHODS[options.update.action], [], options.update.action === "status" ? TIMEOUT_MS : UPDATE_WAIT_MS);
+      return reportUpdate(status, { json: options.update.json }, out);
+    } finally {
+      session.close();
+    }
   }
   if (options.command === "machines") {
     const userData = userDataDir(env);

@@ -1,9 +1,9 @@
 #!/bin/sh
-# /usr/bin/tau of the .deb: `tau app …`, `tau service …` and `tau machines …`
+# /usr/bin/tau of the .deb: `tau app …`, `tau service …`, `tau machines …` and `tau update`
 # run Tau's command line on Tau's own binary as Node; anything else starts Tau.
 here="$(dirname "$(readlink -f "$0")")"
 case "$1" in
-  app|service|machines|help|-h|--help)
+  app|service|machines|update|help|-h|--help)
     ELECTRON_RUN_AS_NODE=1 exec "$here/../tau" "$here/../resources/app.asar.unpacked/bin/tau.mjs" "$@" ;;
 esac
 unset ELECTRON_RUN_AS_NODE
