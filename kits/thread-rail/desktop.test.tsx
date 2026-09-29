@@ -6,6 +6,7 @@ import { createKitHarness, setHostClient, ThreadStore, ThreadStoreContext, Workb
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import threadRailExtension from "./desktop.js";
+import { ToastStore } from "../../src/workbench/toast-store.js";
 import {
   META_EVENT,
   SIBLINGS_SERVICE,
@@ -261,6 +262,38 @@ describe("Thread Rail on the desktop", () => {
     act(() => { shown.at(-1)!.actions![0]!.run(); });
     expect(dismiss).toHaveBeenCalled();
     expect(organizer().sections([thread("a", 2), thread("b", 1)]).flatMap((section) => section.threads.map((entry) => entry.id))).toEqual(["a", "b"]);
+  });
+
+  it("hides the settle toast after two seconds but keeps keyboard undo for five", async () => {
+    const { registry, organizer, actions, current } = setup();
+    await flush();
+    vi.useFakeTimers();
+    const toasts = new ToastStore();
+    actions.toast = toasts.show;
+    const Layer = organizer().Layer!;
+    const view = render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    try {
+      organizer().sections([thread("a")]);
+      await act(async () => { organizer().runMenu(thread("a"), "settle", actions); });
+      expect(toasts.getToasts()).toMatchObject([{ title: "Settled 1 thread" }]);
+      await act(async () => { vi.advanceTimersByTime(1_999); });
+      expect(toasts.getToasts()).toHaveLength(1);
+      await act(async () => { vi.advanceTimersByTime(1); });
+      expect(toasts.getToasts()).toEqual([]);
+      expect(current().threads.a?.settledAt).toBeDefined();
+
+      await act(async () => { vi.advanceTimersByTime(2_999); });
+      await act(async () => { await registry.executeCommand("thread.undo", actions); });
+      expect(current().threads.a?.settledAt).toBeUndefined();
+      expect(toasts.getToasts()).toEqual([]);
+    } finally {
+      view.unmount();
+      registry.deactivate(THREAD_RAIL_EXTENSION_ID);
+      toasts.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("opens a new thread in the project when the thread on screen is archived, and undo returns to it", async () => {
