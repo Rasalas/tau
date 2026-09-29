@@ -246,4 +246,7 @@ export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";
 export type * from "../shared/workspace-kit-types";
+// A thread's branch and pull requests, as Workspace Kit and Review Kit provide them (K112).
+export { THREAD_BRANCH_SERVICE, THREAD_PULL_REQUESTS_SERVICE } from "../shared/thread-git";
+export type { ThreadBranch, ThreadBranchService, ThreadPullRequest, ThreadPullRequestsService } from "../shared/thread-git";
 export type * from "../shared/contracts";

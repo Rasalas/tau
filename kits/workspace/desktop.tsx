@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Folder, GitBranch, GitCompare, HardDrive } from "lucide-react";
 import {
+  THREAD_BRANCH_SERVICE,
   errorMessage,
   hostHasLocalFiles,
   type DesktopExtension,
@@ -18,6 +19,7 @@ import {
   WORKSPACE_STORE_SERVICE,
 } from "./protocol.js";
 import { addProjectMenu } from "./add-project-menu.js";
+import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
 import { createDraftBranchPill, ThreadBranch } from "./branch-menu.js";
@@ -67,6 +69,8 @@ export const workspaceExtension: DesktopExtension = {
     const store = new WorkspaceStore(context.preferences, host);
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    // The branch on screen, for any package: a public contract, unlike the store.
+    context.provideService(THREAD_BRANCH_SERVICE, threadBranchService(store));
     // Pill, picker, phone list and Reviews draw the icon chosen in Project settings too.
     const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 

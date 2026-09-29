@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { GitCompare } from "lucide-react";
-import { getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
+import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type PanelProps, type RegionProps } from "tau";
+import { threadPullRequestsService } from "./pull-requests-service.js";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
 import { createReviewOverlay } from "./overlay.js";
@@ -74,6 +75,8 @@ export const reviewExtension: DesktopExtension = {
     const comments = new ReviewCommentStore(getClientStorage);
     const client = pullRequestClient(plugin.host);
     const links = new ThreadLinkRows(client);
+    // A thread's requests, for any package: a public contract, unlike the kit's protocol.
+    plugin.provideService(THREAD_PULL_REQUESTS_SERVICE, threadPullRequestsService(links));
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
     let workspaceStore: WorkspaceStoreApi | undefined;

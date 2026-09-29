@@ -133,7 +133,13 @@ export interface WorkbenchActions {
   stageTabs(): readonly StageTab[];
   /** The tab the stage shows, of any kind; what a `file-tab` command acts on. */
   activeStageTab?(): StageTab | undefined;
-  /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
+  /**
+   * Runs a shell command in the project of the thread on screen, the way Pi's
+   * `!` does; its output joins the thread when `includeInContext`. It asks no
+   * permission: permissions gate the host half, and a desktop half acts in the
+   * window with what the user can do there, so approving the package is what
+   * trusts it this far. A device paired Read only is refused it.
+   */
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
   /** The output the host held back from a tool of the thread on screen (`outputDeferred`). */
   toolOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
