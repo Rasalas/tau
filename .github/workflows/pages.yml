@@ -1,7 +1,8 @@
 name: Website
 
-# The landing page (site/) and the docs rendered from the repository's Markdown,
-# on GitHub Pages. Pages needs a public repository on the free plan.
+# The landing page (site/), the docs rendered from the repository's Markdown and
+# the signed model catalog (catalog/models.json), on GitHub Pages. Pages needs a
+# public repository on the free plan.
 on:
   push:
     branches: [main]
@@ -11,6 +12,7 @@ on:
       - 'CONTRIBUTING.md'
       - 'examples/review-button/**'
       - 'scripts/site/**'
+      - 'catalog/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -23,9 +25,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Installed hosts take models.json only with a signature by the release key;
+  # only this job holds it, and it runs no npm install.
+  catalog:
+    if: github.repository == 'Rasalas/tau'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: node scripts/site/build-model-catalog.mjs
+      - name: Sign with the release key
+        env:
+          TAU_RELEASE_SIGNING_KEY: ${{ secrets.TAU_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "${TAU_RELEASE_SIGNING_KEY:-}" ]; then
+            echo "::error::The secret TAU_RELEASE_SIGNING_KEY is not set; installed hosts would refuse an unsigned catalog."
+            exit 1
+          fi
+          node scripts/packaging/release-signing.mjs sign site/catalog/models.json
+          node scripts/packaging/release-signing.mjs check site/catalog/models.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: model-catalog
+          path: site/catalog
+          retention-days: 1
+
   build:
     # A fork's Pages would publish a copy of the site under its own name.
     if: github.repository == 'Rasalas/tau'
+    needs: catalog
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -39,6 +73,10 @@ jobs:
       # The docs build needs only the Markdown packages; no install scripts, no Electron download.
       - run: npm ci --ignore-scripts
       - run: npm run site:docs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: model-catalog
+          path: site/catalog
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:

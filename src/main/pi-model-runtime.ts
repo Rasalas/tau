@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Provider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { opencodeProvider } from "@earendil-works/pi-ai/providers/opencode";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
+import { catalogReleaseDate, withModelCatalog, withoutModelCatalog, type ModelCatalog } from "./model-catalog.js";
 import { openCodeCatalogSubset, releaseDateKey, releaseDates, withOpenCodeCatalog } from "./opencode-catalog.js";
 
 const MODEL_REFRESH_TIMEOUT_MS = 5_000;
@@ -19,9 +22,53 @@ let catalogCache: { fetchedAt: number; catalog: Promise<unknown> } | undefined;
 /** Release dates from the last catalog fetched, kept past the catalog's own subset. */
 let knownReleaseDates: ReadonlyMap<string, string> = new Map();
 
-/** When a model came out, where models.dev said so in the last catalog this process fetched. */
+/** Tau's signed catalog (`SignedModelCatalog`), added to every runtime this process builds. */
+let signedCatalog: ModelCatalog | undefined;
+/** Runtimes built so far, so a catalog that arrives later reaches them too. */
+const liveRuntimes = new Set<WeakRef<ModelRuntime>>();
+
+/** When a model came out, where models.dev or Tau's catalog said so. */
 export function modelReleaseDate(id: string): string | undefined {
-  return knownReleaseDates.get(releaseDateKey(id));
+  return knownReleaseDates.get(releaseDateKey(id)) ?? catalogReleaseDate(signedCatalog, id);
+}
+
+/** The providers `~/.pi/agent/models.json` shapes itself; the catalog leaves those to the user. */
+function configuredProviders(agentDir: string): Set<string> {
+  try {
+    const providers = (JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8")) as { providers?: unknown }).providers;
+    return new Set(providers && typeof providers === "object" ? Object.keys(providers) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Registers each provider the catalog adds to; answers them for the refresh that follows. */
+function applyModelCatalog(runtime: ModelRuntime, agentDir: string, catalog: ModelCatalog | undefined): Provider[] {
+  if (!catalog) return [];
+  const own = configuredProviders(agentDir);
+  const registered: Provider[] = [];
+  for (const id of new Set(catalog.models.map((entry) => entry.provider))) {
+    const current = runtime.getProvider(id);
+    if (!current || own.has(id)) continue;
+    const wrapped = withModelCatalog(withoutModelCatalog(current), catalog);
+    if (!wrapped) continue;
+    runtime.registerNativeProvider(wrapped);
+    registered.push(wrapped);
+  }
+  return registered;
+}
+
+/**
+ * Hands a newer signed catalog to every runtime built so far and to those to
+ * come. A runtime keeps the models it already has; the catalog only adds.
+ */
+export function useModelCatalog(catalog: ModelCatalog | undefined, agentDir: string): void {
+  signedCatalog = catalog;
+  for (const ref of [...liveRuntimes]) {
+    const runtime = ref.deref();
+    if (!runtime) liveRuntimes.delete(ref);
+    else applyModelCatalog(runtime, agentDir, catalog);
+  }
 }
 
 /** Forgets the fetched catalog; a test that serves another one calls this first. */
@@ -83,8 +130,10 @@ export async function createPiModelRuntime(agentDir: string, options: PiModelRun
     modelsPath: join(agentDir, "models.json"),
     refreshOnCreate: false,
   });
-  const providers = [opencodeGoProvider(), opencodeProvider()].map((provider) => withOpenCodeCatalog(provider, catalog));
-  for (const provider of providers) runtime.registerNativeProvider(provider);
+  const opencode = [opencodeGoProvider(), opencodeProvider()].map((provider) => withOpenCodeCatalog(provider, catalog));
+  for (const provider of opencode) runtime.registerNativeProvider(provider);
+  const providers = [...opencode, ...applyModelCatalog(runtime, agentDir, signedCatalog)];
+  liveRuntimes.add(new WeakRef(runtime));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.refreshTimeoutMs ?? MODEL_REFRESH_TIMEOUT_MS);
   try {

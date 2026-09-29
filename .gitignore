@@ -33,3 +33,5 @@ reports/*.json
 
 # The website's docs pages, rendered from the Markdown by `npm run site:docs`.
 site/docs/
+# The signed model catalog the Pages workflow builds from catalog/models.json.
+site/catalog/
