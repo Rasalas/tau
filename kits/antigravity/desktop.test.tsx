@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { AntigravityProviderCard, SEARCH_ROWS, antigravityExtension, signInLinks } from "./desktop.js";
+import { AntigravityProviderCard, AntigravitySignInLink, SEARCH_ROWS, antigravityExtension, signInLinks } from "./desktop.js";
 import { ANTIGRAVITY_INSTALL_EVENT, type AntigravityInstallEvent } from "./protocol.js";
 
 afterEach(() => { cleanup(); signInLinks.clear(); });
@@ -18,28 +18,28 @@ function hostStub(invoke: (command: string, input?: unknown) => Promise<unknown>
 }
 
 describe("Antigravity desktop extension", () => {
-  it("marks Antigravity threads in the status line and opens a reported sign-in link once", () => {
+  it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(antigravityExtension);
-    const [item] = registry.getStatusItems();
-    expect(item?.id).toBe("antigravity.runtime");
-    // Antigravity has no page of its own: it is a card on Providers.
+    expect(registry.getStatusItems()).toEqual([]);
     expect(registry.getSettingsPages().find((page) => page.id === "antigravity.settings")?.runtime).toBe("antigravity");
-    const Component = item!.Component;
-    const actions = { openExternal: vi.fn(), notify: vi.fn() } as never;
-    const { container, rerender } = render(<Component snapshot={{ backendKind: "antigravity", model: { provider: "google", id: "g", name: "Gemini 3.8 Flash (Low)" } } as HostSnapshot} actions={actions} />);
-    expect(screen.getByRole("img", { name: "Antigravity" })).toBeTruthy();
-    expect(container.querySelector(".status-item")?.getAttribute("title")).toMatch(/^Antigravity: /u);
-    expect(container.textContent).toBe("");
-    rerender(<Component snapshot={{ backendKind: "pi" } as HostSnapshot} actions={actions} />);
-    expect(screen.queryByRole("img", { name: "Antigravity" })).toBeNull();
+  });
 
+  it("opens a requested sign-in link once and offers it above the composer", () => {
+    const actions = { openExternal: vi.fn(), notify: vi.fn() };
+    const { container } = render(<AntigravitySignInLink snapshot={{} as HostSnapshot} actions={actions as never} />);
+    expect(container.textContent).toBe("");
     const url = "https://accounts.google.com/o/oauth2/v2/auth?state=x";
     act(() => signInLinks.report(url));
-    expect((actions as { openExternal: ReturnType<typeof vi.fn> }).openExternal).toHaveBeenCalledWith(url);
-    expect(screen.getByLabelText("Open the Google sign-in link")).toBeTruthy();
+    expect(actions.openExternal).toHaveBeenCalledOnce();
+    expect(actions.openExternal).toHaveBeenCalledWith(url);
+    fireEvent.click(screen.getByLabelText("Open the Google sign-in link"));
+    expect(actions.openExternal).toHaveBeenCalledTimes(2);
     act(() => signInLinks.clear());
-    expect(screen.queryByRole("img", { name: "Antigravity" })).toBeNull();
+    expect(container.textContent).toBe("");
+    const { registry } = createKitHarness();
+    registry.activate(antigravityExtension);
+    expect(registry.getRegions("composer-above").some((region) => region.id === "antigravity.sign-in")).toBe(true);
   });
 
   it("installs the runtime from the Settings page and shows the download's progress", async () => {

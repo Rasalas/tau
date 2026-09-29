@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { GrokInstances, GrokProviderCard, grokExtension, loginCommand, searchRows } from "./desktop.js";
 
@@ -21,16 +20,11 @@ function instances(extra: Record<string, unknown> = {}) {
 }
 
 describe("Grok desktop extension", () => {
-  it("marks Grok threads in the status line and fills a card on Providers", () => {
+  it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(grokExtension);
+    expect(registry.getStatusItems()).toEqual([]);
     expect(registry.getSettingsPages().find((page) => page.id === "grok.settings")?.runtime).toBe("grok");
-    const item = registry.getStatusItems().find((entry) => entry.id === "grok.runtime")!;
-    const { container, rerender } = render(<item.Component snapshot={{ backendKind: "grok@work", runtimeBackends: [{ kind: "grok@work", label: "Grok · Work" }] } as HostSnapshot} actions={{} as never} />);
-    expect(screen.getByRole("img", { name: "Grok · Work" }).getAttribute("title")).toMatch(/^Grok · Work: /u);
-    expect(container.textContent).toBe("");
-    rerender(<item.Component snapshot={{ backendKind: "codex" } as HostSnapshot} actions={{} as never} />);
-    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("reports the CLI and the login", async () => {

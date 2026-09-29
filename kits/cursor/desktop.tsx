@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { MousePointer2, SquareTerminal } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import {
   Button,
   DEFAULT_INSTANCE_ID,
@@ -47,14 +47,6 @@ const CardBadge = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default
 
 /** The CLI's own installer, typed into a terminal for the user to run. */
 const INSTALL_COMMAND = "curl https://cursor.com/install -fsS | bash";
-
-/** Marks the runtime behind a Cursor thread with an icon, its name in the tooltip; other threads show nothing. */
-export function CursorStatus({ snapshot }: RegionProps) {
-  if (!isRuntimeInstanceOf(snapshot?.backendKind, CURSOR_BACKEND_KIND)) return null;
-  const model = snapshot?.model;
-  const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Cursor";
-  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the Cursor CLI over ACP${model ? ` on ${model.id}` : ""}.`}><MousePointer2 size={12} /></span>;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -374,7 +366,6 @@ export const cursorExtension: DesktopExtension = {
     let runner: TerminalRunService | undefined;
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "cursor.runtime", align: "left", order: 44, profiles: ["desktop", "web"], Component: CursorStatus }),
       plugin.registerRegion({ id: "cursor.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "cursor.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

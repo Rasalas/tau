@@ -1,16 +1,14 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Sparkles, SquareTerminal } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import {
   Button,
   DEFAULT_INSTANCE_ID,
   SettingRow,
   SettingsState,
-  isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   useWorkbenchShell,
   type DesktopExtension,
   type HostExtensionClient,
-  type RegionProps,
   type RuntimeInstanceConfig,
   type SettingsPageProps,
   type WorkbenchActions,
@@ -32,14 +30,6 @@ const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ def
 const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
 const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
 const CardBadge = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
-
-/** Marks the runtime behind a Grok thread with an icon, its name in the tooltip; other threads show nothing. */
-export function GrokStatus({ snapshot }: RegionProps) {
-  if (!isRuntimeInstanceOf(snapshot?.backendKind, GROK_BACKEND_KIND)) return null;
-  const model = snapshot?.model;
-  const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Grok";
-  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the Grok CLI over ACP${model ? ` on ${model.id}` : ""}.`}><Sparkles size={12} /></span>;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -304,7 +294,6 @@ export const grokExtension: DesktopExtension = {
       dispose: registerCard({ id: DEFAULT_INSTANCE_ID, kind: GROK_BACKEND_KIND, label: "Grok", threads: 0 }, DEFAULT_ORDER),
     });
     const stops = [
-      plugin.registerStatusItem({ id: "grok.runtime", align: "left", order: 45, profiles: ["desktop", "web"], Component: GrokStatus }),
       plugin.host.onEvent(INSTANCES_EVENT, (payload) => { if (isReport(payload)) sync(payload); }),
     ];
     let active = true;

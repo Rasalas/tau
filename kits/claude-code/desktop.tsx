@@ -1,5 +1,4 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
-import { Bot } from "lucide-react";
 import {
   DEFAULT_INSTANCE_ID,
   SettingRow,
@@ -51,14 +50,6 @@ const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ def
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeProgramRows })));
 const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
-
-/** Marks the runtime behind a Claude thread with an icon, its name in the tooltip; Pi threads show nothing. */
-export function ClaudeCodeStatus({ snapshot }: RegionProps) {
-  if (!isRuntimeInstanceOf(snapshot?.backendKind, CLAUDE_CODE_BACKEND_KIND)) return null;
-  const model = snapshot?.model?.name;
-  const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "Claude Code";
-  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs the installed Claude Code CLI through the Agent SDK${model ? ` on ${model}` : ""}.`}><Bot size={12} /></span>;
-}
 
 interface ProbeReport {
   version?: string;
@@ -432,7 +423,6 @@ export const claudeCodeExtension: DesktopExtension = {
     const stops = [
       // Its tools carry their own names and arguments; without this the transcript names the arguments.
       plugin.registerToolRenderer("claude-code.tools", isAgentSdkTool, presentAgentSdkTool, { profiles: ["desktop", "web", "compact"] }),
-      plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web"], Component: ClaudeCodeStatus }),
       plugin.registerRegion({ id: "claude-code.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "claude-code.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

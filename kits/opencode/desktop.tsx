@@ -46,14 +46,6 @@ const ProgramRows = lazy(() => loadRuntimeInstanceUi().then((module) => ({ defau
 const CommandRow = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeCommandRow })));
 const CardBadge = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
 
-/** Marks the runtime behind an OpenCode thread with an icon, its name in the tooltip; other threads show nothing. */
-export function OpenCodeStatus({ snapshot }: RegionProps) {
-  if (!isRuntimeInstanceOf(snapshot?.backendKind, OPENCODE_BACKEND_KIND)) return null;
-  const model = snapshot?.model;
-  const label = snapshot?.runtimeBackends?.find((backend) => backend.kind === snapshot.backendKind)?.label ?? "OpenCode";
-  return <span className="status-item" role="img" aria-label={label} title={`${label}: this thread runs OpenCode through its server${model ? ` on ${model.provider}/${model.id}` : ""}.`}><SquareTerminal size={12} /></span>;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -425,7 +417,6 @@ export const openCodeExtension: DesktopExtension = {
     let runner: TerminalRunService | undefined;
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
-      plugin.registerStatusItem({ id: "opencode.runtime", align: "left", order: 43, profiles: ["desktop", "web"], Component: OpenCodeStatus }),
       plugin.registerRegion({ id: "opencode.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "opencode.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

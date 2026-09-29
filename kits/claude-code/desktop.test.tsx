@@ -13,22 +13,11 @@ const host = (invoke: (command: string, input?: unknown) => Promise<unknown>) =>
 });
 
 describe("Claude Code desktop extension", () => {
-  it("marks Claude threads in the status line and stays silent for Pi", () => {
+  it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(claudeCodeExtension);
-    const [item] = registry.getStatusItems();
-    expect(item?.id).toBe("claude-code.runtime");
-    // Claude Code has no page of its own: it is a card on Providers.
+    expect(registry.getStatusItems()).toEqual([]);
     expect(registry.getSettingsPages().find((page) => page.id === "claude-code.settings")?.runtime).toBe("claude-code");
-    const Component = item!.Component;
-    const actions = {} as never;
-    const { container, rerender } = render(<Component snapshot={{ backendKind: "claude-code" } as HostSnapshot} actions={actions} />);
-    // Icon only: the name lives in the accessible label and the tooltip.
-    const mark = screen.getByRole("img", { name: "Claude Code" });
-    expect(mark.getAttribute("title")).toMatch(/^Claude Code: /u);
-    expect(container.textContent).toBe("");
-    rerender(<Component snapshot={{ backendKind: "pi" } as HostSnapshot} actions={actions} />);
-    expect(screen.queryByRole("img", { name: "Claude Code" })).toBeNull();
   });
 
   it("turns the resume offer off for the instance whose question the user answered with \"Don't ask again\"", () => {
