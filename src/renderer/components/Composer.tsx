@@ -15,7 +15,7 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { ComposerMenuItem, ExtensionPrompt, Menu } from "../deferred-surfaces";
+import { ComposerMenuItem, ExtensionPrompt } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -62,7 +62,7 @@ import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterContro
 import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
-import { DEFAULT_THINKING, THINKING_LABELS } from "../thinking-levels";
+import { THINKING_LABELS } from "../thinking-levels";
 import type { ThinkingChoice } from "./ModelPicker";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
@@ -73,8 +73,6 @@ export {
   normalizeSkillInvocation,
   selectedSkillDraft,
 };
-
-type OpenMenu = "thinking" | undefined;
 
 /** The runtime pick for a thread that does not exist yet. */
 export interface ComposerRuntimeChoice {
@@ -107,6 +105,8 @@ interface OpenGate {
 }
 
 const MAX_COMPOSER_HEIGHT = 220;
+/** From this share of the context on, the dial leaves the menu for the row: compacting is worth a look then. */
+const CONTEXT_DIAL_PERCENT = 75;
 
 /** How a level reads in the footer, where it stands without the menu's heading. */
 function thinkingLabel(level: string): string {
@@ -192,7 +192,6 @@ export function Composer({
   /** Core's chips before the model, after the kits' `lead` controls (a draft's project). */
   lead?: ReactNode;
 }) {
-  const [menu, setMenu] = useState<OpenMenu>();
   const { readOnly } = useHostCapabilities();
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
@@ -437,8 +436,9 @@ export function Composer({
       textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
     });
   };
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen);
+  // "thinking": opened from the reasoning level, with the focus on the picker's thinking column.
+  const [modelPickerOpen, setModelPickerOpen] = useState<boolean | "thinking">(false);
+  const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen !== false);
   const modelChipRef = useRef<HTMLButtonElement>(null);
   const modelChosenRef = useRef(false);
   const preferences = usePreferences();
@@ -723,7 +723,7 @@ export function Composer({
 
   const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
-  // A touch screen's placeholder names no chord; which keyboard types decides what Enter does, when it is pressed.
+  // A touch screen's send button names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
   const streamingBase = registry?.streamingDelivery() ?? "followUp";
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
@@ -764,48 +764,25 @@ export function Composer({
   const menuControls = composerControls.filter((control) => control.placement === "menu");
   const leadControls = composerControls.filter((control) => control.placement === "lead");
   const menuShortcuts = menuControls.flatMap((control) => control.shortcuts ?? []);
-  // The row keeps model and reasoning longest, then the context dial, then attach; kits' chips fold first.
+  // The row is the design's: model, reasoning, the "…" menu, send. Kits' chips fold into the menu first;
+  // attach lives there (and in drag and paste), the context dial too until the context runs short.
+  const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
     ...(thinkingLevel ? [{ id: "reasoning", rank: 3, node: (
-      <span className="menu-anchor composer-runtime-menu-anchor">
-        <button
-          className="runtime-chip composer-thinking-chip"
-          data-composer-shortcut="composer.effort"
-          disabled={!thinkingSelectionAvailable}
-          {...tooltipProps(thinkingSelectionAvailable
-            ? "Reasoning"
-            : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
-          aria-label={thinkingSelectionAvailable ? `Reasoning: ${thinkingLabel(thinkingLevel)}` : "Reasoning controls unavailable"}
-          aria-expanded={menu === "thinking"}
-          onClick={() => {
-            if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
-          }}
-        >
-          {thinkingLabel(thinkingLevel)}
-        </button>
-        {menu === "thinking" ? (
-          <Menu
-            placement="above"
-            sections={[
-              {
-                heading: "Reasoning",
-                items: (snapshot?.thinkingLevels ?? []).map((level) => ({
-                  id: `thinking:${level}`,
-                  label: THINKING_LABELS[level] ?? level,
-                  badge: level === DEFAULT_THINKING ? "Default" : undefined,
-                  selected: level === snapshot?.thinkingLevel,
-                  disabled: !thinkingSelectionAvailable,
-                })),
-              },
-            ]}
-            onSelect={(id) => {
-              const [group, level] = id.split(":");
-              if (group === "thinking" && level) onSetThinking(level);
-            }}
-            onClose={() => setMenu(undefined)}
-          />
-        ) : null}
-      </span>
+      <button
+        className="runtime-chip composer-thinking-chip"
+        data-composer-shortcut="composer.effort"
+        disabled={!thinkingSelectionAvailable}
+        {...tooltipProps(thinkingSelectionAvailable
+          ? "Reasoning"
+          : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
+        aria-label={thinkingSelectionAvailable ? `Reasoning: ${thinkingLabel(thinkingLevel)}` : "Reasoning controls unavailable"}
+        aria-expanded={modelPickerOpen === "thinking"}
+        aria-haspopup="dialog"
+        onClick={() => { if (thinkingSelectionAvailable) setModelPickerOpen((open) => open === "thinking" ? false : "thinking"); }}
+      >
+        {thinkingLabel(thinkingLevel)}
+      </button>
     ) }] : []),
     ...composerControls.filter((control) => control.placement === undefined || control.placement === "toolbar").map((control) => ({ id: control.id, node: (
       <LazyFeatureBoundary
@@ -822,24 +799,19 @@ export function Composer({
       id: "context",
       end: true,
       rank: 2,
+      menuOnly: contextPercent < CONTEXT_DIAL_PERCENT,
       node: <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />,
       menuNode: <ComposerMenuItem
         icon={<Shrink size={13} />}
         label="Compact context"
-        detail={`${Math.round(Math.min(100, Math.max(0, contextUsage.percent)))}% of the context used`}
+        detail={`${contextPercent}% of the context used`}
         onSelect={onCompactContext}
       />,
     }] : []),
     {
       id: "attach",
-      end: true,
-      rank: 1,
-      node: (
-        <button className="attach-button" type="button" {...tooltipProps(attachAvailable ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)} aria-label="Attach files" disabled={!attachAvailable} onClick={() => fileInputRef.current?.click()}>
-          <Paperclip size={17} />
-        </button>
-      ),
-      menuNode: <ComposerMenuItem
+      menuOnly: true,
+      node: <ComposerMenuItem
         icon={<Paperclip size={13} />}
         label="Attach files"
         disabled={!attachAvailable}
@@ -1059,11 +1031,8 @@ export function Composer({
               ? (prompt.kind === "input" && !registry?.getPromptRenderer(prompt) ? prompt.placeholder : undefined) ?? "Answer in text…"
               : isVimEnabled && vim.vimMode === "normal"
                 ? "Vim NORMAL mode — press 'i' to insert, ↵ to send"
-                : text.trimStart().startsWith("!")
-                ? text.trimStart().startsWith("!!")
-                  ? "Silent shell mode — runs command without LLM context"
-                  : "Shell mode — runs command and shares output with agent"
-                : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard)
+                // Short, as in the design; the chords are in the send button's tooltip.
+                : streaming ? "Steer, or queue a follow-up…" : "Ask anything, or hand it work…"
           }
         />
         <Suspense fallback={null}>
@@ -1102,7 +1071,7 @@ export function Composer({
               <button
                 ref={modelChipRef}
                 className="runtime-chip composer-model-chip fan-marks"
-                aria-expanded={modelPickerOpen}
+                aria-expanded={modelPickerOpen === true}
                 aria-haspopup="dialog"
                 disabled={!modelPickerAvailable}
                 {...tooltipProps(modelSelectionAvailable
@@ -1162,55 +1131,33 @@ export function Composer({
             }}
           />
 
-          {answerable && prompt ? (() => {
-            // The card holds the choices' own send; this one sends what was typed, or what the card would.
-            const typedAnswer = Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
-            const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
+          {streaming ? (
+            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
+          ) : null}
+          {(() => {
+            // One send button, always there: it answers, steers or queues, or sends; with nothing to send it rests.
+            const typedAnswer = answerable && (Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled)));
+            const { label, hint } = answerable
+              ? { label: typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer", hint: undefined }
+              : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard);
             return (
               <button
                 className="send-button"
-                {...tooltipProps(submitLabel)}
-                aria-label={submitLabel}
-                disabled={held || (!typedAnswer && (promptSubmit?.disabled ?? true))}
+                {...tooltipProps(hint ?? label)}
+                aria-label={label}
+                aria-busy={activeScopeSnapshot.submissionPending}
+                disabled={held || (answerable
+                  ? !typedAnswer && (promptSubmit?.disabled ?? true)
+                  : arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft)}
                 onClick={() => {
-                  if (typedAnswer) submitCurrent();
-                  else promptSubmit?.submit();
+                  if (answerable && !typedAnswer) promptSubmit?.submit();
+                  else submitCurrent(streaming && !answerable ? streamingBase : undefined);
                 }}
               >
                 <ArrowUp size={16} />
               </button>
             );
-          })() : null}
-          {streaming && !answerable && hasDraft ? (() => {
-            // A draft while a turn runs goes the way ↵ sends it; stop stays beside it.
-            const label = streamingBase === "steer" ? "Steer this turn" : "Queue after this turn";
-            return (
-              <button
-                className="send-button"
-                {...tooltipProps(label)}
-                aria-label={label}
-                aria-busy={activeScopeSnapshot.submissionPending}
-                disabled={held || arrival.waiting || activeScopeSnapshot.submissionPending}
-                onClick={() => submitCurrent(streamingBase)}
-              >
-                <ArrowUp size={16} />
-              </button>
-            );
-          })() : null}
-          {streaming ? (
-            <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
-          ) : !answerable ? (
-            <button
-              className="send-button"
-              {...tooltipProps("Send")}
-              aria-label="Send"
-              aria-busy={activeScopeSnapshot.submissionPending}
-              disabled={held || arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft}
-              onClick={() => submitCurrent()}
-            >
-              <ArrowUp size={16} />
-            </button>
-          ) : null}
+          })()}
         </div>
       </div>
 
@@ -1242,6 +1189,7 @@ export function Composer({
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
             thinking={pickerThinking}
+            {...(modelPickerOpen === "thinking" ? { focus: "thinking" as const } : {})}
             anchor={modelChipRef}
           />
         </Suspense>

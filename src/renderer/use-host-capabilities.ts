@@ -37,6 +37,17 @@ export function useHostCapabilities(): HostCapabilities {
   return useMemo(() => ({ localFiles, readOnly }), [localFiles, readOnly]);
 }
 
+/** The name the host gave in its hello (ADR 0025); undefined before it, or from a host that gives none. */
+export function useHostName(): string | undefined {
+  const client = useHostClient();
+  const subscribe = useCallback(
+    (listener: () => void) => client?.onConnectionState(listener) ?? (() => undefined),
+    [client],
+  );
+  const read = useCallback(() => client?.getHostName?.(), [client]);
+  return useSyncExternalStore(subscribe, read, read);
+}
+
 /** For stores and other modules outside the component tree; defaults to the ambient client. */
 export function hostHasLocalFiles(client: { hasCapability(capability: string): boolean } | undefined = getHostClient()): boolean {
   return client?.hasCapability(HOST_CAPABILITY.localFiles) ?? false;

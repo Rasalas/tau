@@ -76,7 +76,7 @@ function press(key: string, shiftKey = false): void {
 
 const rail = () => screen.getByRole("navigation", { name: "Threads" });
 const draftProject = () => screen.findByRole("button", { name: /^Change project, current project / });
-const composer = () => screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+const composer = () => screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
 describe("a new thread in the project on screen", () => {
   it("opens from ⌘N and the rail's button in the thread's project, without the picker", async () => {

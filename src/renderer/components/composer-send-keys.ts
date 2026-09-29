@@ -39,13 +39,17 @@ export function composerEnter(input: {
   return { delivery: alternate === (input.base === "steer") ? "followUp" : "steer" };
 }
 
-/** The placeholder's key hints for the send chord and the running-turn choice; a touch keyboard gets none. */
-export function sendHint(shortcut: SendShortcut, streaming: boolean, base: StreamingDelivery, touch = false): string {
-  if (touch) return !streaming ? "Direct the agent" : base === "steer" ? "Steer this turn" : "Queue after this turn";
+/** What the send button does now: its label, and on a keyboard its tooltip with the chords around it. */
+export function sendHint(shortcut: SendShortcut, streaming: boolean, base: StreamingDelivery, touch = false): { label: string; hint: string } {
+  const label = !streaming ? "Send" : base === "steer" ? "Steer this turn" : "Queue after this turn";
+  if (touch) return { label, hint: label };
   const send = shortcut === "mod-enter" ? "⌘↵" : "↵";
   const other = shortcut === "mod-enter" ? "⌘⇧↵" : "⌘↵";
-  if (!streaming) return `Direct the agent — $ skills, / commands, @ files, ${shortcut === "mod-enter" ? "⌘↵ sends" : "⇧↵ newline"}`;
-  return base === "steer"
-    ? `Steer this turn — ${send} steers now, ${other} queues, ⌥↑ dequeues`
-    : `Queue after this turn — ${send} queues, ${other} steers now, ⌥↑ dequeues`;
+  if (!streaming) return { label, hint: `Send ${send} — ${shortcut === "mod-enter" ? "↵" : "⇧↵"} newline, $ skills, / commands, @ files` };
+  return {
+    label,
+    hint: base === "steer"
+      ? `Steer this turn ${send} — ${other} queues, ⌥↑ dequeues`
+      : `Queue after this turn ${send} — ${other} steers now, ⌥↑ dequeues`,
+  };
 }
