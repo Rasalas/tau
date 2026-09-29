@@ -14,6 +14,11 @@
 /* Settings → Machines. */
 .machine-row .connection-row-text > strong > svg { color: var(--muted); }
 .machine-row form { display: flex; }
+/* A machine's own Tau (K103): its update line, then its automatic-updates switch. */
+.machine-update { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 6px; }
+.machine-update-line { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.machine-update-line > small, .machine-update-auto > small { color: var(--muted); }
+.machine-update-auto { display: inline-flex; align-items: center; gap: var(--space-3); }
 .machine-add { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5) var(--space-6); }
 .machine-add-field { display: flex; flex-direction: column; gap: 6px; font: 500 var(--text-sm) var(--sans); color: var(--ink-2); }
 .machine-add-field > span { color: var(--ink); }

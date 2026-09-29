@@ -1,0 +1,8 @@
+# Tau's update helper (K103), for polkit 0.105 (Ubuntu 22.04, Debian 11):
+# the same grant as 50-tau-update.rules for newer versions.
+[Tau update helper]
+Identity=unix-group:sudo;unix-group:admin;unix-group:wheel;unix-group:tau-update
+Action=de.tbuck.tau.update
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

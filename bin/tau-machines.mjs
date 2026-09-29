@@ -21,6 +21,7 @@ const POLL_MS = 250;
 
 export const MACHINES_USAGE = `Usage: tau machines add --ssh <target> [--name <name>] [--agents] [--access full|read-only] [--json]
        tau machines list [--json]
+       tau machines update <name or id> [--check | --status] [--json]
        tau machines remove <name or id> [--json]
 
 tau machines add pairs this computer with another machine you reach with
@@ -35,7 +36,10 @@ this computer look but not change anything there. --name names it here.
 Pairing a machine again only checks the connection.
 
 tau machines list shows the machines this computer keeps, with how its window
-and its agents reach each. tau machines remove forgets one here; the other
+and its agents reach each. tau machines update updates Tau on one of them over
+this computer's window's connection there, which that machine's host allows
+like any other change from this computer (Full access; its owner can turn
+it off there); --check only looks, --status only tells. tau machines remove forgets one here; the other
 machine lists this computer until its owner revokes it there.`;
 
 export function parseMachinesArgs(rest) {
@@ -60,6 +64,7 @@ export function parseMachinesArgs(rest) {
     else if (arg === "--ssh" && action === "add") flags.ssh = value();
     else if (arg === "--name" && action === "add") flags.name = value();
     else if (arg === "--access" && action === "add") flags.access = value();
+    else if ((arg === "--check" || arg === "--status") && action === "update" && !flags.update) flags.update = arg.slice(2);
     else if (arg.startsWith("-")) throw new Error(`tau machines ${action} does not know ${arg}.`);
     else positional.push(arg);
   }
@@ -74,6 +79,10 @@ export function parseMachinesArgs(rest) {
   if (action === "list") {
     if (positional.length) throw new Error("tau machines list takes no machine.");
     return { action, json: flags.json };
+  }
+  if (action === "update") {
+    if (positional.length !== 1) throw new Error("tau machines update takes one machine, by name or id.");
+    return { action, machine: positional[0], json: flags.json, update: flags.update ?? "install" };
   }
   if (action === "remove") {
     if (positional.length !== 1) throw new Error("tau machines remove takes one machine, by name or id.");
@@ -210,6 +219,27 @@ function remoteError(target, message) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A download and the wait for running turns can take minutes. */
+export const UPDATE_WAIT_MS = 11 * 60_000;
+
+/** One line for a machine's update, as Settings words it (`tau update`, `tau machines update`, `list`). */
+export function describeUpdate(status) {
+  const next = status.latest ? `Tau ${status.latest}` : "the update";
+  switch (status.phase) {
+    case "unsupported": return status.reason ?? "This copy of Tau cannot update itself.";
+    case "checking": return "Checking for updates…";
+    case "current": return "Up to date.";
+    case "available": return `${next} is available.${status.reason ? ` ${status.reason}` : ""}`;
+    case "downloading": return `Downloading ${next}${status.progress !== undefined ? ` (${status.progress}%)` : ""}…`;
+    case "ready": return `${next} is downloaded and installs when no turn runs.${status.reason ? ` ${status.reason}` : ""}`;
+    case "waiting": return `${next} installs when the running turns end.`;
+    case "installing": return status.reason ?? `Installing ${next}…`;
+    case "installed": return status.reason ?? `${next} is installed.`;
+    case "failed": return `The update failed: ${status.reason ?? "unknown error"}`;
+    default: return status.automatic ? "Checks for updates on its own." : "Automatic updates are off.";
+  }
+}
+
 function linkText(state) {
   if (!state) return "–";
   const parts = [state.status === "connected" && state.roundTripMs !== undefined ? `connected · ${state.roundTripMs} ms` : state.status];
@@ -338,9 +368,21 @@ export async function listMachines(options, { out, session }) {
   const width = Math.max(...overview.machines.map((machine) => machine.name.length));
   for (const machine of overview.machines) {
     const sides = [...(overview.window ? [`window: ${linkText(machine.window)}`] : []), `agents: ${linkText(machine.agents)}`];
-    out(`${machine.name.padEnd(width)}  ${machine.id.slice(0, 8)}  ${sides.join("  ")}`);
+    const update = machine.window?.update;
+    const version = update?.version ?? machine.window?.hostVersion ?? machine.agents?.hostVersion;
+    const tau = version ? `  Tau ${version}${update && update.latest && update.latest !== update.version && update.phase !== "installed" ? ` (${update.latest} available)` : ""}` : "";
+    out(`${machine.name.padEnd(width)}  ${machine.id.slice(0, 8)}  ${sides.join("  ")}${tau}`);
   }
   return 0;
+}
+
+/** `tau machines update <machine>`: that machine's own Tau, through this computer's window (K103). */
+export async function updateMachine(options, { out, session }) {
+  const result = await session.request("machines-update", [options.machine, options.update], UPDATE_WAIT_MS);
+  const status = result.update;
+  if (options.json) out(JSON.stringify(result));
+  else out(`${result.name}: Tau ${status.version}. ${describeUpdate(status)}`);
+  return status.phase === "failed" || status.phase === "unsupported" ? 1 : 0;
 }
 
 export async function removeMachine(options, { out, session }) {
@@ -449,6 +491,7 @@ export async function runMachines(options, io) {
     const context = { ...io, session };
     if (options.action === "add") return await addMachine(options, context);
     if (options.action === "list") return await listMachines(options, context);
+    if (options.action === "update") return await updateMachine(options, context);
     return await removeMachine(options, context);
   } finally {
     session.close();

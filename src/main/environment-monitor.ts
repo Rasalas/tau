@@ -11,6 +11,7 @@ import {
   type HostIdentity,
 } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
+import { decodeHostUpdateStatus, HOST_UPDATE_METHODS, type HostUpdateStatus } from "../shared/host-updates.js";
 import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type ReachedCertificate } from "./host-tls-trust.js";
 
 export type { ReachedCertificate } from "./host-tls-trust.js";
@@ -24,6 +25,8 @@ export interface MonitorState {
   /** The socket URL in use, or the one last used. */
   address?: string;
   hostVersion?: string;
+  /** The machine's own Tau update (K103); a host too old to report one leaves it out. */
+  update?: HostUpdateStatus;
   readOnly?: boolean;
   host?: HostIdentity;
   index?: ThreadIndexSnapshot;
@@ -271,6 +274,9 @@ export class EnvironmentMonitor {
       });
       this.options.onReached?.(url, reply, certificate);
       if (reply.capabilities.includes(HOST_CAPABILITY.heartbeat)) this.schedulePing(socket);
+      // An older host has no such method; its version alone then says whether it is behind.
+      void this.request<unknown>(socket, HOST_UPDATE_METHODS.status, CALL_TIMEOUT_MS)
+        .then((value) => { const update = decodeHostUpdateStatus(value); if (update && this.socket === socket) this.set({ update }); }, () => undefined);
       if (this.options.bootstrap === false) return;
       void this.request<HostBootstrap>(socket, "bootstrap", BOOTSTRAP_TIMEOUT_MS)
         .then((bootstrap) => { if (this.socket === socket) this.set({ index: bootstrap.threadIndex, lastSeenAt: this.now() }); })
@@ -292,7 +298,10 @@ export class EnvironmentMonitor {
     if (frame.type !== "push") return;
     this.options.onPush?.(frame.push.event);
     const event = frame.push.event as { type?: unknown; threadIndex?: unknown; sessionId?: unknown; running?: unknown; update?: unknown };
-    if (event.type === "thread-index" && event.threadIndex && typeof event.threadIndex === "object") {
+    if (event.type === HOST_UPDATE_METHODS.status) {
+      const update = decodeHostUpdateStatus((event as { status?: unknown }).status);
+      if (update) this.set({ update });
+    } else if (event.type === "thread-index" && event.threadIndex && typeof event.threadIndex === "object") {
       this.set({ index: event.threadIndex as ThreadIndexSnapshot, lastSeenAt: this.now() });
     } else if (event.type === "host-update" && event.update && typeof event.update === "object") {
       const index = applyIndexUpdate(this.state.index, event.update as IndexUpdate);

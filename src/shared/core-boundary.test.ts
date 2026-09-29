@@ -55,7 +55,9 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
 const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
   // An AppImage without sandbox installing the .deb and restarting from it (K26).
-  "./appimage-install.js",   "./attached-pi-session.js",   "./attached-runtime.js",
+  "./appimage-install.js",
+  // A machine's host updating its own Tau, with or without a window (K103).
+  "./release-feed.js",   "./host-updater.js",   "./update-installers.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
   "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",   "./compaction-record.js",
   "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./configured-sampling.js",   "./dangling-tool-calls.js",   "./data-folder-lock.js",   "./dependency-loader.js",   "./desktop-extensions.js",

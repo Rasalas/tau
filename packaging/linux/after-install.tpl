@@ -1,8 +1,8 @@
 #!/bin/bash
-# electron-builder's after-install.tpl (app-builder-lib 26.16), with two changes:
-# /usr/bin/${executable} is Tau's command wrapper (bin/tau), and the AppArmor
+# electron-builder's after-install.tpl (app-builder-lib 26.16), with three changes:
+# /usr/bin/${executable} is Tau's command wrapper (bin/tau), the AppArmor
 # profile is written wherever AppArmor's tools are installed, loaded only where
-# AppArmor runs.
+# AppArmor runs, and the update helper's polkit files are put in place.
 
 if type update-alternatives >/dev/null 2>&1; then
     # Remove previous link if it doesn't use update-alternatives
@@ -45,3 +45,15 @@ if hash apparmor_parser 2>/dev/null && [ -d /etc/apparmor.d ]; then
     echo "Skipping the installation of the AppArmor profile as this version of AppArmor does not seem to support the bundled profile"
   fi
 fi
+
+# The update helper (K103): polkit lets the machine's administrators run exactly
+# /opt/Tau/bin/tau-update-helper as root without a password, so a host without a
+# window updates itself. The .rules file is for polkit 0.106+, the .pkla for 0.105.
+POLKIT_SOURCE='/opt/${sanitizedProductName}/resources/polkit'
+if [ -d "$POLKIT_SOURCE" ]; then
+  install -D -m 0644 "$POLKIT_SOURCE/de.tbuck.tau.update.policy" /usr/share/polkit-1/actions/de.tbuck.tau.update.policy
+  install -D -m 0644 "$POLKIT_SOURCE/50-tau-update.rules" /usr/share/polkit-1/rules.d/50-tau-update.rules
+  install -D -m 0644 "$POLKIT_SOURCE/50-tau-update.pkla" /var/lib/polkit-1/localauthority/10-vendor.d/50-tau-update.pkla
+fi
+chown root:root '/opt/${sanitizedProductName}/bin/tau-update-helper' || true
+chmod 0755 '/opt/${sanitizedProductName}/bin/tau-update-helper' || true

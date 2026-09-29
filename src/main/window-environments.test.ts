@@ -502,6 +502,24 @@ describe("reading a kit of another machine (API 1.15.0)", () => {
     }
   });
 
+  it("lists a machine's own update, and updates it over the window's connection there (K103)", async () => {
+    const { environments, monitor } = await connectedStudio();
+    const status = { version: "0.7.6", phase: "available", latest: "0.7.14", channel: "stable", automatic: true, installer: "host", devicesMayInstall: true } as const;
+    monitor.set({ update: status });
+    expect(environments.snapshot().environments.find((entry) => entry.id === "host-studio")?.update).toEqual(status);
+    monitor.answers["update-install"] = () => ({ ...status, phase: "waiting", runningTurns: 1 });
+    monitor.answers["update-settings"] = (params) => ({ ...status, ...(params[0] as object) });
+    await expect(environments.updateMachine("studio", "install")).resolves.toMatchObject({ phase: "waiting", runningTurns: 1 });
+    await expect(environments.updateMachine("studio", { automatic: false })).resolves.toMatchObject({ automatic: false });
+    expect(monitor.calls.filter((call) => call.method.startsWith("update-"))).toEqual([
+      { method: "update-install", params: [] },
+      { method: "update-settings", params: [{ automatic: false }] },
+    ]);
+    // A host too old to answer with a status says so.
+    monitor.answers["update-check"] = () => ({ sessionId: "nothing like a status" });
+    await expect(environments.updateMachine("studio", "check")).rejects.toThrow(/too old to update from here/u);
+  });
+
   it("reads nothing on a machine that is not reachable or unknown", async () => {
     const { environments, monitor } = await connectedStudio();
     await expect(environments.readExtension("nowhere", "tau.preview", "state")).rejects.toThrow(/does not know/u);

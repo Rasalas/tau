@@ -58,6 +58,10 @@ import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, des
 import { exposePiSessionLockExtension } from "./pi-session-lock-extension.js";
 import type { ProcessLock } from "./process-lock.js";
 import { appPackageVersion } from "./packaged-app.js";
+import { HostUpdater, localWindowUpdatePort } from "./host-updater.js";
+import { hostInstaller } from "./update-installers.js";
+import { readUpdateFeed } from "./release-feed.js";
+import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -114,6 +118,10 @@ const jobs = new HostJobRunner((event) => broadcast(event));
 const clientCalls = new ClientCalls((connection, call) => socket?.sendCall(connection, call) ?? false);
 let socket: SocketHostTransport | undefined;
 let networkPoll: ReturnType<typeof setInterval> | undefined;
+/** This machine's own Tau updates (K103). */
+let updates: HostUpdater | undefined;
+/** A service manager starts a host again that left with this; systemd and launchd restart on failure only. */
+const RESTART_EXIT_CODE = 75;
 
 function broadcast(event: HostPushEvent): void {
   pushes.publish(event);
@@ -123,6 +131,7 @@ function publish(event: HostEvent): void {
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
   keepAwake.observe(event);
   resources.observe(event);
+  updates?.observe(event);
   broadcast(event);
 }
 
@@ -342,7 +351,35 @@ async function main(): Promise<void> {
     publishedOrigins = published.origins;
     networkEndpoints = published.network;
   };
+  // The installed app this host runs from updates itself; a checkout does not (K103).
+  const target = hostInstaller({
+    env: process.env,
+    platform: process.platform,
+    execPath: process.execPath,
+    appRoot,
+    ...(serviceKind === "task-scheduler" ? { windowsTask: service.names.task } : {}),
+  });
+  const feedFile = join(dirname(appRoot), "app-update.yml");
+  updates = new HostUpdater({
+    version: hostVersion,
+    arch: process.arch,
+    platform: process.platform,
+    ...target,
+    ...(existsSync(feedFile) ? { feed: readUpdateFeed(await readFile(feedFile, "utf8").catch(() => "")) } : {}),
+    ...(process.env.TAU_UPDATE_FEED_URL ? { feedOverride: process.env.TAU_UPDATE_FEED_URL } : {}),
+    releaseKeys: RELEASE_PUBLIC_KEYS,
+    dir: join(userData, "updates"),
+    fetch: (url, init) => fetch(url, init),
+    channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
+    window: localWindowUpdatePort(clientCalls),
+    // Only a service is started again; any other host keeps running until its next start.
+    ...(serviceKind ? { restart: () => shutdown(RESTART_EXIT_CODE) } : {}),
+    exit: () => shutdown(0),
+    publish: (status) => publish({ type: "update-status", status }),
+    log: hostLog,
+  });
   const methods = createHostMethods({
+    updates: () => updates,
     clientCalls,
     connections: () => connectionsService(),
     service: () => service,
@@ -384,7 +421,7 @@ async function main(): Promise<void> {
   });
   localMethods = methods;
 
-  const shutdown = (): void => {
+  const shutdown = (code = 0): void => {
     void (async () => {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
@@ -394,6 +431,7 @@ async function main(): Promise<void> {
       compactor.dispose();
       keepAwake.dispose();
       clearInterval(networkPoll);
+      updates?.dispose();
       await network?.close().catch((error: unknown) => hostLog.warn("host-network.close-failed", error));
       await socket?.close();
       // Only a service host wrote the file; a window's supervisor removes its own.
@@ -403,7 +441,7 @@ async function main(): Promise<void> {
       await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       folderLock.release();
-      process.exit(0);
+      process.exit(code);
     })();
   };
   // Not part of the client protocol: the supervisor that started this process
@@ -536,8 +574,9 @@ async function main(): Promise<void> {
   networkPoll.unref();
 
   compactor.start();
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  updates.start();
+  process.on("SIGINT", () => shutdown());
+  process.on("SIGTERM", () => shutdown());
 }
 
 void main().catch((error: unknown) => {

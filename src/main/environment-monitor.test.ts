@@ -23,11 +23,11 @@ const index = (ids: string[]): ThreadIndexSnapshot => ({
   sessions: ids.map((id, position) => ({ id, path: `/s/${id}.jsonl`, title: id, modifiedAt: position, projectPath: "/p", projectName: "p", messageCount: 1 })),
 });
 
-async function host() {
+async function host(extra: Record<string, () => Promise<unknown>> = {}) {
   const pushLog = new HostPushLog();
   transport = await startSocketHostTransport({
     listen: "127.0.0.1:0",
-    methods: { bootstrap: async () => ({ threadIndex: index(["a"]) }) },
+    methods: { bootstrap: async () => ({ threadIndex: index(["a"]) }), ...extra },
     pushLog,
     hostVersion: "9.9.9",
     capabilities: [],
@@ -70,6 +70,20 @@ describe("the window's connection to a machine", () => {
     await expect.poll(() => last().index?.sessions.map((session) => session.id)).toEqual(["a", "c"]);
     push({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "d", shell: index(["d"]).sessions[0] } } });
     await expect.poll(() => last().index?.sessions.map((session) => session.id)).toEqual(["d", "a", "c"]);
+  });
+
+  it("reads the machine's own update status and follows it; a host without one is left without (K103)", async () => {
+    const status = { version: "9.9.9", phase: "available", latest: "9.9.10", channel: "stable", automatic: true, installer: "host", devicesMayInstall: true } as const;
+    const { url, push } = await host({ "update-status": async () => status });
+    const { last } = watch({ urls: () => [url], token: "host-secret", onChange: () => undefined });
+    await expect.poll(() => last().update?.phase).toBe("available");
+    push({ type: "update-status", status: { ...status, phase: "downloading", progress: 40 } });
+    await expect.poll(() => last().update).toMatchObject({ phase: "downloading", progress: 40 });
+    await transport?.close();
+    const older = await host();
+    const second = watch({ urls: () => [older.url], token: "host-secret", onChange: () => undefined });
+    await expect.poll(() => second.last().index?.sessions.length).toBe(1);
+    expect(second.last().update).toBeUndefined();
   });
 
   it("tells which key a certificate pin let in, and where else the machine is reachable, a CA's address flagged", async () => {

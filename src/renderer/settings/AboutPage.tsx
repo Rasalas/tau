@@ -8,6 +8,7 @@ import { errorMessage } from "../../workbench/error-message";
 import { Button, HelpTip, SettingsState, ValueList, type ValueListItem } from "./controls";
 import { SettingRow, SettingsSection } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
+import { HostUpdateSection } from "./HostUpdateSection";
 
 type LicenseState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; packages: ThirdPartyLicense[] };
 
@@ -60,7 +61,8 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
         <ValueList label="Tau" items={facts} />
       </SettingsSection>
 
-      {versions.window ? (
+      {/* The host's own updater (K103); a host too old for one leaves the window's check. */}
+      <HostUpdateSection fallback={versions.window ? (
         <SettingsSection title="Updates">
           <SettingRow
             id={settingAnchor("Check for updates")}
@@ -69,7 +71,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
             control={<Button onClick={() => { void client?.windowAction({ kind: "check-for-updates" }).catch(() => undefined); }}>Check now</Button>}
           />
         </SettingsSection>
-      ) : null}
+      ) : null} />
 
       <SettingsSection
         title={licenses.status === "ready" ? `Open-source licenses (${licenses.packages.length})` : "Open-source licenses"}

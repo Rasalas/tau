@@ -57,6 +57,8 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "rebuild-workbench": { label: "rebuilt the workbench" },
   "relaunch-workbench": { label: "relaunched the workbench" },
   "install-update": { label: "installed an update" },
+  "update-install": { label: "started a Tau update" },
+  "update-settings": { label: "changed automatic updates" },
   "open-project": { label: "opened a project" },
   "remove-project": { label: "removed a project" },
   "update-config": { label: "changed settings" },
@@ -72,6 +74,7 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "environments-discover": { label: "looked for machines" },
   "environments-set-preferences": { label: "changed machine preferences" },
   "environments-set-agents": { label: "changed where this machine's agents may work" },
+  "environments-update": { label: "updated a machine's Tau" },
   "cancel-job": { label: "cancelled a job" },
   // One entry per file, not per 8 MB piece.
   "blob-put": { label: "sent part of a file", automatic: true, quiet: true },

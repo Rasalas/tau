@@ -1,6 +1,7 @@
 import { parsePairingPayload } from "../shared/connections.js";
 import { agentsDeviceName, type EnvironmentAgentsOutcome, type EnvironmentStatus } from "../shared/environments.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
+import { decodeHostUpdateStatus, type HostUpdateStatus } from "../shared/host-updates.js";
 import { pairEnvironment, type PairEnvironmentOptions, type PairEnvironmentResult } from "./environment-pairing.js";
 import type { HostMachines } from "./host-machines.js";
 import type { HostMethodContext } from "./host-jobs.js";
@@ -18,6 +19,8 @@ export interface MachineLinkState {
   address?: string;
   readOnly?: boolean;
   hostVersion?: string;
+  /** The machine's own Tau update, where its host reports one (K103). */
+  update?: HostUpdateStatus;
 }
 
 /** What core's window half answers `environments` with: the window's machines, no keys, no threads. */
@@ -72,6 +75,8 @@ export function localWindowPort(calls: Partial<Pick<ClientCalls, "call" | "hasLo
 
 /** A pairing request waits up to two minutes for the other owner; the window's answer comes after it. */
 const PAIR_TIMEOUT_MS = 150_000;
+/** An install there may download first. */
+const UPDATE_TIMEOUT_MS = 11 * 60_000;
 const WINDOW_TIMEOUT_MS = 10_000;
 
 const failure = (message: string, code: string = HOST_ERROR.invalidRequest): Error => Object.assign(new Error(message), { code });
@@ -84,6 +89,7 @@ function state(entry: MachineLinkState): MachineLinkState {
     ...(entry.address ? { address: entry.address } : {}),
     ...(entry.readOnly ? { readOnly: true } : {}),
     ...(entry.hostVersion ? { hostVersion: entry.hostVersion } : {}),
+    ...(entry.update ? { update: entry.update } : {}),
   };
 }
 
@@ -163,6 +169,18 @@ export function createMachinePairingMethods(deps: MachinePairingDeps): Record<st
       const name = input.name ?? known?.name ?? environment.name;
       await machines.add({ ...environment, name });
       return { state: "added", machine: { id: environment.id, name }, window: false, agents: { added: true } };
+    }),
+    // `tau machines update`: the machine's own Tau, over the window's connection there (K103).
+    "machines-update": owned(async (params) => {
+      const action = params[1] ?? "install";
+      if (action !== "status" && action !== "check" && action !== "install") throw failure("machines-update: action must be status, check or install.");
+      const list = await overview(deps);
+      const entry = matching(list, decodeString("machines-update", "machine", params[0]));
+      const window = entry.window ? deps.window() : undefined;
+      if (!window) throw failure(`Only a Tau window on this computer keeps a connection to ${entry.name} that may update it. Start Tau here, or add ${entry.name} in Settings → Machines.`, HOST_ERROR.unsupported);
+      const status = decodeHostUpdateStatus(await window.call("update-environment", { id: entry.id, action }, action === "status" ? WINDOW_TIMEOUT_MS : UPDATE_TIMEOUT_MS));
+      if (!status) throw failure(`${entry.name} did not say how its update stands.`);
+      return { id: entry.id, name: entry.name, update: status };
     }),
     "machines-forget": owned(async (params) => {
       const list = await overview(deps);

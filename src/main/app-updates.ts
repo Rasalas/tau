@@ -1,7 +1,9 @@
 import { dialog } from "electron";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
+import { NIGHTLY_TAG, UNPACKED_UPDATES, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
+
+// Moved to release-feed.ts, which the host process can load without Electron.
+export { DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, UNPACKED_UPDATES, linuxInstall, readUpdateFeed, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
 
 /**
  * The part of electron-updater's `autoUpdater` Tau uses. Naming it here keeps
@@ -25,18 +27,9 @@ export interface UpdateInfo {
   releaseNotes?: unknown;
 }
 
-/** The repository `publish:` in electron-builder.yml names; the build writes it to `app-update.yml`. */
-export interface UpdateFeed {
-  owner: string;
-  repo: string;
-}
-
 export type UpdateFeedOptions =
   | { provider: "github"; owner: string; repo: string }
   | { provider: "generic"; url: string };
-
-/** The tag the release workflow moves to every nightly build. */
-export const NIGHTLY_TAG = "nightly";
 
 /**
  * Where each channel reads its feed. Stable is the GitHub provider, which asks
@@ -48,21 +41,6 @@ export function feedFor(channel: UpdateChannel, feed: UpdateFeed): UpdateFeedOpt
   return channel === "nightly"
     ? { provider: "generic", url: `https://github.com/${feed.owner}/${feed.repo}/releases/download/${NIGHTLY_TAG}` }
     : { provider: "github", owner: feed.owner, repo: feed.repo };
-}
-
-/** The GitHub feed in an installed app's `app-update.yml`, or undefined for any other provider. */
-export function readUpdateFeed(text: string): UpdateFeed | undefined {
-  const value = (key: string) => new RegExp(`^${key}:\\s*['"]?([^'"\\s#]+)`, "mu").exec(text)?.[1];
-  if (value("provider") !== "github") return undefined;
-  const owner = value("owner");
-  const repo = value("repo");
-  return owner && repo ? { owner, repo } : undefined;
-}
-
-export interface UpdateLog {
-  info(label: string, detail?: unknown): void;
-  warn(label: string, detail?: unknown): void;
-  error(label: string, detail?: unknown): void;
 }
 
 export interface AppUpdatesOptions {
@@ -94,6 +72,8 @@ export interface AppUpdatesOptions {
   feed?: UpdateFeed;
   /** `updates.channel` as the config holds it now, read before every check; unset follows the running build. */
   channel?(): Promise<UpdateChannel | undefined>;
+  /** False where nobody sees the window (a test instance, an invisible display): the host installs there. */
+  interactive?: boolean;
 }
 
 export interface AppUpdates {
@@ -109,6 +89,10 @@ export interface AppUpdates {
   downloaded(): string | undefined;
   /** Re-reads the channel after a config change and checks at once when it moved. */
   channelChanged(): Promise<void>;
+  /** Whether this window installs its machine's updates: an installed Tau a person sees. */
+  installs(): boolean;
+  /** Installs now when downloaded; otherwise checks, and installs once the download is done (K103). */
+  installWhenReady(): { started: boolean; reason?: string };
 }
 
 const DEFAULT_STARTUP_DELAY_MS = 8_000;
@@ -130,6 +114,8 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   let installing = false;
   /** The failure the event listener already handled; `checkForUpdates` rejects with it too. */
   let handled: unknown;
+  /** The host asked for an install; the download finishing is the moment. */
+  let installOnDownload = false;
 
   updater.on("update-available", (info) => {
     log.info("update.available", info.version);
@@ -145,6 +131,12 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     ready = info.version;
     log.info("update.downloaded", info.version);
     onDownloaded(info.version, info);
+    if (installOnDownload) {
+      installOnDownload = false;
+      log.info("update.installing", ready);
+      installing = true;
+      updater.quitAndInstall();
+    }
   });
   updater.on("error", (error) => {
     handled = error;
@@ -239,6 +231,19 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
       return true;
     },
     downloaded: () => ready,
+    installs: () => enabled && !options.unsupported && options.interactive !== false,
+    installWhenReady() {
+      if (!enabled || options.unsupported || options.interactive === false) return { started: false, reason: options.unsupported ?? "This window does not install updates." };
+      if (ready) {
+        log.info("update.installing", ready);
+        installing = true;
+        updater.quitAndInstall();
+        return { started: true };
+      }
+      installOnDownload = true;
+      void check();
+      return { started: false, reason: "The Tau window on this machine downloads it and installs it then." };
+    },
     async channelChanged() {
       if (!enabled || options.unsupported || applied === undefined || ready) return;
       const before = applied;
@@ -253,34 +258,6 @@ function installFailure(version: string | undefined, error: unknown): string {
   if (/exited with code 126\b/u.test(reason(error))) return `${name} was not installed: the password dialog was closed. Restart again to install it.`;
   return `${name} was not installed: ${reason(error)}`;
 }
-
-/** How a Linux Tau was installed, which decides what can replace it. */
-export type LinuxInstall = "appimage" | "deb" | "unpacked";
-
-/** Where the .deb puts Tau (electron-builder's `/opt/<productName>`). */
-export const DEB_EXECUTABLE = "/opt/Tau/tau";
-/** `deb.packageName` in electron-builder.yml. */
-export const DEB_PACKAGE = "tau";
-
-/**
- * electron-builder writes `resources/package-type` into the folder the .deb
- * and the AppImage are both packed from, so an AppImage may carry `deb` too;
- * only a copy at the package's own path counts as the package.
- */
-export function linuxInstall(env: NodeJS.ProcessEnv, resourcesPath: string, execPath: string, read: (path: string) => string | undefined = readText): LinuxInstall {
-  if (env.APPIMAGE) return "appimage";
-  return execPath === DEB_EXECUTABLE && read(join(resourcesPath, "package-type"))?.trim() === "deb" ? "deb" : "unpacked";
-}
-
-function readText(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return undefined;
-  }
-}
-
-export const UNPACKED_UPDATES = "This copy of Tau was unpacked by hand, so it cannot replace itself. On Debian and Ubuntu, install the .deb from the releases page; it updates itself from then on. Elsewhere, the AppImage does.";
 
 /** The updater classes of electron-updater a Linux Tau picks between. */
 export interface LinuxUpdaters {

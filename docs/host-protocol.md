@@ -946,6 +946,15 @@ may not call `sign-in-state`, gets no `account`. A catalog or a report not
 on hand within 5 s is left out: the runtime is then `checking`. `invisible` is an X display whose server (the pid in
 `/tmp/.X<n>-lock`) is `Xvfb`.
 
+### A machine's own Tau
+
+`update-status` and `update-check` (`read`), `update-install` and
+`update-settings` (`write`), the push `{ type: "update-status", status }`,
+the window's `environments-update` and the command line's `machines-update`
+(owner) carry a machine's own Tau update (K103).
+[host-updates.md](host-updates.md#protocol) lists them with their params and
+results, and what an older host or client does with them.
+
 ### Files between hosts
 
 `services.machines.upload` sends a file over the same connection, and the

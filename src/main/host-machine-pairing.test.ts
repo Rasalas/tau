@@ -168,3 +168,26 @@ describe("localWindowPort", () => {
     expect(localWindowPort(undefined)).toBeUndefined();
   });
 });
+
+describe("machines-update (K103)", () => {
+  const status = { version: "0.7.6", phase: "installing", latest: "0.7.14", channel: "stable", automatic: true, installer: "host", devicesMayInstall: true };
+
+  it("updates a machine through the window's connection there, for the owner only", async () => {
+    const window = fakeWindow([{ id: "rex-id", name: "rex", status: "connected", hostVersion: "0.7.6" }]);
+    const call = window.call;
+    window.call = async (command, input, timeoutMs) => command === "update-environment" ? (window.calls.push({ command, input }), status) : call(command, input, timeoutMs);
+    const methods = table({ machines: () => undefined, window: () => window });
+    await expect(invokeHostMethod(methods, "machines-update", ["rex"], paired)).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+    const result = await invokeHostMethod(methods, "machines-update", ["rex"], owner);
+    expect(result).toMatchObject({ id: "rex-id", name: "rex", update: { phase: "installing", latest: "0.7.14" } });
+    expect(window.calls.at(-1)).toEqual({ command: "update-environment", input: { id: "rex-id", action: "install" } });
+    await expect(invokeHostMethod(methods, "machines-update", ["rex", "remove"], owner)).rejects.toMatchObject({ code: HOST_ERROR.invalidRequest });
+  });
+
+  it("needs a window that keeps the machine", async () => {
+    const machines = await openMachines();
+    await machines.add(rex("agents-token"));
+    const methods = table({ machines: () => machines, window: () => undefined });
+    await expect(invokeHostMethod(methods, "machines-update", ["rex", "status"], owner)).rejects.toThrow(/Tau window on this computer/u);
+  });
+});

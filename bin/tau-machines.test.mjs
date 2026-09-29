@@ -16,6 +16,7 @@ import {
   removeMachine,
   sshArgs,
   sshTargetIsLoopback,
+  updateMachine,
 } from "./tau-machines.mjs";
 import { main } from "./tau.mjs";
 
@@ -370,5 +371,41 @@ describe("tau machines list and remove", () => {
     expect(methods).toEqual(["machines-overview"]);
     expect(JSON.parse(lines[0])).toEqual({ window: true, machines: [] });
     await expect(main(["machines", "list"], { out: () => undefined, env: {}, readRunningHost: () => undefined })).rejects.toThrow(/Tau is not running on this computer/u);
+  });
+});
+
+describe("tau update and tau machines update (K103)", () => {
+  const status = { version: "0.7.6", phase: "waiting", latest: "0.7.14", channel: "stable", automatic: true, installer: "host", devicesMayInstall: true, runningTurns: 1 };
+
+  it("reads its flags", () => {
+    expect(parseMachinesArgs(["update", "rex"])).toEqual({ action: "update", machine: "rex", json: false, update: "install" });
+    expect(parseMachinesArgs(["update", "rex", "--check", "--json"])).toEqual({ action: "update", machine: "rex", json: true, update: "check" });
+    expect(() => parseMachinesArgs(["update"])).toThrow(/one machine/u);
+    expect(() => parseMachinesArgs(["update", "rex", "--check", "--status"])).toThrow(/does not know --status/u);
+  });
+
+  it("updates another machine through this computer's host and window", async () => {
+    const calls = [];
+    const session = { hello: { host: SELF, owner: true }, async request(method, params, waitMs) { calls.push({ method, params, waitMs }); return { id: REX.id, name: "rex", update: status }; } };
+    const { lines, out } = capture();
+    expect(await updateMachine({ machine: "rex", update: "install", json: false }, { out, session })).toBe(0);
+    expect(calls).toEqual([{ method: "machines-update", params: ["rex", "install"], waitMs: 11 * 60_000 }]);
+    expect(lines).toEqual(["rex: Tau 0.7.6. Tau 0.7.14 installs when the running turns end."]);
+    const failed = { ...session, request: async () => ({ id: REX.id, name: "rex", update: { ...status, phase: "failed", reason: "polkit did not allow the update helper" } }) };
+    expect(await updateMachine({ machine: "rex", update: "install", json: false }, { out, session: failed })).toBe(1);
+  });
+
+  it("updates this machine through its running host", async () => {
+    const requests = [];
+    const openSession = async () => ({ request: async (method, params, waitMs) => { requests.push({ method, waitMs }); return { ...status, phase: "current", latest: "0.7.6" }; }, close: () => undefined });
+    const { lines, out } = capture();
+    expect(await main(["update", "--check"], { out, env: {}, readRunningHost: () => ({ url: "ws://x", token: "t" }), openSession })).toBe(0);
+    expect(requests).toEqual([{ method: "update-check", waitMs: 11 * 60_000 }]);
+    expect(lines).toEqual(["Tau 0.7.6. Up to date."]);
+    const json = capture();
+    await main(["update", "--status", "--json"], { ...json, env: {}, readRunningHost: () => ({ url: "ws://x", token: "t" }), openSession });
+    expect(JSON.parse(json.lines[0])).toMatchObject({ phase: "current" });
+    await expect(main(["update"], { out, env: {}, readRunningHost: () => undefined })).rejects.toThrow(/not running on this machine/u);
+    await expect(main(["update", "--now"], { out, env: {} })).rejects.toThrow(/--check or --status/u);
   });
 });
