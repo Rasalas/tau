@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { HostEvent, PackageBuildError, UiMessage } from "../shared/contracts";
+import type { HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
@@ -20,7 +20,7 @@ import { runtimeControls } from "./settings/runtime-controls";
 import { followExtensionChoices } from "./extension-choices";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
-import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
+import { applyHostEvent, type HostEventTargets, type PackagesChangeReport } from "../workbench/host-events";
 import { getPlatform, PlatformProvider, setPlatform } from "./platform-context";
 import { useAppOverlays } from "./use-app-overlays";
 import { useAppKeybindings } from "./use-app-keybindings";
@@ -370,8 +370,8 @@ export default function App() {
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
-  const syncDesktopExtensions = useCallback((only?: readonly string[], buildErrors?: readonly PackageBuildError[]) => {
-    void runtimeExtensions.resync(only, buildErrors).catch((error) => setNotice(errorMessage(error)));
+  const syncDesktopExtensions = useCallback((only?: readonly string[], report?: PackagesChangeReport) => {
+    void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, setNotice]);
 
   const windowShell = useWindowShell({

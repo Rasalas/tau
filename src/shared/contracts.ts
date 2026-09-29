@@ -662,7 +662,14 @@ export type GlobalHostEvent =
    * desktop halves. `extensionIds` narrows that to the ones that moved, so a
    * client can swap those modules instead of every one it loaded.
    */
-  | { type: "extension-packages-changed"; extensionIds?: string[]; buildErrors?: PackageBuildError[]; sessionId?: undefined }
+  | {
+    type: "extension-packages-changed";
+    extensionIds?: string[];
+    buildErrors?: PackageBuildError[];
+    /** Of `extensionIds`, the packages that now wait for the user's approval: their permissions or isolation changed. */
+    awaitingApproval?: Array<{ id: string; name: string }>;
+    sessionId?: undefined;
+  }
   /**
    * A file the host watches moved on disk: `kind` names the group it belongs to
    * ("config", "themes", "keybindings"), `paths` what changed. A client re-reads

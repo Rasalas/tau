@@ -3,6 +3,7 @@ import * as ReactDom from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
 import * as ReactVirtual from "@tanstack/react-virtual";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult, PackageBuildError } from "../shared/contracts";
+import type { PackagesChangeReport } from "../workbench/host-events";
 import { diagnosticLine } from "../shared/build-diagnostics";
 import type { ToastOptions } from "../workbench/toast-store";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
@@ -129,8 +130,9 @@ export class RuntimeExtensions {
    * extensions that moved — a watched file edit knows them — and then nothing
    * else is rebuilt, re-imported or re-activated.
    */
-  async resync(only?: readonly string[], hostBuildErrors: readonly PackageBuildError[] = []): Promise<readonly RuntimeExtensionRecord[]> {
-    for (const failure of hostBuildErrors) this.reportBuildFailure(failure, "host-extension.build.failed");
+  async resync(only?: readonly string[], report: PackagesChangeReport = {}): Promise<readonly RuntimeExtensionRecord[]> {
+    for (const failure of report.buildErrors ?? []) this.reportBuildFailure(failure, "host-extension.build.failed");
+    for (const waiting of report.awaitingApproval ?? []) this.announceWaiting(waiting.id, waiting.name);
     if (this.cwd === undefined) return this.loaded;
     return only && only.length > 0 ? this.replace(this.cwd, only) : this.sync(this.cwd);
   }
@@ -178,7 +180,9 @@ export class RuntimeExtensions {
         this.loaded = previous
           ? this.loaded.map((entry) => entry === previous ? record : entry)
           : [...this.loaded, record];
-        this.host.notify(`Reloaded ${record.extension.name}`);
+        // A changed permission list or isolation sends a package back to waiting: nothing reloaded.
+        if (bundle.granted === false) this.announceWaiting(id, record.extension.name);
+        else this.host.notify(`Reloaded ${record.extension.name}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.registry.noteLoadFailure(bundle.path, message);
@@ -248,6 +252,24 @@ export class RuntimeExtensions {
       timeoutMs: 15_000,
       copyText: failure.message,
       ...(openSettings ? { actions: [{ label: "Details", run: () => openSettings("inspector") }] } : {}),
+    });
+  }
+
+  /** A package whose permissions changed runs no more until the user allows them again. */
+  private announceWaiting(id: string, name: string): void {
+    this.host.log("extension.awaiting-approval", id);
+    if (!this.host.toast) {
+      this.host.notify(`${name} is waiting for approval in Settings → Extensions`);
+      return;
+    }
+    const openSettings = this.host.openSettings;
+    this.host.toast({
+      id: `approval:${id}`,
+      type: "warning",
+      title: `${name} is waiting for approval`,
+      description: "What it asks for changed, so it is off until you allow it again in Settings → Extensions.",
+      timeoutMs: 15_000,
+      ...(openSettings ? { actions: [{ label: "Review", run: () => openSettings(`extensions/${id}`) }] } : {}),
     });
   }
 

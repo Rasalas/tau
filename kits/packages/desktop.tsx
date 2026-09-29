@@ -354,7 +354,7 @@ export const packagesExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
-      description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve its permissions on its page.",
+      description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve it in Settings → Extensions.",
       group: "extensions",
       profiles: ["desktop", "web"],
       Icon: Package,

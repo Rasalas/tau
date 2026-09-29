@@ -210,6 +210,17 @@ describe("ExtensionPackageActivator", () => {
     });
   });
 
+  it("reports a watched package whose new permissions wait for approval", async () => {
+    const { activator, events, install, approve } = await harness();
+    install(hello);
+    await approve("acme.hello");
+    await activator.start();
+    events.length = 0;
+    install({ ...hello, permissions: ["workspace:read", "process"], hash: "5555555555555555" });
+    await activator.refresh({ only: ["acme.hello"] });
+    expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"], awaitingApproval: [{ id: "acme.hello", name: "Hello" }] });
+  });
+
   it("keeps the last good version running when a reload finds a broken package", async () => {
     const { activator, registry, activations, install, breakEntry, fixEntry, approve } = await harness();
     install(hello);
