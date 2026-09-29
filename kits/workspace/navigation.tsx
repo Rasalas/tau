@@ -6,6 +6,8 @@ import {
   draftTitle,
   errorMessage,
   ProjectIcon,
+  Menu,
+  type MenuSection,
   READ_ONLY_REASON,
   ThreadRow,
   tooltipProps,
@@ -28,7 +30,7 @@ import {
   type UiSession,
   type WorkbenchActions,
 } from "tau";
-import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
+import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type ThreadRailOrganizer, type ThreadRailRowAction, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
@@ -575,6 +577,27 @@ export function sessionAge(timestamp: number, now = Date.now()): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
+function RailRowAction({ action, session, organizer, actions }: {
+  action: ThreadRailRowAction;
+  session: UiSession;
+  organizer: ThreadRailOrganizer;
+  actions: WorkbenchActions;
+}) {
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; sections: MenuSection[] }>();
+  return <>
+    <button type="button" aria-label={action.label} aria-haspopup="menu" aria-expanded={Boolean(menu)}
+      {...tooltipProps(action.label)}
+      onClick={(event) => {
+        event.stopPropagation();
+        const bounds = event.currentTarget.getBoundingClientRect();
+        setMenu(menu ? undefined : { at: { x: bounds.left, y: bounds.bottom }, sections: action.menu() });
+      }}>{action.icon}</button>
+    {menu ? <Menu at={menu.at} sections={menu.sections} label={action.label}
+      onSelect={(choice) => organizer.runMenu(session, choice, actions)}
+      onClose={() => setMenu(undefined)} /> : null}
+  </>;
+}
+
 const ConnectedThreadRow = memo(function ConnectedThreadRow({
   id,
   active,
@@ -586,7 +609,11 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   modelProvider,
   startedAt,
   onSelect,
+  organizer,
+  actions,
 }: {
+  organizer?: ThreadRailOrganizer;
+  actions: WorkbenchActions;
   id: string;
   active: boolean;
   activity: ThreadActivity;
@@ -598,6 +625,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   startedAt?: number;
   onSelect(path: string): Promise<boolean>;
 }) {
+  const { readOnly } = useHostCapabilities();
+  const preferences = usePreferences();
   const store = useThreadStore();
   const session = useSyncExternalStore(
     useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
@@ -635,6 +664,13 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
+      onToggleSettled={readOnly ? undefined : () => {
+        if (organizer) organizer.runMenu(session, activity === "settled" ? "unsettle" : "settle", actions);
+        else preferences.toggleSettled(session.id);
+      }}
+      actions={!readOnly && organizer ? organizer.rowActions?.(session).map((action) =>
+        <RailRowAction key={action.id} action={action} session={session} organizer={organizer} actions={actions} />
+      ) : undefined}
     />
   );
 });
@@ -984,6 +1020,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
+      organizer={organizer}
+      actions={actions}
     />
   );
 
@@ -1072,7 +1110,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   const openMenu = (event: ReactMouseEvent) => {
     const id = rowIdOf(event.target) ?? (event.target === event.currentTarget ? cursorId : undefined);
-    // Without an organizer the menu only settles; rows carry no hover buttons for it.
+    // Without an organizer the menu only settles.
     if (!organizer) {
       const session = id ? findSession(id) : undefined;
       if (!session || readOnlyDevice) return;

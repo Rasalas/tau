@@ -1,3 +1,4 @@
+import { AlarmClock } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
@@ -316,6 +317,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
 
   return {
+    rowActions(session) {
+      const section = sectionOf(meta(session.id), now());
+      if (section === "settled" || section === "snoozed" || hostIsReadOnly()) return [];
+      return [{ id: "snooze", label: "Snooze thread", icon: <AlarmClock size={13} aria-hidden="true" />, menu: snoozeSubmenu }];
+    },
     subscribe: store.subscribe,
     getVersion: store.getVersion,
     sections(threads) {
