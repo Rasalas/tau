@@ -43,6 +43,12 @@ describe("the phone's turn pill", () => {
     expect(latestChangedTurn([turn("t2", 2), turn("t1", 1), turn("t3", 3, { files: [], fileCount: 0 })])?.id).toBe("t2");
     expect(latestChangedTurn([turn("t1", 1), turn("t2", 2, { files: [], fileCount: 0, completeness: "partial" })])?.id).toBe("t2");
     expect(latestChangedTurn([])).toBeUndefined();
+    expect(latestChangedTurn([turn("t1", 1), turn("t2", 2, { files: [], fileCount: 0, headMove: { uncertainFileCount: 3 } })])?.id).toBe("t2");
+  });
+
+  it("says the branch changed rather than count files it cannot attribute", async () => {
+    setup({ turns: [turn("t1", 1, { headMove: { uncertainFileCount: 3 } })] });
+    expect((await screen.findByRole("button", { name: /^Turn changes: Branch changed/u })).textContent).toBe("Branch changed");
   });
 
   it("opens the Review sheet on that turn's files", async () => {

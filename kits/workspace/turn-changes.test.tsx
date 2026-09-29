@@ -36,6 +36,34 @@ describe("TurnChangesPill", () => {
     expect(pill().classList.contains("control-pill")).toBe(false);
   });
 
+  it("says the branch changed instead of a count it cannot vouch for, and lists only the turn's files", async () => {
+    const moved = {
+      ...changes,
+      files: [changes.files[0]!],
+      fileCount: 1,
+      added: 3,
+      head: { before: "a".repeat(40), after: "b".repeat(40), beforeBranch: "feat", afterBranch: "stage" },
+      headMove: { kind: "checkout", steps: [], excludedFileCount: 249, uncertainFileCount: 2 },
+    };
+    render(<TurnChangesPill changes={moved} onOpenDiff={vi.fn()} />);
+    expect(pill().textContent).toBe("Branch changed");
+    expect(pill().getAttribute("aria-label")).toBe("Turn changes: branch changed during this turn, 1 file certain");
+
+    fireEvent.click(pill());
+    const detail = await screen.findByRole("dialog", { name: "Turn changes" });
+    expect(detail.textContent).toContain("Branch changed during this turn (feat → stage). Only files the turn changed for certain are listed; 2 files changed by both can't be told apart.");
+    expect(detail.textContent).toContain("notes.txt");
+    expect(detail.textContent).not.toContain("src/README.md");
+  });
+
+  it("keeps the count when the move explains every file it touched, and says what it left out", async () => {
+    const moved = { ...changes, head: { before: "a".repeat(40), after: "b".repeat(40) }, headMove: { kind: "pull", steps: [], excludedFileCount: 30, uncertainFileCount: 0 } };
+    render(<TurnChangesPill changes={moved} onOpenDiff={vi.fn()} />);
+    expect(pill().textContent).toBe("2 files+4−2");
+    fireEvent.click(pill());
+    expect((await screen.findByRole("dialog")).textContent).toContain("Pulled during this turn. The 30 files it brought are left out.");
+  });
+
   it("draws nothing for a turn that changed no files, even one that could be rewound", () => {
     const view = render(<TurnChangesPill changes={{ files: [], fileCount: 0, added: 0, removed: 0 }} onOpenDiff={vi.fn()} onRestore={vi.fn()} />);
     expect(view.container.innerHTML).toBe("");
