@@ -56,7 +56,7 @@ build() {
   ' "$root/opt/Tau/resources/app.asar.unpacked/bin/tau-update-helper.mjs"
   cp /src/packaging/linux/tau-update-helper /src/packaging/linux/tau "$root/opt/Tau/bin/"
   cp /src/packaging/linux/polkit/* "$root/opt/Tau/resources/polkit/"
-  printf 'provider: github\nowner: Rasalas\nrepo: tau\n' > "$root/opt/Tau/resources/app-update.yml"
+  printf 'provider: github\nowner: Rasalas\nrepo: tau-releases\n' > "$root/opt/Tau/resources/app-update.yml"
   echo "$version$extra" > "$root/opt/Tau/resources/version"
   printf 'Package: tau\nVersion: %s\nArchitecture: %s\nMaintainer: Test <test@example.invalid>\nDescription: stand-in for Tau\n' "${version//-/\~}" "$ARCH" > "$root/DEBIAN/control"
   sed 's/\${sanitizedProductName}/Tau/g; s/\${executable}/tau/g' /src/packaging/linux/after-install.tpl > "$root/DEBIAN/postinst"
