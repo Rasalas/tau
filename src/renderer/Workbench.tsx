@@ -38,7 +38,7 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
-import { DraftDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
+import { ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
 import { ProjectIcon } from "./components/ProjectIcon";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
@@ -675,9 +675,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {split ? <button type="button" className="stage-tool" aria-label="Threads" {...tooltipProps("Threads", { side: "bottom" })} onClick={() => setTouchSidebarOpen((open) => !open)}><ListTree size={16} /></button> : null}
     </>}
     title={threadTitle}
-    details={showStartScreen
-      ? <DraftDetails project={startProjectName} projectPath={startProjectPath} snapshot={conversationSnapshot} slots={detailSlots} />
-      : <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />}
+    // A draft's pills say project, machine and branch; an empty thread keeps its sub-line (its branch has no pill).
+    details={showStartScreen && pendingNewThread ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} slots={detailSlots} />}
     actions={conversationFolded ? null : <PanelSlot host={titleActionsHost} />}
     tools={stageExpanded ? undefined : stageTools}
     {...(firstTool || stage.tabs.length > 0 ? { stage: { shown: stageExpanded, shortcut: registry.keybindingLabel?.("workbench.toggle-dock"), onToggle: toggleStage } } : {})}

@@ -31,7 +31,6 @@ vi.mock("./components/ThreadHeader", () => ({
     return <header data-testid="title-bar" />;
   },
   ThreadDetails: () => null,
-  DraftDetails: () => null,
 }));
 
 // The composer sits beside the transcript; a flush of tool output leaves it alone too.
