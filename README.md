@@ -9,6 +9,8 @@
 
 > **PROTOTYPE, not production.** This repository answers one design question: can Pi remain the agent runtime while a desktop shell becomes independently extensible like Neovim?
 
+Open source under the [Apache License 2.0](LICENSE). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems as described in [SECURITY.md](SECURITY.md).
+
 Tau embeds the real `@earendil-works/pi-coding-agent` SDK in an Electron host. The renderer does not know Pi internals; it receives a small stream of host events. A separate desktop extension registry contributes sidebar modules, project sources, panels, commands, and tool presentation.
 
 ## Project documents
@@ -787,3 +789,7 @@ still open:
 Not goals: a full code editor, a replacement for Git tooling, feature-for-feature parity with
 another workbench, or a new agent runtime. Those arrive through extensions when they improve agent work enough to
 justify their maintenance cost.
+
+## License
+
+Tau is licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE) for attributions and the one separately licensed component the desktop app bundles. The desktop app lists every third-party package with its license under Settings → About.
