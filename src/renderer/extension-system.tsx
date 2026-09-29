@@ -1549,6 +1549,7 @@ export class ExtensionRegistry {
   private activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
   private listeners = new Set<() => void>();
   private version = 0;
+  private loadingExtensions = false;
   /** The last failure per extension entry path; an entry that builds again drops out. */
   private readonly loadFailures = new Map<string, string>();
   private sortedCache = new Map<string, { version: number; value: unknown[] }>();
@@ -2477,6 +2478,20 @@ export class ExtensionRegistry {
       if (this.loadFailures.get(path) === message) return;
       this.loadFailures.set(path, message);
     }
+    this.changed();
+  }
+
+  /**
+   * Whether the packages of this client are still on their way (the first
+   * load of a workspace's set); a page no package registered yet may still come.
+   */
+  isLoadingExtensions(): boolean {
+    return this.loadingExtensions;
+  }
+
+  setLoadingExtensions(loading: boolean): void {
+    if (this.loadingExtensions === loading) return;
+    this.loadingExtensions = loading;
     this.changed();
   }
 

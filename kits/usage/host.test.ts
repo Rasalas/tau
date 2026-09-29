@@ -129,6 +129,13 @@ describe("Usage host half", () => {
     expect(result.entries?.filter((entry) => entry.outside).map((entry) => entry.threadId).sort()).toEqual(["c-1", "s-cli"]);
     expect(result.sources.find((source) => source.backend === "opencode-outside")?.status).toBe("unavailable");
     expect(await readFile(join(root, "state", "tau.usage", "outside-usage.json"), "utf8")).not.toContain("never be kept");
+
+    // After a first read, a summary answers with the last counts at once while a large new log is read.
+    const lines = Array.from({ length: 60_000 }, (_, index) => codexResponse(NOW - 3_000, `r-big-${index}`, { input: 1, output: 0 }));
+    await write(join(codexHome, "sessions", "2026", "09", "22", "rollout-c.jsonl"), [codexMeta("s-big", "/work/big", NOW - 5_000), ...lines]);
+    const later = await registry.invoke("tau.usage", "summary", { refresh: true, days: [NOW - DAY, NOW - 15 * 60_000] }) as UsageSummary;
+    expect(later.reading).toBe(true);
+    expect(later.rows.some((row) => row.cwd === "/work/side")).toBe(true);
   });
 
   it("takes only absolute folders of a known layout from a kit", () => {
@@ -169,9 +176,9 @@ describe("Usage host half", () => {
     expect(result.rows[0]).toMatchObject({ billing: "subscription", costUsd: 0, apiValueUsd: 0.12 });
     expect(result.totals).toMatchObject({ costUsd: 0, subscription: { apiValueUsd: 0.12, totalTokens: 110 } });
 
-    // Split by the client's days, each entry is priced too.
+    // Split by the client's days, each entry is priced too. A day starts on a quarter hour, as every time zone's midnight does.
     asked.length = 0;
-    const byDay = await registry.invoke("tau.usage", "summary", { since: NOW - DAY, days: [NOW - DAY, NOW - 10_000] }) as UsageSummary;
+    const byDay = await registry.invoke("tau.usage", "summary", { since: NOW - DAY, days: [NOW - DAY, NOW - 15 * 60_000] }) as UsageSummary;
     expect(asked).toHaveLength(2);
     expect(byDay.entries).toEqual([expect.objectContaining({ day: 1, threadId: "s1", billing: "subscription", costUsd: 0, apiValueUsd: 0.12, totalTokens: 110 })]);
   });

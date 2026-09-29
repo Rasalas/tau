@@ -36,7 +36,7 @@ export const SCAN_MAX_AGE_MS = 5 * 60_000;
 /** Limits read younger than this answer without asking the kits again. */
 export const LIMITS_MAX_AGE_MS = 5 * 60_000;
 
-/** How long a summary waits for the CLIs' logs before it answers with what is read so far. */
+/** How long a first summary waits for the CLIs' logs before it answers with what is read so far; later ones do not wait. */
 export const OUTSIDE_WAIT_MS = 1_500;
 
 export interface UsageHostOptions {
@@ -234,8 +234,10 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
           () => { if (finished) stale = true; },
           (error: unknown) => services.log("usage.outside-read-failed", reason(error)),
         );
+        // Only a first read is waited for; after it, the last counts answer at once and new ones follow.
+        const wait = await outsideCache.readBefore() ? 0 : outsideWait;
         let timer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([done, new Promise<void>((resolve) => { timer = setTimeout(resolve, outsideWait); })]);
+        if (wait > 0) await Promise.race([done, new Promise<void>((resolve) => { timer = setTimeout(resolve, wait); })]);
         clearTimeout(timer);
         // Past this point a read that ends later makes the next summary read again.
         finished = true;

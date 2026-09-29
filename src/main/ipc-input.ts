@@ -255,6 +255,13 @@ export function decodeOptionalExtensionIds(channel: string, field: string, value
   return [...new Set(value as string[])];
 }
 
+/** The bundle digests a client says it holds (`DesktopExtensionBundle.hash`). */
+export function decodeBundleHashes(channel: string, field: string, value: unknown): Set<string> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length > 2000 || value.some((entry) => typeof entry !== "string" || !/^[0-9a-f]{32}$/u.test(entry))) fail(channel, field, "must be an array of bundle digests");
+  return new Set(value as string[]);
+}
+
 export function decodeExtensionId(channel: string, value: unknown): string {
   const id = decodeString(channel, "extensionId", value);
   if (!EXTENSION_ID.test(id)) fail(channel, "extensionId", "must look like a manifest id (lowercase, dot-separated)");

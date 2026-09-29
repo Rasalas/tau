@@ -12,55 +12,62 @@ function clockTime(at: number, now: number): string {
   return new Date(at).toLocaleString(undefined, sameDay ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-/** What a state says beside the reset, and why on hover; nothing while a window is on its way. */
+/** What a state says beside the reset, and why on hover; nothing while a window is on its way. Texts as Juicebar's. */
 function stateText(state: QuotaState, window: UsageLimitWindow, now: number): { label: string; hint: string; level: "fail" | "warn" | "note" } | undefined {
   switch (state.kind) {
-    case "exhausted": return { label: "Limit reached", hint: "This window is used up until it resets.", level: "fail" };
-    case "forecast": return { label: `Limit in ${formatWait(state.at - now)}`, hint: `At your recently measured pace this limit runs out around ${clockTime(state.at, now)}, before it resets. The estimate moves with your usage.`, level: "warn" };
-    case "pace": return { label: `Past steady pace in ${formatWait(state.at - now)}`, hint: "At your recently measured pace you pass the diamond soon; the diamond moves on too. After that you use more than an even pace allows, but the limit is not used up.", level: "warn" };
-    case "ahead": return { label: "Above steady pace", hint: `${Math.round(window.usedPercent)}% used; an even pace would be ${Math.round(state.steady)}% by now. This is not a forecast that the limit runs out.`, level: "warn" };
-    case "lasts": return { label: "Lasts until the reset", hint: "At your recently measured pace this limit lasts until it resets.", level: "note" };
+    case "exhausted": return { label: "Limit reached", hint: "The reported quota is used up. Wait for the reset.", level: "fail" };
+    case "forecast": return { label: `Limit in ${formatWait(state.at - now)}`, hint: `At your recently measured pace the quota runs out around ${clockTime(state.at, now)}, before the reset. The estimate changes with your usage.`, level: "warn" };
+    case "pace": return { label: `Target in ${formatWait(state.at - now)}`, hint: "At your recently measured pace you reach the target (the diamond) soon; its movement is accounted for. After that you use more than an even pace allows, but the quota is not used up.", level: "warn" };
+    case "ahead": return { label: "Below target", hint: `${leftOf(window.usedPercent)}% left; at an even pace ${leftOf(state.steady)}% would be left now. This is not a forecast that the quota runs out.`, level: "warn" };
+    case "lasts": return { label: "Lasts until the reset", hint: "At your recently measured pace the quota lasts until it resets.", level: "note" };
     default: return undefined;
   }
 }
 
+/** What is left of a window, 0–100, rounded as the figure shows it. */
+export function leftOf(usedPercent: number): number {
+  return Math.round(Math.max(0, Math.min(100, 100 - usedPercent)));
+}
+
 /**
- * One window: its share used as the figure, the bar, and the diamond where
- * even use over the window would be now; under it the reset and what the
- * recent readings say. A window past its reset shows no figure: the reading
- * no longer describes it.
+ * One window as Juicebar draws it: what is left as the figure and the bar,
+ * the diamond where the rest would stand at an even pace now (the target),
+ * and under it the reset and what the recent readings say. A window past its
+ * reset shows no figure: the reading no longer describes it.
  */
 function WindowLine({ account, window, history, now }: { account: UsageLimitAccount; window: UsageLimitWindow; history: readonly UsageLimitSample[]; now: number }) {
-  const used = Math.round(Math.max(0, Math.min(100, window.usedPercent)));
+  const left = leftOf(window.usedPercent);
   const state = quotaState(account, window, history, now);
   const expired = state.kind === "expired";
   const steady = expired ? undefined : steadyPercent(window, now);
+  const target = steady === undefined ? undefined : 100 - steady;
   const status = stateText(state, window, now);
   const countdown = expired ? "Reset reached · waiting for a new reading" : window.resetsAt ? `${resetsIn(window, now)} · ${clockTime(window.resetsAt, now)}` : "Reset time unavailable";
   const hint = [
-    expired ? `${window.label}: the reading is from before its reset.` : `${window.label}: ${used}% used`,
-    steady === undefined ? undefined : `Steady pace: ${Math.round(steady)}% by now (the diamond)`,
+    expired ? `${window.label}: the reading is from before its reset.` : `${window.label}: ${left}% left`,
+    target === undefined ? undefined : `Target at an even pace: ${Math.round(target)}% left (the diamond)`,
     window.resetsAt && !expired ? `Resets ${new Date(window.resetsAt).toLocaleString(undefined, { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : undefined,
   ].filter(Boolean).join("\n");
   return (
     <div className="usage-window" data-state={state.kind}>
       <div className="usage-window-head">
         <span className="usage-window-label">{window.label}</span>
-        <span className="usage-window-value">{expired ? <b>—</b> : <><b>{used}</b><small>% used</small></>}</span>
+        <span className="usage-window-value">{expired ? <b>—</b> : <><b>{left}</b><small>% left</small></>}</span>
       </div>
       <div
         className="usage-meter"
         role="meter"
-        aria-label={`${window.label} used`}
+        aria-label={`${window.label} left`}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={expired ? 0 : used}
-        aria-valuetext={expired ? "reset reached, waiting for a new reading" : `${used}% used${steady === undefined ? "" : `, steady pace ${Math.round(steady)}%`}${status ? `, ${status.label}` : ""}`}
+        aria-valuenow={left}
+        aria-valuetext={expired ? "reset reached, waiting for a new reading" : `${left}% left${target === undefined ? "" : `, target ${Math.round(target)}%`}${status ? `, ${status.label}` : ""}`}
         tabIndex={0}
         {...tooltipProps(hint)}
       >
-        {!expired && used > 0 ? <span className="usage-meter-fill" style={{ width: `${used}%` }} /> : null}
-        {steady !== undefined ? <span className="usage-meter-pace" style={{ "--usage-pace": `${steady}%` } as CSSProperties} /> : null}
+        {/* The rest drains toward the left; a window past its reset keeps its last rest, grey. */}
+        {left > 0 ? <span className="usage-meter-fill" style={{ width: `${left}%` }} /> : null}
+        {target !== undefined ? <span className="usage-meter-pace" style={{ "--usage-pace": `${target}%` } as CSSProperties} /> : null}
       </div>
       <div className="usage-window-foot">
         <span className="usage-window-reset">{window.resetsAt && !expired ? <RotateCw size={11} aria-hidden="true" /> : null}{countdown}</span>
@@ -155,8 +162,8 @@ function AccountCard({ group, costs, period, history, failed, now }: { group: Li
 }
 
 /**
- * How close each plan is to its limits and when they reset, the fullest
- * window first; accounts without windows say why in one line. Runtimes
+ * What is left of each plan and when it resets, the window with the least
+ * left first; accounts without windows say why in one line. Runtimes
  * signed in to one account show as one, with their costs summed.
  */
 export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", onRetry }: {
@@ -190,7 +197,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
           <div className="usage-accounts">
             {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} />)}
           </div>
-          <p className="usage-pace-legend"><i aria-hidden="true" />The diamond is where even use over the window would be now.</p>
+          <p className="usage-pace-legend"><i aria-hidden="true" />Target: what would be left now at an even pace over the window.</p>
         </>
       )}
       {silent.length > 0 ? (

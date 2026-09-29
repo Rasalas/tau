@@ -97,9 +97,7 @@ const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal"
 // The touch layout's own pieces: none of them is in a desktop window's first paint.
 const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
 const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
-const LazyPhoneNav = lazy(() => import("./touch/PhoneNav").then(({ PhoneNav, phoneNavItems }) => ({
-  default: (props: { registry: ExtensionRegistry } & Omit<Parameters<typeof PhoneNav>[0], "items">) => <PhoneNav {...props} items={phoneNavItems(props.registry)} />,
-})));
+const LazyPhoneNav = lazy(() => import("./touch/PhoneNav").then(({ RegistryPhoneNav }) => ({ default: RegistryPhoneNav })));
 const LazyPanelSheet = lazy(() => import("./touch/PanelSheet").then(({ PanelSheet }) => ({ default: PanelSheet })));
 // Mounted closed from the start, like the palette, so its chunk is in before the first open.
 const LazyProjectPicker = lazy(() => import("./components/ProjectPicker").then(({ ProjectPicker }) => ({ default: ProjectPicker })));

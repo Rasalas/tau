@@ -34,3 +34,6 @@ body[data-keyboard] .phone-nav { display: none; }
 .phone-nav-item:focus-visible { outline: none; }
 .phone-nav-item:focus-visible .phone-nav-icon { box-shadow: 0 0 0 2px var(--focus); }
 @media (prefers-reduced-motion: reduce) { .phone-nav-icon { transition: none; } }
+
+/* A page's icon remembered from the last start, drawn in the tab's colour. */
+.phone-nav-cached-icon { display: block; background: currentColor; mask: center / contain no-repeat; }
