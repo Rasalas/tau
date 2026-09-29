@@ -2,8 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
-import { createKitHarness, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
-import { environmentsExtension } from "./desktop.js";
+import { createKitHarness, createMemoryStorage, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createRailSection, environmentsExtension } from "./desktop.js";
 import { notReachable } from "./list-head.js";
 
 afterEach(cleanup);
@@ -67,12 +67,12 @@ describe("Machines Kit on a phone", () => {
     stop();
     // No Settings page and no title-bar chip: the phone manages its hosts in its own host list.
     expect(registry.getSettingsPages()).toEqual([]);
-    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on-sheet"]);
+    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on-sheet", "environments.arrival"]);
   });
 
   it("offers every paired host in a sheet, the one out of reach with its reason, and moves the draft to the one picked", () => {
     const { registry, environments } = phone({ shown: "mac", environments: [mac, rex, box], secureStorage: true });
-    const Control = registry.getRegions("draft-actions")[0]!.Component;
+    const Control = registry.getRegions("draft-actions").find((region) => region.id === "environments.run-on-sheet")!.Component;
     const store = new ThreadStore();
     const setComposerDraft = vi.fn();
     render(<ThreadStoreContext.Provider value={store}><Control actions={fakeActions({ activeThread: () => ({ draftPending: true, cwd: "/Users/me/shop" }) as never, composerDraft: () => "Fix checkout", setComposerDraft })} /></ThreadStoreContext.Provider>);
@@ -107,6 +107,27 @@ describe("Machines Kit on a phone", () => {
     expect(environments.open).toHaveBeenCalledWith("attic");
     // What the page was sent here for is asked for once.
     expect(environments.takeArrival).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes on placing a new thread's draft after the list that took it gave way to the draft, with the draft's own actions", async () => {
+    setClientStorage(createMemoryStorage());
+    const { environments } = fakeEnvironments({ shown: "rex", environments: [mac, rex], secureStorage: true });
+    environments.takeArrival.mockResolvedValueOnce({ newThread: { draft: "Fix checkout", workspaceId: "ws-shop" } } as never);
+    let text = "";
+    const Arrival = createRailSection(environments, async () => undefined, { outlivesMount: true });
+    // As in the workbench, each render's actions read that render's state: the list's never see the draft.
+    const listActions = fakeActions({ activeThread: () => undefined as never, newSession: vi.fn(() => { draftView.rerender(<Arrival actions={draftActions} />); }) });
+    const draftActions = fakeActions({
+      activeThread: () => ({ draftPending: true, workspaceId: "ws-shop" }) as never,
+      composerDraft: () => text,
+      setComposerDraft: vi.fn((next: string) => { text = next; }),
+    });
+    const list = render(<Arrival actions={listActions} />);
+    list.unmount();
+    const draftView = render(<span />);
+    await vi.waitFor(() => expect(text).toBe("Fix checkout"));
+    expect(listActions.newSession).toHaveBeenCalledWith({ workspace: "ws-shop" });
+    setClientStorage(undefined);
   });
 
   it("words the last sighting as the design does", () => {
