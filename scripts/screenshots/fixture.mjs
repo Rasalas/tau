@@ -58,6 +58,8 @@ export const SDK_MODELS = [
   { value: "sonnet", displayName: "Sonnet", description: "For everyday tasks", resolvedModel: "claude-sonnet-5", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] },
   { value: "haiku", displayName: "Haiku", description: "Fastest for quick answers", resolvedModel: "claude-haiku-4-5" },
 ];
+/** The Antigravity release Tau pins (`kits/antigravity/release.ts`), so the sample copy reads as current. */
+const ANTIGRAVITY_VERSION = "agy_acp_server_1.1.1";
 const WATCHER = "export function PairingRequestWatcher({ onRequest }) {\n  useEffect(() => {\n    return watcher.subscribe(onRequest);\n  }, []);\n}\n";
 
 /**
@@ -227,7 +229,7 @@ export function writeFixture({ root, baseUrl, tauRoot, now = Date.now() }) {
 
   // Pi: the fake model, and the sample threads' providers routed to it with a dummy key.
   const routed = Object.fromEntries(["openai-codex", "google", "opencode-go"].map((provider) => [provider, { baseUrl, apiKey: "sample" }]));
-  writeFileSync(join(paths.agentDir, "models.json"), `${JSON.stringify({ providers: { ...routed, "tau-fake": { name: "Tau fake", baseUrl, api: "openai-completions", apiKey: "sample", models: [{ id: "fake-1", name: "Fake 1", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }] } } }, null, 2)}\n`);
+  writeFileSync(join(paths.agentDir, "models.json"), `${JSON.stringify({ providers: routed }, null, 2)}\n`);
   writeFileSync(join(paths.agentDir, "settings.json"), `${JSON.stringify({ defaultProvider: "opencode-go", defaultModel: "qwen3.8-max" }, null, 2)}\n`);
 
   // Codex: the repo's stub app server, with plan limits whose resets lie ahead.
@@ -241,12 +243,99 @@ export function writeFixture({ root, baseUrl, tauRoot, now = Date.now() }) {
   writeFileSync(codexCommand, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 0.156.1"; exit 0; fi\nif [ "$1" = "app-server" ]; then exec "${process.execPath}" "${join(codexStub, "stub-app-server.mjs")}" "$@"; fi\necho "stub codex: $*" >&2\nexit 1\n`);
   chmodSync(codexCommand, 0o755);
 
+  // OpenCode: the repo's fake server, so the runtime reads as installed.
+  const opencodeCommand = join(paths.bin, "opencode");
+  writeFileSync(opencodeCommand, `#!/bin/sh\nexec "${process.execPath}" "${join(tauRoot, "kits", "opencode", "fixtures", "fake-serve.mjs")}" "$@"\n`);
+  chmodSync(opencodeCommand, 0o755);
+  // Antigravity: a "managed" copy of the pinned release whose server and harness only exist, and a
+  // sign-in marker in Tau's own profile; nothing starts them.
+  const antigravityRelease = "5".repeat(64);
+  const antigravityManaged = join(kitState, "tau.antigravity", "tools", "antigravity-acp", `${process.platform}-${process.arch}`);
+  const antigravity = join(antigravityManaged, "versions", antigravityRelease);
+  mkdirSync(antigravity, { recursive: true });
+  const stub = "#!/bin/sh\necho 'stub Antigravity: not a real server' >&2\nexit 1\n";
+  for (const name of ["agy_acp_server.par", "localharness_external"]) {
+    writeFileSync(join(antigravity, name), stub);
+    chmodSync(join(antigravity, name), 0o755);
+  }
+  const file = (name) => ({ name, bytes: Buffer.byteLength(stub) });
+  writeFileSync(join(antigravity, ".install-complete.json"), JSON.stringify({ releaseId: antigravityRelease, version: ANTIGRAVITY_VERSION, executable: file("agy_acp_server.par"), harness: file("localharness_external") }));
+  writeFileSync(join(antigravityManaged, "active.json"), JSON.stringify({ releaseId: antigravityRelease }));
+  const antigravityProfile = join(kitState, "tau.antigravity", "profile", "antigravity-acp");
+  mkdirSync(antigravityProfile, { recursive: true });
+  writeFileSync(join(antigravityProfile, "acp_token.json"), "{}\n");
+
+  writeOutsideUsage(paths, { now, cwds: [shop, desk, garden] });
+
   // PATH: node for the stubs, a gh that is never logged in. The prompt shows only the folder.
   symlinkSync(process.execPath, join(paths.bin, "node"));
   writeFileSync(join(paths.bin, "gh"), "#!/bin/sh\necho 'not logged in' >&2\nexit 1\n");
   chmodSync(join(paths.bin, "gh"), 0o755);
-  writeFileSync(join(paths.zdotdir, ".zshrc"), "PROMPT='%F{blue}%1~%f %# '\nRPROMPT=''\n");
+  writeFileSync(join(paths.zdotdir, ".zshrc"), "PROMPT='%F{blue}%1~%f %# '\nRPROMPT=''\nPROMPT_EOL_MARK=''\nunsetopt PROMPT_SP\n");
   writeFileSync(paths.configFile, "{}\n");
 
   return { ...paths, codexCommand, sdkUsage, sdkModels: SDK_MODELS, projects: { shop, desk, garden }, worktreePaths: { pagination, rate, adr, flake, diffView, frost, deps } };
+}
+
+/** A fixed sequence in [0, 1), so every run draws the same history. */
+function seeded(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Six weeks of work outside Tau, in the CLIs' own log formats (counts only, no
+ * conversation): Codex rollouts and the Agent SDK CLI's project logs. Usage
+ * reads them the way it reads a real home's.
+ */
+export function writeOutsideUsage(paths, { now, cwds, days = 42 }) {
+  const random = seeded(115);
+  const iso = (at) => new Date(at).toISOString();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  let serial = 0;
+  for (let back = days; back >= 1; back -= 1) {
+    const day = today.getTime() - back * DAY;
+    const weekday = new Date(day).getDay();
+    // Quieter weekends, and a few days off.
+    if ((weekday === 0 || weekday === 6) ? random() < 0.6 : random() < 0.12) continue;
+    const busy = 0.5 + random() * 1.5;
+    const cwd = cwds[Math.floor(random() * cwds.length)];
+    const start = day + (9 + Math.floor(random() * 4)) * HOUR;
+    const codexResponses = Math.round(6 + random() * 14 * busy);
+    const sdkResponses = Math.round(5 + random() * 16 * busy);
+
+    const id = `0199${String(serial += 1).padStart(4, "0")}-0000-7000-8000-${String(back).padStart(12, "0")}`;
+    const stamp = new Date(day);
+    const folder = join(paths.codexHome, "sessions", String(stamp.getFullYear()), String(stamp.getMonth() + 1).padStart(2, "0"), String(stamp.getDate()).padStart(2, "0"));
+    const codex = [
+      { timestamp: iso(start), type: "session_meta", payload: { id, cwd } },
+      { timestamp: iso(start), type: "turn_context", payload: { model: random() < 0.7 ? "gpt-5.6-sol" : "gpt-5.6-luna" } },
+    ];
+    for (let index = 0; index < codexResponses; index += 1) {
+      const input = Math.round(18_000 + random() * 60_000);
+      const cached = Math.round(input * (0.6 + random() * 0.3));
+      const output = Math.round(800 + random() * 4_000);
+      codex.push({ timestamp: iso(start + index * 4 * MIN), type: "token_usage_record", payload: { response_id: `resp_${id}_${index}`, usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, total_tokens: input + output } } });
+    }
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, `rollout-${iso(start).slice(0, 19).replace(/:/g, "-")}-${id}.jsonl`), `${codex.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const session = randomUUID();
+    const project = join(paths.sdkHome, "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+    const sdkStart = start + 3 * HOUR;
+    const sdkModel = random() < 0.65 ? "claude-fable-5" : "claude-sonnet-5";
+    const sdk = [];
+    for (let index = 0; index < sdkResponses; index += 1) {
+      sdk.push({ type: "assistant", timestamp: iso(sdkStart + index * 3 * MIN), sessionId: session, cwd, requestId: `req_${session}_${index}`, message: { id: `msg_${session}_${index}`, role: "assistant", model: sdkModel, usage: { input_tokens: Math.round(200 + random() * 3_000), output_tokens: Math.round(600 + random() * 3_500), cache_read_input_tokens: Math.round(30_000 + random() * 90_000), cache_creation_input_tokens: Math.round(2_000 + random() * 12_000) } } });
+    }
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, `${session}.jsonl`), `${sdk.map((line) => JSON.stringify(line)).join("\n")}\n`);
+  }
 }
