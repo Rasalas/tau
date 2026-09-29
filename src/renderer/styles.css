@@ -520,7 +520,7 @@ button > svg { pointer-events: none; }
 .conversation-empty > h1 { margin: 0; color: var(--ink); font: 600 var(--text-title)/1.3 var(--sans); letter-spacing: -.01em; overflow-wrap: anywhere; }
 .conversation-empty > p { margin: 0; color: var(--muted); font: var(--text-md)/1.5 var(--sans); }
 /* The draft's composer: narrower than a thread's and off the window's edge (design 1k). */
-.conversation-start .composer-zone { padding-bottom: var(--space-7); }
+body:not([data-profile="compact"]) .conversation-start .composer-zone { padding-bottom: var(--space-7); }
 .conversation-start .composer-surface { max-width: 680px; }
 .conversation-column.conversation-start .conversation-thread { display: none; }
 /*
