@@ -14,7 +14,6 @@ import { thirdPartyLicenses } from "./vite.third-party-licenses";
  */
 export default defineConfig(({ mode }) => ({
   plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), thirdPartyLicenses()],
-  resolve: rendererBuild.resolve,
   base: "/",
   // Favicon, touch icon and manifest, copied to the root as they are.
   publicDir: fileURLToPath(new URL("src/web/public", import.meta.url)),

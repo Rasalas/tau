@@ -8,7 +8,6 @@ import { thirdPartyLicenses } from "./vite.third-party-licenses";
 
 export default defineConfig(({ mode }) => ({
   plugins: [react(), stripIconKeys(), packIconSet(), dedupeLegalComments(), thirdPartyLicenses()],
-  resolve: rendererBuild.resolve,
   base: "./",
   build: {
     outDir: "dist",

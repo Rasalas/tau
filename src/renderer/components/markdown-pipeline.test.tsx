@@ -2,19 +2,21 @@ import { createElement, isValidElement, type ReactNode } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
-import type { Root as HastRoot } from "hast";
+import type { Nodes as HastNodes, Parents as HastParents, Root as HastRoot } from "hast";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
+import { urlAttributes } from "html-url-attributes";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { newlineToBreak } from "mdast-util-newline-to-break";
-import { toHast } from "mdast-util-to-hast";
+import { toHast as mdastToHast } from "mdast-util-to-hast";
 import { gfm } from "micromark-extension-gfm";
 import remarkBreaks from "remark-breaks";
 import remarkParse from "remark-parse";
 import { unified, type Processor } from "unified";
+import { visit } from "unist-util-visit";
 import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
 import { TRICKY_MARKDOWN } from "./markdown-fixtures";
-import { parseMarkdown, renderMarkdown, safeUrl, toReact, type MarkdownComponents } from "./markdown-pipeline";
+import { parseMarkdown, renderMarkdown, safeUrl, toHast, toReact, type MarkdownComponents } from "./markdown-pipeline";
 
 // The processor the pipeline replaces: react-markdown with remark-gfm's parse half and remark-breaks.
 function remarkGfm(this: Processor): void {
@@ -31,6 +33,12 @@ const CASES: Record<string, string> = {
   "tables with alignment": "| l | c | r |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n",
   "footnote reuse": "a[^x] b[^x] c[^y]\n\n[^x]: X\n[^y]: Y *emph*\n",
   "entities and escapes": "&copy; &#x41; \\*not\\* `a\\b` ~single~ ~~double~~\n",
+  "references resolved and not": "![img][pic] ![alt][] ![pic] [text][nope] [nope][] [nope] ![gone][nope] [*em* link][docs]\n\n[pic]: ./p.png \"Pic\"\n[docs]: <https://e.com/a b> 'T'\n",
+  "lists nested, numbered and loose": "3. three\n4. four\n   - inner\n\n     more\n   - [ ] box\n0. zero\n\n- \n- [x]\n- [ ] \n  second line\n\n* a\n\n  b\n* c\n",
+  "footnotes odd": "x[^missing] y[^Big Name] z[^big name]\n\n[^big name]: Para one.\n\n    Para two.\n\n    ```js\n    code();\n    ```\n[^unused]: Never cited.\n",
+  "breaks then indentation": "a\\\n   b  \n\t c\n*d*\\\n  **e**\\\n[  f](x)\n",
+  "tables ragged": "| a | b | c |\n|---|:--|---|\n| 1 |\n| 1 | 2 | 3 | 4 |\n\n| solo |\n|------|\n",
+  "headings and images": "###### six\n\n## two ##\n\n![a *b*](<./x y.png> \"t\") ![](empty.png)\n\n`multi\nline` <span>inline</span>\n",
 };
 
 const passthrough: MarkdownComponents = {};
@@ -53,11 +61,29 @@ function shape(node: ReactNode): unknown {
   return { type: node.type, key: node.key, props, children: shape(children as ReactNode) };
 }
 
+// The steps `toHast` replaces: the package's conversion, then raw HTML as text and unsafe URLs emptied.
 function hastOf(text: string): HastRoot {
   const mdast = parseMarkdown(text);
   newlineToBreak(mdast);
-  return toHast(mdast, { allowDangerousHtml: true }) as HastRoot;
+  const hast = mdastToHast(mdast, { allowDangerousHtml: true }) as HastRoot;
+  visit(hast as HastNodes, (node, index, parent: HastParents | undefined) => {
+    if (node.type === "raw" && parent && typeof index === "number") {
+      parent.children[index] = { type: "text", value: node.value };
+      return index;
+    }
+    if (node.type !== "element") return undefined;
+    for (const [key, tags] of Object.entries(urlAttributes)) {
+      if (Object.hasOwn(node.properties, key) && (tags === null || tags.includes(node.tagName))) {
+        node.properties[key] = safeUrl(String(node.properties[key] || ""));
+      }
+    }
+    return undefined;
+  });
+  return hast;
 }
+
+// Positions and a fence's `meta` are all the package adds that nothing reads.
+const bare = (tree: unknown): unknown => JSON.parse(JSON.stringify(tree, (key, value: unknown) => key === "position" || key === "data" ? undefined : value));
 
 describe("markdown pipeline", () => {
   for (const [name, text] of Object.entries(CASES)) {
@@ -65,6 +91,12 @@ describe("markdown pipeline", () => {
       for (const components of [passthrough, probing]) {
         expect(renderToStaticMarkup(renderMarkdown(text, components))).toBe(reference(text, components));
       }
+    });
+
+    it(`converts ${name} to hast as mdast-util-to-hast does`, () => {
+      const mdast = parseMarkdown(text);
+      newlineToBreak(mdast);
+      expect(bare(toHast(mdast))).toEqual(bare(hastOf(text)));
     });
 
     it(`builds the element tree for ${name} as hast-util-to-jsx-runtime does`, () => {
