@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { isNightlyVersion } from "../../src/shared/app-version.js";
 import { foreignMachOFiles, machOArchitectures, macPackagesFor } from "./mac-architectures.mjs";
 import { nightlyVersion, parseArgs as parseNightlyArgs } from "./nightly-version.mjs";
+import { STABLE_NAMES } from "./publish-release.mjs";
 import { ROOT, loadRelease, parseArgs, releaseAssets, versionOfTag } from "./release.mjs";
 import { AUR_DIR, renderPkgbuild, renderSrcinfo } from "./update-aur.mjs";
 import { renderCask } from "./update-cask.mjs";
@@ -48,6 +49,12 @@ describe("release assets", () => {
     // GitHub stored "Tau Setup 0.4.0.exe" with dots.
     expect(assets.exe.name).toBe("Tau.Setup.0.4.0.exe");
     expect(releaseAssets(nextRelease()).exe.name).toBe("Tau-Setup-0.4.1.exe");
+  });
+
+  it("leaves the fixed-name copies to the website", () => {
+    const release = nextRelease();
+    const copies = Object.keys(STABLE_NAMES).map((name) => ({ ...release.assets[0], name }));
+    expect(releaseAssets({ ...release, assets: [...release.assets, ...copies] })).toEqual(releaseAssets(release));
   });
 
   it("refuses a release that lacks an installer or a digest", () => {

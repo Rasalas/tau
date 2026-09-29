@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { publishDraft, releaseBody, releaseProblems, removeNightly } from "./publish-release.mjs";
+import { STABLE_NAMES, publishDraft, releaseBody, releaseProblems, removeNightly, stableCopies } from "./publish-release.mjs";
 
 const SCRIPT = new URL("./publish-release.mjs", import.meta.url).pathname;
 const feed = (...urls) => `version: 0.7.15\nfiles:\n${urls.map((url) => `  - url: ${url}\n    sha512: x==\n    size: 1\n`).join("")}path: ${urls[0]}\n`;
@@ -19,6 +19,7 @@ const COMPLETE = [
   "Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb", "LICENSE",
 ];
 const read = (name) => FEEDS[name];
+const STABLE = ["Tau-mac-arm64.dmg", "Tau-mac-x64.dmg", "Tau-windows-x64.exe", "Tau-linux-amd64.deb", "Tau-linux-x86_64.AppImage"];
 
 const folders = [];
 afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -65,6 +66,54 @@ describe("a release folder", () => {
     const failed = spawnSync(process.execPath, [SCRIPT, "check", dir], { encoding: "utf8" });
     expect(failed.status).toBe(1);
     expect(failed.stderr).toContain("latest-linux.yml.sig is missing.");
+  });
+});
+
+describe("the fixed download names", () => {
+  // The website and the README link these under releases/latest/download/.
+  it("copy one installer each, by the names the links use", () => {
+    expect(Object.keys(STABLE_NAMES)).toEqual(STABLE);
+    expect(stableCopies("0.7.15")).toEqual([
+      { name: "Tau-mac-arm64.dmg", source: "Tau-0.7.15-arm64.dmg" },
+      { name: "Tau-mac-x64.dmg", source: "Tau-0.7.15.dmg" },
+      { name: "Tau-windows-x64.exe", source: "Tau-Setup-0.7.15.exe" },
+      { name: "Tau-linux-amd64.deb", source: "Tau_0.7.15_amd64.deb" },
+      { name: "Tau-linux-x86_64.AppImage", source: "Tau-0.7.15.AppImage" },
+    ]);
+    const named = Object.values(FEEDS).flatMap((text) => [...text.matchAll(/url: (\S+)/gu)].map((match) => match[1]));
+    for (const { source } of stableCopies("0.7.15")) expect(named).toContain(source);
+  });
+
+  it("are required in a stable release, without blockmaps, and each the size of its source", () => {
+    const size = (name) => (name.includes("arm64") ? 2 : 1);
+    expect(releaseProblems([...COMPLETE, ...STABLE], read, { stable: true, sizeOf: size })).toEqual([]);
+    expect(releaseProblems(COMPLETE, read, { stable: true })).toEqual(STABLE.map((name) => `${name} is missing.`));
+    const wrong = (name) => (name === "Tau-mac-x64.dmg" ? 2 : size(name));
+    expect(releaseProblems([...COMPLETE, ...STABLE], read, { stable: true, sizeOf: wrong })).toEqual(["Tau-mac-x64.dmg is not a copy of Tau-0.7.15.dmg."]);
+  });
+
+  it("stay out of a nightly", () => {
+    expect(releaseProblems([...COMPLETE, "Tau-mac-arm64.dmg"], read)).toEqual(["Tau-mac-arm64.dmg belongs to a stable release only."]);
+  });
+
+  it("need one version across the feeds", () => {
+    const mixed = (name) => (name === "latest.yml" ? FEEDS[name].replace("0.7.15", "0.7.16") : FEEDS[name]);
+    expect(releaseProblems([...COMPLETE, ...STABLE], mixed, { stable: true })).toEqual(["The feeds name 0.7.15, 0.7.16; a stable release needs one."]);
+  });
+
+  it("are written and checked from the command line", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-publish-release-"));
+    folders.push(dir);
+    for (const name of COMPLETE) writeFileSync(join(dir, name), FEEDS[name] ?? `contents of ${name}`);
+    const run = (...args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
+    expect(run("check", dir, "--stable").stderr).toContain("Tau-mac-arm64.dmg is missing.");
+    expect(run("copy-stable", dir).status).toBe(0);
+    for (const { name, source } of stableCopies("0.7.15")) expect(readFileSync(join(dir, name), "utf8")).toBe(`contents of ${source}`);
+    expect(run("check", dir, "--stable").status).toBe(0);
+    expect(run("check", dir).stderr).toContain("belongs to a stable release only.");
+    rmSync(join(dir, "Tau-linux-amd64.deb"));
+    expect(existsSync(join(dir, "Tau_0.7.15_amd64.deb"))).toBe(true);
+    expect(run("check", dir, "--stable").stderr).toContain("Tau-linux-amd64.deb is missing.");
   });
 });
 
