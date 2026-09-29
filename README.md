@@ -26,7 +26,7 @@ Tau is a desktop workbench for coding agents: Pi, Claude Code, Codex, OpenCode a
 | Debian and Ubuntu | [Tau-linux-amd64.deb](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-linux-amd64.deb) |
 | Other Linux (x64) | [Tau-linux-x86_64.AppImage](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-linux-x86_64.AppImage) |
 
-Tau updates itself. It looks for a new release every six hours, checks the download against the release's SHA-512 checksum, and installs it when no agent is working. The Windows installer isn't signed yet, so SmartScreen may warn once.
+Tau updates itself. It checks each download against the release's signature and SHA-512 checksum, and installs it when no agent is working. The Windows installer isn't signed yet, so SmartScreen may warn once.
 
 ## Quick start
 
