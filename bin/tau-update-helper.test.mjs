@@ -14,7 +14,7 @@ function machine(overrides = {}) {
   const fields = overrides.fields ?? "Package: tau\nVersion: 0.7.14\nArchitecture: amd64\n";
   const system = {
     isRoot: () => overrides.root ?? true,
-    config: () => overrides.config === undefined ? { owner: "Rasalas", repo: "tau" } : overrides.config,
+    config: () => overrides.config === undefined ? { owner: "Rasalas", repo: "tau-releases" } : overrides.config,
     run: vi.fn(async (command, args, env) => {
       runs.push({ command, args, env });
       if (command === "dpkg") return { code: 0, stdout: "amd64\n", stderr: "" };
@@ -46,7 +46,7 @@ describe("tau-update-helper", () => {
     const { system, runs, fetched } = machine();
     await expect(installUpdate({ argv: ARGS, system, keys: [] })).resolves.toEqual({ version: "0.7.14", installed: "0.7.6" });
     // The feed is the release of exactly that version, from the app's own repository.
-    expect(fetched).toEqual(["https://github.com/Rasalas/tau/releases/download/v0.7.14/latest-linux.yml"]);
+    expect(fetched).toEqual(["https://github.com/Rasalas/tau-releases/releases/download/v0.7.14/latest-linux.yml"]);
     expect(apt(runs)).toMatchObject({ args: ["install", "-y", "--no-install-recommends", "-o", "DPkg::Lock::Timeout=120", "/tmp/tau-update-X/tau.deb"], env: { DEBIAN_FRONTEND: "noninteractive" } });
     expect(system.receive).toHaveBeenCalledWith("/tmp/tau-update-X/tau.deb", PACKAGE.length);
     expect(system.removeFolder).toHaveBeenCalledWith("/tmp/tau-update-X");
@@ -133,9 +133,9 @@ describe("tau-update-helper", () => {
   });
 
   it("reads the release folder from the app's feed or an administrator's mirror", () => {
-    expect(readFeed("provider: github\nowner: Rasalas\nrepo: tau\n")).toEqual({ owner: "Rasalas", repo: "tau" });
+    expect(readFeed("provider: github\nowner: Rasalas\nrepo: tau-releases\n")).toEqual({ owner: "Rasalas", repo: "tau-releases" });
     expect(readFeed("provider: github\nowner: ../x\nrepo: tau\n")).toBeUndefined();
-    expect(releaseBase({ owner: "Rasalas", repo: "tau" }, "0.7.15-nightly.20260929.3", "nightly")).toBe("https://github.com/Rasalas/tau/releases/download/nightly/");
+    expect(releaseBase({ owner: "Rasalas", repo: "tau-releases" }, "0.7.15-nightly.20260929.3", "nightly")).toBe("https://github.com/Rasalas/tau-releases/releases/download/nightly/");
     expect(releaseBase({ feedUrl: "http://mirror.lan/tau" }, "0.7.14", "stable")).toBe("http://mirror.lan/tau/");
   });
 

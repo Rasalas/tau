@@ -43,7 +43,7 @@ function updates(overrides: { enabled?: boolean; unsupported?: string; installOn
     onDownloaded: (version) => downloaded.push(version),
     tell: (message) => told.push(message),
     startupDelayMs: 0,
-    ...(overrides.feed === null ? {} : { feed: overrides.feed ?? { owner: "Rasalas", repo: "tau" } }),
+    ...(overrides.feed === null ? {} : { feed: overrides.feed ?? { owner: "Rasalas", repo: "tau-releases" } }),
     ...(overrides.channel ? { channel: overrides.channel } : {}),
     ...(overrides.currentVersion ? { currentVersion: overrides.currentVersion } : {}),
   });
@@ -266,7 +266,7 @@ describe("app updates", () => {
   });
 
   describe("channels", () => {
-    const NIGHTLY_FEED = { provider: "generic", url: "https://github.com/Rasalas/tau/releases/download/nightly" };
+    const NIGHTLY_FEED = { provider: "generic", url: "https://github.com/Rasalas/tau-releases/releases/download/nightly" };
 
     it("keeps the build's own feed on stable and never takes a prerelease", async () => {
       const { subject, updater } = updates();
@@ -313,7 +313,7 @@ describe("app updates", () => {
 
       channel = "stable";
       await subject.channelChanged();
-      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "github", owner: "Rasalas", repo: "tau" });
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "github", owner: "Rasalas", repo: "tau-releases" });
       expect(updater.allowPrerelease).toBe(false);
     });
 
@@ -337,8 +337,8 @@ describe("app updates", () => {
   });
 
   it("reads the GitHub feed electron-builder writes into app-update.yml", () => {
-    expect(readUpdateFeed("owner: Rasalas\nrepo: tau\nprovider: github\nupdaterCacheDirName: tau-pi-desktop-prototype-updater\n"))
-      .toEqual({ owner: "Rasalas", repo: "tau" });
+    expect(readUpdateFeed("owner: Rasalas\nrepo: tau-releases\nprovider: github\nupdaterCacheDirName: tau-pi-desktop-prototype-updater\n"))
+      .toEqual({ owner: "Rasalas", repo: "tau-releases" });
     expect(readUpdateFeed("provider: generic\nurl: https://example.com/\n")).toBeUndefined();
     expect(readUpdateFeed("provider: github\nowner: Rasalas\n")).toBeUndefined();
   });

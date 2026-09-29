@@ -2,19 +2,19 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { pickReleaseFile, releaseFeedBase, releaseFileUrl, releaseInfoName, safeReleaseName, verifyReleaseSignature } from "./release-feed.js";
 
-const FEED = { owner: "Rasalas", repo: "tau" };
+const FEED = { owner: "Rasalas", repo: "tau-releases" };
 const file = (url: string) => ({ url, sha512: "x" });
 
 describe("release feed", () => {
   it("reads stable from the latest release, nightly from its tag, and a file of a stable release from that release's tag", () => {
-    expect(releaseFeedBase("stable", FEED)).toBe("https://github.com/Rasalas/tau/releases/latest/download/");
-    expect(releaseFeedBase("nightly", FEED)).toBe("https://github.com/Rasalas/tau/releases/download/nightly/");
+    expect(releaseFeedBase("stable", FEED)).toBe("https://github.com/Rasalas/tau-releases/releases/latest/download/");
+    expect(releaseFeedBase("nightly", FEED)).toBe("https://github.com/Rasalas/tau-releases/releases/download/nightly/");
     expect(releaseFeedBase("stable", undefined)).toBeUndefined();
     expect(releaseFeedBase("stable", FEED, "http://127.0.0.1:9/feed")).toBe("http://127.0.0.1:9/feed/");
     const base = releaseFeedBase("stable", FEED)!;
-    expect(releaseFileUrl("Tau_0.7.14_amd64.deb", "0.7.14", "stable", base, FEED)).toBe("https://github.com/Rasalas/tau/releases/download/v0.7.14/Tau_0.7.14_amd64.deb");
+    expect(releaseFileUrl("Tau_0.7.14_amd64.deb", "0.7.14", "stable", base, FEED)).toBe("https://github.com/Rasalas/tau-releases/releases/download/v0.7.14/Tau_0.7.14_amd64.deb");
     expect(releaseFileUrl("Tau_0.7.15-nightly.20260929.3_amd64.deb", "0.7.15-nightly.20260929.3", "nightly", releaseFeedBase("nightly", FEED)!, FEED))
-      .toBe("https://github.com/Rasalas/tau/releases/download/nightly/Tau_0.7.15-nightly.20260929.3_amd64.deb");
+      .toBe("https://github.com/Rasalas/tau-releases/releases/download/nightly/Tau_0.7.15-nightly.20260929.3_amd64.deb");
   });
 
   it("names electron-builder's update file per platform", () => {
