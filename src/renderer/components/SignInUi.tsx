@@ -174,6 +174,8 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
   /** Flows this window started: only those run their terminal command here. */
   const mine = useRef(new Set<string>());
   const ran = useRef(new Set<string>());
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const resolved = target ?? DEFAULT_TARGET;
   const scope = target ? { target } : {};
   const reportRef = useRef(onReport);
@@ -237,7 +239,7 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
       onNotify?.(next.note ?? `Signed out of ${program}.`);
     });
   };
-  const copy = (text: string, what: string) => void copyText(text).then(() => { setCopied(what); setTimeout(() => setCopied(undefined), 1500); }, () => setError("Could not copy. Select the text instead."));
+  const copy = (text: string, what: string) => void copyText(text).then(() => { setCopied(what); clearTimeout(copiedTimer.current); copiedTimer.current = setTimeout(() => setCopied(undefined), 1500); }, () => setError("Could not copy. Select the text instead."));
 
   // A command this window asked for runs once, in a terminal the user sees; its exit status answers the flow.
   const terminalCommand = flow?.phase === "waiting" && flow.prompt ? flow.terminal?.command : undefined;
