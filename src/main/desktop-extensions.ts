@@ -272,7 +272,7 @@ export async function loadDesktopExtensions(
     const entries = only ? found.filter((entry) => only.has(desktopEntryId(entry))) : found;
     if (entries.length === 0) continue;
     if (scope === "project" && !trusted(cwd)) {
-      skipped.push({ directory, reason: "The project is not trusted in Pi, so its desktop extensions stay off." });
+      skipped.push({ directory, reason: "The project is not trusted in Pi, so its desktop extensions stay off.", untrustedProject: cwd });
       continue;
     }
     for (const entry of entries) {

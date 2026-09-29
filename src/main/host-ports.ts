@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
-import { getAgentDir, loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadSkills, ProjectTrustStore, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiPrompt,
   HostEvent,
@@ -352,6 +352,13 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
     updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },
+    projectTrust: {
+      trusted: (cwd = port.cwd()) => new ProjectTrustStore(getAgentDir()).get(cwd) === true,
+      trust: (cwd = port.cwd()) => {
+        new ProjectTrustStore(getAgentDir()).set(cwd, true);
+        return cwd;
+      },
+    },
     sessions: {
       list: async () => (await SessionManager.listAll(resolvePiSessionsDirOverride())).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
       open: (path) => {

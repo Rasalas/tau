@@ -211,7 +211,7 @@ export function ExtensionGlyph({ name, mark, size = "md" }: { name: string; mark
 
 export function StateBadge({ entry }: { entry: ExtensionEntry }) {
   if (entry.state === "on") return null;
-  const tone = entry.state === "off" ? "neutral" : entry.state === "waiting" ? "warn" : "danger";
+  const tone = entry.state === "off" ? "neutral" : entry.state === "waiting" || entry.state === "skipped" ? "warn" : "danger";
   return <Badge tone={tone} dot={entry.state !== "off"}>{stateLabel(entry.state)}</Badge>;
 }
 
@@ -235,7 +235,7 @@ function problemAdvice(entry: ExtensionEntry): string {
  * not, the settings it declared and the pages it adds, what it may do, where
  * it came from, and what other packages add (Packages Kit: update, remove).
  */
-export function ExtensionPage({ entry, registry, models, cwd, distribution, sections = [], onOpen, onChanged, onNotify, onHostHalves }: {
+export function ExtensionPage({ entry, registry, models, cwd, distribution, sections = [], trustPage, onOpen, onChanged, onNotify, onHostHalves }: {
   entry: ExtensionEntry;
   registry: ExtensionRegistry;
   models: readonly UiModel[];
@@ -243,6 +243,8 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   distribution?: ExtensionInspection["distribution"];
   /** What packages add to an extension's page (`registerSettingsSection({ page: "extension" })`). */
   sections?: ReadonlyArray<{ id: string; Component: ComponentType<SettingsSectionProps> }>;
+  /** The page that trusts a project, where a package manager offers one. */
+  trustPage?: string | undefined;
   onOpen(target: string): void;
   onChanged(): void;
   onNotify(message: string): void;
@@ -303,7 +305,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
         </div>
         <div className="extension-hero-control">
           {entry.locked ? <Badge tone="accent">Always on</Badge>
-            : entry.state === "waiting" || entry.state === "incompatible" ? null
+            : entry.state === "waiting" || entry.state === "incompatible" || entry.state === "skipped" ? null
               : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running || entry.state === "failed"} disabled={readOnly} onChange={(next) => { toggle(entry, next); onChanged(); }} />}
         </div>
       </header>
@@ -331,6 +333,18 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
             </div>
           </div>
         </SettingsSection>
+      ) : null}
+
+      {entry.state === "skipped" ? (
+        <div className="extension-problem" role="alert">
+          <AlertTriangle size={16} aria-hidden />
+          <div>
+            <strong>Skipped: the project is not trusted</strong>
+            <p>{entry.problem}</p>
+            <p>Trust the project and the package loads; it then waits here for your approval.</p>
+            {trustPage ? <p><Button onClick={() => onOpen(trustPage)}>Trust it in Settings → Packages</Button></p> : null}
+          </div>
+        </div>
       ) : null}
 
       {entry.state === "failed" || entry.state === "incompatible" ? (

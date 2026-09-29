@@ -804,7 +804,28 @@ export interface ExtensionInspection {
    * rule this Tau out.
    */
   errors: Array<{ path: string; message: string; id?: string; name?: string; version?: string; incompatible?: boolean }>;
-  skipped: Array<{ directory: string; reason: string }>;
+  skipped: ExtensionSkip[];
+}
+
+/** A package folder the scan passed over, and why. */
+export interface ExtensionSkip {
+  directory: string;
+  reason: string;
+  /** The project Pi does not trust, when that is why; trusting it loads what was skipped. */
+  untrustedProject?: string;
+  /** The packages it held, where their manifests could be read. */
+  packages?: Array<{ id: string; name: string; directory: string }>;
+}
+
+/** One error esbuild reported for an entry, with where it is when it knows. */
+export interface BuildDiagnostic {
+  /** Relative to the package folder when the file is inside it. */
+  file?: string;
+  line?: number;
+  column?: number;
+  text: string;
+  /** The source line the error points into. */
+  lineText?: string;
 }
 
 /** A desktop extension compiled by the host, ready for the renderer to import. */
@@ -836,8 +857,9 @@ export interface DesktopExtensionBundle {
 
 export interface DesktopExtensionLoadResult {
   bundles: DesktopExtensionBundle[];
-  errors: Array<{ path: string; message: string }>;
-  skipped: Array<{ directory: string; reason: string }>;
+  /** `diagnostics` when the entry did not compile; `message` then carries them as text too. */
+  errors: Array<{ path: string; message: string; diagnostics?: BuildDiagnostic[] }>;
+  skipped: ExtensionSkip[];
 }
 
 export interface WorkbenchBuildResult {

@@ -185,7 +185,11 @@ export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; 
               <Finding key={failure.path} tone="danger" label={failure.incompatible ? "Incompatible" : "Did not load"}><code>{failure.path}</code>: {failure.message}</Finding>
             ))}
             {inspection?.skipped.map((skip) => (
-              <Finding key={skip.directory} tone="neutral" label="Skipped"><code>{skip.directory}</code>: {skip.reason}</Finding>
+              <Finding key={skip.directory} tone={skip.untrustedProject ? "warn" : "neutral"} label="Skipped">
+                <code>{skip.directory}</code>: {skip.reason}
+                {skip.packages?.length ? ` It holds ${skip.packages.map((entry) => entry.name).join(", ")}.` : ""}
+                {skip.untrustedProject ? " Settings → Packages trusts the project." : ""}
+              </Finding>
             ))}
           </div>
         ) : null}

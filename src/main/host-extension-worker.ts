@@ -208,6 +208,7 @@ const UNAVAILABLE = new Set([
   "installPackage",
   "removePackage",
   "updatePackages",
+  "projectTrust",
 ]);
 
 let nextId = 1;
