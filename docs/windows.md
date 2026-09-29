@@ -167,8 +167,8 @@ npm start
 isolation variable set and a remote-debugging port for `npm run cdp`; it has
 not been tried on Windows.
 
-Without a Windows machine, the workflow runs it on a GitHub-hosted runner, if
-the repository has hosted minutes:
+Without a Windows machine, the workflow runs it on a GitHub-hosted runner
+(`windows-2025`):
 
 ```bash
 gh workflow run windows.yml --ref <branch>

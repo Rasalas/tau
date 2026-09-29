@@ -49,14 +49,18 @@ the release order that keeps a wrong pairing from shipping.
    ```
 
 `.github/workflows/release.yml` runs on any `v*.*.*` tag. It builds on three
-runners — macOS (arm64 and x64 on the same runner), Linux x64, Windows x64 —
-with `--publish never`. A `sign` job signs each platform's `latest*.yml` with
-the secret `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)), then one
-job publishes every artifact, the `.sig` files and `LICENSE` twice. One copy
-is a GitHub Release named after the tag in `Rasalas/tau`, the other the same
-release in the public `Rasalas/tau-releases`, where installed apps look
+GitHub-hosted runners with `--publish never`: macOS (`macos-26`, arm64 and x64
+on the same runner, signed and notarized), Linux x64 (`ubuntu-24.04`) and
+Windows x64 (`windows-2025`). A `sign` job signs each platform's `latest*.yml`
+with the secret `TAU_RELEASE_SIGNING_KEY` ([Update feeds](#update-feeds)), then
+one job publishes every artifact, the `.sig` files and `LICENSE` twice. One
+copy is a GitHub Release named after the tag in `Rasalas/tau`, the other the
+same release in `Rasalas/tau-releases`, where installed apps look, together
+with the [fixed download names](#fixed-download-names)
 ([Where releases are published](#where-releases-are-published)). Without the
 signing secret or the publishing app's secrets the run fails before it builds.
+Every secret lives in the environment `release` ([Runners and
+environments](#runners-and-environments)).
 
 The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
@@ -68,9 +72,8 @@ updater will compare against that one. Keep them equal.
 ## Build all platforms without publishing
 
 `workflow_dispatch` runs the same three build jobs on a branch, with no tag
-and no release. Use it to prove Linux and Windows still build — the only
-runners that never run for an ordinary PR or push to `main` — before cutting
-a real release:
+and no release. Use it to prove all three platforms still build, which no
+ordinary pull request or push to `main` does, before cutting a real release:
 
 ```bash
 gh workflow run release.yml --ref my-branch -f publish=false
@@ -86,16 +89,20 @@ workflow run artifacts instead, good for a day. The `push` trigger above only
 ever delivers `v*.*.*` tags; the `v`-prefix check on `release` is what keeps a
 `workflow_dispatch` run against some other tag from also publishing.
 
-The `sign` job runs in a dry run too. With the secret it signs the three
-feeds, checks them against the keys the branch ships, and uploads
-`tau-signatures`, so a dry run also shows that the secret matches the
-listed key. Without the secret it warns and leaves the feeds unsigned. A
-missing `latest*.yml` fails the job either way.
+A dry run on a branch runs in the environment `release-dry-run`, which holds
+no secrets: the Mac apps come out unsigned and the `sign` job warns and leaves
+the feeds unsigned. A dry run dispatched on `main` runs in `release` like a
+real one: the Mac apps are signed and notarized, and `sign` signs the three
+feeds, checks them against the keys the commit ships, and uploads
+`tau-signatures`, so it also shows that the secrets are right. A missing
+`latest*.yml` fails the job either way.
 
-A build job that fails uploads a `tau-<platform>-diagnostics` artifact
+A build job that fails uploads a `diagnostics-<platform>` artifact
 alongside it — `release/builder-debug.yml` (electron-builder's own verbose
 log, enabled for every Package step via `DEBUG=electron-builder`) plus
-whatever npm wrote under its cache's `_logs/`.
+whatever npm wrote under its cache's `_logs/`. The name keeps it out of the
+`tau-*` pattern the release jobs publish. On a public repository anyone can
+download it, so look at one before trusting that it holds no secret.
 
 ## Install a release on this Mac
 
@@ -109,9 +116,9 @@ npm run install:mac -- --open          # and launch it
 public `Rasalas/tau-releases` over HTTPS, without a login, and refuses it
 without Tau's release signature (`latest-mac.yml.sig`). It downloads the
 `.dmg` for this machine's architecture and keeps it only when it matches the
-SHA-512 the feed lists. A tag that only `Rasalas/tau` has (anything released
-before the public repository) falls back to `gh`, which must be logged in
-there (`gh auth status`). It then quits a running Tau, replaces
+SHA-512 the feed lists. A tag released before `tau-releases` existed (0.7.13
+and older) falls back to `gh` and `Rasalas/tau-private`, which it must be able
+to read (`gh auth status`). It then quits a running Tau, replaces
 `/Applications/Tau.app`, and removes the `com.apple.quarantine` attribute — the mark Gatekeeper uses to
 block an unsigned download, which is why an unsigned Tau otherwise needs
 right-click → Open on first launch.
@@ -286,27 +293,36 @@ both require. The Linux job's check of the `.deb` looks for the helper, the
 script it runs and the three polkit files, and checks that `postinst`
 installs the polkit action.
 
-A Tau built before the move to `Rasalas/tau-releases` still names
-`Rasalas/tau`, which is private, so its checks fail with a 404 (visible in
-`<userData>/logs/host.log` as `update.failed`, and in the host's
-`host-process.log` as `host-update.check.failed`). Such an install has to be
-replaced by hand once, with a build that names the public repository.
+A Tau built before the move to `Rasalas/tau-releases` (0.7.13 and older)
+still names `Rasalas/tau`. While that repository was private its checks failed
+with a 404 (visible in `<userData>/logs/host.log` as `update.failed`, and in
+the host's `host-process.log` as `host-update.check.failed`). Since the source
+went public, `Rasalas/tau` answers again and carries each release from 0.7.14
+on with its feeds, so such an install finds the next release there; a Mac app that was not
+signed still has to be replaced by hand once, because Squirrel.Mac installs
+only an update signed like the running app.
 
 ## Where releases are published
 
-The source repository `Rasalas/tau` is private; installed apps must read
-releases without a token. Every release and every nightly therefore goes to
-two repositories:
+Installed apps read releases from `Rasalas/tau-releases`, a public repository
+that holds nothing but releases; `publish:` in `electron-builder.yml` writes
+its name into every app. It was created while the source was private, and it
+stays the one place installed apps look, so the source repository can move
+or be renamed without breaking an update. Every release and every nightly
+goes to both repositories:
 
-| | `Rasalas/tau` | `Rasalas/tau-releases` (public) |
+| | `Rasalas/tau` | `Rasalas/tau-releases` |
 |---|---|---|
-| what | the release as before: tag on the built commit, notes GitHub generates from the pull requests, every file | the same files and the same notes; the tag sits on the repository's default branch, which holds only a README |
-| who reads it | the integrator, `gh`, `install:mac` for old tags | installed apps (window, host, Linux helper), `install:mac`, the package managers |
+| what | tag on the built commit, notes GitHub generates from the pull requests, every file | the same files and the same notes, plus the [fixed download names](#fixed-download-names) of a stable release; the tag sits on the repository's default branch, which holds only a README |
+| who reads it | people reading the source, builds of 0.7.13 and older | installed apps (window, host, Linux helper), `install:mac`, the package managers, the website |
 | written with | the workflow's `GITHUB_TOKEN` | a token from the GitHub App *Tau Releases (Rasalas)*, installed on this repository only with `contents: write` |
 
 Files in both: the installers (`.dmg`, `.zip`, `.AppImage`, `.deb`, `.exe`),
 their `.blockmap` files, `latest-mac.yml`, `latest.yml`, `latest-linux.yml`,
-their `.sig` files, and `LICENSE`, which the AUR package installs.
+their `.sig` files, and `LICENSE`, which the AUR package installs. Releases
+before 0.7.14 exist only in `Rasalas/tau-private`, the repository the source
+lived in before it went public; `install:mac --version` falls back to `gh`
+there for them.
 
 The `release` job in `.github/workflows/release.yml`:
 
@@ -318,19 +334,42 @@ The `release` job in `.github/workflows/release.yml`:
 3. publishes the release in `Rasalas/tau` with generated notes;
 4. reads that release's notes back, since GitHub would write them for
    `tau-releases` from a history it does not have;
-5. asks `actions/create-github-app-token` (pinned to a commit) for a token
+5. copies the installers to their fixed names and checks the folder again
+   with `--stable` (`publish-release.mjs copy-stable`, then `check --stable`);
+6. asks `actions/create-github-app-token` (pinned to a commit) for a token
    limited to `Rasalas/tau-releases` and `contents: write`, from the secrets
    `TAU_RELEASES_APP_ID` (the app's ID) and `TAU_RELEASES_APP_KEY` (its private
    key, PEM);
-6. uploads everything to a **draft** release under the same tag in
+7. uploads everything to a **draft** release under the same tag in
    `Rasalas/tau-releases`, with those notes;
-7. publishes the draft as the latest release only when every file is uploaded
+8. publishes the draft as the latest release only when every file is uploaded
    (`publishDraft`). Until then, installed apps keep seeing the previous
    release instead of a feed that names files not yet there.
 
 A failed run can be re-run. The action reuses the release of the tag in
 either repository, keeps a published one published, and replaces files of the
 same name.
+
+### Fixed download names
+
+The website and the README link the newest stable installer as
+`https://github.com/Rasalas/tau-releases/releases/latest/download/<name>`,
+which needs a name without a version. Every stable release in
+`tau-releases` carries a copy of each installer under one:
+
+| File in the release | Fixed name |
+|---|---|
+| `Tau-<version>-arm64.dmg` | `Tau-mac-arm64.dmg` |
+| `Tau-<version>.dmg` | `Tau-mac-x64.dmg` |
+| `Tau-Setup-<version>.exe` | `Tau-windows-x64.exe` |
+| `Tau_<version>_amd64.deb` | `Tau-linux-amd64.deb` |
+| `Tau-<version>.AppImage` | `Tau-linux-x86_64.AppImage` |
+
+`STABLE_NAMES` in `scripts/packaging/publish-release.mjs` is the list.
+`check --stable` fails when a copy is missing or its size differs from its
+source, and a plain `check` fails when a nightly carries one. The feeds keep
+the versioned names, so updates and the package managers are unaffected. A
+nightly has none: `latest/download` never points at a prerelease.
 
 The `nightly` job does the same under the tag `nightly` (below), with the
 previous nightly removed from each repository first. The `verify` job fails a
@@ -471,9 +510,8 @@ gh workflow run release.yml --ref main -f nightly=true
 
 Before switching it on, know what it costs and needs:
 
-- Each nightly spends GitHub-hosted Linux and Windows minutes (Windows counts
-  double on a private repository) plus the self-hosted `tau-linux` and
-  `tau-macos` runners. Days without commits cost one short gate job.
+- Each nightly builds on three GitHub-hosted runners, which cost nothing on a
+  public repository. Days without commits cost one short gate job.
 - It needs the publishing app's secrets like a release
   ([Where releases are published](#where-releases-are-published)).
 - A nightly is signed like a release and fails without
@@ -618,33 +656,37 @@ The badge on the icon is not affected. A local `npm run dist:mac` signs with
 whatever Apple Development identity the keychain holds, and that build shows
 notifications.
 
-electron-builder turns signing on by itself once the credentials are in the
-environment, so there is nothing to switch on in the configuration. Add the
-repository secrets and the next tag is signed:
+Releases from 0.7.14 on sign the Mac apps with a Developer ID and have Apple
+notarize them. electron-builder turns both on by itself once the credentials
+are in the environment, so there is nothing to switch on in the
+configuration. The secrets live in the environment `release`:
 
 | Secret | What it is |
 |---|---|
-| `CSC_LINK` | base64 of the Developer ID `.p12`, or a path to it |
+| `CSC_LINK` | base64 of the Developer ID Application `.p12` (a hosted runner has no file to point at) |
 | `CSC_KEY_PASSWORD` | its password |
 | `APPLE_API_KEY_P8` | an App Store Connect API key (`.p8`) that notarizes; the workflow writes it to a file for electron-builder |
 | `APPLE_API_KEY_ID` | that key's id |
 | `APPLE_API_ISSUER` | its issuer id |
-| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | the older way to notarize, with an Apple ID; ignored when the API key is set |
 
-These reach the macOS job only; the Windows job would otherwise take the
-Developer ID certificate for Authenticode. The workflow unsets whichever of these the repository has no secret for:
-electron-builder treats an empty value as "set" and would fail looking for a
-certificate that is not there. Without `CSC_LINK` it also sets
+Only the macOS build reads them: it is the only build job in the environment,
+and the Package step passes them only when the matrix entry is macOS, since
+the Windows job would otherwise take the Developer ID certificate for
+Authenticode. The step unsets whichever of these is empty: electron-builder
+treats an empty value as "set" and would fail looking for a certificate that
+is not there. Without `CSC_LINK` it also sets
 `CSC_IDENTITY_AUTO_DISCOVERY=false`, so a runner never picks up a stray
-keychain identity.
+keychain identity. A branch's dry run has no secrets and builds unsigned
+([Build all platforms without publishing](#build-all-platforms-without-publishing)).
 
 macOS builds ask for the hardened runtime, which needs the entitlements in
 `assets/entitlements.mac.plist`: V8 compiles at runtime, and Tau loads
 extension code it compiled itself.
 
-Windows signing is not wired up. Adding it means a `win.signtoolOptions` (or
-Azure Trusted Signing) block and the same unset-if-empty treatment for its
-secrets.
+Windows signing is not wired up, so SmartScreen may warn on the first launch
+of the installer. Adding it means a `win.signtoolOptions` (or Azure Trusted
+Signing) block, its secrets in `release`, and the same unset-if-empty
+treatment.
 
 ### Update feeds
 
@@ -656,9 +698,46 @@ refuses a feed without one ([host-updates.md](host-updates.md#release-signing)).
 |---|---|
 | `TAU_RELEASE_SIGNING_KEY` | the Ed25519 private key (PKCS#8 PEM) whose public key is in `src/shared/release-keys.ts` and `bin/tau-update-helper.mjs`; during a rotation, two PEM blocks |
 
-Only the `sign` job reads it. The job fails when the secret signs with a key
+Only the `sign` job reads it (and `verify` checks that it is set). The job fails when the secret signs with a key
 the commit does not list, so a wrong secret cannot publish feeds that every
 host would refuse. How to rotate the key: [host-updates.md](host-updates.md#rotating-the-key).
+
+## Runners and environments
+
+Every workflow runs on GitHub-hosted runners, pinned to an image
+(`ubuntu-24.04`, `macos-26` with Xcode 26.6 selected, `windows-2025`), so a
+moving `-latest` label cannot change a release under it. Actions are pinned
+to a full commit SHA with the version in a comment; the repository requires
+that. No workflow uses `pull_request_target` or `workflow_run`, and every
+checkout except the release gate's drops its credentials, so a pull request
+from a fork runs with a read-only token and no secret.
+
+| Workflow | Runs on | Jobs |
+|---|---|---|
+| `ci.yml` | pull requests, pushes to `main` | `checks` (lint, typecheck, build), `test (1/3)` to `test (3/3)` (the suite in three shards), `smoke` |
+| `performance.yml` | pull requests, pushes to `main` | build and Git budgets and host budgets block; renderer and start timings are advisory ([PERFORMANCE.md](PERFORMANCE.md)) |
+| `release.yml` | `v*.*.*` tags, the nightly schedule, dispatch | above |
+| `pages.yml` | pushes to `main` that touch `site/`, `docs/` and the rest the website builds from | builds the site without write access, then deploys it to GitHub Pages |
+| `windows.yml` | dispatch only | the Windows checks ([windows.md](windows.md)) |
+| `cleanup-artifacts.yml` | daily | deletes artifacts older than two days |
+
+`release.yml`'s secrets live in two environments, not in the repository:
+
+- **`release`** holds `TAU_RELEASE_SIGNING_KEY`, `TAU_RELEASES_APP_ID`,
+  `TAU_RELEASES_APP_KEY`, `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`,
+  `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`. Only `main` and `v*` tags may
+  deploy to it. `verify`, the macOS build, `sign`, `release` and `nightly` run
+  in it for a tag, a nightly, a `publish` dispatch, or any dispatch on `main`.
+- **`release-dry-run`** holds nothing. A dispatch on any other branch runs in
+  it and builds unsigned.
+
+The gate job decides which one a run gets. The Linux and Windows builds never
+enter an environment.
+
+The runners used to be self-hosted machines, for the minutes. A public
+repository must not have self-hosted runners: a pull request can change a
+workflow file and pick any runner label. How the move went is in
+[scripts/open-source/cutover.md](../scripts/open-source/cutover.md).
 
 ## What ships, and what has to stay outside the archive
 

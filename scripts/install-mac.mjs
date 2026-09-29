@@ -4,8 +4,9 @@
 // into /Applications, and strips the quarantine attribute Gatekeeper would
 // otherwise block an unsigned app on. The download needs no login: the
 // release's latest-mac.yml must carry Tau's release signature, and the .dmg
-// must match the SHA-512 it lists. A tag that only the private source
-// repository has falls back to `gh`, which must be logged in there.
+// must match the SHA-512 it lists. A tag released before the public
+// repository existed falls back to `gh`, which must be logged in to the
+// private repository that kept those releases.
 //
 //   npm run install:mac                 # latest release
 //   npm run install:mac -- --version v0.1.1
@@ -21,8 +22,8 @@ import { RELEASE_PUBLIC_KEYS, parseReleaseInfo, verifySignature } from "../bin/t
 
 /** Where releases are published (`publish:` in electron-builder.yml). */
 export const RELEASES = "Rasalas/tau-releases";
-/** Tags released before the public repository existed live only here. */
-export const SOURCE_REPO = "Rasalas/tau";
+/** Releases before tau-releases existed stayed here when the source repository went public. */
+export const PRIVATE_REPO = "Rasalas/tau-private";
 export const MAC_FEED = "latest-mac.yml";
 export const APP_NAME = "Tau.app";
 export const INSTALL_DIR = "/Applications";
@@ -121,7 +122,7 @@ function run(command, args, options = {}) {
   return result.stdout ?? "";
 }
 
-/** The .dmg in `workDir` and its tag: from the public repository, or with `gh` from the source repository. */
+/** The .dmg in `workDir` and its tag: from the public repository, or with `gh` from the private one. */
 async function download(options, arch, workDir) {
   const release = await readRelease(fetch, options.version);
   if (release) {
@@ -131,11 +132,11 @@ async function download(options, arch, workDir) {
     await downloadChecked(fetch, releaseUrl(release.tag, file.url), dmg, file);
     return { tag: release.tag, dmg };
   }
-  console.log(`${options.version ?? "The latest release"} is not in ${RELEASES}; trying ${SOURCE_REPO} with gh.`);
+  console.log(`${options.version ?? "The latest release"} is not in ${RELEASES}; trying ${PRIVATE_REPO} with gh.`);
   run("gh", ["auth", "status"], { quiet: true });
-  const tag = options.version ?? JSON.parse(execFileSync("gh", ["release", "view", "--repo", SOURCE_REPO, "--json", "tagName"], { encoding: "utf8" })).tagName;
+  const tag = options.version ?? JSON.parse(execFileSync("gh", ["release", "view", "--repo", PRIVATE_REPO, "--json", "tagName"], { encoding: "utf8" })).tagName;
   console.log(`Downloading ${tag} (${arch})…`);
-  run("gh", ["release", "download", tag, "--repo", SOURCE_REPO, "--pattern", dmgPattern(arch), "--dir", workDir], { quiet: true });
+  run("gh", ["release", "download", tag, "--repo", PRIVATE_REPO, "--pattern", dmgPattern(arch), "--dir", workDir], { quiet: true });
   return { tag, dmg: join(workDir, pickDmg(readdirSync(workDir), arch)) };
 }
 
