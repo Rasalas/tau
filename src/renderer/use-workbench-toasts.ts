@@ -19,27 +19,24 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore): 
   });
 }
 
-/** Core's own toasts: the notices, and the restart a downloaded update waits for. */
-export function useWorkbenchToasts({ view, toasts, updateReady, onRestart, onUpdateDismissed }: {
+/** Core's own toasts: the notices, and the restart a downloaded update waits for; closed, the sidebar's foot still offers it. */
+export function useWorkbenchToasts({ view, toasts, updateReady, onRestart }: {
   view: ThreadViewStore;
   toasts: ToastStore;
   updateReady?: string;
   onRestart(): void;
-  onUpdateDismissed(): void;
 }): void {
   useEffect(() => showNoticesAsToasts(view, toasts), [toasts, view]);
-  const handlers = useRef({ onRestart, onUpdateDismissed });
-  handlers.current = { onRestart, onUpdateDismissed };
+  const handlers = useRef({ onRestart });
+  handlers.current = { onRestart };
   useEffect(() => {
-    if (!updateReady) return undefined;
-    const toast = toasts.show({
+    if (!updateReady) return;
+    toasts.show({
       id: "tau.update",
       title: `Tau ${updateReady} downloaded`,
       description: "Restart to install it.",
       timeoutMs: 0,
       actions: [{ label: "Restart", run: () => handlers.current.onRestart() }],
-      onClose: () => handlers.current.onUpdateDismissed(),
     });
-    return () => toast.update({ onClose: undefined });
   }, [toasts, updateReady]);
 }

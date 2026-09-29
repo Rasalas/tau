@@ -1,15 +1,22 @@
 import { ChartColumn } from "lucide-react";
 import type { DesktopExtension } from "tau";
-import { createMonthUsage, monthSummaryHook } from "./month.js";
+import { UsageSidebar } from "./controls.js";
+import { createUsageView } from "./filters.js";
+import { createJuicebarChoices } from "./juicebars.js";
+import { Juicebars } from "./juicebars-view.js";
+import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
 
-/** Usage is a page of the app: the month's figure at the sidebar's foot and the palette open it. */
+/** Usage is a page of the app: the juicebars at the sidebar's foot and the palette open it. */
 export const usageExtension: DesktopExtension = {
   id: USAGE_EXTENSION_ID,
   name: "Usage",
   activate(plugin) {
-    const month = createMonthUsage(plugin.host);
+    // The window's other machines, read through it; a browser or a phone has none.
+    const feed = createLimitsFeed(plugin.host, plugin.environments);
+    const choices = createJuicebarChoices();
+    const view = createUsageView();
     plugin.registerPage({
       id: USAGE_PAGE,
       label: "Usage",
@@ -20,10 +27,11 @@ export const usageExtension: DesktopExtension = {
       order: 20,
       layout: "wide",
       keywords: ["cost", "tokens", "limits", "billing"],
-      // The sidebar's foot shows this month's figure; a click on it opens the page.
-      useSummary: monthSummaryHook(month),
-      // The window's other machines, read through it; a browser or a phone has none.
-      Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} />,
+      // What is left of each plan, as thin bars at the sidebar's foot; a click opens the limits.
+      Summary: (props) => <Juicebars {...props} feed={feed} choices={choices} />,
+      Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} view={view} feed={feed} choices={choices} />,
+      // This month, the filters and the sections, in the thread list's place.
+      Sidebar: () => <UsageSidebar view={view} />,
     });
 
     plugin.registerCommand({

@@ -1,25 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChartColumn, RefreshCw } from "lucide-react";
-import { Empty, errorMessage, formatCost, ProviderIconStack, SettingsPageAction, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
+import { Empty, errorMessage, formatCost, SettingsPageAction, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { ActivityCalendar, ReadingHistory } from "./activity.js";
-import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, ofRuntime, rankUsage, runtimesOf, USAGE_RANGES, type UsageFigures, type UsageMetric, type UsageOrigin, type UsageRange } from "./dashboard.js";
+import { jumpTo, RUNTIME_LABELS, UsageTopBar } from "./controls.js";
+import { dailyFigures, dayStarts, figuresFrom, HISTORY_DAYS, ofRuntime, rankUsage, runtimesOf, USAGE_RANGES, type UsageFigures } from "./dashboard.js";
+import { createUsageView, type UsageView } from "./filters.js";
+import { createJuicebarChoices, type JuicebarChoices } from "./juicebars.js";
+import type { LimitsFeed } from "./limits-feed.js";
+import { monthFigures } from "./month.js";
 import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
-import { mergeEntries, mergeLimits, useOtherMachines, type MachineRead, type UsageMachine } from "./machines.js";
-import { BACKEND_USAGE_SOURCES, PI_BACKEND, USAGE_EXTENSION_ID, USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
+import { mergeEntries, mergeLimits, readMachines, useOtherMachines, type MachineRead } from "./machines.js";
+import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
 import { RankList, type RankRow } from "./top-lists.js";
 import { formatTokens } from "./view-model.js";
 import { readLastState, saveLastState } from "./last-state.js";
 
-const METRICS: ReadonlyArray<{ id: UsageMetric; label: string }> = [{ id: "cost", label: "Cost" }, { id: "tokens", label: "Tokens" }, { id: "turns", label: "Turns" }];
-const ORIGINS: ReadonlyArray<{ id: UsageOrigin | "all"; label: string }> = [{ id: "all", label: "All" }, { id: "tau", label: "In Tau" }, { id: "outside", label: "Outside Tau" }];
 /** How often an open, visible page reads again. */
 const POLL_MS = 5 * 60_000;
 /** While a host still reads the CLIs' logs, the page asks again this soon. */
 const READING_POLL_MS = 5_000;
-const RUNTIME_LABELS: Record<string, string> = Object.fromEntries([[PI_BACKEND, "Pi"], ...BACKEND_USAGE_SOURCES.map((source) => [source.backend, source.label])]);
-
 function folderName(cwd: string): string {
   return cwd.split(/[\\/]/u).filter(Boolean).pop() ?? cwd;
 }
@@ -37,45 +38,6 @@ function useThreadIndex(): { threads: readonly UiSession[]; projects: readonly U
     return () => { stopThreads(); stopProjects(); };
   }, [store]);
   return index;
-}
-
-function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: ReadonlyArray<{ id: T; label: string }>; onChange(value: T): void }) {
-  return (
-    <div className="segmented usage-segmented" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button key={option.id} type="button" role="radio" aria-checked={value === option.id} className={value === option.id ? "active" : ""} onClick={() => onChange(option.id)}>{option.label}</button>
-      ))}
-    </div>
-  );
-}
-
-/** All runtimes, or one: the runtimes as marks, their names on hover. */
-function RuntimeFilter({ runtimes, value, onChange }: { runtimes: readonly string[]; value: string | undefined; onChange(value: string | undefined): void }) {
-  return (
-    <div className="segmented usage-segmented usage-runtimes" role="radiogroup" aria-label="Runtime">
-      <button type="button" role="radio" aria-checked={value === undefined} className={value === undefined ? "active" : ""} onClick={() => onChange(undefined)}>All</button>
-      {runtimes.map((runtime) => {
-        const name = RUNTIME_LABELS[runtime] ?? runtime;
-        return (
-          <button key={runtime} type="button" role="radio" aria-checked={value === runtime} aria-label={name} className={value === runtime ? "active" : ""} onClick={() => onChange(runtime)} {...tooltipProps(name, { side: "top" })}>
-            <ProviderIconStack runtimeProvider={runtime} hint={false} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Every machine, this one (`""`), or another by its host id. */
-function MachineFilter({ machines, value, onChange }: { machines: readonly UsageMachine[]; value: string | undefined; onChange(value: string | undefined): void }) {
-  const options: Array<{ id: string | undefined; label: string }> = [{ id: undefined, label: "All machines" }, { id: "", label: "This computer" }, ...machines.map((machine) => ({ id: machine.id, label: machine.name }))];
-  return (
-    <div className="segmented usage-segmented" role="radiogroup" aria-label="Machine">
-      {options.map((option) => (
-        <button key={option.id ?? "all"} type="button" role="radio" aria-checked={value === option.id} className={value === option.id ? "active" : ""} onClick={() => onChange(option.id)}>{option.label}</button>
-      ))}
-    </div>
-  );
 }
 
 /** A period's money, billed and a plan's value side by side, over what it used. */
@@ -128,19 +90,6 @@ function Sources({ summary, limits, machines = [] }: { summary: UsageSummary | u
   );
 }
 
-/** A Usage command on each other machine; one that fails says why and keeps the rest. */
-async function readMachines(environments: PlatformEnvironments | undefined, machines: readonly UsageMachine[], command: string, input: unknown): Promise<Array<{ machine: UsageMachine; answer?: unknown; error?: string }>> {
-  const read = environments?.readExtension;
-  if (!read || machines.length === 0) return [];
-  return Promise.all(machines.map(async (machine) => {
-    try {
-      return { machine, answer: await read(machine.id, USAGE_EXTENSION_ID, command, input) };
-    } catch (failure) {
-      return { machine, error: errorMessage(failure) };
-    }
-  }));
-}
-
 /**
  * What Tau's threads cost and how close each plan is to its limits. The page
  * answers, from the top: what today, this week and this month cost; which
@@ -148,21 +97,30 @@ async function readMachines(environments: PlatformEnvironments | undefined, mach
  * projects, models and threads used the most. Money billed per token and
  * what a subscription covered (its value at API prices) are never one figure.
  */
-export function UsagePage({ host, environments, actions, params = {}, navigate, now }: Partial<Omit<PageProps, "params">> & { params?: PageProps["params"]; host: HostExtensionClient; environments?: PlatformEnvironments; now?: () => Date }) {
+export function UsagePage({ host, environments, actions, params = {}, navigate, now, sidebar = false, view: givenView, feed, choices: givenChoices }: Partial<Omit<PageProps, "params">> & {
+  params?: PageProps["params"];
+  host: HostExtensionClient;
+  environments?: PlatformEnvironments;
+  now?: () => Date;
+  /** The filters, shared with the page's sidebar. */
+  view?: UsageView;
+  /** The sidebar's juicebars, handed what the page reads. */
+  feed?: LimitsFeed;
+  choices?: JuicebarChoices;
+}) {
   const shown = environments?.shownElsewhere;
+  const [view] = useState(() => givenView ?? createUsageView());
+  const [choices] = useState(() => givenChoices ?? createJuicebarChoices());
+  const filters = useSyncExternalStore(view.subscribe, view.getFilters);
+  const { range, metric, runtime, machine, origin } = filters;
   // What the page read last time, at once; fresh answers replace it section by section.
   const [cached] = useState(() => readLastState(shown, dayStarts(HISTORY_DAYS, now?.())));
-  const [range, setRange] = useState<UsageRange>("30d");
-  const [metric, setMetric] = useState<UsageMetric>("cost");
   const [summary, setSummary] = useState<UsageSummary | undefined>(cached?.summary);
   const [error, setError] = useState<string>();
   const [limits, setLimits] = useState<UsageLimitsSummary | undefined>(cached?.limits);
   const [limitsError, setLimitsError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [limitsBusy, setLimitsBusy] = useState(false);
-  const [runtime, setRuntime] = useState<string>();
-  const [machine, setMachine] = useState<string>();
-  const [origin, setOrigin] = useState<UsageOrigin>();
   const machines = useOtherMachines(environments);
   const [summaries, setSummaries] = useState<readonly MachineRead[]>([]);
   const [machineLimits, setMachineLimits] = useState<readonly MachineRead[]>([]);
@@ -242,6 +200,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
 
   const allEntries = useMemo(() => mergeEntries(summary?.entries ?? [], summaries), [summary, summaries]);
   const allLimits = useMemo(() => mergeLimits(limits, machineLimits), [limits, machineLimits]);
+  useEffect(() => { feed?.publish(allLimits); }, [feed, allLimits]);
   const runtimes = useMemo(() => runtimesOf(allEntries), [allEntries]);
   const shownRuntime = runtime && runtimes.includes(runtime) ? runtime : undefined;
   const shownMachine = machine === undefined || machine === "" || machines.some((other) => other.id === machine) ? machine : undefined;
@@ -253,6 +212,19 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const from = last - (USAGE_RANGES.find((entry) => entry.id === range)?.days ?? 30);
   const series = useMemo(() => dailyFigures(entries, days, from), [days, entries, from]);
   const rangeLabel = USAGE_RANGES.find((entry) => entry.id === range)?.label ?? "";
+  // What the filters offer and this month's figure, for the sidebar or the bar on top.
+  const month = useMemo(() => (summary ? monthFigures(allEntries, days, now?.() ?? new Date()) : undefined), [allEntries, days, now, summary]);
+  useEffect(() => { view.setFacts({ runtimes, machines, anyOutside, ...(month ? { month } : {}) }); }, [anyOutside, machines, month, runtimes, view]);
+  // Opened at a section (the foot's juicebars open the limits).
+  const section = typeof params.section === "string" ? params.section : undefined;
+  const jumped = useRef<string>(undefined);
+  const laidOut = Boolean(summary && (section !== "limits" || allLimits));
+  useEffect(() => {
+    // Once what it shows is in: before, the page is too short to scroll there.
+    if (!section || !laidOut || jumped.current === section) return;
+    jumped.current = section;
+    requestAnimationFrame(() => jumpTo(`usage-${section}`, "auto"));
+  }, [laidOut, section]);
 
   const projectName = (cwd: string) => index.projects.find((project) => project.path === cwd || project.workspaceId === cwd)?.name ?? folderName(cwd);
   const threadOf = (threadId: string | undefined) => (threadId ? index.threads.find((thread) => thread.id === threadId) : undefined);
@@ -301,28 +273,21 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
       ) : (
         <>
           {error ? <p className="usage-note" data-level="error">{error} The figures are from the last read.</p> : null}
+          {sidebar ? null : <UsageTopBar view={view} />}
           <div className="usage-kpis" aria-label="Totals">
             <PeriodTile label="Today" figures={figuresFrom(allEntries, last - 1)} />
             <PeriodTile label="Last 7 days" figures={figuresFrom(allEntries, last - 7)} />
             <PeriodTile label="Last 30 days" figures={figuresFrom(allEntries, last - 30)} />
           </div>
 
-          <section className="usage-section" aria-labelledby="usage-limits-title">
+          <section className="usage-section" id="usage-limits" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
-            <UsageLimits limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" onRetry={() => void loadLimits(true)} />
+            <UsageLimits limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} />
             {allLimits ? <ReadingHistory limits={allLimits} now={clock} /> : null}
           </section>
 
-          <section className="usage-section" aria-labelledby="usage-breakdown-title">
-            <header className="usage-section-head">
-              <h2 id="usage-breakdown-title">Activity</h2>
-              <span className="spacer" />
-              {machines.length > 0 ? <MachineFilter machines={machines} value={shownMachine} onChange={setMachine} /> : null}
-              {anyOutside ? <Segmented<UsageOrigin | "all"> label="Where the work ran" value={shownOrigin ?? "all"} options={ORIGINS} onChange={(value) => setOrigin(value === "all" ? undefined : value)} /> : null}
-              {runtimes.length > 1 ? <RuntimeFilter runtimes={runtimes} value={shownRuntime} onChange={setRuntime} /> : null}
-              <Segmented<UsageRange> label="Range" value={range} options={USAGE_RANGES} onChange={setRange} />
-              <Segmented<UsageMetric> label="Measure" value={metric} options={METRICS} onChange={setMetric} />
-            </header>
+          <section className="usage-section" id="usage-activity" aria-labelledby="usage-breakdown-title">
+            <h2 id="usage-breakdown-title">Activity</h2>
             {summary && allEntries.length === 0 ? (
               <Empty icon={<ChartColumn size={18} />} title="Nothing used yet" description="Usage shows up here once a thread has answered. The sources say what was read.">
                 {navigate ? <button type="button" className="mini-button" onClick={() => navigate({ view: "sources" }, { label: "Sources" })}>Sources</button> : null}
@@ -334,8 +299,8 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
                   <UsageHistory series={series} metric={metric} />
                 </div>
                 <div className="usage-ranks">
-                  <RankList title="Projects" rows={projects} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
-                  <RankList title="Models" rows={models} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
+                  <RankList id="usage-projects" title="Projects" rows={projects} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
+                  <RankList id="usage-models" title="Models" rows={models} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
                   <RankList title="Threads" rows={threads} metric={metric} empty={`Nothing in the last ${rangeLabel}.`} />
                 </div>
               </>

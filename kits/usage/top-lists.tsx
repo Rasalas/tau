@@ -31,10 +31,10 @@ function Figures({ item, metric }: { item: RankedUsage; metric: UsageMetric }) {
 }
 
 /** One ranking: the name, a bar against the first row, the figures. */
-export function RankList({ title, rows, metric, empty }: { title: string; rows: readonly RankRow[]; metric: UsageMetric; empty: ReactNode }) {
+export function RankList({ id, title, rows, metric, empty }: { id?: string; title: string; rows: readonly RankRow[]; metric: UsageMetric; empty: ReactNode }) {
   const top = Math.max(1e-9, ...rows.map((row) => measure(row.item, metric) || (metric === "cost" ? 0 : row.item.totalTokens)));
   return (
-    <section className="usage-rank" aria-label={title}>
+    <section className="usage-rank" aria-label={title} id={id}>
       <h3>{title}</h3>
       {rows.length === 0 ? <p className="usage-note">{empty}</p> : (
         <ol>

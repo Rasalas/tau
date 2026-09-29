@@ -1,25 +1,18 @@
-import { ChevronLeft, Settings } from "lucide-react";
-import { READ_ONLY_REASON, tooltipProps, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
+import { ChevronLeft, CircleArrowUp, Settings } from "lucide-react";
+import { READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
 
 const noBadge = () => undefined;
 const noSummary = () => undefined;
 
-/** A page's entry, with the count its kit reports (open pull requests, say); a prominent one names itself. */
+/** A page's entry: its icon, with the count its kit reports (open pull requests, say) as a badge. */
 function PageButton({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
   const count = (page.useBadge ?? noBadge)();
   const label = count ? `${page.label}, ${count}` : page.label;
   const shown = count && count > 99 ? "99+" : count;
   return (
-    <button
-      type="button"
-      className={page.prominent ? "page-named" : undefined}
-      {...tooltipProps(label, { side: "top" })}
-      aria-label={label}
-      onClick={() => actions.openPage?.(page.id)}
-    >
-      {page.Icon ? <page.Icon size={15} /> : page.prominent ? null : page.label.slice(0, 1)}
-      {page.prominent ? <span>{page.label}</span> : null}
-      {count ? <span className={page.prominent ? "page-count" : "page-badge"} aria-hidden="true">{shown}</span> : null}
+    <button type="button" {...tooltipProps(label, { side: "top" })} aria-label={label} onClick={() => actions.openPage?.(page.id)}>
+      {page.Icon ? <page.Icon size={15} /> : page.label.slice(0, 1)}
+      {count ? <span className="page-badge" aria-hidden="true">{shown}</span> : null}
     </button>
   );
 }
@@ -42,19 +35,37 @@ function SummaryButton({ page, actions }: { page: PageContribution; actions: Wor
   );
 }
 
+/** A page's own drawing for the foot (Usage's juicebars), else its figure, else its icon. */
+function PageSummarySlot({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
+  if (page.Summary) return <page.Summary actions={actions} />;
+  return <SummaryButton page={page} actions={actions} />;
+}
+
+/** A downloaded release waits for a restart; the toast may be closed, this stays. */
+function UpdateButton() {
+  const update = useAppUpdate();
+  if (!update) return null;
+  const label = `Tau ${update.version} is ready: restart to update`;
+  return (
+    <button type="button" className="sidebar-update" {...tooltipProps(label, { side: "top" })} aria-label={label} onClick={() => update.install()}>
+      <CircleArrowUp size={15} />
+    </button>
+  );
+}
+
 /**
- * The sidebar's foot, as the design draws it: prominent pages with their
- * label and count (Reviews), Settings, the other pages as icons and the
- * commands kits put here, and at the end a page's figure (Usage's month).
+ * The sidebar's foot: the leading pages (Reviews) and the other pages as icons
+ * with their counts, the commands kits put here, and at the end what pages
+ * sum up (Usage's juicebars), a waiting update and Settings.
  * While a page shows, the foot is Back alone, as Settings' column ends.
  */
 export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions; readOnly: boolean }) {
   const { registry } = useWorkbenchShell();
   const open = useOpenPage();
   const pages = registry.getPages();
-  const named = pages.filter((page) => page.prominent && !page.useSummary);
-  const icons = pages.filter((page) => !page.prominent && !page.useSummary);
-  const summaries = pages.filter((page) => page.useSummary);
+  const sums = (page: PageContribution) => Boolean(page.Summary || page.useSummary);
+  const icons = [...pages.filter((page) => page.prominent && !sums(page)), ...pages.filter((page) => !page.prominent && !sums(page))];
+  const summaries = pages.filter(sums);
   const commands = registry.getCommandsFor("sidebar-footer").slice().sort((a, b) => a.label.localeCompare(b.label));
   if (open) {
     return (
@@ -67,10 +78,6 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
   }
   return (
     <div className="sidebar-footer">
-      {named.map((page) => <PageButton key={page.id} page={page} actions={actions} />)}
-      <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
-        <Settings size={15} />
-      </button>
       {icons.map((page) => <PageButton key={page.id} page={page} actions={actions} />)}
       {commands.map((command) => (
         <button
@@ -84,9 +91,13 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
           {command.Icon ? <command.Icon size={15} /> : command.label}
         </button>
       ))}
-      {summaries.length ? <span className="sidebar-footer-end">
-        {summaries.map((page) => <SummaryButton key={page.id} page={page} actions={actions} />)}
-      </span> : null}
+      <span className="sidebar-footer-end">
+        {summaries.map((page) => <PageSummarySlot key={page.id} page={page} actions={actions} />)}
+        <UpdateButton />
+        <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
+          <Settings size={15} />
+        </button>
+      </span>
     </div>
   );
 }

@@ -252,14 +252,9 @@
   padding: 0 var(--space-4); color: var(--ink-3); font: 500 var(--text-md) var(--sans);
 }
 .sidebar-footer button.sidebar-back > svg { color: var(--faint); }
-/* A prominent page (the design's "Reviews 4"): icon, label, and its count in the accent. */
-.sidebar-footer button.page-named {
-  width: auto; display: flex; align-items: center; gap: 7px; padding: 0 8px;
-  font: 500 var(--text-sm) var(--sans); white-space: nowrap;
-}
-.sidebar-footer .page-count { color: var(--info-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-/* A page's figure at the foot's end (Usage's month): quiet mono, the short form where the full one does not fit. */
-.sidebar-footer-end { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; container-type: inline-size; }
+/* The foot's end: what pages sum up (Usage's juicebars), a waiting update, Settings. */
+.sidebar-footer-end { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); container-type: inline-size; }
+.sidebar-footer button.sidebar-update { color: var(--info-ink); }
 .sidebar-footer button.sidebar-summary {
   width: auto; max-width: 100%; display: block; padding: 0 8px; overflow: hidden;
   color: var(--muted); font: var(--text-xs) var(--mono); white-space: nowrap; text-overflow: ellipsis;

@@ -1,4 +1,5 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
+import type { AppUpdate } from "./app-update";
 import type { RendererServices } from "./renderer-services";
 import type { PreferencesStore } from "./preferences";
 
@@ -16,4 +17,13 @@ export function useRendererServices(): RendererServices {
 
 export function usePreferences(): PreferencesStore {
   return useRendererServices().preferences;
+}
+
+const noUpdate = () => undefined;
+const noSubscription = () => () => {};
+
+/** The release the host downloaded and waits to restart into, or undefined (API 1.28.0). */
+export function useAppUpdate(): AppUpdate | undefined {
+  const store = useContext(RendererServicesReactContext)?.appUpdate;
+  return useSyncExternalStore(store?.subscribe ?? noSubscription, store?.getSnapshot ?? noUpdate);
 }

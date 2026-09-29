@@ -29,6 +29,7 @@ import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
+import { AppUpdateStore } from "./app-update";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
 import { useRuntimeCatalog } from "./use-runtime-catalog";
@@ -61,7 +62,8 @@ export default function App() {
   const client = useHostClient();
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
-  const constructedExtensions = useRendererServices().extensions;
+  const services = useRendererServices();
+  const constructedExtensions = services.extensions;
   // Which client this is, whether kits were left out, and how to reach this
   // machine: the entry point decided all three before the first render.
   const { profile, safeMode, createPlatform } = useClientEnvironment();
@@ -201,8 +203,10 @@ export default function App() {
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
-  /** The version the host downloaded; the toast that offers the restart reads it. */
-  const [updateReady, setUpdateReady] = useState<string>();
+  // The release the host downloaded; the toast and the sidebar's foot offer the restart.
+  const [appUpdate] = useState(() => services.appUpdate ?? new AppUpdateStore());
+  const updateReady = useSyncExternalStore(appUpdate.subscribe, appUpdate.getSnapshot)?.version;
+  const setUpdateReady = useCallback((version: string) => appUpdate.set({ version, install: () => { void client?.installUpdate(); } }), [appUpdate, client]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
   const composerControlRef = useRef<ComposerControlHandle>(null);
@@ -382,7 +386,7 @@ export default function App() {
     setWindowTitle: (title) => { document.title = title; },
     windowShell: windowShell.handle,
   }), [
-    client, currentDraftKey, preferences, registry, setNotice, windowShell.handle,
+    client, currentDraftKey, preferences, registry, setNotice, setUpdateReady, windowShell.handle,
     newThreadDelivery, syncDesktopExtensions, threadStore, turnScope, viewStore,
   ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
@@ -446,7 +450,7 @@ export default function App() {
 
   useWorkbenchToasts({
     view: viewStore, toasts: workbenchSession.toasts, updateReady,
-    onRestart: () => { void client?.installUpdate(); }, onUpdateDismissed: () => setUpdateReady(undefined),
+    onRestart: () => { void client?.installUpdate(); },
   });
 
   // Stage tab or drawer: where each panel shows, and the moves between them.
