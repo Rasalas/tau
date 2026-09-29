@@ -57,7 +57,7 @@ import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { threadListOrder } from "../workbench/thread-supervision";
-import { useHostCapabilities } from "./use-host-capabilities";
+import { useHostCapabilities, useHostName } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
 import type { ThreadStore } from "../workbench/thread-store";
@@ -314,6 +314,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
+  const hostName = useHostName();
   // A draft's stage reads its own project, not the one the host has open.
   const loadStageFile = useCallback(
     (path: string) => documentSource ? documentSource.loadFile(path, { workspace: stageWorkspace }) : loadFileUnavailable(path),
@@ -695,7 +696,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         snapshot={snapshot}
         actions={actions}
         thread={threadTitle}
-        details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} />}
+        details={showStartScreen ? undefined : <ThreadDetails snapshot={conversationSnapshot} view={view} machine={hostName} />}
         onBack={phoneNav.showList}
         foldSheets
         sheets={sheetPanels.map((panel) => ({

@@ -68,7 +68,7 @@ function renderComposer(model: UiModel, gates: ComposerGateContribution[], badge
 }
 
 function send(text = "hello") {
-  fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: text } });
+  fireEvent.change(screen.getByPlaceholderText(/Ask anything/u), { target: { value: text } });
   fireEvent.click(screen.getByLabelText("Send"));
 }
 
@@ -136,7 +136,7 @@ describe("composer gates", () => {
 
   it("hold the alternate send, the one that starts a thread in the background", async () => {
     const { onSubmit } = renderComposer(guarded, [asksFor("acme")]);
-    const field = screen.getByPlaceholderText(/Direct the agent/u);
+    const field = screen.getByPlaceholderText(/Ask anything/u);
     fireEvent.change(field, { target: { value: "in the background" } });
     fireEvent.keyDown(field, { key: "Enter", metaKey: true });
     expect(onSubmit).not.toHaveBeenCalled();

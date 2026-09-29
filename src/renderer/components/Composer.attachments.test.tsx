@@ -68,7 +68,9 @@ describe("Composer attachments", () => {
 
   it("shows a selected image above the text line, opens it large, and submits its bytes", async () => {
     const onSubmit = renderComposer();
-    expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
+    // Attach is an entry of the "…" menu; drag and paste take files too.
+    fireEvent.click(screen.getByLabelText("More composer controls"));
+    expect(await screen.findByRole("button", { name: "Attach files" })).toBeTruthy();
     const input = screen.getByLabelText("Choose attachment files") as HTMLInputElement;
     const image = new File([new Uint8Array([137, 80, 78, 71])], "diagram.png", { type: "image/png" });
 
@@ -77,7 +79,7 @@ describe("Composer attachments", () => {
     const thumbnail = await screen.findByRole("button", { name: "Preview diagram.png" });
     // The image is a chip inside the text.
     expect(thumbnail.closest(".composer-chip-list")).toBeTruthy();
-    expect(plainChipText((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value)).toBe("diagram.png ");
+    expect(plainChipText((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value)).toBe("diagram.png ");
     fireEvent.click(thumbnail);
     const dialog = screen.getByRole("dialog", { name: "diagram.png" });
     expect(dialog.parentElement).toBe(document.body);
@@ -113,7 +115,7 @@ describe("Composer attachments", () => {
       new File([new Uint8Array([137, 80, 78, 71])], "immediate.png", { type: "image/png" }),
     ]);
 
-    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "send with image" } });
+    fireEvent.change(screen.getByPlaceholderText(/Ask anything/u), { target: { value: "send with image" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     await drop;
@@ -192,7 +194,7 @@ describe("Composer attachments", () => {
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "retain.png", { type: "image/png" })]);
     expect(await screen.findByRole("button", { name: "Preview retain.png" })).toBeTruthy();
-    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const draft = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     typeAfterChips(draft, "retain this prompt");
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -206,7 +208,7 @@ describe("Composer attachments", () => {
     let resolve!: (result: SubmitResult) => void;
     const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
-    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const draft = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(draft, { target: { value: "once" } });
     const send = screen.getByRole("button", { name: "Send" });
     fireEvent.click(send);
@@ -267,7 +269,7 @@ describe("Composer attachments", () => {
     const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
-    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const draft = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(draft, { target: { value: "first prompt" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
@@ -286,7 +288,7 @@ describe("Composer attachments", () => {
     const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
-    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const draft = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(draft, { target: { value: "first prompt" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
@@ -303,7 +305,7 @@ describe("Composer attachments", () => {
     const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "sent.png", { type: "image/png" })]);
-    const draft = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const draft = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(draft, { target: { value: "first prompt" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
@@ -340,16 +342,16 @@ describe("Composer attachments", () => {
 
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "a.png", { type: "image/png" })]);
     await screen.findByRole("button", { name: "Preview a.png" });
-    typeAfterChips(screen.getByPlaceholderText(/Direct the agent/u), "a");
+    typeAfterChips(screen.getByPlaceholderText(/Ask anything/u), "a");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     submission.rerenderScope("thread:b");
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "b.png", { type: "image/png" })]);
-    typeAfterChips(screen.getByPlaceholderText(/Direct the agent/u), "b");
+    typeAfterChips(screen.getByPlaceholderText(/Ask anything/u), "b");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     resolvers.get("a.png a")?.({ accepted: false, message: "Prompt rejected." });
     resolvers.get("b.png b")?.({ accepted: true });
-    await waitFor(() => expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe(""));
+    await waitFor(() => expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe(""));
     expect(screen.queryByRole("button", { name: "Preview b.png" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
 
@@ -371,11 +373,11 @@ describe("Composer attachments", () => {
 
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "a.png", { type: "image/png" })]);
     await screen.findByRole("button", { name: "Preview a.png" });
-    typeAfterChips(screen.getByPlaceholderText(/Direct the agent/u), "a");
+    typeAfterChips(screen.getByPlaceholderText(/Ask anything/u), "a");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     submission.rerenderScope("thread:b");
     await attachmentRef.current?.addFiles([new File([new Uint8Array([1])], "b.png", { type: "image/png" })]);
-    typeAfterChips(screen.getByPlaceholderText(/Direct the agent/u), "b");
+    typeAfterChips(screen.getByPlaceholderText(/Ask anything/u), "b");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     resolvers.get("b.png b")?.({ accepted: false, message: "Prompt rejected." });
@@ -386,6 +388,6 @@ describe("Composer attachments", () => {
     submission.rerenderScope("thread:b");
     await waitFor(() => expect(screen.getByRole("button", { name: "Preview b.png" })).toBeTruthy());
     expect(screen.getByRole("alert").textContent).toMatch(/rejected/u);
-    expect(plainChipText((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value)).toBe("b.png b");
+    expect(plainChipText((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value)).toBe("b.png b");
   });
 });

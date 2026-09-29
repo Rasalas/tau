@@ -12,6 +12,8 @@ export interface FooterBlock {
   end?: boolean;
   /** Blocks with a higher rank fold later; equal ranks fold from the end of the row. */
   rank?: number;
+  /** Always in the menu, never in the row. */
+  menuOnly?: boolean;
 }
 
 interface Measured extends FooterBlockWidths {
@@ -39,7 +41,7 @@ function iconWidth(block: HTMLElement, natural: number): number {
 
 /**
  * The composer's footer row: the model, then the blocks, then one menu ("…")
- * that holds `menu` and every block the row has no room for. As the
+ * that holds `menu`, the `menuOnly` blocks and every block the row has no room for. As the
  * composer narrows the blocks first drop their labels and then move into the
  * menu, lowest rank first (T3 Code's footer).
  */
@@ -62,6 +64,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   const hasMenu = Boolean(menu);
   // Fold order: the blocks kept longest first, so the fitter takes them from the end.
   const byFold = useMemo(() => blocks
+    .filter((block) => !block.menuOnly)
     .map((block, index) => ({ block, index }))
     .sort((a, b) => (b.block.rank ?? 0) - (a.block.rank ?? 0) || a.index - b.index)
     .map((entry) => entry.block), [blocks]);
@@ -118,7 +121,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   }, []);
 
   // Not on every render: a keystroke re-renders the composer, and sizes change only through these or the observer.
-  const shape = `${blocks.map((block) => block.id).join(" ")}|${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
+  const shape = `${blocks.map((block) => `${block.id}${block.menuOnly ? "~" : ""}`).join(" ")}|${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
   useLayoutEffect(() => {
     measure();
     const element = row.current;
@@ -129,7 +132,8 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     return () => observer.disconnect();
   }, [measure, shape]);
 
-  const hiddenBlocks = blocks.filter((block) => hidden.has(block.id));
+  const hiddenBlocks = blocks.filter((block) => block.menuOnly || hidden.has(block.id));
+  const inRow = (block: FooterBlock) => !block.menuOnly && !hidden.has(block.id);
   const showTrigger = hasMenu || hiddenBlocks.length > 0;
   if (open && !showTrigger) setOpen(false);
   const shortcuts = [...menuShortcuts, ...hiddenBlocks.flatMap((block) => measured.current.get(block.id)?.shortcuts ?? [])];
@@ -142,7 +146,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   return (
     <div className="composer-chips" ref={row}>
       {leading}
-      {blocks.filter((block) => !block.end && !hidden.has(block.id)).map(drawn)}
+      {blocks.filter((block) => !block.end && inRow(block)).map(drawn)}
       {showTrigger ? (
         <span className="composer-overflow-anchor" data-composer-overflow="">
           <button
@@ -170,7 +174,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
           ) : null}
         </span>
       ) : null}
-      {blocks.filter((block) => block.end && !hidden.has(block.id)).map(drawn)}
+      {blocks.filter((block) => block.end && inRow(block)).map(drawn)}
     </div>
   );
 }

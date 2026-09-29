@@ -337,6 +337,19 @@ describe("host connection", () => {
     expect(connection.isReadOnly()).toBe(false);
   });
 
+  it("keeps the host machine's name from its hello", async () => {
+    const link = harness();
+    const request = link.transport.request;
+    link.transport.request = async (method, params) => {
+      const response = await request(method, params);
+      return method === "hello" ? { ...response, result: { ...(response.result as object), host: { id: "h1", name: "MacBook Pro" } } } : response;
+    };
+    const connection = new HostConnection(link.transport);
+    expect(connection.getHostName()).toBeUndefined();
+    await connection.start();
+    expect(connection.getHostName()).toBe("MacBook Pro");
+  });
+
   it("learns which methods the host wants run as jobs", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

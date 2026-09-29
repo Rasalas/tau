@@ -533,7 +533,7 @@ plugin.registerComposerInline({
 | `Component` | Drawn inside the input frame, above the text. It gets the `ComposerInlineContext` — `scope`, `snapshot`, `fileAttachments`, `imageInput` — and `draftState`, the extension's own slot beside the draft's text in the draft store (`read()`, `write(json)`, `write(undefined)` to drop it), so a reload brings the chips back with the text. |
 | `triggers` | A character that opens core's autocomplete menu at the start of a word. `search` answers rows (`{ id, label, description?, hint? }`), `select` gets the chosen row once core has removed the typed trigger. `/` and `$` are core's; an extension's `@` replaces core's own file list. |
 | `pasteText` | Asked for every text paste; `true` keeps the text out of the field. |
-| `takeFiles` | Offered every file of a drop, a paste or the attach button before core; answers with the files it left, which core treats as images. While any contribution takes files, the attach button accepts any type and the thread-wide drop overlay lets any file through — the contribution checks its own limits. |
+| `takeFiles` | Offered every file of a drop, a paste or "Attach files" in the composer's "…" menu before core; answers with the files it left, which core treats as images. While any contribution takes files, "Attach files" accepts any type and the thread-wide drop overlay lets any file through — the contribution checks its own limits. |
 | `hasContent`, `subscribe` | Whether the draft has something worth sending with no text at all; Send enables on it. |
 | `prepareSend` | Runs once per prompt, after `beginSubmission` captured the draft. `context` is put before the user's text (after it when a skill is selected, which reads its instruction first); `attachments` join the images. A throw refuses the send and keeps the draft. A `/command` never asks. |
 | `settleSend` | The prompt `prepareSend` contributed to was accepted (clear what went) or refused (put it back). |
@@ -1855,7 +1855,9 @@ them; Composer Context's are reached through its chip service.
 The composer's footer is one slim row (API 1.27.0, the workbench design):
 the model chip with its marks, the reasoning level as text, the controls a
 package places in the row (`placement: "toolbar"`, the default), one "…"
-menu, and the context dial, attach and the round send at the end. A control
+menu, and the round send at the end (API 1.28.0: attach and the context dial
+are entries of the "…" menu; the dial comes back into the row once three
+quarters of the context are used). A control
 that is a setting rather than something to see all the time — Access Kit's
 level, Plan Kit's Build/Plan, Service Tier, Prompt Tools' stash — takes
 `placement: "menu"`: its `Component` is drawn inside that menu only while it
@@ -1866,9 +1868,8 @@ second line, `selected` for one choice of a section, `disabled` with
 unless `keepOpen`. `shortcuts` lists the `data-composer-shortcut` ids a
 command clicks to open such a control; the menu's trigger answers to them, so
 `composer.mode` still opens the access level. As the row narrows, the
-package chips first lose their labels and then move into the menu, then
-attach, then the context dial; the model and the reasoning level stay
-longest. A host older than 1.27.0 draws a `menu` control in the row.
+package chips first lose their labels and then move into the menu; the
+model and the reasoning level stay longest. A host older than 1.27.0 draws a `menu` control in the row.
 `placement: "lead"` (API 1.27.0) puts a control before the model chip, where
 a new thread's design has its machine: Machines Kit's "Run on" chip. Core's
 own project chip follows the kits' lead controls on a new thread (a click
