@@ -43,7 +43,7 @@ describe("the readings of the last day", () => {
     const path = container.querySelector(".usage-readings-line")!.getAttribute("d")!;
     expect(path.match(/M/gu)).toHaveLength(3);
     expect(path.match(/H/gu)).toHaveLength(1);
-    expect(screen.getByRole("img", { name: "Codex · 5-hour: 4 readings, last 90% used" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Codex · 5-hour: 4 readings, last 10% left" })).toBeTruthy();
   });
 
   it("says how the history fills when nothing was kept", () => {

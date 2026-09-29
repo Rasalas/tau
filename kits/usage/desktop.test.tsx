@@ -187,19 +187,21 @@ describe("Usage page", () => {
     expect(screen.getByLabelText("Totals")).toBeTruthy();
   });
 
-  it("shows how much of each plan window is used and when it resets, the fullest plan first", async () => {
+  it("shows what is left of each plan window and when it resets, the plan with the least left first", async () => {
     renderPage(answers());
     const limitsList = await screen.findByLabelText("Limits");
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["Codex limits", "Pi · openai-codex limits"]);
     const codex = within(limitsList).getByRole("region", { name: "Codex limits" });
     expect(within(codex).getByText("pro")).toBeTruthy();
-    const session = within(codex).getByRole("meter", { name: "5-hour used" });
-    expect(session.getAttribute("aria-valuenow")).toBe("34");
+    const session = within(codex).getByRole("meter", { name: "5-hour left" });
+    expect(session.getAttribute("aria-valuenow")).toBe("66");
+    expect(within(codex).getAllByText("% left")).toHaveLength(2);
+    expect((session.querySelector(".usage-meter-fill") as HTMLElement).style.width).toBe("66%");
     expect(within(codex).getByText(/^resets in 1h 30m · /u)).toBeTruthy();
-    // 3d before the weekly reset, 57 % of the week has passed: the diamond sits there.
-    const weekly = within(codex).getByRole("meter", { name: "Weekly used" });
-    expect(weekly.getAttribute("aria-valuetext")).toBe("95% used, steady pace 57%, Above steady pace");
-    expect((weekly.querySelector(".usage-meter-pace") as HTMLElement).style.getPropertyValue("--usage-pace")).toMatch(/^57\.\d+%$/u);
+    // 3d before the weekly reset, 57 % of the week has passed: at an even pace 43 % would be left, and the diamond sits there.
+    const weekly = within(codex).getByRole("meter", { name: "Weekly left" });
+    expect(weekly.getAttribute("aria-valuetext")).toBe("5% left, target 43%, Below target");
+    expect((weekly.querySelector(".usage-meter-pace") as HTMLElement).style.getPropertyValue("--usage-pace")).toMatch(/^42\.\d+%$/u);
     expect(within(screen.getByRole("region", { name: "Pi · openai-codex limits" })).getByText("Reset time unavailable")).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText(/An API key or a cloud provider has no plan limits/u)).toBeTruthy();
   });
@@ -213,7 +215,7 @@ describe("Usage page", () => {
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["ChatGPT · Codex, Pi limits"]);
     const account = within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Pi limits" });
     expect(within(account).getAllByRole("meter")).toHaveLength(1);
-    expect(within(account).getByRole("meter").getAttribute("aria-valuenow")).toBe("10");
+    expect(within(account).getByRole("meter").getAttribute("aria-valuenow")).toBe("90");
     expect(within(account).getByText("ChatGPT")).toBeTruthy();
     expect(within(account).getByText(/via Pi/u)).toBeTruthy();
     expect(within(account).getByText("pro")).toBeTruthy();

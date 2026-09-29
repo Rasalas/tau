@@ -96,6 +96,7 @@
 .usage-window[data-state="exhausted"] .usage-meter-fill { background: var(--fail); }
 .usage-account[data-fresh="false"] .usage-meter-fill { background: var(--faint); }
 .usage-window[data-state="expired"] .usage-window-value > b { color: var(--faint); }
+.usage-window[data-state="expired"] .usage-meter-fill { background: var(--faint); }
 .usage-window-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; min-height: 18px; font-size: 12px; }
 .usage-window-reset { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .usage-window-reset > svg { flex: none; color: var(--faint); }
