@@ -3,6 +3,9 @@
 /* --density multiplies core's --space-* scale (tokens.css). */
 :root[data-density="compact"] { --density: .8; }
 :root[data-density="comfortable"] { --density: 1.2; }
+/* Text size, per device: core's type scale (tokens.css) a step down or up; the page heads keep theirs. */
+:root[data-text-size="small"] { --text-xs: 11px; --text-sm: 12px; --text-md: 13px; --text-lg: 14px; --text-title: 17px; --label-size: 11px; }
+:root[data-text-size="large"] { --text-xs: 13px; --text-sm: 14px; --text-md: 15px; --text-lg: 16px; --text-title: 19px; --label-size: 13px; }
 
 /* Mode tiles: the window in miniature, painted with the theme each mode would use. */
 .appearance-mode-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
