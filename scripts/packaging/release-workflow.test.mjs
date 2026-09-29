@@ -98,6 +98,13 @@ describe("the release workflow", () => {
     expect(condition("ios")).toContain("needs.gate.outputs.nightly != 'true'");
   });
 
+  it("fails a release whose Firebase project lacks the app, and only warns in a dry run", () => {
+    expect(JOBS.preflight).toContain("secrets.ANDROID_GOOGLE_SERVICES_JSON != ''");
+    const guard = /package_name === "de\.tbuck\.tau"[\s\S]*?\n {10}fi\n/u.exec(JOBS.android)[0];
+    expect(guard).toMatch(/if \[ "\$PUBLISHING" = true \]; then\n\s+echo "::error::[^\n]*"\n\s+exit 1/u);
+    expect(guard).toContain("::warning::");
+  });
+
   it("removes every key it writes to disk", () => {
     expect(JOBS.ios).toContain(`trap 'rm -f "$key"' EXIT`);
     expect(JOBS.android).toContain('rm -f "$RUNNER_TEMP/upload.p12"');

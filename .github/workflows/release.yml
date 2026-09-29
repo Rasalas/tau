@@ -141,11 +141,11 @@ jobs:
       - name: Require the phone apps' signing keys for a stable release
         if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
         env:
-          HAS_ANDROID: ${{ secrets.ANDROID_UPLOAD_KEYSTORE != '' && secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD != '' && secrets.ANDROID_UPLOAD_KEY_ALIAS != '' }}
+          HAS_ANDROID: ${{ secrets.ANDROID_UPLOAD_KEYSTORE != '' && secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD != '' && secrets.ANDROID_UPLOAD_KEY_ALIAS != '' && secrets.ANDROID_GOOGLE_SERVICES_JSON != '' }}
           HAS_APPLE: ${{ secrets.APPLE_API_KEY_P8 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
         run: |
           if [ "$HAS_ANDROID" != true ]; then
-            echo "::error::ANDROID_UPLOAD_KEYSTORE, ANDROID_UPLOAD_KEYSTORE_PASSWORD and ANDROID_UPLOAD_KEY_ALIAS are not all set; a release needs a signed APK."
+            echo "::error::ANDROID_UPLOAD_KEYSTORE, ANDROID_UPLOAD_KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEY_ALIAS and ANDROID_GOOGLE_SERVICES_JSON are not all set; a release needs a signed APK that can take pushes."
             exit 1
           fi
           if [ "$HAS_APPLE" != true ]; then
@@ -383,6 +383,7 @@ jobs:
       - name: Write the Firebase project
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+          PUBLISHING: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           if [ -z "${GOOGLE_SERVICES_JSON:-}" ]; then
             echo "::warning::ANDROID_GOOGLE_SERVICES_JSON is not set; this Android build cannot take pushes."
@@ -390,10 +391,14 @@ jobs:
           fi
           file=mobile/android/app/google-services.json
           printf '%s' "$GOOGLE_SERVICES_JSON" | base64 -d > "$file"
-          # The Google Services plugin fails the build on a project without this package.
+          # Google's Gradle plugin fails on a project without this package, with an error that does not say so.
           if ! node -e 'const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.exit((d.client ?? []).some((c) => c.client_info?.android_client_info?.package_name === "de.tbuck.tau") ? 0 : 1)' "$file"; then
             rm -f "$file"
-            echo "::warning::The Firebase project in ANDROID_GOOGLE_SERVICES_JSON has no Android app de.tbuck.tau; this build cannot take pushes."
+            if [ "$PUBLISHING" = true ]; then
+              echo "::error::The Firebase project in ANDROID_GOOGLE_SERVICES_JSON has no Android app de.tbuck.tau; a release would ship without pushes."
+              exit 1
+            fi
+            echo "::warning::The Firebase project in ANDROID_GOOGLE_SERVICES_JSON has no Android app de.tbuck.tau; this dry run cannot take pushes."
           fi
       - name: Build the App Bundle and the APK
         working-directory: mobile/android

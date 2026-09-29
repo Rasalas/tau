@@ -596,10 +596,12 @@ deletes it again. It then checks the APK's signature (`apksigner verify`) and
 that it says `de.tbuck.tau` with the expected versionCode and versionName.
 
 - **Push.** `ANDROID_GOOGLE_SERVICES_JSON` (base64) becomes
-  `google-services.json`. Google's Gradle plugin fails a build whose Firebase
-  project has no Android app `de.tbuck.tau`, so the job checks first; without
-  the secret, or with a project for another package, it warns and builds an
-  app that cannot take pushes. The app asks Firebase for a token only after the
+  `google-services.json`: the Firebase project `tau-push-e3c95`, which holds
+  the Android app `de.tbuck.tau`. Google's Gradle plugin fails a build whose
+  project lacks that app with an error that does not say so, so the job checks
+  first. A release without the secret, or with a project lacking the app,
+  fails (`preflight`, then `android`); a dry run warns and builds an app that
+  cannot take pushes. The app asks Firebase for a token only after the
   user allowed notifications (`firebase_messaging_auto_init_enabled` is off in
   the manifest).
 - **versionCode** is computed from the version by `build.gradle` (and
@@ -616,8 +618,9 @@ that it says `de.tbuck.tau` with the expected versionCode and versionName.
   which talks to the Google Play Developer API directly: a service account's
   JSON key in `PLAY_SERVICE_ACCOUNT_JSON`, a token for the
   `androidpublisher` scope, then one edit that uploads the bundle, sets it on
-  the track and commits. Without the secret the job says so and succeeds; the
-  bundle stays in the run's `play-bundle` artifact for a day. While Play still
+  the track and commits. The secret is set in `release` (a service account
+  invited in the Play Console with release rights for the testing tracks). Without it the job says so
+  and succeeds; the bundle stays in the run's `play-bundle` artifact for a day. While Play still
   treats the app as a draft (before its first release was rolled out in the
   Play Console), it takes only draft releases; the script then makes one, and
   it has to be rolled out by hand. What the Play Console needs before that:
@@ -878,7 +881,7 @@ from a fork runs with a read-only token and no secret.
   `TAU_RELEASES_APP_KEY`, `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`,
   `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, the phone apps' `ANDROID_UPLOAD_KEYSTORE`,
   `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`,
-  `ANDROID_GOOGLE_SERVICES_JSON` and, once it exists, `PLAY_SERVICE_ACCOUNT_JSON`
+  `ANDROID_GOOGLE_SERVICES_JSON` and `PLAY_SERVICE_ACCOUNT_JSON`
   ([Phone apps](#phone-apps)). Only `main` and `v*` tags may
   deploy to it. `preflight`, the macOS builds, `android`, `ios`, `sign`,
   `release`, `nightly` and `play` run in it for a tag, a nightly, a `publish`
