@@ -102,6 +102,10 @@ export {
 export const loadRuntimeInstanceUi = () => import("./components/RuntimeInstanceUi");
 export type { RuntimeInstanceDialogProps, RuntimeInstanceSetupProps, RuntimeInstanceView, RuntimeVersionBannerProps } from "./components/RuntimeInstanceUi";
 export { compareVersions, updateAvailable } from "../shared/runtime-version";
+// A machine's own Tau (K103): its update as its host reports it, and which machines are behind.
+export { describeHostUpdate, hostUpdatePending, machineBehind } from "../shared/host-updates";
+export type { HostUpdatePhase, HostUpdateStatus } from "../shared/host-updates";
+export { useHostUpdate, useMachineUpdates, type MachineUpdate, type MachineUpdates } from "./machine-updates";
 // Signing in from a Providers card (API 1.12.0): the vocabulary, and the account rows as one chunk loaded on first use.
 export { SIGN_IN_COMMANDS, SIGN_IN_EVENT, signInActive } from "../shared/sign-in";
 export type * from "../shared/sign-in";

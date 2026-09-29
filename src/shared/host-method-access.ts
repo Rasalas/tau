@@ -107,6 +107,8 @@ export const HOST_METHOD_ACCESS = {
   "machines-overview": "owner",
   "machines-pair": "owner",
   "machines-forget": "owner",
+  // `tau machines update`: another machine's Tau through the window's connection there (K103).
+  "machines-update": "owner",
   // Another machine's agents send a file in pieces (plan-H); a Read-only device may not.
   "blob-put": "write",
   "blob-commit": "write",
@@ -131,6 +133,8 @@ export const HOST_METHOD_ACCESS = {
   "environments-discover": "write",
   "environments-set-preferences": "write",
   "environments-set-agents": "write",
+  // Another machine's own Tau, with the window's key there; that machine decides (K103).
+  "environments-update": "write",
   // Reading another machine's thread over the window's own connection to it; its key decides there.
   "environments-transcript-page": "read",
   "environments-watch-thread": "read",

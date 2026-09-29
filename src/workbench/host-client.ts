@@ -1,4 +1,5 @@
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
+import { HOST_UPDATE_METHODS, type HostUpdateAction, type HostUpdateSettings, type HostUpdateStatus } from "../shared/host-updates";
 import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
@@ -268,6 +269,12 @@ export interface HostClient {
   loadEnvironmentTranscript(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
   /** A kit command of another machine that only reads, over the window's own connection to it (API 1.15.0). */
   readEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
+  updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+
+  /** The host machine's own Tau (K103); a host without an updater refuses with `unsupported`. */
+  hostUpdate?(action: "status" | "check" | "install"): Promise<HostUpdateStatus>;
+  setHostUpdateSettings?(settings: HostUpdateSettings): Promise<HostUpdateStatus>;
 }
 
 /**
@@ -456,5 +463,9 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     watchEnvironmentThread: async (machine, sessionId, on) => (await call<UiEnvironmentThreadView | null>("environments-watch-thread", [machine, sessionId, on])) ?? undefined,
     loadEnvironmentTranscript: (machine, sessionId, cursor) => call<TranscriptPage>("environments-transcript-page", cursor ? [machine, sessionId, cursor] : [machine, sessionId]),
     readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
+    updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
+
+    hostUpdate: (action) => call<HostUpdateStatus>(action === "install" ? HOST_UPDATE_METHODS.install : action === "check" ? HOST_UPDATE_METHODS.check : HOST_UPDATE_METHODS.status),
+    setHostUpdateSettings: (settings) => call<HostUpdateStatus>(HOST_UPDATE_METHODS.settings, [settings]),
   };
 }

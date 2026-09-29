@@ -74,6 +74,7 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "environments-discover": { label: "looked for machines" },
   "environments-set-preferences": { label: "changed machine preferences" },
   "environments-set-agents": { label: "changed where this machine's agents may work" },
+  "environments-update": { label: "updated a machine's Tau" },
   "cancel-job": { label: "cancelled a job" },
   // One entry per file, not per 8 MB piece.
   "blob-put": { label: "sent part of a file", automatic: true, quiet: true },

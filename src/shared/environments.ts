@@ -52,6 +52,8 @@ export interface UiEnvironment {
   /** Set when the machine paired this window Read only. */
   readOnly?: boolean;
   hostVersion?: string;
+  /** Its own Tau update, as its host reports it; absent from a host too old to (K103). */
+  update?: import("./host-updates.js").HostUpdateStatus;
   /** Newest first, capped; kept from the last connection while offline. */
   threads: UiEnvironmentThread[];
   /** How many threads the machine has in all. */

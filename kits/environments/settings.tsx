@@ -11,6 +11,7 @@ import {
   TextField,
   errorMessage,
   tooltipProps,
+  machineBehind,
   type DiscoveredHost,
   type EnvironmentPairInput,
   type EnvironmentPairResult,
@@ -25,6 +26,7 @@ import { formatDigits, statusText } from "./machines.js";
 import { AGENTS_EVENT, type AgentMachine, type AgentMachines } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 import { MachineWeights } from "./weights.js";
+import { MachineUpdateLine } from "./update.js";
 
 /** The machines this computer's host holds the agents' key for, as its Machines host half reports them. */
 function useAgentMachines(host: HostExtensionClient | undefined): AgentMachines | undefined {
@@ -107,9 +109,11 @@ function AgentsSwitch({ machine, agent, environments, pairing }: {
   );
 }
 
-function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host }: {
+function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host, behind }: {
   machine: UiEnvironment;
   shown: boolean;
+  /** It runs an older Tau than it could (K103). */
+  behind: boolean;
   environments: PlatformEnvironments;
   now: number;
   onRemove(): void;
@@ -159,6 +163,7 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
           <AgentsSwitch machine={machine} agent={agent} environments={environments as PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>} pairing={pairing} />
         ) : null}
         {health ? <MachineHealth host={host} machine={machine.id} name={machine.name} /> : null}
+        <MachineUpdateLine machine={machine} environments={environments} behind={behind} />
       </div>
       {machine.local ? null : (
         <>
@@ -335,6 +340,8 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
         </div>
       );
     }
+    // This computer's Tau is the one to catch up with (K103).
+    const reference = list.environments.find((machine) => machine.local)?.hostVersion;
     return (
       <div className="settings-page machines-page">
         <SettingsSection title="Machines">
@@ -343,6 +350,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
               key={machine.id}
               machine={machine}
               shown={machine.id === list.shown}
+              behind={machineBehind(machine, reference)}
               environments={environments}
               now={now}
               onRemove={() => setRemoving(machine)}

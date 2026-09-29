@@ -1,4 +1,5 @@
 import type { HostEvent } from "../shared/contracts";
+import type { HostUpdateStatus } from "../shared/host-updates";
 import type { UiDiscoveredHosts } from "../shared/discovery";
 import type {
   EnvironmentAgentsResult,
@@ -80,6 +81,12 @@ export interface PlatformEnvironments {
    * (a picture of that machine's Preview, say). New in API 1.15.0.
    */
   readExtension?(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  /**
+   * A machine's own Tau over the window's connection there (K103): `check`
+   * asks its release feed now, `install` updates it once no turn runs there.
+   * That machine decides with this window's key; the list follows the result.
+   */
+  update?(id: string, action: "check" | "install" | { automatic: boolean }): Promise<HostUpdateStatus>;
 }
 
 interface LookIn {
@@ -185,5 +192,6 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
     watchThread,
     transcriptPage: (machine, sessionId, cursor) => client.loadEnvironmentTranscript(machine, sessionId, cursor),
     readExtension: (machine, extensionId, command, input) => client.readEnvironmentExtension(machine, extensionId, command, input),
+    ...(client.updateEnvironment ? { update: (id: string, action: "check" | "install" | { automatic: boolean }) => client.updateEnvironment!(id, action) } : {}),
   };
 }

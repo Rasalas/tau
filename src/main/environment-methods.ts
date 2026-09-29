@@ -15,6 +15,7 @@ import { HOST_ERROR } from "../shared/host-transport.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { decodeHostTranscriptCursor } from "./ipc-input.js";
 import type { HostMethodTable } from "./host-methods.js";
+import type { HostUpdateAction, HostUpdateStatus } from "../shared/host-updates.js";
 
 /** What the window's process answers about its machines (ADR 0025); `WindowEnvironments` is the one implementation. */
 export interface EnvironmentsService {
@@ -32,6 +33,7 @@ export interface EnvironmentsService {
   watchThread(machine: string, sessionId: string, on: boolean): UiEnvironmentThreadView | undefined;
   transcriptPage(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
   readExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -87,6 +89,15 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
       await require().open(text("environments-open", "id", params[0], 200), target);
     },
     "environments-take-arrival": async () => require().takeArrival() ?? null,
+    // A machine's own Tau over the window's connection there (K103).
+    "environments-update": async (params) => {
+      const action = params[1];
+      const automatic = (action as { automatic?: unknown } | null)?.automatic;
+      if (action !== "status" && action !== "check" && action !== "install" && typeof automatic !== "boolean") {
+        throw Object.assign(new Error("environments-update: action must be status, check, install or { automatic }."), { code: HOST_ERROR.invalidRequest });
+      }
+      return require().updateMachine(text("environments-update", "machine", params[0], 200), typeof automatic === "boolean" ? { automatic } : action as "status" | "check" | "install");
+    },
     "environments-watch-thread": async (params) => {
       if (typeof params[2] !== "boolean") {
         throw Object.assign(new Error("environments-watch-thread: on must be a boolean."), { code: HOST_ERROR.invalidRequest });

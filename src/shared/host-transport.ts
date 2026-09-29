@@ -49,6 +49,7 @@ export const CLIENT_SIDE_METHODS = [
   "environments-take-arrival",
   "environments-discover",
   "environments-set-preferences",
+  "environments-update",
   "environments-set-agents",
   "environments-transcript-page",
   "environments-watch-thread",

@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import { decodeHostUpdateStatus, HOST_UPDATE_METHODS, type HostUpdateAction, type HostUpdateStatus } from "../shared/host-updates.js";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import type {
   EnvironmentAgentsOutcome,
@@ -499,6 +500,21 @@ export class WindowEnvironments {
     return watched.monitor.call("host-extension", [extensionId, command, input]);
   }
 
+  /**
+   * A machine's own Tau (K103), over the window's connection there: `check`
+   * asks its feed now, `install` updates it once no turn runs there. Its host
+   * decides with the window's key, as for any other change.
+   */
+  async updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus> {
+    const { id, watched } = this.reachable(machine);
+    const call = typeof action === "object"
+      ? watched.monitor.call<unknown>(HOST_UPDATE_METHODS.settings, [{ automatic: action.automatic }])
+      : watched.monitor.call<unknown>(action === "install" ? HOST_UPDATE_METHODS.install : action === "check" ? HOST_UPDATE_METHODS.check : HOST_UPDATE_METHODS.status, [], action === "status" ? undefined : 10 * 60_000);
+    const status = decodeHostUpdateStatus(await call);
+    if (!status) throw new Error(`${this.machineName(id)} runs a Tau too old to update from here; update it there once.`);
+    return status;
+  }
+
   /** A miss asks again at most every few seconds: a kit installed there since then. */
   private async onlyReads(id: string, watched: Watched, extensionId: string, command: string): Promise<boolean> {
     const key = `${extensionId}\n${command}`;
@@ -679,6 +695,7 @@ export class WindowEnvironments {
       ...(state?.address ?? base.address ? { address: state?.address ?? base.address } : {}),
       ...(state?.readOnly ?? base.readOnly ? { readOnly: true } : {}),
       ...(state?.hostVersion ? { hostVersion: state.hostVersion } : {}),
+      ...(state?.update ? { update: state.update } : {}),
       threads: kept?.threads ?? [],
       threadCount: kept?.threadCount ?? 0,
       projects: kept?.projects ?? [],
@@ -725,6 +742,7 @@ export async function answerEnvironmentCommand(environments: WindowEnvironments 
         ...(entry.address ? { address: entry.address } : {}),
         ...(entry.readOnly ? { readOnly: true } : {}),
         ...(entry.hostVersion ? { hostVersion: entry.hostVersion } : {}),
+        ...(entry.update ? { update: entry.update } : {}),
       }));
     case "pair-environment": {
       if (typeof item.text !== "string" || !item.text) throw new Error("pair-environment: text must be a pairing link.");
@@ -733,6 +751,11 @@ export async function answerEnvironmentCommand(environments: WindowEnvironments 
       const name = typeof item.name === "string" ? item.name.trim() : "";
       if (name && name !== result.environment.name) await environments.rename(result.environment.id, name);
       return { state: "added", environment: { id: result.environment.id, name: name || result.environment.name }, ...(result.agents ? { agents: result.agents } : {}) };
+    }
+    case "update-environment": {
+      if (typeof item.id !== "string" || !item.id) throw new Error("update-environment: id must be a machine's id.");
+      const action = item.action === "install" || item.action === "check" ? item.action : "status";
+      return environments.updateMachine(item.id, action);
     }
     case "remove-environment":
       if (typeof item.id !== "string" || !item.id) throw new Error("remove-environment: id must be a machine's id.");
