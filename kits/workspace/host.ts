@@ -35,6 +35,7 @@ import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
 import { mergeThreadBranch, readThreadBranch, readThreadBranches } from "./thread-branches.js";
 import { createCheckoutTurns } from "./checkout-turns.js";
+import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);
@@ -681,6 +682,32 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);
+      }, { access: "read" });
+      // The header's "N files changed": a worktree's branch against its base, else this thread's own uncommitted files.
+      const turnPaths = new Map<string, readonly string[]>();
+      const branchPaths = new Map<string, Promise<readonly string[] | undefined>>();
+      context.registerCommand("thread-changes", async (input) => {
+        const project = await shownRoot(input);
+        const sessionId = optionalString(input, "sessionId");
+        const [status, info] = await Promise.all([git.getChanges(project), git.getWorkspaceInfo(project)]);
+        const ownWorktree = info.worktrees.some((tree) => tree.isCurrent && !tree.isMain);
+        return countThreadChanges(status, ownWorktree, {
+          branchPaths: async () => {
+            const head = (await workspaceGit.runGitCommand(project, ["rev-parse", "--verify", "HEAD"])).trim();
+            const key = `${project}\0${head}`;
+            let paths = branchPaths.get(key);
+            if (!paths) {
+              if (branchPaths.size >= 200) branchPaths.clear();
+              paths = workspaceGit.getBranchChanges(project).then((changes) => changes.files.map((file) => file.path), () => undefined);
+              branchPaths.set(key, paths);
+            }
+            return paths;
+          },
+          ...(sessionId && services.thread(sessionId)?.backendKind === "pi" ? {
+            checkpoints: async () => (await checkpoints.checkpoints(sessionId)).checkpoints,
+            turnPaths: (checkpoint) => checkpoints.turnPaths(sessionId, checkpoint.id),
+          } : {}),
+        }, turnPaths);
       }, { access: "read" });
       context.registerCommand("turn-files", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);

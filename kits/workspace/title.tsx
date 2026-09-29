@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, SquarePen, Upload } from "lucide-react";
-import { Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
+import { hostAvailable, Menu, tooltipProps, useHostCapabilities, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { pickProjectAction, ProjectActionEditor, ProjectActionsControl, projectActionItems, useProjectActions } from "./project-actions.js";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./actions.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 import { titleCollapse, useTitleCollapse, type TitleCollapse } from "./title-collapse.js";
+import type { ThreadChangesCount } from "./thread-changes.js";
 
 /**
  * The thread header's controls Workspace Kit owns, as in the workbench design:
@@ -86,9 +87,29 @@ export function WorkspaceEditorButton(_props: RegionProps) {
   </span>;
 }
 
-export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
+/**
+ * The header's count, as the host reads it for this thread: a worktree's
+ * branch against its base, else the uncommitted files its own turns changed.
+ * Read again whenever the checkout, its changes or the thread's turns move.
+ */
+function useThreadChanges(sessionId: string | undefined): ThreadChangesCount | undefined {
   const workspaceStore = useWorkspaceStore();
   const state = useWorkspaceKit();
+  const [count, setCount] = useState<{ sessionId?: string; value: ThreadChangesCount }>();
+  const turn = sessionId ? state.turnStats[sessionId] : undefined;
+  useEffect(() => {
+    if (!hostAvailable()) return undefined;
+    let live = true;
+    workspaceStore.host.threadChanges(sessionId).then((value) => { if (live) setCount({ sessionId, value }); }, () => undefined);
+    return () => { live = false; };
+  }, [sessionId, state.changes, state.workspace, turn, workspaceStore]);
+  return count?.sessionId === sessionId ? count?.value : undefined;
+}
+
+export function TitleActionsRow({ collapse, row, snapshot }: RegionProps & { collapse: TitleCollapse; row?: RefObject<HTMLDivElement | null> }) {
+  const workspaceStore = useWorkspaceStore();
+  const state = useWorkspaceKit();
+  const threadChanges = useThreadChanges(snapshot?.sessionId);
   const { readOnly } = useHostCapabilities();
   const [gitMenu, setGitMenu] = useState(false);
   const [moreMenu, setMoreMenu] = useState(false);
@@ -108,7 +129,8 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
   const showActions = !readOnly;
   const moreSections: MenuSection[] = showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : [];
   const gitIcon = gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />;
-  const changed = state.changes.files.length;
+  const changed = threadChanges?.files ?? state.changes.files.length;
+  const others = threadChanges?.scope === "thread" ? threadChanges.uncommitted - threadChanges.files : 0;
 
   return (
     <div ref={row} className="workspace-title-actions">
@@ -131,7 +153,7 @@ export function TitleActionsRow({ collapse, row }: RegionProps & { collapse: Tit
       {changed > 0 ? <button
         type="button"
         className="workspace-changes-link"
-        {...tooltipProps("Review the changes", { side: "bottom" })}
+        {...tooltipProps(others > 0 ? `Review the changes; ${others} more uncommitted ${others === 1 ? "file is" : "files are"} not this thread's` : threadChanges?.scope === "branch" ? "Review the changes; committed ones on this branch count too" : "Review the changes", { side: "bottom" })}
         onClick={() => workspaceStore.showChangedFiles()}
       >{changed} {changed === 1 ? "file" : "files"} changed<ChevronRight size={13} /></button> : null}
 

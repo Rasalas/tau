@@ -35,6 +35,7 @@ import { readHeadReflog, type ReflogEntry } from "./turn-attribution.js";
 import {
   createWorkspaceKitCheckpointFeature,
   createWorkspaceKitCheckpointMaintenance,
+  pageAttribution,
   reviseLegacyCheckpoint,
   type WorkspaceKitCheckpointFeature,
   type WorkspaceKitCheckpointMaintenance,
@@ -74,6 +75,8 @@ export interface WorkspaceKitLifecycle {
   rewind(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   turnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   turnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+  /** Every file one turn changed, as its pages list them, in one read. */
+  turnPaths(sessionId: string, checkpointId: string): Promise<string[]>;
 }
 
 /**
@@ -982,6 +985,15 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
       if (!feature) throw new Error("Turn checkpoint history is unavailable.");
       return feature.historicalFiles(thread.cwd, checkpoint, cursor, limit);
+    },
+    turnPaths: async (sessionId, checkpointId) => {
+      const { thread, checkpoint } = await historical(sessionId, checkpointId);
+      if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
+      const full = await workspaceGit.diffWorkspaceSnapshots(thread.cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
+        expected: { sessionId, turnId: checkpoint.turnId },
+      });
+      const { attribute } = pageAttribution(thread.cwd, checkpoint);
+      return (attribute ? await attribute(full) : full).files.map((file) => file.path);
     },
   };
 }

@@ -156,6 +156,7 @@ function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone(): voi
       }}
       onPick={(ref) => (ref === info.branch ? onDone() : void switchTo(ref))}
     />}
+    {info.ahead ? <div className="ref-note">{info.ahead} {info.ahead === 1 ? "commit" : "commits"} not pushed{info.upstream ? ` to ${info.upstream}` : ""}</div> : null}
     {info.isDirty ? <div className="ref-note">Uncommitted changes: a branch without a worktree cannot be checked out in place; a new branch takes them along.</div> : null}
     <div className="menu-heading">Worktrees</div>
     <div className="worktree-list">
