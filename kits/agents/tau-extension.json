@@ -4,7 +4,7 @@
   "description": "Lets a thread start sub-agents and shows them, with their costs, in a panel of their own.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.27.0"
   },
   "permissions": [
     "workspace:read",

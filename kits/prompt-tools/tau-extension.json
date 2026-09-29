@@ -5,7 +5,7 @@
   "icon": "MessageSquareText",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.10.0"
+    "api": "^1.27.0"
   },
   "permissions": [
     "sessions"
