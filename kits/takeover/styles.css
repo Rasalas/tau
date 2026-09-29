@@ -15,7 +15,7 @@
 .takeover-button {
   display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: var(--radius-pill);
-  background: var(--raised); color: var(--ink); font: 500 12px var(--sans); cursor: pointer; white-space: nowrap;
+  background: var(--raised); color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer; white-space: nowrap;
 }
 .takeover-button:hover:not(:disabled) { background: var(--raised-hover); border-color: var(--line-hover); }
 .takeover-button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); font-weight: 600; }
@@ -42,7 +42,7 @@
   border: 1px solid var(--acid-line); border-radius: var(--radius-md); background: var(--sunken); cursor: pointer;
 }
 .takeover-frame > img { display: block; width: 100%; height: auto; }
-.takeover-note { margin: 0; color: var(--muted); font: 12px var(--sans); }
+.takeover-note { margin: 0; color: var(--muted); font: var(--text-sm) var(--sans); }
 body[data-profile="compact"] .takeover-button { min-height: 44px; }
 body[data-profile="compact"] .takeover-icon-button { width: 44px; height: 44px; }
 .takeover-app-icon { width: 16px; height: 16px; flex: none; }

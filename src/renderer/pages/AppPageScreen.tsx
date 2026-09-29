@@ -10,6 +10,43 @@ import { SettingsPageHead, type SettingsCrumb } from "../settings/page-head";
 import "../settings/settings.css";
 import "./app-page.css";
 
+function usePageProps(store: AppPageStore, actions: WorkbenchActions, sidebar: boolean): Omit<PageProps, "params"> {
+  return useMemo(() => ({
+    actions,
+    navigate: (params, options) => store.navigate(params, options),
+    close: store.close,
+    sidebar,
+  }), [actions, sidebar, store]);
+}
+
+/**
+ * The open page's `Sidebar` in the sidebar's place, in Settings' column: Back
+ * to thread above and at the foot, the page's own navigation between.
+ */
+export function PageSidebar({ registry, store, actions }: { registry: ExtensionRegistry; store: AppPageStore; actions: WorkbenchActions }) {
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const page = registry.getPage(state?.id);
+  const props = usePageProps(store, actions, true);
+  if (!state || !page?.Sidebar) return null;
+  const Sidebar = page.Sidebar;
+  return (
+    <nav className="settings-nav page-sidebar" aria-label={page.label} data-page-sidebar={page.id}>
+      <button type="button" className="settings-back settings-back-top" onClick={store.close}><ChevronLeft size={15} /><span>Back to thread</span></button>
+      <div className="page-sidebar-body">
+        <LazyFeatureBoundary label={`${page.id} sidebar`} extensionId={page.extensionId} extensionName={page.extensionName} registry={registry} onNotify={actions.notify}>
+          <Suspense fallback={<LazyFeatureFallback label={page.label} />}>
+            <Sidebar {...props} params={state.views.at(-1)?.params ?? {}} />
+          </Suspense>
+        </LazyFeatureBoundary>
+      </div>
+      <div className="settings-nav-footer">
+        <button type="button" className="settings-back" onClick={store.close}><ChevronLeft size={15} /><span>Back to thread</span></button>
+      </div>
+    </nav>
+  );
+}
+
 /**
  * A page `registerPage` added, in Settings' frame: Settings' page head (title,
  * description, action; the views above as a breadcrumb), the page below. On a
@@ -17,7 +54,7 @@ import "./app-page.css";
  * screen with its own back and the title in its bar. Escape steps out of a
  * view, then leaves the page.
  */
-export function AppPageScreen({ registry, store, actions, stacked = false, sidebarShown = true, nav }: {
+export function AppPageScreen({ registry, store, actions, stacked = false, sidebarShown = true, pageSidebar = false, nav }: {
   registry: ExtensionRegistry;
   store: AppPageStore;
   actions: WorkbenchActions;
@@ -25,6 +62,8 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   stacked?: boolean;
   /** Without the sidebar beside it the bar carries Back, and keeps clear of the window controls. */
   sidebarShown?: boolean;
+  /** The page's own `Sidebar` is drawn in the sidebar's place. */
+  pageSidebar?: boolean;
   /** A phone's bottom navigation: the page is a main page, with no Back of its own until it steps into a view. */
   nav?: ReactNode;
 }) {
@@ -37,11 +76,7 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
 
   const back = () => { if (!store.back()) store.close(); };
-  const props = useMemo<Omit<PageProps, "params">>(() => ({
-    actions,
-    navigate: (params, options) => store.navigate(params, options),
-    close: store.close,
-  }), [actions, store]);
+  const props = usePageProps(store, actions, pageSidebar);
 
   useEffect(() => { mainRef.current?.focus({ preventScroll: true }); }, [state?.id]);
 

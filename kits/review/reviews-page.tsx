@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronRight,
   CircleCheck,
@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import {
   DiffView,
@@ -39,6 +40,7 @@ import { mergeBlocker, mergedThisMonth, type LocalReview, type ReviewCounts, typ
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
+import type { ReviewsFilter } from "./reviews-filter.js";
 import type { RowRequests } from "./requests.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
@@ -65,6 +67,8 @@ export interface ReviewsPageParts {
   host: HostExtensionClient;
   rows: RowRequests;
   remote: PullRequestsPageParts;
+  /** "Filter reviews": in the sidebar while it shows, in the page's head otherwise. */
+  filter: ReviewsFilter;
 }
 
 const tabOf = (value: unknown): ReviewTab => TABS.includes(value as ReviewTab) ? value as ReviewTab : "ready";
@@ -220,45 +224,82 @@ function Tabs({ tab, count, select }: { tab: ReviewTab; count(tab: ReviewTab): n
   );
 }
 
-/** A wide page's column (1i): the states, the projects with their open reviews, and Remote. */
-function Nav({ tab, project, counts, count, select }: {
-  tab: ReviewTab;
-  project?: string;
-  counts: ReviewCounts;
-  count(tab: ReviewTab): number;
-  select(tab: ReviewTab, project?: string): void;
-}) {
+/** Arrows move through a column's buttons, Home and End to its ends; Enter presses the one with the focus. */
+function moveFocus(event: KeyboardEvent<HTMLElement>, list: HTMLElement | null) {
+  if (!list || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const buttons = [...list.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+  if (buttons.length === 0) return;
+  event.preventDefault();
+  const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = event.key === "Home" ? 0
+    : event.key === "End" ? buttons.length - 1
+    : at < 0 ? (event.key === "ArrowDown" ? 0 : buttons.length - 1)
+    : Math.min(buttons.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)));
+  buttons[next]?.focus();
+}
+
+/**
+ * The page's sidebar (1i), in Settings' column: the filter, the states with
+ * their counts, the projects with their open reviews, and Remote.
+ */
+export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts: ReviewsPageParts }) {
+  const { counts } = useLocalReviews(parts.store);
+  const remoteCount = useSyncExternalStore(parts.rows.subscribe, parts.rows.openCount);
+  const filter = useSyncExternalStore(parts.filter.subscribe, parts.filter.getSnapshot);
+  const list = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const tab = tabOf(params.tab);
+  const project = text(params.project);
+  const inDetail = Boolean(params.review) || Boolean(params.url);
+  const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
+  // Out of a detail, into what the page lists.
+  const select = (next: ReviewTab, nextProject?: string) => navigate({ tab: next, ...(nextProject ? { project: nextProject } : {}) }, { root: true, replace: true });
+  const item = (key: string, active: boolean, label: string, icon: ReactNode, figure: number, onSelect: () => void, hint?: string) => (
+    <button key={key} type="button" className={active ? "active" : undefined} aria-current={active ? "page" : undefined} {...(hint ? tooltipProps(hint, { side: "right" }) : {})} onClick={onSelect}>
+      {icon}<span>{label}</span>{figure ? <small className="rv-nav-count">{figure}</small> : null}
+    </button>
+  );
   return (
-    <nav className="rv-nav" aria-label="Reviews">
-      <div className="rv-nav-group">
-        <h2>Reviews</h2>
-        {TABS.filter((entry) => entry !== "remote").map((entry) => {
-          const Icon = TAB_ICONS[entry];
-          const active = entry === tab && !project;
-          return (
-            <button key={entry} type="button" className={active ? "active" : undefined} aria-current={active ? "page" : undefined} onClick={() => select(entry)}>
-              <Icon size={14} aria-hidden="true" /><span>{TAB_LABELS[entry].nav}</span><small>{count(entry) || ""}</small>
-            </button>
-          );
-        })}
-      </div>
-      {counts.projects.length > 0 ? (
-        <div className="rv-nav-group">
-          <h2>Projects</h2>
-          {counts.projects.map((entry) => (
-            <button key={entry.key} type="button" className={project === entry.key ? "active" : undefined} aria-current={project === entry.key ? "page" : undefined} onClick={() => select(tab === "remote" ? "ready" : tab, entry.key)}>
-              <ProjectTile project={entry} /><span>{entry.name}</span><small>{entry.open || ""}</small>
-            </button>
-          ))}
+    <>
+      <label className="settings-nav-search">
+        <Search size={14} aria-hidden="true" />
+        <input
+          ref={field}
+          type="search"
+          value={filter}
+          placeholder="Filter reviews"
+          aria-label="Filter reviews"
+          onChange={(event) => {
+            parts.filter.set(event.target.value);
+            if (inDetail || tab === "remote") select(tab === "remote" ? "ready" : tab, project);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); parts.filter.set(""); return; }
+            if (event.key === "ArrowDown") { event.preventDefault(); list.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
+          }}
+        />
+        {filter ? <button type="button" className="settings-nav-search-clear" aria-label="Clear the filter" onClick={() => { parts.filter.set(""); field.current?.focus(); }}><X size={12} /></button> : null}
+      </label>
+      <div className="settings-nav-list rv-sidebar" ref={list} onKeyDown={(event) => moveFocus(event, list.current)}>
+        <div className="settings-nav-group" role="group" aria-label="Reviews">
+          <h2 className="settings-nav-heading">Reviews</h2>
+          {TABS.filter((entry) => entry !== "remote").map((entry) => {
+            const Icon = TAB_ICONS[entry];
+            return item(entry, entry === tab && !project, TAB_LABELS[entry].nav, <Icon size={14} aria-hidden="true" />, count(entry), () => select(entry));
+          })}
         </div>
-      ) : null}
-      <div className="rv-nav-group">
-        <h2>Elsewhere</h2>
-        <button type="button" className={tab === "remote" ? "active" : undefined} aria-current={tab === "remote" ? "page" : undefined} {...tooltipProps("Pull and merge requests on the projects' Git hosts")} onClick={() => select("remote")}>
-          <GitPullRequestArrow size={14} aria-hidden="true" /><span>Remote pull requests</span><small>{count("remote") || ""}</small>
-        </button>
+        {counts.projects.length > 0 ? (
+          <div className="settings-nav-group" role="group" aria-label="Projects">
+            <h2 className="settings-nav-heading">Projects</h2>
+            {counts.projects.map((entry) => item(entry.key, project === entry.key, entry.name, <ProjectTile project={entry} />, entry.open, () => select(tab === "remote" ? "ready" : tab, entry.key)))}
+          </div>
+        ) : null}
+        <div className="settings-nav-group" role="group" aria-label="Elsewhere">
+          <h2 className="settings-nav-heading">Elsewhere</h2>
+          {item("remote", tab === "remote", "Remote pull requests", <GitPullRequestArrow size={14} aria-hidden="true" />, count("remote"), () => select("remote"), "Pull and merge requests on the projects' Git hosts")}
+        </div>
       </div>
-    </nav>
+    </>
   );
 }
 
@@ -413,13 +454,14 @@ function FileDiff({ host, review, path }: { host: HostExtensionClient; review: L
 
 /**
  * The Reviews page: finished threads' branches as local merge requests across
- * projects (1i, 1p, 1q), and the remote requests under their own entry.
+ * projects (1i, 1p, 1q), and the remote requests under their own entry. Its
+ * sidebar picks what it lists; without one, tabs over the list do.
  */
-export function ReviewsPage({ params, navigate, actions, close, parts }: PageProps & { parts: ReviewsPageParts }) {
+export function ReviewsPage({ params, navigate, actions, close, parts, sidebar = false }: PageProps & { parts: ReviewsPageParts }) {
   const compact = useCompactProfile();
   const { reviews, counts, snapshot } = useLocalReviews(parts.store);
   const remoteCount = useSyncExternalStore(parts.rows.subscribe, parts.rows.openCount);
-  const [filter, setFilter] = useState("");
+  const filter = useSyncExternalStore(parts.filter.subscribe, parts.filter.getSnapshot);
   const [busy, setBusy] = useState<string>();
   const mayMerge = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-merge");
   const mayAsk = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-ask");
@@ -514,17 +556,16 @@ export function ReviewsPage({ params, navigate, actions, close, parts }: PagePro
   const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
   return (
     <div className={`rv-page${compact ? " compact" : ""}`} data-tab={tab}>
-      {compact ? null : <Nav tab={tab} {...(project ? { project } : {})} counts={counts} count={count} select={select} />}
-      {!compact && tab !== "remote" && !detailKey ? (
+      {!compact && !sidebar && tab !== "remote" && !detailKey ? (
         <SettingsPageAction>
           <label className="rv-filter">
             <Search size={13} aria-hidden="true" />
-            <input type="search" value={filter} placeholder="Filter reviews" aria-label="Filter reviews" onChange={(event) => setFilter(event.target.value)} />
+            <input type="search" value={filter} placeholder="Filter reviews" aria-label="Filter reviews" onChange={(event) => parts.filter.set(event.target.value)} />
           </label>
         </SettingsPageAction>
       ) : null}
       <div className={`rv-main${tab === "remote" ? " remote" : ""}`}>
-        {inDetail ? null : (
+        {inDetail || sidebar ? null : (
           <div className="rv-tabs-row">
             <Tabs tab={tab} count={count} select={(next) => select(next, next === "remote" ? undefined : project)} />
             {compact || tab === "remote" ? null : <ProjectFilter {...(project ? { project } : {})} counts={counts} select={(next) => select(tab, next)} />}

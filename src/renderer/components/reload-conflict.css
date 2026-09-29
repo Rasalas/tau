@@ -22,7 +22,7 @@
   color: var(--ink-3); text-align: left; cursor: pointer;
 }
 .reload-choice > span { display: flex; flex-direction: column; gap: 3px; }
-.reload-choice strong { color: var(--ink); font-size: 12px; }
+.reload-choice strong { color: var(--ink); font-size: var(--text-sm); }
 .reload-choice small { color: var(--muted); font: 10.5px/1.4 var(--sans); }
 .reload-choice:hover { border-color: var(--line-float); background: var(--raised); }
 .reload-choice.primary { border-color: var(--acid-line); color: var(--acid-text); }

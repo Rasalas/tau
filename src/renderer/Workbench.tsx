@@ -88,6 +88,7 @@ const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage
 // Drawn only beside the stage, so they come with its chunk.
 const LazyStageTools = retryableLazy(() => import("./components/Stage").then(({ StageTools }) => ({ default: StageTools })));
 const LazyAppPageScreen = retryableLazy(() => import("./pages/AppPageScreen").then(({ AppPageScreen }) => ({ default: AppPageScreen })));
+const LazyPageSidebar = retryableLazy(() => import("./pages/AppPageScreen").then(({ PageSidebar }) => ({ default: PageSidebar })));
 const LazySettingsScreen = retryableLazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
 const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
@@ -430,6 +431,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
   const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
   const touchSidebarShown = split && touchSidebarOpen;
+  // A page with a sidebar of its own draws it in the thread list's place, on a desktop.
+  const pageSidebar = Boolean(openPage && sidebarShown && !compact && registry.getPage(openPage.id)?.Sidebar);
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth) : 0) : shownSidebar;
   const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
   // Short of room for the full chat beside the stage, it narrows as a tablet's does rather than leave one of them alone.
@@ -547,10 +550,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const pageFrame = (content: React.ReactNode) => <section className={`app-page${pageScreen ? " stacked" : ""}`}>{content}</section>;
   const appPage = openPage ? <LazyFeatureBoundary label="page" title="This page failed to load." frame={pageFrame} onClose={pages.close}>
     <Suspense fallback={pageFrame(<LazyFeatureFallback label="page" />)}>
-      <LazyAppPageScreen registry={registry} store={pages} actions={actions} stacked={pageScreen} sidebarShown={split ? touchSidebarShown : sidebarShown} nav={bottomNav} />
+      <LazyAppPageScreen registry={registry} store={pages} actions={actions} stacked={pageScreen} sidebarShown={split ? touchSidebarShown : sidebarShown} pageSidebar={pageSidebar} nav={bottomNav} />
     </Suspense>
   </LazyFeatureBoundary> : null;
 
+  const pageSidebarFrame = (content: React.ReactNode) => <aside className="page-sidebar-frame">{content}</aside>;
   const settingsFrame = (content: React.ReactNode) => <div className="settings-screen loading">{content}</div>;
   const overlays = <>
     {compact ? <Suspense fallback={null}><LazyTouchLayer
@@ -710,7 +714,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {split ? <div className="sidebar-slot">
         <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
       </div> : null}
-      <div className="sidebar-slot">{sidebarContributions.map((contribution) => <LazyFeatureBoundary
+      {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
+        <Suspense fallback={pageSidebarFrame(null)}><LazyPageSidebar registry={registry} store={pages} actions={actions} /></Suspense>
+      </LazyFeatureBoundary></div> : null}
+      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <LazyFeatureBoundary
         key={contribution.id}
         label="sidebar"
         extensionId={contribution.extensionId}

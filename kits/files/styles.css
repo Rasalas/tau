@@ -6,7 +6,7 @@
 .stage-pane-header.files-header { gap: 8px; overflow: visible; position: relative; z-index: 2; }
 .files-crumbs {
   flex: 1 1 auto; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 12.5px var(--mono); color: var(--muted);
+  font: calc(var(--text-sm) + .5px) var(--mono); color: var(--muted);
 }
 .files-crumb-sep { padding: 0 2px; color: var(--fainter); }
 .files-crumbs > strong { font-weight: 400; color: var(--ink); }
@@ -20,19 +20,19 @@
 .files-action:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
 .files-action[aria-pressed="true"] { border-color: var(--line-control); background: var(--raised); color: var(--ink); }
 .files-save:disabled { opacity: .45; cursor: default; }
-.files-open-in .chrome-button { display: inline-flex; align-items: center; gap: 5px; height: 26px; font-size: 11px; }
+.files-open-in .chrome-button { display: inline-flex; align-items: center; gap: 5px; height: 26px; font-size: var(--text-xs); }
 .files-open-in .menu { top: 32px; }
 
 .files-conflict {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 16px;
   background: var(--warn-chip); color: var(--ink-2); border-bottom: 1px solid var(--line);
-  font: 12px var(--sans);
+  font: var(--text-sm) var(--sans);
 }
 .files-conflict .spacer { flex: 1; }
 .files-conflict .text-button { flex: none; white-space: nowrap; }
 .files-notice {
   flex: none; margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line-soft);
-  background: var(--field); color: var(--muted); font: 11px var(--mono);
+  background: var(--field); color: var(--muted); font: var(--text-xs) var(--mono);
 }
 .files-error { color: var(--danger); }
 .files-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -50,7 +50,7 @@
 
 .files-table-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .files-table-scroll { flex: 1; min-height: 0; overflow: auto; }
-.files-table { min-width: 100%; border-collapse: separate; border-spacing: 0; font: 12px var(--mono); color: var(--ink-2); }
+.files-table { min-width: 100%; border-collapse: separate; border-spacing: 0; font: var(--text-sm) var(--mono); color: var(--ink-2); }
 .files-table th {
   position: sticky; top: 0; z-index: 1; padding: 6px 12px; text-align: left; vertical-align: bottom;
   background: var(--chrome); color: var(--ink); font-weight: 500; border-bottom: 1px solid var(--line);

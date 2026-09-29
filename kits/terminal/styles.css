@@ -7,9 +7,9 @@
 .terminal-panel.solo > .terminal-toolbar { position: absolute; z-index: 3; top: 6px; right: 10px; height: auto; padding: 2px; border: 0; border-radius: var(--radius-sm); background: var(--raised); box-shadow: var(--elevation-0); opacity: 0; transition: opacity 120ms ease; }
 .terminal-panel.solo > .terminal-toolbar > .terminal-tabs { display: none; }
 .terminal-panel.solo:is(:hover, :focus-within) > .terminal-toolbar { opacity: 1; }
-.terminal-toolbar-title { display: flex; align-items: center; padding: 0 var(--space-6); font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
-.terminal-note { margin: 0 8px 4px; font: 11px var(--mono); color: var(--faint); }
-.terminal-menu-note { margin: 4px 0 0; padding: 6px 8px 2px; border-top: 1px solid var(--line-soft); max-width: 260px; font: 11.5px/1.4 var(--sans); color: var(--muted); }
+.terminal-toolbar-title { display: flex; align-items: center; padding: 0 var(--space-6); font-size: calc(var(--text-md) + .5px); font-weight: 700; color: var(--ink); white-space: nowrap; }
+.terminal-note { margin: 0 8px 4px; font: var(--text-xs) var(--mono); color: var(--faint); }
+.terminal-menu-note { margin: 4px 0 0; padding: 6px 8px 2px; border-top: 1px solid var(--line-soft); max-width: 260px; font: calc(var(--text-xs) + .5px)/1.4 var(--sans); color: var(--muted); }
 /* Tabs as the stage draws them: the active one joins the surface below it. */
 .terminal-tabs { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
 .terminal-tabs::-webkit-scrollbar { display: none; }
@@ -19,7 +19,7 @@
 .terminal-tab.active { background: var(--sunken); color: var(--ink); }
 .terminal-tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--line-focus); }
 .terminal-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--sunken); }
-.terminal-tab-name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 4px 0 10px; border: 0; background: transparent; color: inherit; font: 12px var(--sans); cursor: pointer; }
+.terminal-tab-name { display: flex; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 4px 0 10px; border: 0; background: transparent; color: inherit; font: var(--text-sm) var(--sans); cursor: pointer; }
 .terminal-tab-name > svg { flex: none; color: var(--faint); }
 .terminal-tab.active .terminal-tab-name > svg { color: var(--ink-3); }
 .terminal-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -29,9 +29,9 @@
 .terminal-tab-close > svg, .terminal-pane-button > svg, .terminal-compact-close > svg { display: block; }
 .terminal-tab-place { flex: none; font: 10px var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
 /* Other threads' shells, summed up at the strip's end instead of as tabs. */
-.terminal-elsewhere { display: flex; align-items: center; gap: 5px; flex: none; padding: 0 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: 11.5px var(--sans); white-space: nowrap; cursor: pointer; }
+.terminal-elsewhere { display: flex; align-items: center; gap: 5px; flex: none; padding: 0 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: calc(var(--text-xs) + .5px) var(--sans); white-space: nowrap; cursor: pointer; }
 .terminal-elsewhere:hover, .terminal-elsewhere[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
-.terminal-status { display: flex; align-items: center; gap: 8px; margin: 4px 8px; font: 11px var(--mono); color: var(--faint); overflow-wrap: anywhere; }
+.terminal-status { display: flex; align-items: center; gap: 8px; margin: 4px 8px; font: var(--text-xs) var(--mono); color: var(--faint); overflow-wrap: anywhere; }
 .terminal-error { color: var(--ink); padding: 8px; }
 .terminal-surface { flex: 1; min-height: 160px; padding: 8px; background: var(--sunken); color: var(--ink); overflow: hidden; display: flex; flex-direction: column; }
 .terminal-surface > * { flex: 1; min-width: 0; min-height: 0; }
@@ -53,7 +53,7 @@
 .terminal-split-handle:hover::after, .terminal-split-handle:focus-visible::after, .terminal-split.resizing > .terminal-split-handle::after { background: var(--line-focus); }
 .terminal-split.resizing { user-select: none; }
 .terminal-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; container: terminal-pane / inline-size; }
-.terminal-pane-header { display: flex; align-items: center; gap: 6px; min-width: 0; padding-bottom: 4px; font: 11px var(--mono); color: var(--faint); }
+.terminal-pane-header { display: flex; align-items: center; gap: 6px; min-width: 0; padding-bottom: 4px; font: var(--text-xs) var(--mono); color: var(--faint); }
 .terminal-pane-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .terminal-pane-exit { flex: none; white-space: nowrap; }
 .terminal-pane-actions { display: flex; flex: none; gap: 2px; }
@@ -135,7 +135,7 @@
 .terminal-compact-close { width: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .terminal-compact-close:active:not(:disabled) { color: var(--ink); background: var(--hover-strong); }
 .terminal-compact-elsewhere { display: flex; flex-direction: column; }
-.terminal-compact-elsewhere > p { margin: 6px 10px 4px; font: 13px var(--sans); color: var(--muted); }
+.terminal-compact-elsewhere > p { margin: 6px 10px 4px; font: var(--text-md) var(--sans); color: var(--muted); }
 .terminal-touch-icon { width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); cursor: pointer; }
 .terminal-touch-icon:active:not(:disabled) { background: var(--hover-strong); }
 .terminal-touch-icon:disabled { color: var(--faint); cursor: default; }
@@ -144,17 +144,17 @@
 .terminal-compact-surface > .empty-state { margin: auto; }
 /* iOS zooms into a field under 16 px; xterm's hidden input is one. */
 .terminal-compact .xterm .xterm-helper-textarea { font-size: 16px; }
-.terminal-compact-exit { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: none; margin: 0; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line); font: 13px var(--sans); color: var(--muted); }
+.terminal-compact-exit { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: none; margin: 0; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line); font: var(--text-md) var(--sans); color: var(--muted); }
 .terminal-compact-button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
 .terminal-compact-button.primary { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
 .terminal-compact-button:disabled { color: var(--faint); cursor: default; }
 .terminal-compact-menu { display: flex; flex-direction: column; gap: 4px; min-width: 240px; padding: 6px; }
 .terminal-compact-size { display: flex; align-items: center; gap: 2px; padding-left: 10px; font: 15px var(--sans); color: var(--ink); }
 .terminal-compact-size > span { flex: 1; }
-.terminal-compact-size > output { min-width: 44px; text-align: center; font: 14px var(--mono); color: var(--muted); }
+.terminal-compact-size > output { min-width: 44px; text-align: center; font: var(--text-lg) var(--mono); color: var(--muted); }
 .terminal-compact-menu-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; color: var(--ink); font: 15px var(--sans); text-align: left; cursor: pointer; }
 .terminal-compact-menu-item.destructive { color: var(--danger); }
-.terminal-compact-paste { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--stage); font: 13px var(--sans); color: var(--muted); }
+.terminal-compact-paste { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--stage); font: var(--text-md) var(--sans); color: var(--muted); }
 .terminal-compact-paste > textarea { width: 100%; resize: none; padding: 8px; border: 1px solid var(--line-field); border-radius: 10px; background: var(--field); color: var(--ink); font-family: var(--mono); }
 .terminal-compact-paste-actions { display: flex; justify-content: flex-end; gap: 8px; }
 /* The last row of the sheet, so it rides on the on-screen keyboard. */

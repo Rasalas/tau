@@ -8,7 +8,8 @@ import { reviewExtension } from "./desktop.js";
 import { reviewKey, type LocalReviewsAnswer, type ThreadBranch } from "./local-reviews.js";
 import { LocalReviewsStore } from "./local-reviews-store.js";
 import { RowRequests } from "./requests.js";
-import { ReviewsPage, shortAge, type ReviewsPageParts } from "./reviews-page.js";
+import { ReviewsFilter } from "./reviews-filter.js";
+import { ReviewsPage, ReviewsSidebar, shortAge, type ReviewsPageParts } from "./reviews-page.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 
 afterEach(() => {
@@ -38,11 +39,11 @@ const ANSWER: LocalReviewsAnswer = {
     branch("pagination", { conflicts: ["src/routes/orders.ts"], files: 31, added: 1902, removed: 1811 }),
   ],
   asks: { [reviewKey("/repo/shop-api", "feat/webhook-retries")]: { kind: "note", text: "retry budget", at: 1, tip: "webhook-retries-tip" } },
-  merged: [{ key: "old", root: "/repo/shop-api", branch: "feat/old", target: "main", title: "Old work", at: NOW - 60_000, files: 1, added: 1, removed: 0, costUsd: 9.3 }],
+  merged: [{ key: "old", root: "/repo/shop-api", rootWorkspace: "ws-shop", branch: "feat/old", target: "main", title: "Old work", at: NOW - 60_000, files: 1, added: 1, removed: 0, costUsd: 9.3 }],
 };
 const THREADS = [thread("t1", "ws-pairing-flake", "Fix flaky pairing test"), thread("t2", "ws-webhook-retries", "Write ADR for webhook retries"), thread("t3", "ws-pagination", "Add pagination to all list endpoints")];
 
-function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean } = {}) {
+function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean } = {}) {
   if (options.compact) document.body.dataset.profile = "compact";
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     if (command === "local-reviews") return options.answer ?? ANSWER;
@@ -58,6 +59,7 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
     host,
     rows: new RowRequests(async () => undefined),
     remote: { client: { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient, chips: () => undefined, rows: new RowRequests(async () => undefined), shared: {} as never },
+    filter: new ReviewsFilter(),
   };
   const navigate = vi.fn();
   const toast = vi.fn();
@@ -65,10 +67,11 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   const actions = { toast, notify: vi.fn(), switchSession, openExternal: vi.fn() } as unknown as WorkbenchActions;
   const slot = document.createElement("div");
   document.body.append(slot);
-  const props: PageProps = { actions, params: options.params ?? {}, navigate, close: vi.fn() };
+  const props: PageProps = { actions, params: options.params ?? {}, navigate, close: vi.fn(), ...(options.sidebar ? { sidebar: true } : {}) };
   const view = render(
     <TestProviders>
       <TestThreadStore threads={THREADS}>
+        {options.sidebar ? <nav aria-label="Page sidebar"><ReviewsSidebar {...props} parts={parts} /></nav> : null}
         <TestPageActionSlot slot={slot}><ReviewsPage {...props} parts={parts} /></TestPageActionSlot>
       </TestThreadStore>
     </TestProviders>,
@@ -157,8 +160,50 @@ describe("the Reviews page", () => {
     setup({ compact: true });
     await screen.findByText("Fix flaky pairing test");
     expect(document.querySelector(".rv-columns")).toBeNull();
-    expect(document.querySelector(".rv-nav")).toBeNull();
     expect(document.querySelectorAll(".rv-card")).toHaveLength(3);
+  });
+});
+
+describe("the Reviews sidebar", () => {
+  it("lists the states, the projects and Remote with their counts, and the page drops its tabs and head filter", async () => {
+    const { slot } = setup({ sidebar: true });
+    const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
+    await within(sidebar).findByRole("group", { name: "Projects" });
+    expect(within(within(sidebar).getByRole("group", { name: "Reviews" })).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["Ready to merge1", "Changes requested1", "Conflicts1", "Merged1"]);
+    expect(within(within(sidebar).getByRole("group", { name: "Projects" })).getByRole("button").textContent).toBe("Sshop-api3");
+    expect(within(sidebar).getByRole("button", { name: "Remote pull requests" })).toBeTruthy();
+    expect(within(sidebar).getByRole("button", { name: /Ready to merge/u }).getAttribute("aria-current")).toBe("page");
+    // The page is the table alone.
+    expect(await screen.findByRole("region", { name: "Ready to merge" })).toBeTruthy();
+    expect(screen.queryAllByRole("navigation", { name: "Reviews" })).toHaveLength(0);
+    expect(within(slot).queryByRole("searchbox")).toBeNull();
+  });
+
+  it("switches what the page lists out of any detail, filters it, and moves with the arrows", async () => {
+    const { navigate } = setup({ sidebar: true, params: { tab: "ready", review: "some-key" } });
+    const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
+    await within(sidebar).findByRole("group", { name: "Projects" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: /Conflicts/u }));
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "conflicts" }, { root: true, replace: true });
+    fireEvent.click(within(sidebar).getByRole("button", { name: /shop-api/u }));
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "ready", project: "ws-shop" }, { root: true, replace: true });
+
+    const field = within(sidebar).getByRole("searchbox", { name: "Filter reviews" });
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    expect(document.activeElement?.textContent).toBe("Ready to merge1");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement?.textContent).toBe("Changes requested1");
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement?.textContent).toBe("Remote pull requests");
+  });
+
+  it("filters the page's list from its field", async () => {
+    setup({ sidebar: true });
+    await screen.findByText("Fix flaky pairing test");
+    fireEvent.change(within(screen.getByRole("navigation", { name: "Page sidebar" })).getByRole("searchbox", { name: "Filter reviews" }), { target: { value: "webhook" } });
+    await waitFor(() => expect(screen.queryByText("Fix flaky pairing test")).toBeNull());
+    expect(screen.getByText("Write ADR for webhook retries")).toBeTruthy();
   });
 });
 
@@ -168,7 +213,7 @@ describe("the Reviews entry", () => {
     const { registry } = createKitHarness(invoke, "compact");
     registry.activate(reviewExtension);
     const pages = registry.getPages();
-    expect(pages.map((page) => [page.id, page.label, page.order, page.prominent])).toEqual([["review.reviews", "Reviews", 10, true]]);
+    expect(pages.map((page) => [page.id, page.label, page.order, page.prominent, Boolean(page.Sidebar)])).toEqual([["review.reviews", "Reviews", 10, true, true]]);
     function Badge() {
       const count = pages[0]!.useBadge?.();
       return <output>{count ?? "none"}</output>;

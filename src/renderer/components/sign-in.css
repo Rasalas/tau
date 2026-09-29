@@ -4,7 +4,7 @@
  * they read as rows; loaded with the chunk, so they draw outside Settings too.
  */
 .sign-in-who { font-weight: 500; color: var(--ink-2); }
-.sign-in-status { margin: 0; font: 12.5px/1.45 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+.sign-in-status { margin: 0; font: calc(var(--text-sm) + .5px)/1.45 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
 .sign-in-status[data-level="error"] { color: var(--danger); }
 .settings-row-status .sign-in-status + .sign-in-status { margin-top: 2px; }
 .sign-in-messages { padding: var(--space-4) var(--space-6); }
@@ -15,41 +15,41 @@
   padding: var(--space-5) var(--space-6);
 }
 .sign-in-method-text { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.sign-in-method-text > strong { font: 500 13px var(--sans); color: var(--ink); }
-.sign-in-method-text > small { font: 12.5px/1.45 var(--sans); color: var(--muted); }
+.sign-in-method-text > strong { font: 500 var(--text-md) var(--sans); color: var(--ink); }
+.sign-in-method-text > small { font: calc(var(--text-sm) + .5px)/1.45 var(--sans); color: var(--muted); }
 .sign-in-method[data-unavailable] .sign-in-method-text > strong { color: var(--ink-3); }
 
 .sign-in-flow { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5) var(--space-6); background: var(--sunken); }
 .sign-in-flow-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-6); }
 .sign-in-flow-head > .sign-in-status { color: var(--ink-2); }
-.sign-in-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); font-size: 12.5px; color: var(--muted); }
+.sign-in-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); font-size: calc(var(--text-sm) + .5px); color: var(--muted); }
 .sign-in-actions > span { flex: 1; min-width: 12em; overflow-wrap: anywhere; }
 .sign-in-actions > svg { flex: none; color: var(--faint); }
 .sign-in-actions > code {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 4px 7px; border-radius: var(--radius-xs); background: var(--inset); font: 11.5px var(--mono); color: var(--ink-2);
+  padding: 4px 7px; border-radius: var(--radius-xs); background: var(--inset); font: calc(var(--text-xs) + .5px) var(--mono); color: var(--ink-2);
 }
 .sign-in-actions > .sign-in-device-code {
   flex: none; padding: 5px 10px; border-radius: var(--radius-sm); background: var(--inset);
   font: 600 15px var(--mono); letter-spacing: .08em; color: var(--ink); user-select: all;
 }
 .sign-in-terminal { display: flex; flex-direction: column; gap: var(--space-3); }
-.sign-in-expiry { margin: 0; font: 12px var(--sans); color: var(--faint); }
+.sign-in-expiry { margin: 0; font: var(--text-sm) var(--sans); color: var(--faint); }
 
 .sign-in-prompt { display: flex; flex-direction: column; gap: 6px; }
-.sign-in-prompt > label { font: 12.5px/1.45 var(--sans); color: var(--ink-2); }
+.sign-in-prompt > label { font: calc(var(--text-sm) + .5px)/1.45 var(--sans); color: var(--ink-2); }
 .sign-in-prompt-row { display: flex; gap: var(--space-4); }
 .sign-in-prompt-row > .tau-field-shell { flex: 1; }
-.sign-in-choices { display: flex; flex-direction: column; align-items: stretch; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.sign-in-choices { display: flex; flex-direction: column; align-items: stretch; gap: 6px; font-size: calc(var(--text-sm) + .5px); color: var(--ink-2); }
 .sign-in-choice {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; text-align: left;
   border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--raised); color: var(--ink); cursor: pointer;
 }
 .sign-in-choice:hover:not(:disabled) { border-color: var(--line-strong); }
 .sign-in-choice:disabled { opacity: .45; cursor: not-allowed; }
-.sign-in-choice > strong { font: 500 12.5px var(--sans); }
-.sign-in-choice > small { font: 12px/1.4 var(--sans); color: var(--muted); }
-.sign-in-link { border: 0; background: none; padding: 0; color: var(--acid-text); font: 12.5px var(--sans); cursor: pointer; text-decoration: underline; }
+.sign-in-choice > strong { font: 500 calc(var(--text-sm) + .5px) var(--sans); }
+.sign-in-choice > small { font: var(--text-sm)/1.4 var(--sans); color: var(--muted); }
+.sign-in-link { border: 0; background: none; padding: 0; color: var(--acid-text); font: calc(var(--text-sm) + .5px) var(--sans); cursor: pointer; text-decoration: underline; }
 
 /* A phone stacks a method's button under its words, the row's full width. */
 .settings-screen.stacked .sign-in-method { grid-template-columns: minmax(0, 1fr); gap: 10px; }
