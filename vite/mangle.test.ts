@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResolvedConfig } from "vite";
-import { mangleChunk, mangleForGzip } from "./vite.mangle";
+import { mangleChunk, mangleForGzip } from "./mangle";
 
 const CHUNK = [
   "/*! @license widget v1 | MIT */",

@@ -57,7 +57,7 @@ describe("performance report checks", () => {
 
   it("keeps first paint independent from external fonts and blur composition", async () => {
     const [html, styles] = await Promise.all([
-      readFile(new URL("../index.html", import.meta.url), "utf8"),
+      readFile(new URL("../src/renderer/index.html", import.meta.url), "utf8"),
       readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8"),
     ]);
     expect(html).not.toMatch(/fonts\.(googleapis|gstatic)\.com/u);

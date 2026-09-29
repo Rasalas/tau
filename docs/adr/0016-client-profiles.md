@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-06. First half of Phase 5 in [PLAN.md](../../PLAN.md): the
+Accepted, 2026-09-06. First half of Phase 5 in [PLAN.md](../PLAN.md): the
 platform-neutral workbench, the platform seam and client profiles. Amended
 2026-09-07 (ticket 19b) with the second client that uses them: see
 "Amendment" below.

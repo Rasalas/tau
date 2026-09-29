@@ -10,7 +10,7 @@
     "types": [
       "node"
     ],
-    "baseUrl": ".",
+    "baseUrl": "..",
     "paths": {
       "tau": [
         "src/renderer/extension-api.ts"
@@ -24,6 +24,6 @@
     }
   },
   "include": [
-    ".pi/extensions/tau-session-bridge.ts"
+    "../.pi/extensions/tau-session-bridge.ts"
   ]
 }

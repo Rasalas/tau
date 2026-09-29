@@ -1,4 +1,4 @@
-// Production builds replace this module with a packed copy of the set (`vite.icon-set.ts`).
+// Production builds replace this module with a packed copy of the set (`vite/icon-set.ts`).
 import type { ComponentType } from "react";
 import * as lucide from "lucide-react";
 import { icons } from "lucide-react";

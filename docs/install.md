@@ -97,7 +97,9 @@ npm install
 npm run dist          # this machine's platform; also dist:mac, dist:linux, dist:win
 ```
 
-The artifacts land in `release/`.
+The artifacts land in `release/`. On a Mac, `npm run install:mac -- --local`
+builds this checkout for the machine's architecture, unpacked, and puts the
+app into `/Applications`.
 
 ## The `tau` command
 

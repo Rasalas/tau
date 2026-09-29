@@ -2,9 +2,9 @@ import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createLucideIcon, icons } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
-import { decodeIconSet, encodeIconSet } from "./src/renderer/icon-set-codec";
-import { aliases as sourceAliases } from "./src/renderer/icon-set";
-import { iconSetModule, readLucideAliases, readLucideIcons } from "./vite.icon-set";
+import { decodeIconSet, encodeIconSet } from "../src/renderer/icon-set-codec";
+import { aliases as sourceAliases } from "../src/renderer/icon-set";
+import { iconSetModule, readLucideAliases, readLucideIcons } from "./icon-set";
 
 const render = (icon: ComponentType<{ className?: string }>) => renderToStaticMarkup(createElement(icon, { className: "extra" }));
 

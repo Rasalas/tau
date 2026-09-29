@@ -4,10 +4,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizePath, type Plugin } from "vite";
 import type { IconNode } from "lucide-react";
-import { encodeIconSet, type IconAliases } from "./src/renderer/icon-set-codec";
+import { encodeIconSet, type IconAliases } from "../src/renderer/icon-set-codec";
 
-const ICON_SET = normalizePath(fileURLToPath(new URL("src/renderer/icon-set.ts", import.meta.url)));
-const CODEC = normalizePath(fileURLToPath(new URL("src/renderer/icon-set-codec.ts", import.meta.url)));
+const ICON_SET = normalizePath(fileURLToPath(new URL("../src/renderer/icon-set.ts", import.meta.url)));
+const CODEC = normalizePath(fileURLToPath(new URL("../src/renderer/icon-set-codec.ts", import.meta.url)));
 const EXPORT = /^export \{ default as (\w+) \} from '\.\/([\w-]+)\.mjs';$/gmu;
 const NODE = /const __iconNode = (\[[\s\S]*?\]);\n/u;
 const NAMES = /^export \{ ([^}]+) \} from '\.\/icons\/([\w-]+)\.mjs';$/gmu;
@@ -20,11 +20,11 @@ export function readLucideIcons(): Record<string, IconNode> {
   const icons: Record<string, IconNode> = {};
   for (const [, , file] of readFileSync(join(directory, "index.mjs"), "utf8").matchAll(EXPORT)) {
     const literal = NODE.exec(readFileSync(join(directory, `${file}.mjs`), "utf8"))?.[1];
-    if (!literal) throw new Error(`lucide-react changed its icon modules (${file}); revisit vite.icon-set.ts`);
+    if (!literal) throw new Error(`lucide-react changed its icon modules (${file}); revisit vite/icon-set.ts`);
     const elements = new Function(`return ${literal}`)() as IconNode;
     icons[file!] = elements.map(([tag, { key: _key, ...attributes }]) => [tag, attributes]);
   }
-  if (Object.keys(icons).length === 0) throw new Error("lucide-react changed its icon index; revisit vite.icon-set.ts");
+  if (Object.keys(icons).length === 0) throw new Error("lucide-react changed its icon index; revisit vite/icon-set.ts");
   return icons;
 }
 

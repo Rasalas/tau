@@ -7,7 +7,7 @@ export interface AppIdentity {
   setAppUserModelId?(id: string): void;
 }
 
-/** `appId` in electron-builder.yml: the macOS bundle id and the AppUserModelID the installer's shortcuts carry. */
+/** `appId` in tooling/electron-builder.yml: the macOS bundle id and the AppUserModelID the installer's shortcuts carry. */
 export const APP_ID = "de.tbuck.tau";
 
 /**

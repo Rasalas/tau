@@ -8,5 +8,5 @@
     "esModuleInterop": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": [".pi/extensions/**/*.ts", ".pi/tests/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["../.pi/extensions/**/*.ts", "../.pi/tests/**/*.ts", "../src/shared/**/*.ts"]
 }

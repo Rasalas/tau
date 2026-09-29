@@ -2,7 +2,7 @@
 // release builds the arm64 and the x64 app on one arm64 runner from one
 // `npm ci`, which installs only the arm64 optional platform packages
 // (esbuild's binary, rollup's, xa11y's). `beforeBuild` unpacks the ones npm
-// skipped, at the versions the lockfile pins; `files` in electron-builder.yml
+// skipped, at the versions the lockfile pins; `files` in tooling/electron-builder.yml
 // drops the other architecture's copies and prebuilds; `afterPack` fails the
 // build when a native file for another architecture still got in.
 import { execFileSync } from "node:child_process";
@@ -11,7 +11,7 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, 
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-// Left out of the app by `files` anyway (electron-builder.yml); ~200 MB each.
+// Left out of the app by `files` anyway (tooling/electron-builder.yml); ~200 MB each.
 const NOT_SHIPPED = [/\/@anthropic-ai\/claude-agent-sdk-/u];
 
 /** Lockfile entries of production packages built for exactly this macOS architecture. */

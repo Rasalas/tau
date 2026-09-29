@@ -126,8 +126,8 @@ async function waitFor(predicate, message, timeoutMs = 20_000) {
 }
 
 if (!existsSync(HOST_ENTRY)) {
-  console.log("Building the host entry (tsc -p tsconfig.electron.json)…");
-  execFileSync(process.execPath, [join(ROOT, "node_modules", "typescript", "bin", "tsc"), "-p", "tsconfig.electron.json"], { cwd: ROOT, stdio: "inherit" });
+  console.log("Building the host entry (tsc -p tooling/tsconfig.electron.json)…");
+  execFileSync(process.execPath, [join(ROOT, "node_modules", "typescript", "bin", "tsc"), "-p", "tooling/tsconfig.electron.json"], { cwd: ROOT, stdio: "inherit" });
 }
 // The pinning a window uses, not a copy of it.
 const { pinnedTlsConnect, HostCertificateRefusedError, KnownHosts, establishHostTrust, migratedKnownHostPin, hostEndpoint } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);

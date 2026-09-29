@@ -168,7 +168,7 @@ describe("each Mac app's architecture", () => {
   const lock = JSON.parse(read("package-lock.json"));
   // The matcher electron-builder applies to `files`, with the macros expanded as it does.
   const { Minimatch } = createRequire(createRequire(import.meta.url).resolve("app-builder-lib"))("minimatch");
-  const patterns = [...read("electron-builder.yml").matchAll(/^ {2}- "(!\*\*\/node_modules\/[^"]*)"$/gmu)].map((match) => match[1]);
+  const patterns = [...read("tooling/electron-builder.yml").matchAll(/^ {2}- "(!\*\*\/node_modules\/[^"]*)"$/gmu)].map((match) => match[1]);
   const shipped = (path, platform, arch) =>
     patterns.every((pattern) => new Minimatch(pattern.replaceAll("${platform}", platform).replaceAll("${arch}", arch), { dot: true }).match(path));
 

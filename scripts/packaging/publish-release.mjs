@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { parseReleaseInfo } from "../../bin/tau-update-helper.mjs";
 import { isMain, main } from "./release.mjs";
 
-/** Where installed apps read releases from (`publish:` in electron-builder.yml). */
+/** Where installed apps read releases from (`publish:` in tooling/electron-builder.yml). */
 export const PUBLIC_REPO = { owner: "Rasalas", repo: "tau-releases" };
 
 /** One feed per platform the release builds. */

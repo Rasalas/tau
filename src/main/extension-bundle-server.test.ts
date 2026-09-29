@@ -80,7 +80,7 @@ describe("tau-ext bundle scheme", () => {
   });
 
   it("lets the page load scripts from tau-ext and no longer from blob URLs", () => {
-    const html = readFileSync(fileURLToPath(new URL("../../index.html", import.meta.url)), "utf8");
+    const html = readFileSync(fileURLToPath(new URL("../renderer/index.html", import.meta.url)), "utf8");
     const csp = /content="([^"]+)"/u.exec(html.split("Content-Security-Policy")[1] ?? "")?.[1] ?? "";
     expect(csp).toContain("script-src 'self' tau-ext:");
     // Kits link their stylesheets from the same scheme.
@@ -89,7 +89,7 @@ describe("tau-ext bundle scheme", () => {
   });
 
   it("lets a frame, an image and a media element load the workspace files shared over tau-ext", () => {
-    const html = readFileSync(fileURLToPath(new URL("../../index.html", import.meta.url)), "utf8");
+    const html = readFileSync(fileURLToPath(new URL("../renderer/index.html", import.meta.url)), "utf8");
     const csp = /content="([^"]+)"/u.exec(html.split("Content-Security-Policy")[1] ?? "")?.[1] ?? "";
     expect(csp).toContain("img-src 'self' data: tau-ext:");
     expect(csp).toContain("media-src 'self' tau-ext:");

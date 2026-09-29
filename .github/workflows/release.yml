@@ -270,7 +270,7 @@ jobs:
           fi
           [ -n "${CSC_LINK:-}" ] || export CSC_IDENTITY_AUTO_DISCOVERY=false
           status=0
-          npx electron-builder ${{ matrix.platform }} --publish never || status=$?
+          npx electron-builder -c tooling/electron-builder.yml ${{ matrix.platform }} --publish never || status=$?
           rm -f "$RUNNER_TEMP/notary-api-key.p8"
           exit "$status"
 

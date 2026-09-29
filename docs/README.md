@@ -29,9 +29,9 @@ The guides and the main reference pages are also on the website: <https://rasala
 
 - [What Tau does](features.md): the workbench's features, in one list.
 - [Roadmap and known limitations](roadmap.md): what is not done yet, and what Tau does not try to be.
-- [VISION.md](../VISION.md) explains the product goal and guiding principles.
+- [VISION.md](VISION.md) explains the product goal and guiding principles.
 - [CONTEXT.md](../CONTEXT.md) defines the product language used in code and discussions.
-- [PLAN.md](../PLAN.md) records the phased roadmap and open decisions.
+- [PLAN.md](PLAN.md) records the phased roadmap and open decisions.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) and [SECURITY.md](../SECURITY.md).
 
 ## Decisions

@@ -10,11 +10,11 @@ import { ROOT } from "./release.mjs";
 vi.mock("electron", () => ({ dialog: { showMessageBox: vi.fn() } }));
 const { feedFor } = await import("../../src/main/app-updates.ts");
 
-/** `publish:` of electron-builder.yml as the build writes it into `resources/app-update.yml`. */
+/** `publish:` of tooling/electron-builder.yml as the build writes it into `resources/app-update.yml`. */
 function appUpdateYml() {
-  const builder = readFileSync(join(ROOT, "electron-builder.yml"), "utf8");
+  const builder = readFileSync(join(ROOT, "tooling", "electron-builder.yml"), "utf8");
   const block = /^publish:\n((?:[ \t]+.*\n?)+)/mu.exec(builder)?.[1];
-  if (!block) throw new Error("electron-builder.yml has no publish block");
+  if (!block) throw new Error("tooling/electron-builder.yml has no publish block");
   return `${block.replace(/^[ \t]+/gmu, "")}updaterCacheDirName: tau-pi-desktop-prototype-updater\n`;
 }
 
