@@ -218,8 +218,8 @@ git -C "$WORK/tau.git" count-objects -vH | grep size-pack
 - gitleaks: 14 findings, the test dummies K109 listed (`kits/*/host.test.ts`,
   `account-identity.test.ts`, the Laravel fixture's `.env`, the push kit's
   test key, `runtime-controls.tsx`, `benchmarks/host-transfer-turn.json`).
-- Rehearsal sizes: 2,949 commits on `main` became 2,944 (commits that touched
-  only removed paths); 23 tags; 18.4 MiB of objects before, 13.8 MiB after.
+- Rehearsal sizes: 2,963 commits on `main` became 2,958 (commits that touched
+  only removed paths); 23 tags; 21.2 MiB of objects before, 16.3 MiB after.
 
 Keep `$WORK/tau.git/filter-repo/commit-map` (old → new commit ids) next to the
 private inputs, outside Git: tickets and old notes name old commits.
