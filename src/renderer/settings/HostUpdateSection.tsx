@@ -62,7 +62,7 @@ export function HostUpdateSection({ fallback }: { fallback?: ReactNode }) {
         title={<>Tau {status.version} on {machine} {badge(status)}</>}
         description={`${describeHostUpdate(status)}${status.phase === "unsupported" ? "" : checked}`}
         disabledReason={cannotInstall}
-        control={(
+        control={status.phase === "installed" ? null : (
           <Button
             variant={pending && !busy ? "primary" : "default"}
             busy={busy}

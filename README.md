@@ -151,15 +151,41 @@ Once the repository is public, the package managers carry it too:
 Windows, `yay -S tau-bin` (or any AUR helper) on Arch Linux. How each is
 published is in [docs/RELEASE.md](docs/RELEASE.md#package-managers).
 
-An installed Tau checks for a newer release shortly after it starts, downloads
-one in the background, and offers a restart that installs it; "Check for
-updates…" in the application menu asks on demand. Settings → General →
-Update track switches between stable releases and the nightly build of `main`.
-The `.deb` installs its update with `dpkg` when you choose Restart, after the
-system's password dialog (pkexec) — not on a plain quit, and not without a
-desktop session that can show the dialog; closing the dialog leaves the update
-waiting. An AppImage replaces its own file. A copy unpacked by hand says under
-"Check for updates…" that it cannot update itself.
+An installed Tau keeps itself current, with or without a window. Each
+machine's host looks for a newer release on its update track two minutes after
+it starts and then every six hours, downloads it in the background, checks it
+against the release's SHA-512, and installs it once no turn has run for a
+quarter of an hour; a background service then restarts into it. It never
+installs while a turn runs. Settings → About shows the Tau of the machine you
+are connected to, from a window, a browser or the phone: its version, whether
+an update is available, downloading, waiting for turns or failed, **Update
+now**, and **Automatic updates** for that machine. Settings → Machines shows
+the same for every machine the window keeps, with **Update**. While a Tau
+window runs on a machine, that window installs as before: it downloads on its
+own and installs when you choose Restart or quit; Update now from elsewhere asks
+it to. "Check for updates…" in the application menu asks on demand, and
+Settings → General → Update track switches between stable releases and the
+nightly build of `main`.
+
+- **Linux `.deb`:** the package brings a small update helper and a polkit rule,
+  so members of `sudo`, `admin` or `wheel` (or a group `tau-update`) update
+  without a password, also on a server with no desktop session. The helper
+  installs nothing but a newer `tau` package that matches the release's
+  checksum. A `.deb` from before the helper needs one update by hand:
+  `sudo apt install ./Tau_<version>_amd64.deb`.
+- **Linux AppImage:** replaces its own file.
+- **macOS:** replaces the app in place when it belongs to you (drag-installed
+  into Applications); otherwise the Tau window installs it.
+- **Windows:** the installer runs silently for your user.
+- A copy unpacked by hand, or a checkout, says that it cannot update itself.
+
+From a terminal, `tau update` updates this machine (`--check` only looks,
+`--status` tells where it stands), and `tau machines update <name>` updates
+another machine this computer keeps, over the same connection Settings →
+Machines uses. The owner of a machine can stop paired devices from starting
+updates there (Settings → About → Paired devices may update this machine).
+[docs/host-updates.md](docs/host-updates.md) has the design, the helper and
+the threat model.
 
 To build an installer yourself:
 

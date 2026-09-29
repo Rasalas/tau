@@ -3061,6 +3061,7 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `open(id, { threadId })` | New in API 1.15.0. Names a thread there by its id instead of its path; the window finds it in that machine's index, and rejects when it does not list it. |
 | `watchThread?(machine, sessionId, listener)`, `transcriptPage?(machine, sessionId, cursor?)` | New in API 1.15.0: a thread of another machine read without moving the window, what `openThread(id, { machine })` draws. While a listener is left, the window's connection to that machine subscribes to the thread (a lease the page renews every 20 s; the window lets it go a minute after the last renewal), and the listener hears a `UiEnvironmentThreadView` at once and at every change: `status` of the connection (`unknown` for a machine the window does not know), the thread's index entry (`title`, `path`, `running`, `usage`, …) once `indexed`, the dialog it waits on there (`asking`, when the window saw it asked), and a `revision` that grows with every change of its stream, a few times a second at most. `transcriptPage` reads its newest page there, with the window's key; read again when `revision` grows. |
 | `readExtension?(machine, extensionId, command, input?)` | New in API 1.15.0: runs a kit's host command on another machine without showing it, over the window's own connection there, and answers what the command answers. Only a command that machine lists as registered `access: "read"` runs; any other is refused before it is sent, so a look-in can watch but never change anything. The window asks that machine's list once per connection and again, at most every 10 s, when a command is missing from it. |
+| `environments[].update`, `update?(id, action)` | New in API 1.28.0 (K103). Each machine's own Tau as its host reports it (`HostUpdateStatus`: `version`, `phase`, `latest`, `automatic`, `installer`, `reason`, …; absent from a host too old to report one), followed live. `update(id, "check" \| "install" \| { automatic })` asks that machine over the window's connection there; it decides with the window's key (Full access, and its owner's `devicesMayInstall`) and answers the new status. |
 | `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
 
@@ -3071,6 +3072,28 @@ The window's process answers all of it through client-side methods
 methods with `unsupported`. Every kit a page loads comes from the machine it shows,
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
+
+### A machine's own Tau: `useMachineUpdates`, `useHostUpdate`
+
+New in API 1.28.0 (K103), from `tau`, for an "Update available" mark (the
+sidebar footer) or a page of one's own:
+
+- `useMachineUpdates()` → `{ pending, host? }`. `pending` lists every machine
+  this client reaches that runs an older Tau than it could: in a window, each
+  machine of `context.environments` whose host knows a newer release or whose
+  version is older than this window's; in a browser or on a phone, the one host
+  it talks to. Each entry: `id?`, `name`, `local`, `version?`, `latest?`,
+  `phase?`. Empty when everything is current. `host` is the connected host's
+  own status.
+- `useHostUpdate()` → `{ status?, unavailable?, store? }`: the connected
+  host's status, why there is none (an older host), and `store.check()`,
+  `store.install()`, `store.setSettings({ automatic })`.
+- `describeHostUpdate(status)`, `hostUpdatePending(status)`,
+  `machineBehind(machine, reference?)`, and the types `HostUpdateStatus`,
+  `HostUpdatePhase`.
+
+Settings → About and Settings → Machines use the same state
+([host-updates.md](host-updates.md)).
 
 ### `engines` and `engines.api`
 

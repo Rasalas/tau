@@ -59,7 +59,7 @@ export function MachineUpdateLine({ machine, environments, behind }: {
       <div className="machine-update-line">
         {phaseBadge(update, pending)}
         <small>{describeHostUpdate(update)}</small>
-        {update.phase === "unsupported" ? null : (
+        {update.phase === "unsupported" || update.phase === "installed" ? null : (
           <span {...tooltipProps(why)}>
             <Button busy={working} disabled={working || why !== undefined} variant={pending ? "primary" : "default"} onClick={() => (pending ? setConfirming(true) : run("check"))}>
               {pending ? "Update" : "Check"}
@@ -68,8 +68,9 @@ export function MachineUpdateLine({ machine, environments, behind }: {
         )}
       </div>
       {update.phase === "unsupported" ? null : (
-        <span {...tooltipProps(why)}>
+        <span className="machine-update-auto" {...tooltipProps(why)}>
           <Switch label={`Automatic updates on ${machine.name}`} checked={update.automatic} disabled={busy || why !== undefined} onChange={(automatic) => run({ automatic })} />
+          <small aria-hidden="true">Automatic updates</small>
         </span>
       )}
       {problem ? <p className="machine-add-result problem" role="status">{problem}</p> : null}

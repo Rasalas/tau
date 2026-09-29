@@ -251,9 +251,25 @@ Both macOS architectures build on one runner on purpose: each would otherwise
 write its own `latest-mac.yml` and the second job to finish would leave the
 other architecture without a feed.
 
+### A host without a window
+
+The steps above are the window's. A machine that runs only its host (a
+server with `tau-host.service`) updates through the host process itself
+(`src/main/host-updater.ts`): it reads the same `latest*.yml`, downloads and
+verifies the file its install takes, and installs it when no turn runs; the
+`.deb` does so through a root helper that polkit allows without a password.
+Settings → About and Settings → Machines show each machine's version and
+offer Update now; `tau update` and `tau machines update` do the same from a
+terminal. [host-updates.md](host-updates.md) describes it, the helper, the
+threat model, and the step the release workflow needs to sign the feed
+(`latest*.yml.sig`, Ed25519). The Linux job's check of the `.deb` should also
+look for `./opt/Tau/bin/tau-update-helper` and
+`./opt/Tau/resources/polkit/de.tbuck.tau.update.policy`.
+
 `Rasalas/tau` is private today, so the updater's request for the release feed
 comes back as a 404 and every check fails with it (visible in
-`<userData>/logs/host.log` as `update.failed`). Making the repository public is
+`<userData>/logs/host.log` as `update.failed`, and in the host's
+`host-process.log` as `host-update.check.failed`). Making the repository public is
 the fix. Keeping it private means shipping a GitHub token to every user, which
 is worse than having no updates.
 
