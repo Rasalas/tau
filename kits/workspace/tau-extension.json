@@ -4,7 +4,7 @@
   "description": "Git status, commits, branches, worktrees and the project's file tree.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.27.0"
+    "api": "^1.28.0"
   },
   "permissions": [
     "workspace:read",
