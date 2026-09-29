@@ -1583,8 +1583,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
-.extension-prompt-pick { flex: none; color: var(--muted); white-space: nowrap; }
-.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-lg); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
+.extension-prompt-title { margin: 8px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .extension-prompt-message { margin: 4px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-2); white-space: pre-wrap; }
 .extension-prompt-subject {
   display: block; margin: 6px 0 0; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
@@ -1609,8 +1609,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-option.chosen .extension-option-indicator { border-color: var(--acid); background: var(--acid); }
 .extension-option.chosen .extension-option-indicator.is-radio { background: var(--field); box-shadow: inset 0 0 0 3px var(--field), inset 0 0 0 8px var(--acid); }
 .extension-option > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.extension-option strong { font-size: var(--text-md); font-weight: 400; line-height: 1.45; }
-.extension-option small { font-size: var(--text-sm); line-height: 1.45; color: var(--muted); }
+.extension-option strong { font-size: var(--text-sm); font-weight: 400; line-height: 1.45; }
+.extension-option small { font-size: var(--text-xs); line-height: 1.45; color: var(--muted); }
 .extension-option-preview {
   margin: 4px 0 2px; padding: 7px 9px; max-height: 180px; overflow: auto;
   background: var(--code-bg); border-radius: 6px;
@@ -1620,7 +1620,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-option.read:hover { background: transparent; }
 
 .extension-prompt > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-height: 30px; }
-.extension-prompt > footer > span { font-size: var(--text-sm); color: var(--muted); }
+.extension-prompt > footer > span { font-size: var(--text-xs); color: var(--muted); }
 .extension-prompt > footer .spacer { flex: 1; }
 .extension-prompt > footer > button {
   height: 30px; border: 0; background: transparent; color: var(--muted);
