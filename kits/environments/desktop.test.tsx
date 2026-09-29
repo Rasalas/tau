@@ -8,9 +8,9 @@ import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { branchSection, createDraftMachine, createRunOnControl, runOnDetail } from "./run-on.js";
+import { createDraftMachine, createRunOnControl, runOnDetail } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
-import { BRANCH_SECTION_SERVICE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -78,7 +78,8 @@ describe("Machines Kit", () => {
     registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card }); } });
     registry.activate(environmentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
-    expect(registry.getComposerControls().map((control) => control.id)).toEqual(["environments.run-on"]);
+    expect(registry.getComposerControls()).toEqual([]);
+    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on"]);
     expect(registry.getCommands().some((command) => command.id === "environments.add")).toBe(true);
     expect(registered).toHaveBeenCalledTimes(1);
     expect(listed).toHaveBeenCalledTimes(1);
@@ -253,8 +254,6 @@ describe("Run on", () => {
 });
 
 describe("Run on, as in the design", () => {
-  afterEach(() => branchSection.set(undefined));
-
   it("says per machine whether it is this one, online or offline, and how busy", () => {
     expect(runOnDetail(laptop, 0)).toBe("this machine · idle");
     expect(runOnDetail(studio, 0)).toBe("online · 1 running");
@@ -262,42 +261,26 @@ describe("Run on, as in the design", () => {
     expect(runOnDetail(attic, 60_000)).toBe(statusText(attic, 60_000));
   });
 
-  it("draws Workspace Kit's Branch section under the machines, for a draft only", () => {
+  it("is a pill under a new thread's heading, its menu holding the machines only (design 1k: Branch is a pill of its own)", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });
-    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => {
-      context.provideService(BRANCH_SECTION_SERVICE, { Section: () => <input aria-label="Branch name" /> });
-    } });
     registry.activate(environmentsExtension);
-    const control = registry.getComposerControls().find((entry) => entry.id === "environments.run-on");
-    expect(control?.placement).toBe("lead");
-    const Control = control!.Component;
-    const draft = fakeActions({ activeThread: () => ({ draftPending: true }) });
-    const { rerender } = render(<Control actions={draft} />);
-    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const field = screen.getByRole("textbox", { name: "Branch name" });
-    // Typing stays in the field: the menu's typeahead must not take the keys.
-    const key = new KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true });
-    field.dispatchEvent(key);
-    expect(key.defaultPrevented).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    rerender(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
-    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    expect(screen.queryByRole("textbox", { name: "Branch name" })).toBeNull();
+    const Control = registry.getRegions("draft-actions").find((entry) => entry.id === "environments.run-on")!.Component;
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
+    const pill = screen.getByRole("button", { name: "Run on laptop" });
+    expect(pill.className).toContain("draft-pill");
+    fireEvent.click(pill);
+    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      expect.stringMatching(/^Automatic/u), expect.stringMatching(/^laptop/u), expect.stringMatching(/^studio/u),
+    ]);
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("stands over the composer, lined up with it, and checks the machine without a badge (design 1k)", () => {
+  it("checks the machine without a badge (design 1k)", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const RunOn = createRunOnControl(environments);
-    const { container } = render(<div className="composer-frame"><textarea /><RunOn actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} /></div>);
-    const frame = container.querySelector(".composer-frame") as HTMLElement;
-    const chip = screen.getByRole("button", { name: "Run on laptop" });
-    frame.getBoundingClientRect = () => ({ top: 600, left: 100, bottom: 700, right: 780, width: 680, height: 100, x: 100, y: 600, toJSON: () => ({}) });
-    chip.parentElement!.getBoundingClientRect = () => ({ top: 660, left: 108, bottom: 684, right: 220, width: 112, height: 24, x: 108, y: 660, toJSON: () => ({}) });
-    fireEvent.click(chip);
-    const anchor = chip.parentElement!;
-    expect(anchor.style.getPropertyValue("--run-on-up")).toBe("60px");
-    expect(anchor.style.getPropertyValue("--run-on-left")).toBe("-8px");
+    render(<RunOn actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
     const menu = screen.getByRole("menu");
     const row = within(menu).getByRole("menuitem", { name: /^laptop/u });
     expect(row.className).toContain("selected");

@@ -3,9 +3,9 @@ import { Network } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { createAutoRunOnHook } from "./auto.js";
 import { followArrival, readPendingArrival } from "./machines.js";
-import { BRANCH_SECTION_SERVICE, ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type BranchSectionService, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type RemoteAgentThreadsService, type WorkspaceRailSlice } from "./protocol.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { branchSection, createDraftMachine, createRunOnControl } from "./run-on.js";
+import { createDraftMachine, createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -86,13 +86,9 @@ export const environmentsExtension: DesktopExtension = {
       run: (actions) => actions.openSettings(MACHINES_SETTINGS_PAGE),
     });
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
-    // A new thread's machine leads its composer and its header's sub-line (design 1k).
-    context.registerComposerControl({ id: "environments.run-on", placement: "lead", order: 5, profiles: ["desktop"], Component: createRunOnControl(environments, context.host) });
+    // A new thread's machine: a pill under its heading, and in its header's sub-line (design 1k).
+    context.registerRegion({ id: "environments.run-on", placement: "draft-actions", order: 5, profiles: ["desktop"], Component: createRunOnControl(environments, context.host) });
     context.registerRegion({ id: "environments.draft-machine", placement: "thread-details", order: 0, profiles: ["desktop"], Component: createDraftMachine(environments, context.host) });
-    context.useService<BranchSectionService>(BRANCH_SECTION_SERVICE, (service) => {
-      branchSection.set(service.Section);
-      return () => branchSection.set(undefined);
-    });
     context.registerPromptHook(createAutoRunOnHook(environments, context.host));
     const RailSection = createRailSection(environments);
     const threads = createMachineThreads(environments);

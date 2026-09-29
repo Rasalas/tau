@@ -8,7 +8,7 @@
 .machine-dot.offline { background: transparent; border: 1px solid var(--faint); }
 .machine-dot.refused { background: var(--danger); }
 
-/* The draft's "Run on" chip: the machine's own icon beside its name, since a machine has no mark of its own. */
+/* The draft's "Run on" pill: the machine's own icon beside its name, since a machine has no mark of its own. */
 .machine-chip > span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Settings → Machines. */
@@ -67,10 +67,9 @@
   border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 1.5px var(--raised);
 }
 .machine-runtime.not-installed::after, .machine-runtime.checking::after { background: var(--faint); }
-/* "Run on" with the new thread's Branch section under the machines (design 1k): over the composer, its left edge on the composer's. */
-.run-on-anchor > .menu.above {
-  bottom: calc(100% + var(--run-on-up, 0px) + 6px); left: var(--run-on-left, 0px);
-  width: min(300px, calc(100vw - 24px)); gap: 1px; border-color: transparent; border-radius: var(--radius-md);
+/* "Run on" under its pill (design 1k's popover). */
+.run-on-anchor > .menu {
+  text-align: left; width: min(300px, calc(100vw - 24px)); gap: 1px; border-color: transparent; border-radius: var(--radius-md);
   background: var(--stage); box-shadow: var(--elevation-3);
 }
 .run-on-anchor > .menu > .menu-section > .menu-heading { padding: 6px 10px 4px; color: var(--muted); font: var(--text-xs) var(--sans); letter-spacing: normal; text-transform: none; }
@@ -86,5 +85,3 @@
   content: ""; flex: none; width: 13px; height: 13px; background: var(--acid-text);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
-.run-on-branch { margin: 0 -6px -6px; }
-.run-on-branch > hr { margin: 4px 10px; }
