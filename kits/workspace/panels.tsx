@@ -274,11 +274,13 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
       <aside className="files-explorer" aria-label="Explorer">
         <header className="files-explorer-head">
           <span className="files-explorer-scope" title={cwd}>{project}{workspace?.branch ? <> · <b>{workspace.branch}</b></> : null}</span>
-          <div className="files-explorer-view" role="group" aria-label="Show">
-            <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
-            <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
+          <div className="files-explorer-tools">
+            <div className="files-explorer-view" role="group" aria-label="Show">
+              <button type="button" className={view === "changed" ? "active" : ""} aria-pressed={view === "changed"} onClick={() => setView("changed")}>Changed</button>
+              <button type="button" className={view === "all" ? "active" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All</button>
+            </div>
+            {goToFile}
           </div>
-          {goToFile}
         </header>
         <div className="files-panel-tree">
           {view === "changed" ? <ChangedTree files={changes.files} current={reading} onOpen={open} onPin={pin} /> : tree}

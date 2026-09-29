@@ -429,9 +429,10 @@
 /* The explorer as design 1l draws it: 224 px, quiet head, a tree of short mono rows, the editor link at its foot. */
 .files-explorer { flex: none; width: min(224px, 45%); display: flex; flex-direction: column; min-height: 0; padding: 6px 4px; border-right: 1px solid var(--line); }
 .files-explorer-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 6px 8px 10px; color: var(--muted); font-size: var(--text-xs); }
-/* Wraps by words beside the view chips; short of room for a word, the chips take the next line. */
-.files-explorer-scope { flex: 1 1 96px; min-width: 0; overflow-wrap: break-word; }
-.files-explorer-scope > b { font-weight: 400; }
+/* Wraps between project and branch beside the view chips; short of room for the branch, the chips take the next line. */
+.files-explorer-scope { flex: 1 1 64px; max-width: 100%; }
+.files-explorer-scope > b { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font-weight: 400; }
+.files-explorer-tools { flex: none; display: flex; align-items: center; gap: 4px; }
 .files-explorer-view { flex: none; display: flex; gap: 2px; }
 .files-explorer-view > button, .files-reading-view > button {
   padding: 1px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; cursor: pointer;
@@ -461,8 +462,9 @@
 .files-open-editor > span { flex: 1; }
 .files-open-editor > kbd { font: var(--text-xs) var(--mono); color: var(--muted); }
 .files-reading { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.files-reading-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; color: var(--muted); font-size: var(--text-sm); }
-.files-reading-head > strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--text-sm) var(--mono); direction: rtl; text-align: left; }
+/* One line where the pane has room; narrower, the controls wrap under the path rather than cut it. */
+.files-reading-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px 8px 16px; color: var(--muted); font-size: var(--text-sm); }
+.files-reading-head > strong { flex: 0 1 auto; min-width: min(160px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--text-sm) var(--mono); direction: rtl; text-align: left; }
 .files-reading-head > em { flex: none; font-style: normal; font-weight: 600; }
 .files-reading-head > .spacer { flex: 1; }
 .files-reading-view { flex: none; display: flex; gap: 2px; }
