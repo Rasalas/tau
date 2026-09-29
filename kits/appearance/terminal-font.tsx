@@ -36,6 +36,11 @@ const SOURCE: Record<TerminalFontSource, string> = {
   default: "platform default",
 };
 
+/** A config file's name; the full path, which names the user's home, goes in the tooltip. */
+function fileName(path: string): string {
+  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
+}
+
 const SAMPLE = "~/project $ ls -la  0O 1lI {}[] ┌─┐";
 
 /** The size a field holds, if it is one the terminal draws: a number in range, to the half pixel. */
@@ -71,7 +76,7 @@ function TerminalFontFields({ service }: { service: TerminalFontService }) {
     description="Terminal output in the panel, the drawer and terminal tabs, apart from code blocks and diffs. Empty fields follow your Ghostty config, then the platform's monospace faces."
     status={<>
       <span role="status">{resolved.face ?? "SF Mono"} ({SOURCE[resolved.familySource]}) at {resolved.size}px ({SOURCE[resolved.sizeSource]}).</span>
-      {ghostty && ghostty.files.length > 0 ? <> Ghostty config: {ghostty.files.map((file, index) => <span key={file}>{index > 0 ? ", " : ""}<code>{file}</code></span>)}.</> : null}
+      {ghostty && ghostty.files.length > 0 ? <> Ghostty config: {ghostty.files.map((file, index) => <span key={file}>{index > 0 ? ", " : ""}<code title={file}>{fileName(file)}</code></span>)}.</> : null}
       {ghostty?.problems.map((problem) => <span key={problem} className="appearance-terminal-problem"> {problem}</span>)}
     </>}
     control={<Fields state={state} service={service} />}

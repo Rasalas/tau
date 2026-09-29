@@ -231,7 +231,9 @@ describe("the terminal's row on Settings → Appearance", () => {
     expect(screen.getByRole("heading", { level: 3, name: "Terminal font" })).toBeTruthy();
     expect(service.refresh).toHaveBeenCalled();
     expect(screen.getByText("JetBrains Mono (from your Ghostty config) at 13px (from your Ghostty config).")).toBeTruthy();
-    expect(screen.getByText("/home/.config/ghostty/config")).toBeTruthy();
+    // The name only; the path, with the user's home in it, is the tooltip.
+    expect(screen.queryByText("/home/.config/ghostty/config")).toBeNull();
+    expect(screen.getByText("config").getAttribute("title")).toBe("/home/.config/ghostty/config");
     expect(screen.getByText(/is no number/u)).toBeTruthy();
     const family = screen.getByRole("textbox", { name: "Terminal font family" }) as HTMLInputElement;
     expect(family.placeholder).toBe("JetBrains Mono");
