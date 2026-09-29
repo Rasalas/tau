@@ -953,6 +953,12 @@ export interface CommandContribution {
    * every surface, the palette and chords included, disables it and says why (API 1.13.0).
    */
   access?: "read" | "write";
+  /**
+   * Why the command cannot run now, or undefined when it can: every surface
+   * disables it with this as the reason, as it does on a Read-only device.
+   * `() => hostAvailability(id).reason` ties it to the package's host half (K112).
+   */
+  unavailable?(): string | undefined;
   run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;
 }
 

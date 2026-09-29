@@ -1645,8 +1645,9 @@ export class HostExtensionRegistry {
     const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
     if (!record) {
       const known = this.known.get(extensionId);
+      const failure = this.failures.get(extensionId);
       throw new Error(known
-        ? `Host extension ${known.name} is not active.`
+        ? `Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`
         : `Host extension ${extensionId} is not installed.`);
     }
     const handler = record.commands.get(command);

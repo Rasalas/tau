@@ -81,3 +81,23 @@ describe("a device with Full access", () => {
     expect(sent).toEqual(["prompt", "host-extension:tau.review/commit"]);
   });
 });
+
+describe("an extension's host half", () => {
+  it("is unknown until the host listed it, then running, failed or missing, and follows a deactivation", async () => {
+    let summaries: HostExtensionSummary[] = [review, { id: "me.kit", name: "My kit", active: false, commands: [], error: "My kit lacks permission process" }];
+    const { connection, client, emit } = host(undefined, () => summaries);
+    await connection.start();
+    let changes = 0;
+    client.onHostCommandsChanged?.(() => { changes += 1; });
+    expect(client.hostExtensionHalf?.("tau.review")).toBeUndefined();
+    await expect.poll(() => changes).toBe(1);
+    expect(client.hostExtensionHalf?.("tau.review")).toEqual({ active: true });
+    expect(client.hostExtensionHalf?.("me.kit")).toEqual({ active: false, error: "My kit lacks permission process" });
+    expect(client.hostExtensionHalf?.("me.none")).toBeNull();
+
+    summaries = [{ ...review, active: false, error: "failed three times in a row" }];
+    emit({ type: "extension-deactivated", extensionId: "tau.review", name: "Review", reason: "failed three times in a row" });
+    await expect.poll(() => changes).toBe(2);
+    expect(client.hostExtensionHalf?.("tau.review")).toEqual({ active: false, error: "failed three times in a row" });
+  });
+});

@@ -64,7 +64,10 @@ export function ThreadTitleMenu({
   // Copying, marking and looking stay this device's; the host refuses the rest (ADR 0024).
   // Pin and settle are the rail's, which the host keeps; a new thread could never be sent.
   const locked = readOnly ? { disabled: true, description: READ_ONLY_REASON } : {};
-  const refused = (command: { access?: "read" | "write" }) => (commandRefusal(command, readOnly) ? locked : {});
+  const refused = (command: { access?: "read" | "write"; unavailable?: () => string | undefined }) => {
+    const reason = commandRefusal(command, readOnly);
+    return reason ? { disabled: true, description: reason } : {};
+  };
   const sections: MenuSection[] = [
     {
       items: [

@@ -46,7 +46,7 @@ import type { UiDiscoveredHosts } from "../shared/discovery";
 import type { EnvironmentAgentsResult, EnvironmentOpenTarget, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironmentThreadView, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
-import { ReadCommands, readOnlyMayCall, readOnlyRefusal } from "./read-only-guard";
+import { ReadCommands, readOnlyMayCall, readOnlyRefusal, type HostHalf } from "./read-only-guard";
 
 /**
  * Transport-neutral view of the desktop host. Every method is one call of the
@@ -187,8 +187,13 @@ export interface HostClient {
    * host said which those are (API 1.13.0). Optional for a stand-in client.
    */
   mayInvokeHostExtension?(extensionId: string, command: string): boolean;
-  /** Called when `mayInvokeHostExtension` may answer differently. */
+  /** Called when `mayInvokeHostExtension` or `hostExtensionHalf` may answer differently. */
   onHostCommandsChanged?(listener: () => void): () => void;
+  /**
+   * An extension's host half as the host last listed it: undefined until the
+   * host answered, null when it runs none. Optional for a stand-in client.
+   */
+  hostExtensionHalf?(extensionId: string): HostHalf | null | undefined;
   /** Whether the link to the host is whole, being repaired, refetching state, or refused. */
   getConnectionState(): HostConnectionState;
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
@@ -294,7 +299,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     return refused(target, method) ? Promise.reject(readOnlyRefusal()) : target.request<T>(method, params);
   };
   const readCommands = new ReadCommands(() => call<HostExtensionSummary[]>("host-extensions"));
-  connection.onEvent((event) => { if (event.type === "extension-packages-changed") readCommands.invalidate(); });
+  connection.onEvent((event) => { if (event.type === "extension-packages-changed" || event.type === "extension-deactivated") readCommands.invalidate(); });
   const invokeHostExtension = (extensionId: string, command: string, input?: unknown) => connection.isJobMethod("host-extension", extensionId, command)
     ? connection.runJob<unknown>("host-extension", [extensionId, command, input])
     : call<unknown>("host-extension", [extensionId, command, input]);
@@ -412,6 +417,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getHostName: connection.getHostName,
     mayInvokeHostExtension: (extensionId, command) => !connection.isReadOnly() || readCommands.allows(extensionId, command) === true,
     onHostCommandsChanged: (listener) => readCommands.onChange(listener),
+    hostExtensionHalf: (extensionId) => readCommands.hostHalf(extensionId),
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),

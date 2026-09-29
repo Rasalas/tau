@@ -18,6 +18,12 @@ export function readOnlyMayCall(method: string): boolean {
 
 const key = (extensionId: string, command: string) => `${extensionId}/${command}`;
 
+/** A host half as the host lists it: running, or the reason it failed to start. */
+export interface HostHalf {
+  active: boolean;
+  error?: string;
+}
+
 /**
  * The kit commands a Read-only device may call, from the host's extension
  * summaries. Loaded on first need; after a package change the old answer
@@ -25,6 +31,8 @@ const key = (extensionId: string, command: string) => `${extensionId}/${command}
  */
 export class ReadCommands {
   private known: ReadonlySet<string> | undefined;
+  /** Each host half by extension id: running, or why not. */
+  private halves = new Map<string, HostHalf>();
   private loading: Promise<ReadonlySet<string>> | undefined;
   private stale = false;
   private readonly listeners = new Set<() => void>();
@@ -35,6 +43,16 @@ export class ReadCommands {
   allows(extensionId: string, command: string): boolean | undefined {
     if (!this.known || this.stale) void this.load().catch(() => undefined);
     return this.known?.has(key(extensionId, command));
+  }
+
+  /**
+   * The host half of an extension as the host last listed it: undefined until
+   * the host answered once, null when it lists no such half.
+   */
+  hostHalf(extensionId: string): HostHalf | null | undefined {
+    if (!this.known || this.stale) void this.load().catch(() => undefined);
+    if (!this.known) return undefined;
+    return this.halves.get(extensionId) ?? null;
   }
 
   async check(extensionId: string, command: string): Promise<boolean> {
@@ -62,6 +80,7 @@ export class ReadCommands {
       if (this.loading === loading) {
         this.loading = undefined;
         this.known = known;
+        this.halves = new Map(summaries.map((summary) => [summary.id, { active: summary.active, ...(summary.error ? { error: summary.error } : {}) }]));
         this.stale = false;
         for (const listener of this.listeners) listener();
       }
