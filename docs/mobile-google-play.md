@@ -1,8 +1,9 @@
 # Tau bei Google Play
 
-Stand: 30. September 2026. Die App ist eingerichtet und das erste Bundle liegt als
-Entwurf im internen Test. Es ist noch kein Release für Tester oder die Öffentlichkeit
-freigegeben.
+Stand: 30. September 2026. Version `0.7.15`, Versionscode `71500`, ist im internen
+Test freigegeben. Die Liste **Just me** enthält nur `t.buck91@gmail.com`.
+Die öffentliche Veröffentlichung ist noch nicht eingerichtet. Das Dashboard
+zeigt **8 von 11 Einrichtungsschritten erledigt**.
 
 ## Eingerichtet
 
@@ -43,19 +44,34 @@ Der Schlüssel wurde durch einen erfolgreichen Bundle-Upload über die Google Pl
 Developer API geprüft. Der spätere GitHub-Workflow ist noch nicht eingerichtet;
 auch das dafür nötige GitHub-Secret wurde in diesem Schritt nicht gesetzt.
 
-## Erster Build
+## Interner Test
 
-- Version `0.7.15`, Versionscode `715`, Track `internal`, Status `draft`.
-- [Interner Test](https://play.google.com/console/u/0/developers/8863683401293141822/app/4974173993478757363/tracks/internal-testing?tab=releases)
-- Lokale Datei: `.scratch/play-store/tau-0.7.15-715.aab`, von Git ausgeschlossen.
-- SHA-256: `732c13721aa20d686003a9c0784c0279b20cee44ce279f47213b84e2dde3f3f4`.
+- Version `0.7.15`, Versionscode `71500`, Track `internal`, API-Status `completed`.
+- [Am internen Test teilnehmen](https://play.google.com/apps/internaltest/4700959703604814909),
+  mit `t.buck91@gmail.com` anmelden.
+- [Interner Test in der Console](https://play.google.com/console/u/0/developers/8863683401293141822/app/4974173993478757363/tracks/internal-testing?tab=releases).
+- Lokale Datei: `.scratch/play-store/tau-0.7.15-71500.aab`, von Git ausgeschlossen.
+- SHA-256: `1e7f631b26b859d3a43dc52b4e16a9107c4894360132b3ca005b38096a130e61`.
+- Enthält den Datenschutz-Link und den lokalen Demo-Modus.
+- Play zeigt vor der ersten öffentlichen Prüfung vorübergehend
+  `de.tbuck.tau (unreviewed)` als App-Namen.
 
-Gebaut mit `vite build`, `cap sync android` und Gradle `bundleRelease`.
+Das ursprüngliche Bundle `715` wurde im Testrelease durch `71500` ersetzt.
+Künftig berechnet Gradle den Versionscode als
+`(major × 10000 + minor × 100 + patch) × 100 + Android-Revision`.
+Die Revision ist standardmäßig 0 und mit `-PtauAndroidRevision=1` bis 99 erhöhbar.
+Ein bereits hochgeladener Versionscode darf nicht erneut verwendet werden.
+Die nächste Tau-Version `0.7.16` beginnt somit bei `71600`.
+
+Gebaut mit `vite build`, `cap sync android` und Gradle `bundleRelease lintRelease`.
 Der Build benötigt `ANDROID_HOME=/Users/tbuck/Library/Android/sdk` auf diesem Mac.
 Das Bundle wurde mit dem vorhandenen Keystore, Alias `upload`, signiert.
 `jarsigner -verify` bestätigt die Signatur; die Web-Assets enthalten keinen
 `tauAutomation`-Verweis. Gradles Release-Lint und Bundle-Build waren erfolgreich.
-Ein Gerätetest des Release-Bundles steht aus.
+Die Demo wurde im isolierten Android-Emulator geprüft: Threads öffnen, Antwort
+auf eine Nachricht, neuen Thread anlegen und Rücksetzen beim Verlassen.
+Elf betroffene Tests und der Mobile-Typecheck waren erfolgreich.
+Das über Play ausgelieferte Release muss noch auf einem echten Telefon geprüft werden.
 
 Die alte Firebase-Konfiguration verwendete noch `io.github.rasalas.tau` und
 verhinderte den Build. Im bestehenden Firebase-Projekt `tau-push-e3c95` wurde deshalb
@@ -64,47 +80,50 @@ die Android-App **Tau Play** für `de.tbuck.tau` registriert:
 Die passende `google-services.json` liegt lokal unter `mobile/android/app/` und
 aktualisiert im selben Drive-Tresor. Die bisherige Firebase-App bleibt erhalten.
 
-## Vor der Veröffentlichung offen
+## Datenschutz und Store
 
-1. **Datenschutzerklärung.** Die ursprüngliche URL
-   `https://tbuck.de/privacy/tau/` antwortete mit HTTP 404. Die Erklärung liegt jetzt
-   als Markdown unter `docs/site/privacy.md` und `docs/site/privacy-de.md` und wird
-   vom bestehenden GitHub-Pages-Workflow gerendert. Öffentliche URL:
-   `https://rasalas.github.io/tau/docs/privacy.html`, Deutsch: `privacy-de.html`.
-   Beide Seiten sind live; die englische URL ist in der Play Console gespeichert.
-   Der App-Startbildschirm verlinkt die Erklärung seit Commit `ece2f566`.
-   Das bereits hochgeladene Bundle `715` enthält diesen Link noch nicht; der nächste
-   Build muss ihn übernehmen und braucht einen höheren Versionscode.
-2. **Prüfzugang herstellen und testen.** Die App benötigt einen Tau-Host und eine
-   Kopplung. Die Console verlangt vollständigen, wiederverwendbaren Zugang.
-   Die Erklärung zu Anmeldedaten ist nicht abgeschlossen. Dadurch ist auch der
-   Zielgruppenfragebogen noch gesperrt; vorgesehen sind Personen ab 18 Jahren.
-   Ein lokaler Demo-Modus mit Beispielgesprächen und simulierten Antworten wird
-   im Branch `play-store-demo` vorbereitet. Er benötigt weder einen öffentlichen
-   Rechner noch Inferenz. Er deckt echte Kopplung, Agent-Ausführung, Dateioperationen
-   und Push-Zustellung nicht ab und ist noch nicht im hochgeladenen Bundle enthalten.
-3. **Datensicherheit ausfüllen.** FCM und die Host-Verbindung müssen anhand des
-   tatsächlichen Datenflusses bewertet werden. Der Push-Kit sendet standardmäßig
-   Thread-Titel und Textauszüge an FCM, siehe `kits/push/protocol.ts`,
-   `kits/push/host.ts` und `kits/push/fcm.ts`. Die pauschale Antwort
-   "keine Daten erhoben" aus dem ursprünglichen Plan ist nicht übernommen worden.
-   Inzwischen als Entwurf gespeichert: In-App-Mitteilungen, Fotos, Dateien und
-   Geräte-IDs, jeweils für App-Funktionen. Inhaltsdaten sind optional, IDs wegen
-   FCM automatisch erforderlich. Die endgültige Einreichung hängt noch an der
-   Zielgruppenangabe; die Angaben bleiben bis dahin prüfbar.
-4. **Inhaltsfragebogen abschließen.** Begonnen mit `tau@tbuck.de` und
-   "Alle anderen App-Typen". Die Bewertung von Online-Inhalten muss die ausdrücklich
-   im Formular genannten KI-generierten Inhalte berücksichtigen. Keine finale
-   Altersfreigabe eingereicht. Nach Wiederherstellung der Browser-Verbindung wurde
-   der teilweise ausgefüllte Fragebogen gespeichert.
-5. **Store-Einträge vervollständigen.** Englische und deutsche Texte, 512 × 512 Icon
-   und 1024 × 500 Vorstellungsgrafik sind über die API gespeichert. Die Quellen
-   liegen unter `mobile/play/` im Branch `play-store-demo`. Echte Telefon-Screenshots
-   fehlen noch im Store-Eintrag.
-6. **Internen Test starten.** Tester auswählen, Release prüfen und freigeben.
-   Bisher gibt es keine bestätigte Opt-in-URL und keinen veröffentlichten Test-Release.
-7. **GitHub-Upload anbinden.** Dienstkonto als Secret hinterlegen und Workflow bauen.
-   Der nächste Upload braucht einen höheren Versionscode als `715`.
+- Die englische [Datenschutzerklärung](https://rasalas.github.io/tau/docs/privacy.html)
+  und ihre [deutsche Übersetzung](https://rasalas.github.io/tau/docs/privacy-de.html)
+  werden über GitHub Pages gerendert. Die englische URL ist in Play gespeichert.
+  Die frühere geplante URL `https://tbuck.de/privacy/tau/` wurde nicht verwendet.
+- Englische und deutsche Store-Texte, App-Icon, Vorstellungsgrafiken und je zwei
+  echte Android-Screenshots sind in Play gespeichert. Quellen: `mobile/play/`.
+- IARC-Fragebogen am 30. September gespeichert, Status **Abgeschlossen**.
+  Kategorie: Alle anderen App-Typen. Online-Inhalte einschließlich KI-Ausgaben
+  sind angegeben. Kein eigener Inhaltskatalog mit Sex, Gewalt oder Drogen und
+  keine Nutzerkommunikation, Standortweitergabe, Käufe oder Glücksspiel.
+  Die Inhalte der selbst betriebenen Hosts werden nicht vom Entwickler kuratiert.
+  Die geplante Zielgruppe 18+ ist eine separate Erklärung, noch nicht gespeichert.
+
+## Was die öffentliche Veröffentlichung noch blockiert
+
+1. **Vollständiger Prüfzugang.** "Try demo" benötigt weder Rechner noch Inferenz,
+   deckt aber echte Kopplung, Agent-Ausführung, Dateioperationen und Push nicht ab.
+   Die englische Anleitung ist unter `mobile/play/README.md` dokumentiert.
+   Die Console verlangt beim Hinzufügen die Checkbox
+   "Die Anmeldedaten in dieser Erklärung gewähren uneingeschränkten Zugriff auf
+   alle Funktionen und Inhalte in dieser App, auch auf Premium- oder kostenpflichtige
+   Inhalte". Ohne diese Bestätigung schlägt das Speichern fehl. Sie wurde nicht
+   bestätigt, weil die Demo diesen Zugriff nicht bietet. Die Anleitung ist daher
+   noch nicht in Play gespeichert. Nötig ist ein geeigneter vollständiger Prüfzugang
+   oder eine mit Google geklärte Prüfmöglichkeit für diesen Companion-Anwendungsfall.
+2. **Zielgruppe.** Vorgesehen: 18 Jahre und älter. Die Console blockiert diesen
+   Fragebogen ausdrücklich, bis "Anmeldedaten" abgeschlossen ist.
+3. **Datensicherheit.** Der ausgefüllte Entwurf kann erst nach der Zielgruppenangabe
+   abgeschlossen werden. Er nennt In-App-Mitteilungen, Fotos, Dateien und Geräte-IDs
+   für App-Funktionen. Inhaltsdaten sind optional, FCM-Kennungen automatisch erforderlich.
+   Keine pauschale Behauptung "keine Daten erhoben": Auch SDKs und die Host-Verbindung
+   zählen. FCM erhält standardmäßig Thread-Titel und Textauszüge; die Push-Nutzlast
+   ist nicht Ende-zu-Ende-verschlüsselt. Vor der Einreichung die endgültigen Angaben
+   einschließlich Löschmöglichkeit nochmals mit dem tatsächlichen Datenfluss abgleichen.
+
+Danach können die Änderungen zur Google-Prüfung eingereicht und ein öffentlicher
+Release eingerichtet werden. Ein geschlossener 12-Personen-Test ist für das
+bestehende Organisationskonto nicht vorgeschrieben.
+
+Der ursprünglich für später vorgesehene GitHub-Upload bleibt eine eigene Aufgabe:
+Workflow bauen, Schlüssel als Secret hinterlegen und einen Upload testen.
+Das Dienstkonto und der vorhandene Upload-Schlüssel sind dafür einsatzbereit.
 
 Die [Recherche zu Googles Vorgaben](research/google-play-publishing.md) enthält
-die offiziellen Quellen und die offenen Fragen zur Datenschutzerklärung.
+Links zu den offiziellen Quellen.

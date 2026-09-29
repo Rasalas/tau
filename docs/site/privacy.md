@@ -1,6 +1,6 @@
 # Privacy policy
 
-This policy covers the Tau Android app, package `de.tbuck.tau`, and the Tau website on GitHub Pages. Updated 29 September 2026.
+This policy covers the Tau Android app, package `de.tbuck.tau`, and the Tau website on GitHub Pages. Updated 30 September 2026.
 
 [Deutsch: Datenschutzerklärung](privacy-de.md)
 
@@ -15,6 +15,10 @@ Tau connects your phone to a Tau host that you choose and control. It does not r
 Your host can send prompts, files and other context to the AI providers, tools and services you configure. Their processing and retention rules apply to those transfers. If someone else operates your host, that operator can access data on it.
 
 The phone saves host names, connection addresses, trusted host keys, access credentials and app preferences so it can reconnect. Android protects stored access credentials using its Keystore. Connections to your host use TLS. A proxy that you configure can terminate that encryption and handle the traffic. Local network discovery can find nearby Tau hosts.
+
+## Local demo
+
+The optional "Try demo" mode uses sample conversations and scripted replies inside the app. Demo messages and settings stay in memory on the phone. They are not sent to a Tau host or an AI provider and disappear when you exit the demo. This does not disable the Firebase SDK included in the app, described below.
 
 ## Push notifications
 

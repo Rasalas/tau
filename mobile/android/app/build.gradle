@@ -2,7 +2,13 @@ apply plugin: 'com.android.application'
 
 // The app carries Tau's own version, from the repository's package.json.
 def tauVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../../package.json')).version
-def tauVersionCode = tauVersion.tokenize('.-')[0..2].collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
+// Leave room for Android-only rebuilds of the same Tau version. Never reuse a
+// revision already uploaded to Play; the next Tau patch starts its own range.
+def tauAndroidRevision = (project.findProperty('tauAndroidRevision') ?: '0').toString().toInteger()
+if (tauAndroidRevision < 0 || tauAndroidRevision > 99) {
+    throw new GradleException('tauAndroidRevision must be between 0 and 99')
+}
+def tauVersionCode = tauVersion.tokenize('.-')[0..2].collect { it as int }.with { (it[0] * 10000 + it[1] * 100 + it[2]) * 100 + tauAndroidRevision }
 
 android {
     namespace = "de.tbuck.tau"

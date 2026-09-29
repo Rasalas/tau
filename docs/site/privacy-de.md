@@ -1,6 +1,6 @@
 # Datenschutzerklärung
 
-Diese Erklärung gilt für die Android-App Tau mit dem Paketnamen `de.tbuck.tau` und die Tau-Website auf GitHub Pages. Stand: 29. September 2026.
+Diese Erklärung gilt für die Android-App Tau mit dem Paketnamen `de.tbuck.tau` und die Tau-Website auf GitHub Pages. Stand: 30. September 2026.
 
 [English: Privacy policy](privacy.md)
 
@@ -15,6 +15,10 @@ Tau verbindet dein Telefon mit einem Tau-Host, den du selbst auswählst und verw
 Dein Host kann Prompts, Dateien und weiteren Kontext an die von dir eingerichteten KI-Anbieter, Werkzeuge und Dienste senden. Dafür gelten deren Verarbeitungs- und Speicherregeln. Wenn jemand anderes deinen Host betreibt, kann diese Person auf die dortigen Daten zugreifen.
 
 Das Telefon speichert Host-Namen, Verbindungsadressen, vertrauenswürdige Host-Schlüssel, Zugangsdaten und App-Einstellungen für spätere Verbindungen. Android schützt gespeicherte Zugangsdaten mithilfe seines Keystores. Die Verbindung zum Host ist mit TLS verschlüsselt. Ein von dir eingerichteter Proxy kann diese Verschlüsselung beenden und den Datenverkehr verarbeiten. Die lokale Netzwerkerkennung kann Tau-Hosts in der Nähe finden.
+
+## Lokale Demo
+
+Der optionale Modus "Try demo" verwendet Beispielgespräche und vorbereitete Antworten direkt in der App. Demo-Nachrichten und Einstellungen bleiben im Arbeitsspeicher des Telefons. Sie gehen weder an einen Tau-Host noch an einen KI-Anbieter und verschwinden beim Verlassen der Demo. Das in der App enthaltene Firebase-SDK wird dadurch nicht deaktiviert; seine Verarbeitung ist unten beschrieben.
 
 ## Push-Benachrichtigungen
 
