@@ -5,7 +5,9 @@
  * `SHARED_MODULES`, the prebuild through `scripts/build-kits.mjs` — so a
  * prebuilt kit binds exactly what a compiled-on-the-fly one does.
  */
-export const SHARED_MODULE_SPECIFIERS = ["react", "react-dom", "react/jsx-runtime", "lucide-react", "tau"] as const;
+export const SHARED_MODULE_SPECIFIERS = [
+  "react", "react-dom", "react/jsx-runtime", "lucide-react", "@tanstack/react-virtual", "tau",
+] as const;
 
 export type SharedModuleSpecifier = (typeof SHARED_MODULE_SPECIFIERS)[number];
 

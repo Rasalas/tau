@@ -175,7 +175,9 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 builtins and `electron` stay external for the host half, `react`, `react-dom`
 and `lucide-react` stay external — bound to the renderer's own copies — for the
 desktop half, because a second copy of React or of react-dom holds its own
-internals and quietly stops working), so a package brings its own dependencies
+internals and quietly stops working; since API 1.27.0 `@tanstack/react-virtual`
+is bound the same way, the copy the transcript runs, so a virtualized list costs
+a kit no bundled copy of its own), so a package brings its own dependencies
 from its own `node_modules` and needs no build step of its own. The shared list
 is one list: `src/shared/shared-modules.ts` names the specifiers, the renderer
 publishes exactly those and the kit prebuild takes its externals from the same

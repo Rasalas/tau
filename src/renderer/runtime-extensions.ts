@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as ReactDom from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
+import * as ReactVirtual from "@tanstack/react-virtual";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import * as tauApi from "./extension-api";
@@ -19,6 +20,8 @@ export const SHARED_MODULES: Partial<Record<SharedModuleSpecifier, object>> & Re
   // of react-dom holds its own internals and silently does nothing.
   "react-dom": ReactDom,
   "react/jsx-runtime": JsxRuntime,
+  // The transcript already runs it; a list in a kit shares that copy instead of bundling its own.
+  "@tanstack/react-virtual": ReactVirtual,
   tau: tauApi,
 };
 
