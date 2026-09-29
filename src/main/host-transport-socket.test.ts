@@ -69,6 +69,10 @@ function closed(socket: WebSocket): Promise<number> {
   return new Promise((resolve) => socket.once("close", (code) => resolve(code)));
 }
 
+function closedWith(socket: WebSocket): Promise<{ code: number; reason: string }> {
+  return new Promise((resolve) => socket.once("close", (code, reason) => resolve({ code, reason: String(reason) })));
+}
+
 async function hello(port: number, token: string, lastSeq?: number, profile?: string) {
   const socket = connect(port);
   await opened(socket);
@@ -145,12 +149,28 @@ describe("socket host transport", () => {
     expect(await closed(none)).toBe(4401);
   });
 
-  it("refuses a request from a peer that never said hello", async () => {
+  it("refuses a request from a peer that never said hello, as a protocol error", async () => {
     const { transport: started } = await listen();
     const socket = connect(started.port);
     await opened(socket);
     socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: [] } }));
-    expect(await closed(socket)).toBe(4401);
+    expect(await closedWith(socket)).toEqual({ code: 4400, reason: "hello first" });
+  });
+
+  it("closes a malformed frame with 4400, which leaves the token good for the next hello", async () => {
+    const { transport: started } = await listen();
+    for (const garbage of ["{not json", JSON.stringify({ type: "hello", id: "h", hello: { protocol: 1, token: 42 } })]) {
+      const socket = connect(started.port);
+      await opened(socket);
+      socket.send(garbage);
+      expect(await closedWith(socket)).toEqual({ code: 4400, reason: "malformed frame" });
+    }
+    // Garbled after the hello too: still not a refusal of the token.
+    const { socket, frame } = await hello(started.port, TOKEN);
+    await frame;
+    socket.send("} garbled {");
+    expect(await closedWith(socket)).toEqual({ code: 4400, reason: "malformed frame" });
+    expect((await (await hello(started.port, TOKEN)).frame).type).toBe("hello-reply");
   });
 
   it("dispatches a request into the method table and reports a failure as an error", async () => {
@@ -243,7 +263,7 @@ describe("socket host transport on a network that drops peers", () => {
     const early = connect(started.port);
     await opened(early);
     early.send(JSON.stringify({ type: "ping", id: "p0" }));
-    expect(await closed(early)).toBe(4401);
+    expect(await closed(early)).toBe(4400);
 
     const { socket, frame } = await hello(started.port, TOKEN);
     const reply = await frame;

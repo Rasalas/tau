@@ -144,7 +144,7 @@ describe("socket host client", () => {
     vi.useFakeTimers();
     let refused = 0;
     createSocketHostClient("ws://host.test:7788", "wrong-token", { onUnauthorized: () => { refused += 1; } });
-    FakeSocket.opened[0]!.drop(4401);
+    FakeSocket.opened[0]!.drop(4401, "unauthorized");
     await vi.advanceTimersByTimeAsync(5_000);
     // A wrong token never becomes right: no second socket, and one report.
     expect(FakeSocket.opened).toHaveLength(1);
@@ -168,7 +168,7 @@ describe("socket host client", () => {
 
     const request = second.frames().find((frame) => frame.type === "request");
     expect(request).toMatchObject({ request: { method: "host-extensions" } });
-    // The host closes a socket for good (4401) on any frame before its hello.
+    // The host closes a socket (4400) on any frame before its hello.
     expect(second.frames()[0]!.type).toBe("hello");
     second.deliver({ type: "response", response: { id: (request!.request as { id: string }).id, result: [] } });
     await vi.advanceTimersByTimeAsync(0);
@@ -483,6 +483,55 @@ describe("socket host client on a mobile network", () => {
     expect(connection.getState()).toBe("refused");
     expect(connection.getRefusal()).toMatch(/does not accept connections from this page/u);
     expect(client.getConnectionLink()).toMatchObject({ phase: "closed" });
+  });
+
+  it("keeps its token after a malformed-frame close, from this host (4400) or an older one (4401), and backs off", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    const refusals: string[] = [];
+    const { connection } = createSocketHostClient("ws://host.test:7788", "kept-token", { onUnauthorized: (reason) => refusals.push(reason) });
+    void connection.start().catch(() => undefined);
+    const closes: Array<[number, string]> = [[4400, "malformed frame"], [4401, "malformed frame"], [4401, "hello first"], [4400, "hello first"]];
+    let wait = 250;
+    for (const [index, [code, reason]] of closes.entries()) {
+      const socket = FakeSocket.opened[index]!;
+      socket.accept();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(socket.frames()[0]).toMatchObject({ type: "hello", hello: { token: "kept-token" } });
+      socket.drop(code, reason);
+      // An open socket that never got its hello answered does not reset the backoff.
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      expect(FakeSocket.opened).toHaveLength(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeSocket.opened).toHaveLength(index + 2);
+      wait = Math.min(wait * 2, 3_000);
+    }
+    expect(refusals).toEqual([]);
+    expect(connection.getState()).not.toBe("refused");
+    // Answered at last: the next drop is retried at the shortest delay again.
+    const last = FakeSocket.opened.at(-1)!;
+    last.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    answerHello(last, helloReply(1));
+    await vi.advanceTimersByTimeAsync(0);
+    last.drop(4400, "malformed frame");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(FakeSocket.opened).toHaveLength(closes.length + 2);
+    connection.close();
+  });
+
+  it("forgets its token only for the reasons a host refuses one with", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    for (const reason of ["unauthorized", "revoked", "token-rotated"]) {
+      FakeSocket.opened.length = 0;
+      const refusals: string[] = [];
+      createSocketHostClient("ws://host.test:7788", "t", { onUnauthorized: (given) => refusals.push(given) });
+      FakeSocket.opened[0]!.drop(4401, reason);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(refusals).toEqual([reason]);
+      expect(FakeSocket.opened).toHaveLength(1);
+    }
   });
 
   it("reconnects normally after the host closed a socket for a late hello", async () => {
