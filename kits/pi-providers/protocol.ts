@@ -3,6 +3,8 @@
 export const PI_PROVIDERS_EXTENSION_ID = "tau.pi-providers";
 /** Every provider Pi knows, with how it signs in and whether it is set up: `PiProviderView[]`. */
 export const PROVIDERS_COMMAND = "providers";
+/** A provider's site icon as the host fetched it: `{ id, fresh? }` → `SiteIconAnswer`. */
+export const SITE_ICON_COMMAND = "site-icon";
 /** The Providers card's page id; Onboarding opens it for Pi. */
 export const PI_PROVIDERS_PAGE = "pi-providers.settings";
 
@@ -16,4 +18,12 @@ export interface PiProviderView {
   stored?: "api_key" | "oauth";
   apiKey?: { name: string; interactive: boolean };
   oauth?: { name: string; label?: string; subscription: boolean };
+  /** The host its API lives on (`api.example.com`); the address itself stays on the host. */
+  site?: string;
+}
+
+export interface SiteIconAnswer {
+  /** A `data:image/` URL, typed by its bytes; absent when the site has none. */
+  image?: string;
+  site?: string;
 }

@@ -8,7 +8,9 @@ import {
   type SignInFlowContext,
   type SignInMethod,
 } from "tau/host-extension";
-import { PI_PROVIDERS_EXTENSION_ID, PROVIDERS_COMMAND, type PiProviderView } from "./protocol.js";
+import { join } from "node:path";
+import { PI_PROVIDERS_EXTENSION_ID, PROVIDERS_COMMAND, SITE_ICON_COMMAND, type PiProviderView, type SiteIconAnswer } from "./protocol.js";
+import { fetchSiteIcon, isLocalProvider, SiteIconCache } from "./site-icon.js";
 
 /** The ways a provider signs in, as Pi's `/login` offers them. */
 export function providerMethods(provider: HostModelProviderAuth): SignInMethod[] {
@@ -32,8 +34,20 @@ export function providerAccount(provider: HostModelProviderAuth): SignInAccount 
   return { signedIn: true, label: provider.label ?? provider.name, detail: from, canSignOut: false };
 }
 
+/** Where a provider's API lives, as far as a window needs to know: the host name, never the address. */
+function siteOf(baseUrl: string | undefined): string | undefined {
+  try {
+    const url = baseUrl ? new URL(baseUrl) : undefined;
+    return url && (url.protocol === "http:" || url.protocol === "https:") ? url.host : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function view(provider: HostModelProviderAuth): PiProviderView {
-  return { ...provider };
+  const { baseUrl, ...rest } = provider;
+  const site = siteOf(baseUrl);
+  return { ...rest, ...(site ? { site } : {}) };
 }
 
 /** Pi's question, asked in the flow; a manual code is the text a provider's page shows or the address it ends on. */
@@ -68,6 +82,17 @@ export function createPiProvidersHostExtension(): HostExtension {
         return provider;
       };
       context.registerCommand(PROVIDERS_COMMAND, async () => (await seam().providers()).map(view), { access: "read" });
+      const icons = new SiteIconCache(join(context.services.stateDir, "site-icons.json"), (origin, local) => fetchSiteIcon(origin, { allowPrivate: local }));
+      // Takes a provider id, never an address, so no client can point the host at a URL of its choosing.
+      context.registerCommand(SITE_ICON_COMMAND, async (input): Promise<SiteIconAnswer> => {
+        const { id, fresh } = (input ?? {}) as { id?: unknown; fresh?: unknown };
+        if (typeof id !== "string") throw new HostCommandError("Name the provider.");
+        const provider = await find(id);
+        const site = siteOf(provider.baseUrl);
+        if (!site || !provider.baseUrl) return {};
+        const image = await icons.icon(provider.baseUrl, { fresh: fresh === true, local: await isLocalProvider(provider.baseUrl) });
+        return { site, ...(image ? { image } : {}) };
+      }, { audit: { label: "looked up a provider's site icon", automatic: true } });
       const signIn = registerSignIn(context, {
         report: async (id) => {
           const provider = await find(id);

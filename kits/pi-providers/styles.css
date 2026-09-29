@@ -11,3 +11,6 @@
 .pi-provider-mark:empty { display: none; }
 .pi-provider-detail { margin-top: var(--space-4); border: 1px solid var(--line-inset); border-radius: var(--radius-md); overflow: hidden; }
 .pi-provider-detail > * + * { border-top: 1px solid var(--line-inset); }
+/* A provider's logo row: its mark as it is drawn now, then the ways to change it. */
+.pi-provider-logo { display: flex; align-items: center; gap: var(--space-3); }
+.pi-provider-logo-mark { display: inline-flex; width: 20px; justify-content: center; }

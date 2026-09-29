@@ -1,7 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
-import { Button, HelpTip, ProviderIconStack, SIGN_IN_EVENT, SettingRow, SettingsState, loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type SettingsPageProps, type SignInEvent, type WorkbenchActions } from "tau";
-import { PI_PROVIDERS_EXTENSION_ID, PI_PROVIDERS_PAGE, PROVIDERS_COMMAND, type PiProviderView } from "./protocol.js";
+import { Button, HelpTip, ProviderIconStack, SIGN_IN_EVENT, SettingRow, SettingsState, loadSignInUi, providerHasMark, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type SettingsPageProps, type SignInEvent, type WorkbenchActions } from "tau";
+import { PI_PROVIDERS_EXTENSION_ID, PI_PROVIDERS_PAGE, PROVIDERS_COMMAND, SITE_ICON_COMMAND, type PiProviderView, type SiteIconAnswer } from "./protocol.js";
+import { applySiteIcon, providerIconKey, publishProviderIcons, rasterizeIcon, readProviderIcon, syncSiteIcons, writeProviderIcon, type ProviderIconChoice, type SiteIconSync } from "./provider-icons.js";
 
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 const CardBadge = lazy(() => loadSignInUi().then((module) => ({ default: module.ProviderCardBadgeReport })));
@@ -40,6 +41,84 @@ export function providerRowId(provider: PiProviderView): string {
   return `setting-pi-providers-${provider.id.replace(/[^a-z0-9-]+/giu, "-")}`;
 }
 
+/** What the card needs to show and change a provider's picture; the extension builds it from the host and its values. */
+export interface ProviderIconControls {
+  preferences: Pick<PreferencesStore, "value" | "setValue" | "getSnapshot" | "subscribe">;
+  fetch(id: string, fresh: boolean): Promise<SiteIconAnswer>;
+  rasterize(source: string | Blob): Promise<string>;
+}
+
+function iconSync(host: Pick<HostExtensionClient, "invoke">, controls: ProviderIconControls): SiteIconSync {
+  return {
+    providers: async () => await host.invoke(PROVIDERS_COMMAND) as PiProviderView[],
+    read: (id) => readProviderIcon(controls.preferences, id),
+    write: (id, choice) => writeProviderIcon(controls.preferences, id, choice),
+    fetch: controls.fetch,
+    rasterize: controls.rasterize,
+    hasMark: providerHasMark,
+    now: () => Date.now(),
+  };
+}
+
+function useProviderIconChoice(controls: ProviderIconControls, id: string): ProviderIconChoice | undefined {
+  const raw = useSyncExternalStore(controls.preferences.subscribe, () => controls.preferences.value(PI_PROVIDERS_EXTENSION_ID, providerIconKey(id)));
+  return useMemo(() => (raw === undefined ? undefined : readProviderIcon(controls.preferences, id)), [controls, id, raw]);
+}
+
+/** Where a provider's picture comes from, for the row that changes it. */
+export function logoState(provider: PiProviderView, choice: ProviderIconChoice | undefined): string {
+  if (choice?.kind === "site") return `The icon of ${choice.site}.`;
+  if (choice?.kind === "upload") return "Your picture.";
+  if (choice?.kind === "none") return `${provider.site ?? "Its site"} has no icon Tau can use; its initial stands in.`;
+  if (choice?.kind === "removed") return "Its initial, as you chose.";
+  return provider.site ? `None yet; Tau fetches the icon of ${provider.site} once it is set up.` : "Its initial. Choose a picture, or give the provider a base URL.";
+}
+
+/** A provider without a mark of Tau's own: its site's icon, a picture of the user's, or its initial. */
+function ProviderLogo({ provider, controls, onNotify }: { provider: PiProviderView; controls: ProviderIconControls; onNotify(message: string): void }) {
+  const choice = useProviderIconChoice(controls, provider.id);
+  const [busy, setBusy] = useState<"site" | "upload">();
+  const file = useRef<HTMLInputElement>(null);
+  const sync = useMemo(() => ({ fetch: controls.fetch, rasterize: controls.rasterize, write: (id: string, next: ProviderIconChoice) => writeProviderIcon(controls.preferences, id, next), now: () => Date.now() }), [controls]);
+  const fromSite = async () => {
+    setBusy("site");
+    try {
+      if (!await applySiteIcon(sync, provider.id, true)) onNotify(`${provider.site ?? provider.name} has no icon Tau can use.`);
+    } catch (failure) {
+      onNotify(`Could not fetch the icon of ${provider.site ?? provider.name}: ${errorMessage(failure)}`);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  const upload = async (picked: File) => {
+    setBusy("upload");
+    try {
+      writeProviderIcon(controls.preferences, provider.id, { kind: "upload", image: await controls.rasterize(picked) });
+    } catch (failure) {
+      onNotify(`Could not read ${picked.name}: ${errorMessage(failure)}`);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  const hasPicture = choice?.kind === "site" || choice?.kind === "upload";
+  return (
+    <SettingRow
+      title="Logo"
+      description={logoState(provider, choice)}
+      control={
+        <div className="pi-provider-logo">
+          <span className="pi-provider-logo-mark" aria-hidden><ProviderIconStack modelProvider={provider.id} hint={false} /></span>
+          {provider.site ? <Button busy={busy === "site"} disabled={Boolean(busy)} onClick={() => void fromSite()}>{choice?.kind === "site" ? "Check again" : "Use site icon"}</Button> : null}
+          <Button busy={busy === "upload"} disabled={Boolean(busy)} onClick={() => file.current?.click()}>Choose…</Button>
+          {hasPicture ? <Button variant="ghost" disabled={Boolean(busy)} onClick={() => writeProviderIcon(controls.preferences, provider.id, { kind: "removed" })}>Remove</Button> : null}
+          <input ref={file} type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,image/x-icon" aria-label={`Picture for ${provider.name}`}
+            onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) void upload(picked); }} />
+        </div>
+      }
+    />
+  );
+}
+
 /** One provider: its name and how it is set up or could be, opening into the account rows core draws. */
 function ProviderRow({ provider, open, onToggle, children }: { provider: PiProviderView; open: boolean; onToggle(): void; children?: ReactNode }) {
   const verb = provider.configured ? "Manage" : "Set up";
@@ -75,7 +154,7 @@ function GroupHead({ title, count, help }: { title: string; count: number; help?
  * every other one it can sign in to or take a key for, as Pi's `/login` offers
  * them. A row opens the account rows core draws (`loadSignInUi`).
  */
-export function PiProvidersCard({ host, onNotify }: SettingsPageProps & { host: HostExtensionClient }) {
+export function PiProvidersCard({ host, icons, onNotify }: SettingsPageProps & { host: HostExtensionClient; icons?: ProviderIconControls }) {
   const [providers, setProviders] = useState<PiProviderView[]>();
   const [error, setError] = useState<string>();
   const [filter, setFilter] = useState("");
@@ -91,6 +170,8 @@ export function PiProvidersCard({ host, onNotify }: SettingsPageProps & { host: 
     }
   }, [host]);
   useEffect(() => { void load(); }, [load]);
+  // Opening the card is a check: a provider set up since the last one gets its site icon.
+  useEffect(() => { if (icons && providers) void syncSiteIcons({ ...iconSync(host, icons), providers: async () => providers }); }, [host, icons, providers]);
   // A finished flow or a sign-out anywhere changes what is set up.
   useEffect(() => host.onEvent(SIGN_IN_EVENT, (payload) => { if ((payload as SignInEvent | undefined)?.report) void load(); }), [host, load]);
 
@@ -102,6 +183,7 @@ export function PiProvidersCard({ host, onNotify }: SettingsPageProps & { host: 
 
   const row = (provider: PiProviderView) => (
     <ProviderRow key={provider.id} provider={provider} open={open === provider.id} onToggle={() => setOpen(open === provider.id ? undefined : provider.id)}>
+      {icons && !providerHasMark(provider.id) ? <ProviderLogo provider={provider} controls={icons} onNotify={onNotify} /> : null}
       <SignIn
         host={host}
         target={provider.id}
@@ -151,7 +233,23 @@ export const piProvidersExtension: DesktopExtension = {
   id: PI_PROVIDERS_EXTENSION_ID,
   name: "Pi Providers",
   activate(plugin) {
-    return plugin.registerSettingsPage({
+    const icons: ProviderIconControls = {
+      preferences: plugin.preferences,
+      fetch: async (id, fresh) => await plugin.host.invoke(SITE_ICON_COMMAND, { id, fresh }) as SiteIconAnswer,
+      rasterize: (source) => rasterizeIcon(source),
+    };
+    const unpublish = publishProviderIcons(plugin.preferences, (pictures) => plugin.setProviderIcons(pictures));
+    // A provider added or signed in shows up in the next catalog; its site icon is fetched then, once.
+    let known = "";
+    let running: Promise<unknown> | undefined;
+    const check = () => { running ??= syncSiteIcons(iconSync(plugin.host, icons)).catch(() => 0).finally(() => { running = undefined; }); };
+    const stopWatching = plugin.events.on("models-changed", ({ providers }) => {
+      const signature = providers.join("\n");
+      if (signature === known) return;
+      known = signature;
+      check();
+    });
+    const page = plugin.registerSettingsPage({
       id: PI_PROVIDERS_PAGE,
       label: "Pi",
       profiles: ["desktop", "web"],
@@ -159,8 +257,9 @@ export const piProvidersExtension: DesktopExtension = {
       order: 0,
       keywords: ["pi", "login", "sign in", "api key", "provider", "anthropic", "openai", "google", "openrouter"],
       rows: [{ id: LIST_ROW, label: "Pi's model providers", keywords: ["login", "sign in", "api key", "auth.json", "anthropic", "openai", "google", "openrouter"] }],
-      Component: (props: SettingsPageProps) => <PiProvidersCard {...props} host={plugin.host} />,
+      Component: (props: SettingsPageProps) => <PiProvidersCard {...props} host={plugin.host} icons={icons} />,
     });
+    return () => { page(); stopWatching(); unpublish(); };
   },
 };
 
