@@ -1339,6 +1339,12 @@ export interface DesktopExtensionContext {
   setLiveStatus(sessionId: string, label: string | undefined): void;
   /** Publishes how threads this extension created relate to their parents; `undefined` withdraws it. */
   setThreadLineage(lineage: ThreadLineage | undefined): void;
+  /**
+   * Pictures this extension draws projects with, by a project's `workspaceId`
+   * or `path`, as `data:image/` URLs. Every project mark core draws uses them
+   * before the host's; the first extension's wins, `undefined` withdraws them.
+   */
+  setProjectIcons(icons: Readonly<Record<string, string>> | undefined): void;
   /** Replaces this extension's problems in Settings → Inspector; `[]` clears them. */
   setProblems(problems: readonly ExtensionProblem[]): void;
   /**
@@ -1515,6 +1521,7 @@ export class ExtensionRegistry {
   /** Thread lineage per extension; entries merge, the first extension's answer wins. */
   private lineages = new Map<string, ThreadLineage>();
   private lineageCache: { version: number; value: ThreadLineage } | undefined;
+  private projectIcons = new Map<string, Readonly<Record<string, string>>>();
   private problems = new Map<string, Array<ExtensionProblem & ContributionOwner>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
@@ -1722,6 +1729,12 @@ export class ExtensionRegistry {
       setThreadLineage: (lineage) => {
         if (lineage) this.lineages.set(extension.id, lineage);
         else this.lineages.delete(extension.id);
+        this.changed();
+      },
+      setProjectIcons: (icons) => {
+        const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")));
+        if (Object.keys(pictures).length > 0) this.projectIcons.set(extension.id, pictures);
+        else if (!this.projectIcons.delete(extension.id)) return;
         this.changed();
       },
       setProblems: (problems) => {
@@ -1961,6 +1974,7 @@ export class ExtensionRegistry {
     this.profiledContributions.delete(id);
     this.liveStatuses.delete(id);
     this.lineages.delete(id);
+    this.projectIcons.delete(id);
     this.problems.delete(id);
     this.changed();
     if (cleanupError) throw cleanupError;
@@ -2033,6 +2047,15 @@ export class ExtensionRegistry {
   /** What the active extensions reported as wrong, in activation order. */
   getProblems(): Array<ExtensionProblem & ContributionOwner> {
     return [...this.problems.values()].flat();
+  }
+
+  /** The picture an extension chose for a project, if any (`setProjectIcons`). */
+  projectIcon(project: { workspaceId?: string | undefined; path: string }): string | undefined {
+    for (const icons of this.projectIcons.values()) {
+      const icon = (project.workspaceId ? icons[project.workspaceId] : undefined) ?? icons[project.path];
+      if (icon) return icon;
+    }
+    return undefined;
   }
 
   /** Lineage of every extension, merged into one map the navigator can read. */

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Check, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
-import { projectHue, projectInitial } from "../components/ThreadRow";
+import { ProjectIcon } from "../components/ProjectIcon";
 import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { useHostCapabilities } from "../use-host-capabilities";
@@ -103,7 +103,7 @@ function ProjectFilter({ projects, project, onChange }: {
   return <>
     <button type="button" className="touch-icon-button touch-project-filter" aria-haspopup="dialog" aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => setOpen(true)}>
       {project
-        ? <i className={`thread-project-icon touch-project-tile${project.icon ? " has-image" : ""}`} style={{ "--project-hue": projectHue(project.path) } as CSSProperties} aria-hidden="true">{project.icon ? <img src={project.icon} alt="" /> : projectInitial(project.name)}</i>
+        ? <ProjectIcon project={project} className="touch-project-tile" />
         : <Folder size={19} aria-hidden="true" />}
     </button>
     {open ? <ActionSheet

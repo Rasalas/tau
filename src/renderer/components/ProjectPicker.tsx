@@ -5,6 +5,7 @@ import { pickerOrder } from "../../workbench/new-thread-project";
 import { namesWorkspace } from "../../shared/workspace-identity";
 import { Sheet } from "../touch/Sheet";
 import { Popover } from "./ui/Dialog";
+import { ProjectIcon } from "./ProjectIcon";
 import { VirtualList } from "./VirtualList";
 import { useFocusReturn } from "./ui/focus";
 import "./project-picker.css";
@@ -27,10 +28,6 @@ interface ProjectPickerProps {
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;
   onSelect: (project: UiProject) => void;
-}
-
-function projectInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "·";
 }
 
 function compactPath(path: string): string {
@@ -164,9 +161,7 @@ export function ProjectPicker({
             });
           }}
         >
-          <i className={project.icon ? "has-image" : ""}>
-            {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
-          </i>
+          <ProjectIcon project={project} />
           <span>
             <strong>{project.name}</strong>
             <small>{machine ? `${machine} · ` : ""}{compactPath(project.displayPath ?? project.path)}</small>

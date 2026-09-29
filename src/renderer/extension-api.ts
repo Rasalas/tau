@@ -79,6 +79,8 @@ export type { ToastAction, ToastHandle, ToastOptions, ToastType } from "../workb
 export { FileKindIcon } from "./components/FileKindIcon";
 // `projectHue` (API 1.27.0): the hue a row tints a project's tile with, for a tile drawn beside the rows.
 export { projectHue, ThreadRow } from "./components/ThreadRow";
+// A project's mark, with the picture a kit published (`setProjectIcons`) before the host's (API 1.28.0).
+export { ProjectIcon, useProjectIcon, type ProjectIconSubject } from "./components/ProjectIcon";
 export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
 export { ProviderIconStack, providerStackLabel } from "./components/ProviderIconStack";

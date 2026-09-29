@@ -39,7 +39,7 @@ import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
 import { DraftDetails, ThreadDetails, ThreadHeader } from "./components/ThreadHeader";
-import { projectHue, projectInitial } from "./components/ThreadRow";
+import { ProjectIcon } from "./components/ProjectIcon";
 import { WindowControlsInset } from "./components/WindowControlsInset";
 import { useHostClient } from "./host-client-context";
 import { ResizeHandle } from "./components/ResizeHandle";
@@ -645,8 +645,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>);
 
   const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
-  // The icon the host found for the draft's project (favicon, t3.json), as the picker and the phone's list draw it.
-  const startIcon = showStartScreen ? projects.find((project) => project.path === startProjectPath)?.icon : undefined;
+  const startProject = showStartScreen ? projects.find((project) => project.path === startProjectPath) : undefined;
   const threadTitle = showStartScreen ? <span className="title-draft">New thread</span> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
@@ -787,7 +786,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                     openNewThreadPicker({ carry: true, preselect: startProjectPath, ...(compact ? {} : { anchor: { x: rect.left, y: rect.bottom } }) });
                   }}
                 >
-                  <i className={`thread-project-icon${startIcon ? " has-image" : ""}`} style={{ "--project-hue": projectHue(startProjectPath) } as CSSProperties}>{startIcon ? <img src={startIcon} alt="" /> : projectInitial(startProjectName)}</i>
+                  <ProjectIcon project={startProject ?? { path: startProjectPath, name: startProjectName }} />
                   <span>{startProjectName}</span><ChevronDown size={12} />
                 </button>} />
               </div> : null}
