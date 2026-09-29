@@ -218,7 +218,7 @@ describe("workbench layout", () => {
     fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
     fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
     await waitFor(() => expect(view.container.querySelector(".workbench-center")?.className).toContain("conversation-folded"));
-    expect(screen.getByRole("navigation", { name: "Conversation" })).toBeTruthy();
+    expect(await screen.findByRole("navigation", { name: "Conversation" })).toBeTruthy();
   });
 
   it("draws a drawer panel below the conversation from its tool, resizes it and keeps the height for this client", async () => {
