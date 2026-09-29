@@ -52,8 +52,8 @@
 .panel-pane { position: relative; }
 
 /* A tablet: the strip and its targets at a finger's size; names stay whole and the strip scrolls. */
-body[data-profile="compact"] .stage-strip { height: 52px; }
-body[data-profile="compact"] .stage-tab { height: 44px; font-size: var(--text-lg); padding-left: 14px; }
+body[data-profile="compact"] .stage-strip { height: calc(52px * var(--text-scale)); }
+body[data-profile="compact"] .stage-tab { height: var(--touch-target); font-size: var(--text-sm); padding-left: 14px; }
 body[data-profile="compact"] .stage-tab { padding-right: 44px; }
 body[data-profile="compact"] .stage-tab-close { width: 36px; height: 36px; right: 4px; opacity: 1; }
 body[data-profile="compact"] .stage-strip-actions .stage-tool { width: 44px; height: 44px; }

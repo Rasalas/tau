@@ -4,6 +4,8 @@ import { createLocalStorageAdapter } from "../renderer/browser-storage";
 import { setHostClient } from "../renderer/host-client-context";
 import { createRendererServices } from "../renderer/renderer-services";
 import { primaryPointerIsTouch } from "../renderer/touch-input";
+import { appleDynamicType, applyTypeScale, deviceClassFor } from "../renderer/type-scale";
+import { screenMinSide } from "../renderer/use-layout-profile";
 import { setClientStorage } from "../workbench/client-storage";
 import { browserClientProfile } from "../workbench/client-profile";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
@@ -31,6 +33,9 @@ const root = createRoot(document.getElementById("root")!);
 // Which client this is, decided once: a tab that starts phone-sized, or on a
 // touch screen, claims the compact profile; a resize afterwards changes only the layout.
 const profile = browserClientProfile(window.innerWidth, new URLSearchParams(window.location.search).get("profile"), primaryPointerIsTouch());
+// A phone or tablet reads larger, and at the system's text size where the browser says it (ADR 0029).
+const device = deviceClassFor(profile, primaryPointerIsTouch(), screenMinSide());
+applyTypeScale(device, device === "desktop" ? undefined : appleDynamicType());
 
 function showGate(notice?: string): void {
   root.render(<StrictMode>

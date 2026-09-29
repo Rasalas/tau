@@ -203,16 +203,26 @@ describe("the token contract", () => {
     expect(mark).toMatch(/--project-ink:\s*light-dark\(hsl\(var\(--project-hue\)/u);
   });
 
-  it("sets the design's type scale as Default, with Small and Large a step either side", async () => {
-    const scale = (css: string) => Object.fromEntries([...css.matchAll(/--(text-(?:xs|sm|md|lg|title)|label-size):\s*(\d+)px/gu)].map((m) => [m[1]!, Number(m[2])]));
-    const byDefault = scale(await readFile(TOKENS, "utf8"));
-    // Design K96 measured: meta 11, controls 12, body 13, a thread's heading 17.
-    expect(byDefault).toEqual({ "label-size": 11, "text-xs": 11, "text-sm": 12, "text-md": 13, "text-lg": 14, "text-title": 17 });
-    const appearance = await readFile(new URL("../../kits/appearance/styles.css", import.meta.url), "utf8");
-    for (const [size, step] of [["small", -1], ["large", 1]] as const) {
-      const rule = new RegExp(`\\[data-text-size="${size}"\\]\\s*\\{([^}]*)\\}`, "u").exec(appearance)?.[1] ?? "";
-      expect(scale(rule)).toEqual(Object.fromEntries(Object.entries(byDefault).map(([name, px]) => [name, px + step])));
+  it("sets each role per device class: the design on a desktop, larger on a tablet and a phone (ADR 0029)", async () => {
+    const tokens = await readFile(TOKENS, "utf8");
+    const roles = (css: string) => Object.fromEntries([...css.matchAll(/--type-(xs|sm|md|lg|title|display|code|input):\s*(\d+)px/gu)].map((m) => [m[1]!, Number(m[2])]));
+    const root = /^:root\s*\{([\s\S]*?)^\}/mu.exec(tokens)?.[1] ?? "";
+    const desktop = roles(root);
+    const device = (name: string) => ({ ...desktop, ...roles(new RegExp(`:root\\[data-device="${name}"\\]\\s*\\{([^}]*)\\}`, "u").exec(tokens)?.[1] ?? "") });
+    // Design K96 measured: meta 11, controls 12, body 13, a thread's heading 17, a page's 24.
+    expect(desktop).toEqual({ xs: 11, sm: 12, md: 13, lg: 14, title: 17, display: 24, code: 12, input: 13 });
+    expect(device("tablet")).toEqual({ xs: 12, sm: 13, md: 15, lg: 16, title: 17, display: 24, code: 13, input: 16 });
+    expect(device("phone")).toEqual({ xs: 13, sm: 14, md: 16, lg: 17, title: 17, display: 27, code: 14, input: 16 });
+    // Every size is the role times the system's text size, then Tau's own step; a page head takes no step.
+    for (const role of ["xs", "sm", "md", "lg", "title", "code"]) {
+      expect(root).toContain(`--text-${role}: calc(var(--type-${role}) * var(--text-scale) + var(--text-step));`);
     }
+    expect(root).toContain("--text-display: calc(var(--type-display) * var(--text-scale));");
+    expect(root).toMatch(/--text-input: max\(var\(--type-input-min\), calc\(var\(--type-input\) \* var\(--text-scale\) \+ var\(--text-step\)\)\);/u);
+    expect(tokens).toMatch(/:root\[data-device="phone"\][^}]*--type-input-min: 16px/u);
+    const appearance = await readFile(new URL("../../kits/appearance/styles.css", import.meta.url), "utf8");
+    expect(appearance).toMatch(/\[data-text-size="small"\]\s*\{\s*--text-step: -1px;\s*\}/u);
+    expect(appearance).toMatch(/\[data-text-size="large"\]\s*\{\s*--text-step: 1px;\s*\}/u);
   });
 
   it("defines every token the stylesheets ask for", async () => {

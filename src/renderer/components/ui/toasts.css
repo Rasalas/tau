@@ -64,7 +64,7 @@
 @media (prefers-reduced-motion: reduce) { .toast-stack[data-placement="bottom"] .toast-item { animation: none; } }
 .toast-stack[data-placement="bottom"] .toast-card { padding: 4px 4px 4px 14px; }
 .toast-stack[data-placement="bottom"] .toast-type { height: 20px; margin-top: 10px; }
-.toast-stack[data-placement="bottom"] .toast-body { padding-block: 10px 8px; font-size: var(--text-lg); line-height: 20px; }
+.toast-stack[data-placement="bottom"] .toast-body { padding-block: 10px 8px; font-size: var(--text-md); line-height: 1.3; }
 .toast-stack[data-placement="bottom"] .toast-icon-button { width: 44px; height: 44px; }
 .toast-stack[data-placement="bottom"] .toast-icon-button > svg { width: 18px; height: 18px; }
-.toast-stack[data-placement="bottom"] .toast-actions > button { min-height: 44px; padding: 0 16px; font-size: var(--text-lg); }
+.toast-stack[data-placement="bottom"] .toast-actions > button { min-height: var(--touch-target); padding: 0 16px; font-size: var(--text-md); }

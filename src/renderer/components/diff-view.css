@@ -1,5 +1,5 @@
 /* The diff rows DiffView draws; they load with its chunk, not with the first paint. */
-.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: block; font: calc(12px * var(--code-font-scale, 1))/26px var(--code-font-family, var(--mono)); }
+.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: block; font: calc(var(--text-code) * var(--code-font-scale, 1))/26px var(--code-font-family, var(--mono)); }
 .diff-stream { min-width: 0; }
 /* Rows are absolutely placed by the virtualizer and measured for wrapped text. */
 .diff-stream-row { overflow: clip; }

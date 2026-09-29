@@ -27,10 +27,12 @@
 .touch-browser.screen.home { z-index: 42; animation: none; }
 .touch-browser-header {
   flex: none; display: flex; align-items: center; gap: 2px;
-  height: 52px; padding: 0 6px 0 14px;
+  min-height: 52px; padding: 0 6px 0 14px;
 }
 .touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
-.touch-browser-header > strong { min-width: 0; font: 650 17px/1.2 var(--sans); letter-spacing: -0.01em; }
+.touch-browser-header > strong { min-width: 0; font: 650 var(--text-title)/1.2 var(--sans); letter-spacing: -0.01em; }
+/* The phone's start page carries its title as Reviews, Usage and Settings do (design 1p, 1r, 1s). */
+.touch-browser.screen.home .touch-browser-header > strong { font-size: var(--text-display); }
 .touch-browser-header > .spacer { flex: 1; }
 .touch-icon-button {
   width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
@@ -72,8 +74,8 @@
 .popover.touch-menu { width: min(240px, calc(100vw - 16px)); }
 .touch-menu [role="menu"] { display: flex; flex-direction: column; }
 .touch-menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
-  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px;
-  border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: 500 15px var(--sans); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 12px; min-height: var(--touch-target); padding: 0 12px;
+  border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: 500 var(--text-lg) var(--sans); text-align: left; cursor: pointer;
 }
 .touch-menu :is([role="menuitem"], [role="menuitemcheckbox"]) > svg { color: var(--muted); }
 .touch-menu :is([role="menuitem"], [role="menuitemcheckbox"]):is(:active, :focus-visible) { background: var(--hover-strong); }
@@ -81,23 +83,23 @@
 .touch-menu [role="menuitemcheckbox"][aria-checked="true"] { background: var(--raised); font-weight: 600; }
 .touch-menu [role="menuitemcheckbox"][aria-checked="true"] > svg { color: var(--acid-text); }
 .touch-search-field {
-  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 2px 0 12px;
+  display: flex; align-items: center; gap: 8px; min-height: var(--touch-target); padding: 0 2px 0 12px;
   border-radius: 10px; background: var(--field); color: var(--muted);
 }
 .touch-search-field > input { flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--ink); outline: none; }
 .touch-search-field > input::-webkit-search-cancel-button { display: none; }
 .touch-search-results { list-style: none; margin: 6px 0 0; padding: 0; }
 .touch-search-results button {
-  width: 100%; display: flex; flex-direction: column; gap: 2px; min-height: 48px; padding: 7px 10px;
+  width: 100%; display: flex; flex-direction: column; gap: 2px; min-height: calc(48px * var(--text-scale)); padding: 7px 10px;
   border: 0; border-radius: 10px; background: transparent; color: var(--ink); text-align: left; cursor: pointer;
 }
 .touch-search-results button:active, .touch-search-results button:focus-visible { background: var(--hover-strong); }
-.touch-search-results strong { font: 550 15px var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.touch-search-results small { font: var(--text-md) var(--sans); color: var(--muted); }
-.touch-search-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px; font: var(--text-lg)/1.4 var(--sans); color: var(--muted); }
+.touch-search-results strong { font: 550 var(--text-md) var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.touch-search-results small { font: var(--text-sm) var(--sans); color: var(--muted); }
+.touch-search-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px; font: var(--text-md)/1.4 var(--sans); color: var(--muted); }
 .touch-search-empty > button, .touch-thread-empty > button {
-  min-height: 44px; padding: 0 16px; border: 1px solid var(--line-control); border-radius: 10px;
-  background: var(--raised); color: var(--ink); font: 550 15px var(--sans); cursor: pointer;
+  min-height: var(--touch-target); padding: 0 16px; border: 1px solid var(--line-control); border-radius: 10px;
+  background: var(--raised); color: var(--ink); font: 550 var(--text-md) var(--sans); cursor: pointer;
 }
 
 /* ------------------------------------------------------------- the list */
@@ -106,12 +108,12 @@
 /* Group labels as the desktop rail's: quiet text, no rule. */
 .touch-thread-group {
   display: flex; align-items: center; gap: 8px; padding: 16px 12px 6px;
-  color: var(--faint); font: 500 var(--text-md) var(--sans);
+  color: var(--faint); font: 500 var(--text-xs) var(--sans);
 }
 /* The shelf's header, the design's quiet "Settled · 41": no rule, a small chevron that turns when open, 44 px to tap. */
 .touch-thread-shelf-toggle {
-  width: 100%; min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 8px 12px 0;
-  border: 0; background: transparent; color: var(--muted); font: 400 var(--text-md) var(--sans); text-align: left; cursor: pointer;
+  width: 100%; min-height: var(--touch-target); display: flex; align-items: center; gap: 6px; padding: 8px 12px 0;
+  border: 0; background: transparent; color: var(--muted); font: 400 var(--text-xs) var(--sans); text-align: left; cursor: pointer;
 }
 .touch-thread-shelf-toggle > svg { flex: none; color: var(--faint); transition: transform var(--motion-fast) ease; }
 .touch-thread-shelf-toggle[aria-expanded="false"] > svg { transform: rotate(-90deg); }
@@ -119,22 +121,20 @@
 .touch-thread-row .swipe-row-content { background: var(--touch-list-ground, var(--rail)); }
 /* The desktop rail's card (ThreadRow's classes), at touch sizes: spacing and the active surface, no rules between rows. */
 .touch-thread-row .thread-row:active { background: var(--hover); }
-.touch-thread-row .thread-main { min-height: 44px; padding: 10px 12px; }
-.touch-thread-row .thread-project-line { height: 20px; }
-.touch-thread-row .thread-project-line > strong { font-size: var(--text-md); }
-.touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: var(--text-md); }
-.touch-thread-row .thread-status-age { font-size: var(--text-md); }
-.touch-thread-row .thread-title { margin-top: 4px; font: 400 16px/21px var(--sans); }
-.touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 18px; }
-.touch-thread-row .thread-meta-line { margin-top: 3px; line-height: 18px; }
-.touch-thread-row .thread-branch { font-size: var(--text-sm); }
+.touch-thread-row .thread-main { min-height: var(--touch-target); padding: 10px 12px; }
+/* Meta at the device's meta size (ADR 0029); lines in em, so a larger system text size never clips them. */
+.touch-thread-row .thread-project-line { height: auto; min-height: 20px; }
+.touch-thread-row .thread-project-line > time, .touch-thread-row .thread-row.compact time { font-size: var(--text-xs); }
+.touch-thread-row .thread-title { margin-top: 4px; font: 400 var(--text-md)/1.3 var(--sans); }
+.touch-thread-row .thread-meta-line { margin-top: 3px; font-size: var(--text-xs); }
+.touch-thread-row .thread-meta-line, .touch-thread-row .thread-meta-line > * { height: 1.4em; line-height: 1.4em; }
 /* A draft's mark stays: a touch leaves :hover behind, and Discard lives in the sheet. */
-.touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: var(--text-md); }
+.touch-draft-row .thread-draft-mark, .touch-draft-row .thread-row:hover .thread-draft-mark { visibility: visible; font-size: var(--text-xs); }
 .touch-thread-pin { flex: none; color: var(--faint); }
 .touch-thread-provider { flex: none; }
 /* Settled rows are the rail's slim, quiet ones. */
 .touch-thread-row .thread-row.compact .thread-main { padding-block: 10px; }
-.touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 400 15px/20px var(--sans); color: var(--muted); }
+.touch-thread-row .thread-row.compact .thread-title { margin: 0; font: 400 var(--text-md)/1.3 var(--sans); color: var(--muted); }
 /* Keyboard and screen-reader way to the actions a long press opens. */
 .touch-thread-more {
   position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;
@@ -144,25 +144,25 @@
 .touch-thread-more:focus-visible { opacity: 1; pointer-events: auto; }
 .touch-thread-empty {
   display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 32px 20px; text-align: center;
-  font: var(--text-lg)/1.45 var(--sans); color: var(--muted);
+  font: var(--text-md)/1.45 var(--sans); color: var(--muted);
 }
-.touch-thread-empty > strong { font: 600 16px var(--sans); color: var(--ink-2); }
+.touch-thread-empty > strong { font: 600 var(--text-lg) var(--sans); color: var(--ink-2); }
 .touch-thread-empty > button { margin-top: 10px; }
 .touch-thread-notice {
   display: flex; flex-direction: column; gap: 2px; margin: 4px 12px 8px; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--sunken);
-  font: var(--text-md)/1.4 var(--sans); color: var(--muted);
+  font: var(--text-sm)/1.4 var(--sans); color: var(--muted);
 }
-.touch-thread-notice > strong { font: 600 var(--text-lg) var(--sans); color: var(--ink-2); }
+.touch-thread-notice > strong { font: 600 var(--text-md) var(--sans); color: var(--ink-2); }
 .touch-thread-notice.refused > strong { color: var(--danger); }
 .touch-thread-more-rows { padding: 2px 0 8px; }
 .touch-thread-more-rows > button {
-  width: 100%; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; text-align: left;
-  background: transparent; color: var(--muted); font: 500 var(--text-md) var(--sans); cursor: pointer;
+  width: 100%; min-height: var(--touch-target); padding: 0 12px; border: 0; border-radius: 10px; text-align: left;
+  background: transparent; color: var(--muted); font: 500 var(--text-sm) var(--sans); cursor: pointer;
 }
 .touch-thread-more-rows > button:active { background: var(--hover); }
 /* The host a native shell is on, at the head of More. */
-.touch-menu-context { margin: 4px 12px 6px; overflow: hidden; color: var(--muted); font: 500 var(--text-md) var(--sans); text-overflow: ellipsis; white-space: nowrap; }
+.touch-menu-context { margin: 4px 12px 6px; overflow: hidden; color: var(--muted); font: 500 var(--text-sm) var(--sans); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ------------------------------------------------------------ the swipe */
 
@@ -194,23 +194,23 @@
 }
 .touch-sheet-header > strong {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 600 15px var(--sans); color: var(--ink-2);
+  font: 600 var(--text-title) var(--sans); color: var(--ink-2);
 }
 .touch-sheet-grip {
   position: absolute; top: 5px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
   border-radius: 2px; background: var(--line-strong);
 }
-.action-sheet-summary { margin: 0 4px 10px; color: var(--muted); font: var(--text-lg) var(--sans); font-variant-numeric: tabular-nums; }
+.action-sheet-summary { margin: 0 4px 10px; color: var(--muted); font: var(--text-sm) var(--sans); font-variant-numeric: tabular-nums; }
 .action-sheet-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--raised); }
 .action-sheet-list > button { flex: none; }
 .action-sheet-list > button > span { min-width: 0; }
 .action-sheet-list > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-sheet-list > button {
-  display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 0 14px;
-  border: 0; background: transparent; color: var(--ink); font: 500 16px var(--sans); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 12px; min-height: calc(50px * var(--text-scale)); padding: 0 14px;
+  border: 0; background: transparent; color: var(--ink); font: 500 var(--text-lg) var(--sans); text-align: left; cursor: pointer;
 }
 .action-sheet-list > button > span { display: flex; flex-direction: column; gap: 1px; }
-.action-sheet-list > button small { font: var(--text-md) var(--sans); color: var(--muted); }
+.action-sheet-list > button small { font: var(--text-sm) var(--sans); color: var(--muted); }
 .action-sheet-list > button + button { border-top: 1px solid var(--line-soft); }
 .action-sheet-list > button:active { background: var(--hover-strong); }
 .action-sheet-list > button > i { width: 20px; flex: none; display: grid; place-items: center; color: var(--muted); }
@@ -245,7 +245,7 @@ body[data-keyboard] .model-picker.popover { padding-bottom: 0; }
 .model-picker .touch-sheet-header { padding: 8px 4px 0 14px; border-bottom: 1px solid var(--line); }
 
 /* A question's buttons are touch targets too. */
-.confirm-dialog footer button { min-height: 44px; padding-inline: 16px; }
+.confirm-dialog footer button { min-height: var(--touch-target); padding-inline: 16px; }
 
 /* A question on the composer reads a step larger on touch, as design 1n draws it (13 and 12 against the desktop's 12 and 11). */
 body[data-profile="compact"] :is(.extension-prompt > header, .extension-prompt-title, .extension-option strong) { font-size: var(--text-md); }

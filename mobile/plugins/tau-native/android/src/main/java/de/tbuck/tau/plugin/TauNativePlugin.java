@@ -1,5 +1,6 @@
 package de.tbuck.tau.plugin;
 
+import android.content.res.Configuration;
 import android.os.Build;
 import android.provider.Settings;
 import com.getcapacitor.JSObject;
@@ -30,6 +31,25 @@ public class TauNativePlugin extends Plugin {
     @Override
     public void load() {
         store = new SecureStore(getContext());
+        // The web view would scale text by the font scale on its own, but not the rows around it; the page scales both.
+        getBridge().executeOnMainThread(() -> getBridge().getWebView().getSettings().setTextZoom(100));
+    }
+
+    /** The system's font scale; the manifest keeps the activity through a change (`fontScale`), and `textScale` reports it. */
+    @PluginMethod
+    public void textScale(PluginCall call) {
+        call.resolve(textScaleEvent(getContext().getResources().getConfiguration()));
+    }
+
+    @Override
+    protected void handleOnConfigurationChanged(Configuration newConfig) {
+        notifyListeners("textScale", textScaleEvent(newConfig));
+    }
+
+    private static JSObject textScaleEvent(Configuration config) {
+        JSObject event = new JSObject();
+        event.put("scale", config.fontScale);
+        return event;
     }
 
     @PluginMethod

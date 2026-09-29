@@ -4000,6 +4000,8 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 
 Figtree (400–700, a variable face under the SIL Open Font License, `src/renderer/assets/fonts/figtree/`) ships with Tau and loads from its own files, never from a font server; the system stack is its fallback. Code and the terminal keep `--mono`.
 
+The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size, and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
+
 | Token | Role | Value |
 |---|---|---|
 | `--elevation-0` | a control that sits on its surface | `0 1px 2px var(--shadow-soft)` |
@@ -4011,13 +4013,18 @@ Figtree (400–700, a variable face under the SIL Open Font License, `src/render
 | `--label-font` | a section or status label | `var(--sans)` |
 | `--label-case` | its text-transform | `none` |
 | `--label-tracking` | its letter-spacing | `normal` |
-| `--label-size` | its size | `11px` |
-| `--text-xs` | meta: a branch, an age, a status | `11px` |
-| `--text-sm` | a control, a chip, a menu | `12px` |
-| `--text-md` | body and a thread's title | `13px` |
-| `--text-lg` | prose on a touch screen | `14px` |
+| `--label-size` | its size | `var(--text-xs)` |
+| `--text-xs` | meta: a branch, an age, a status | `11px` (tablet 12, phone 13) |
+| `--text-sm` | a control, a chip, a menu | `12px` (tablet 13, phone 14) |
+| `--text-md` | body and a thread's title | `13px` (tablet 15, phone 16) |
+| `--text-lg` | a row that leads a sheet or a menu | `14px` (tablet 16, phone 17) |
 | `--text-title` | a thread's heading | `17px` |
-| `--text-display` | a page's heading | `24px` |
+| `--text-display` | a page's heading; no Text size step | `24px` (phone 27) |
+| `--text-code` | code, a diff, a file tree | `12px` (tablet 13, phone 14) |
+| `--text-input` | what the user types; never under 16px on a touch device, where iOS would zoom | `13px` (tablet and phone 16) |
+| `--text-scale` | the system's text size on a touch device, 1–1.5 (`type-scale.ts`) | `1` |
+| `--text-step` | Tau's own Text size (Appearance Kit): `-1px`, `0px`, `1px` | `0px` |
+| `--touch-target` | the least a finger needs, grown with `--text-scale` | `calc(44px * var(--text-scale))` |
 | `--radius-xs` | a tag | `4px` |
 | `--radius-sm` | a button or a chip | `6px` |
 | `--radius-row` | a row, a field, a footer button | `8px` |

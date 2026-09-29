@@ -17,7 +17,7 @@ body[data-profile="compact"] .app-shell {
   --safe-left: env(safe-area-inset-left, 0px);
   position: fixed; left: 0; top: var(--tau-viewport-top, 0px);
   height: var(--tau-viewport-height, 100dvh);
-  grid-template: calc(52px + var(--safe-top)) minmax(0, 1fr) / 0 minmax(0, 1fr) 0;
+  grid-template: minmax(calc(52px + var(--safe-top)), auto) minmax(0, 1fr) / 0 minmax(0, 1fr) 0;
 }
 /* A tablet is laid out as the desktop (compactFormFor): thread list, then conversation and stage with their own heads. */
 body[data-profile="compact"] .app-shell.touch-split { grid-template: minmax(0, 1fr) / var(--sidebar-width) minmax(0, 1fr); padding-top: var(--safe-top); }
@@ -37,15 +37,16 @@ body[data-profile="compact"] .workbench-center.stage-open .composer-zone { paddi
 body[data-profile="compact"] .stage-pane-header { height: 56px; gap: 6px; padding: 0 8px 0 16px; }
 /* Beside the chat a tablet's pane is narrow: the path gives way before the buttons are cut. */
 body[data-profile="compact"] .stage-pane-header > strong { min-width: 48px; }
-body[data-profile="compact"] .stage-pane-header :is(.text-button, .toggle-group > button) { min-height: 44px; padding: 0 12px; font-size: var(--text-md); }
+body[data-profile="compact"] .stage-pane-header :is(.text-button, .toggle-group > button) { min-height: var(--touch-target); padding: 0 12px; font-size: var(--text-sm); }
 
 /* Keys and chords a touch screen has none of: esc, ↑↓, ⌘5, ⇧click. */
 body[data-profile="compact"] .keyboard-hint { display: none; }
 
 body[data-profile="compact"] .title-bar {
   background: var(--stage); box-shadow: inset 0 -1px var(--line);
-  gap: 4px; height: calc(52px + var(--safe-top));
-  padding: var(--safe-top) max(6px, var(--safe-right)) 0 max(6px, var(--safe-left));
+  gap: 4px; height: auto; min-height: calc(52px + var(--safe-top));
+  /* Grows with the title and its two lines of details at a larger text size. */
+  padding: var(--safe-top) max(6px, var(--safe-right)) 2px max(6px, var(--safe-left));
 }
 body[data-profile="compact"] .window-controls-inset { display: none; }
 body[data-profile="compact"] .title-bar .chrome-ghost.glyph { width: 44px; height: 44px; border-radius: 12px; }
@@ -83,11 +84,13 @@ body[data-profile="compact"] .conversation-column:not(.conversation-start) .stat
   grid-row: caption / span 1; position: relative; background: var(--stage); min-height: 0; padding: 2px max(14px, var(--safe-right)) 4px max(14px, var(--safe-left)); border-top: 0;
 }
 body[data-profile="compact"] .conversation-empty { padding: 24px max(20px, var(--safe-right)) 20px max(20px, var(--safe-left)); }
-body[data-profile="compact"] .conversation-empty > h1 { font-size: 19px; }
-body[data-profile="compact"] .draft-pill { height: 44px; padding: 0 14px; border-radius: 12px; }
+body[data-profile="compact"] .conversation-empty > h1 { font-size: var(--text-title); }
+body[data-profile="compact"] .conversation-empty > p { font-size: var(--text-sm); }
+body[data-profile="compact"] .title-bar .title-draft { font: 600 var(--text-title) var(--sans); }
+body[data-profile="compact"] .draft-pill { min-height: var(--touch-target); padding: 0 14px; border-radius: 12px; }
 
-/* Touch sizes: a finger needs 40 px or so, and iOS zooms into any field under 16 px. */
-body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: 16px; }
+/* Touch sizes: a finger needs 44 px, and iOS zooms into any field under 16 px (--text-input keeps to it on a touch device). */
+body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], [type="radio"], [type="range"])) { font-size: max(16px, var(--text-input)); }
 /* 44 px to tap, 36 px to see; stop keeps its distance from send. */
 body[data-profile="compact"] .send-button { width: 44px; height: 44px; border: 4px solid transparent; background-clip: padding-box; }
 body[data-profile="compact"] .send-button.stop { margin-right: 8px; }
@@ -95,7 +98,7 @@ body[data-profile="compact"] .send-button.stop { margin-right: 8px; }
 body[data-profile="compact"] .send-button.stop.answering { display: none; }
 /* The rest of the composer's footer and the thread title: 44 px to tap, drawn as small as before. */
 body[data-profile="compact"] :is(.composer-toolbar, .composer-chips) { gap: 0; }
-body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) .runtime-chip, body[data-profile="compact"] .composer-menu-item { min-height: 44px; border-radius: 10px; }
+body[data-profile="compact"] :is(.composer-toolbar, .composer-overflow-list) .runtime-chip, body[data-profile="compact"] .composer-menu-item { min-height: var(--touch-target); border-radius: 10px; }
 body[data-profile="compact"] .composer-chips .runtime-chip { padding-inline: 10px; }
 /* The model's pill is drawn 32 px high inside its 44 px target. */
 body[data-profile="compact"] .composer-toolbar .runtime-chip.composer-model-chip { position: relative; z-index: 0; background: transparent; }
@@ -109,15 +112,15 @@ body[data-profile="compact"] .context-dial::before {
   background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
 }
 body[data-profile="compact"] .context-dial > i { position: relative; }
-body[data-profile="compact"] .thread-title-trigger { min-height: 44px; }
+body[data-profile="compact"] .thread-title-trigger { min-height: var(--touch-target); }
 /* The row over the composer: 36 px to see, 44 px to tap, and the tap areas never meet. */
 /* The row keeps 8 px clear of the docked composer. */
 body[data-profile="compact"] .region-composer-controls { --controls-gap: 10px; margin-bottom: 0; padding-bottom: 8px; }
-body[data-profile="compact"] { --control-pill-height: 36px; }
-body[data-profile="compact"] .control-pill::before { content: ""; position: absolute; inset: calc((44px - var(--control-pill-height)) / -2 - 1px); }
-body[data-profile="compact"] .menu button[role="menuitem"] { min-height: 44px; }
-body[data-profile="compact"] .message-thinking > summary { min-height: 44px; }
-body[data-profile="compact"] .extension-option { min-height: 44px; }
+body[data-profile="compact"] { --control-pill-height: calc(36px * var(--text-scale)); }
+body[data-profile="compact"] .control-pill::before { content: ""; position: absolute; inset: calc((var(--touch-target) - var(--control-pill-height)) / -2 - 1px); }
+body[data-profile="compact"] .menu button[role="menuitem"] { min-height: var(--touch-target); }
+body[data-profile="compact"] .message-thinking > summary { min-height: var(--touch-target); }
+body[data-profile="compact"] .extension-option { min-height: var(--touch-target); }
 body[data-profile="compact"] :is(button, a, [data-tooltip]) { -webkit-tap-highlight-color: transparent; }
 /* A long press on something with a label shows the label, not the system's callout. */
 body[data-profile="compact"] [data-tooltip] { -webkit-touch-callout: none; user-select: none; }
@@ -130,8 +133,10 @@ body[data-profile="compact"] .tool-output-pending { height: 180px; }
 body[data-profile="compact"] .message-shell[data-touch-actions] :is(.message-actions, .message-user-meta) { opacity: 1; pointer-events: auto; }
 /* A tapped message's actions take their room in the flow, each 44 px high. */
 body[data-profile="compact"] .message-shell[data-touch-actions] .message-actions { position: static; }
-body[data-profile="compact"] .message-actions button { min-height: 44px; padding: 0 12px; font-size: var(--text-md); }
+body[data-profile="compact"] .message-actions button { min-height: var(--touch-target); padding: 0 12px; font-size: var(--text-sm); }
 body[data-profile="compact"] .message-shell.assistant .message-actions { margin-left: -12px; }
+/* A message's time: meta, never under 12px on a touch device (ADR 0029). */
+body[data-profile="compact"] .message.user time { font-size: var(--text-xs); }
 @media (hover: none) {
   .tool-run.stoppable > .tool-run-stop { opacity: 1; }
 }

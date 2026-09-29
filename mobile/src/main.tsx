@@ -8,9 +8,12 @@ import { App } from "@capacitor/app";
 import { Network } from "@capacitor/network";
 import { createLocalStorageAdapter } from "../../src/renderer/browser-storage";
 import { webClientEnvironment } from "../../src/web/WebWorkbench";
+import { appleDynamicType, applyTypeScale, deviceClassFor } from "../../src/renderer/type-scale";
+import { screenMinSide } from "../../src/renderer/use-layout-profile";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, type DeviceInfo } from "./native";
+import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, setPushRegistrar, tapRoute } from "./push";
 import { nativePushPort } from "./push-native";
@@ -21,6 +24,9 @@ const BROWSER_DEVICE: DeviceInfo = { name: "Browser", model: "browser", platform
 
 async function boot(): Promise<void> {
   const [bridge, device] = await Promise.all([createSocketBridge(), deviceInfo().catch(() => BROWSER_DEVICE)]);
+  // A phone or tablet reads larger, at the system's text size (ADR 0029).
+  const system = device.platform === "android" ? await androidFontScale(textScalePort).catch(() => undefined) : appleDynamicType();
+  applyTypeScale(deviceClassFor("compact", true, screenMinSide()), system);
   const push = nativePushPort(device.platform);
   setPushRegistrar(createPushRegistrar(push));
   const context: AppContext = {
