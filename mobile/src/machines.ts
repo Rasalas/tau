@@ -35,6 +35,8 @@ const CACHE_KEY = "tau.mobile.machine.v1";
 /** What `open` carries to the next page: the app loads afresh on another host. */
 export const ARRIVAL_KEY = "tau.mobile.arrival.v1";
 const READ_COMMANDS_RETRY_MS = 10_000;
+/** Lets the page write what the caller just changed (a draft moved away and cleared) before it loads afresh. */
+export const NAVIGATE_DELAY_MS = 150;
 
 /** Where the phone is looking: the app in front, or away. */
 export interface Visibility {
@@ -387,6 +389,7 @@ export class PhoneMachines implements PlatformEnvironments {
     if (id === this.options.shown.id) return;
     const machine = this.machines.get(id);
     if (!machine) throw new Error("This phone has not paired with that machine.");
+    await new Promise<void>((resolve) => { this.timers.setTimeout(resolve, NAVIGATE_DELAY_MS); });
     if (target && "threadId" in target) {
       this.options.navigate({ view: "workbench", hostId: id, threadId: target.threadId });
       return;

@@ -6,7 +6,7 @@ import { createMemoryStorage } from "../../src/workbench/client-storage";
 import type { HostConnectionState } from "../../src/workbench/host-connection";
 import type { SavedHost } from "./hosts";
 import type { LinkSocket } from "./machine-link";
-import { ARRIVAL_KEY, MACHINES_FOCUS_MIN_MS, MACHINES_REFRESH_MS, MACHINES_START_MS, PhoneMachines } from "./machines";
+import { ARRIVAL_KEY, MACHINES_FOCUS_MIN_MS, NAVIGATE_DELAY_MS, MACHINES_REFRESH_MS, MACHINES_START_MS, PhoneMachines } from "./machines";
 import type { AppRoute } from "./routes";
 import { hostStorage } from "./storage";
 
@@ -243,9 +243,16 @@ describe("PhoneMachines", () => {
     const { machines, routes, storage } = setup();
     machines.getSnapshot();
     await vi.advanceTimersByTimeAsync(MACHINES_START_MS + 1_000);
-    await machines.open("rex", { thread: { path: "/s/b.jsonl" } });
+    const opening = machines.open("rex", { thread: { path: "/s/b.jsonl" } });
+    // A moment for the page to write what the caller just changed before it loads afresh.
+    await vi.advanceTimersByTimeAsync(NAVIGATE_DELAY_MS - 10);
+    expect(routes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(10);
+    await opening;
     expect(routes.at(-1)).toEqual({ view: "workbench", hostId: "rex", threadId: "b" });
-    await machines.open("rex", { newThread: { draft: "Fix it", workspaceId: "ws-api" } });
+    const moving = machines.open("rex", { newThread: { draft: "Fix it", workspaceId: "ws-api" } });
+    await vi.advanceTimersByTimeAsync(NAVIGATE_DELAY_MS);
+    await moving;
     expect(routes.at(-1)).toEqual({ view: "workbench", hostId: "rex" });
     expect(JSON.parse(storage.get(ARRIVAL_KEY)!)).toEqual({ machine: "rex", target: { newThread: { draft: "Fix it", workspaceId: "ws-api" } } });
     // Only the page on that host takes it.
