@@ -734,18 +734,9 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 
 /* Reviews (1i, 1p, 1q): finished threads' branches as local merge requests. */
 .rv-page { flex: 1; min-height: 0; display: flex; }
-.rv-nav { flex: none; width: 216px; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-3) var(--space-3) var(--space-5) var(--space-6); overflow: auto; }
-.rv-nav-group { display: flex; flex-direction: column; gap: 1px; }
-.rv-nav-group > h2 { margin: 0; padding: var(--space-2) var(--space-3); font: 500 11.5px var(--sans); color: var(--muted-2); }
-.rv-nav-group > button {
-  display: flex; align-items: center; gap: var(--space-3); min-height: 32px; padding: var(--space-2) var(--space-3);
-  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-3); font: 500 13px var(--sans); text-align: left; cursor: pointer;
-}
-.rv-nav-group > button:hover { background: var(--hover-strong); color: var(--ink-2); }
-.rv-nav-group > button.active { background: var(--thread-active); color: var(--ink); font-weight: 600; }
-.rv-nav-group > button > svg { flex: none; color: var(--faint); }
-.rv-nav-group > button > span:not(.rv-tile) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rv-nav-group > button > small { font: 12px var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The page's sidebar: Settings' column (core's settings.css); only the counts and project tiles are the kit's. */
+.rv-sidebar .rv-nav-count { flex: none; font: var(--text-sm) var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rv-sidebar button > .rv-tile { flex: none; }
 /* Core's project mark (`.thread-project-icon`, tinted by `projectHue`), a little larger. */
 .rv-tile { width: 16px; height: 16px; overflow: hidden; font-size: 9.5px; }
 .rv-tile > img { width: 100%; height: 100%; object-fit: cover; }
@@ -843,20 +834,11 @@ body[data-profile="compact"] .pr-verdict { min-height: 44px; padding: 0 14px; fo
 .rv-detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .rv-detail-actions > .rv-open-thread { margin-left: auto; border-color: transparent; background: transparent; }
 
-/*
- * The sidebar stays beside an app page, so the column of 1i shows only on a
- * wide page; a narrower one has the tabs of the phone and a project filter.
- */
-.rv-page { container: rv-page / inline-size; }
+/* Without the page's sidebar (hidden, or a tablet) the tabs of the phone and a project filter pick what it lists. */
 .rv-main { container: rv-main / inline-size; }
-.rv-nav { display: none; }
 .rv-tabs-row { flex: none; display: flex; align-items: center; gap: var(--space-4); padding: 0 var(--space-7) var(--space-3) var(--space-6); }
 .rv-tabs-row > .rv-tabs { flex: 1; min-width: 0; padding: 0; }
 .rv-project-filter { flex: none; height: 30px; max-width: 200px; padding: 0 var(--space-3); border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--raised); color: var(--ink-2); font: 500 12.5px var(--sans); }
-@container rv-page (min-width: 1120px) {
-  .rv-page:not(.compact) > .rv-nav { display: flex; }
-  .rv-page:not(.compact) .rv-tabs-row { display: none; }
-}
 @container rv-main (max-width: 860px) {
   .rv-columns, .rv-row-open { grid-template-columns: 20px minmax(140px, 1fr) 112px 104px 40px; }
   .rv-columns > span:nth-child(4), .rv-row-open > .rv-checks { display: none; }
