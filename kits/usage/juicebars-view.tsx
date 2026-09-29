@@ -13,11 +13,11 @@ const OPEN_DELAY_MS = 180;
 const CLOSE_DELAY_MS = 220;
 const CARD_WIDTH = 300;
 
-function tone(entry: JuicebarGroup): CSSProperties {
+export function tone(entry: JuicebarGroup): CSSProperties {
   return { "--usage-tone": `var(--provider-${entry.tone})` } as CSSProperties;
 }
 
-function titleOf(entry: JuicebarGroup): string {
+export function titleOf(entry: JuicebarGroup): string {
   return entry.group.members.length > 1 ? entry.group.label.split(" · ")[0]! : entry.group.label;
 }
 
@@ -95,7 +95,7 @@ function useCard() {
 }
 
 /** Reads the limits again a moment after a run ends. */
-function useRunEnded(feed: LimitsFeed): void {
+export function useRunEnded(feed: LimitsFeed): void {
   const threads = useThreadStore();
   const running = useSyncExternalStore(threads.subscribeToActivity, () => threads.getActivity().runningThreadIds.length);
   const last = useRef(running);

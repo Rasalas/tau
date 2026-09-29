@@ -2,13 +2,14 @@ import { ChartColumn } from "lucide-react";
 import type { DesktopExtension } from "tau";
 import { UsageSidebar } from "./controls.js";
 import { createUsageView } from "./filters.js";
+import { JuicebarStrip } from "./juicebar-strip.js";
 import { createJuicebarChoices } from "./juicebars.js";
 import { Juicebars } from "./juicebars-view.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
 
-/** Usage is a page of the app: the juicebars at the sidebar's foot and the palette open it. */
+/** Usage is a page of the app: the juicebars at the sidebar's foot (a phone's list's top) and the palette open it. */
 export const usageExtension: DesktopExtension = {
   id: USAGE_EXTENSION_ID,
   name: "Usage",
@@ -32,6 +33,15 @@ export const usageExtension: DesktopExtension = {
       Component: (props) => <UsagePage {...props} host={plugin.host} environments={plugin.environments} view={view} feed={feed} choices={choices} />,
       // This month, the filters and the sections, in the thread list's place.
       Sidebar: () => <UsageSidebar view={view} />,
+    });
+
+    // A phone has no sidebar foot: the bars top its thread list instead (K106).
+    plugin.registerRegion({
+      id: "usage.juicebars",
+      placement: "thread-list-head",
+      order: 10,
+      profiles: ["compact"],
+      Component: (props) => <JuicebarStrip {...props} feed={feed} choices={choices} />,
     });
 
     plugin.registerCommand({
