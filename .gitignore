@@ -5,6 +5,7 @@ dist-web/
 dist-benchmark/
 dist-kits/
 dist-source/
+dist-types/
 .DS_Store
 *.log
 .scratch/*

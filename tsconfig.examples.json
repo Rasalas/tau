@@ -20,8 +20,6 @@
       "tau/host": ["src/main/host-extension-worker-protocol.ts"]
     }
   },
-  "include": ["examples"],
-  // The `tau.d.ts` shims are for an example copied out of this checkout;
-  // here `paths` resolves the same modules to the real sources.
-  "exclude": ["examples/**/tau.d.ts"]
+  // `paths` resolves tau to the sources here; a copied example gets its types from `tau kit types`.
+  "include": ["examples"]
 }
