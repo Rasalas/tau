@@ -806,8 +806,7 @@ justify their maintenance cost.
 
 ## Acknowledgements
 
-<!-- Placeholder: the maintainer supplies the final two sentences. -->
-Tau is built on [Pi](https://github.com/earendil-works/pi) by Mario Zechner, which does the agent work in every Pi thread. Its workbench learned much from [REFERENCE PROJECT, name and link to follow]; more about Tau at [tbuck.de](https://tbuck.de).
+Tau started as a UI for [Pi](https://github.com/earendil-works/pi), whose idea of an agent you shape yourself got it going. For how a workbench for many threads should look and behave, [T3 Code](https://github.com/pingdotgg/t3code) was the model; many of Tau's decisions ended up where T3 Code had already made the right call. Thanks to both teams. The longer story is on [tbuck.de](https://tbuck.de/en/project/tau/).
 
 ## License
 
