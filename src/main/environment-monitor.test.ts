@@ -225,6 +225,21 @@ describe("a machine that goes away", () => {
     expect(last()).toMatchObject({ status: "offline", detail: "It stopped answering." });
   });
 
+  it("takes a protocol error for a drop, an older host's 4401 \"malformed frame\" too, and only a refusal for good", () => {
+    const world = fakeWorld();
+    const { last } = watch({ urls: () => ["wss://lan:7788/"], token: "t", onChange: () => undefined, ...world });
+    world.sockets[0]!.fire("open");
+    world.sockets[0]!.fire("close", 4400, Buffer.from("malformed frame"));
+    expect(last().status).toBe("offline");
+    world.advance(1_000);
+    world.sockets[1]!.fire("open");
+    world.sockets[1]!.fire("close", 4401, Buffer.from("malformed frame"));
+    expect(last().status).toBe("offline");
+    world.advance(2_000);
+    world.sockets[2]!.fire("close", 4401, Buffer.from("revoked"));
+    expect(last().status).toBe("refused");
+  });
+
   it("backs off while it cannot be reached, and tries at once when asked", () => {
     const world = fakeWorld();
     const { monitor, last } = watch({ urls: () => ["wss://lan:7788/"], token: "t", onChange: () => undefined, ...world });

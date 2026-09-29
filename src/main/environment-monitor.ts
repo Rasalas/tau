@@ -6,6 +6,7 @@ import {
   HOST_CLOSE_CODE,
   HOST_TRANSPORT_VERSION,
   decodeHostServerFrame,
+  tokenRefused,
   type HostHelloReply,
   type HostIdentity,
 } from "../shared/host-transport.js";
@@ -38,7 +39,7 @@ export interface MonitorSocket {
   readonly bufferedAmount?: number;
   on(event: "open", listener: () => void): void;
   on(event: "message", listener: (data: unknown) => void): void;
-  on(event: "close", listener: (code: number) => void): void;
+  on(event: "close", listener: (code: number, reason?: Buffer | string) => void): void;
   on(event: "error", listener: (error: Error) => void): void;
 }
 
@@ -232,11 +233,11 @@ export class EnvironmentMonitor {
           : `It presented a certificate with SHA-256 ${error.presented}, not the one saved when it was added. Someone may be in between; remove it and add it again only if its certificate was replaced on purpose.`);
       }
     });
-    socket.on("close", (code) => {
+    socket.on("close", (code, reason) => {
       this.clear(helloDeadline);
       if (this.socket !== socket || settled) return;
       settled = true;
-      if (code === HOST_CLOSE_CODE.unauthorized) {
+      if (tokenRefused(code, reason?.toString())) {
         this.refuse(this.options.unauthorizedDetail ?? "It no longer accepts this window's key: the device was revoked there or its access expired. Remove it and add it again.");
         return;
       }

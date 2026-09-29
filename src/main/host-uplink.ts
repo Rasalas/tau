@@ -2,6 +2,7 @@ import { WebSocket, type ClientOptions } from "ws";
 import {
   HOST_TRANSPORT_VERSION,
   decodeHostServerFrame,
+  tokenRefused,
   type HostClientCall,
   type HostHello,
   type HostHelloReply,
@@ -13,8 +14,6 @@ import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type R
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
-/** `host-transport-socket.ts` closes with this when the hello carried the wrong token. */
-const UNAUTHORIZED = 4401;
 
 export interface HostUplinkOptions {
   url: string;
@@ -162,10 +161,10 @@ export class HostUplink {
       this.options.logger?.error("host-uplink.certificate-refused", { url: this.options.url, presented: error.presented, expected: error.expected });
       this.options.onCertificateRefused?.(error);
     });
-    socket.on("close", (code: number) => {
+    socket.on("close", (code: number, reason: Buffer) => {
       this.failPending("The host connection dropped.");
       if (this.closed) return;
-      if (code === UNAUTHORIZED) {
+      if (tokenRefused(code, reason.toString())) {
         const next = this.options.refreshToken?.();
         if (next && next !== this.token) {
           this.token = next;
