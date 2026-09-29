@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Tau's native app for iOS and Android: Capacitor around the compact web client",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "vite build",
     "build:dev": "vite build --mode development",

@@ -1,0 +1,9 @@
+Tau
+Copyright 2026 The Tau Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The desktop and mobile apps bundle third-party software under their own
+licenses. The apps list each package with its license text under
+Settings → About → Licenses; scripts/open-source/third-party-notices.mjs
+writes the same list to a file.
