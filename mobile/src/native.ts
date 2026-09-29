@@ -1,6 +1,7 @@
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeService } from "./discovery";
 import type { SecureStore } from "./hosts";
+import type { TextScalePort } from "./text-scale";
 import type { NativeSocketEvent, NativeSocketRequest, SocketBridge } from "./native-socket";
 
 export interface DeviceInfo {
@@ -25,8 +26,11 @@ interface TauNativePlugin {
   discoveryStop(): Promise<void>;
   deviceInfo(): Promise<DeviceInfo>;
   pushAvailable(): Promise<{ available: boolean }>;
+  /** Android only: the system's font scale (1 by default). */
+  textScale(): Promise<{ scale: number }>;
   addListener(event: "socket", listener: (event: NativeSocketEvent) => void): Promise<PluginListenerHandle>;
   addListener(event: "discovery", listener: (event: { services: NativeService[]; error?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: "textScale", listener: (event: { scale: number }) => void): Promise<PluginListenerHandle>;
 }
 
 const TauNative = registerPlugin<TauNativePlugin>("TauNative");
@@ -88,3 +92,11 @@ export function deviceInfo(): Promise<DeviceInfo> {
 export async function pushAvailable(): Promise<boolean> {
   return (await TauNative.pushAvailable().catch(() => ({ available: false }))).available;
 }
+
+export const textScalePort: TextScalePort = {
+  read: async () => (await TauNative.textScale()).scale,
+  listen: async (listener) => {
+    const handle = await TauNative.addListener("textScale", (event) => listener(event.scale));
+    return () => { void handle.remove(); };
+  },
+};
