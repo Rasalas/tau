@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-"""Counts what a public history would expose: identities, personal-data patterns in every blob, names in messages."""
+"""Counts what a public history would expose: identities, personal-data patterns in every blob, names in messages.
+
+  audit-history.py <repo> [--private-dir <dir>]
+
+With --private-dir, also counts every value the private mailmap and replace files name, without printing
+them, and exits 3 when any remains.
+"""
 import collections, re, subprocess, sys
 
-repo = sys.argv[1] if len(sys.argv) > 1 else "."
+args = sys.argv[1:]
+private = None
+if "--private-dir" in args:
+    i = args.index("--private-dir")
+    private = args[i + 1]
+    del args[i:i + 2]
+repo = args[0] if args else "."
 git = lambda *a, **k: subprocess.run(["git", "-C", repo, *a], capture_output=True, **k)
 
 PATTERNS = {
@@ -61,3 +73,39 @@ for key in PATTERNS:
     print(f"{key}: {len(hits[key])} distinct")
     for value, n in hits[key].most_common(40):
         print(f"  {n:5}  {value}  ({', '.join(sorted(where[key][value])[:2])})")
+
+def private_patterns(folder):
+    """(label, regex, messages only) for each value the private inputs remove; the labels name no value."""
+    found = []
+    def left_sides(name):
+        try:
+            lines = open(f"{folder}/{name}", encoding="utf-8").read().splitlines()
+        except FileNotFoundError:
+            return
+        for n, line in enumerate(lines, 1):
+            if not line.strip() or line.startswith("#") or line.startswith("glob:"): continue
+            left = line.split("==>")[0]
+            yield n, left[6:] if left.startswith("regex:") else re.escape(left.removeprefix("literal:"))
+    for n, rx in left_sides("replace-text.txt"): found.append((f"replace-text.txt line {n}", re.compile(rx.encode()), False))
+    for n, rx in left_sides("replace-message.txt"): found.append((f"replace-message.txt line {n}", re.compile(rx.encode()), True))
+    for n, line in enumerate(open(f"{folder}/mailmap", encoding="utf-8").read().splitlines(), 1):
+        for address in re.findall(r"<([^>]+)>", line)[1:]:
+            if "noreply" in address: continue  # GitHub's own addresses are public by design
+            found.append((f"mailmap line {n}, old address", re.compile(re.escape(address).encode(), re.I), False))
+    return found
+
+if private:
+    texts = {
+        "blobs": git("cat-file", "--batch", input="\n".join(blobs).encode()).stdout,
+        "messages": git("log", "--all", "--format=%B%x00").stdout,
+        "identities": git("log", "--all", "--format=%an <%ae>%n%cn <%ce>").stdout,
+        "tags": git("for-each-ref", "refs/tags", "--format=%(taggername) %(taggeremail) %(contents)").stdout,
+        "paths": "\n".join(paths.values()).encode(),
+    }
+    total = 0
+    for label, rx, messages_only in private_patterns(private):
+        counts = {where: len(rx.findall(text)) for where, text in texts.items() if not (messages_only and where == "blobs")}
+        total += sum(counts.values())
+        print(f"private {label}: " + ", ".join(f"{where} {n}" for where, n in counts.items()))
+    print(f"private values remaining: {total}")
+    if total: sys.exit(3)

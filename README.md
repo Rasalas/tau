@@ -125,9 +125,18 @@ What follows from that:
 Download the newest build for your platform from the
 [releases page](https://github.com/Rasalas/tau-releases/releases): a `.dmg` or `.zip` on
 macOS (arm64 and x64), a `.deb` and an `.AppImage` on Linux (x64), an NSIS
-installer on Windows. The builds are unsigned, so the first launch needs the
-usual confirmation — open the app from Finder's context menu once on macOS,
-and tell Windows SmartScreen to run it anyway. From a checkout on a Mac,
+installer on Windows. These links always point at the newest stable release:
+[Mac with Apple silicon](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-mac-arm64.dmg),
+[Mac with Intel](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-mac-x64.dmg),
+[Windows](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-windows-x64.exe),
+[Debian and Ubuntu](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-linux-amd64.deb),
+[AppImage](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-linux-x86_64.AppImage).
+
+From 0.7.14 on, the macOS builds are signed with an Apple Developer ID and
+notarized by Apple, so they open like any other app. The Windows installer is
+not signed yet: until it is, SmartScreen may warn on the first launch (More
+info → Run anyway). Earlier macOS builds were unsigned and have to be opened
+from Finder's context menu once. From a checkout on a Mac,
 `npm run install:mac` downloads the newest one, checks it against the
 release's signature and SHA-512, and puts it into `/Applications`.
 
@@ -797,8 +806,7 @@ justify their maintenance cost.
 
 ## Acknowledgements
 
-<!-- Placeholder: the maintainer supplies the final two sentences. -->
-Tau is built on [Pi](https://github.com/earendil-works/pi) by Mario Zechner, which does the agent work in every Pi thread. Its workbench learned much from [REFERENCE PROJECT, name and link to follow]; more about Tau at [tbuck.de](https://tbuck.de).
+Tau started as a UI for [Pi](https://github.com/earendil-works/pi), whose idea of an agent you shape yourself got it going. For how a workbench for many threads should look and behave, [T3 Code](https://github.com/pingdotgg/t3code) was the model; many of Tau's decisions ended up where T3 Code had already made the right call. Thanks to both teams. The longer story is on [tbuck.de](https://tbuck.de/en/project/tau/).
 
 ## License
 

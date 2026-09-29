@@ -147,14 +147,14 @@ host verifies the text it decoded, not the raw bytes.
 
 In `.github/workflows/release.yml` each build job uploads its feed as
 `feed-<platform>`. The `sign` job signs `latest-mac.yml`, `latest.yml` and
-`latest-linux.yml` with the repository secret `TAU_RELEASE_SIGNING_KEY` (the
-private key, PKCS#8 PEM), runs `check`, and uploads the `.sig` files as
+`latest-linux.yml` with the secret `TAU_RELEASE_SIGNING_KEY` (the private key,
+PKCS#8 PEM) from the environment `release`, runs `check`, and uploads the `.sig` files as
 `tau-signatures`. `release` and `nightly` run `check` once more on what they
 downloaded, check that every feed has its `.sig` (`publish-release.mjs check`),
 and publish the `.sig` files with the rest, to `Rasalas/tau` and to
 `Rasalas/tau-releases`. A publishing run
-without the secret fails in `verify`, before anything is built. A dry run
-without it only warns (see [RELEASE.md](RELEASE.md#build-all-platforms-without-publishing)).
+without the secret fails in `verify`, before anything is built. A dry run on
+a branch has no secrets and only warns (see [RELEASE.md](RELEASE.md#build-all-platforms-without-publishing)).
 
 A local test feed (`TAU_UPDATE_FEED_URL`) is signed with a throwaway key that
 the host trusts through `TAU_UPDATE_FEED_KEY`. The variable counts only

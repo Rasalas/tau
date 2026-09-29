@@ -4,41 +4,64 @@ on:
   pull_request:
   push:
     branches: [main]
+  # A first run on a repository whose history arrived while Actions were off.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Jobs run on the repo-level self-hosted runners (labels tau-linux / tau-macos).
-# Pull requests from forks fall back to GitHub-hosted runners: untrusted code
-# must not execute on the private host.
+# No job needs a secret or write access; fork PRs get the same token anyway.
+permissions:
+  contents: read
+
 jobs:
-  fast:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tau-linux' }}
-    # The self-hosted Linux runner takes 7–15 minutes for the test suite alone.
-    timeout-minutes: 30
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - run: npx vitest run
       - run: npm run build
 
-  # End-to-end pairing and package-install paths — the seams with the thinnest
-  # unit coverage. `smoke:attached` needs a real Pi TUI plus paid model auth,
-  # so it stays out of CI and remains a local check.
+  # The suite split three ways; hosted minutes are free on a public repo, waiting is not.
+  test:
+    name: test (${{ matrix.shard }}/3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run --shard=${{ matrix.shard }}/3
+
+  # `smoke:attached` needs a real Pi TUI plus paid model auth; it stays local.
   smoke:
-    needs: fast
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tau-linux' }}
+    needs: checks
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -50,13 +73,11 @@ jobs:
         run: npm run smoke:extension-install
       - name: Smoke — remote work
         run: npm run smoke:remote-work
-      # What a Linux install needs where user namespaces are restricted (the service refuses the display otherwise).
+      # Requiring electron downloads its binary first, where npm ci left it out.
       - name: Electron's sandbox helper as setuid root
-        if: runner.os == 'Linux'
-        # Requiring electron downloads its binary first, where npm ci left it out.
         run: |
           helper="$(dirname "$(node -p 'require("electron")' | tail -1)")/chrome-sandbox"
           sudo chown root:root "$helper" && sudo chmod 4755 "$helper"
-      # Passes with a note where Xvfb is missing; the Linux runner has it (performance.yml).
+      # ubuntu-24.04 ships Xvfb.
       - name: Smoke — invisible display
         run: npm run smoke:display

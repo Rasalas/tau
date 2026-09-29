@@ -49,8 +49,15 @@ if [ "$messages" = 1 ]; then
 fi
 (cd "$repo" && nice -n 19 git filter-repo "${args[@]}")
 
-python3 "$here/audit-history.py" "$repo" > "$work/after.txt"
+status=0
+python3 "$here/audit-history.py" "$repo" --private-dir "$private" > "$work/after.txt" || status=$?
 git -C "$repo" for-each-ref --format='%(objectname) %(refname)' > "$work/refs-after.txt"
 echo "done: $repo"
 echo "compare: diff $work/before.txt $work/after.txt"
 echo "old -> new commit ids: $repo/filter-repo/commit-map"
+# The current state was cleaned on a branch before, so main's files should come out unchanged.
+old_tree="$(git -C "$source" rev-parse "$main_sha^{tree}" 2>/dev/null || echo unknown)"
+new_tree="$(git -C "$repo" rev-parse 'refs/heads/main^{tree}')"
+if [ "$old_tree" = "$new_tree" ]; then echo "main's tree is unchanged ($new_tree)"; else echo "main's tree changed: $old_tree -> $new_tree" >&2; status=1; fi
+[ "$status" = 3 ] && echo "private values remain; see the private lines in $work/after.txt" >&2
+exit "$status"
