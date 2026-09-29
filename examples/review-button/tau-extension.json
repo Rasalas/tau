@@ -1,0 +1,7 @@
+{
+  "id": "example.review-button",
+  "name": "Review button",
+  "version": "0.1.0",
+  "engines": { "api": "^1.28.0" },
+  "desktop": "./desktop.tsx"
+}
