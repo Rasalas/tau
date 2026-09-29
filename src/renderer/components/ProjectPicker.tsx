@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Check, Plus, Search, Trash2 } from "lucide-react";
 import type { UiProject, UiSession } from "../../shared/contracts";
 import { pickerOrder } from "../../workbench/new-thread-project";
@@ -23,7 +23,7 @@ interface ProjectPickerProps {
   /** A bottom sheet, as on a phone or tablet. */
   sheet?: boolean;
   /** Opens as a popover at this point instead of over the window. */
-  anchor?: { x: number; y: number } | undefined;
+  anchor?: RefObject<HTMLElement | null> | { x: number; y: number } | undefined;
   onBrowse: () => void;
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;

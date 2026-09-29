@@ -373,6 +373,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const threadViewRef = useRef({ covered: false, project: touchProject });
   threadViewRef.current = { covered: phoneHome || Boolean(settingsPage || openPage || activeOverlayId), project: touchProject };
   const stageRef = useRef<HTMLElement>(null);
+  const projectPill = useRef<HTMLButtonElement>(null);
   useImperativeHandle(layout.controlRef, () => ({
     openInstructions: () => setSystemPromptOpen(true),
     focusStage: () => stageRef.current?.focus(),
@@ -777,14 +778,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 <h1 id="start-screen-title">What should {startProjectName} do next?</h1>
                 <p>Just chat, or hand it work. Files, Terminal and your editor sit top right.</p>
                 <Region registry={registry} placement="draft-actions" snapshot={snapshot} actions={actions} lead={<button
+                  ref={projectPill}
                   type="button"
                   className="draft-pill"
                   aria-label={`Change project, current project ${startProjectName}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={newThreadPick?.anchor === projectPill}
                   {...tooltipProps(displayPath(startProjectPath), { variant: "code" })}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    openNewThreadPicker({ carry: true, preselect: startProjectPath, ...(compact ? {} : { anchor: { x: rect.left, y: rect.bottom } }) });
-                  }}
+                  // The popover ignores a press on its anchor, so this click closes what it opened.
+                  onClick={() => newThreadPick?.anchor === projectPill
+                    ? closeNewThreadPicker()
+                    : openNewThreadPicker({ carry: true, preselect: startProjectPath, ...(compact ? {} : { anchor: projectPill }) })}
                 >
                   <ProjectIcon project={startProject ?? { path: startProjectPath, name: startProjectName }} />
                   <span>{startProjectName}</span><ChevronDown size={12} />
