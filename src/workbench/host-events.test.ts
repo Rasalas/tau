@@ -69,6 +69,14 @@ describe("applyHostEvent", () => {
     expect(targets.applyHostUpdate).toHaveBeenCalledWith(update);
   });
 
+  it("tells extensions a catalog came, with its models' providers", async () => {
+    const { targets, registry } = fixture();
+    const models = [{ provider: "openai", id: "a" }, { provider: "ki-connect", id: "b" }, { provider: "openai", id: "c" }];
+    applyHostEvent({ type: "host-update", update: { version: 1, type: "catalog", catalog: { models } } } as unknown as Parameters<typeof applyHostEvent>[0], targets);
+    await Promise.resolve();
+    expect(registry.dispatchWorkbenchEvent).toHaveBeenCalledWith({ type: "models-changed", providers: ["ki-connect", "openai"] });
+  });
+
   it("hands a downloaded update to the toast instead of the transcript", () => {
     const { targets, view } = fixture();
 

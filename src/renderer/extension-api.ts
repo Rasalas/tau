@@ -84,7 +84,7 @@ export { projectHue, ThreadRow } from "./components/ThreadRow";
 export { ProjectIcon, useProjectIcon, type ProjectIconSubject } from "./components/ProjectIcon";
 export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
-export { ProviderIconStack, providerStackLabel } from "./components/ProviderIconStack";
+export { ProviderIconStack, providerHasMark, providerStackLabel } from "./components/ProviderIconStack";
 // A thread's model by name, from its runtime's catalog (API 1.23.0).
 export { useModelName } from "./use-runtime-catalog";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";

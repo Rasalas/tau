@@ -38,6 +38,7 @@ import { errorMessage } from "../workbench/error-message";
 import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
+import { providerIconKey } from "./runtime-marks";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -366,7 +367,9 @@ export type WorkbenchEvent =
   /** The host opened another project; `from` is absent for the first one this client saw. */
   | { type: "workspace-changed"; from?: string; to: string }
   /** The window's link to the host changed state; `connected` after a drop means it is back. */
-  | { type: "host-connection"; state: HostConnectionState };
+  | { type: "host-connection"; state: HostConnectionState }
+  /** The host sent a model catalog; `providers` are its models' providers, sorted (API 1.29.0). */
+  | { type: "models-changed"; providers: readonly string[] };
 
 export type WorkbenchEventType = WorkbenchEvent["type"];
 
@@ -1358,6 +1361,12 @@ export interface DesktopExtensionContext {
    * before the host's; the first extension's wins, `undefined` withdraws them.
    */
   setProjectIcons(icons: Readonly<Record<string, string>> | undefined): void;
+  /**
+   * Pictures for model providers Tau ships no mark for, by provider id, as
+   * `data:image/` URLs; every provider mark core draws uses them before the
+   * initial. The first extension's wins, `undefined` withdraws them (API 1.29.0).
+   */
+  setProviderIcons(icons: Readonly<Record<string, string>> | undefined): void;
   /** Replaces this extension's problems in Settings → Inspector; `[]` clears them. */
   setProblems(problems: readonly ExtensionProblem[]): void;
   /**
@@ -1535,6 +1544,7 @@ export class ExtensionRegistry {
   private lineages = new Map<string, ThreadLineage>();
   private lineageCache: { version: number; value: ThreadLineage } | undefined;
   private projectIcons = new Map<string, Readonly<Record<string, string>>>();
+  private providerIcons = new Map<string, Readonly<Record<string, string>>>();
   private problems = new Map<string, Array<ExtensionProblem & ContributionOwner>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
@@ -1748,6 +1758,12 @@ export class ExtensionRegistry {
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")));
         if (Object.keys(pictures).length > 0) this.projectIcons.set(extension.id, pictures);
         else if (!this.projectIcons.delete(extension.id)) return;
+        this.changed();
+      },
+      setProviderIcons: (icons) => {
+        const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")).map(([id, image]) => [providerIconKey(id), image]));
+        if (Object.keys(pictures).length > 0) this.providerIcons.set(extension.id, pictures);
+        else if (!this.providerIcons.delete(extension.id)) return;
         this.changed();
       },
       setProblems: (problems) => {
@@ -1988,6 +2004,7 @@ export class ExtensionRegistry {
     this.liveStatuses.delete(id);
     this.lineages.delete(id);
     this.projectIcons.delete(id);
+    this.providerIcons.delete(id);
     this.problems.delete(id);
     this.changed();
     if (cleanupError) throw cleanupError;
@@ -2068,6 +2085,14 @@ export class ExtensionRegistry {
       const icon = (project.workspaceId ? icons[project.workspaceId] : undefined) ?? icons[project.path];
       if (icon) return icon;
     }
+    return undefined;
+  }
+
+  /** The picture an extension chose for a model provider, if any (`setProviderIcons`). */
+  providerIcon(provider: string): string | undefined {
+    if (this.providerIcons.size === 0) return undefined;
+    const key = providerIconKey(provider);
+    for (const icons of this.providerIcons.values()) if (icons[key]) return icons[key];
     return undefined;
   }
 

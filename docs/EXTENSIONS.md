@@ -1321,6 +1321,17 @@ answers the picture alone, so a kit's own lists (Workspace Kit's filter and
 thread card, Review Kit's page) draw the same mark. `ThreadRow`'s and
 `DraftRow`'s `projectIcon` is such a fallback: a published picture wins over it.
 
+#### Provider pictures (new in API 1.29.0)
+
+`context.setProviderIcons(icons)` does the same for model providers Tau ships
+no mark for, keyed by provider id (spelled any way a provider is: `KI_Connect`
+and `ki-connect` are one key); `data:image/` URLs only, `undefined` withdraws
+them. `ProviderIconStack` draws such a picture in place of the provider's
+initial, never in place of a mark Tau ships, and `providerHasMark(id)` says
+which is which. Pi Providers publishes them: a provider without a mark gets
+its site's icon once it is set up (the host fetches it, see
+`kits/pi-providers/site-icon.ts`), or a picture the user chooses on its row.
+
 #### The UI primitives (new in API 1.11.0)
 
 Core draws its menus, tooltips, toasts and dialogs with the pieces below, and
@@ -2521,8 +2532,9 @@ knows, what reaches it now, and Pi's own login per provider.
 host) is the seam behind that card: `providers()` lists Pi's model providers
 with the sign-in each offers (`oauth` with its label and whether it spends a
 subscription, `apiKey` and whether a key can be typed), whether it is set up
-and from where (`source`, `label`), and what Pi's file holds for it
-(`stored`); `login(providerId, "oauth" | "api_key", interaction)` runs Pi's
+and from where (`source`, `label`), what Pi's file holds for it
+(`stored`), and where its API lives (`baseUrl`, new in API 1.29.0; it may
+carry a key in its query, so a kit keeps it on the host); `login(providerId, "oauth" | "api_key", interaction)` runs Pi's
 own login with the same `prompt` and `notify` callbacks Pi's `/login` uses,
 and `logout(providerId)` removes what Pi stored. Core runs both on the
 model runtime its small jobs complete on, whose credential store is Pi's
@@ -2760,7 +2772,10 @@ comes or goes, and `context.events.on("workspace-changed", …)` carries
 without asking the host what changed. `context.events.on("host-connection", …)`
 (new in API 1.12.0) carries `{ state }` — `connected`, `reconnecting`,
 `resyncing` or `refused` — whenever the window's link to the host changes;
-`connected` after any other state means it is back.
+`connected` after any other state means it is back. `context.events.on("models-changed", …)`
+(new in API 1.29.0) carries `{ providers }`, the sorted providers of the
+models in a catalog the host just sent: a provider added or signed in shows up
+there first. It comes with every catalog, so compare with what you saw last.
 
 The same member lists the devices paired with this host (new in API 1.13.0):
 `clients.devices()` answers `HostPairedDevice[]` — `{ id, name, access }`, connected
