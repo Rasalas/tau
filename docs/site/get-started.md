@@ -6,8 +6,8 @@ Tau runs on macOS, Windows and Linux. Your phone pairs with it later.
 
 Pick the installer for your system on the [download list](../../site/index.html#download).
 
-- **Mac:** open the `.dmg` and drag Tau into Applications. There is a build for Apple silicon and one for Intel.
-- **Windows:** run the installer. It installs Tau for your user.
+- **Mac:** open the `.dmg` and drag Tau into Applications. There is a build for Apple silicon and one for Intel. Both are signed and notarized by Apple.
+- **Windows:** run the installer. It installs Tau for your user. The installer isn't signed yet, so SmartScreen may warn: choose More info, then Run anyway.
 - **Debian and Ubuntu:** open the `.deb` in your software center, or run `sudo apt install ./Tau-linux-amd64.deb`. It adds Tau to the application menu and `tau` to the command line.
 - **Other Linux distributions:** make the `.AppImage` executable and start it. It needs FUSE 2 (`libfuse2`).
 
