@@ -1,0 +1,9 @@
+regex:(?<![\w./-])t3/(?=[\w.-])==>work/
+regex:(?<![\w.-])t3code/==>work/
+regex:\bsettled-t3\b==>settled-shelf
+regex:\b[Tt]3[- ]parity\b==>parity
+regex:(?m)(^|[.!?]\s+)T3 Code\b==>\1The reference app
+regex:\bT3 Code\b==>the reference app
+regex:(?m)(^|[.!?]\s+)T3\b(?!-)==>\1The reference app
+regex:\bT3\b(?!-)==>the reference app
+regex:(?<![\w/.-])t3code\b==>the reference app
