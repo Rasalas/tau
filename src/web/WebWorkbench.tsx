@@ -11,6 +11,12 @@ import type { HostClient } from "../workbench/host-client";
 import { followThemePreference } from "../renderer/theme";
 import { createWebPlatform } from "./platform-web";
 import { indexedBundleStore, withBundleStore } from "./bundle-cache";
+import { storedPageCatalog } from "./page-catalog";
+import { setPageCatalog } from "../renderer/touch/PhoneNav";
+import { getClientStorage } from "../workbench/client-storage";
+
+// A phone's navigation has its pages at once on the next start.
+setPageCatalog(storedPageCatalog(getClientStorage));
 
 /** What a browser tab is, as the workbench's `ClientEnvironment`. */
 export function webClientEnvironment(profile: ClientProfile): ClientEnvironment {

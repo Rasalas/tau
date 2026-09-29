@@ -1,37 +1,12 @@
 import { MessagesSquare, Settings } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ExtensionRegistry } from "../extension-system";
-import { getClientStorage } from "../../workbench/client-storage";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { sameTab, type PhoneTab } from "../../workbench/phone-route";
 import "./phone-nav.css";
 
 /** Five destinations at most: home, three pages, Settings. */
 const MAX_PAGES = 3;
-
-/**
- * The pages this client last had, so the navigation shows them at once on
- * its next start, before their packages came over the network. An icon is
- * kept as its SVG's markup and drawn back as a CSS mask, where no script or
- * load of it can run.
- */
-interface CachedPage { id: string; label: string; icon?: string }
-
-const PAGE_CATALOG_KEY = "tau.page-catalog";
-
-function readCatalog(): CachedPage[] {
-  try {
-    const pages: unknown = JSON.parse(getClientStorage()?.get(PAGE_CATALOG_KEY) ?? "[]");
-    return Array.isArray(pages) ? pages : [];
-  } catch {
-    return [];
-  }
-}
-
-function cachedIcon(icon: unknown): PanelIconComponent {
-  const mask = `url("data:image/svg+xml,${encodeURIComponent(String(icon ?? ""))}")`;
-  return ({ size = 15 }) => <span className="phone-nav-cached-icon" style={{ width: size, height: size, maskImage: mask }} />;
-}
 
 export interface PhoneNavItem {
   tab: PhoneTab;
@@ -42,15 +17,30 @@ export interface PhoneNavItem {
 }
 
 /**
+ * Remembers a client's pages across starts, so the navigation has them before
+ * the packages that register them came over the network. The web client sets
+ * one (`src/web/page-catalog.tsx`); a window loads its packages from disk.
+ */
+export interface PageCatalog {
+  /** The pages of the last start, the ones registered since in their place. */
+  read(live: PhoneNavItem[]): PhoneNavItem[];
+  /** The pages as drawn in `nav`, once the packages are in. */
+  write(nav: HTMLElement | null, items: readonly PhoneNavItem[]): void;
+}
+
+let catalog: PageCatalog | undefined;
+export function setPageCatalog(next: PageCatalog | undefined): void {
+  catalog = next;
+}
+
+/**
  * Threads first, the app pages that claim a phone in their order, Settings
- * last. While the packages are still loading, the pages this client had last
- * time stand in for the ones not registered yet.
+ * last. While the packages are still loading, the remembered pages stand in
+ * for the ones not registered yet.
  */
 export function phoneNavItems(registry: Pick<ExtensionRegistry, "getPages"> & Partial<Pick<ExtensionRegistry, "isLoadingExtensions">>): PhoneNavItem[] {
   const live = registry.getPages().map((page): PhoneNavItem => ({ tab: { kind: "page", page: page.id }, label: page.label, Icon: page.Icon, useBadge: page.useBadge }));
-  const pages = registry.isLoadingExtensions?.()
-    ? readCatalog().map((cached): PhoneNavItem => live.find((item) => item.tab.kind === "page" && item.tab.page === cached.id) ?? { tab: { kind: "page", page: cached.id }, label: cached.label, Icon: cachedIcon(cached.icon) })
-    : live;
+  const pages = catalog && registry.isLoadingExtensions?.() ? catalog.read(live) : live;
   return [
     { tab: { kind: "threads" }, label: "Threads", Icon: MessagesSquare },
     ...pages.slice(0, MAX_PAGES),
@@ -64,16 +54,7 @@ export function RegistryPhoneNav({ registry, current, onSelect }: { registry: Ex
   const items = phoneNavItems(registry);
   const nav = useRef<HTMLElement>(null);
   const loading = registry.isLoadingExtensions();
-  useEffect(() => {
-    if (loading) return;
-    // Remembered once the packages are in, with the icons as drawn.
-    const buttons = nav.current?.querySelectorAll(".phone-nav-icon") ?? [];
-    const text = JSON.stringify(items.flatMap((item, index): CachedPage[] => item.tab.kind === "page"
-      ? [{ id: item.tab.page, label: item.label, icon: buttons[index]?.querySelector("svg")?.outerHTML ?? "" }]
-      : []));
-    const storage = getClientStorage();
-    if (storage?.get(PAGE_CATALOG_KEY) !== text) storage?.set(PAGE_CATALOG_KEY, text);
-  });
+  useEffect(() => { if (!loading) catalog?.write(nav.current, items); });
   return <PhoneNav ref={nav} items={items} current={current} onSelect={onSelect} />;
 }
 

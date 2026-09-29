@@ -4,11 +4,13 @@ import { ChartColumn } from "lucide-react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryStorage, setClientStorage, type ClientStorage } from "../../workbench/client-storage";
 import { ExtensionRegistry } from "../extension-system";
-import { PhoneNav, phoneNavItems, RegistryPhoneNav } from "./PhoneNav";
+import { storedPageCatalog } from "../../web/page-catalog";
+import { getClientStorage } from "../../workbench/client-storage";
+import { PhoneNav, phoneNavItems, RegistryPhoneNav, setPageCatalog } from "./PhoneNav";
 
 let storage: ClientStorage;
-beforeEach(() => { storage = createMemoryStorage(); setClientStorage(storage); });
-afterEach(() => { cleanup(); setClientStorage(undefined); });
+beforeEach(() => { storage = createMemoryStorage(); setClientStorage(storage); setPageCatalog(storedPageCatalog(getClientStorage)); });
+afterEach(() => { cleanup(); setClientStorage(undefined); setPageCatalog(undefined); });
 
 const page = (id: string, label: string) => ({ id, label, Icon: ChartColumn, Component: () => null, extensionId: "x", extensionName: "x" });
 
