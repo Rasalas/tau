@@ -361,7 +361,7 @@ describe("Workspace Kit in the workbench", () => {
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
 
-    const composer = await screen.findByPlaceholderText(/Direct the agent/u);
+    const composer = await screen.findByPlaceholderText(/Ask anything/u);
     fireEvent.change(composer, { target: { value: "background request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalled());
@@ -554,7 +554,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
-    const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "background request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalled());
@@ -581,7 +581,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByText("Other content")).toBeTruthy();
     expect(screen.queryByText("background request")).toBeNull();
 
-    const otherComposer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const otherComposer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(otherComposer, { target: { value: "continue other" } });
     fireEvent.keyDown(otherComposer, { key: "Enter" });
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
@@ -630,7 +630,7 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
-    const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "first request" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
@@ -642,7 +642,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.queryByText(/Wait for the current message/u)).toBeNull();
 
     // The submitted text belongs to the first thread; the new draft starts empty and usable.
-    const freshComposer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const freshComposer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     await waitFor(() => expect(freshComposer.value).toBe(""));
     resolveNewSession({ version: 1, updates: [], sessionId: "created", submission: { accepted: true } });
     client.emit({
@@ -736,7 +736,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const draftDialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(draftDialog).getByRole("option", { name: /project/u }));
-    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "discard this draft" } });
 
     // The switcher is `workspace.switch-project`'s; the rail's folder icon filters.
@@ -775,7 +775,7 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
-    const composer = await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     const image = new File([new Uint8Array([137, 80, 78, 71])], "draft.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [image] } });
     await screen.findByRole("button", { name: "Preview draft.png" });
@@ -1214,7 +1214,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option"));
-    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    const composer = screen.getByPlaceholderText(/Ask anything/u);
     fireEvent.change(composer, { target: { value: "Count slowly" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalled());
@@ -1279,7 +1279,7 @@ describe("Workspace Kit in the workbench", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
-    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "/extension-command" } });
     fireEvent.keyDown(composer, { key: "Enter" });
 
@@ -1340,7 +1340,7 @@ describe("Workspace Kit in the workbench", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option", { name: /project/u }));
-    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "start in the detached runtime" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalled());
@@ -1414,7 +1414,7 @@ describe("Workspace Kit in the workbench", () => {
     await screen.findByRole("heading", { name: /do next\?$/ });
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Search projects" })).getByRole("option"));
-    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "/skill review" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledOnce());
@@ -1494,7 +1494,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.change(branch, { target: { value: "feat/race" } });
     fireEvent.keyDown(branch, { key: "Enter" });
 
-    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "Must run in the worktree" } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await new Promise((resolve) => window.setTimeout(resolve, 0));

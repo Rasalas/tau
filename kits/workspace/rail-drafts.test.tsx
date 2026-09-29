@@ -51,7 +51,7 @@ function start(overrides: { newSession?: (...args: unknown[]) => Promise<NewThre
 
 async function newThread(): Promise<HTMLTextAreaElement> {
   fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
-  return await screen.findByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+  return await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 }
 
 const rail = () => screen.getByRole("navigation", { name: "Threads" });
@@ -100,7 +100,7 @@ describe("draft rows in the rail", () => {
     expect(JSON.parse(storage.get("tau.kept-drafts.v1") ?? "[]")).toMatchObject([{ draft: "Keep this idea", projectPath: "/project" }]);
 
     fireEvent.click(kept);
-    await waitFor(() => expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe("Keep this idea"));
+    await waitFor(() => expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("Keep this idea"));
     expect(within(rail()).getByRole("button", { name: "Open draft Keep this idea" }).getAttribute("aria-current")).toBe("true");
     expect(draftRows()).toHaveLength(1);
   });
@@ -112,7 +112,7 @@ describe("draft rows in the rail", () => {
     fireEvent.change(composer, { target: { value: "First idea" } });
     await newThread();
     await waitFor(() => expect(draftRows().map((row) => row.getAttribute("aria-label"))).toEqual(["Open draft New thread", "Open draft First idea"]));
-    expect((screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement).value).toBe("");
+    expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("");
 
     expect(within(rail()).queryByRole("button", { name: /^Discard draft/u })).toBeNull();
     fireEvent.contextMenu(within(rail()).getByRole("button", { name: "Open draft First idea" }));

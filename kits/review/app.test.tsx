@@ -178,7 +178,7 @@ describe("Review Kit in the workbench", () => {
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());
     // The chip sits in the prompt's text; its popover shows the comment.
-    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    const composer = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     await waitFor(() => expect(plainChipText(composer.value)).toContain("a.ts:1"));
     fireEvent.click(screen.getByRole("button", { name: "Chip a.ts:1" }));
     expect((await screen.findByRole("dialog", { name: "a.ts:1" })).textContent).toContain("Name it after what it checks.");

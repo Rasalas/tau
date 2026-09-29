@@ -71,7 +71,7 @@ describe("composer keys an extension and the preferences decide", () => {
     const preferences = new PreferencesStore();
     preferences.setSendShortcut("mod-enter");
     const { onSubmit, textarea } = renderComposer({ preferences });
-    expect(textarea.placeholder).toContain("⌘↵ sends");
+    expect(screen.getByRole("button", { name: "Send" }).dataset.tooltip).toContain("Send ⌘↵ — ↵ newline");
     fireEvent.change(textarea, { target: { value: "hello" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSubmit).not.toHaveBeenCalled();
@@ -84,7 +84,8 @@ describe("composer keys an extension and the preferences decide", () => {
       streaming: true,
       extend: (context) => context.registerPromptHook({ id: "steer", streamingDelivery: () => "steer" }),
     });
-    expect(textarea.placeholder).toBe("Steer this turn — ↵ steers now, ⌘↵ queues, ⌥↑ dequeues");
+    expect(textarea.placeholder).toBe("Steer, or queue a follow-up…");
+    expect(screen.getByRole("button", { name: "Steer this turn" }).dataset.tooltip).toBe("Steer this turn ↵ — ⌘↵ queues, ⌥↑ dequeues");
     fireEvent.change(textarea, { target: { value: "turn left" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -106,10 +107,13 @@ describe("composer keys an extension and the preferences decide", () => {
 });
 
 describe("the composer's buttons while a turn runs", () => {
-  it("offers a queue button beside stop once there is a draft, and it queues a follow-up", async () => {
+  it("keeps send beside stop, resting until there is a draft, and it queues a follow-up", async () => {
     const onAbort = vi.fn();
     const { onSubmit, textarea } = renderComposer({ streaming: true, onAbort });
-    expect(screen.queryByRole("button", { name: "Queue after this turn" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Queue after this turn" }) as HTMLButtonElement).disabled).toBe(true);
+    // Stop sits before send, never in its place.
+    const buttons = [...document.querySelectorAll(".composer-toolbar > button")].map((button) => button.getAttribute("aria-label"));
+    expect(buttons.slice(-2)).toEqual(["Stop the run", "Queue after this turn"]);
     fireEvent.change(textarea, { target: { value: "and then the tests" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue after this turn" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -140,7 +144,7 @@ describe("the composer's buttons while a turn runs", () => {
     it("sends on ↵ from a hardware keyboard and breaks the line on ⇧↵", async () => {
       vi.stubGlobal("matchMedia", vi.fn(coarse));
       const { onSubmit, textarea } = renderComposer();
-      expect(textarea.placeholder).toBe("Direct the agent");
+      expect(textarea.placeholder).toBe("Ask anything, or hand it work…");
       fireEvent.change(textarea, { target: { value: "hello" } });
       expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true })).toBe(true);
       expect(onSubmit).not.toHaveBeenCalled();
