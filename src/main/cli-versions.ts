@@ -51,23 +51,54 @@ function decodeCache(value: unknown): Cache | undefined {
  * `TAU_NO_RUNTIME_UPDATES=1`.
  */
 export async function npmLatestVersion(packageName: string, options: NpmLatestVersionOptions): Promise<string | undefined> {
-  if (runtimeUpdatesOff(options.env)) return undefined;
-  const now = options.now ?? Date.now;
-  const cache = (await readPersistedJson(options.cacheFile, { expectedVersion: CACHE_VERSION, decode: decodeCache, logger: { warn: () => undefined } }).catch(() => undefined))?.data ?? {};
-  const cached = cache[packageName];
-  if (cached && now() - cached.checkedAt < (options.maxAgeMs ?? DAY_MS)) return cached.version;
-  const fetcher = options.fetch ?? globalThis.fetch;
-  try {
+  return cachedLatest(packageName, options, async (fetcher) => {
     const response = await fetcher(`${options.registry ?? "https://registry.npmjs.org"}/${packageName}/latest`, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(options.timeoutMs ?? 5_000),
     });
-    if (!response.ok) return cached?.version;
+    if (!response.ok) return undefined;
     const version = (await response.json() as { version?: unknown }).version;
-    if (typeof version !== "string" || !version.trim()) return cached?.version;
-    cache[packageName] = { version: version.trim(), checkedAt: now() };
-    await writePersistedJson(options.cacheFile, CACHE_VERSION, { packages: cache }, { logger: { warn: () => undefined } }).catch(() => undefined);
-    return version.trim();
+    return typeof version === "string" ? version : undefined;
+  });
+}
+
+export type HomebrewKind = "formula" | "cask";
+
+const HOMEBREW_NAME = /^[a-z0-9][a-z0-9@+._-]*$/u;
+
+/**
+ * The release `brew upgrade` delivers for a formula or cask, from Homebrew's
+ * own JSON API, cached like `npmLatestVersion` (in the same file, under
+ * `brew:<kind>:<name>`). A cask's build suffix after a comma is dropped.
+ */
+export async function homebrewLatestVersion(kind: HomebrewKind, name: string, options: NpmLatestVersionOptions & { api?: string }): Promise<string | undefined> {
+  if (!HOMEBREW_NAME.test(name)) return undefined;
+  return cachedLatest(`brew:${kind}:${name}`, options, async (fetcher) => {
+    const response = await fetcher(`${options.api ?? "https://formulae.brew.sh/api"}/${kind}/${name}.json`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(options.timeoutMs ?? 5_000),
+    });
+    if (!response.ok) return undefined;
+    const body = await response.json() as { version?: unknown; versions?: { stable?: unknown } };
+    const version = kind === "cask" ? body.version : body.versions?.stable;
+    return typeof version === "string" ? version.split(",")[0] : undefined;
+  });
+}
+
+async function cachedLatest(key: string, options: NpmLatestVersionOptions, ask: (fetcher: typeof globalThis.fetch) => Promise<string | undefined>): Promise<string | undefined> {
+  if (runtimeUpdatesOff(options.env)) return undefined;
+  const now = options.now ?? Date.now;
+  const cache = (await readPersistedJson(options.cacheFile, { expectedVersion: CACHE_VERSION, decode: decodeCache, logger: { warn: () => undefined } }).catch(() => undefined))?.data ?? {};
+  const cached = cache[key];
+  if (cached && now() - cached.checkedAt < (options.maxAgeMs ?? DAY_MS)) return cached.version;
+  try {
+    const version = (await ask(options.fetch ?? globalThis.fetch))?.trim();
+    if (!version) return cached?.version;
+    // Another kit may have written the file meanwhile; read it again so neither answer is lost.
+    const fresh = (await readPersistedJson(options.cacheFile, { expectedVersion: CACHE_VERSION, decode: decodeCache, logger: { warn: () => undefined } }).catch(() => undefined))?.data ?? {};
+    fresh[key] = { version, checkedAt: now() };
+    await writePersistedJson(options.cacheFile, CACHE_VERSION, { packages: fresh }, { logger: { warn: () => undefined } }).catch(() => undefined);
+    return version;
   } catch {
     return cached?.version;
   }

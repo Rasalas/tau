@@ -1,3 +1,4 @@
+import type { RuntimeToolMaintenance } from "./cli-install.js";
 import { randomUUID } from "node:crypto";
 import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
@@ -185,6 +186,17 @@ export interface HostRuntimeBackendProvider {
    * `runtimeBackends`; clients show a hint when `installed` is older.
    */
   version?(): Promise<RuntimeToolVersion | undefined>;
+  /**
+   * How the program is installed and the commands that keep it current
+   * (`cliMaintenance` builds it); the host runs them when the user keeps
+   * agent tools up to date. Asked on the host's schedule, never by a client.
+   */
+  maintenance?(): Promise<RuntimeToolMaintenance | undefined>;
+  /**
+   * Changes whenever the program does (`executableFingerprint`): a catalog
+   * held for another key is asked again, so an updated CLI's models show at once.
+   */
+  programKey?(): Promise<string | undefined>;
   /**
    * The models and thinking levels a new thread may start with, without
    * opening one. The host asks in the background and keeps the answer on

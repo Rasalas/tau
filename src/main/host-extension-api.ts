@@ -59,7 +59,9 @@ export { commandInvocation, killProcessTree, type CommandInvocation, type Comman
 export { assertAllowedCloneSource } from "./clone-source.js";
 
 /** For a backend that drives a CLI: the newest npm release, the package manager's update command, version order. */
-export { npmLatestVersion, packageInstallCommand, packageUpdateCommand, type NpmLatestVersionOptions } from "./cli-versions.js";
+export { homebrewLatestVersion, npmLatestVersion, packageInstallCommand, packageUpdateCommand, type HomebrewKind, type NpmLatestVersionOptions } from "./cli-versions.js";
+// How a CLI is installed and what keeps it current (maintenance, programKey).
+export { cliCommandText, cliMaintenance, detectCliInstall, executableFingerprint, type CliCommand, type CliInstall, type CliInstallMethod, type CliMaintenanceOptions, type CliPackageSpec, type RuntimeToolMaintenance } from "./cli-install.js";
 export { compareVersions, updateAvailable } from "../shared/runtime-version.js";
 // Several setups of one program, and the versions of it a backend works with (API 1.11.0).
 export { RuntimeInstanceSettings, expandHome, runtimeUpdateCommand, runtimeVersionPolicy, type RuntimeInstanceSettingsOptions } from "./runtime-instance-settings.js";

@@ -107,6 +107,32 @@ describe("RuntimeCatalogs", () => {
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
   });
 
+  it("asks again at once when the program behind the answer changed, across a restart too", async () => {
+    let key = "codex:1:100";
+    let answer: HostRuntimeNewThreadCatalog = ANSWER;
+    const load = vi.fn(async () => answer);
+    const changed: string[] = [];
+    const file = await scratchFile();
+    const owner = {};
+    const withKey = (): RuntimeCatalogSource => ({ ...source(load, "codex", owner), programKey: async () => key });
+    const first = catalogs(() => [withKey()], { file, programChanged: (kind) => changed.push(kind) });
+    await first.cache.get("codex");
+    await first.cache.list(true);
+    expect(load).toHaveBeenCalledTimes(1);
+    key = "codex:2:200";
+    answer = { ...ANSWER, models: [...ANSWER.models, { provider: "openai", id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }] };
+    await expect(first.cache.get("codex")).resolves.toMatchObject({ models: [{ id: "gpt-5.6-luna" }, { id: "gpt-6.1-sol" }] });
+    expect(changed).toEqual(["codex"]);
+    await first.cache.flush();
+    key = "codex:3:300";
+    const second = catalogs(() => [withKey()], { file });
+    await second.cache.list(true);
+    // The ask the listing started is the one a recheck joins.
+    await second.cache.recheck("codex");
+    await second.cache.flush();
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
   it("answers from disk after a restart without asking the runtime", async () => {
     const file = await scratchFile();
     const first = catalogs(() => [source(async () => ANSWER)], { file });
