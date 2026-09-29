@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { MANIFEST_FILE, parseExtensionManifest } from "./extension-packages.js";
@@ -11,6 +10,7 @@ import {
   listInstalledSources,
   npmStoreDirectory,
   packagesFilePath,
+  packagesHome,
   parseExtensionSource,
   readPackagesFile,
   removePackageSource,
@@ -151,7 +151,7 @@ async function describe(source: string, scope: PackageScope, directory: string, 
  * its permission grant before either half runs.
  */
 export async function installExtensionSource(raw: string, scope: PackageScope, options: InstallerOptions): Promise<InstalledExtension> {
-  const home = options.home ?? homedir();
+  const home = options.home ?? packagesHome();
   const source = parseExtensionSource(raw, options.cwd);
   const directory = await fetchSource(source, home, options);
   const installed = await describe(source.raw, scope, directory, options);
@@ -178,7 +178,7 @@ export interface RemovalResult {
 
 /** Drops a source from `packages.json` and deletes what Tau fetched for it. */
 export async function removeExtensionSource(raw: string, scope: PackageScope, options: InstallerOptions): Promise<RemovalResult> {
-  const home = options.home ?? homedir();
+  const home = options.home ?? packagesHome();
   const source = parseExtensionSource(raw, options.cwd);
   const removed = await removePackageSource(packagesFilePath(scope, options.cwd, home), source.raw);
   let deleted = false;
@@ -207,7 +207,7 @@ async function stillListed(raw: string, removedFrom: PackageScope, cwd: string, 
 
 /** Re-fetches one source, or every source both packages files list. */
 export async function updateExtensionSources(raw: string | undefined, options: InstallerOptions): Promise<InstalledExtension[]> {
-  const home = options.home ?? homedir();
+  const home = options.home ?? packagesHome();
   const installed = await listInstalledSources(options.cwd, home);
   const wanted = raw ? parseExtensionSource(raw, options.cwd).raw : undefined;
   const targets = installed.filter((entry) => !entry.error && (wanted === undefined || entry.source.raw === wanted));
@@ -233,7 +233,7 @@ export async function updateExtensionSources(raw: string | undefined, options: I
 
 /** What `list` answers: every source, with the package it resolved to. */
 export async function listExtensionSources(options: InstallerOptions): Promise<InstalledExtension[]> {
-  const home = options.home ?? homedir();
+  const home = options.home ?? packagesHome();
   const installed = await listInstalledSources(options.cwd, home);
   return Promise.all(installed.map(async (entry) => entry.error
     ? { source: entry.source.raw, scope: entry.scope, directory: entry.directory, signature: UNSIGNED, signatureLabel: describeSignature(UNSIGNED), error: entry.error }

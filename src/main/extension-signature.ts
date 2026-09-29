@@ -1,7 +1,7 @@
 import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
+import { packagesHome } from "./extension-sources.js";
 import { readPersistedJson } from "./persisted-json.js";
 
 export const SIGNATURE_FILE = "tau-extension.sig";
@@ -87,7 +87,7 @@ export async function hashPackageFiles(directory: string): Promise<Record<string
   return files;
 }
 
-export function trustedPublishersPath(home: string = homedir()): string {
+export function trustedPublishersPath(home: string = packagesHome()): string {
   return join(home, ".tau", TRUSTED_PUBLISHERS_FILE);
 }
 

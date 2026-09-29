@@ -3,7 +3,7 @@ import { unpackedPath } from "./packaged-app.js";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -15,7 +15,7 @@ import { assertEngineRanges, describeIncompatibility, parseVersion, type Extensi
 import { DEFAULT_PACKAGE_ISOLATION, isExtensionIsolation, isExtensionPermission, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
-import { listInstalledSources } from "./extension-sources.js";
+import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher } from "./extension-signature.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
@@ -76,7 +76,7 @@ export interface ExtensionPackage {
   signature?: SignatureState;
 }
 
-export function extensionPackageDirectories(cwd: string, home = homedir()): Array<{ scope: "global" | "project"; directory: string }> {
+export function extensionPackageDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
     { scope: "global", directory: join(home, ".tau", "extensions") },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
@@ -271,7 +271,7 @@ export async function listExtensionPackages(
   options: PackageScanOptions = {},
 ): Promise<PackageScanResult> {
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
-  const home = options.home ?? homedir();
+  const home = options.home ?? packagesHome();
   const publishers = await readTrustedPublishers(options.publishersFilePath ?? undefined);
   const result: PackageScanResult = { packages: [], errors: [], skipped: [] };
   const seen = new Set<string>();

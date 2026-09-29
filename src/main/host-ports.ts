@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import type { PricedUsage, UsageTally } from "./usage-pricing.js";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAgentDir, loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
@@ -29,6 +28,7 @@ import {
   updateExtensionSources,
   type InstallerOptions,
 } from "./extension-installer.js";
+import { packagesHome } from "./extension-sources.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy } from "./host-execution-policy.js";
@@ -312,7 +312,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   // package reaches it only through the `packages` permission.
   const installer = (progress?: (message: string) => void): InstallerOptions => ({
     cwd: port.cwd(),
-    home: homedir(),
+    home: packagesHome(),
     findCommand: (name) => findExecutable(name),
     ...(progress ? { progress } : {}),
   });

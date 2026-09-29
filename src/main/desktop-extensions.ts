@@ -1,14 +1,13 @@
 // esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
 import "./packaged-app.js";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
 import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
-import { listInstalledSources } from "./extension-sources.js";
+import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import type { ExtensionHostVersions } from "../shared/extension-compat.js";
 import { DEFERRED_SHARED_MODULES } from "../shared/shared-modules.js";
 
@@ -27,7 +26,7 @@ export function desktopEntryId(entry: DesktopEntryDetailed): string {
 }
 
 /** Where desktop extensions live: one folder for the user, one per project. */
-export function desktopExtensionDirectories(cwd: string, home = homedir()): Array<{ scope: "global" | "project"; directory: string }> {
+export function desktopExtensionDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
     { scope: "global", directory: join(home, ".tau", "extensions") },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
@@ -250,7 +249,7 @@ export async function loadDesktopExtensions(
   const only = options.only ? new Set(options.only) : undefined;
 
   const roots = desktopExtensionDirectories(cwd, options.home);
-  const fromSources = await listInstalledSources(cwd, options.home ?? homedir());
+  const fromSources = await listInstalledSources(cwd, options.home ?? packagesHome());
   const resolved = await Promise.all(fromSources.map(async (installed): Promise<SourceEntry[]> => {
     if (installed.error) return [];
     const manifest = await readFile(join(installed.directory, MANIFEST_FILE), "utf8").catch(() => undefined);
