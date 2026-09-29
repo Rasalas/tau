@@ -28,3 +28,6 @@ reports/*.json
 
 # Agent worktrees
 .claude/worktrees/
+
+# Private notes, never published
+.private/
