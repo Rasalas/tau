@@ -4,27 +4,31 @@ Tau is built to be changed. There are two ways in: write a kit of your own, whic
 
 ## Your own kit
 
-A kit is a folder with a manifest and a module or two. Tau compiles it when it loads it; there is no build step. This one puts a **Review** button into the thread header that fills the composer with a review request.
+A kit is a folder with a manifest and a module or two. Tau compiles it when it loads it; there is no build step.
 
-1. Make a folder anywhere, say `~/tau-kits/review-button`, with a `tau-extension.json`:
+1. **Start one.** In a terminal:
 
-   <!-- include: examples/review-button/tau-extension.json -->
+   ```bash
+   tau kit new ~/tau-kits/my-kit
+   ```
 
-   Set `engines.api` to the version you test on. Settings → Diagnostics → Inspector shows it under *Versions* as "Extension API".
+   It writes a manifest for the extension API your Tau runs, a button in the thread header and a command in the palette (`desktop.tsx`), a command that runs on the host (`host.ts`), a stylesheet, a README, and the types your editor needs (`tsconfig.json` and `.tau-types/`). There is nothing to install.
 
-2. Add the button as `desktop.tsx` beside it:
+2. **Install it.** Type `/install ~/tau-kits/my-kit` in the composer. Tau loads the folder where it lies, for every project. With `/install -l`, it loads for the project on screen only, and only in a project Pi trusts; for one it doesn't trust yet, the toast and Settings → Packages offer **Trust this project**.
 
-   <!-- include: examples/review-button/desktop.tsx -->
+3. **Approve it.** The toast's **Review** opens it in Settings → Extensions. Click **Allow and turn on**. It starts at once.
 
-   `title-bar` is the end of the thread header. The [package reference](../EXTENSIONS.md#1-what-a-package-is) lists every other place a kit can draw, and the hooks it can use.
+4. **Edit and save.** The kit reloads by itself and a toast says *Reloaded My kit*. A save that doesn't compile keeps the version that ran: the toast names the file, line and column, and Settings → Packages → *Develop a package* shows every error of the last build.
 
-3. **Install it.** Type `/install ~/tau-kits/review-button` in the composer. Tau loads the folder where it lies, for every project. With `/install -l`, it loads for the project on screen only, and only in a project Pi trusts; run `/trust` in Pi's terminal UI there first.
+A kit can be smaller than that. This one is two files: a manifest,
 
-4. **Approve it.** Settings → Extensions lists it under *Needs attention*. Click **Review**, then **Allow and turn on**. It starts at once.
+<!-- include: examples/review-button/tau-extension.json -->
 
-5. **Edit and save.** The kit reloads by itself and a toast says *Reloaded Review button*. A save that doesn't compile changes nothing; the error shows as a toast and in Settings → Diagnostics → Inspector.
+and a **Review** button in the thread header that fills the composer with a review request:
 
-For types in your editor, see [Types for a package of your own](../EXTENSIONS.md#types-for-a-package-of-your-own). A kit with a host half, for commands, tools or files, starts from the [minimal example](../EXTENSIONS.md#2-a-minimal-example-exampleshello-package).
+<!-- include: examples/review-button/desktop.tsx -->
+
+`title-bar` is the end of the thread header. The [package reference](../EXTENSIONS.md#1-what-a-package-is) lists every other place a kit can draw and the hooks it can use; [Your first package](../EXTENSIONS.md#your-first-package) covers what a kit usually needs next: the thread's branch, a host half that isn't running, and bad input.
 
 ## Change Tau itself
 
