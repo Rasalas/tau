@@ -52,4 +52,19 @@ describe("the window process's uplink", () => {
     host.sockets[0]!.send(JSON.stringify({ type: "client-call", call: { callId: "c1", extensionId: "window", command: "pick-directory" } }));
     await vi.waitFor(() => expect(received).toEqual([{ callId: "c1", extensionId: "window", command: "pick-directory" }]));
   });
+
+  it("reconnects after a protocol error, an older host's 4401 \"malformed frame\" included, and stops only on a refused token", async () => {
+    const host = await fakeHost();
+    const closes: Array<[number, string]> = [[4400, "malformed frame"], [4401, "malformed frame"], [4401, "unauthorized"]];
+    server!.on("connection", (socket) => {
+      const close = closes.shift();
+      if (close) setTimeout(() => socket.close(...close), 10);
+    });
+    const errors: string[] = [];
+    const logger = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: (message: string) => { errors.push(message); } };
+    uplink = new HostUplink({ url: host.url, token: "t", logger });
+    void uplink.hello().catch(() => undefined);
+    await vi.waitFor(() => expect(errors).toEqual(["host-uplink.unauthorized"]), { timeout: 5_000 });
+    expect(host.sockets).toHaveLength(3);
+  });
 });

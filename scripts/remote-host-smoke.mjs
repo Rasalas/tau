@@ -105,6 +105,8 @@ function createClient(url, token, fingerprint, origin) {
       const id = `p${++counter}`;
       return send({ type: "ping", id }, id);
     },
+    /** A frame as given, garbled or not. */
+    raw: (text) => socket.send(text),
     close: () => new Promise((resolve) => {
       socket.addEventListener("close", () => resolve());
       socket.close();
@@ -276,6 +278,19 @@ async function exercise(url, token, fingerprint, label) {
   await own.hello();
   await own.close();
   step(`${label}: origin checked`, "another site's page refused with 4403, the host's own accepted");
+
+  // A garbled frame is the link's fault, not the token's: 4400, and the same token is still good.
+  const garbled = createClient(url, token, fingerprint);
+  await garbled.opened;
+  await garbled.hello();
+  garbled.raw("{ garbled");
+  const garbledClose = await garbled.closed;
+  if (garbledClose.code !== 4400 || garbledClose.reason !== "malformed frame") fail(`a malformed frame closed with ${JSON.stringify(garbledClose)} instead of 4400`);
+  const after = createClient(url, token, fingerprint);
+  await after.opened;
+  await after.hello();
+  await after.close();
+  step(`${label}: a malformed frame is a protocol error`, "closed with 4400, the same token says hello again");
 
   const silentClose = await silent.closed;
   if (silentClose.code !== 4408) fail(`a socket without a hello was closed with ${silentClose.code} instead of 4408`);
