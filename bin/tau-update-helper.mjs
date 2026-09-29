@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Must equal RELEASE_PUBLIC_KEYS in src/shared/release-keys.ts; a test checks. */
-export const RELEASE_PUBLIC_KEYS = [];
+export const RELEASE_PUBLIC_KEYS = ["8hB4AtWuF6uBYObUdffh+1Ib9FMY5S8RCqm0RRp2Smg="];
 export const PACKAGE = "tau";
 export const APP_UPDATE_FILE = "/opt/Tau/resources/app-update.yml";
 export const ADMIN_CONFIG = "/etc/tau/update-helper.json";

@@ -4,9 +4,10 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { verifyReleaseSignature } from "../../src/main/release-feed.ts";
+import { releasePublicKey, verifyReleaseSignature } from "../../src/main/release-feed.ts";
+import { RELEASE_PUBLIC_KEYS } from "../../src/shared/release-keys.ts";
 import { verifySignature } from "../../bin/tau-update-helper.mjs";
-import { feedText, rawPublicKey, signFeed, signingKeys } from "./release-signing.mjs";
+import { feedText, rawPublicKey, signFeed, signingKeys, verifyFeed } from "./release-signing.mjs";
 
 const SCRIPT = new URL("./release-signing.mjs", import.meta.url).pathname;
 const FEED = "version: 0.7.14\nfiles:\n  - url: Tau_0.7.14_amd64.deb\n    sha512: abc==\n    size: 3\npath: Tau_0.7.14_amd64.deb\nreleaseDate: '2026-09-29T10:00:00.000Z'\n";
@@ -58,6 +59,14 @@ describe("release signing", () => {
     expect(signingKeys("")).toEqual([]);
   });
 
+  it("ships the release key the secret belongs to, in a form both verifiers read", () => {
+    expect(RELEASE_PUBLIC_KEYS).toContain("8hB4AtWuF6uBYObUdffh+1Ib9FMY5S8RCqm0RRp2Smg=");
+    for (const key of RELEASE_PUBLIC_KEYS) expect(releasePublicKey(key).asymmetricKeyType).toBe("ed25519");
+    // A throwaway key's signature is no release signature.
+    const throwaway = keyPair();
+    expect(verifyFeed(Buffer.from(FEED), signFeed(Buffer.from(FEED), signingKeys(throwaway.pem)), RELEASE_PUBLIC_KEYS)).toBe(false);
+  });
+
   it("signs, verifies and checks from the command line", () => {
     const dir = folder();
     const signer = keyPair();
@@ -78,10 +87,12 @@ describe("release signing", () => {
     expect(wrong.status).toBe(1);
     expect(wrong.stderr).toMatch(/not signed by that key/u);
 
-    // `check` holds the files to the keys this checkout ships, and there are none yet.
+    // `check` holds the files to the keys this checkout ships, which a throwaway key is not.
+    rmSync(`${feeds[2]}.sig`);
     const checked = cli(["check", ...feeds]);
     expect(checked.status).toBe(1);
-    expect(checked.stderr).toMatch(/lists no release key/u);
+    expect(checked.stderr).toMatch(/latest-mac\.yml: not signed by a key this build trusts/u);
+    expect(checked.stderr).toMatch(/latest-linux\.yml: no .*latest-linux\.yml\.sig/u);
   });
 
   it("makes a key pair once and never overwrites it", () => {
