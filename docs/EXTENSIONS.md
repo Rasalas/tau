@@ -4,6 +4,38 @@ This is the entry document for anyone writing a Tau extension package. It
 follows the code, not the aspiration; where the code and an ADR disagreed
 while writing this, a footnote says so.
 
+## Your first package
+
+The rest of this document is a reference. The path from an empty folder to a
+package you use is short:
+
+1. **A folder anywhere**, with a `tau-extension.json` naming a `desktop`
+   and/or `host` entry ([§2](#2-a-minimal-example-exampleshello-package) is a
+   complete one to copy). Tau compiles the entries itself; there is no build
+   step. Set `engines.api` to the version you tested on: Settings →
+   Diagnostics → Inspector shows it under *Versions* ("Extension API").
+2. **Install it**: `/install /path/to/folder` in the composer (every
+   project), or with `-l` for the project on screen. The folder is loaded
+   where it lies. A project-only install needs a project Pi trusts (below).
+3. **Approve it**: Settings → Extensions lists it under *Needs attention*
+   as *Waiting for approval*; **Review**, then **Allow and turn on**. It
+   starts at once; no `/reload`. (Settings → Packages lists the source but
+   not the approval.)
+4. **Edit and save.** The package reloads by itself, host half included, and
+   a toast says *Reloaded <name>* ([the development loop](#the-development-loop)).
+   Changing `permissions` or `isolation` sends it back to step 3.
+5. **Types in your editor**: see [Types for a package of your own](#types-for-a-package-of-your-own).
+
+**Project trust.** Packages in `<project>/.tau/packages.json` or
+`<project>/.tau/extensions` load only where Pi trusts the project. Tau has no
+trust switch of its own and does not say so in the window: an untrusted
+project's packages are skipped with one line in the host log,
+`host-extension.package.skipped … The project is not trusted in Pi`. Trust the
+folder with `/trust` in Pi's TUI there, or add `"<absolute path>": true` to
+`~/.pi/agent/trust.json`, then `/reload`. A global install (without `-l`) needs
+no trust. A project install also writes `.tau/packages.json` into the project,
+with the path as you typed it; keep it out of Git if that path is yours alone.
+
 ## 1. What a package is
 
 A **bundled kit is a package Tau ships.** Everything below is true of both:
@@ -3322,7 +3354,7 @@ examples/hello-package/
   package.json         # its own dependency, "typebox", for the tool's schema
   host.ts              # registerCommand("greet", …) + registerRuntimeExtension(…)
   desktop.tsx           # registerStatusItem(…) calling context.host.invoke("greet")
-  tau.d.ts              # editor types for "tau" and "tau/host-extension"
+  tau.d.ts              # a module shim; see "Types for a package of your own"
 ```
 
 Because `hello_tau` needs `context.services.registerRuntimeExtension` — one of
@@ -3338,12 +3370,49 @@ Try it in a real checkout:
 /install /absolute/path/to/examples/hello-package -l
 ```
 
-(`-l` installs it for the current project only; drop it to install globally.)
-Approve it in Settings when it appears waiting for approval, then `/reload`.
-The status item shows "Say hello" in the footer; clicking it calls the host's
-`greet` command and shows the reply in its place. Prompting the agent with
+(`-l` installs it for the current project only, which Pi must trust; drop it
+to install globally.) Approve it in Settings → Extensions, where it waits under
+*Needs attention*; it starts as soon as you allow it. The status item shows
+"Say hello" in the footer; clicking it calls the host's `greet` command and shows the reply in its place. Prompting the agent with
 something like "call hello_tau" makes it call the tool and answer with the
 greeting.
+
+### Types for a package of your own
+
+Tau publishes no type package yet: the types of `tau`, `tau/host` and
+`tau/host-extension` are the sources of a Tau checkout of your version. The
+`tau.d.ts` shims in `examples/` do not work outside this repository (an
+ambient module may not re-export a relative path, TS2439, and with
+`skipLibCheck` that shows up only as "has no exported member"). Put a
+`tsconfig.json` in the package folder instead, with `<tau>` the checkout:
+
+```jsonc
+{
+  // Editor types only: Tau compiles the package itself.
+  "compilerOptions": {
+    "target": "ES2022", "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx",
+    "strict": true, "noEmit": true, "skipLibCheck": true,
+    "typeRoots": ["<tau>/node_modules/@types"], "types": ["node", "react"],
+    "paths": {
+      "tau": ["<tau>/src/renderer/extension-api.ts"],
+      "tau/host": ["<tau>/src/main/host-extension-worker-protocol.ts"],
+      "tau/host-extension": ["<tau>/src/main/host-extension-api.ts"],
+      "react": ["<tau>/node_modules/@types/react"],
+      "lucide-react": ["<tau>/node_modules/lucide-react"]
+    }
+  },
+  // The renderer sources import assets the Vite way; these types let them check.
+  "files": ["<tau>/node_modules/vite/client.d.ts"],
+  "include": ["*.ts", "*.tsx"]
+}
+```
+
+`<tau>/node_modules/.bin/tsc -p .` in the folder then checks the package the
+way your editor does, and shows a compile error with its line, which the
+reload toast does not yet. A dependency of your own (`typebox` in the example)
+needs the package's own `package.json` and `npm install`, for the types and for
+Tau's bundler alike.
 
 ## 3. The workflow
 
@@ -3376,8 +3445,8 @@ restarting itself.
 
 **Approval.** Installing never activates a package — see §5. A package Tau has
 not seen before, or whose permission list or isolation changed, shows in
-Settings as *waiting for approval* with the list it asks for; **Allow** writes
-the grant and starts both halves, **Deny** leaves it off. Until approved, the
+Settings → Extensions as *waiting for approval* with the list it asks for;
+**Allow** writes the grant and starts both halves, **Deny** leaves it off. Until approved, the
 host half is never even imported, in either scope.
 
 **`/reload`** is the single "apply changes" command: it re-syncs packages

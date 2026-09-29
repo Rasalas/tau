@@ -603,7 +603,9 @@ The Pi TUI is the sole writer while attached. Tau will not fall back to writing 
 
 ### Extend Tau while it runs
 
-Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) file in `~/.tau/extensions/`, or in `<project>/.tau/extensions/` for a project Pi trusts, and save it. The file default-exports a `DesktopExtension` and may import `react`, `lucide-react` and `tau` (the workbench hooks and types); the host compiles it with esbuild and the renderer binds those imports to its own copies. `examples/desktop-extensions/hello-panel.tsx` is a complete example; `tau.d.ts` next to it gives an editor the types.
+[docs/EXTENSIONS.md](docs/EXTENSIONS.md#your-first-package) starts with the five steps from an empty folder to a package you use.
+
+Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) file in `~/.tau/extensions/`, or in `<project>/.tau/extensions/` for a project Pi trusts, and save it. The file default-exports a `DesktopExtension` and may import `react`, `lucide-react` and `tau` (the workbench hooks and types); the host compiles it with esbuild and the renderer binds those imports to its own copies. `examples/desktop-extensions/hello-panel.tsx` is a complete example; [docs/EXTENSIONS.md](docs/EXTENSIONS.md#types-for-a-package-of-your-own) shows how an editor gets the types from a Tau checkout.
 
 An extension with a host half is a package: a folder under one of those two directories with a `tau-extension.json` manifest.
 
@@ -670,7 +672,7 @@ Tau hosts no registry: npm and Git are the index, and there is no revocation lis
 
 A package names the capabilities it wants in `permissions`, from a fixed vocabulary: `workspace:read` (project paths and file contents), `workspace:write` (change files, write Git), `workspace:switch` (open or pick another project), `sessions` (session files, threads, transcript entries), `runtime:extend` (register runtimes, runtime extensions and permission levels), `process` (child processes and command lookup), `packages` (install, update and remove other extension packages), `network` and `native` (load compiled code: `.node` addons, SQLite extensions, raw Node bindings). Reaching a host service the package did not ask for throws and is logged as `host-extension.denied`. A package without the field asks for nothing; a bundled kit keeps the full facade.
 
-A package Tau has not seen before, or one whose permission list changed, does not start. It appears in Settings as waiting for approval with the list it asks for; **Allow** writes the grant to `~/.tau/extension-grants.json` and starts both halves, **Deny** leaves it off. The grant survives a restart, and it applies to `~/.tau/extensions` exactly as it applies to `<project>/.tau/extensions` — Pi's project trust only decides whether a project's folder is read at all. Until a package is approved its host entry is not even compiled, so none of its code runs.
+A package Tau has not seen before, or one whose permission list changed, does not start. It appears in Settings → Extensions as waiting for approval with the list it asks for; **Allow** writes the grant to `~/.tau/extension-grants.json` and starts both halves, **Deny** leaves it off. The grant survives a restart, and it applies to `~/.tau/extensions` exactly as it applies to `<project>/.tau/extensions` — Pi's project trust only decides whether a project's folder is read at all. Until a package is approved its host entry is not even compiled, so none of its code runs.
 
 `source: { url, commit? }` records where a package came from and is shown in Settings → Inspector. It proves nothing on its own; a `tau-extension.sig` from a publisher you trust does.
 
