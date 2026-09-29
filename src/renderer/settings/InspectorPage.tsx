@@ -24,7 +24,7 @@ function Finding({ tone, label, children, ...data }: { tone: "danger" | "warn" |
   return (
     <div className="inspector-finding" {...data}>
       <Badge tone={tone}>{label}</Badge>
-      <p>{children}</p>
+      <div className="inspector-finding-text">{children}</div>
     </div>
   );
 }
@@ -178,14 +178,19 @@ export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; 
           <div className="settings-group inspector-findings">
             {loadFailures.map((failure) => (
               <Finding key={`load:${failure.path}`} tone="danger" label="Did not build">
-                <code>{failure.path}</code>: {failure.message.split("\n")[0]}. The version that was running stays until this builds.
+                <code>{failure.path}</code> did not build; the version that was running stays until it does.
+                <pre className="inspector-build-error">{failure.message}</pre>
               </Finding>
             ))}
             {inspection?.errors.map((failure) => (
               <Finding key={failure.path} tone="danger" label={failure.incompatible ? "Incompatible" : "Did not load"}><code>{failure.path}</code>: {failure.message}</Finding>
             ))}
             {inspection?.skipped.map((skip) => (
-              <Finding key={skip.directory} tone="neutral" label="Skipped"><code>{skip.directory}</code>: {skip.reason}</Finding>
+              <Finding key={skip.directory} tone={skip.untrustedProject ? "warn" : "neutral"} label="Skipped">
+                <code>{skip.directory}</code>: {skip.reason}
+                {skip.packages?.length ? ` It holds ${skip.packages.map((entry) => entry.name).join(", ")}.` : ""}
+                {skip.untrustedProject ? " Settings → Packages trusts the project." : ""}
+              </Finding>
             ))}
           </div>
         ) : null}

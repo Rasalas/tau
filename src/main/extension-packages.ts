@@ -3,19 +3,20 @@ import { unpackedPath } from "./packaged-app.js";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { HostExtension } from "./host-extensions.js";
-import type { ExtensionInspection } from "../shared/contracts.js";
+import type { BuildDiagnostic, ExtensionInspection, ExtensionSkip } from "../shared/contracts.js";
+import { describeBuildError, packageBuilds } from "./package-builds.js";
 import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { DEFAULT_PACKAGE_ISOLATION, isExtensionIsolation, isExtensionPermission, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
-import { listInstalledSources } from "./extension-sources.js";
+import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher } from "./extension-signature.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
@@ -76,7 +77,7 @@ export interface ExtensionPackage {
   signature?: SignatureState;
 }
 
-export function extensionPackageDirectories(cwd: string, home = homedir()): Array<{ scope: "global" | "project"; directory: string }> {
+export function extensionPackageDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
     { scope: "global", directory: join(home, ".tau", "extensions") },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
@@ -231,7 +232,7 @@ export function manifestIncompatibility(manifest: ExtensionManifest, versions: E
 export interface PackageScanResult {
   packages: ExtensionPackage[];
   errors: PackageLoadError[];
-  skipped: Array<{ directory: string; reason: string }>;
+  skipped: ExtensionSkip[];
 }
 
 export interface PackageScanOptions {
@@ -271,7 +272,7 @@ export async function listExtensionPackages(
   options: PackageScanOptions = {},
 ): Promise<PackageScanResult> {
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
-  const home = options.home ?? homedir();
+  const home = options.home ?? packagesHome();
   const publishers = await readTrustedPublishers(options.publishersFilePath ?? undefined);
   const result: PackageScanResult = { packages: [], errors: [], skipped: [] };
   const seen = new Set<string>();
@@ -293,7 +294,12 @@ export async function listExtensionPackages(
     }
     if (found.length === 0) continue;
     if (scope === "project" && !trusted(cwd)) {
-      result.skipped.push({ directory, reason: "The project is not trusted in Pi, so its extension packages stay off." });
+      result.skipped.push({
+        directory,
+        reason: "The project is not trusted in Pi, so its extension packages stay off.",
+        untrustedProject: cwd,
+        packages: found.map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name, directory: pkg.directory })),
+      });
       continue;
     }
     for (const pkg of found) {
@@ -317,7 +323,7 @@ async function addInstalledSources(
   seen: Set<string>,
 ): Promise<void> {
   const installed = await listInstalledSources(cwd, home);
-  let projectSkipped = false;
+  let projectSkipped: ExtensionSkip | undefined;
   for (const entry of installed) {
     if (entry.error) {
       result.errors.push({ path: entry.source.raw, message: entry.error });
@@ -325,9 +331,11 @@ async function addInstalledSources(
     }
     if (entry.scope === "project" && !trusted(cwd)) {
       if (!projectSkipped) {
-        projectSkipped = true;
-        result.skipped.push({ directory: join(cwd, ".tau"), reason: "The project is not trusted in Pi, so the packages it installs stay off." });
+        projectSkipped = { directory: join(cwd, ".tau"), reason: "The project is not trusted in Pi, so the packages it installs stay off.", untrustedProject: cwd, packages: [] };
+        result.skipped.push(projectSkipped);
       }
+      const identity = await manifestIdentity(entry.directory);
+      if (identity) projectSkipped.packages!.push({ ...identity, directory: entry.directory });
       continue;
     }
     if (seen.has(entry.directory)) continue;
@@ -343,6 +351,16 @@ async function addInstalledSources(
     } catch (error) {
       result.errors.push(packageLoadError(manifestPath, error));
     }
+  }
+}
+
+/** A manifest's id and name, read without checking the rest; for a folder that is not loaded anyway. */
+async function manifestIdentity(directory: string): Promise<{ id: string; name: string } | undefined> {
+  try {
+    const { manifest } = parseExtensionManifest(directory, await readFile(join(directory, MANIFEST_FILE), "utf8"));
+    return { id: manifest.id, name: manifest.name };
+  } catch {
+    return undefined;
   }
 }
 
@@ -568,8 +586,9 @@ export interface HostPackageLoadResult {
   extensions: LoadedHostPackage[];
   /** Packages the user has not approved; their code was never compiled or imported. */
   ungranted: ExtensionPackage[];
-  errors: Array<{ path: string; message: string }>;
-  skipped: Array<{ directory: string; reason: string }>;
+  /** `id` for a package whose host half did not compile or load; `diagnostics` for a compile error. */
+  errors: Array<{ path: string; message: string; id?: string; diagnostics?: BuildDiagnostic[] }>;
+  skipped: ExtensionSkip[];
 }
 
 /**
@@ -598,8 +617,18 @@ export async function loadHostExtensionPackages(
       result.ungranted.push(pkg);
       continue;
     }
+    const attempt = { id: pkg.manifest.id, directory: pkg.directory, half: "host" as const, entry: pkg.hostEntry };
+    let code: string;
     try {
-      const code = await bundleHostExtension(pkg.hostEntry);
+      code = await bundleHostExtension(pkg.hostEntry);
+      packageBuilds.record({ ...attempt, at: Date.now(), ok: true });
+    } catch (error) {
+      const failure = describeBuildError(error, pkg.directory);
+      packageBuilds.record({ ...attempt, at: Date.now(), ok: false, ...failure });
+      result.errors.push({ path: pkg.hostEntry, id: pkg.manifest.id, ...failure });
+      continue;
+    }
+    try {
       const bundlePath = await writeHostExtensionBundle(code, pkg.manifest, options.cacheDir);
       // A package runs in a worker unless it declared, and was granted, the
       // privilege of running inside the host process.
@@ -614,7 +643,7 @@ export async function loadHostExtensionPackages(
         });
       result.extensions.push({ extension, package: pkg, bundleHash: hostBundleHash(code), bundlePath });
     } catch (error) {
-      result.errors.push({ path: pkg.hostEntry, message: error instanceof Error ? error.message : String(error) });
+      result.errors.push({ path: pkg.hostEntry, id: pkg.manifest.id, message: error instanceof Error ? error.message : String(error) });
     }
   }
   return result;

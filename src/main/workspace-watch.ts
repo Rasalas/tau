@@ -5,7 +5,7 @@ import { ConfigWatcher, type ConfigChange, type ConfigWatcherOptions, type Watch
 import { KIT_SOURCE_DIRECTORY } from "./bundled-kits.js";
 import { looseExtensionId } from "./desktop-extensions.js";
 import { MANIFEST_FILE, extensionPackageDirectories, parseExtensionManifest } from "./extension-packages.js";
-import { listInstalledSources } from "./extension-sources.js";
+import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { defaultGlobalConfigPath, defaultProjectConfigPath } from "./host-config.js";
 import {
   defaultGlobalThemesDir,
@@ -70,14 +70,15 @@ export class WorkspaceWatch {
     }
     const cwd = this.options.cwd();
     const home = this.options.home ?? homedir();
-    const folders = await listInstalledSources(cwd, home).catch(() => []);
+    const packages = this.options.home ?? packagesHome();
+    const folders = await listInstalledSources(cwd, packages).catch(() => []);
     this.sources.clear();
     for (const entry of folders) {
       if (entry.source.kind !== "path" || entry.error) continue;
       this.sources.set(entry.directory, await packageId(entry.directory));
     }
     const packageRoots = [
-      ...extensionPackageDirectories(cwd, home).map((entry) => entry.directory),
+      ...extensionPackageDirectories(cwd, packages).map((entry) => entry.directory),
       ...(this.options.appPath ? [join(this.options.appPath, KIT_SOURCE_DIRECTORY)] : []),
     ];
     this.roots = [...packageRoots, ...this.sources.keys()].sort((left, right) => right.length - left.length);

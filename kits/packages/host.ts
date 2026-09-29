@@ -1,4 +1,5 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext, type InstalledPackage, type PackageScope } from "tau/host-extension";
+import { isAbsolute } from "node:path";
 import { PACKAGES_EXTENSION_ID, type PackageRow } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
@@ -88,8 +89,33 @@ export function createPackagesHostExtension(): HostExtension {
         const installed = row(await services.installPackage(source, scope, step));
         await rescan();
         announce("install", installed);
-        return { installed, message: `${describeInstalled(installed)} — approve it in Settings to start it.` };
+        // A project install in a project Pi does not trust is skipped by every scan until it is trusted.
+        if (scope === "project" && services.projectTrust && !services.projectTrust.trusted()) {
+          return { installed, untrusted: true, message: `${describeInstalled(installed)} — skipped: Pi does not trust this project. Trust it in Settings → Packages, then approve the package in Settings → Extensions.` };
+        }
+        return { installed, message: `${describeInstalled(installed)} — approve it in Settings → Extensions to start it.` };
       }, { long: true });
+
+      // The last build of each package half, and each new one as it lands: Settings → Packages' development view.
+      context.registerCommand("builds", () => ({ builds: services.packageBuilds?.list() ?? [] }), { access: "read" });
+      const stopBuilds = services.packageBuilds?.observe((build) => context.emit("build", build));
+
+      context.registerCommand("rebuild", async () => {
+        await rescan();
+        return { message: "Rebuilt the installed packages; a half whose code did not change kept running." };
+      });
+
+      context.registerCommand("trust", async (input) => {
+        const trust = services.projectTrust;
+        if (!trust) throw new HostCommandError("This host cannot record Pi's project trust.");
+        const value = record(input).cwd;
+        if (value !== undefined && (typeof value !== "string" || !isAbsolute(value))) throw new HostCommandError(`"cwd" must be an absolute path.`);
+        const cwd = trust.trust(value);
+        services.log("packages.trust", cwd);
+        await rescan();
+        announce("trust", { cwd });
+        return { cwd, message: `Pi trusts ${cwd} now; its packages load. Approve new ones in Settings → Extensions.` };
+      });
 
       context.registerCommand("remove", async (input) => {
         const source = requiredSource(input);
@@ -114,6 +140,7 @@ export function createPackagesHostExtension(): HostExtension {
             : `${updated.length - failed.length} of ${updated.length} updated and re-activated.`,
         };
       }, { long: true });
+      return () => { stopBuilds?.(); };
     },
   };
 }

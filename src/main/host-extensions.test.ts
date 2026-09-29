@@ -136,7 +136,7 @@ describe("HostExtensionRegistry", () => {
     expect(s.logs.some((line) => line.startsWith("host-extension.restarting"))).toBe(true);
     // Failing again soon after: the next start waits 10 s, then 20 s.
     await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow();
-    await expect(r.invoke("fragile.kit", "count")).rejects.toThrow("Host extension Fragile Kit is not active.");
+    await expect(r.invoke("fragile.kit", "count")).rejects.toThrow(/^Host extension Fragile Kit is not active: /u);
     clock += 10_000;
     await expect(r.invoke("fragile.kit", "count")).resolves.toBe(3);
     await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow();

@@ -257,7 +257,7 @@ export function CommandPalette({
     const submenu = row.kind === "command" ? row.command.submenu : item?.submenu;
     const shortcut = row.kind === "command" ? shortcutFor?.(row.command.id) : undefined;
     return <>
-      {refusal(row) ? <small className="palette-locked">Read only</small> : null}
+      {refusal(row) ? <small className="palette-locked">{readOnly ? "Read only" : "Unavailable"}</small> : null}
       {item?.current ? <small className="palette-current">Current</small> : null}
       {shortcut ? <kbd className="keyboard-hint">{shortcut}</kbd> : null}
       {submenu ? <ChevronRight className="palette-chevron" size={14} aria-hidden /> : null}

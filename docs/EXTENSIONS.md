@@ -6,35 +6,50 @@ while writing this, a footnote says so.
 
 ## Your first package
 
-The rest of this document is a reference. The path from an empty folder to a
-package you use is short:
+The rest of this document is a reference. The path from nothing to a package
+you use is short:
 
-1. **A folder anywhere**, with a `tau-extension.json` naming a `desktop`
-   and/or `host` entry ([§2](#2-a-minimal-example-exampleshello-package) is a
-   complete one to copy). Tau compiles the entries itself; there is no build
-   step. Set `engines.api` to the version you tested on: Settings →
-   Diagnostics → Inspector shows it under *Versions* ("Extension API").
-2. **Install it**: `/install /path/to/folder` in the composer (every
-   project), or with `-l` for the project on screen. The folder is loaded
-   where it lies. A project-only install needs a project Pi trusts (below).
-3. **Approve it**: Settings → Extensions lists it under *Needs attention*
-   as *Waiting for approval*; **Review**, then **Allow and turn on**. It
-   starts at once; no `/reload`. (Settings → Packages lists the source but
-   not the approval.)
+1. **Start one**: `tau kit new my-kit` in a terminal writes `my-kit/` with a
+   manifest for the extension API this Tau runs (`engines.api`), a desktop half
+   with a button in the thread header and a command in the palette, a host
+   half in a worker with one command, a stylesheet, a README and a
+   `tsconfig.json` with the API's types in `.tau-types/`, so your editor checks
+   the package without an `npm install`. Its id is `local.my-kit` unless
+   `--id` names one; `--no-host` leaves the host half out. Tau compiles the
+   entries itself; there is no build step. [§2](#2-a-minimal-example-exampleshello-package)
+   is a package written by hand.
+2. **Install it**: `/install /path/to/my-kit` in the composer (every project),
+   or with `-l` for the project on screen; `tau kit new my-kit --install` asks
+   the running Tau to do it. The folder is loaded where it lies.
+3. **Approve it**: the install toast's **Review** opens it in Settings →
+   Extensions, where it waits under *Needs attention*; **Allow and turn on**.
+   It starts at once; no `/reload`.
 4. **Edit and save.** The package reloads by itself, host half included, and
-   a toast says *Reloaded <name>* ([the development loop](#the-development-loop)).
-   Changing `permissions` or `isolation` sends it back to step 3.
-5. **Types in your editor**: see [Types for a package of your own](#types-for-a-package-of-your-own).
+   a toast says *Reloaded &lt;name&gt;* ([the development loop](#the-development-loop)).
+   A save that does not compile keeps the running version: the toast names the
+   file, line and column of the first error, and Settings → Packages →
+   *Develop a package* shows the last build of each half with every error.
+   Changing `permissions` or `isolation` sends it back to step 3, and the toast
+   says *&lt;name&gt; is waiting for approval*.
+5. **After updating Tau**, `tau kit types` in the folder copies the new
+   [types](#types-for-a-package-of-your-own) in.
 
 **Project trust.** Packages in `<project>/.tau/packages.json` or
-`<project>/.tau/extensions` load only where Pi trusts the project. Tau has no
-trust switch of its own and does not say so in the window: an untrusted
-project's packages are skipped with one line in the host log,
-`host-extension.package.skipped … The project is not trusted in Pi`. Trust the
-folder with `/trust` in Pi's TUI there, or add `"<absolute path>": true` to
-`~/.pi/agent/trust.json`, then `/reload`. A global install (without `-l`) needs
-no trust. A project install also writes `.tau/packages.json` into the project,
-with the path as you typed it; keep it out of Git if that path is yours alone.
+`<project>/.tau/extensions` load only where Pi trusts the project. In a project
+Pi does not trust they are listed in Settings → Extensions as *Skipped:
+project not trusted*, the install toast says so, and **Trust this project**
+(in that toast, or in Settings → Packages) records the trust in Pi's
+`trust.json` through Pi's own store, the way Pi's `/trust` does; the packages
+then load and wait for approval. A global install needs no trust. A project
+install writes `.tau/packages.json` into the project, with the path as you
+typed it; keep it out of Git if that path is yours alone.
+
+**What a package usually needs next:** the thread's branch and pull requests
+come from [two services](#a-threads-branch-and-pull-requests-tauworkspacebranch-and-taureviewpull-requests),
+not from running `git` yourself; controls that call the host half turn off with
+the reason while it does not run ([`useHostAvailability`](#when-the-host-half-does-not-run-usehostavailability));
+bad input from a command is a [`HostCommandError`](#5-failure-model), from
+`tau/host` in a worker.
 
 ## 1. What a package is
 
@@ -671,6 +686,31 @@ paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
 chip is the undo. A file travels to the host in 4 MiB pieces, so a 50 MB one
 stays under the host socket's 64 MiB frame.
 
+#### A thread's branch and pull requests: `tau.workspace/branch` and `tau.review/pull-requests`
+
+(New with K112, after API 1.29.0.) Two services other packages may read, each
+provided by the kit that knows the answer; their ids and types come from `tau`,
+so a package of your own needs no kit's protocol file. While the kit is off,
+`useService` simply never calls back.
+
+```ts
+import { THREAD_BRANCH_SERVICE, type ThreadBranchService } from "tau";
+
+context.useService<ThreadBranchService>(THREAD_BRANCH_SERVICE, (service) => {
+  const show = () => console.log(service.current()?.branch);
+  show();
+  return service.subscribe(show);
+});
+```
+
+| Service | Provided by | Members |
+|---|---|---|
+| `THREAD_BRANCH_SERVICE` (`tau.workspace/branch`) | Workspace Kit | `current()`: `{ cwd, isRepo, branch?, upstream? }` for the thread or draft on screen — a worktree thread's own folder and branch — or undefined with no project; the same object until it changes, so `useSyncExternalStore(service.subscribe, service.current)` works. `branch` is absent on a detached HEAD. `subscribe(listener)`. |
+| `THREAD_PULL_REQUESTS_SERVICE` (`tau.review/pull-requests`) | Review Kit | `forThread(sessionId)`: the requests linked to the thread, `{ url, number, host, repo, title?, state?, draft?, headRef?, baseRef? }`, as the window last read them; asking reads them when it has not. The same array until they change. `subscribe(listener)`. |
+
+Both answer what the window last read: after a `git checkout` outside Tau,
+the branch follows once Workspace Kit refreshes the project.
+
 #### Actions on a message
 
 `registerMessageAction` puts a button on the action bar of a transcript message,
@@ -994,6 +1034,39 @@ Write no colour of your own: name a token, or mix one
 (`color-mix(in srgb, var(--acid) 25%, transparent)`). §8 is the table, and a
 package that brings a stylesheet and nothing else is a theme.
 
+### When the host half does not run: `useHostAvailability`
+
+(New with K112, after API 1.29.0.) A package's host half may not run while its
+desktop half does: it waits for approval, it failed to start (a permission it
+lacks: "… lacks permission process"), or it was stopped after failing. A control
+that calls it then does nothing, so turn it off with the reason instead:
+
+```tsx
+import { hostAvailability, useHostAvailability } from "tau";
+
+function Button({ actions }: RegionProps) {
+  const { available, reason } = useHostAvailability("me.my-kit");
+  return <button disabled={!available} title={reason} onClick={…}>Go</button>;
+}
+
+context.registerCommand({
+  id: "me.my-kit.go", label: "Go", group: "My kit",
+  unavailable: () => hostAvailability("me.my-kit").reason,
+  run: …,
+});
+```
+
+`hostAvailability(extensionId)` answers `{ available, reason? }` from the
+host's list of host halves, which the window reads once and again after every
+package change and deactivation; until the host has answered it counts as
+available, so nothing flickers off at startup. `useHostAvailability` is the
+same for a component and draws again when the answer changes. A command's
+`unavailable()` — any reason, not only this one — disables it on every surface
+(the palette, the thread's title menu, a file tab, its key chord) with the
+reason as the tooltip, the way a Read-only device's refusal does. Calling a
+host half that is not active rejects with `Host extension <name> is not
+active: <why>`.
+
 ### The three modules a package imports from Tau
 
 | Specifier | Resolves to | For |
@@ -1032,7 +1105,9 @@ threads; installing, updating and signing in stay on the kit's card.
 answers core's own scan of the package folders and the shipped kits
 (`ExtensionInspection`) without loading any code — including `distribution`,
 the name and version of the set the `bundled` entries came in, absent in safe
-mode, which loads none. Core keeps General, Models, Runtimes, Pi, Keybindings,
+mode, which loads none, and `skipped`, the folders the scan passed over, each
+with its `reason` and, where Pi's project trust was why, the
+`untrustedProject` and the `packages` it holds (K112). Core keeps General, Models, Runtimes, Pi, Keybindings,
 Connections, Extensions and the Inspector; every other page is a contribution
 and is gone with its extension. The search field at the top of the Settings
 column finds core's own rows (and scrolls to the row), a page by its label,
@@ -3234,7 +3309,15 @@ A package's `permissions` array draws from a fixed list
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `native` | (API 1.17.0) load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
-| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), and read the last build of each package half (`packageBuilds`, K112). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+
+**Permissions gate the host half.** A desktop half runs in the window with
+what the user can do there: every `WorkbenchActions` member is ungated,
+`runShellAction` included, which runs a command in the project of the thread
+on screen the way Pi's `!` does (a device paired Read only is refused it), and
+so is sending the agent a prompt. Approving a package with a desktop half
+trusts it that far, whatever its `permissions` list says; the list is what its
+host half may reach.
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
 directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR` names), and reading inside it
@@ -3375,7 +3458,6 @@ examples/hello-package/
   package.json         # its own dependency, "typebox", for the tool's schema
   host.ts              # registerCommand("greet", …) + registerRuntimeExtension(…)
   desktop.tsx           # registerStatusItem(…) calling context.host.invoke("greet")
-  tau.d.ts              # a module shim; see "Types for a package of your own"
 ```
 
 Because `hello_tau` needs `context.services.registerRuntimeExtension` — one of
@@ -3393,19 +3475,27 @@ Try it in a real checkout:
 
 (`-l` installs it for the current project only, which Pi must trust; drop it
 to install globally.) Approve it in Settings → Extensions, where it waits under
-*Needs attention*; it starts as soon as you allow it. The status item shows
+*Needs attention*; it starts as soon as you allow it. Copied out of this
+repository, `tau kit types` in the folder gives it its editor types. The status item shows
 "Say hello" in the footer; clicking it calls the host's `greet` command and shows the reply in its place. Prompting the agent with
 something like "call hello_tau" makes it call the tool and answer with the
 greeting.
 
 ### Types for a package of your own
 
-Tau publishes no type package yet: the types of `tau`, `tau/host` and
-`tau/host-extension` are the sources of a Tau checkout of your version. The
-`tau.d.ts` shims in `examples/` do not work outside this repository (an
-ambient module may not re-export a relative path, TS2439, and with
-`skipLibCheck` that shows up only as "has no exported member"). Put a
-`tsconfig.json` in the package folder instead, with `<tau>` the checkout:
+Tau ships the types of `tau`, `tau/host` and `tau/host-extension` with the
+app: `@tau/extension-api`, a folder of declarations at the extension API's
+version. It is `extension-api/` among an installed Tau's resources, and
+`dist-types/extension-api/` in a checkout after `npm run build`
+(`node scripts/build-types.mjs` rebuilds it alone). It carries the
+declarations of React, csstype, lucide-react and Node that the API refers to,
+each with its licence, so nothing needs installing. It is not on npm.
+
+`tau kit new` copies it into a new package as `.tau-types/` and writes this
+`tsconfig.json`; `tau kit types [folder]` copies it into a folder of your own
+(an example you copied out of this repository, say), writes the same
+`tsconfig.json` where there is none, and refreshes the copy after Tau was
+updated:
 
 ```jsonc
 {
@@ -3414,26 +3504,28 @@ ambient module may not re-export a relative path, TS2439, and with
     "target": "ES2022", "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx",
     "strict": true, "noEmit": true, "skipLibCheck": true,
-    "typeRoots": ["<tau>/node_modules/@types"], "types": ["node", "react"],
+    "typeRoots": ["./.tau-types/vendor/@types"], "types": ["node"],
     "paths": {
-      "tau": ["<tau>/src/renderer/extension-api.ts"],
-      "tau/host": ["<tau>/src/main/host-extension-worker-protocol.ts"],
-      "tau/host-extension": ["<tau>/src/main/host-extension-api.ts"],
-      "react": ["<tau>/node_modules/@types/react"],
-      "lucide-react": ["<tau>/node_modules/lucide-react"]
+      "tau": ["./.tau-types/tau.d.ts"],
+      "tau/host": ["./.tau-types/host.d.ts"],
+      "tau/host-extension": ["./.tau-types/host-extension.d.ts"],
+      "react": ["./.tau-types/vendor/react"],
+      "react/*": ["./.tau-types/vendor/react/*"],
+      "csstype": ["./.tau-types/vendor/csstype"],
+      "lucide-react": ["./.tau-types/vendor/lucide-react/dist/lucide-react.d.ts"],
+      "undici-types": ["./.tau-types/vendor/undici-types"]
     }
   },
-  // The renderer sources import assets the Vite way; these types let them check.
-  "files": ["<tau>/node_modules/vite/client.d.ts"],
   "include": ["*.ts", "*.tsx"]
 }
 ```
 
-`<tau>/node_modules/.bin/tsc -p .` in the folder then checks the package the
-way your editor does, and shows a compile error with its line, which the
-reload toast does not yet. A dependency of your own (`typebox` in the example)
-needs the package's own `package.json` and `npm install`, for the types and for
-Tau's bundler alike.
+`npx -p typescript tsc -p .` in the folder checks the package the way your
+editor does. Types Tau does not carry (Pi's, for an in-process package that
+registers a Pi tool; `typebox` in the example) come from the package's own
+`package.json` and `npm install`, for the types and for Tau's bundler alike.
+With `skipLibCheck`, a declaration of the API that refers to a package you did
+not install reads as `any` instead of failing.
 
 ## 3. The workflow
 
@@ -3497,6 +3589,13 @@ separate, later gate).
 | Trusted publisher keys | `~/.tau/trusted-publishers.json` |
 | Compiled host bundle cache | a temp directory (`tmpdir()/tau-host-extensions` by default, keyed by content hash) |
 
+`TAU_PACKAGES_HOME` moves every global row but the grants: set, the global
+package folders, `packages.json`, the npm and Git stores and the trusted keys
+live under `$TAU_PACKAGES_HOME/.tau/` instead of `~/.tau/`
+(`TAU_EXTENSION_GRANTS_FILE` moves the grants). `npm run dev:instance` sets it
+to `.tau-dev/packages-home`, so a global install in a test instance never
+writes the real `~/.tau`.
+
 A folder source is never copied — `/install ./my-extension` loads it where it
 lies, which is also how you develop one: edit it in place and save.
 
@@ -3518,10 +3617,28 @@ Only the file that changed is acted on: a save in one package never restarts
 another one's worker, and a theme edit touches no extension at all.
 
 **A save that does not compile changes nothing.** The version that was running
-stays running, the error is a toast and a line in Settings → Inspector, and it
-counts as nothing — a reload failure is not a command failure, so it can never
-add up to a deactivation. Fix the file, save again, and the new version takes
-over.
+stays running, and it counts as nothing — a reload failure is not a command
+failure, so it can never add up to a deactivation. Fix the file, save again,
+and the new version takes over. What esbuild reported reaches you whole, with
+the file relative to the package, the line, the column and the source line:
+
+```
+desktop.tsx:12:7: Expected ";" but found "y"
+  const x y = 1;
+          ^
+```
+
+The toast (an error, 15 seconds) names the first error and copies all of them;
+**Details** opens Settings → Diagnostics → Inspector, which shows them all under
+*Did not build*, and the host log has the same lines. A host half that did not
+compile is reported the same way. Settings → Packages → *Develop a package*
+keeps the last build of each half of every installed package, with the time,
+whether it built and every error, updated as you save; **Rebuild** rescans the
+installed packages.
+
+**A save that changes what the package asks for** — its `permissions` or its
+`isolation` — stops it until you approve it again. The toast says *&lt;name&gt; is
+waiting for approval*, with **Review** onto its page in Settings → Extensions.
 
 The panels of a reloaded package remount, so whatever state they held is gone.
 That is the price of swapping a module in place, and it is why only the package
@@ -3591,7 +3708,8 @@ its own. There is no revocation list: removing a key from
   a single timeout is enough, not three.
 - **Three strikes:** three consecutive **failures** (thrown errors, not
   timeouts) also deactivate the package. A success resets the counter to zero.
-  Throw a `HostCommandError` (from `tau/host-extension`) for bad input or a
+  Throw a `HostCommandError` (from `tau/host` in a worker, `tau/host-extension`
+  in the host process) for bad input or a
   missing prerequisite — a path that is not a folder, npm not installed — and
   it reaches the caller like any error but neither counts nor resets; the
   flag survives a worker's port. Three typos must not switch a package off.
@@ -3719,7 +3837,7 @@ the port — nothing that hands out a live object. From
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex`, `executionPolicy` (a provider is a live object) |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
-| `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
+| `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `projectTrust`, `packageBuilds` |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.import`, `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 | `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |
@@ -3840,8 +3958,10 @@ invoking a command. Read it for the lowest-level API surface (no Electron, no
 UI) a package goes through.
 
 To test interactively in the running app, `/install <path to your package>`
-(`-l` for project scope), approve it in Settings, `/reload`, and use it. This
-is exactly how `examples/hello-package` was verified for this document.
+(`-l` for project scope), approve it in Settings → Extensions, and use it; no
+`/reload` is needed. This is how `examples/hello-package` was verified for this
+document. In a test instance of a checkout (`npm run dev:instance`), a global
+install lands in `.tau-dev/packages-home/.tau/`, never in your own `~/.tau`.
 
 
 ## 8. Themes: the tokens a theme may set

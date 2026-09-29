@@ -7,6 +7,7 @@ import type {
   ExtensionUiPrompt,
   GlobalHostEvent,
   HostExtensionSummary,
+  PackageBuild,
   RuntimeToolVersion,
   UiRuntimeBackend,
   UiRuntimeCatalog,
@@ -905,6 +906,21 @@ export interface HostSkill {
  * the event channel; a host extension owns a feature and reaches the renderer
  * through commands and events routed by id, never through a core IPC entry.
  */
+/** What `services.packageBuilds` offers. */
+export interface HostPackageBuilds {
+  /** Newest first, one per half and entry file. */
+  list(): PackageBuild[];
+  observe(listener: (build: PackageBuild) => void): () => void;
+}
+
+/** Pi's project trust, as `services.projectTrust` offers it. */
+export interface HostProjectTrust {
+  /** Whether Pi trusts the folder (the open workspace by default), or the nearest parent it has an answer for. */
+  trusted(cwd?: string): boolean;
+  /** Trusts the folder (the open workspace by default) in Pi's `trust.json`, through Pi's own store; answers the path. */
+  trust(cwd?: string): string;
+}
+
 export interface HostExtensionServices {
   /** The workspace the host currently has open. */
   cwd(): string;
@@ -1012,6 +1028,18 @@ export interface HostExtensionServices {
   removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;
   /** Re-fetches one source, or every source both files list. */
   updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;
+  /**
+   * Pi's trust in a project folder, which decides whether its `.tau` packages
+   * load (`packages`). `trust` records the user's yes in Pi's own store, the
+   * way Pi's `/trust` does. Absent in a worker; new with K112.
+   */
+  readonly projectTrust?: HostProjectTrust;
+  /**
+   * The last compile of each half of the installed packages, with esbuild's
+   * errors, and each new one as it happens (`packages`). Absent in a worker;
+   * new with K112.
+   */
+  readonly packageBuilds?: HostPackageBuilds;
   readonly sessions: HostSessionServices;
   /**
    * The clients attached to this host. Ungated: it reports how many there are,
@@ -1622,8 +1650,9 @@ export class HostExtensionRegistry {
     const record = this.active.get(extensionId) ?? await this.restartCrashed(extensionId);
     if (!record) {
       const known = this.known.get(extensionId);
+      const failure = this.failures.get(extensionId);
       throw new Error(known
-        ? `Host extension ${known.name} is not active.`
+        ? `Host extension ${known.name} is not active${failure ? `: ${failure}` : ""}.`
         : `Host extension ${extensionId} is not installed.`);
     }
     const handler = record.commands.get(command);

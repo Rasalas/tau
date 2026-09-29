@@ -662,7 +662,14 @@ export type GlobalHostEvent =
    * desktop halves. `extensionIds` narrows that to the ones that moved, so a
    * client can swap those modules instead of every one it loaded.
    */
-  | { type: "extension-packages-changed"; extensionIds?: string[]; sessionId?: undefined }
+  | {
+    type: "extension-packages-changed";
+    extensionIds?: string[];
+    buildErrors?: PackageBuildError[];
+    /** Of `extensionIds`, the packages that now wait for the user's approval: their permissions or isolation changed. */
+    awaitingApproval?: Array<{ id: string; name: string }>;
+    sessionId?: undefined;
+  }
   /**
    * A file the host watches moved on disk: `kind` names the group it belongs to
    * ("config", "themes", "keybindings"), `paths` what changed. A client re-reads
@@ -804,7 +811,52 @@ export interface ExtensionInspection {
    * rule this Tau out.
    */
   errors: Array<{ path: string; message: string; id?: string; name?: string; version?: string; incompatible?: boolean }>;
-  skipped: Array<{ directory: string; reason: string }>;
+  skipped: ExtensionSkip[];
+}
+
+/** A package folder the scan passed over, and why. */
+export interface ExtensionSkip {
+  directory: string;
+  reason: string;
+  /** The project Pi does not trust, when that is why; trusting it loads what was skipped. */
+  untrustedProject?: string;
+  /** The packages it held, where their manifests could be read. */
+  packages?: Array<{ id: string; name: string; directory: string }>;
+}
+
+/** The last compile of one half of a package, as Settings → Packages shows it. */
+export interface PackageBuild {
+  /** The manifest's id; absent for a loose file. */
+  id?: string;
+  /** The package folder, or the loose file's own folder. */
+  directory: string;
+  half: "desktop" | "host";
+  /** The entry file that was compiled. */
+  entry: string;
+  /** Epoch milliseconds. */
+  at: number;
+  ok: boolean;
+  /** What went wrong, as one text; `diagnostics` has the pieces. */
+  message?: string;
+  diagnostics?: BuildDiagnostic[];
+}
+
+/** A package entry that did not compile when the host last built it: a host half, as the client never builds one. */
+export interface PackageBuildError {
+  path: string;
+  message: string;
+  diagnostics?: BuildDiagnostic[];
+}
+
+/** One error esbuild reported for an entry, with where it is when it knows. */
+export interface BuildDiagnostic {
+  /** Relative to the package folder when the file is inside it. */
+  file?: string;
+  line?: number;
+  column?: number;
+  text: string;
+  /** The source line the error points into. */
+  lineText?: string;
 }
 
 /** A desktop extension compiled by the host, ready for the renderer to import. */
@@ -836,8 +888,9 @@ export interface DesktopExtensionBundle {
 
 export interface DesktopExtensionLoadResult {
   bundles: DesktopExtensionBundle[];
-  errors: Array<{ path: string; message: string }>;
-  skipped: Array<{ directory: string; reason: string }>;
+  /** `diagnostics` when the entry did not compile; `message` then carries them as text too. */
+  errors: Array<{ path: string; message: string; diagnostics?: BuildDiagnostic[] }>;
+  skipped: ExtensionSkip[];
 }
 
 export interface WorkbenchBuildResult {

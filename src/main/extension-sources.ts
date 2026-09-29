@@ -70,16 +70,26 @@ export function gitFolderName(url: string): string {
   return name;
 }
 
-export function npmStoreDirectory(home: string = homedir()): string {
+/**
+ * The folder whose `.tau` holds the global packages: the home folder, or
+ * `TAU_PACKAGES_HOME`. A test instance points it under `.tau-dev/`, so a global
+ * install there never writes `~/.tau/extensions` or `~/.tau/packages.json`.
+ */
+export function packagesHome(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.TAU_PACKAGES_HOME?.trim();
+  return override ? resolve(override) : homedir();
+}
+
+export function npmStoreDirectory(home: string = packagesHome()): string {
   return join(home, ".tau", "npm");
 }
 
-export function gitStoreDirectory(home: string = homedir()): string {
+export function gitStoreDirectory(home: string = packagesHome()): string {
   return join(home, ".tau", "git");
 }
 
 /** Where a source's package folder is, once it is installed. */
-export function sourceDirectory(source: ExtensionSource, home: string = homedir()): string {
+export function sourceDirectory(source: ExtensionSource, home: string = packagesHome()): string {
   if (source.kind === "path") return source.value;
   const root = source.kind === "npm" ? join(npmStoreDirectory(home), "node_modules") : gitStoreDirectory(home);
   const name = source.kind === "npm" ? source.value : gitFolderName(source.value);
@@ -92,7 +102,7 @@ export function sourceDirectory(source: ExtensionSource, home: string = homedir(
   return directory;
 }
 
-export function packagesFilePath(scope: PackageScope, cwd: string, home: string = homedir()): string {
+export function packagesFilePath(scope: PackageScope, cwd: string, home: string = packagesHome()): string {
   return scope === "global" ? join(home, ".tau", PACKAGES_FILE) : join(cwd, ".tau", PACKAGES_FILE);
 }
 
@@ -146,7 +156,7 @@ export interface InstalledSource {
 }
 
 /** Every source both packages files list, resolved to the folder it installed into. */
-export async function listInstalledSources(cwd: string, home: string = homedir()): Promise<InstalledSource[]> {
+export async function listInstalledSources(cwd: string, home: string = packagesHome()): Promise<InstalledSource[]> {
   const found: InstalledSource[] = [];
   for (const scope of ["global", "project"] as const) {
     const path = packagesFilePath(scope, cwd, home);

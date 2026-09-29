@@ -612,9 +612,9 @@ The Pi TUI is the sole writer while attached. Tau will not fall back to writing 
 
 ### Extend Tau while it runs
 
-[docs/EXTENSIONS.md](docs/EXTENSIONS.md#your-first-package) starts with the five steps from an empty folder to a package you use.
+`tau kit new my-kit` writes a package to start from, with types for your editor; [docs/EXTENSIONS.md](docs/EXTENSIONS.md#your-first-package) starts with the five steps from there to a package you use.
 
-Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) file in `~/.tau/extensions/`, or in `<project>/.tau/extensions/` for a project Pi trusts, and save it. The file default-exports a `DesktopExtension` and may import `react`, `lucide-react` and `tau` (the workbench hooks and types); the host compiles it with esbuild and the renderer binds those imports to its own copies. `examples/desktop-extensions/hello-panel.tsx` is a complete example; [docs/EXTENSIONS.md](docs/EXTENSIONS.md#types-for-a-package-of-your-own) shows how an editor gets the types from a Tau checkout.
+Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) file in `~/.tau/extensions/`, or in `<project>/.tau/extensions/` for a project Pi trusts, and save it. The file default-exports a `DesktopExtension` and may import `react`, `lucide-react` and `tau` (the workbench hooks and types); the host compiles it with esbuild and the renderer binds those imports to its own copies. `examples/desktop-extensions/hello-panel.tsx` is a complete example; `tau kit types` gives a folder the types Tau ships ([docs/EXTENSIONS.md](docs/EXTENSIONS.md#types-for-a-package-of-your-own)).
 
 An extension with a host half is a package: a folder under one of those two directories with a `tau-extension.json` manifest.
 

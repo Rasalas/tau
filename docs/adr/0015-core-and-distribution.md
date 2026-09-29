@@ -185,7 +185,10 @@ distribution takes a devDependency on a core checkout. That choice is below.
 - **Whether `@tau/kits` is published to npm at all**, or installed as a Git
   source the way `/install git:…` already installs any other package.
 - **Whether core publishes `tau` as a typed npm package.** Today `tau.d.ts`
-  sits beside the examples and the bundlers alias to files on disk.
+  sits beside the examples and the bundlers alias to files on disk. (K112:
+  the build now writes `@tau/extension-api`, the declarations of the three
+  modules at the API's version, to `dist-types/`; a release ships it beside the
+  app for `tau kit new`. It is not on npm.)
 - **Whether a third-party distribution becomes a first-class concept.** Today
   it is a set of packages a user installs, plus a `dist-kits/` a fork replaces;
   Settings shows one bundled distribution because there is one folder.

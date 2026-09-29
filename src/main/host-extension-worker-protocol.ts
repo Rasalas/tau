@@ -7,6 +7,12 @@ import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
+ * A command's answer to bad input, for a worker's host half too: thrown from a
+ * command, it reaches the caller without counting toward the three failures.
+ */
+export { HostCommandError } from "./host-extension-errors.js";
+
+/**
  * The wire between the main process and an isolated host extension. Only plain
  * data crosses it: a worker never holds a live host object, so every facade
  * member here is either a value the main side can serialize or a round trip.

@@ -292,6 +292,8 @@ async function main() {
     TAU_WORKTREES_DIR: worktreesDir,
     TAU_THEMES_DIR: themesDir,
     TAU_EXTENSION_GRANTS_FILE: join(DEV_DIR, "extension-grants.json"),
+    // Global packages: `<this>/.tau/extensions`, `packages.json`, `npm`, `git`, never the real `~/.tau`.
+    TAU_PACKAGES_HOME: process.env.TAU_PACKAGES_HOME ?? join(DEV_DIR, "packages-home"),
     TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     CODEX_HOME: codexHome,
     CLAUDE_CONFIG_DIR: claudeHome,

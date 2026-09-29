@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
-import { absoluteSourceMapLink, bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, linkSourceMap, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest, writeHostExtensionBundle } from "./extension-packages.js";
+import { MANIFEST_FILE, absoluteSourceMapLink, bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, linkSourceMap, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest, writeHostExtensionBundle } from "./extension-packages.js";
 import { grantPackage } from "./extension-grants.js";
+import { addPackageSource } from "./extension-sources.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -203,6 +204,28 @@ describe("extension packages", () => {
     const untrusted = await listExtensionPackages(project, "/agent", { home, trusted: () => false, versions });
     expect(untrusted.packages.map((pkg) => pkg.manifest.id)).toEqual(["acme.global"]);
     expect(untrusted.skipped).toHaveLength(1);
+    // The skip names the project to trust and the packages it holds, so Settings can offer the trust.
+    expect(untrusted.skipped[0]).toMatchObject({
+      untrustedProject: project,
+      packages: [{ id: "acme.local", name: "Local", directory: join(project, ".tau", "extensions", "local-one") }],
+    });
+  });
+
+  it("names a project's installed sources in the skip while the project is untrusted", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const kit = await scratch();
+    await writeFile(join(kit, MANIFEST_FILE), JSON.stringify({ id: "me.kit", name: "My kit", desktop: "./d.tsx" }));
+    await writeFile(join(kit, "d.tsx"), "export default {}");
+    await addPackageSource(join(project, ".tau", "packages.json"), kit);
+    const scan = await listExtensionPackages(project, "/agent", { home, trusted: () => false });
+    expect(scan.packages).toEqual([]);
+    expect(scan.skipped).toEqual([{
+      directory: join(project, ".tau"),
+      reason: expect.stringContaining("not trusted"),
+      untrustedProject: project,
+      packages: [{ id: "me.kit", name: "My kit", directory: kit }],
+    }]);
   });
 
   it("binds import.meta.url in a host bundle to the compiled file", async () => {

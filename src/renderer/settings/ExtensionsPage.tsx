@@ -38,7 +38,7 @@ function ExtensionRow({ entry, mark, readOnly, onOpen, onToggle }: {
       </button>
       <span className="extension-row-control">
         {entry.locked ? <span className="extension-row-note">Always on</span>
-          : entry.state === "waiting" ? <Button onClick={onOpen}>Review</Button>
+          : entry.state === "waiting" || entry.state === "skipped" ? <Button onClick={onOpen}>Review</Button>
             : entry.state === "incompatible" ? null
               : <Switch label={`${running ? "Turn off" : "Turn on"} ${entry.name}`} checked={running} disabled={readOnly} onChange={onToggle} />}
       </span>

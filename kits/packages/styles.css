@@ -1,5 +1,5 @@
 /*
- * Packages Kit's own rules: the install form and its log.
+ * Packages Kit's own rules: the install form, its log and a build's errors.
  * The settings page frame and its controls are core's.
  */
 
@@ -12,3 +12,8 @@
   font: 10.5px var(--mono); color: var(--muted); line-height: 1.7;
 }
 .packages-failure { margin: 4px 0 0; font-size: var(--text-sm); color: var(--danger); }
+.packages-build-error {
+  margin: 10px 0 0; padding: 9px 12px;
+  border-left: 2px solid var(--danger); background: var(--inset);
+  font: 11px/1.6 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}

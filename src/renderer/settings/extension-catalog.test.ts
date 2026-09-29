@@ -38,6 +38,15 @@ describe("the extension catalog", () => {
     expect(entries).toHaveLength(6);
   });
 
+  it("lists a package Pi's project trust kept off, as needing attention", () => {
+    const skipped = extensionCatalog({
+      summaries: [],
+      skipped: [{ directory: "/p/.tau", reason: "not trusted", untrustedProject: "/p", packages: [{ id: "me.kit", name: "My kit", directory: "/k" }] }],
+    });
+    expect(skipped).toEqual([expect.objectContaining({ id: "me.kit", name: "My kit", state: "skipped", origin: "installed", problem: expect.stringContaining("/p") })]);
+    expect(matchesFilter(skipped[0]!, "attention")).toBe(true);
+  });
+
   it("filters and counts by source, by off and by what needs attention", () => {
     expect(filterCounts(entries)).toEqual({ all: 6, bundled: 3, installed: 3, off: 1, attention: 3 });
     expect(entries.filter((entry) => matchesFilter(entry, "attention")).map((entry) => entry.id)).toEqual(["acme.broken", "acme.waiting", "acme.old"]);

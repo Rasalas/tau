@@ -31,5 +31,7 @@ await writeFile(join(ROOT, "reports/build-report.json"), `${JSON.stringify(repor
 // The host serves this to browsers and phones; a packaged app ships it (electron-builder.yml).
 // After the report, so the desktop build budget measures the desktop build alone.
 run("../scripts/build-web.mjs", []);
+// The extension API's declarations, which a release ships for `tau kit new`; outside the budget like the web build.
+run("../scripts/build-types.mjs", []);
 console.log(`Build completed in ${buildTimeMs}ms`);
 console.log("Run npm run build:budget to enforce release budgets.");

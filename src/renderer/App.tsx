@@ -20,7 +20,7 @@ import { runtimeControls } from "./settings/runtime-controls";
 import { followExtensionChoices } from "./extension-choices";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
-import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
+import { applyHostEvent, type HostEventTargets, type PackagesChangeReport } from "../workbench/host-events";
 import { getPlatform, PlatformProvider, setPlatform } from "./platform-context";
 import { useAppOverlays } from "./use-app-overlays";
 import { useAppKeybindings } from "./use-app-keybindings";
@@ -125,6 +125,8 @@ export default function App() {
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
       notify: (message) => viewStore.setNotice(message),
+      toast: (options) => workbenchSession.toasts.show(options),
+      openSettings: (target) => actionsRef.current?.openSettings(target),
       log: (label, detail) => viewStore.addEvent(label, detail),
     });
   });
@@ -368,8 +370,8 @@ export default function App() {
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
-  const syncDesktopExtensions = useCallback((only?: readonly string[]) => {
-    void runtimeExtensions.resync(only).catch((error) => setNotice(errorMessage(error)));
+  const syncDesktopExtensions = useCallback((only?: readonly string[], report?: PackagesChangeReport) => {
+    void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, setNotice]);
 
   const windowShell = useWindowShell({

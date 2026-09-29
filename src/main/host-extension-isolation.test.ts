@@ -19,12 +19,14 @@ import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, 
  */
 
 const FIXTURE = `
+import { HostCommandError } from "tau/host";
 const MB = 1024 * 1024;
 export default {
   id: "acme.worker",
   name: "Worker Package",
   activate(context) {
     const { services } = context;
+    context.registerCommand("bad-input", () => { throw new HostCommandError("that is not a folder"); });
     context.registerCommand("hello", async (input) => {
       const cwd = await services.cwd();
       context.emit("greeted", { input });
@@ -453,6 +455,19 @@ describe("isolated host extensions", () => {
       expect(registry.isActive("acme.worker")).toBe(true);
       expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toHaveLength(3);
       expect(recorder.logs.some((line) => line.startsWith("host-extension.failed"))).toBe(false);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("takes a worker's HostCommandError from tau/host as bad input, which never counts", async () => {
+    const { registry, extension } = harness();
+    await registry.activate(extension);
+    try {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await expect(registry.invoke("acme.worker", "bad-input")).rejects.toMatchObject({ message: "that is not a folder", name: "HostCommandError", expected: true });
+      }
+      expect(registry.isActive("acme.worker")).toBe(true);
     } finally {
       await registry.dispose();
     }

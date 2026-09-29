@@ -27,6 +27,38 @@ describe("install arguments", () => {
     expect(parseInstallArguments("")).toEqual({ source: "", scope: "global" });
   });
 
+  it("shows a project's skipped packages and trusts the project on request", async () => {
+    const invoke = vi.fn(async (command: string) => command === "list"
+      ? { packages: [{ source: "/src/hello", scope: "project", directory: "/src/hello", id: "acme.hello", name: "Hello", signatureLabel: "unsigned" }] }
+      : { message: "Pi trusts /project now." });
+    const onNotify = vi.fn();
+    render(
+      <PackagesPage
+        cwd="/project"
+        onNotify={onNotify}
+        host={host(invoke)}
+        inspect={async () => ({
+          ...inspection([]),
+          skipped: [{ directory: "/project/.tau", reason: "The project is not trusted in Pi.", untrustedProject: "/project", packages: [{ id: "acme.hello", name: "Hello", directory: "/src/hello" }] }],
+        })}
+      />,
+    );
+    expect((await screen.findAllByText("Skipped: project not trusted")).length).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Trust this project" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("trust", { cwd: "/project" }));
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Pi trusts /project now."));
+  });
+
+  it("offers Review on a package that waits for approval", async () => {
+    const invoke = vi.fn(async (command: string) => command === "list"
+      ? { packages: [{ source: "/k", scope: "global", directory: "/k", id: "me.kit", name: "My kit", signatureLabel: "unsigned" }] }
+      : { builds: [] });
+    const onOpenSettings = vi.fn();
+    render(<PackagesPage cwd="/project" onNotify={vi.fn()} onOpenSettings={onOpenSettings} host={host(invoke)} inspect={async () => inspection([{ id: "me.kit", name: "My kit", permissions: [], granted: false, scope: "global", directory: "/k", desktop: true, host: false }])} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review My kit" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("extensions/me.kit");
+  });
+
   it("names the distribution the shipped kits came in", async () => {
     const invoke = vi.fn(async () => ({ packages: [] }));
     render(
@@ -61,6 +93,32 @@ describe("Packages kit", () => {
     const update = registry.findSlashCommand("/update");
     await update?.command.run(update.args, actions());
     expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "update", {});
+  });
+
+  it("toasts where an installed package waits, or that the project's trust skips it", async () => {
+    const toast = vi.fn();
+    const app = { ...actions(), toast } as unknown as WorkbenchActions;
+    const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => command === "install"
+      ? { installed: { source: "/k", scope: "project", directory: "/k", id: "me.kit", name: "My kit", signatureLabel: "unsigned" }, untrusted: true, message: "skipped" }
+      : { message: "Pi trusts /project now." });
+    const { registry } = createKitHarness(invoke);
+    registry.activate(packagesExtension);
+    const install = registry.findSlashCommand("/install /k -l");
+    await install?.command.run(install.args, app);
+    const skipped = toast.mock.calls[0]?.[0] as { title: string; type: string; actions: Array<{ label: string; run(): void }> };
+    expect(skipped.type).toBe("warning");
+    expect(skipped.title).toBe("My kit: skipped, project not trusted");
+    skipped.actions[0]?.run();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "trust", {}));
+
+    invoke.mockImplementationOnce(async () => ({ installed: { source: "/k", scope: "global", directory: "/k", id: "me.kit", name: "My kit", signatureLabel: "unsigned" }, message: "ok" }));
+    const global = registry.findSlashCommand("/install /k");
+    await global?.command.run(global.args, app);
+    const installed = toast.mock.calls[1]?.[0] as { title: string; description: string; actions: Array<{ label: string; run(): void }> };
+    expect(installed.title).toBe("Installed My kit");
+    expect(installed.description).toMatch(/Settings → Extensions/u);
+    installed.actions[0]?.run();
+    expect(app.openSettings).toHaveBeenCalledWith("extensions/me.kit");
   });
 
   it("reports a source the user did not name instead of calling the host", async () => {
@@ -102,6 +160,7 @@ describe("Packages kit", () => {
   it("installs on Return, and says under the field why an install failed", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "list") return { packages: [] };
+      if (command === "builds") return { builds: [] };
       throw new Error("npm could not find @acme/nope.");
     });
     render(<PackagesPage cwd="/project" onNotify={vi.fn()} host={host(invoke)} inspect={async () => inspection([])} />);
@@ -152,7 +211,7 @@ describe("Packages kit", () => {
     registry.activate(packagesExtension);
     const page = registry.getSettingsPages().find((entry) => entry.id === PACKAGES_SETTINGS_PAGE)!;
     render(<page.Component cwd="/project" onNotify={vi.fn()} />);
-    expect(page.rows?.length).toBe(3);
+    expect(page.rows?.length).toBe(4);
     for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 

@@ -30,7 +30,7 @@ describe("Packages host extension", () => {
   it("registers install, remove, update and list, with the long ones as jobs", async () => {
     const registry = await activateHostKit(createPackagesHostExtension(), installer());
     const summary = registry.summaries().find((entry) => entry.id === PACKAGES_EXTENSION_ID);
-    expect(summary?.commands).toEqual(["install", "list", "remove", "update"]);
+    expect(summary?.commands).toEqual(["builds", "install", "list", "rebuild", "remove", "trust", "update"]);
     // A client runs these off the request path, so a clone or an npm install can report progress.
     expect(registry.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/install`);
     expect(registry.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/update`);
@@ -44,7 +44,7 @@ describe("Packages host extension", () => {
     const installed = await registry.invoke(PACKAGES_EXTENSION_ID, "install", { source: "/src/hello", scope: "project" }) as { message: string };
     expect(services.installPackage).toHaveBeenCalledWith("/src/hello", "project", expect.any(Function));
     expect(services.refreshExtensionPackages).toHaveBeenCalledTimes(1);
-    expect(installed.message).toContain("approve it in Settings to start it");
+    expect(installed.message).toContain("approve it in Settings → Extensions to start it");
     expect(installed.message).not.toContain("/reload");
 
     const listed = await registry.invoke(PACKAGES_EXTENSION_ID, "list") as { packages: Array<{ id?: string; signatureLabel: string }> };
@@ -60,6 +60,49 @@ describe("Packages host extension", () => {
     expect(services.updatePackages).toHaveBeenCalledWith(undefined, expect.any(Function));
     expect(services.refreshExtensionPackages).toHaveBeenCalledTimes(3);
     expect(updated.message).toBe("1 of 1 updated and re-activated.");
+  });
+
+  it("says a project install is skipped while Pi does not trust the project, and trusts it through Pi's store", async () => {
+    const trusted = new Set<string>();
+    const projectTrust = {
+      trusted: vi.fn((cwd = "/project") => trusted.has(cwd)),
+      trust: vi.fn((cwd = "/project") => { trusted.add(cwd); return cwd; }),
+    };
+    const services = installer({ projectTrust });
+    const registry = await activateHostKit(createPackagesHostExtension(), services);
+
+    const skipped = await registry.invoke(PACKAGES_EXTENSION_ID, "install", { source: "/src/hello", scope: "project" }) as { message: string; untrusted?: boolean };
+    expect(skipped.untrusted).toBe(true);
+    expect(skipped.message).toMatch(/skipped: Pi does not trust this project/u);
+    expect(skipped.message).toMatch(/Settings → Packages/u);
+
+    const answer = await registry.invoke(PACKAGES_EXTENSION_ID, "trust", { cwd: "/project" }) as { message: string };
+    expect(projectTrust.trust).toHaveBeenCalledWith("/project");
+    expect(answer.message).toMatch(/Pi trusts \/project now/u);
+    // Trusting is what makes the project's packages load, so the host rescans at once.
+    expect(services.refreshExtensionPackages).toHaveBeenCalledTimes(2);
+
+    const loaded = await registry.invoke(PACKAGES_EXTENSION_ID, "install", { source: "/src/hello", scope: "project" }) as { untrusted?: boolean };
+    expect(loaded.untrusted).toBeUndefined();
+    // A global install needs no trust at all.
+    trusted.clear();
+    expect((await registry.invoke(PACKAGES_EXTENSION_ID, "install", { source: "/src/hello" }) as { untrusted?: boolean }).untrusted).toBeUndefined();
+  });
+
+  it("answers the last builds and passes each new one on to the page", async () => {
+    let observer: ((build: unknown) => void) | undefined;
+    const build = { id: "me.kit", directory: "/k", half: "desktop" as const, entry: "/k/desktop.tsx", at: 1, ok: true };
+    const services = installer({ packageBuilds: { list: () => [build], observe: (listener) => { observer = listener as never; return () => { observer = undefined; }; } } });
+    const registry = await activateHostKit(createPackagesHostExtension(), services);
+    expect(await registry.invoke(PACKAGES_EXTENSION_ID, "builds")).toEqual({ builds: [build] });
+    expect(observer).toBeDefined();
+    await registry.invoke(PACKAGES_EXTENSION_ID, "rebuild");
+    expect(services.refreshExtensionPackages).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to trust a relative path", async () => {
+    const registry = await activateHostKit(createPackagesHostExtension(), installer({ projectTrust: { trusted: () => false, trust: vi.fn(() => "/x") } }));
+    await expect(registry.invoke(PACKAGES_EXTENSION_ID, "trust", { cwd: "project" })).rejects.toThrow(/absolute path/u);
   });
 
   it("reports a rescan that failed instead of failing the install", async () => {

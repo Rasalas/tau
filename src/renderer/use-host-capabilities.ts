@@ -87,6 +87,6 @@ export function hostCommandAllowed(extensionId: string, command: string, client:
  * Why a Read-only device may not run this command or palette row, or nothing
  * when it may: only what declares `access: "read"` runs there.
  */
-export function commandRefusal(entry: { access?: "read" | "write" }, readOnly: boolean): string | undefined {
-  return readOnly && entry.access !== "read" ? READ_ONLY_REASON : undefined;
+export function commandRefusal(entry: { access?: "read" | "write"; unavailable?: () => string | undefined }, readOnly: boolean): string | undefined {
+  return readOnly && entry.access !== "read" ? READ_ONLY_REASON : entry.unavailable?.();
 }

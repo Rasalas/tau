@@ -1,5 +1,5 @@
 import { sep } from "node:path";
-import type { GlobalHostEvent, HostExtensionSummary } from "../shared/contracts.js";
+import type { GlobalHostEvent, HostExtensionSummary, PackageBuildError } from "../shared/contracts.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
@@ -58,9 +58,14 @@ export class ExtensionPackageActivator {
   private enqueue(announce: boolean, force: boolean, only?: ReadonlySet<string>): Promise<void> {
     const next = (this.running ?? Promise.resolve()).then(async () => {
       if (this.queued === next) this.queued = undefined;
-      await this.sync(force, only);
+      const { buildErrors, awaitingApproval } = await this.sync(force, only);
       if (announce) {
-        this.options.publish({ type: "extension-packages-changed", ...(only ? { extensionIds: [...only] } : {}) });
+        this.options.publish({
+          type: "extension-packages-changed",
+          ...(only ? { extensionIds: [...only] } : {}),
+          ...(buildErrors.length > 0 ? { buildErrors } : {}),
+          ...(awaitingApproval.length > 0 ? { awaitingApproval } : {}),
+        });
       }
     });
     if (announce && !force && !only) this.queued = next;
@@ -95,14 +100,19 @@ export class ExtensionPackageActivator {
       }));
   }
 
-  /** Replaces the host halves of extension packages with what the workspace's folders hold now. */
-  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<void> {
+  /**
+   * Replaces the host halves of extension packages with what the workspace's
+   * folders hold now, and answers what the client should say about the
+   * packages it was asked about: compile errors, and a reload that sent one
+   * back to waiting for approval.
+   */
+  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<{ buildErrors: PackageBuildError[]; awaitingApproval: Array<{ id: string; name: string }> }> {
     let loaded: HostPackageLoadResult;
     try {
       loaded = await this.options.load(this.options.cwd());
     } catch (error) {
       this.options.log("host-extension.packages.failed", message(error));
-      return;
+      return { buildErrors: [], awaitingApproval: [] };
     }
     for (const failure of loaded.errors) this.options.log("host-extension.package.failed", `${failure.path}: ${failure.message}`);
     for (const skip of loaded.skipped) this.options.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
@@ -165,6 +175,14 @@ export class ExtensionPackageActivator {
     }
     this.activeIds = next;
     this.activeKeys = keys;
+    const buildErrors = loaded.errors
+      .filter((failure) => failure.diagnostics && (!only || (failure.id !== undefined && only.has(failure.id))))
+      .map(({ path, message: text, diagnostics }) => ({ path, message: text, ...(diagnostics ? { diagnostics } : {}) }));
+    // Only a watched edit names its packages; one of them waiting now asked for something new.
+    const awaitingApproval = only
+      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name }))
+      : [];
+    return { buildErrors, awaitingApproval };
   }
 }
 

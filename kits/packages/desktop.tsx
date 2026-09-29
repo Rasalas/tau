@@ -20,11 +20,21 @@ import {
   type SettingsSectionProps,
   type WorkbenchActions,
 } from "tau";
+import { DevelopSection } from "./develop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
 
 /** What a command of the host half answers with. */
 interface PackagesCommandResult {
   message?: string;
+  /** `install`: the package it installed. */
+  installed?: PackageRow;
+  /** `install`: Pi does not trust the project the package was installed for. */
+  untrusted?: boolean;
+}
+
+/** Why a scan left a project's packages off, when it was Pi's trust. */
+export function untrustedSkips(inspection: ExtensionInspection | undefined): ExtensionInspection["skipped"] {
+  return (inspection?.skipped ?? []).filter((skip) => skip.untrustedProject);
 }
 
 type Inspect = (cwd: string) => Promise<ExtensionInspection>;
@@ -39,6 +49,7 @@ export const PACKAGES_ROWS = [
   { id: "setting-packages-source", label: "Install from a source", keywords: ["install", "npm", "git", "folder", "package", "extension"] },
   { id: "setting-packages-scope", label: "Install for", keywords: ["global", "project", "every project", "this project only", "local"] },
   { id: "setting-packages-installed", label: "Installed packages", keywords: ["update", "remove", "uninstall", "sources", "signature"] },
+  { id: "setting-packages-develop", label: "Develop a package", keywords: ["develop", "build", "error", "compile", "kit new", "scaffold", "types", "reload"] },
 ];
 
 const SOURCE_HELP = "An npm source installs into ~/.tau/npm, a Git source is cloned shallowly into ~/.tau/git, and a folder is loaded where it lies. "
@@ -49,7 +60,7 @@ const SOURCE_HELP = "An npm source installs into ~/.tau/npm, a Git source is clo
  * Settings page of `tau.packages`: Pi's install verbs with a form, above the
  * packages a source installed. Installing never activates a package.
  */
-export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps & PageServices) {
+export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: SettingsPageProps & PageServices) {
   const [source, setSource] = useState("");
   const [scope, setScope] = useState<"global" | "project">("global");
   const [packages, setPackages] = useState<PackageRow[]>();
@@ -102,6 +113,9 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
   const install = () => { if (source.trim() && !busy) void run("install", "install", { source: source.trim(), scope }); };
 
   const bundled = (inspection?.packages ?? []).filter((entry) => entry.scope === "bundled");
+  const untrusted = untrustedSkips(inspection);
+  const untrustedProject = untrusted[0]?.untrustedProject;
+  const skippedNames = [...new Set(untrusted.flatMap((skip) => (skip.packages ?? []).map((entry) => entry.name)))];
   const summaryOf = (id: string | undefined) => id ? inspection?.packages.find((entry) => entry.id === id) : undefined;
   const nameOf = (entry: PackageRow) => entry.name ?? entry.id ?? entry.source;
   const failed = (verb: string) => failure?.verb === verb ? <p className="packages-failure" role="alert">{failure.message}</p> : null;
@@ -151,6 +165,24 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         />
       </SettingsSection>
 
+      {untrustedProject ? (
+        <SettingsSection title="Skipped">
+          <SettingRow
+            id="setting-packages-trust"
+            title={<>{skippedNames.length > 0 ? skippedNames.join(", ") : "This project's packages"} <Badge tone="warn">Skipped: project not trusted</Badge></>}
+            description={<>Pi does not trust <code>{untrustedProject}</code>, so the packages in its <code>.tau</code> folder stay off. Trusting it records your answer in Pi's <code>trust.json</code>, as Pi's <code>/trust</code> does; each package still waits for your approval.</>}
+            status={failed("trust")}
+            control={(
+              <span {...tooltipProps(busy ? busyReason : undefined)}>
+                <Button variant="primary" busy={busy === "trust"} disabled={busy !== undefined} onClick={() => void run("trust", "trust", { cwd: untrustedProject })}>
+                  {busy === "trust" ? "Trusting…" : "Trust this project"}
+                </Button>
+              </span>
+            )}
+          />
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection title="Installed" id="setting-packages-installed" plain={!packages?.length} headerAction={packages?.length ? (
         <Button variant="ghost" icon={<RefreshCw size={13} />} busy={busy === "update-all"} disabled={busy !== undefined} onClick={() => void run("update-all", "update", {})}>
           {busy === "update-all" ? "Updating…" : "Check every source for updates"}
@@ -166,13 +198,15 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
           const name = nameOf(entry);
           const theme = summaryOf(entry.id)?.theme;
           const waiting = summaryOf(entry.id)?.granted === false;
+          const skipped = entry.scope === "project" && untrustedProject !== undefined;
           return (
             <SettingRow
               key={`${entry.scope}:${entry.source}`}
-              title={<>{name}{theme ? <> <Badge>Theme</Badge></> : null}{waiting ? <> <Badge tone="warn">Waiting for approval</Badge></> : null}</>}
+              title={<>{name}{theme ? <> <Badge>Theme</Badge></> : null}{skipped ? <> <Badge tone="warn">Skipped: project not trusted</Badge></> : waiting ? <> <Badge tone="warn">Waiting for approval</Badge></> : null}</>}
               description={[entry.id ?? entry.directory, entry.version, entry.scope === "global" ? "every project" : "this project", entry.error ?? entry.signatureLabel].filter(Boolean).join(" · ")}
               status={<><code className="settings-value" {...tooltipProps(entry.directory, { variant: "code" })}>{entry.source}</code>{failed(`update:${entry.source}`)}{failed(`remove:${entry.source}`)}</>}
               control={<>
+                {waiting && entry.id && onOpenSettings ? <Button variant="primary" aria-label={`Review ${name}`} onClick={() => onOpenSettings(`extensions/${entry.id}`)}>Review</Button> : null}
                 <span {...tooltipProps(busy ? busyReason : undefined)}>
                   <Button aria-label={`Update ${name}`} busy={busy === `update:${entry.source}`} disabled={busy !== undefined} onClick={() => void run(`update:${entry.source}`, "update", { source: entry.source })}>
                     {busy === `update:${entry.source}` ? "Updating…" : "Update"}
@@ -187,6 +221,8 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         })}
       </SettingsSection>
       {failed("update-all")}
+
+      <DevelopSection host={host} nameOf={(id) => packages?.find((entry) => entry.id === id)?.name ?? summaryOf(id)?.name} onNotify={onNotify} />
 
       <p className="settings-footnote">
         The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
@@ -263,6 +299,42 @@ export function createExtensionSection(host: HostExtensionClient): ComponentType
 }
 
 /**
+ * The toast after an install: where the package waits for approval, or that
+ * Pi's project trust skips it, with the button that answers either.
+ */
+export function announceInstall(host: HostExtensionClient, actions: WorkbenchActions, result: PackagesCommandResult): void {
+  const name = result.installed?.name ?? result.installed?.id ?? result.installed?.source ?? "The package";
+  if (!actions.toast) {
+    actions.notify(result.message ?? `Installed ${name}.`);
+    return;
+  }
+  if (result.untrusted) {
+    actions.toast({
+      type: "warning",
+      title: `${name}: skipped, project not trusted`,
+      description: "Pi does not trust this project, so the packages installed for it stay off.",
+      timeoutMs: 15_000,
+      actions: [{
+        label: "Trust this project",
+        run: () => {
+          host.invoke("trust", {}).then(
+            (answer) => actions.notify((answer as PackagesCommandResult).message ?? "Trusted."),
+            (error: unknown) => actions.notify(errorMessage(error)),
+          );
+        },
+      }],
+    });
+    return;
+  }
+  actions.toast({
+    type: "success",
+    title: `Installed ${name}`,
+    description: "It waits for your approval in Settings → Extensions.",
+    actions: [{ label: "Review", run: () => actions.openSettings(result.installed?.id ? `extensions/${result.installed.id}` : "extensions") }],
+  });
+}
+
+/**
  * The desktop half of `tau.packages`: Pi's own verbs in the composer, and the
  * Settings page they share with the two sets Tau runs.
  */
@@ -283,7 +355,7 @@ export const packagesExtension: DesktopExtension = {
     plugin.registerSettingsPage({
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
-      description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve its permissions on its page.",
+      description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve it in Settings → Extensions.",
       group: "extensions",
       profiles: ["desktop", "web"],
       Icon: Package,
@@ -308,11 +380,16 @@ export const packagesExtension: DesktopExtension = {
       name: "install",
       description: "Install an extension package from npm:, git: or a folder",
       argumentHint: "<source> [--local]",
-      run: (args, actions) => {
+      run: async (args, actions) => {
         const { source, scope } = parseInstallArguments(args);
         if (!source) return "Name a source: npm:<package>, git:<url> or a folder path.";
         actions.notify(`Installing ${source}…`);
-        return report(actions, plugin.host.invoke("install", { source, scope }));
+        try {
+          announceInstall(plugin.host, actions, await plugin.host.invoke("install", { source, scope }) as PackagesCommandResult);
+          return undefined;
+        } catch (error) {
+          return errorMessage(error);
+        }
       },
     });
 

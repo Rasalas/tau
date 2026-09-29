@@ -55,6 +55,8 @@ export { useOpenPage } from "./app-page-context";
 export { getClientStorage } from "../workbench/client-storage";
 export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
+// Whether a package's own host half runs, and why not, to disable what calls it (K112).
+export { hostAvailability, useHostAvailability, type HostAvailability } from "./use-host-availability";
 export { useKeepClear } from "./reserved-region";
 export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../workbench/turn-activity";
 export { formatCost, threadCostLabel, threadCostOrigin } from "./cost-format";
@@ -244,4 +246,7 @@ export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";
 export type * from "../shared/workspace-kit-types";
+// A thread's branch and pull requests, as Workspace Kit and Review Kit provide them (K112).
+export { THREAD_BRANCH_SERVICE, THREAD_PULL_REQUESTS_SERVICE } from "../shared/thread-git";
+export type { ThreadBranch, ThreadBranchService, ThreadPullRequest, ThreadPullRequestsService } from "../shared/thread-git";
 export type * from "../shared/contracts";

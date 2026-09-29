@@ -41,6 +41,8 @@ files:
   - "!release"
   # The renderer benchmark's own build (`npm run benchmark:renderer`).
   - "!dist-benchmark"
+  # The extension API's declarations travel as a resource beside the archive (below).
+  - "!dist-types"
   - "!scripts"
   - "!src"
   - "!*.md"
@@ -127,6 +129,10 @@ extraResources:
   # complete package beside the source seed.
   - from: "node_modules/typescript"
     to: "tau-source-vendor/typescript"
+  # @tau/extension-api: the extension API's declarations, which `tau kit new`
+  # and `tau kit types` copy into a package for its author's editor.
+  - from: "dist-types/extension-api"
+    to: "extension-api"
 
 mac:
   # Architectures come from the command line (`--arm64 --x64`); without one the

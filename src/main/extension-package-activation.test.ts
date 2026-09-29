@@ -42,7 +42,7 @@ async function harness() {
     const result: HostPackageLoadResult = { extensions: [], ungranted: [], errors: [], skipped: [] };
     for (const entry of disk.values()) {
       if (failing.has(entry.id)) {
-        result.errors.push({ path: `/home/.tau/extensions/${entry.id}/host.ts`, message: "Unexpected end of file" });
+        result.errors.push({ path: `/home/.tau/extensions/${entry.id}/host.ts`, id: entry.id, message: "host.ts:1:1: Unexpected end of file", diagnostics: [{ file: "host.ts", line: 1, column: 1, text: "Unexpected end of file" }] });
         continue;
       }
       const manifest = { id: entry.id, name: entry.name, permissions: entry.permissions, host: "./host.ts" };
@@ -190,6 +190,35 @@ describe("ExtensionPackageActivator", () => {
     expect(activations.get("acme.other")).toBe(1);
     await expect(registry.invoke("acme.other", "which")).resolves.toBe(untouched);
     expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"] });
+  });
+
+  it("hands the client the compile errors of the packages a watched edit reloaded, and no one else's", async () => {
+    const { activator, events, install, breakEntry, approve } = await harness();
+    install(hello);
+    install(other);
+    await approve("acme.hello");
+    await approve("acme.other");
+    await activator.start();
+    breakEntry("acme.hello");
+    breakEntry("acme.other");
+    events.length = 0;
+    await activator.refresh({ only: ["acme.hello"] });
+    expect(events).toContainEqual({
+      type: "extension-packages-changed",
+      extensionIds: ["acme.hello"],
+      buildErrors: [{ path: "/home/.tau/extensions/acme.hello/host.ts", message: "host.ts:1:1: Unexpected end of file", diagnostics: [{ file: "host.ts", line: 1, column: 1, text: "Unexpected end of file" }] }],
+    });
+  });
+
+  it("reports a watched package whose new permissions wait for approval", async () => {
+    const { activator, events, install, approve } = await harness();
+    install(hello);
+    await approve("acme.hello");
+    await activator.start();
+    events.length = 0;
+    install({ ...hello, permissions: ["workspace:read", "process"], hash: "5555555555555555" });
+    await activator.refresh({ only: ["acme.hello"] });
+    expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"], awaitingApproval: [{ id: "acme.hello", name: "Hello" }] });
   });
 
   it("keeps the last good version running when a reload finds a broken package", async () => {

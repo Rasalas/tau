@@ -12,8 +12,8 @@ import type { ExtensionSummary } from "../extension-system";
 /** Where the extension came from. `app` is part of Tau's window itself, with no package. */
 export type ExtensionOrigin = "bundled" | "installed" | "app";
 
-/** What the user has to know first. `waiting`, `failed` and `incompatible` need them. */
-export type ExtensionState = "on" | "off" | "waiting" | "failed" | "incompatible";
+/** What the user has to know first. `waiting`, `failed`, `incompatible` and `skipped` need them. */
+export type ExtensionState = "on" | "off" | "waiting" | "failed" | "incompatible" | "skipped";
 
 export interface ExtensionEntry {
   id: string;
@@ -24,7 +24,7 @@ export interface ExtensionEntry {
   state: ExtensionState;
   /** Always on: Tau's own, which has no switch. */
   locked: boolean;
-  /** What went wrong, for `failed` and `incompatible`. */
+  /** What went wrong, for `failed`, `incompatible` and `skipped`. */
   problem?: string;
   /** A theme: only a stylesheet. */
   theme: boolean;
@@ -45,7 +45,7 @@ export const EXTENSION_FILTERS: ReadonlyArray<{ id: ExtensionFilter; label: stri
 ];
 
 export function needsAttention(entry: ExtensionEntry): boolean {
-  return entry.state === "waiting" || entry.state === "failed" || entry.state === "incompatible";
+  return entry.state === "waiting" || entry.state === "failed" || entry.state === "incompatible" || entry.state === "skipped";
 }
 
 export function matchesFilter(entry: ExtensionEntry, filter: ExtensionFilter): boolean {
@@ -65,11 +65,13 @@ export function matchesQuery(entry: ExtensionEntry, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-export function extensionCatalog({ summaries, packages = [], hostHalves = [], errors = [], disabled }: {
+export function extensionCatalog({ summaries, packages = [], hostHalves = [], errors = [], skipped = [], disabled }: {
   summaries: readonly ExtensionSummary[];
   packages?: readonly ExtensionPackageSummary[];
   hostHalves?: readonly HostExtensionSummary[];
   errors?: ExtensionInspection["errors"];
+  /** Folders the scan passed over; a package in an untrusted project is listed with that reason. */
+  skipped?: ExtensionInspection["skipped"];
   /** The host's list of extensions turned off; with it, on and off are the host's, not this client's. */
   disabled?: readonly string[];
 }): ExtensionEntry[] {
@@ -116,6 +118,23 @@ export function extensionCatalog({ summaries, packages = [], hostHalves = [], er
       permissions: [],
     });
   }
+  // A package Pi's project trust kept off: listed, so the user learns why it is not running.
+  for (const skip of skipped) {
+    if (!skip.untrustedProject) continue;
+    for (const pkg of skip.packages ?? []) {
+      if (entries.has(pkg.id)) continue;
+      entries.set(pkg.id, {
+        id: pkg.id,
+        name: pkg.name,
+        origin: "installed",
+        state: "skipped",
+        locked: false,
+        problem: `Pi does not trust ${skip.untrustedProject}, so the packages installed for it stay off.`,
+        theme: false,
+        permissions: [],
+      });
+    }
+  }
   return [...entries.values()].sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 }
 
@@ -134,6 +153,7 @@ const STATE_LABELS: Record<ExtensionState, string> = {
   waiting: "Waiting for approval",
   failed: "Failed to start",
   incompatible: "Incompatible",
+  skipped: "Skipped: project not trusted",
 };
 
 export function stateLabel(state: ExtensionState): string {

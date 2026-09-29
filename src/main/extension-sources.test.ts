@@ -1,12 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addPackageSource,
   gitFolderName,
   listInstalledSources,
   packagesFilePath,
+  packagesHome,
   parseExtensionSource,
   readPackagesFile,
   removePackageSource,
@@ -74,5 +75,25 @@ describe("extension sources", () => {
     await writePackagesFile(packagesFilePath("global", project, home), { sources: ["npm:@bad name"] });
     const installed = await listInstalledSources(project, home);
     expect(installed[0]?.error).toMatch(/not an npm package name/u);
+  });
+});
+
+describe("packagesHome", () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("is the home folder unless TAU_PACKAGES_HOME names another", () => {
+    expect(packagesHome({})).not.toBe("");
+    expect(packagesHome({ TAU_PACKAGES_HOME: "/w/.tau-dev/packages-home" })).toBe("/w/.tau-dev/packages-home");
+    expect(packagesHome({ TAU_PACKAGES_HOME: "  " })).toBe(packagesHome({}));
+  });
+
+  it("moves the global packages.json and the stores with it", async () => {
+    const home = await scratch();
+    vi.stubEnv("TAU_PACKAGES_HOME", home);
+    expect(packagesFilePath("global", "/project")).toBe(join(home, ".tau", "packages.json"));
+    expect(packagesFilePath("project", "/project")).toBe(join("/project", ".tau", "packages.json"));
+    expect(sourceDirectory(parseExtensionSource("npm:hello", "/project"))).toBe(join(home, ".tau", "npm", "node_modules", "hello"));
+    await addPackageSource(join(home, ".tau", "packages.json"), "npm:hello");
+    expect((await listInstalledSources("/project")).map((entry) => entry.source.raw)).toEqual(["npm:hello"]);
   });
 });

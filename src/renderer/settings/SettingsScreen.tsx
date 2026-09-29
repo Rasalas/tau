@@ -17,7 +17,7 @@ import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensio
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
-import { extensionCatalog } from "./extension-catalog";
+import { extensionCatalog, needsAttention } from "./extension-catalog";
 import { AboutPage } from "./AboutPage";
 import { ConnectionsPage } from "./ConnectionsPage";
 import { GeneralPage } from "./GeneralPage";
@@ -130,6 +130,7 @@ export function SettingsScreen({
     packages: sources.inspection?.packages ?? [],
     hostHalves: sources.hostHalves,
     errors: sources.inspection?.errors ?? [],
+    skipped: sources.inspection?.skipped ?? [],
     disabled: disabledExtensions,
   });
   // Pages extensions own. Core keeps General, Models, Keybindings and the
@@ -291,7 +292,7 @@ export function SettingsScreen({
       .map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: CORE_ICONS[entry.id] })),
     ...pages.map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: entry.Icon })),
   ];
-  const attention = catalog.filter((entry) => entry.state === "waiting" || entry.state === "failed" || entry.state === "incompatible").length;
+  const attention = catalog.filter(needsAttention).length;
   const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : pages.find((entry) => entry.id === id)?.Icon);
   const activeNav = onProviders ? "providers" : parent ?? page;
   // A folding group as the user left it; unset, it follows the page on screen.
@@ -471,6 +472,7 @@ export function SettingsScreen({
                       cwd={snapshot?.cwd}
                       distribution={sources.inspection?.distribution}
                       sections={extensionSections}
+                      trustPage={installer?.id}
                       onOpen={openPage}
                       onChanged={() => setAnswered((count) => count + 1)}
                       onNotify={onNotify}
