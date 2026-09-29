@@ -95,6 +95,17 @@ jobs:
         run: |
           echo "::error::Publishing requires a tag ref. Dispatch this workflow on a tag, or set publish=false."
           exit 1
+      # Installed hosts refuse an unsigned feed, so a run that publishes stops
+      # here rather than after the builds. The sign job checks again.
+      - name: Require the release signing key for publishing
+        if: needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        env:
+          HAS_KEY: ${{ secrets.TAU_RELEASE_SIGNING_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != true ]; then
+            echo "::error::The secret TAU_RELEASE_SIGNING_KEY is not set; a release without signed update feeds would be refused by every installed Tau."
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -181,6 +192,17 @@ jobs:
           grep -q '\bxvfb\b' <<< "$(dpkg-deb --field "$deb" Recommends)"
           grep -q ' \./opt/Tau/resources/apparmor-profile$' <<< "$files"
           grep -q ' \./opt/Tau/bin/tau$' <<< "$files"
+          # The update helper, the script it runs, and the polkit files postinst puts in place (docs/host-updates.md).
+          paths="$(awk '{ print $NF }' <<< "$files")"
+          for path in \
+            ./opt/Tau/bin/tau-update-helper \
+            ./opt/Tau/resources/app.asar.unpacked/bin/tau-update-helper.mjs \
+            ./opt/Tau/resources/polkit/de.tbuck.tau.update.policy \
+            ./opt/Tau/resources/polkit/50-tau-update.rules \
+            ./opt/Tau/resources/polkit/50-tau-update.pkla; do
+            grep -qxF "$path" <<< "$paths" || { echo "::error::The .deb lacks $path."; exit 1; }
+          done
+          grep -qF /usr/share/polkit-1/actions/de.tbuck.tau.update.policy <<< "$(dpkg-deb --info "$deb" postinst)"
           grep -q "url: $(basename "$deb")" release/latest-linux.yml
 
       - uses: actions/upload-artifact@v4
@@ -198,6 +220,14 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest*.yml
+
+      # The update feed alone, for the sign job; the installers stay in tau-<platform>.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feed-${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 1
+          path: release/latest*.yml
 
       # electron-builder's debug log and npm's own log live outside `release/`
       # and are only worth keeping when something went wrong.
@@ -219,18 +249,74 @@ jobs:
           path: diagnostics
           retention-days: 7
 
-  release:
+  # Signs every latest*.yml of the run with TAU_RELEASE_SIGNING_KEY; installed
+  # hosts refuse a feed without the .sig (docs/host-updates.md). A dry run signs
+  # too when the secret is there, and stays unsigned with a warning when not.
+  sign:
     needs: [gate, build]
+    runs-on: tau-linux
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: feed-*
+          path: feed
+          merge-multiple: true
+      - id: sign
+        name: Sign the update feeds
+        shell: bash
+        env:
+          TAU_RELEASE_SIGNING_KEY: ${{ secrets.TAU_RELEASE_SIGNING_KEY }}
+          PUBLISHING: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
+        run: |
+          # One per platform of the matrix; a missing one leaves that platform without updates.
+          for name in latest-mac.yml latest.yml latest-linux.yml; do
+            [ -f "feed/$name" ] || { echo "::error::The builds wrote no $name."; exit 1; }
+          done
+          if [ -z "${TAU_RELEASE_SIGNING_KEY:-}" ]; then
+            if [ "$PUBLISHING" = true ]; then
+              echo "::error::The secret TAU_RELEASE_SIGNING_KEY is not set; refusing to publish unsigned update feeds."
+              exit 1
+            fi
+            echo "::warning::The secret TAU_RELEASE_SIGNING_KEY is not set; this dry run is not signed."
+            exit 0
+          fi
+          node scripts/packaging/release-signing.mjs sign feed/latest*.yml
+          # Fails when the secret is not a key this commit's hosts trust.
+          node scripts/packaging/release-signing.mjs check feed/latest*.yml
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+      - if: steps.sign.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tau-signatures
+          if-no-files-found: error
+          retention-days: 1
+          path: feed/latest*.yml.sig
+
+  release:
+    needs: [gate, build, sign]
     if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
     runs-on: tau-linux
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # tau-<platform> and tau-signatures; the feed-* copies are not needed again.
       - uses: actions/download-artifact@v4
         with:
+          pattern: tau-*
           path: artifacts
           merge-multiple: true
       - name: List what will be published
         run: ls -lh artifacts
+      - name: Require the release key's signature on every update feed
+        run: node scripts/packaging/release-signing.mjs check artifacts/latest*.yml
       # The latest*.yml files are what electron-updater reads; a release without
       # them installs fine and then never updates.
       - uses: softprops/action-gh-release@v2
@@ -243,17 +329,24 @@ jobs:
   # go first, so the tag points at this commit and no stale asset stays behind.
   # An installed Tau on the nightly channel reads its latest*.yml from there.
   nightly:
-    needs: [gate, build]
+    needs: [gate, build, sign]
     if: needs.gate.outputs.nightly == 'true'
     runs-on: tau-linux
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
+          pattern: tau-*
           path: artifacts
           merge-multiple: true
       - name: List what will be published
         run: ls -lh artifacts
+      - name: Require the release key's signature on every update feed
+        run: node scripts/packaging/release-signing.mjs check artifacts/latest*.yml
       - name: Remove the previous nightly
         uses: actions/github-script@v7
         with:
