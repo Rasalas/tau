@@ -10,6 +10,7 @@ import { mergeEntries, mergeLimits, useOtherMachines, type MachineRead, type Usa
 import { BACKEND_USAGE_SOURCES, PI_BACKEND, USAGE_EXTENSION_ID, USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSourceReport, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
 import { RankList, type RankRow } from "./top-lists.js";
 import { formatTokens } from "./view-model.js";
+import { readLastState, saveLastState } from "./last-state.js";
 
 const METRICS: ReadonlyArray<{ id: UsageMetric; label: string }> = [{ id: "cost", label: "Cost" }, { id: "tokens", label: "Tokens" }, { id: "turns", label: "Turns" }];
 const ORIGINS: ReadonlyArray<{ id: UsageOrigin | "all"; label: string }> = [{ id: "all", label: "All" }, { id: "tau", label: "In Tau" }, { id: "outside", label: "Outside Tau" }];
@@ -148,11 +149,14 @@ async function readMachines(environments: PlatformEnvironments | undefined, mach
  * what a subscription covered (its value at API prices) are never one figure.
  */
 export function UsagePage({ host, environments, actions, params = {}, navigate, now }: Partial<Omit<PageProps, "params">> & { params?: PageProps["params"]; host: HostExtensionClient; environments?: PlatformEnvironments; now?: () => Date }) {
+  const shown = environments?.shownElsewhere;
+  // What the page read last time, at once; fresh answers replace it section by section.
+  const [cached] = useState(() => readLastState(shown, dayStarts(HISTORY_DAYS, now?.())));
   const [range, setRange] = useState<UsageRange>("30d");
   const [metric, setMetric] = useState<UsageMetric>("cost");
-  const [summary, setSummary] = useState<UsageSummary>();
+  const [summary, setSummary] = useState<UsageSummary | undefined>(cached?.summary);
   const [error, setError] = useState<string>();
-  const [limits, setLimits] = useState<UsageLimitsSummary>();
+  const [limits, setLimits] = useState<UsageLimitsSummary | undefined>(cached?.limits);
   const [limitsError, setLimitsError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [limitsBusy, setLimitsBusy] = useState(false);
@@ -168,6 +172,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   const [days, setDays] = useState(() => dayStarts(HISTORY_DAYS, now?.()));
   const index = useThreadIndex();
 
+  // Each source on its own: this host's answer shows as soon as it is there, other machines' after it.
   const load = useCallback(async (refresh: boolean) => {
     const id = ++request.current;
     setBusy(true);
@@ -175,36 +180,42 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
     const starts = dayStarts(HISTORY_DAYS, now?.());
     setDays((current) => (current[current.length - 1] === starts[starts.length - 1] ? current : starts));
     const input: UsageSummaryInput = { since: starts[0]!, days: starts, ...(refresh ? { refresh } : {}) };
+    void readMachines(environments, machines, USAGE_SUMMARY_COMMAND, input).then((others) => {
+      if (id === request.current) setSummaries(others.map((read) => ({ machine: read.machine, ...(read.answer ? { summary: read.answer as UsageSummary } : {}), ...(read.error ? { error: read.error } : {}) })));
+    });
     try {
-      const [result, others] = await Promise.all([host.invoke(USAGE_SUMMARY_COMMAND, input) as Promise<UsageSummary>, readMachines(environments, machines, USAGE_SUMMARY_COMMAND, input)]);
+      const result = await host.invoke(USAGE_SUMMARY_COMMAND, input) as UsageSummary;
       if (id !== request.current) return;
       setSummary(result);
-      setSummaries(others.map((read) => ({ machine: read.machine, ...(read.answer ? { summary: read.answer as UsageSummary } : {}), ...(read.error ? { error: read.error } : {}) })));
       setError(undefined);
+      saveLastState(shown, { days: starts, summary: result });
     } catch (failure) {
       if (id === request.current) setError(errorMessage(failure));
     } finally {
       if (id === request.current) setBusy(false);
     }
-  }, [host, now, environments, machines]);
+  }, [host, now, environments, machines, shown]);
 
   const loadLimits = useCallback(async (refresh: boolean) => {
     const id = ++limitsRequest.current;
     setLimitsBusy(true);
+    const input = refresh ? { refresh } : {};
+    void readMachines(environments, machines, USAGE_LIMITS_COMMAND, input).then((others) => {
+      if (id === limitsRequest.current) setMachineLimits(others.map((read) => ({ machine: read.machine, ...(read.answer ? { limits: read.answer as UsageLimitsSummary } : {}), ...(read.error ? { error: read.error } : {}) })));
+    });
     try {
-      const input = refresh ? { refresh } : {};
-      const [result, others] = await Promise.all([host.invoke(USAGE_LIMITS_COMMAND, input) as Promise<UsageLimitsSummary>, readMachines(environments, machines, USAGE_LIMITS_COMMAND, input)]);
+      const result = await host.invoke(USAGE_LIMITS_COMMAND, input) as UsageLimitsSummary;
       if (id !== limitsRequest.current) return;
       setLimits(result);
-      setMachineLimits(others.map((read) => ({ machine: read.machine, ...(read.answer ? { limits: read.answer as UsageLimitsSummary } : {}), ...(read.error ? { error: read.error } : {}) })));
       setLimitsError(undefined);
+      saveLastState(shown, { days: dayStarts(HISTORY_DAYS, now?.()), limits: result });
     } catch (failure) {
       if (id === limitsRequest.current) setLimitsError(errorMessage(failure));
     } finally {
       // A reading is judged against the clock after it arrived, never before.
       if (id === limitsRequest.current) { setLimitsBusy(false); setClock((now?.() ?? new Date()).getTime()); }
     }
-  }, [host, now, environments, machines]);
+  }, [host, now, environments, machines, shown]);
 
   useEffect(() => { void load(false); void loadLimits(false); }, [load, loadLimits]);
   // Countdowns move on; while the page is open and seen, the limits are read anew, which is what a forecast needs.
@@ -278,7 +289,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
     <div className={`usage-page${busy && summary ? " refreshing" : ""}`}>
       <SettingsPageAction>
         <div className="usage-toolbar">
-          <span role="status">{busy ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${logsReading ? " · still reading the CLIs' logs" : ""}`}</span>
+          <span role="status">{busy && !summary ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${busy ? " · updating…" : logsReading ? " · still reading the CLIs' logs" : ""}`}</span>
           <button type="button" className="usage-icon-button" aria-label="Read usage and limits again" disabled={busy || limitsBusy} onClick={readAgain}><RefreshCw size={14} /></button>
         </div>
       </SettingsPageAction>

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
@@ -49,6 +50,7 @@ import {
   decodeUiPromptAttachments,
   decodeUiSkillDraft,
   decodeWorkbenchReloadMode,
+  decodeBundleHashes,
 } from "./ipc-input.js";
 
 /** One method of the host protocol. Params arrive positionally and untrusted. */
@@ -366,11 +368,15 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "prepare-workbench-reload": async (params) =>
       (await host()).prepareWorkbenchReload(decodeWorkbenchReloadMode("prepare-workbench-reload", "mode", params[0])),
     "release-workbench-reload": async () => (await host()).releaseWorkbenchReload(),
-    "desktop-extensions": async (params) => platform.loadDesktopExtensions(
-      await workspaceWhileStarting("desktop-extensions", "cwd", params[0]),
-      decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
-      decodeOptionalExtensionIds("desktop-extensions", "only", params[2]),
-    ),
+    "desktop-extensions": async (params) => {
+      const held = decodeBundleHashes("desktop-extensions", "held", params[3]);
+      const result = await platform.loadDesktopExtensions(
+        await workspaceWhileStarting("desktop-extensions", "cwd", params[0]),
+        decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
+        decodeOptionalExtensionIds("desktop-extensions", "only", params[2]),
+      );
+      return held ? withBundleDigests(result, held) : result;
+    },
     "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context, (await host()).activeWorkspacePath()),
     "workbench-source": async () => ({ path: await platform.workbenchSource() }),
     "relaunch-workbench": async () => platform.relaunchWorkbench(),
@@ -503,4 +509,21 @@ export async function invokeHostMethod(
   if (!handler) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
   authorizeMethod(principal, method, params);
   return handler(params, { ...NO_JOB_CONTEXT, principal });
+}
+
+/**
+ * Names each bundle by a digest of its code and stylesheet, and leaves out
+ * the code of those a client says it holds already: a phone that kept its
+ * packages from the last start is sent their names, not their code again.
+ */
+export function withBundleDigests(result: DesktopExtensionLoadResult, held: ReadonlySet<string>): DesktopExtensionLoadResult {
+  return {
+    ...result,
+    bundles: result.bundles.map((bundle) => {
+      const hash = createHash("sha256").update(bundle.code).update("\u0000").update(bundle.styles ?? "").digest("hex").slice(0, 32);
+      if (!held.has(hash)) return { ...bundle, hash };
+      const { styles: _styles, ...rest } = bundle;
+      return { ...rest, code: "", hash, cached: true };
+    }),
+  };
 }

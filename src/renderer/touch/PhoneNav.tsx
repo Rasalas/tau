@@ -1,7 +1,9 @@
 import { MessagesSquare, Settings } from "lucide-react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ExtensionRegistry } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
 import { sameTab, type PhoneTab } from "../../workbench/phone-route";
+import { pageCatalog } from "./page-catalog-slot";
 import "./phone-nav.css";
 
 /** Five destinations at most: home, three pages, Settings. */
@@ -15,25 +17,43 @@ export interface PhoneNavItem {
   useBadge?: (() => number | undefined) | undefined;
 }
 
-/** Threads first, the app pages that claim a phone in their order, Settings last. */
-export function phoneNavItems(registry: Pick<ExtensionRegistry, "getPages">): PhoneNavItem[] {
+/**
+ * Threads first, the app pages that claim a phone in their order, Settings
+ * last. While the packages are still loading, the remembered pages stand in
+ * for the ones not registered yet.
+ */
+export function phoneNavItems(registry: Pick<ExtensionRegistry, "getPages"> & Partial<Pick<ExtensionRegistry, "isLoadingExtensions">>): PhoneNavItem[] {
+  const live = registry.getPages().map((page): PhoneNavItem => ({ tab: { kind: "page", page: page.id }, label: page.label, Icon: page.Icon, useBadge: page.useBadge }));
+  const catalog = pageCatalog();
+  const pages = catalog && registry.isLoadingExtensions?.() ? catalog.read(live) : live;
   return [
     { tab: { kind: "threads" }, label: "Threads", Icon: MessagesSquare },
-    ...registry.getPages().slice(0, MAX_PAGES).map((page): PhoneNavItem => ({ tab: { kind: "page", page: page.id }, label: page.label, Icon: page.Icon, useBadge: page.useBadge })),
+    ...pages.slice(0, MAX_PAGES),
     { tab: { kind: "settings" }, label: "Settings", Icon: Settings },
   ];
+}
+
+/** The bottom navigation of a workbench, following its registry and remembering its pages. */
+export function RegistryPhoneNav({ registry, current, onSelect }: { registry: ExtensionRegistry; current: PhoneTab; onSelect(tab: PhoneTab): void }) {
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const items = phoneNavItems(registry);
+  const nav = useRef<HTMLElement>(null);
+  const loading = registry.isLoadingExtensions();
+  useEffect(() => { if (!loading) pageCatalog()?.write(nav.current, items); });
+  return <PhoneNav ref={nav} items={items} current={current} onSelect={onSelect} />;
 }
 
 /**
  * A phone's bottom navigation, on its main pages only: an icon over a short
  * label per destination, each the full height of the bar to tap.
  */
-export function PhoneNav({ items, current, onSelect }: {
+export function PhoneNav({ items, current, onSelect, ref }: {
   items: readonly PhoneNavItem[];
   current: PhoneTab;
   onSelect(tab: PhoneTab): void;
+  ref?: React.Ref<HTMLElement>;
 }) {
-  return <nav className="phone-nav" aria-label="Main">
+  return <nav className="phone-nav" aria-label="Main" ref={ref}>
     {items.map((item) => {
       const active = sameTab(item.tab, current);
       return <PhoneNavButton

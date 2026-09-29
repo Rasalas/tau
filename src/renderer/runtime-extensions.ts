@@ -102,7 +102,10 @@ export class RuntimeExtensions {
   private generation = 0;
   private cwd?: string;
 
-  constructor(private readonly registry: ExtensionRegistry, private readonly host: RuntimeExtensionHost) {}
+  constructor(private readonly registry: ExtensionRegistry, private readonly host: RuntimeExtensionHost) {
+    // Until the first load has run, a page a package brings is still on its way.
+    registry.setLoadingExtensions(true);
+  }
 
   list(): readonly RuntimeExtensionRecord[] {
     return this.loaded;
@@ -216,8 +219,16 @@ export class RuntimeExtensions {
   }
 
   async sync(cwd: string): Promise<readonly RuntimeExtensionRecord[]> {
-    this.cwd = cwd;
     const generation = ++this.generation;
+    try {
+      return await this.load(cwd, generation);
+    } finally {
+      if (generation === this.generation) this.registry.setLoadingExtensions(false);
+    }
+  }
+
+  private async load(cwd: string, generation: number): Promise<readonly RuntimeExtensionRecord[]> {
+    this.cwd = cwd;
     const result = await this.host.load(cwd, sharedExportNames());
     if (generation !== this.generation) return this.loaded;
     // Only a workspace with packages pays for the icon set; it must be in

@@ -9,9 +9,11 @@ import usageExtension from "./desktop.js";
 import { UsagePage } from "./page.js";
 import { priceFromDraft } from "./prices.js";
 import { dayStarts, HISTORY_DAYS } from "./dashboard.js";
+import { forgetLastState } from "./last-state.js";
 import { USAGE_PAGE, type UsageEntry, type UsageLimitsSummary, type UsageRow, type UsageSummary } from "./protocol.js";
 import { resetsIn } from "./view-model.js";
 
+afterEach(() => { forgetLastState(); });
 afterEach(cleanup);
 
 const NOW = new Date(2026, 8, 22, 15, 30);
@@ -112,6 +114,38 @@ describe("Usage page", () => {
     expect(within(within(totals).getByRole("region", { name: "Last 30 days" })).getByText("$0.51")).toBeTruthy();
   });
 
+  it("opens with what it read last time, at once, and replaces it with the fresh answer", async () => {
+    const first = renderPage(answers());
+    const totals = await screen.findByLabelText("Totals");
+    await within(within(totals).getByRole("region", { name: "Today" })).findByText("$0.01");
+    await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" });
+    first.unmount();
+
+    // The host is slow to answer the next time: the page does not wait for it.
+    const answers2 = new Map<string, (value: unknown) => void>();
+    renderPage(vi.fn((command: string) => new Promise((resolve) => { answers2.set(command, resolve); })));
+    expect(within(screen.getByRole("region", { name: "Today" })).getByText("$0.01")).toBeTruthy();
+    expect(within(screen.getByLabelText("Limits")).getByRole("region", { name: "Codex limits" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toMatch(/· updating…$/u);
+    answers2.get("summary")?.(summary({ entries: [entry({ costUsd: 0.05 })] }));
+    await within(screen.getByRole("region", { name: "Today" })).findByText("$0.05");
+  });
+
+  it("shows this host's figures without waiting for another machine", async () => {
+    const environments = {
+      getSnapshot: () => ({ shown: "here", secureStorage: true, environments: [
+        { id: "here", name: "This Mac", local: true, status: "connected", threads: [], threadCount: 0 },
+        { id: "slow-id", name: "slow", local: false, status: "connected", threads: [], threadCount: 0 },
+      ] }),
+      subscribe: () => () => undefined,
+      readExtension: vi.fn(() => new Promise(() => undefined)),
+    } as unknown as PlatformEnvironments;
+    render(<TestProviders><HostClientProvider client={createFakeHostClient()}><UsagePage host={host(answers())} environments={environments} now={() => NOW} navigate={vi.fn()} /></HostClientProvider></TestProviders>);
+    const today = await screen.findByRole("region", { name: "Today" });
+    expect(await within(today).findByText("$0.01")).toBeTruthy();
+    expect(await within(await screen.findByLabelText("Limits")).findByRole("region", { name: "Codex limits" })).toBeTruthy();
+  });
+
   it("marks work outside Tau, names its sessions and projects, and filters by where it ran", async () => {
     const outside = [
       entry({ day: LAST - 1, backend: "codex", threadId: "019a-cli-session", cwd: "/work/side-project", model: "gpt-5.6-luna", provider: "openai", modelId: "gpt-5.6-luna", costUsd: 3, outside: true }),
@@ -187,19 +221,21 @@ describe("Usage page", () => {
     expect(screen.getByLabelText("Totals")).toBeTruthy();
   });
 
-  it("shows how much of each plan window is used and when it resets, the fullest plan first", async () => {
+  it("shows what is left of each plan window and when it resets, the plan with the least left first", async () => {
     renderPage(answers());
     const limitsList = await screen.findByLabelText("Limits");
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["Codex limits", "Pi · openai-codex limits"]);
     const codex = within(limitsList).getByRole("region", { name: "Codex limits" });
     expect(within(codex).getByText("pro")).toBeTruthy();
-    const session = within(codex).getByRole("meter", { name: "5-hour used" });
-    expect(session.getAttribute("aria-valuenow")).toBe("34");
+    const session = within(codex).getByRole("meter", { name: "5-hour left" });
+    expect(session.getAttribute("aria-valuenow")).toBe("66");
+    expect(within(codex).getAllByText("% left")).toHaveLength(2);
+    expect((session.querySelector(".usage-meter-fill") as HTMLElement).style.width).toBe("66%");
     expect(within(codex).getByText(/^resets in 1h 30m · /u)).toBeTruthy();
-    // 3d before the weekly reset, 57 % of the week has passed: the diamond sits there.
-    const weekly = within(codex).getByRole("meter", { name: "Weekly used" });
-    expect(weekly.getAttribute("aria-valuetext")).toBe("95% used, steady pace 57%, Above steady pace");
-    expect((weekly.querySelector(".usage-meter-pace") as HTMLElement).style.getPropertyValue("--usage-pace")).toMatch(/^57\.\d+%$/u);
+    // 3d before the weekly reset, 57 % of the week has passed: at an even pace 43 % would be left, and the diamond sits there.
+    const weekly = within(codex).getByRole("meter", { name: "Weekly left" });
+    expect(weekly.getAttribute("aria-valuetext")).toBe("5% left, target 43%, Below target");
+    expect((weekly.querySelector(".usage-meter-pace") as HTMLElement).style.getPropertyValue("--usage-pace")).toMatch(/^42\.\d+%$/u);
     expect(within(screen.getByRole("region", { name: "Pi · openai-codex limits" })).getByText("Reset time unavailable")).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Accounts without limits" })).getByText(/An API key or a cloud provider has no plan limits/u)).toBeTruthy();
   });
@@ -213,7 +249,7 @@ describe("Usage page", () => {
     expect(within(limitsList).getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["ChatGPT · Codex, Pi limits"]);
     const account = within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Pi limits" });
     expect(within(account).getAllByRole("meter")).toHaveLength(1);
-    expect(within(account).getByRole("meter").getAttribute("aria-valuenow")).toBe("10");
+    expect(within(account).getByRole("meter").getAttribute("aria-valuenow")).toBe("90");
     expect(within(account).getByText("ChatGPT")).toBeTruthy();
     expect(within(account).getByText(/via Pi/u)).toBeTruthy();
     expect(within(account).getByText("pro")).toBeTruthy();

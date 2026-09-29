@@ -754,6 +754,14 @@ starting host already knows needs nothing else. A shipped kit's code carries a
 window spawned starts as soon as it listens, instead of at that window's first
 `bootstrap`, so the window loads its kits while the host starts.
 
+A browser or the phone app gets the code inline and keeps it. Its fourth
+parameter names the digests of the bundles the client holds (32 hex
+characters each; `src/web/bundle-cache.ts` keeps them in IndexedDB). With it,
+the host names every bundle's digest of code and stylesheet (`hash`) and sends
+the ones the client holds without them (`code: ""`, no `styles`,
+`cached: true`); a client that lost one asks for it again by id, holding
+nothing. Without the parameter (a window, an older client) nothing changes.
+
 The window's own process keeps a connection to the host beside its renderer's
 (bundles, calls into the window, shutdown). It says hello with
 `auxiliary: true`, so the host serves it without counting it as a second

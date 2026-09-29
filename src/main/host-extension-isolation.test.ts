@@ -546,8 +546,10 @@ describe("isolated host extensions", () => {
     await expect(registry.invoke("acme.worker", "spin")).rejects.toThrow(/timed out after 1000ms/u);
     await until(() => !registry.isActive("acme.worker"));
     expect(registry.summaries()[0]?.error).toContain("timed out");
-    // The host is still there and still answers for the package.
-    await expect(registry.invoke("acme.worker", "hello")).rejects.toThrow("is not active");
+    // The host is still there, and the next call starts the package again.
+    await expect(registry.invoke("acme.worker", "hello", "again")).resolves.toMatchObject({ input: "again" });
+    expect(registry.isActive("acme.worker")).toBe(true);
+    await registry.dispose();
   }, 30_000);
 
   it("survives a worker that leaves the process", async () => {
@@ -556,6 +558,14 @@ describe("isolated host extensions", () => {
     await expect(registry.invoke("acme.worker", "die")).rejects.toThrow(/left the host process/u);
     await until(() => !registry.isActive("acme.worker"));
     expect(registry.summaries()[0]?.error).toContain("worker exit code 3");
+    // "Try again" is the next call: it starts a new worker.
+    await expect(registry.invoke("acme.worker", "hello", 1)).resolves.toMatchObject({ input: 1 });
+    expect(registry.summaries()[0]?.error).toBeUndefined();
+    // Dying again right after a restart waits out the backoff before the next start.
+    await expect(registry.invoke("acme.worker", "die")).rejects.toThrow(/left the host process/u);
+    await until(() => !registry.isActive("acme.worker"));
+    await expect(registry.invoke("acme.worker", "hello")).rejects.toThrow("is not active");
+    await registry.dispose();
   }, 30_000);
 
   it("holds a package to its heap cap", async () => {
@@ -564,6 +574,9 @@ describe("isolated host extensions", () => {
     await expect(registry.invoke("acme.worker", "eat")).rejects.toThrow();
     await until(() => !registry.isActive("acme.worker"));
     expect(registry.summaries()[0]?.error).toBeTruthy();
+    // A worker that ran out of memory comes back on the next call, with a fresh heap.
+    await expect(registry.invoke("acme.worker", "hello", "back")).resolves.toMatchObject({ input: "back" });
+    await registry.dispose();
   }, 40_000);
 
   it("holds a package to its buffer memory cap, even inside a synchronous loop", async () => {

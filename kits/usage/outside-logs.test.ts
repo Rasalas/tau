@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { claudeLine, codexLine, codexMeta, codexResponse, codexTokenCount } from "./fixtures.js";
 import { openSqlite, readOpenCodeDatabase } from "./opencode-store.js";
-import { claudeMayCarryUsage, ClaudeProjectParser, codexMayCarryUsage, CodexRolloutParser, readMarkedLines, type OutsideSession } from "./outside-logs.js";
+import { claudeMayCarryUsage, ClaudeProjectParser, codexMayCarryUsage, CodexRolloutParser, readMarkedLines, scanMarkedLines, type OutsideIdentity, type OutsideRecord, type OutsideSink } from "./outside-logs.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -18,18 +18,23 @@ async function temp(): Promise<string> {
 const T0 = Date.UTC(2026, 8, 20, 9);
 const S = 1000;
 
-function parse(parser: { line(line: string): void; finish(): OutsideSession }, lines: string[]): OutsideSession {
+type Parsed = OutsideIdentity & { records: OutsideRecord[]; skipped: number };
+
+/** Runs lines through a parser whose sink keeps every record, a replaced one in its place. */
+function parse(make: (sink: OutsideSink) => { line(line: string): void; identity(): OutsideIdentity; skipped: number }, lines: string[]): Parsed {
+  const records: OutsideRecord[] = [];
+  const parser = make({ add: (record) => { records.push(record); return true; }, replace: (previous, next) => { records[records.indexOf(previous)] = next; } });
   for (const line of lines) parser.line(line);
-  return parser.finish();
+  return { ...parser.identity(), records, skipped: parser.skipped };
 }
 
-function figures(session: OutsideSession) {
+function figures(session: Parsed) {
   return session.records.map((record) => [record.at - T0, record.input, record.cacheRead, record.output, record.total]);
 }
 
 describe("Codex rollouts", () => {
   it("counts an older CLI's token_count events once each, by the step of the running total", () => {
-    const session = parse(new CodexRolloutParser("file"), [
+    const session = parse((sink) => new CodexRolloutParser("file", sink), [
       codexMeta("s-legacy", "/work/alpha", T0),
       codexLine("turn_context", T0 + S, { model: "gpt-5.6-luna" }),
       codexTokenCount(T0 + 2 * S, { input: 100, cached: 40, output: 10 }, { input: 100, cached: 40, output: 10 }),
@@ -44,7 +49,7 @@ describe("Codex rollouts", () => {
   });
 
   it("lets a current CLI's response records replace the counters from their first one on", () => {
-    const session = parse(new CodexRolloutParser("file"), [
+    const session = parse((sink) => new CodexRolloutParser("file", sink), [
       codexMeta("s-new", "/work/alpha", T0),
       codexTokenCount(T0 + S, { input: 20, output: 2 }, { input: 20, output: 2 }),
       codexResponse(T0 + 2 * S, "resp-1", { input: 30, cached: 10, output: 3 }),
@@ -56,7 +61,7 @@ describe("Codex rollouts", () => {
   });
 
   it("skips the burst a fork replays from its parent and names the parent", () => {
-    const session = parse(new CodexRolloutParser("file"), [
+    const session = parse((sink) => new CodexRolloutParser("file", sink), [
       codexMeta("s-fork", "/work/alpha", T0, { forked_from_id: "s-parent" }),
       codexTokenCount(T0 + 10, { input: 100, output: 10 }, { input: 100, output: 10 }),
       codexTokenCount(T0 + 500, { input: 100, output: 10 }, { input: 200, output: 20 }),
@@ -68,7 +73,7 @@ describe("Codex rollouts", () => {
   });
 
   it("names the parent of a sub-agent's session", () => {
-    const session = parse(new CodexRolloutParser("file"), [
+    const session = parse((sink) => new CodexRolloutParser("file", sink), [
       codexMeta("s-child", "/work/alpha", T0, { source: { subagent: { thread_spawn: { parent_thread_id: "s-parent" } } } }),
     ]);
     expect(session.parentId).toBe("s-parent");
@@ -78,8 +83,7 @@ describe("Codex rollouts", () => {
 describe("Agent SDK CLI session files", () => {
   it("counts a response of several lines once, with its last line's figures", () => {
     const base = { sessionId: "c-1", cwd: "/work/beta", at: T0 };
-    const parser = new ClaudeProjectParser("file");
-    const session = parse(parser, [
+    const session = parse((sink) => new ClaudeProjectParser("file", sink), [
       claudeLine({ ...base, messageId: "msg-1", requestId: "req-1", output: 5 }),
       claudeLine({ ...base, at: T0 + 100, messageId: "msg-1", requestId: "req-1", output: 7, cacheRead: 100 }),
       claudeLine({ ...base, at: T0 + S, messageId: "msg-2", requestId: "req-2", input: 3, cacheWrite: 20 }),
@@ -93,7 +97,7 @@ describe("Agent SDK CLI session files", () => {
       [0, 10, 7, 100, 0, 117],
       [S, 3, 5, 0, 20, 28],
     ]);
-    expect(parser.skipped).toBe(1);
+    expect(session.skipped).toBe(1);
   });
 });
 
@@ -126,6 +130,19 @@ describe("reading log lines", () => {
     expect(skipped).toBe(1);
   });
 
+  it("goes on from where the last read stopped, leaving an unfinished line for the next", async () => {
+    const path = join(await temp(), "log.jsonl");
+    await writeFile(path, "{\"usage\":1}\n{\"usage\":2");
+    const first: string[] = [];
+    const read = await scanMarkedLines(path, ["\"usage\""], (line) => first.push(line), codexMayCarryUsage);
+    expect(first).toEqual(["{\"usage\":1}"]);
+    expect(read.end).toBe(12);
+    await writeFile(path, "{\"usage\":1}\n{\"usage\":2}\n{\"usage\":3}\n");
+    const next: string[] = [];
+    await scanMarkedLines(path, ["\"usage\""], (line) => next.push(line), codexMayCarryUsage, { start: read.end });
+    expect(next).toEqual(["{\"usage\":2}", "{\"usage\":3}"]);
+  });
+
   it("counts an oversized Agent SDK line only when it is an assistant's", () => {
     expect(claudeMayCarryUsage("{\"parentUuid\":null,\"message\":{\"role\":\"assistant\",")).toBe(true);
     expect(claudeMayCarryUsage("{\"parentUuid\":null,\"message\":{\"role\":\"user\",")).toBe(false);
@@ -153,15 +170,21 @@ describe("OpenCode's database", () => {
     db.prepare("INSERT INTO session_message VALUES (?, ?, 'assistant', 1, ?, ?, ?)").run("msg-1", "ses-a", T0 + S, T0 + S, JSON.stringify({ tokens: { input: 20, output: 4, cache: { read: 100, write: 5 } }, providerID: "anthropic", modelID: "claude-haiku-4-5", time: { created: T0 + S } }));
     db.close();
 
-    const read = await readOpenCodeDatabase(path, T0 - 86_400_000, open, async () => undefined);
-    const sessions = Object.fromEntries(read.sessions.map((session) => [session.sessionId, session]));
-    expect(Object.keys(sessions).sort()).toEqual(["ses-a", "ses-b"]);
-    expect(sessions["ses-a"]!.cwd).toBe("/work/gamma");
-    expect(sessions["ses-b"]!.parentId).toBe("ses-a");
-    expect(sessions["ses-a"]!.records.map((record) => [record.key, record.input, record.output, record.cacheRead, record.cacheWrite, record.total, record.provider, record.model])).toEqual([
+    const records = new Map<string, OutsideRecord[]>();
+    const seen = new Set<string>();
+    // The cache counts a key once, the first time it is read.
+    const read = await readOpenCodeDatabase(path, { since: T0 - 86_400_000, finalBefore: T0 }, open, async () => undefined, (sessionId, record) => {
+      if (seen.has(record.key)) return;
+      seen.add(record.key);
+      records.set(sessionId, [...records.get(sessionId) ?? [], record]);
+    });
+    expect([...records.keys()].sort()).toEqual(["ses-a", "ses-b"]);
+    expect(read.sessions.get("ses-a")?.cwd).toBe("/work/gamma");
+    expect(read.sessions.get("ses-b")?.parentId).toBe("ses-a");
+    expect(records.get("ses-a")!.map((record) => [record.key, record.input, record.output, record.cacheRead, record.cacheWrite, record.total, record.provider, record.model])).toEqual([
       ["opencode:msg-1", 20, 4, 100, 5, 129, "anthropic", "claude-haiku-4-5"],
     ]);
-    expect(sessions["ses-b"]!.records[0]!.cost).toBe(0.02);
+    expect(records.get("ses-b")![0]!.cost).toBe(0.02);
   });
 
   it("says so when the database has no table it knows", async () => {
@@ -170,6 +193,6 @@ describe("OpenCode's database", () => {
     const path = join(await temp(), "opencode.db");
     const { DatabaseSync } = await import("node:sqlite");
     new DatabaseSync(path).close();
-    expect((await readOpenCodeDatabase(path, 0, open, async () => undefined)).unsupported).toBe(true);
+    expect((await readOpenCodeDatabase(path, { since: 0, finalBefore: 0 }, open, async () => undefined, () => undefined)).unsupported).toBe(true);
   });
 });

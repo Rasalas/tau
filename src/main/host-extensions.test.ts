@@ -113,6 +113,52 @@ describe("HostExtensionRegistry", () => {
     expect(() => context?.emit("data", 2, { topic: "x".repeat(257) })).toThrow("a topic is a string");
   });
 
+  it("starts an extension that failed while it ran on its next call, backing off when it keeps failing", async () => {
+    let clock = 1_000_000;
+    const s = services();
+    const r = new HostExtensionRegistry(s, () => undefined, { now: () => clock });
+    let starts = 0;
+    await r.activate({
+      id: "fragile.kit",
+      name: "Fragile Kit",
+      activate: (ctx) => {
+        starts += 1;
+        ctx.registerCommand("crash", () => { ctx.fail("the worker ran out of memory"); throw new Error("the worker ran out of memory"); });
+        ctx.registerCommand("count", () => starts);
+      },
+    });
+    await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow("ran out of memory");
+    expect(r.isActive("fragile.kit")).toBe(false);
+    expect(r.summaries()[0]?.error).toBe("the worker ran out of memory");
+    // The next call starts it again, at once.
+    await expect(r.invoke("fragile.kit", "count")).resolves.toBe(2);
+    expect(r.summaries()[0]?.error).toBeUndefined();
+    expect(s.logs.some((line) => line.startsWith("host-extension.restarting"))).toBe(true);
+    // Failing again soon after: the next start waits 10 s, then 20 s.
+    await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow();
+    await expect(r.invoke("fragile.kit", "count")).rejects.toThrow("Host extension Fragile Kit is not active.");
+    clock += 10_000;
+    await expect(r.invoke("fragile.kit", "count")).resolves.toBe(3);
+    await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow();
+    clock += 10_000;
+    await expect(r.invoke("fragile.kit", "count")).rejects.toThrow("is not active");
+    clock += 10_000;
+    await expect(r.invoke("fragile.kit", "count")).resolves.toBe(4);
+    // After running for a while, a failure starts again at once.
+    clock += 6 * 60_000;
+    await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow();
+    await expect(r.invoke("fragile.kit", "count")).resolves.toBe(5);
+  });
+
+  it("does not start an extension again that the user turned off after it failed", async () => {
+    let disabled: string[] = [];
+    const r = new HostExtensionRegistry(services(), () => undefined, { disabled: () => disabled });
+    await r.activate({ id: "fragile.kit", name: "Fragile Kit", activate: (ctx) => { ctx.registerCommand("crash", () => { ctx.fail("gone"); throw new Error("gone"); }); ctx.registerCommand("ok", () => 1); } });
+    await expect(r.invoke("fragile.kit", "crash")).rejects.toThrow("gone");
+    disabled = ["fragile.kit"];
+    await expect(r.invoke("fragile.kit", "ok")).rejects.toThrow("is not active");
+  });
+
   it("records an activation failure without throwing, and runs partial cleanup", async () => {
     const { registry: r, services: s } = registry();
     const dispose = vi.fn();

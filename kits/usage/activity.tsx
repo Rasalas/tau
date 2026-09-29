@@ -81,14 +81,14 @@ export function ActivityCalendar({ days, entries, labels }: { days: readonly num
   );
 }
 
-/** Where a reading's point sits: 24 hours across, 0–100 % up. */
+/** Where a reading's point sits: 24 hours across, 0–100 % left up. */
 const X = (at: number, now: number) => 4 + (592 * (at - (now - DAY_MS))) / DAY_MS;
 const Y = (value: number) => 96 - value * 0.88;
 
 /**
- * Each window's readings of the last day as a step line. A reset, a drop or
- * a gap of more than ten minutes starts a new line: what happened in between
- * was not read.
+ * Each window's readings of the last day as a step line of what was left. A
+ * reset, a rise or a gap of more than ten minutes starts a new line: what
+ * happened in between was not read.
  */
 export function ReadingHistory({ limits, now }: { limits: UsageLimitsSummary | undefined; now: number }) {
   const series = new Map<string, { label: string; tone: CSSProperties; points: { at: number; value: number; reset?: number }[] }>();
@@ -102,7 +102,7 @@ export function ReadingHistory({ limits, now }: { limits: UsageLimitsSummary | u
         entry = { label: `${account.label} · ${window.label}`, tone: toned(account.runtime === "pi" ? account.id.replace(/^pi:/u, "") : account.identity?.provider ?? account.runtime), points: [] };
         series.set(key, entry);
       }
-      entry.points.push({ at: account.checkedAt, value: window.usedPercent, ...(window.resetsAt ? { reset: window.resetsAt } : {}) });
+      entry.points.push({ at: account.checkedAt, value: Math.max(0, Math.min(100, 100 - window.usedPercent)), ...(window.resetsAt ? { reset: window.resetsAt } : {}) });
     }
   }
   const drawn = [...series].filter(([, entry]) => entry.points.length > 0);
@@ -116,13 +116,14 @@ export function ReadingHistory({ limits, now }: { limits: UsageLimitsSummary | u
             let path = "";
             points.forEach((point, index) => {
               const previous = points[index - 1];
-              const jump = !previous || Math.abs((point.reset ?? 0) - (previous.reset ?? 0)) > 60_000 || point.at - previous.at > 600_000 || point.value < previous.value;
+              // What is left only falls within a window; a rise is a reset.
+              const jump = !previous || Math.abs((point.reset ?? 0) - (previous.reset ?? 0)) > 60_000 || point.at - previous.at > 600_000 || point.value > previous.value;
               path += jump ? ` M ${X(point.at, now).toFixed(1)} ${Y(point.value).toFixed(1)}` : ` H ${X(point.at, now).toFixed(1)} V ${Y(point.value).toFixed(1)}`;
             });
             return (
               <figure key={key} className="usage-readings-series" style={entry.tone}>
                 <figcaption>{entry.label}</figcaption>
-                <svg viewBox="0 0 600 104" role="img" aria-label={`${entry.label}: ${points.length} ${points.length === 1 ? "reading" : "readings"}, last ${Math.round(points.at(-1)!.value)}% used`}>
+                <svg viewBox="0 0 600 104" role="img" aria-label={`${entry.label}: ${points.length} ${points.length === 1 ? "reading" : "readings"}, last ${Math.round(points.at(-1)!.value)}% left`}>
                   <path d="M 4 8 H 596 M 4 52 H 596 M 4 96 H 596" className="usage-readings-grid-lines" />
                   <path d={path.trim()} className="usage-readings-line" />
                   {points.map((point) => <circle key={point.at} cx={X(point.at, now).toFixed(1)} cy={Y(point.value).toFixed(1)} r="2.5" className="usage-readings-point" />)}

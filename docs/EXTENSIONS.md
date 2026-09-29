@@ -1024,7 +1024,11 @@ takes the key. On a phone (`compact` without the split list)
 the page is a screen of its own, addressed as `?page=<id>`: a link opens it.
 The first three pages that claim `compact` are destinations of the phone's
 bottom navigation, beside Threads and Settings, so a page for a phone keeps its
-label short. There the page is a main page without a back button; a view it
+label short. The navigation remembers them, label and drawn icon, so on the next
+start they are there before the packages load; one opened then shows "Loading…"
+until its package registers it (`ExtensionRegistry.isLoadingExtensions()`). A
+package whose page draws a host's answer does well to draw the last one it had
+at once and replace it when the fresh one arrives, as Usage does. There the page is a main page without a back button; a view it
 steps into hides the navigation, gets Back and a history entry, and the
 system's back gesture steps out of it, then out of the page to the thread list.
 
@@ -1702,9 +1706,16 @@ instance's own home, and `billing` is the instance's login where the kit knows i
 reads nothing for it. Usage reads the folders in its worker: only lines that carry usage
 (Codex's `token_usage_record` per response, or older `token_count` events counted by the
 step of their running total, without a fork's replayed start; one assistant response of
-the CLI once per message and request id; OpenCode's assistant messages), cached per file
-by size and mtime in `outside-usage.json` with counts and digests only, over the last
-twelve months. A summary waits a moment for a first read and otherwise answers with what
+the CLI once per message and request id; OpenCode's assistant messages), summed per
+session, model and quarter hour as they are read and cached per file by size and mtime in
+`outside-usage.json` (one JSON line per file, streamed, with sums and 53-bit hashes of the
+responses' ids only), over the last twelve months. A log that only grew is read from where
+the last read stopped; one written anew, from its start. OpenCode's database is read in
+insertion order past the rows that can no longer change, and SQLite pulls the few fields
+a count needs out of each row, so a large row never reaches the worker's heap. A response
+another log holds too (an archived rollout, a resumed session) counts where it was read
+first. Nothing holds a whole file or every response, so years of logs fit the worker's
+256 MB heap (`kits/usage/scan-memory.test.ts` reads 400,000 responses in 64 MB). A summary waits a moment for a first read and otherwise answers with what
 is read so far and `reading: true`, and the page asks again. A session a Tau thread ran
 as, or one it forked or spawned, is that thread's: skipped where the kit kept the
 thread's usage, counted for the thread where it kept none (an imported session). The
@@ -3486,6 +3497,16 @@ its own. There is no revocation list: removing a key from
     stopping the host. A native addon loaded through `loadDependency` lives
     there. When the host passes its limit with no worker package to blame,
     it stops nothing.
+- **Starting again:** a package that stopped while it ran — its worker died,
+  hit a cap or the host's memory limit, a command timed out or failed three
+  times — starts again on the next call to one of its commands (a page's
+  "Try again" is such a call), and that call runs on the new start. If it
+  stops again soon after, the next start waits 10 s, then 20 s, doubling up
+  to 5 minutes; until then a call answers "Host extension … is not active."
+  A package that ran for more than 5 minutes before it stopped starts again
+  at once. One that failed to activate, or that the user turned off, is not
+  started this way; `host-extension.restarting` in the host log names each
+  start and why.
 - **Compiled code in a worker:** a crash in native code is a crash of the host
   process, with every thread in it; no worker boundary catches a segfault. That
   is why a worker package loads no addon without the `native` grant (§6). A

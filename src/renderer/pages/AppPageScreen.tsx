@@ -107,7 +107,9 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   }, [store]);
 
   if (!state) return null;
-  const label = page?.label ?? "Page";
+  // A page opened from the phone's remembered navigation before its package has loaded.
+  const coming = !page && registry.isLoadingExtensions();
+  const label = page?.label ?? (coming ? "" : "Page");
   const trail = views.slice(1);
   const showBack = nav ? trail.length > 0 : stacked || !sidebarShown;
   const navShown = Boolean(nav) && trail.length === 0;
@@ -157,7 +159,7 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
                     <page.Component {...props} params={view?.params ?? {}} />
                   </Suspense>
                 </LazyFeatureBoundary>
-              ) : (
+              ) : coming ? <LazyFeatureFallback label={label} /> : (
                 <p className="lede">This page is gone; its extension may have been turned off.</p>
               )}
             </SettingsPageActionSlot.Provider>
