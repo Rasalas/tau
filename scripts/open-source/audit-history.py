@@ -8,7 +8,7 @@ git = lambda *a, **k: subprocess.run(["git", "-C", repo, *a], capture_output=Tru
 PATTERNS = {
     "ts.net host": rb"[A-Za-z0-9.-]+\.ts\.net",
     "CGNAT/Tailscale IP": rb"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b",
-    "192.168.1.x": rb"\b192\.168\.178\.\d{1,3}\b",
+    "home LAN (.178 subnet)": rb"\b192\.168\.178\.\d{1,3}\b",
     "/Volumes path": rb"/Volumes/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+",
     "/Users path": rb"/Users/[A-Za-z0-9._-]+",
     "e-mail (non-example)": rb"[A-Za-z0-9._%+-]+@(?!example\.|[a-z.]*\.invalid|[a-z.]*\.test\b)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}",
