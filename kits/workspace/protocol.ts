@@ -228,7 +228,7 @@ export interface WorkspaceHostCommands {
   "file-stat": { input: { relPath: string; workspace?: string }; output: UiFileStat };
   /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
   "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null; workspace?: string }; output: UiFileWriteResult };
-  "commit": { input: { message: string; push: boolean }; output: CommitResult };
+  "commit": { input: { message: string; push: boolean; workspace?: string }; output: CommitResult };
   "pull": { input: undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
   "push": { input: undefined; output: PushResult };

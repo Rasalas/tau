@@ -441,6 +441,8 @@ export async function mergeBranchIntoCheckout(options: {
   /** The commit the branch started from, when it differs from what HEAD was then. */
   base?: string;
   message?: string;
+  /** Turns a merge with conflicts into a tree without them (the user's picks); without it a conflict merges nothing. */
+  resolve?: (tree: string, conflicts: readonly string[]) => Promise<string>;
   runGit?: AgentGitRunner;
 }): Promise<BranchMergeOutcome> {
   const runGit = options.runGit ?? runAgentGit;
@@ -454,7 +456,7 @@ export async function mergeBranchIntoCheckout(options: {
 
   const preview = await previewBranchMerge(cwd, branch, runGit);
   if (preview.merged) return { branch, state: "already-merged", files: [], detail: `${branch} is already merged.` };
-  if (preview.conflicts.length > 0) {
+  if (preview.conflicts.length > 0 && !options.resolve) {
     return { branch, state: "conflict", files: preview.conflicts, detail: `${branch} conflicts with this checkout in ${preview.conflicts.length} file${preview.conflicts.length === 1 ? "" : "s"}; nothing was applied.` };
   }
   const head = (await runGit(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
@@ -463,8 +465,9 @@ export async function mergeBranchIntoCheckout(options: {
   const worktreeTree = await captureWorktreeTree(cwd, runGit);
   const indexTree = (await runGit(cwd, ["write-tree"])).trim();
   const message = options.message ?? `Merge branch '${branch}'`;
+  const tree = preview.conflicts.length > 0 && options.resolve ? await options.resolve(preview.tree, preview.conflicts) : preview.tree;
 
-  if (worktreeTree === headTree && indexTree === headTree) {
+  if (tree === preview.tree && worktreeTree === headTree && indexTree === headTree) {
     try {
       await runGit(cwd, ["merge", "--no-ff", "--no-edit", "-m", message, tip]);
     } catch (error) {
@@ -476,7 +479,7 @@ export async function mergeBranchIntoCheckout(options: {
   }
 
   // A path blocks when the checkout holds a version of it that neither HEAD, the base nor the result keeps.
-  const keptIn = [headTree, preview.tree, ...(options.base ? [`${options.base}^{tree}`] : [])];
+  const keptIn = [headTree, tree, ...(options.base ? [`${options.base}^{tree}`] : [])];
   const blocking = new Set<string>();
   for (const held of new Set([worktreeTree, indexTree])) {
     const lost = await Promise.all(keptIn.map((kept) => changedPaths(cwd, held, kept, runGit)));
@@ -486,12 +489,12 @@ export async function mergeBranchIntoCheckout(options: {
     const files = [...blocking].sort();
     return { branch, state: "blocked", files, detail: `This checkout has changes the merge would overwrite: ${files.slice(0, 5).join(", ")}${files.length > 5 ? " …" : ""}. Commit or move them first; nothing was applied.` };
   }
-  const commit = (await runGit(cwd, ["commit-tree", preview.tree, "-p", head, "-p", tip, "-m", message])).trim();
+  const commit = (await runGit(cwd, ["commit-tree", tree, "-p", head, "-p", tip, "-m", message])).trim();
   // Files the checkout has that the result drops: untracked ones read-tree would leave behind.
-  const dropped = [...(await changedPaths(cwd, worktreeTree, preview.tree, runGit))].filter(([, status]) => status === "D").map(([path]) => path);
+  const dropped = [...(await changedPaths(cwd, worktreeTree, tree, runGit))].filter(([, status]) => status === "D").map(([path]) => path);
   await runGit(cwd, ["read-tree", "--reset", "-u", commit]);
   for (const path of dropped) await rm(join(cwd, path), { force: true }).catch(() => undefined);
   await runGit(cwd, ["update-ref", "-m", `merge ${branch}: Merge made by Tau`, "HEAD", commit, head]);
   await runGit(cwd, ["update-ref", "ORIG_HEAD", head]).catch(() => "");
-  return { branch, state: "merged", commit, files: [], detail: `Merged ${branch} over this checkout's uncommitted work, which it already held.` };
+  return { branch, state: "merged", commit, files: [], detail: tree === preview.tree ? `Merged ${branch} over this checkout's uncommitted work, which it already held.` : `Merged ${branch} with your picks.` };
 }

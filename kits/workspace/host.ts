@@ -33,7 +33,8 @@ import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, removeThreadBranch } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch } from "./thread-branches.js";
+import { decodePicks } from "./merge-picks.js";
 import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
@@ -353,8 +354,9 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
         return result;
       }, { callers: [FILES_KIT_ID] });
+      // Reviews' "Commit only" names the thread's worktree.
       context.registerCommand("commit", async (input) => {
-        const project = cwd();
+        const project = await shownRoot(input);
         const message = requiredString(input, "message");
         const push = record(input).push === true;
         try {
@@ -366,7 +368,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      }, { audit: { label: "committed changes" } });
+      }, { callers: [REVIEW_KIT_ID], audit: { label: "committed changes" } });
       context.registerCommand("pull", async () => {
         const project = cwd();
         try {
@@ -449,13 +451,15 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("merge-thread-branch", async (input) => {
         const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
         const expectedTip = optionalString(input, "tip");
+        const picks = decodePicks(record(input).picks);
         const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
         return gitWrite(root, async () => {
-          const outcome = await git.write(root, () => mergeThreadBranch(path, expectedTip ? { expectedTip } : {}));
+          const outcome = await git.write(root, () => mergeThreadBranch(path, { ...(expectedTip ? { expectedTip } : {}), ...(picks ? { picks } : {}) }));
           git.invalidate(path);
           return outcome;
         }, (result) => `${result.branch} into ${result.into}: ${result.state}`, "git.merge-thread-branch");
       }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "merged a thread's branch" } });
+      context.registerCommand("thread-branch-conflicts", async (input) => readThreadConflicts(await services.knownWorkspacePath(requiredString(input, "workspace"))), { access: "read", long: true, callers: [REVIEW_KIT_ID] });
       // Reviews' cleanup of a merged branch; the threads stay.
       context.registerCommand("remove-thread-branch", async (input) => {
         const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
