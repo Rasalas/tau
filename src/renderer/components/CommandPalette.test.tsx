@@ -46,19 +46,22 @@ function setup() {
       context.registerSettingsPage({ id: "usage", label: "Usage", keywords: ["alpaca spend"], profiles: ["desktop"], Component: () => null });
     },
   });
-  render(<CommandPalette open commands={[]} extensionCount={1} actions={actions} registry={registry} onClose={() => undefined} />);
+  render(<CommandPalette open commands={[]} actions={actions} registry={registry} onClose={() => undefined} />);
   const input = screen.getByRole("textbox", { name: "Command" });
   const rows = () => [...document.querySelectorAll(".palette-results button")].map((row) => row.textContent);
-  return { actions, input, pending, signals, rows, opened };
+  const heads = () => [...document.querySelectorAll(".palette-head")].map((head) => head.textContent);
+  return { actions, input, pending, signals, rows, heads, opened };
 }
 
 describe("command palette sources", () => {
-  it("shows a source's rows as they arrive, in source order, with core's Settings rows after them", async () => {
-    const { input, pending, rows } = setup();
+  it("shows a source's rows as they arrive under its heading, in source order, with core's Settings rows among the commands", async () => {
+    const { input, pending, rows, heads } = setup();
     fireEvent.change(input, { target: { value: "alp" } });
-    expect(rows()).toEqual(["Alpha project~/alphaprojects", "UsageSettingssettings"]);
+    expect(rows()).toEqual(["Alpha project~/alpha", "UsageSettings"]);
+    expect(heads()).toEqual(["Projects", "Commands"]);
     await act(async () => { pending.get("alp")!.resolve([{ id: "t1", label: "Fix alpaca import", detail: "tau", run: () => undefined }]); });
-    expect(rows()).toEqual(["Alpha project~/alphaprojects", "Fix alpaca importtauin threads", "UsageSettingssettings"]);
+    expect(rows()).toEqual(["Alpha project~/alpha", "Fix alpaca importtau", "UsageSettings"]);
+    expect(heads()).toEqual(["Projects", "In threads", "Commands"]);
   });
 
   it("drops an answer that belongs to an earlier query and aborts its signal", async () => {
@@ -87,7 +90,7 @@ describe("command palette sources", () => {
 describe("command palette focus", () => {
   function Toggle({ open, focusComposer }: { open: boolean; focusComposer(): void }) {
     const actions = { notify: vi.fn(), focusComposer } as unknown as WorkbenchActions;
-    return <CommandPalette open={open} commands={[]} extensionCount={0} actions={actions} onClose={() => undefined} />;
+    return <CommandPalette open={open} commands={[]} actions={actions} onClose={() => undefined} />;
   }
 
   it("gives focus back to what had it when it opened", () => {
@@ -113,7 +116,7 @@ describe("command palette focus", () => {
   it("keeps Tab inside itself and closes on Escape from wherever focus is in it", () => {
     const onClose = vi.fn();
     const actions = { notify: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
-    render(<CommandPalette open commands={[]} extensionCount={0} actions={actions} onClose={onClose} />);
+    render(<CommandPalette open commands={[]} actions={actions} onClose={onClose} />);
     const input = screen.getByRole("textbox", { name: "Command" });
     act(() => { input.focus(); });
     // jsdom lays out no rows, so the field is the only stop and Tab stays on it.
@@ -151,7 +154,7 @@ describe("command palette levels", () => {
     const chosen = vi.fn();
     const command = themes(chosen);
     const onClose = vi.fn();
-    render(<CommandPalette open commands={[command]} extensionCount={1} actions={actions()} onClose={onClose} />);
+    render(<CommandPalette open commands={[command]} actions={actions()} onClose={onClose} />);
     const root = screen.getByRole("textbox", { name: "Command" });
     fireEvent.change(root, { target: { value: "theme" } });
     fireEvent.keyDown(root, { key: "Enter" });
@@ -168,7 +171,7 @@ describe("command palette levels", () => {
   });
 
   it("goes back with Backspace on an empty field, the back button and the breadcrumb, giving each level its query back", async () => {
-    render(<CommandPalette open commands={[themes(vi.fn())]} extensionCount={1} actions={actions()} onClose={() => undefined} />);
+    render(<CommandPalette open commands={[themes(vi.fn())]} actions={actions()} onClose={() => undefined} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "theme" } });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Command" }), { key: "Enter" });
     fireEvent.change(screen.getByRole("textbox", { name: "Change theme" }), { target: { value: "more" } });
@@ -192,7 +195,7 @@ describe("command palette levels", () => {
   });
 
   it("asks a level that searches itself per keystroke and shows what the latest query answered", async () => {
-    render(<CommandPalette open menu="fixture.theme" commands={[themes(vi.fn())]} extensionCount={1} actions={actions()} onClose={() => undefined} />);
+    render(<CommandPalette open menu="fixture.theme" commands={[themes(vi.fn())]} actions={actions()} onClose={() => undefined} />);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "ArrowDown" });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "ArrowDown" });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "Enter" });
@@ -207,7 +210,7 @@ describe("command palette levels", () => {
       id: "fixture.fails", label: "Broken…", group: "Look", extensionId: "fixture", extensionName: "Fixture", run: vi.fn(),
       submenu: { title: "Broken", items: async () => { throw new Error("The host went away."); } },
     };
-    render(<CommandPalette open menu="fixture.fails" commands={[failing]} extensionCount={1} actions={actions()} onClose={() => undefined} />);
+    render(<CommandPalette open menu="fixture.fails" commands={[failing]} actions={actions()} onClose={() => undefined} />);
     expect(screen.getByRole("textbox", { name: "Broken" })).toBeTruthy();
     await act(async () => undefined);
     expect(screen.getByRole("alert").textContent).toBe("The host went away.");
@@ -226,7 +229,7 @@ describe("command palette on a Read-only device", () => {
     const onClose = vi.fn();
     render(
       <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>
-        <CommandPalette open commands={commands} extensionCount={1} actions={actions} registry={registry} menu={menu} onClose={onClose} />
+        <CommandPalette open commands={commands} actions={actions} registry={registry} menu={menu} onClose={onClose} />
       </HostClientProvider>,
     );
     return { actions, onClose, input: screen.getByRole("textbox") };
@@ -268,8 +271,8 @@ describe("command palette on a Read-only device", () => {
       entry("workbench.focus-composer", "Focus composer", "Workbench", "read"),
     ], registry);
     fireEvent.change(input, { target: { value: "composer" } });
-    // Core's Settings rows only look; the matching command ranks first. General's and Runtimes' descriptions name the composer.
-    expect(labels()).toEqual(["Focus composer", "Composer thread", "Composer editing modeGeneral", "Fold the composer while scrollingGeneral", "GeneralSettings", "RuntimesSettings"]);
+    // Core's Settings rows only look and follow the matching command. General's and Runtimes' descriptions name the composer.
+    expect(labels()).toEqual(["Composer thread", "Focus composer", "Composer editing modeSettings › General", "Fold the composer while scrollingSettings › General", "GeneralSettings", "RuntimesSettings"]);
   });
 
   it("disables a level's rows that write and does not open on a level whose command writes", () => {
@@ -293,7 +296,74 @@ describe("command palette on a Read-only device", () => {
 describe("command palette shortcuts", () => {
   it("marks a row's chord as a keyboard hint, which a touch screen leaves out", () => {
     const command: PaletteCommand = { id: "fixture.pin", label: "Pin thread", group: "Thread", extensionId: "fixture", extensionName: "Fixture", run: vi.fn() };
-    render(<CommandPalette open commands={[command]} extensionCount={1} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} shortcutFor={() => "⌘⇧P"} onClose={() => undefined} />);
+    render(<CommandPalette open commands={[command]} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} shortcutFor={() => "⌘⇧P"} onClose={() => undefined} />);
     expect(screen.getByText("⌘⇧P").classList.contains("keyboard-hint")).toBe(true);
+  });
+});
+
+describe("command palette scopes", () => {
+  function scoped() {
+    const registry = new ExtensionRegistry();
+    const asked: Array<[string, string, string | undefined]> = [];
+    const actions = { notify: vi.fn(), openSettings: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
+    const opened = vi.fn();
+    const staged = vi.fn();
+    registry.activate({
+      id: "fixture.scoped",
+      name: "Scoped",
+      activate(context) {
+        context.registerPaletteSource({ id: "fixture.threads", label: "Threads", order: 10, scope: "threads", search: (query, search) => {
+          asked.push(["threads", query, search.scope]);
+          return [{ id: "t1", label: query ? `Thread ${query}` : "Recent thread", access: "read", run: opened, stage: staged }];
+        } });
+        context.registerPaletteSource({ id: "fixture.files", label: "Files", order: 20, scope: "files", search: (query, search) => {
+          asked.push(["files", query, search.scope]);
+          return search.scope === "files" || query ? [{ id: "f1", label: "pairing.ts", access: "read", run: () => undefined }] : [];
+        } });
+        context.registerPaletteSource({ id: "fixture.projects", label: "Projects", order: 30, search: (query) => {
+          asked.push(["projects", query, undefined]);
+          return [{ id: "p1", label: "Project", run: () => undefined }];
+        } });
+      },
+    });
+    const pin: PaletteCommand = { id: "fixture.pin", label: "Pin thread", group: "Thread", extensionId: "fixture", extensionName: "Fixture", access: "read", run: vi.fn() };
+    render(<CommandPalette open commands={[pin]} actions={actions} registry={registry} onClose={() => undefined} />);
+    const input = screen.getByRole("textbox", { name: "Command" });
+    const heads = () => [...document.querySelectorAll(".palette-head")].map((head) => head.textContent);
+    const pressed = () => screen.getAllByRole("button", { pressed: true }).map((tab) => tab.textContent);
+    return { asked, input, heads, pressed, opened, staged, pin, actions };
+  }
+
+  it("shows the recent threads before the commands while nothing is typed, and asks no source without a scope", () => {
+    const { asked, heads, pressed } = scoped();
+    expect(heads()).toEqual(["Threads", "Commands"]);
+    expect(pressed()).toEqual(["All"]);
+    expect(asked).toEqual([["threads", "", "all"], ["files", "", "all"]]);
+  });
+
+  it("narrows to one kind by its prefix or its tab, and keeps what was typed", () => {
+    const { input, heads, pressed } = scoped();
+    fireEvent.change(input, { target: { value: "#xyz" } });
+    expect(heads()).toEqual(["Threads"]);
+    expect(pressed()).toEqual(["Threads"]);
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    expect(input).toHaveProperty("value", "/xyz");
+    expect(heads()).toEqual(["Files"]);
+    fireEvent.click(screen.getByRole("button", { name: "> Commands" }));
+    expect(input).toHaveProperty("value", ">xyz");
+    expect(heads()).toEqual([]);
+    fireEvent.change(input, { target: { value: ">pin" } });
+    expect(heads()).toEqual(["Commands"]);
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(input).toHaveProperty("value", "pin");
+    expect(heads()).toEqual(["Threads", "Files", "Projects", "Commands"]);
+  });
+
+  it("opens a row in the stage with the modifier and Enter, where the row can", () => {
+    const { input, opened, staged, actions } = scoped();
+    fireEvent.change(input, { target: { value: "#pair" } });
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true, ctrlKey: true });
+    expect(staged).toHaveBeenCalledWith(actions);
+    expect(opened).not.toHaveBeenCalled();
   });
 });

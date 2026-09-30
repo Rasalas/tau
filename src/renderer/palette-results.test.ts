@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { menuRows, paletteRows, readOnlyCommands, readOnlySources, stepRow, type PaletteCommand, type PaletteRow } from "./palette-results";
+import { menuRows, paletteRows, paletteScope, readOnlyCommands, readOnlySources, stepRow, type PaletteCommand, type PaletteRow } from "./palette-results";
 
 const command = (id: string, label: string, group = "Runtime", extensionName = "Runtime Controls"): PaletteCommand =>
   ({ id, label, group, extensionId: "core", extensionName, run: () => undefined });
@@ -16,35 +16,43 @@ const commands = [
 ];
 
 describe("palette results", () => {
-  it("lists the commands alone for an empty query, grouped in their order", () => {
-    expect(keys(paletteRows(commands, "", [{ id: "threads", label: "Threads", items: [item("t1")] }]))).toEqual([
-      "command:thread.rename", "command:thread.settle", "command:runtime.model", "command:project.open",
+  it("lists the commands under one heading, grouped in their order, and what a source answered before them", () => {
+    expect(keys(paletteRows(commands, ""))).toEqual([
+      "head:Commands", "command:thread.rename", "command:thread.settle", "command:runtime.model", "command:project.open",
+    ]);
+    expect(keys(paletteRows(commands.slice(0, 1), "", [{ id: "threads", label: "Threads", items: [item("t1")] }]))).toEqual([
+      "head:Threads", "threads:t1", "head:Commands", "command:thread.rename",
     ]);
   });
 
-  it("puts label matches first, then every source in its order, then commands matched only by group", () => {
+  it("puts each source's rows under its label, then the commands: label matches, Settings rows, then group matches", () => {
     const rows = paletteRows(commands, "thread", [
       { id: "threads", label: "Threads", items: [item("t1", "Fix the thread rail"), item("t2")] },
       { id: "projects", label: "Projects", items: [item("p1")] },
-    ]);
+      { id: "content", label: "Threads", items: [item("t3")] },
+    ], undefined, [item("s1")]);
     expect(keys(rows)).toEqual([
-      "command:thread.rename", "command:thread.settle",
-      "threads:t1", "threads:t2", "projects:p1",
+      "head:Threads", "threads:t1", "threads:t2", "content:t3",
+      "head:Projects", "projects:p1",
+      "head:Commands", "command:thread.rename", "command:thread.settle", "settings:s1",
     ]);
-    expect(rows[2]).toMatchObject({ kind: "item", source: "Threads" });
-
-    expect(keys(paletteRows(commands, "project", [{ id: "threads", label: "Threads", items: [item("t9")] }]))).toEqual([
-      "command:project.open", "threads:t9",
-    ]);
+    expect(rows[1]).toMatchObject({ kind: "item", source: "Threads" });
     expect(keys(paletteRows(commands, "runtime", [{ id: "threads", label: "Threads", items: [item("t9")] }]))).toEqual([
-      "threads:t9", "command:runtime.model",
+      "head:Threads", "threads:t9", "head:Commands", "command:runtime.model",
     ]);
   });
 
-  it("caps each source and drops a row a source answered twice", () => {
+  it("caps each source, drops a row a source answered twice and leaves out an empty section", () => {
     const many = Array.from({ length: 12 }, (_, index) => item(`t${index}`));
-    const rows = paletteRows([], "x", [{ id: "threads", label: "Threads", items: [item("t0"), ...many] }], 5);
-    expect(keys(rows)).toEqual(["threads:t0", "threads:t1", "threads:t2", "threads:t3", "threads:t4"]);
+    const rows = paletteRows([], "x", [{ id: "threads", label: "Threads", items: [item("t0"), ...many] }, { id: "files", label: "Files", items: [] }], 5);
+    expect(keys(rows)).toEqual(["head:Threads", "threads:t0", "threads:t1", "threads:t2", "threads:t3", "threads:t4"]);
+  });
+
+  it("reads a leading #, / or > as the tab", () => {
+    expect(paletteScope("#pair")).toEqual({ scope: "threads", text: "pair" });
+    expect(paletteScope("/src")).toEqual({ scope: "files", text: "src" });
+    expect(paletteScope(">pin")).toEqual({ scope: "commands", text: "pin" });
+    expect(paletteScope("pair #1")).toEqual({ scope: "all", text: "pair #1" });
   });
 });
 

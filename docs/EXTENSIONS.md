@@ -935,25 +935,34 @@ plugin.registerPaletteSource({
 ```
 
 The palette asks every source again on each keystroke, and only for a
-non-empty query. `search` may answer at once or with a promise; `index` is the
-thread index this window holds (`projects`, `threads`, `activeThreadId`), and
-`signal` aborts as soon as the query changes or the palette closes. An answer
-that arrives after that is dropped, so a slow source never paints rows for a
-query the user already left; a source that talks to its host half should wait
-a moment on the signal before it asks. A row is `{ id, label, detail?, run }`:
-`detail` is shown after the label, the source's `label` beside it. A row takes
-`access` like a command (new in API 1.13.0): on a Read-only device a row
-without `"read"` is shown disabled, with "Read only" and the reason in its
-tooltip, which a tap shows on a touch screen; the cursor passes over it. A
+non-empty query — unless the source has a `scope` (`"threads"` or `"files"`):
+then it is also asked for an empty query, in All and in its own tab, and
+`context.scope` says which of the two it is (`"all"`, `"threads"`, `"files"`).
+The tabs (All, Threads, Files, > Commands) and the prefixes `#`, `/` and `>`
+narrow the palette; a source whose `scope` is the chosen one is the only kind
+asked. `search` may answer at once or with a promise; `index` is the thread
+index this window holds (`projects`, `threads`, `activeThreadId`, and `running`,
+the threads with a turn going), and `signal` aborts as soon as the query changes
+or the palette closes. An answer that arrives after that is dropped, so a slow
+source never paints rows for a query the user already left; a source that talks
+to its host half should wait a moment on the signal before it asks. A row is
+`{ id, label, detail?, icon?, run, stage? }`: `detail` is shown after the label,
+`icon` before it, and `stage` is what ⌘⏎ does instead of `run` (open it in the
+stage). A row takes `access` like a command (new in API 1.13.0): on a Read-only
+device a row without `"read"` is shown disabled, with "Read only" and the reason
+in its tooltip, which a tap shows on a touch screen; the cursor passes over it. A
 group of commands of which none declares `"read"` is left out there, as is a
 source none of whose rows does, so the list holds no section of dead rows.
 
-What the list shows, in order: commands whose label matches, then every
-source's rows in `order` (eight at most each), then core's own Settings rows —
-a page or a row of one found by the words Settings search uses — and last the
-commands that matched only by their group. An empty query lists the commands
-alone. Search Kit (`kits/search/`) is the shipped caller: threads by title and
-by what was said in them, and projects.
+What the list shows, in sections under a heading (design 2b): each source
+`label`'s rows in `order` (eight at most per source in All; sources with the
+same label share one section), then Commands — the commands whose label
+matches, core's own Settings rows (a page or a row of one found by the words
+Settings search uses, "Settings › page"), and last the commands that matched
+only by their group. An empty query lists the recent threads and then every
+command. Search Kit (`kits/search/`) is the shipped caller: threads by title and
+by what was said in them, the files of the thread on screen, and projects;
+Workspace Kit adds other machines' threads.
 
 #### Levels under a row (new in API 1.12.0)
 

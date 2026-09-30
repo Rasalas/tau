@@ -578,7 +578,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           {...(paletteMenu ? { menu: paletteMenu } : {})}
           shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
           commands={commands}
-          extensionCount={registry.getExtensionNames().length}
           actions={actions}
           registry={registry}
           onClose={closePalette}
