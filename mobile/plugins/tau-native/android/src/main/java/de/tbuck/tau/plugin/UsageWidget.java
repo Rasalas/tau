@@ -15,6 +15,12 @@ public final class UsageWidget extends AppWidgetProvider {
         String host = snapshot.optString("hostId");
         if (host.isEmpty()) return;
         context.getSharedPreferences("tau-usage", Context.MODE_PRIVATE).edit().putString(host, snapshot.toString()).apply();
+        long expires = snapshot.optLong("expiresAt");
+        android.app.AlarmManager alarms = context.getSystemService(android.app.AlarmManager.class);
+        Intent redraw = new Intent(context, UsageWidget.class).setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE);
+        redraw.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, AppWidgetManager.getInstance(context).getAppWidgetIds(new ComponentName(context, UsageWidget.class)));
+        PendingIntent alarm = PendingIntent.getBroadcast(context, host.hashCode(), redraw, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        if (expires > System.currentTimeMillis() && alarms != null) alarms.setAndAllowWhileIdle(android.app.AlarmManager.RTC, expires, alarm);
         refresh(context);
     }
     public static void refresh(Context context) {

@@ -33,6 +33,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "pushAvailable", returnType: CAPPluginReturnPromise)
     ]
 
+    private var dictationBackgroundObserver: NSObjectProtocol?
     private var localDictation: Any?
 
     private let lock = NSLock()
@@ -41,6 +42,11 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     override public func load() {
         SecureStore.forgetAfterReinstall()
+        dictationBackgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                if #available(iOS 26.0, *), let dictation = self?.localDictation as? LocalDictation { dictation.cancel() }
+            }
+        }
         // Capacitor lets script focus raise the keyboard; the composer takes focus on every
         // thread, so a phone would open with half its screen covered. Only a tap opens it.
         DispatchQueue.main.async { [weak self] in
@@ -90,10 +96,10 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func activityUpdate(_ call: CAPPluginCall) {
         Task { @MainActor in
             guard #available(iOS 16.2, *) else { call.resolve(); return }
-            do { try await MobileActivityStore.update(call.options) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }; call.resolve() } catch { call.reject(error.localizedDescription) }
+            do { try await MobileActivityStore.update(call.options as? [String: Any] ?? [:]) { [weak self] event in self?.notifyListeners("activityToken", data: event, retainUntilConsumed: true) }; call.resolve() } catch { call.reject(error.localizedDescription) }
         }
     }
-    @objc func activityUsage(_ call: CAPPluginCall) { MobileActivityStore.usage(call.options); call.resolve() }
+    @objc func activityUsage(_ call: CAPPluginCall) { MobileActivityStore.usage(call.options as? [String: Any] ?? [:]); call.resolve() }
     @objc func activityClear(_ call: CAPPluginCall) {
         guard let host = call.getString("hostId") else { call.reject("hostId is required"); return }
         Task { await MobileActivityStore.clear(host); call.resolve() }

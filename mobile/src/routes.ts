@@ -42,6 +42,7 @@ export function linkRoute(url: string): AppRoute | undefined {
   try { parsed = new URL(url); } catch { return undefined; }
   if (parsed.protocol !== "tau:") return undefined;
   const target = parsed.hostname || parsed.pathname.replace(/^\/+/u, "");
+  if (target === "hosts") return { view: "hosts", explicit: true };
   const hostId = parsed.searchParams.get("host");
   if (target !== "thread" || !hostId) return undefined;
   const threadId = parsed.searchParams.get("thread");
