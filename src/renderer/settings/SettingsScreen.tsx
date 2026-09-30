@@ -64,6 +64,9 @@ interface NavItem {
   Icon: PanelIconComponent | undefined;
 }
 
+/** The groups the user opened, kept while the window lives; one they folded follows the page on screen again next time. */
+let navFolds: Partial<Record<SettingsNavGroup, true | undefined>> = {};
+
 /**
  * Settings as a page of its own that takes the whole window. A navigation
  * column with the search on the left, its pages in groups; a top bar with the
@@ -295,8 +298,8 @@ export function SettingsScreen({
   const attention = catalog.filter(needsAttention).length;
   const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : pages.find((entry) => entry.id === id)?.Icon);
   const activeNav = onProviders ? "providers" : parent ?? page;
-  // A folding group as the user left it; unset, it follows the page on screen.
-  const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>({});
+  // A folding group as the user left it, also last time Settings was open; unset, it follows the page on screen.
+  const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>(navFolds);
   const navButton = (item: NavItem) => (
     <button
       key={item.id}
@@ -394,7 +397,7 @@ export function SettingsScreen({
                 <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
                   {group.folds ? (
                     <h2 className="settings-nav-heading">
-                      <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => setToggledGroups((current) => ({ ...current, [group.id]: !open }))}>
+                      <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => { navFolds = { ...navFolds, [group.id]: !open || undefined }; setToggledGroups((current) => ({ ...current, [group.id]: !open })); }}>
                         <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
                         {waiting ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
                       </button>

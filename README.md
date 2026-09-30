@@ -39,6 +39,7 @@ Tau updates itself. It checks each download against the release's signature and 
 
 - [Docs](https://rasalas.github.io/tau/docs/): guides and reference. The same pages, and more, are in [docs/](docs/README.md).
 - [Make a change](https://rasalas.github.io/tau/docs/make-a-change.html): write a kit of your own, or change Tau itself.
+- [Tutorial: your first kit](docs/kit-tutorial.md): from `tau kit new` to a button that shows a PR title from the thread's branch, step by step.
 - [Contributing](CONTRIBUTING.md) and [security reports](SECURITY.md).
 
 ## Acknowledgements

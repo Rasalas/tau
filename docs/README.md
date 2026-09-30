@@ -7,6 +7,7 @@ The guides and the main reference pages are also on the website: <https://rasala
 - [Get started](site/get-started.md): install Tau, connect your agents, start a thread, pair your phone.
 - [Install and run](install.md): every installer, Linux details, updates, the `tau` command, the first start, and running from a checkout.
 - [Make a change](site/make-a-change.md): write a kit of your own, or change Tau and open a pull request.
+- [Tutorial: your first kit](kit-tutorial.md): create, install, trust, approve, edit and rebuild one small kit, step by step.
 - [Updates and machines](site/updates-and-machines.md): how Tau updates itself, other computers, and a host without a window.
 - [Servers as a work target](servers.md): work on a site that lives on a server, upload and roll back.
 

@@ -20,7 +20,7 @@ import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
-import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, HEAD_CHANGED_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
@@ -37,6 +37,7 @@ import { mergeThreadBranch, readThreadBranch, readThreadBranches, removeThreadBr
 import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import { HeadWatch } from "./head-watch.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -176,6 +177,14 @@ export function createWorkspaceHostExtension(): HostExtension {
       // The kit owns the Git cache; core only learns project facts from it.
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
+      // The Git cache is keyed by the folder asked about, which may lie below the checkout's root.
+      const headFolders = new Map<string, Set<string>>();
+      const heads = new HeadWatch({
+        changed: (root) => {
+          for (const folder of headFolders.get(root) ?? [root]) git.invalidate(folder, ["branch", "status", "workspace"]);
+          context.emit(HEAD_CHANGED_EVENT, { root });
+        },
+      });
       // The worktrees Tau made, Settings → Storage and the cleanup sweep.
       // A branch's request comes from Review Kit, which knows the hosts; a squash or rebase merge is only known from it.
       const branchRequest = createBranchRequests((input) => context.invokeHostExtension(REVIEW_KIT_ID, "branch-request", input));
@@ -477,7 +486,13 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
-        return git.getWorkspaceInfo(canonical);
+        const info = await git.getWorkspaceInfo(canonical);
+        // What a client shows is what it asks about, so that is what gets watched.
+        if (info.isRepo && process.env.TAU_NO_WATCH !== "1") {
+          headFolders.set(info.root, (headFolders.get(info.root) ?? new Set()).add(canonical));
+          heads.follow(info.root);
+        }
+        return info;
       }, { access: "read" });
       context.registerCommand("worktree-statuses", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
@@ -671,6 +686,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),
         services.registerRuntimeExtension("tau-turn-checkpoints", checkpoints.runtimeExtension),
         () => turnStats.flush(),
+        () => heads.close(),
       ];
       const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
       context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")), { access: "read" });

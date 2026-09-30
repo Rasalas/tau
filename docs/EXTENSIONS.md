@@ -7,7 +7,7 @@ while writing this, a footnote says so.
 ## Your first package
 
 The rest of this document is a reference. The path from nothing to a package
-you use is short:
+you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
 
 1. **Start one**: `tau kit new my-kit` in a terminal writes `my-kit/` with a
    manifest for the extension API this Tau runs (`engines.api`), a desktop half
@@ -15,7 +15,9 @@ you use is short:
    half in a worker with one command, a stylesheet, a README and a
    `tsconfig.json` with the API's types in `.tau-types/`, so your editor checks
    the package without an `npm install`. Its id is `local.my-kit` unless
-   `--id` names one; `--no-host` leaves the host half out. Tau compiles the
+   `--id` names one. Settings shows it as `--name`, else as the folder name in
+   title case with acronyms kept (`pr-title` → *PR Title*); `--no-host` leaves
+   the host half out. Tau compiles the
    entries itself; there is no build step. [§2](#2-a-minimal-example-exampleshello-package)
    is a package written by hand.
 2. **Install it**: `/install /path/to/my-kit` in the composer (every project),
@@ -41,8 +43,11 @@ project not trusted*, the install toast says so, and **Trust this project**
 (in that toast, or in Settings → Packages) records the trust in Pi's
 `trust.json` through Pi's own store, the way Pi's `/trust` does; the packages
 then load and wait for approval. A global install needs no trust. A project
-install writes `.tau/packages.json` into the project, with the path as you
-typed it; keep it out of Git if that path is yours alone.
+install writes `.tau/packages.json` into the project. A folder inside the
+project is recorded relative to it (`./kits/my-kit`), so every clone finds it.
+A folder outside is recorded as its absolute path, and while the file names
+only such folders Tau keeps it out of Git through the clone's own
+`.git/info/exclude` unless Git already tracks it, so the project shows no change.
 
 **What a package usually needs next:** the thread's branch and pull requests
 come from [two services](#a-threads-branch-and-pull-requests-tauworkspacebranch-and-taureviewpull-requests),
@@ -708,8 +713,10 @@ context.useService<ThreadBranchService>(THREAD_BRANCH_SERVICE, (service) => {
 | `THREAD_BRANCH_SERVICE` (`tau.workspace/branch`) | Workspace Kit | `current()`: `{ cwd, isRepo, branch?, upstream? }` for the thread or draft on screen — a worktree thread's own folder and branch — or undefined with no project; the same object until it changes, so `useSyncExternalStore(service.subscribe, service.current)` works. `branch` is absent on a detached HEAD. `subscribe(listener)`. |
 | `THREAD_PULL_REQUESTS_SERVICE` (`tau.review/pull-requests`) | Review Kit | `forThread(sessionId)`: the requests linked to the thread, `{ url, number, host, repo, title?, state?, draft?, headRef?, baseRef? }`, as the window last read them; asking reads them when it has not. The same array until they change. `subscribe(listener)`. |
 
-Both answer what the window last read: after a `git checkout` outside Tau,
-the branch follows once Workspace Kit refreshes the project.
+Both answer what the window last read. The branch follows a `git checkout`
+outside Tau within a moment: Workspace Kit's host half watches the `HEAD` of
+each checkout a window shows (no polling) and reads the branch again, and again
+after each turn of the thread on screen.
 
 #### Actions on a message
 
@@ -3574,7 +3581,9 @@ Tau ships the types of `tau`, `tau/host` and `tau/host-extension` with the
 app: `@tau/extension-api`, a folder of declarations at the extension API's
 version. It is `extension-api/` among an installed Tau's resources, and
 `dist-types/extension-api/` in a checkout after `npm run build`
-(`node scripts/build-types.mjs` rebuilds it alone). It carries the
+(`node scripts/build-types.mjs` rebuilds it alone; `tau kit new` and
+`tau kit types` run from a checkout rebuild it first, and say so when they
+have to copy an older build). It carries the
 declarations of React, csstype, lucide-react and Node that the API refers to,
 each with its licence, so nothing needs installing. It is not on npm.
 
@@ -3649,11 +3658,14 @@ Settings → Extensions as *waiting for approval* with the list it asks for;
 **Allow** writes the grant and starts both halves, **Deny** leaves it off. Until approved, the
 host half is never even imported, in either scope.
 
-**`/reload`** is the single "apply changes" command: it re-syncs packages
-(also done at startup and on every project change), rebuilds Tau if its own
-source changed, and reloads the renderer or restarts the app as needed.
-Installing, updating or removing a folder never needs a rebuild — only a
-`/reload`.
+**`/reload`** applies changes to Tau itself: it runs Tau's build from its
+source (a checkout Tau runs from or has open, or the source copy an installed
+Tau keeps for edits to itself; about ten seconds), re-syncs packages, and
+reloads the renderer or restarts the app as needed. A package never needs it:
+installing, approving, trusting and saving take effect by themselves, and
+**Rebuild extension packages** in the command palette (or *Rebuild* under
+Settings → Packages → *Develop a package*) rebuilds and rescans the packages
+alone, without building Tau.
 
 **Global vs. project scope.** `~/.tau/extensions/<name>/` and
 `~/.tau/packages.json` apply to every project; `<project>/.tau/extensions/<name>/`

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
 
@@ -20,7 +20,7 @@ async function workspace(): Promise<string> {
   return path;
 }
 
-async function activated(cwd: string, overrides: Partial<HostExtensionServices> = {}) {
+async function activated(cwd: string, overrides: Partial<HostExtensionServices> = {}, publish?: (event: PublishedKitEvent) => void) {
   const services: Partial<HostExtensionServices> = {
     cwd: () => cwd,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
@@ -59,7 +59,7 @@ async function activated(cwd: string, overrides: Partial<HostExtensionServices> 
     callClient: async () => { throw new Error("no window half in this test"); },
     ...overrides,
   };
-  return activateHostKit(createWorkspaceHostExtension(), services);
+  return activateHostKit(createWorkspaceHostExtension(), services, publish);
 }
 
 async function client(cwd: string, overrides: Partial<HostExtensionServices> = {}) {
@@ -68,6 +68,29 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("tells clients when HEAD moves outside Tau, and answers the new branch at once", async () => {
+    const cwd = await workspace();
+    const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "first");
+    git("branch", "feature");
+    // The test setup turns every watch off.
+    vi.stubEnv("TAU_NO_WATCH", "0");
+    const events: PublishedKitEvent[] = [];
+    const registry = await activated(cwd, {}, (event) => events.push(event));
+    const host = createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));
+    const before = await host.getWorkspaceInfo();
+    expect(before.branch).toBe("main");
+
+    git("checkout", "-q", "feature");
+    await vi.waitFor(() => expect(events.some((event) => event.name === "head-changed")).toBe(true), { timeout: 5_000 });
+    expect(events.find((event) => event.name === "head-changed")?.payload).toEqual({ root: before.root });
+    // The 30 s cache would otherwise still answer "main".
+    expect((await host.getWorkspaceInfo()).branch).toBe("feature");
+    await registry.deactivate("tau.workspace");
+    vi.unstubAllEnvs();
+  });
+
   it("pulls the default branch only when the host's own config turns that on", async () => {
     const cwd = await workspace();
     const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });

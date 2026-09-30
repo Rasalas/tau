@@ -19,6 +19,7 @@ export const PAGES = [
   { slug: "get-started", source: "docs/site/get-started.md", group: "Guides", blurb: "Install Tau, connect your agents, start a thread, pair your phone." },
   { slug: "install", source: "docs/install.md", group: "Guides", blurb: "Every installer, Linux details, updates, the tau command, and running from a checkout." },
   { slug: "make-a-change", source: "docs/site/make-a-change.md", group: "Guides", blurb: "Write a kit of your own, or change Tau and open a pull request." },
+  { slug: "kit-tutorial", source: "docs/kit-tutorial.md", group: "Guides", title: "Your first kit", blurb: "Create, install, trust, approve, edit and rebuild one small kit, step by step." },
   { slug: "updates-and-machines", source: "docs/site/updates-and-machines.md", group: "Guides", blurb: "How Tau updates itself, other computers, and a host without a window." },
   { slug: "servers", source: "docs/servers.md", group: "Guides", title: "Servers", blurb: "Work on a site that lives on a server: upload, drift, roll back." },
   { slug: "runtimes", source: "docs/runtimes.md", group: "Reference", blurb: "Claude Code, Codex, Antigravity and Pi, pull request tools, and a live Pi session." },

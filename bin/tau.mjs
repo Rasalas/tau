@@ -30,7 +30,7 @@ export const USAGE = `Usage: tau app [path]
        tau machines list [--json]
        tau machines update <name or id> [--check | --status] [--json]
        tau machines remove <name or id> [--json]
-       tau kit new <name or path> [--id <id>] [--no-host] [--install [--local]]
+       tau kit new <name or path> [--id <id>] [--name <name>] [--no-host] [--install [--local]]
        tau kit types [folder]
 
 tau app opens a folder in the running Tau with a new thread, and brings its
