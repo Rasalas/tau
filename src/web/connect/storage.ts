@@ -1,7 +1,7 @@
 import { validBrowserConnectSession, type BrowserConnectSession } from "./offer";
 
 const DATABASE = "tau.browser-connect.v1";
-interface Sealed { iv: Uint8Array; bytes: ArrayBuffer }
+interface Sealed { iv: Uint8Array<ArrayBuffer>; bytes: ArrayBuffer }
 /** Browser credentials use an origin-bound, non-exportable WebCrypto key. */
 export class BrowserConnectStorage {
   private database?: Promise<IDBDatabase>;
