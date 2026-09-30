@@ -29,6 +29,10 @@ export type SignInMethodKind = "browser" | "device-code" | "api-key" | "terminal
 export interface SignInMethod {
   id: string;
   label: string;
+  /** Optional wording required by a provider on its sign-in button. */
+  actionLabel?: string;
+  /** Offer a separate connection or reauthorization while an account is already signed in. */
+  availableWhenSignedIn?: boolean;
   description?: string;
   kind: SignInMethodKind;
   /** Why it cannot start now ("Set GEMINI_API_KEY first"); the window shows it instead of a button. */

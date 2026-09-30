@@ -110,3 +110,11 @@ export {
 } from "./thread-texts.js";
 export { SIGN_IN_COMMANDS, SIGN_IN_EVENT, commandLine, shellQuote, signInActive } from "../shared/sign-in.js";
 export type * from "../shared/sign-in.js";
+
+/** OS-held locks release on process exit, including crashes. */
+export type { ProcessLock } from "./process-lock.js";
+export async function tryProcessLock(path: string, owner: import("./process-lock.js").LockOwner): Promise<import("./process-lock.js").ProcessLock | undefined> {
+  // Loading this API must not import node:net into workers that lack network permission.
+  const { tryLock } = await import("./process-lock.js");
+  return tryLock(path, owner);
+}

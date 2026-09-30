@@ -150,7 +150,7 @@ function MethodRow({ method, busy, onStart }: { method: SignInMethod; busy: bool
         icon={method.kind === "terminal" ? <SquareTerminal size={13} aria-hidden /> : undefined}
         disabled={busy || method.unavailable !== undefined}
         onClick={onStart}
-      >{methodVerb(method)}</Button>
+      >{method.actionLabel ?? methodVerb(method)}</Button>
     </div>
   );
 }
@@ -339,9 +339,9 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
         </div>
       ) : null}
 
-      {!active && report && !account?.signedIn && methods.length > 0 ? (
+      {!active && report && methods.some((method) => !account?.signedIn || method.availableWhenSignedIn) ? (
         <div className="sign-in-methods" role="group" aria-label={`Sign in to ${program}`}>
-          {methods.map((method) => <MethodRow key={method.id} method={method} busy={busy !== undefined} onStart={() => start(method)} />)}
+          {methods.filter((method) => !account?.signedIn || method.availableWhenSignedIn).map((method) => <MethodRow key={method.id} method={method} busy={busy !== undefined} onStart={() => start(method)} />)}
         </div>
       ) : null}
     </>

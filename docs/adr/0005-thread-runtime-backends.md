@@ -235,3 +235,42 @@ thread offers are the ones runtime extensions declare; Plan Kit declares
 `plan`. However a runtime plans, the plan reaches the transcript as a reply
 holding a `proposed_plan` block, which is text every backend already keeps.
 Antigravity offers no mode yet.
+
+## Amendment, 2026-09-30: Tau-managed ChatGPT plan connections
+
+The Codex kit now offers the official open-source Sign in with ChatGPT flow
+alongside CLI-owned logins. Its reusable `chatgpt-plan` modules own OAuth,
+verified identity, registration storage, model discovery, token renewal and
+revocation. They register no core feature and add no core authentication state.
+
+A plan connection belongs to one runtime instance. Its issued client ID stays
+bound to the verified subject after sign-out. Adding another account means
+adding another instance; a thread never switches registrations. Initial plan
+registration is refused on an instance with existing CLI threads because moving
+its Codex home would otherwise lose access to those conversations. Removing an
+instance clears its renewable session but retains its registration mapping,
+just as removing an instance retains its threads for restoration with that ID.
+
+For plan connections, Tau supplies a pinned, checksum-verified upstream Codex
+package unless the user explicitly overrides its executable with a supported
+release. The package includes the platform's runtime helpers. Tau owns that
+installation and advertises no user CLI update command for it. This supersedes
+the earlier statement that the Codex kit never installs anything. Existing
+CLI-owned logins still use the user's executable and account storage.
+
+The plan connection's `CODEX_HOME` is under Tau's state, isolated from the
+user's CLI account and configuration. Credentials are stored atomically with
+owner-only permissions and rotating-token refreshes are serialized across host
+processes. The session's access token goes only into the child process
+environment. Before another turn, the kit refreshes near expiry and compares
+the current token with the launched process's token. A changed token closes
+that process, initializes its replacement and resumes the stored Codex thread.
+It never automatically replays an interrupted or failed turn.
+
+The kit's workbench half draws the account and usage controls through existing
+sign-in commands and composer regions. The account-specific `/v1/models`
+catalog limits the available model IDs; Codex's catalog contributes model
+capabilities and reasoning choices. The official Responses provider disables
+WebSockets and server-side response storage. Local tools remain available;
+hosted connector and image-generation features are disabled. Pi integration
+can reuse the OAuth modules in a separate change.

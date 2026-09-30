@@ -282,7 +282,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
 
           <section className="usage-section" id="usage-limits" aria-labelledby="usage-limits-title">
             <h2 id="usage-limits-title">Plan limits</h2>
-            <UsageLimits limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} />
+            <UsageLimits limits={allLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />
             {allLimits ? <ReadingHistory limits={allLimits} now={clock} /> : null}
           </section>
 

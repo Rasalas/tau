@@ -149,7 +149,11 @@ function SidebarChoice({ group, choices }: { group: LimitGroup; choices: Juiceba
  * reading came from. A shared account names its provider and shows the
  * runtimes signed in to it as marks.
  */
-function AccountCard({ group, costs, period, history, failed, now, choices }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined }) {
+function ManagementLink({ url, onOpen }: { url: string | undefined; onOpen?: (url: string) => void }) {
+  return url ? <a className="usage-link" href={url} target="_blank" rel="noopener noreferrer" onClick={(event) => { if (onOpen) { event.preventDefault(); onOpen(url); } }}>Manage usage</a> : null;
+}
+
+function AccountCard({ group, costs, period, history, failed, now, choices, onOpenExternal }: { group: LimitGroup; costs: MemberCost[] | undefined; period: string; history: readonly UsageLimitSample[]; failed: string | undefined; now: number; choices?: JuicebarChoices | undefined; onOpenExternal?: (url: string) => void }) {
   const shown: UsageLimitAccount = failed ? { ...group.shown, unavailable: { reason: "failed", message: failed } } : group.shown;
   const shared = group.members.length > 1;
   const fresh = isFresh(shown, now);
@@ -174,6 +178,7 @@ function AccountCard({ group, costs, period, history, failed, now, choices }: { 
       </header>
       {shown.windows.map((window) => <WindowLine key={window.id} account={shown} window={window} history={history} now={now} />)}
       {shared && costs ? <SharedCost costs={costs} period={period} /> : null}
+      <ManagementLink url={shown.managementUrl} onOpen={onOpenExternal} />
       {choices ? <SidebarChoice group={group} choices={choices} /> : null}
       <footer className="usage-account-updated">{updated(shown.checkedAt, now)}{shared ? ` via ${memberName(group.shown)}` : ""}</footer>
     </section>
@@ -185,7 +190,7 @@ function AccountCard({ group, costs, period, history, failed, now, choices }: { 
  * left first; accounts without windows say why in one line. Runtimes
  * signed in to one account show as one, with their costs summed.
  */
-export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", choices, onRetry }: {
+export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, period = "Last 30 days", choices, onRetry, onOpenExternal }: {
   limits: UsageLimitsSummary | undefined;
   error: string | undefined;
   now: number;
@@ -194,6 +199,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
   period?: string;
   choices?: JuicebarChoices;
   onRetry?(): void;
+  onOpenExternal?(url: string): void;
 }) {
   if (!limits) {
     return error ? (
@@ -215,7 +221,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
       ) : (
         <>
           <div className="usage-accounts">
-            {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} choices={choices} />)}
+            {reporting.map((group) => <AccountCard key={group.key} group={group} costs={memberCosts(group, limits.accounts, entries, fromDay)} period={period} history={limits.history ?? []} failed={error} now={now} choices={choices} onOpenExternal={onOpenExternal} />)}
           </div>
           <p className="usage-pace-legend"><i aria-hidden="true" />Target: what would be left now at an even pace over the window.</p>
         </>
@@ -227,6 +233,7 @@ export function UsageLimits({ limits, error, now, entries = [], fromDay = 0, per
               <span className="usage-silent-mark"><ProviderIconStack {...providerMark(group)} hint={false} /></span>
               <strong>{group.label}</strong>
               <span>{group.shown.unavailable?.message ?? "No limits reported."}</span>
+              <ManagementLink url={group.shown.managementUrl} onOpen={onOpenExternal} />
             </li>
           ))}
         </ul>

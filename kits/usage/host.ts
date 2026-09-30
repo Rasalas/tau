@@ -107,6 +107,7 @@ export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefine
       label: raw.label,
       ...(typeof raw.plan === "string" && raw.plan ? { plan: raw.plan } : {}),
       checkedAt,
+      ...(typeof raw.managementUrl === "string" && /^https:\/\//u.test(raw.managementUrl) ? { managementUrl: raw.managementUrl } : {}),
       windows: Array.isArray(raw.windows) ? raw.windows.flatMap((window) => windowOf(window) ?? []) : [],
       ...(why ? { unavailable: { reason: why, ...(typeof unavailable?.message === "string" ? { message: unavailable.message } : {}) } } : {}),
       ...(identity ? { identity } : {}),

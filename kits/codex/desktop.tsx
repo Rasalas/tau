@@ -112,7 +112,8 @@ export interface CodexProviderCardProps extends SettingsPageProps {
  * One Codex instance's card on the Providers page: the installed CLI, whether
  * it is current and a version Tau works with, who it is signed in as, where
  * Tau finds it and how the instance is set up. The default instance's card
- * adds another instance; the binary and the login stay the user's.
+ * adds another instance. A plan connection uses Tau’s managed binary and
+ * protected credentials; CLI connections use the user’s installation.
  */
 export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal, runner }: CodexProviderCardProps) {
   const [status, setStatus] = useState<CodexStatusReport>();
@@ -182,9 +183,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
       <ProgramRows
         program={label}
         idPrefix={rows.prefix}
-        help={isDefault
-          ? "Threads drive the CLI you installed, through its app server, with its login and the sessions in its home. Tau reads no credential."
-          : "A second Codex setup: threads started on it keep it, with the login and sessions of its own home. Tau reads no credential."}
+        help="Continue with ChatGPT to let Tau use your plan and manage Codex. Each instance keeps its own account and threads. You can also use an installed CLI and its login."
         {...(status ? { state: {
           found: Boolean(status.path),
           ...(status.version ? { version: status.version } : {}),
@@ -195,7 +194,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
           ...(status.updateCommand ? { updateCommand: status.updateCommand } : {}),
           ...(compatibility ? { compatibility } : {}),
         } } : {})}
-        missing="Install it, or set its executable below."
+        missing="Continue with ChatGPT below to download Codex automatically, or set an installed executable."
         busy={busy}
         {...(error ? { error } : {})}
         onCheck={() => void read(true)}
@@ -212,6 +211,15 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
         onNotify={onNotify}
         onReport={(next) => { if (next.flow?.phase === "succeeded") void read(false); }}
       />
+      {status?.chatgptPlan?.needsInstall ? (
+        <SettingRow id={`${rows.program}-managed`} title="Managed Codex" description="Install or repair the Codex release tested with this Tau version."
+          control={<button type="button" className="settings-button" disabled={busy} onClick={() => { setBusy(true); void host.invoke("managed-codex-install", scope).then(() => read(true)).catch((failure) => { setError(errorMessage(failure)); setBusy(false); }); }}>Install managed Codex</button>} />
+      ) : null}
+      {status?.chatgptPlan ? (
+        <SettingRow id={`${rows.account}-usage`} title={status.chatgptPlan.signedIn ? "Using ChatGPT plan" : "ChatGPT account"}
+          description={`${status.chatgptPlan.label}. Each instance keeps one account. Add an instance to use another account.`}
+          control={<button type="button" className="settings-button" onClick={() => actions ? actions.openExternal(status.chatgptPlan!.usageUrl) : void window.open(status.chatgptPlan!.usageUrl, "_blank", "noopener")}>Manage usage</button>} />
+      ) : null}
       {status?.codexHome ? (
         <SettingRow
           id={rows.home}
@@ -269,6 +277,29 @@ const noSubscription = () => () => undefined;
 
 /** Dismissed per instance, version and verdict for as long as the window lives. */
 const dismissedBanners = new Set<string>();
+
+/** The account that will pay for this thread's next turn. */
+export function createChatGPTPlanBanner(host: HostExtensionClient) {
+  return function ChatGPTPlanBanner({ snapshot, actions }: RegionProps) {
+    const kind = snapshot?.backendKind;
+    const [plan, setPlan] = useState<CodexStatusReport["chatgptPlan"]>();
+    const [limited, setLimited] = useState(false);
+    useEffect(() => {
+      let active = true;
+      setPlan(undefined);
+      setLimited(false);
+      if (!isRuntimeInstanceOf(kind, CODEX_BACKEND_KIND)) return;
+      const read = () => void host.invoke("chatgpt-plan-account", { instance: runtimeInstanceId(kind!) }).then((value) => { if (active) setPlan(value as CodexStatusReport["chatgptPlan"]); }).catch(() => undefined);
+      read();
+      const stop = host.onEvent("sign-in", read);
+      const stopLimits = host.onEvent("chatgpt-plan-limit", (value) => { if ((value as { instance?: string })?.instance === runtimeInstanceId(kind!)) setLimited(true); });
+      return () => { active = false; stop(); stopLimits(); };
+    }, [kind]);
+    useEffect(() => { if (snapshot?.isStreaming) setLimited(false); }, [snapshot?.isStreaming]);
+    if (!plan?.signedIn) return null;
+    return <div className="runtime-version-banner"><div className="runtime-version-banner-body"><strong>Using ChatGPT plan · {plan.label}</strong>{limited ? <p>ChatGPT plan usage is unavailable. Review your app limits and credits in ChatGPT.</p> : null}<div className="runtime-version-banner-actions"><button type="button" onClick={() => actions.openExternal(plan.usageUrl)}>Manage usage</button></div></div></div>;
+  };
+}
 
 /** Above the composer of a Codex thread whose CLI the version policy calls unsafe or broken. */
 export function createVersionBanner(terminal: () => HostExtensionClient) {
@@ -377,6 +408,7 @@ export const codexExtension: DesktopExtension = {
     });
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
+      plugin.registerRegion({ id: "codex.chatgpt-plan", placement: "composer-above", order: 4, profiles: ["desktop", "web", "compact"], Component: createChatGPTPlanBanner(plugin.host) }),
       plugin.registerRegion({ id: "codex.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "codex.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {

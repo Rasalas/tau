@@ -36,6 +36,8 @@ export interface LimitAccount {
   label: string;
   plan?: string;
   checkedAt: number;
+  /** Provider controls for usage that is managed outside Tau. */
+  managementUrl?: string;
   windows: LimitWindow[];
   /** A hash of the provider's account id, for showing one account once; never the id itself. */
   identity?: { provider: string; key: string };

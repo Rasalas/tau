@@ -9,7 +9,7 @@ import { ALLOW, ALLOW_SESSION } from "./approvals.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore } from "./session-store.js";
-import { CodexThreadRuntimeBackend, storedModel, userInput } from "./thread-backend.js";
+import { CodexThreadRuntimeBackend, storedModel, userInput, type CodexSessionLike } from "./thread-backend.js";
 import frames from "./fixtures/app-server-frames.json" with { type: "json" };
 
 /**
@@ -33,7 +33,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean> } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -49,6 +49,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
       onRequest: input.onRequest,
       onExit: input.onExit,
     }),
+    ...(options.sessionCurrent ? { sessionCurrent: options.sessionCurrent } : {}),
     models: async () => frames.models.map(storedModel),
     onEvent: (event) => events.push(event),
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
@@ -365,5 +366,23 @@ describe("userInput", () => {
       { type: "text", text: "Look\n\nAttached files:\n- /repo/a.pdf", text_elements: [] },
       { type: "image", url: "data:image/png;base64,AAAA" },
     ]);
+  });
+});
+
+describe("Codex external credential renewal", () => {
+  it("restarts between turns and resumes the same persisted thread after credentials change", async () => {
+    const space = await scratch();
+    let current = true;
+    const { backend } = await open(space, { sessionCurrent: async () => current });
+    await backend.prompt({ text: "first", delivery: "prompt" });
+    const before = (await space.store.get("tau-1"))!.codexThreadId;
+    current = false;
+    await backend.prompt({ text: "second", delivery: "prompt" });
+    const requests = await sent(space);
+    expect(requests.filter((entry) => entry.method === "initialize")).toHaveLength(2);
+    expect(requests.filter((entry) => entry.method === "thread/start")).toHaveLength(1);
+    expect(requests.find((entry) => entry.method === "thread/resume")?.params?.threadId).toBe(before);
+    expect((await space.store.get("tau-1"))!.codexThreadId).toBe(before);
+    expect(requests.filter((entry) => entry.method === "turn/start")).toHaveLength(2);
   });
 });
