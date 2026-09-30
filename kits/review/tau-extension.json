@@ -4,7 +4,7 @@
   "description": "Review changes and diffs, comment on lines, and open and merge pull requests.",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.30.0"
+    "api": "^1.33.0"
   },
   "permissions": [
     "sessions",
