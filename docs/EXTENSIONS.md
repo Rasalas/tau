@@ -15,7 +15,9 @@ you use is short:
    half in a worker with one command, a stylesheet, a README and a
    `tsconfig.json` with the API's types in `.tau-types/`, so your editor checks
    the package without an `npm install`. Its id is `local.my-kit` unless
-   `--id` names one; `--no-host` leaves the host half out. Tau compiles the
+   `--id` names one. Settings shows it as `--name`, else as the folder name in
+   title case with acronyms kept (`pr-title` → *PR Title*); `--no-host` leaves
+   the host half out. Tau compiles the
    entries itself; there is no build step. [§2](#2-a-minimal-example-exampleshello-package)
    is a package written by hand.
 2. **Install it**: `/install /path/to/my-kit` in the composer (every project),
@@ -3574,7 +3576,9 @@ Tau ships the types of `tau`, `tau/host` and `tau/host-extension` with the
 app: `@tau/extension-api`, a folder of declarations at the extension API's
 version. It is `extension-api/` among an installed Tau's resources, and
 `dist-types/extension-api/` in a checkout after `npm run build`
-(`node scripts/build-types.mjs` rebuilds it alone). It carries the
+(`node scripts/build-types.mjs` rebuilds it alone; `tau kit new` and
+`tau kit types` run from a checkout rebuild it first, and say so when they
+have to copy an older build). It carries the
 declarations of React, csstype, lucide-react and Node that the API refers to,
 each with its licence, so nothing needs installing. It is not on npm.
 
