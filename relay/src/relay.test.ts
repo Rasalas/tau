@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { parseKeyring } from "./handle.js";
-import { createRelay, type Delivery, type RelayRequest } from "./relay.js";
+import { parseKeyring, sealHandle } from "./handle.js";
+import { HANDLE_MAX_AGE_MS, createRelay, type Delivery, type RelayRequest } from "./relay.js";
 
 const IOS_TOKEN = "ab".repeat(32);
 const ANDROID_TOKEN = "fcm:APA91b-registration-token";
@@ -12,13 +12,14 @@ function relay(options: { answer?: Delivery; ios?: boolean } = {}) {
   const log = vi.fn();
   const android = vi.fn(async () => options.answer ?? { ok: true } as Delivery);
   const ios = vi.fn(async () => options.answer ?? { ok: true } as Delivery);
-  const handle = createRelay({ keyring: parseKeyring(`1:${randomBytes(32).toString("base64")}`), senders: { android, ...(options.ios === false ? {} : { ios }) }, log, now: () => now });
+  const ring = parseKeyring(`1:${randomBytes(32).toString("base64")}`);
+  const handle = createRelay({ keyring: ring, senders: { android, ...(options.ios === false ? {} : { ios }) }, log, now: () => now });
   const call = async (path: string, body: unknown, extra: Partial<RelayRequest> = {}) => {
     const response = await handle({ method: "POST", path, body: body === undefined || typeof body === "string" ? body : Buffer.from(JSON.stringify(body)), ip: "203.0.113.7", ...extra });
     return { ...response, json: response.body ? JSON.parse(response.body) as Record<string, unknown> : undefined };
   };
   const register = async (platform: string, token: string) => (await call("/register", { platform, token })).json!.handle as string;
-  return { call, register, android, ios, log, tick: (ms: number) => { now += ms; } };
+  return { call, register, android, ios, log, ring, tick: (ms: number) => { now += ms; } };
 }
 
 describe("the push relay", () => {
@@ -68,6 +69,16 @@ describe("the push relay", () => {
     expect(await call("/send", { handle, payload: SEALED })).toMatchObject({ status: 410, json: { error: "gone", reason: "registration-token-not-registered" } });
   });
 
+  it("says gone for a handle older than 60 days", async () => {
+    const { call, register, tick, android } = relay();
+    const handle = await register("android", ANDROID_TOKEN);
+    tick(HANDLE_MAX_AGE_MS);
+    expect((await call("/send", { handle, payload: SEALED })).status).toBe(200);
+    tick(1_000);
+    expect(await call("/send", { handle, payload: SEALED })).toMatchObject({ status: 410, json: { error: "gone", reason: "expired-handle" } });
+    expect(android).toHaveBeenCalledOnce();
+  });
+
   it("reports a failure upstream as such, and iPhones as unavailable until APNs is set up", async () => {
     const failing = relay({ answer: { ok: false, gone: false, reason: "TooManyProviderTokenUpdates" } });
     expect(await failing.call("/send", { handle: await failing.register("ios", IOS_TOKEN), payload: SEALED })).toMatchObject({ status: 502, json: { error: "upstream", reason: "TooManyProviderTokenUpdates" } });
@@ -91,6 +102,18 @@ describe("the push relay", () => {
     await Promise.all(Array.from({ length: 8 }, () => call("/register", { platform: "ios", token: IOS_TOKEN })));
     expect((await call("/register", { platform: "ios", token: IOS_TOKEN })).status).toBe(429);
     expect((await call("/register", { platform: "ios", token: IOS_TOKEN }, { ip: "198.51.100.1" })).status).toBe(200);
+  });
+
+  it("limits sends per phone too, however many handles it has", async () => {
+    const { call, ring, tick } = relay();
+    // Handles minted straight from the keyring: the register limit would stop these first.
+    const handles = Array.from({ length: 3 }, () => sealHandle(ring, { platform: "android", token: ANDROID_TOKEN }, 1_700_000_000_000));
+    const burst = await Promise.all(handles.flatMap((handle) => Array.from({ length: 20 }, () => call("/send", { handle, payload: SEALED }))));
+    expect(burst.every((response) => response.status === 200)).toBe(true);
+    const fourth = sealHandle(ring, { platform: "android", token: ANDROID_TOKEN }, 1_700_000_000_000);
+    expect((await call("/send", { handle: fourth, payload: SEALED })).status).toBe(429);
+    tick(3_000);
+    expect((await call("/send", { handle: fourth, payload: SEALED })).status).toBe(200);
   });
 
   it("logs events and codes, never a token, handle, payload or address", async () => {

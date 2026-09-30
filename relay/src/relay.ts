@@ -6,6 +6,8 @@ const PAYLOAD = /^[A-Za-z0-9._-]{1,3072}$/u;
 /** APNs takes a collapse id of at most 64 bytes. */
 const COLLAPSE_ID = /^[A-Za-z0-9_-]{1,64}$/u;
 const MAX_BODY_BYTES = 8 * 1024;
+/** The relay answers a handle older than this with 410; the app renews its handles at half this age. */
+export const HANDLE_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 
 export interface RelayRequest {
   method: string;
@@ -47,6 +49,9 @@ export interface RelayOptions {
   /** Per handle: a burst of this many sends, then one per `sendRefillMs`. */
   sendBurst?: number;
   sendRefillMs?: number;
+  /** Per phone, over all its handles: a burst of this many sends, then one per `tokenRefillMs`. */
+  tokenBurst?: number;
+  tokenRefillMs?: number;
   /** Per address: a burst of this many registrations, then one per `registerRefillMs`. */
   registerBurst?: number;
   registerRefillMs?: number;
@@ -80,6 +85,8 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
   const log = options.log ?? (() => undefined);
   const now = options.now ?? Date.now;
   const sends = new RateLimiter({ capacity: options.sendBurst ?? 30, refillMs: options.sendRefillMs ?? 6_000, now });
+  // Minting more handles for one token does not buy more sends.
+  const tokenSends = new RateLimiter({ capacity: options.tokenBurst ?? 60, refillMs: options.tokenRefillMs ?? 3_000, now });
   const registers = new RateLimiter({ capacity: options.registerBurst ?? 10, refillMs: options.registerRefillMs ?? 60_000, now });
   const limited = (wait: number, headers: Record<string, string> = {}) => reply(429, { error: "rate-limited" }, { ...headers, "retry-after": String(Math.max(1, Math.ceil(wait / 1000))) });
 
@@ -91,7 +98,7 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     }
     if (!validToken(body.platform, body.token)) return reply(400, { error: "bad-request", detail: "register takes { platform: ios | android, token }." }, CORS_HEADERS);
     log("register", { platform: body.platform as string });
-    return reply(200, { handle: sealHandle(options.keyring, { platform: body.platform as RelayPlatform, token: body.token as string }) }, CORS_HEADERS);
+    return reply(200, { handle: sealHandle(options.keyring, { platform: body.platform as RelayPlatform, token: body.token as string }, now()) }, CORS_HEADERS);
   };
 
   const send = async (body: Record<string, unknown>): Promise<RelayResponse> => {
@@ -108,6 +115,12 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     if (!registration) {
       log("send.unknown-handle", {});
       return reply(410, { error: "gone", reason: "unknown-handle" });
+    }
+    if (now() - registration.issuedAt > HANDLE_MAX_AGE_MS) return reply(410, { error: "gone", reason: "expired-handle" });
+    const tokenWait = tokenSends.take(`token:${registration.token}`);
+    if (tokenWait > 0) {
+      log("send.limited", {});
+      return limited(tokenWait);
     }
     const sender = options.senders[registration.platform];
     if (!sender) {

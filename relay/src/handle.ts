@@ -8,14 +8,21 @@ export interface Registration {
   token: string;
 }
 
-/** The handle's layout; a new layout gets a new version, a new key only a new key id. */
-export const HANDLE_VERSION = 1;
+/** An opened handle: the registration and when the relay sealed it (ms since the epoch, to the second). */
+export interface OpenedHandle extends Registration {
+  issuedAt: number;
+}
+
+/** The handle's layout; a new layout gets a new version, a new key only a new key id. Version 1 is no longer read. */
+export const HANDLE_VERSION = 2;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const HEADER_BYTES = 2;
 const KEY_BYTES = 32;
 const AAD_LABEL = "tau-relay-handle";
-const HANDLE_TEXT = /^[A-Za-z0-9_-]{40,6000}$/u;
+/** Longer than any handle sealed from the longest token (handle.test.ts). */
+export const MAX_HANDLE_CHARS = 6000;
+const HANDLE_TEXT = new RegExp(`^[A-Za-z0-9_-]{40,${MAX_HANDLE_CHARS}}$`, "u");
 const APNS_TOKEN = /^[0-9a-f]{64,200}$/iu;
 const FCM_TOKEN = /^[\w:.-]{20,4096}$/u;
 
@@ -57,19 +64,19 @@ export function parseKeyring(text: string): Keyring {
 
 const additionalData = (version: number, keyId: number) => Buffer.concat([Buffer.from(AAD_LABEL), Buffer.from([version, keyId])]);
 
-/** `version ‖ keyId ‖ nonce ‖ AES-256-GCM(JSON) ‖ tag`, base64url. */
-export function sealHandle(keyring: Keyring, registration: Registration): string {
+/** `version ‖ keyId ‖ nonce ‖ AES-256-GCM(JSON { p, t, i }) ‖ tag`, base64url; `i` is the issue time in seconds. */
+export function sealHandle(keyring: Keyring, registration: Registration, now = Date.now()): string {
   const keyId = keyring.current;
   const nonce = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv("aes-256-gcm", keyring.keys.get(keyId)!, nonce);
   cipher.setAAD(additionalData(HANDLE_VERSION, keyId));
-  const plain = Buffer.from(JSON.stringify({ p: registration.platform, t: registration.token }));
+  const plain = Buffer.from(JSON.stringify({ p: registration.platform, t: registration.token, i: Math.floor(now / 1000) }));
   const sealed = Buffer.concat([cipher.update(plain), cipher.final()]);
   return Buffer.concat([Buffer.from([HANDLE_VERSION, keyId]), nonce, sealed, cipher.getAuthTag()]).toString("base64url");
 }
 
 /** The registration a handle seals, or undefined for one this relay did not make or can no longer open. */
-export function openHandle(keyring: Keyring, handle: unknown): Registration | undefined {
+export function openHandle(keyring: Keyring, handle: unknown): OpenedHandle | undefined {
   if (typeof handle !== "string" || !HANDLE_TEXT.test(handle)) return undefined;
   const bytes = Buffer.from(handle, "base64url");
   if (bytes.length <= HEADER_BYTES + NONCE_BYTES + TAG_BYTES || bytes[0] !== HANDLE_VERSION) return undefined;
@@ -81,8 +88,9 @@ export function openHandle(keyring: Keyring, handle: unknown): Registration | un
     decipher.setAAD(additionalData(HANDLE_VERSION, keyId));
     decipher.setAuthTag(bytes.subarray(bytes.length - TAG_BYTES));
     const plain = Buffer.concat([decipher.update(bytes.subarray(HEADER_BYTES + NONCE_BYTES, bytes.length - TAG_BYTES)), decipher.final()]);
-    const value = JSON.parse(plain.toString("utf8")) as { p?: unknown; t?: unknown };
-    return validToken(value.p, value.t) ? { platform: value.p, token: value.t as string } : undefined;
+    const value = JSON.parse(plain.toString("utf8")) as { p?: unknown; t?: unknown; i?: unknown };
+    if (!validToken(value.p, value.t) || !Number.isSafeInteger(value.i) || (value.i as number) < 0) return undefined;
+    return { platform: value.p, token: value.t as string, issuedAt: (value.i as number) * 1000 };
   } catch {
     return undefined;
   }
