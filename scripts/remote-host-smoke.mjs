@@ -886,8 +886,14 @@ async function pushScenario() {
     const pushKey = (platform, token) => ({ handle: fakes.fakeRelayHandle(platform, token), keyId: randomBytes(16).toString("base64url"), key: randomBytes(32).toString("base64url") });
     const iphoneKey = pushKey("ios", iosToken);
     const pixelKey = pushKey("android", "fcm:smoke-registration-token");
-    await push(iphone, "register", { platform: "ios", token: iosToken, host: "smoke-host", topic: "de.tbuck.tau", relay: iphoneKey });
-    await push(pixel, "register", { platform: "android", token: "fcm:smoke-registration-token", host: "smoke-host", relay: pixelKey });
+    // The relay route takes the handle alone: the host never sees the token.
+    const iosRegistration = { platform: "ios", host: "smoke-host", topic: "de.tbuck.tau", relay: iphoneKey };
+    const androidRegistration = { platform: "android", host: "smoke-host", relay: pixelKey };
+    for (const answer of [await push(iphone, "register", iosRegistration), await push(pixel, "register", androidRegistration)]) {
+      if (answer?.route !== "relay" || answer.ready !== true || answer.needsToken) fail(`register on the relay route: ${JSON.stringify(answer)}`);
+    }
+    const devicesFile = join(userData, "kit-state", "tau.push", "devices.json");
+    if (/smoke-registration-token|abababab/u.test(readFileSync(devicesFile, "utf8"))) fail("the host kept a token on the relay route");
     const refusedRegister = await push(owner, "register", { platform: "ios", token: iosToken, host: "h", topic: "a.b" }).then(() => "taken", (error) => error.message);
     if (!/paired device/u.test(refusedRegister)) fail(`the host token registered for pushes: ${refusedRegister}`);
     step("push: paired devices register their tokens over the socket; the host token cannot");
@@ -919,6 +925,15 @@ async function pushScenario() {
     if (status.file !== keysFile) fail(`keys at ${status.file}, expected ${keysFile}`);
     if (process.platform !== "win32" && (statSync(keysFile).mode & 0o777) !== 0o600) fail(`keys file mode ${(statSync(keysFile).mode & 0o777).toString(8)}`);
     step("push: only the owner sets keys; the status names them, never shows them; the file is 0600");
+
+    // With keys of its own the host asks each phone for its token, as the app does on connect.
+    await Promise.all([[iphone, iosRegistration, iosToken], [pixel, androidRegistration, "fcm:smoke-registration-token"]].map(async ([client, registration, token]) => {
+      const asked = await push(client, "register", registration);
+      if (asked?.route !== "direct" || asked.needsToken !== true) fail(`register on the direct route without a token: ${JSON.stringify(asked)}`);
+      const taken = await push(client, "register", { ...registration, token });
+      if (taken?.ready !== true || taken.needsToken) fail(`register on the direct route with the token: ${JSON.stringify(taken)}`);
+    }));
+    step("push: with keys of its own the host asks each phone for its token");
 
     const [ios, android] = status.devices;
     const sent = await Promise.all([push(owner, "test", { id: ios.id }), push(owner, "test", { id: android.id })]);

@@ -170,16 +170,21 @@ const ROUTE_TEXT: Record<PushRoute, Record<"ios" | "android", string>> = {
   relay: { ios: "Tau's relay", android: "Tau's relay" },
 };
 
-function DeviceRow({ device, onTest, onRemove }: { device: PushDeviceRow; onTest(): Promise<void>; onRemove(): Promise<void> }) {
+const UNREACHABLE: Record<PushRoute, string> = {
+  relay: "Update the Tau app on this phone to get pushes through Tau's relay.",
+  direct: "Open this machine in the Tau app on this phone once, so it hands over its token for your own key.",
+};
+
+function DeviceRow({ device, platformRoute = "relay", onTest, onRemove }: { device: PushDeviceRow; platformRoute?: PushRoute; onTest(): Promise<void>; onRemove(): Promise<void> }) {
   const [busy, setBusy] = useState<"test" | "remove">();
   const run = (what: "test" | "remove", work: () => Promise<void>) => { setBusy(what); void work().finally(() => setBusy(undefined)); };
   const last = device.lastPush;
-  const relayed = device.route === "relay" || device.route === "unreachable";
+  const relayed = device.route === "relay" || (device.route === "unreachable" && platformRoute === "relay");
   return (
     <SettingRow
       title={<>{device.name} <Badge>{`${device.platform === "ios" ? "iPhone" : "Android"} · ${relayed ? "relay" : device.platform === "ios" ? "APNs" : "FCM"}`}</Badge></>}
       description={<>
-        {device.route === "unreachable" ? <><span className="push-error">Update the Tau app on this phone to get pushes through Tau's relay.</span>{" "}</> : null}
+        {device.route === "unreachable" ? <><span className="push-error">{UNREACHABLE[platformRoute]}</span>{" "}</> : null}
         Asked {when(device.registeredAt)}
         {last ? <> · {last.ok ? `last push ${when(last.at)}` : <span className="push-error">last push failed: {last.detail ?? "no reason given"}</span>}</> : null}
       </>}
@@ -272,6 +277,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
               <DeviceRow
                 key={device.id}
                 device={device}
+                platformRoute={status.routes?.[device.platform]}
                 onTest={async () => {
                   try {
                     const outcome = await context.host.invoke("test", { id: device.id }) as { ok: boolean; detail?: string };

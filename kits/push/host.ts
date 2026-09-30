@@ -16,6 +16,7 @@ import {
   type FcmKeyInput,
   type PushKind,
   type PushNotifyInput,
+  type PushRegisterAnswer,
   type PushRegistration,
   type PushRelayRegistration,
   type PushRoute,
@@ -33,6 +34,8 @@ const RELAY_HANDLE = /^[A-Za-z0-9_-]{40,6000}$/u;
 const RELAY_KEY_ID = /^[A-Za-z0-9_-]{16,64}$/u;
 const KINDS: readonly PushKind[] = ["completed", "failed", "turn", "question", "approval"];
 const APPROVAL_OPTION = /^(?:allow|approve|deny|reject)\b/iu;
+/** Handles the relay called gone, remembered so the phone can be told to renew one it sends again. */
+const MAX_REJECTED_HANDLES = 1_000;
 
 export interface PushHostOptions {
   /** Where APNs requests go instead of Apple (a test's fake); `TAU_PUSH_APNS_ORIGIN` sets it too. */
@@ -73,15 +76,17 @@ function decodeRelay(value: unknown): PushRelayRegistration | undefined {
 function decodeRegistration(input: unknown): PushRegistration {
   const value = (input ?? {}) as Partial<PushRegistration>;
   const platform = value.platform;
-  if (platform !== "ios" && platform !== "android") throw new HostCommandError("register takes { platform: ios | android, token, host, topic? }.");
-  const token = typeof value.token === "string" ? value.token.trim() : "";
-  if (!(platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(token)) throw new HostCommandError(`That is not an ${platform === "ios" ? "APNs device" : "FCM registration"} token.`);
+  if (platform !== "ios" && platform !== "android") throw new HostCommandError("register takes { platform: ios | android, token?, host, topic?, relay? }.");
+  const token = typeof value.token === "string" ? value.token.trim() : undefined;
+  if (token !== undefined && !(platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(token)) throw new HostCommandError(`That is not an ${platform === "ios" ? "APNs device" : "FCM registration"} token.`);
   if (typeof value.host !== "string" || !HOST_KEY.test(value.host)) throw new HostCommandError("register needs the app's id for this host.");
   const topic = typeof value.topic === "string" ? value.topic : undefined;
   if (platform === "ios" && (!topic || !BUNDLE_ID.test(topic))) throw new HostCommandError("An iOS device names its app's bundle identifier as topic.");
   const relay = decodeRelay(value.relay);
-  return { platform, token, host: value.host, ...(topic && platform === "ios" ? { topic } : {}), ...(relay ? { relay } : {}) };
+  return { platform, ...(token ? { token } : {}), host: value.host, ...(topic && platform === "ios" ? { topic } : {}), ...(relay ? { relay } : {}) };
 }
+
+const handleDigest = (handle: string) => createHash("sha256").update(handle).digest("base64url");
 
 /** APNs takes at most 64 bytes; a thread id longer than that is hashed. */
 function collapseId(threadId: string): string {
@@ -121,6 +126,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       /** Why a saved key did not read; its platform stays on the direct route and fails visibly. */
       let keyErrors: { apns?: string; fcm?: string } = {};
       const lastPushed = new Map<string, number>();
+      const rejectedHandles = new Set<string>();
 
       /** Clients from the stored keys; a key that no longer reads is reported, never printed. */
       const connect = () => {
@@ -155,7 +161,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       const routeFor = (platform: StoredDevice["platform"]): PushRoute => ((platform === "ios" ? store.stored.apns : store.stored.fcm) ? "direct" : "relay");
       const deviceRoute = (device: StoredDevice): PushRoute | "unreachable" => {
         const route = routeFor(device.platform);
-        return route === "relay" && !device.relay ? "unreachable" : route;
+        return (route === "relay" ? device.relay : device.token) ? route : "unreachable";
       };
 
       const status = (): PushStatus => {
@@ -191,7 +197,13 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       const sendRelayed = (relay: PushRelayRegistration, note: Note, url: string | undefined): Promise<SendOutcome> => {
         const tag = note.threadId ? sealedCollapseId(relay, note.threadId) : undefined;
         const payload = sealPush(relay, { title: note.title, body: note.body, ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}), ...(tag ? { tag } : {}) });
-        return sendThroughRelay(relayUrl, { handle: relay.handle, payload, ...(tag ? { collapseId: tag } : {}) }, options.fetch);
+        return sendThroughRelay(relayUrl, { handle: relay.handle, payload, ...(tag ? { collapseId: tag } : {}) }, options.fetch).then((outcome) => {
+          if (!outcome.ok && outcome.gone) {
+            rejectedHandles.add(handleDigest(relay.handle));
+            if (rejectedHandles.size > MAX_REJECTED_HANDLES) rejectedHandles.delete(rejectedHandles.values().next().value!);
+          }
+          return outcome;
+        });
       };
 
       const sendOne = async (device: StoredDevice, note: Note): Promise<SendOutcome> => {
@@ -200,9 +212,11 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
           if (!device.relay) return { ok: false, gone: false, status: 0, reason: "This phone's Tau app is too old for Tau's relay; update it, or save a key of your own." };
           return sendRelayed(device.relay, note, url);
         }
+        if (!device.token) return { ok: false, gone: false, status: 0, reason: "This phone hands its token to your own key the next time it opens this machine in the Tau app." };
+        const token = device.token;
         if (device.platform === "android") {
           if (!fcm) return { ok: false, gone: false, status: 0, reason: keyErrors.fcm ? `The saved Firebase service account does not read: ${keyErrors.fcm}` : "No Firebase service account is set up on this host." };
-          return fcm.send(device.token, {
+          return fcm.send(token, {
             notification: { title: note.title, body: note.body },
             data: { ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}) },
             android: {
@@ -214,7 +228,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         }
         if (!apns) return { ok: false, gone: false, status: 0, reason: keyErrors.apns ? `The saved APNs key does not read: ${keyErrors.apns}` : "No APNs key is set up on this host." };
         const request = {
-          token: device.token,
+          token,
           topic: device.topic ?? "",
           payload: {
             aps: { alert: { title: note.title, body: note.body }, sound: "default", ...(note.threadId ? { "thread-id": note.threadId } : {}) },
@@ -316,12 +330,31 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
 
       context.registerCommand("register", async (input, call) => {
         if (!call?.device) throw new HostCommandError("Only a paired device can receive push notifications from this host.");
-        const registration = decodeRegistration(input);
-        await store.upsert({ id: call.device, ...registration, registeredAt: new Date(now()).toISOString() });
+        const { token, relay, ...registration } = decodeRegistration(input);
         const route = routeFor(registration.platform);
+        // A token only for this host's own key; a handle the relay refused is not kept.
+        const renewHandle = relay ? rejectedHandles.has(handleDigest(relay.handle)) : false;
+        // Until the phone confirms it, the direct route keeps the token it had.
+        const prior = store.devices().find((entry) => entry.id === call.device && entry.platform === registration.platform);
+        const kept = route === "direct" ? token ?? prior?.token : undefined;
+        const device: StoredDevice = {
+          id: call.device,
+          ...registration,
+          ...(kept ? { token: kept } : {}),
+          ...(relay && !renewHandle ? { relay } : {}),
+          registeredAt: new Date(now()).toISOString(),
+        };
+        await store.upsert(device);
         services.log("push.registered", `${registration.platform} ${call.device} ${route}`);
         publish();
-        return { registered: true, ready: route === "direct" || Boolean(registration.relay), route };
+        const answer: PushRegisterAnswer = {
+          registered: true,
+          ready: deviceRoute(device) !== "unreachable",
+          route,
+          ...(route === "direct" && !token ? { needsToken: true } : {}),
+          ...(renewHandle ? { renewHandle: true } : {}),
+        };
+        return answer;
       });
       context.registerCommand("unregister", async (_input, call) => {
         if (!call?.device) return false;
@@ -362,6 +395,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (service !== "apns" && service !== "fcm") throw new HostCommandError("forget takes { service: apns | fcm }.");
         const { [service]: _dropped, ...rest } = store.stored;
         await store.setKeys(rest);
+        await store.dropTokens(service === "apns" ? "ios" : "android");
         connect();
         publish();
         return status();

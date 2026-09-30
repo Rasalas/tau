@@ -15,7 +15,8 @@ export interface StoredDevice {
   /** The paired device's id; one registration per device. */
   id: string;
   platform: PushPlatform;
-  token: string;
+  /** Only while this host sends to the platform with a key of its own. */
+  token?: string;
   host: string;
   topic?: string;
   /** The relay's handle and the phone's key for what a push says. */
@@ -50,7 +51,7 @@ function decodeDevices(value: unknown): StoredDevice[] | undefined {
   if (!Array.isArray(list)) return undefined;
   return list.filter((entry): entry is StoredDevice => isObject(entry)
     && typeof entry.id === "string" && (entry.platform === "ios" || entry.platform === "android")
-    && typeof entry.token === "string" && typeof entry.host === "string" && typeof entry.registeredAt === "string")
+    && (entry.token === undefined || typeof entry.token === "string") && typeof entry.host === "string" && typeof entry.registeredAt === "string")
     .map(({ relay, ...device }) => (isRelay(relay) ? { ...device, relay } : device));
 }
 
@@ -93,9 +94,9 @@ export class PushStore {
 
   async upsert(device: StoredDevice): Promise<void> {
     const prior = this.list.find((entry) => entry.id === device.id);
-    // The same token keeps what was learned about it, and its handle when the relay was out of reach this time.
+    // The same token, or none on the relay route, keeps what was learned about it.
     const same = prior && prior.token === device.token ? prior : undefined;
-    const kept = same ? { ...(same.environment ? { environment: same.environment } : {}), ...(same.lastPush ? { lastPush: same.lastPush } : {}), ...(same.relay && !device.relay ? { relay: same.relay } : {}) } : {};
+    const kept = same ? { ...(same.environment ? { environment: same.environment } : {}), ...(same.lastPush ? { lastPush: same.lastPush } : {}) } : {};
     this.list = [...this.list.filter((entry) => entry.id !== device.id), { ...device, ...kept }];
     await this.saveDevices();
   }
@@ -103,6 +104,17 @@ export class PushStore {
   async update(id: string, change: Partial<Pick<StoredDevice, "environment" | "lastPush">>): Promise<void> {
     if (!this.list.some((entry) => entry.id === id)) return;
     this.list = this.list.map((entry) => entry.id === id ? { ...entry, ...change } : entry);
+    await this.saveDevices();
+  }
+
+  /** A platform back on the relay route: its devices' tokens go. */
+  async dropTokens(platform: PushPlatform): Promise<void> {
+    if (!this.list.some((entry) => entry.platform === platform && entry.token)) return;
+    this.list = this.list.map((entry) => {
+      if (entry.platform !== platform) return entry;
+      const { token: _token, environment: _environment, ...rest } = entry;
+      return rest;
+    });
     await this.saveDevices();
   }
 
