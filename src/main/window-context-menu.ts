@@ -1,4 +1,4 @@
-import type { MenuItemConstructorOptions } from "electron";
+import type { MenuItemConstructorOptions, NativeImage } from "electron";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 
 export interface ContextMenuPorts {
@@ -7,17 +7,56 @@ export interface ContextMenuPorts {
   /** Electron may report the close before the click; the answer waits this long for one. */
   schedule?(run: () => void, ms: number): void;
   platform: NodeJS.Platform;
+  /** The image a named icon draws as, where this platform's menus take one. */
+  icon?(name: string): NativeImage | undefined;
+}
+
+/** The keys `formatKeyChord` spells as a glyph or a word, in Electron's accelerator spelling. */
+const KEYS: Record<string, string> = {
+  Esc: "Escape", "↵": "Enter", "↑": "Up", "↓": "Down", "←": "Left", "→": "Right", "⌫": "Backspace", "⌦": "Delete", "⇥": "Tab",
+  Space: "Space", "+": "Plus", Pageup: "PageUp", Pagedown: "PageDown", Home: "Home", End: "End", Insert: "Insert",
+};
+const MAC_MODIFIERS = /^([⌃⌥⇧⌘]*)(.+)$/u;
+const MAC_GLYPHS: Record<string, string> = { "⌃": "Ctrl", "⌥": "Alt", "⇧": "Shift", "⌘": "Cmd" };
+const OTHER_MODIFIERS: Record<string, string> = { Ctrl: "Ctrl", Win: "Super", Alt: "Alt", Shift: "Shift" };
+
+/**
+ * The accelerator a shortcut label the page shows (⌘⇧S, Ctrl+Shift+S) names,
+ * or undefined for a label that is not one.
+ */
+export function acceleratorOf(label: string, platform: NodeJS.Platform): string | undefined {
+  let modifiers: string[];
+  let key: string;
+  if (platform === "darwin") {
+    const match = MAC_MODIFIERS.exec(label);
+    if (!match) return undefined;
+    modifiers = Object.entries(MAC_GLYPHS).filter(([glyph]) => match[1]!.includes(glyph)).map(([, name]) => name);
+    key = match[2]!;
+  } else {
+    const plus = label.endsWith("++");
+    const parts = (plus ? label.slice(0, -2) : label).split("+");
+    key = plus ? "+" : parts.pop()!;
+    const named = parts.map((part) => OTHER_MODIFIERS[part]);
+    if (named.some((part) => !part)) return undefined;
+    modifiers = named as string[];
+  }
+  const accelerated = KEYS[key] ?? (/^(?:[A-Z0-9]|F(?:[1-9]|1\d|2[0-4])|[`\-=[\]\\;',./])$/u.test(key) ? key : undefined);
+  return accelerated ? [...modifiers, accelerated].join("+") : undefined;
 }
 
 /** A heading is a native header on macOS 14 and later; elsewhere a disabled line. */
-function template(entries: readonly NativeMenuEntry[], platform: NodeJS.Platform, choose: (id: string) => void): MenuItemConstructorOptions[] {
+function template(entries: readonly NativeMenuEntry[], ports: ContextMenuPorts, choose: (id: string) => void): MenuItemConstructorOptions[] {
   return entries.map((entry): MenuItemConstructorOptions => {
     if (entry.type === "separator") return { type: "separator" };
-    if (entry.type === "heading") return platform === "darwin" ? { type: "header", label: entry.label } : { label: entry.label, enabled: false };
-    if (entry.submenu) return { label: entry.label, enabled: entry.enabled !== false, submenu: template(entry.submenu, platform, choose) };
+    if (entry.type === "heading") return ports.platform === "darwin" ? { type: "header", label: entry.label } : { label: entry.label, enabled: false };
+    const icon = entry.icon ? ports.icon?.(entry.icon) : undefined;
+    const common = { label: entry.badge ? `${entry.label} (${entry.badge})` : entry.label, enabled: entry.enabled !== false, ...(icon ? { icon } : {}) };
+    if (entry.submenu) return { ...common, submenu: template(entry.submenu, ports, choose) };
+    // A chord is shown only, the page's own keybinding does the work; any other hint is a sublabel.
+    const accelerator = entry.hint ? acceleratorOf(entry.hint, ports.platform) : undefined;
     return {
-      label: entry.label,
-      enabled: entry.enabled !== false,
+      ...common,
+      ...(accelerator ? { accelerator, registerAccelerator: false } : entry.hint ? { sublabel: entry.hint } : {}),
       ...(entry.checked ? { type: "checkbox" as const, checked: true } : {}),
       click: () => choose(entry.id),
     };
@@ -38,6 +77,6 @@ export function showWindowContextMenu(ports: ContextMenuPorts, entries: readonly
       resolve(id);
     };
     const schedule = ports.schedule ?? ((run, ms) => { setTimeout(run, ms); });
-    ports.popup(template(entries, ports.platform, finish), point, () => schedule(() => finish(undefined), 50));
+    ports.popup(template(entries, ports, finish), point, () => schedule(() => finish(undefined), 50));
   });
 }

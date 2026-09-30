@@ -1,4 +1,4 @@
-import { AlarmClock } from "lucide-react";
+import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowUp, Check, Copy, Folder, Funnel, FunnelX, GitBranch, Hash, MessageSquareDot, Pencil, Pin, PinOff, Settings, Sparkles, SquarePen, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
@@ -43,6 +43,16 @@ export interface RailOrganizerPort {
 }
 
 const EMPTY: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
+
+/** A menu item's icon; the OS's menu draws the same one by its name. */
+const glyph = (Icon: LucideIcon) => ({ icon: <Icon size={13} /> });
+
+/** The page's label for a command's chord, for a menu item to show. */
+export type ShortcutLabel = (commandId: string) => string | undefined;
+const chord = (shortcut: ShortcutLabel | undefined, commandId: string) => {
+  const label = shortcut?.(commandId);
+  return label ? { hint: label } : {};
+};
 
 /** The thread on screen, when it is this one and not a pending draft. */
 const onScreen = (actions: WorkbenchActions | undefined, threadId: string): boolean => {
@@ -310,8 +320,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     const running = port.running(session.id);
     return {
       items: [
-        { id: "archive", label: "Archive thread", disabled: running, ...(running ? { description: "Cannot archive a running thread." } : {}) },
-        { id: "delete", label: "Delete", destructive: true, disabled: running, ...(running ? { description: "Stop the thread before deleting it." } : {}) },
+        { id: "archive", label: "Archive thread", ...glyph(Archive), disabled: running, ...(running ? { description: "Cannot archive a running thread." } : {}) },
+        { id: "delete", label: "Delete", ...glyph(Trash2), destructive: true, disabled: running, ...(running ? { description: "Stop the thread before deleting it." } : {}) },
       ],
     };
   };
@@ -334,7 +344,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: last.settled },
       ];
     },
-    menu(session) {
+    menu(session, shortcut) {
       const current = meta(session.id);
       const section = sectionOf(current, now());
       const settled = section === "settled";
@@ -343,24 +353,26 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const branch = session.projectLabel;
       const filtered = workspace?.getSnapshot().railProjectFilter === session.projectName;
       const snoozeItems: MenuItem[] = settled ? [] : snoozed
-        ? [{ id: "wake", label: "Wake thread" }, { id: "snooze:custom", label: "Snooze until…" }]
-        : [{ id: "snooze", label: "Snooze", submenu: snoozeSubmenu() }];
+        ? [{ id: "wake", label: "Wake thread", ...glyph(AlarmClockOff) }, { id: "snooze:custom", label: "Snooze until…", ...glyph(AlarmClock) }]
+        : [{ id: "snooze", label: "Snooze", ...glyph(AlarmClock), submenu: snoozeSubmenu() }];
       // Order: start, keep, then name and find, then copy and the project, then the lifecycle.
       return lockWrites([
         {
           items: [
-            ...(branch ? [{ id: "new-on-branch", label: `New thread on ${branch}` }] : []),
-            current?.pinned ? { id: "unpin", label: "Unpin thread" } : { id: "pin", label: "Pin thread" },
-            settled ? { id: "unsettle", label: "Un-settle thread" } : { id: "settle", label: "Settle thread" },
+            ...(branch ? [{ id: "new-on-branch", label: `New thread on ${branch}`, ...glyph(SquarePen) }] : []),
+            current?.pinned ? { id: "unpin", label: "Unpin thread", ...glyph(PinOff), ...chord(shortcut, "thread.pin") } : { id: "pin", label: "Pin thread", ...glyph(Pin), ...chord(shortcut, "thread.pin") },
+            settled
+              ? { id: "unsettle", label: "Un-settle thread", ...glyph(ArchiveRestore), ...chord(shortcut, "thread.settle") }
+              : { id: "settle", label: "Settle thread", ...glyph(Check), ...chord(shortcut, "thread.settle") },
             ...snoozeItems,
           ],
         },
         {
           items: [
-            { id: "rename", label: "Rename thread" },
-            ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title" }] : []),
-            { id: "mark-unread", label: "Mark unread" },
-            ...(workspace?.setRailProjectFilter ? [{ id: "filter-project", label: filtered ? "Show all projects" : `Filter by ${session.projectName}` }] : []),
+            { id: "rename", label: "Rename thread", ...glyph(Pencil) },
+            ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title", ...glyph(Sparkles) }] : []),
+            { id: "mark-unread", label: "Mark unread", ...glyph(MessageSquareDot) },
+            ...(workspace?.setRailProjectFilter ? [{ id: "filter-project", label: filtered ? "Show all projects" : `Filter by ${session.projectName}`, ...glyph(filtered ? FunnelX : Funnel) }] : []),
           ],
         },
         {
@@ -368,12 +380,19 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
             {
               id: "copy",
               label: "Copy",
-              submenu: [{ items: [{ id: "copy-path", label: "Path" }, ...(branch ? [{ id: "copy-branch", label: "Branch" }] : []), { id: "copy-thread-id", label: "Thread ID" }] }],
+              ...glyph(Copy),
+              submenu: [{
+                items: [
+                  { id: "copy-path", label: "Path", ...glyph(Folder) },
+                  ...(branch ? [{ id: "copy-branch", label: "Branch", ...glyph(GitBranch) }] : []),
+                  { id: "copy-thread-id", label: "Thread ID", ...glyph(Hash) },
+                ],
+              }],
             },
-            ...(workspace?.openProjectSettings ? [{ id: "project-settings", label: "Project settings…" }] : []),
+            ...(workspace?.openProjectSettings ? [{ id: "project-settings", label: "Project settings…", ...glyph(Settings) }] : []),
           ],
         },
-        ...(settled || snoozed ? [] : [{ items: [{ id: "move-up", label: "Move up" }, { id: "move-down", label: "Move down" }] }]),
+        ...(settled || snoozed ? [] : [{ items: [{ id: "move-up", label: "Move up", ...glyph(ArrowUp) }, { id: "move-down", label: "Move down", ...glyph(ArrowDown) }] }]),
         lifecycleSection(session),
       ]);
     },
@@ -415,16 +434,16 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       return lockWrites([
         {
           items: [
-            ...(pinned > 0 ? [{ id: "unpin", label: `Unpin (${pinned})` }] : []),
-            { id: "settle", label: `Settle (${count})` },
-            ...(snoozable ? [{ id: "snooze", label: `Snooze (${count})`, submenu: snoozeSubmenu() }] : []),
-            { id: "mark-unread", label: `Mark unread (${count})` },
+            ...(pinned > 0 ? [{ id: "unpin", label: `Unpin (${pinned})`, ...glyph(PinOff) }] : []),
+            { id: "settle", label: `Settle (${count})`, ...glyph(Check) },
+            ...(snoozable ? [{ id: "snooze", label: `Snooze (${count})`, ...glyph(AlarmClock), submenu: snoozeSubmenu() }] : []),
+            { id: "mark-unread", label: `Mark unread (${count})`, ...glyph(MessageSquareDot) },
           ],
         },
         {
           items: [
-            { id: "archive", label: `Archive (${idle})`, disabled: idle === 0, ...(idle < count ? { description: "Running threads stay." } : {}) },
-            { id: "delete", label: `Delete (${idle})`, destructive: true, disabled: idle === 0 },
+            { id: "archive", label: `Archive (${idle})`, ...glyph(Archive), disabled: idle === 0, ...(idle < count ? { description: "Running threads stay." } : {}) },
+            { id: "delete", label: `Delete (${idle})`, ...glyph(Trash2), destructive: true, disabled: idle === 0 },
           ],
         },
       ]);

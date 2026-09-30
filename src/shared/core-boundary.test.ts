@@ -113,6 +113,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./queued-messages.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
+  // Lucide icons drawn as template images for native menus (K136).
+  "./menu-icons.js",   "./menu-icon-set.js",
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
   // Runtime-neutral helpers backends share (API 1.12.0), and files that go with an answer.
   "./turn-activity-store.js",   "./elicitation-form.js",   "./answer-attachments.js",   "./turn-attachments.js",   "./host-execution-policy.js",
