@@ -34,7 +34,6 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
           <PullRequestListView
             surface="page"
-            headAction={!detail}
             params={start}
             actions={actions}
             client={parts.client}
