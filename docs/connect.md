@@ -16,8 +16,14 @@ apply. The relay sees route ids, connection timing and ciphertext sizes.
 
 ## Deploy the relay
 
-Tau does not include a hosted account or an already running service. An operator
-needs a Linux server, Docker with Compose, a real DNS name pointing at it, TCP
+For the existing Firebase project `tau-push-e3c95`, use the optional
+[Cloud Run deployment](connect-cloud.md). It needs no VM or domain, but an open
+host connection incurs Cloud Run charges. It has durable hash-only route state,
+a single active process lease and a manual deployment workflow. The service
+has not been activated by adding its source.
+
+Tau also supports an operator's own Linux server. That path needs Docker with
+Compose, a real DNS name pointing at it, TCP
 ports 80 and 443 reachable for HTTPS certificate issuance, and a contact email.
 No T3 Connect account or infrastructure is used.
 
@@ -126,9 +132,11 @@ clients then reconnect and replay their missed pushes as usual. All relay peers
 enter the host through a `proxy` listener, so a forwarded loopback address never
 grants local owner or local file privileges.
 
-The deployment is a single relay process with one persisted route store. It
-does not provide multi-region routing, accounts, quota billing, or shared-store
-multi-instance operation. Do not run multiple instances against the same store.
+The Compose deployment is a single relay process with one persisted route store.
+Do not run multiple processes against that file store. The optional Cloud Run
+deployment uses a Firestore lease and revision fence to keep one process active
+even during instance replacement. Neither path provides multi-region routing,
+accounts, quota billing or distributed streams.
 
 ## Browser compatibility
 
