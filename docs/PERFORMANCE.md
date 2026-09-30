@@ -794,6 +794,40 @@ Tried and left out:
 - The Markdown parser (about 90 KB in the entry) as its own chunk: the first paint draws the cached transcript, so the chunk would have to arrive before it.
 - Transcript pieces drawn only now and then (images, the task pill, the compaction divider, tool runs, turn navigation) as one chunk: −17.9 KB of initial script for +2.5 KB of gzip, and each would appear a moment after a first paint that shows it.
 
+### Total script headroom, 0.7.24 (K153)
+
+On v0.7.24 (`badd2a82`) the desktop build's total JavaScript was 498,296 bytes of gzip, 1,704 under its 500,000 budget, with design work ahead that needs 2.6 to 4.9 KB. Ticket K153 (2026-10-01) won back 9,155 bytes of gzip without raising a budget, moving code into the entry or removing a feature. Only the build's chunking and the packed icon set changed; no module's code did. Desktop build and browser client, from `reports/build-report.json` and `reports/build-web-report.json`:
+
+| budget line | before | after | budget |
+| --- | ---: | ---: | ---: |
+| desktop initial JavaScript | 772,341 (234,357 gzip) | 772,488 (234,395 gzip) | 800,000 (275,000) |
+| desktop lazy JavaScript | 782,026 (263,939 gzip), 76 files | 758,726 (254,746 gzip), 49 files | |
+| desktop total JavaScript | 1,554,367 (498,296 gzip) | 1,531,214 (489,141 gzip) | 1,900,000 (500,000) |
+| desktop initial CSS | 131,687 (25,062 gzip) | unchanged | 140,000 (30,000) |
+| kits' desktop halves | 3,059,184 | unchanged | 3,100,000 |
+| browser initial JavaScript | 784,753 (239,947 gzip) | 783,618 (239,383 gzip) | 820,000 (255,000) |
+| browser total JavaScript gzip | 504,842 | 494,442 | 510,000 |
+
+| change, each measured on the one above | desktop total gzip |
+| --- | ---: |
+| icons that only lazy code draws go with the dialogs, not one chunk per shared icon | −3,728 |
+| the packed icon set takes the icons core bundles from their modules | −1,368 |
+| each packed icon name after the prefix it shares with the one before | −945 |
+| one `common` lazy chunk: the dialogs, those icons and thirteen small shared helpers | −3,114 |
+
+- **Which icons the entry draws.** Rollup's module graph cannot tell: lucide's barrel imports all 1,790 icons. `entryGraph` (`vite/renderer-build.ts`) walks the entry's static imports through the app's own modules and reads their `lucide-react` import specifiers from the ASTs Rollup already parsed. Those icons stay in the entry; every other icon joins the lazy `common` chunk instead of 15 single-icon chunks and copies inside the surfaces that draw them. K90 and K36 found no way to know the entry's icons; the ASTs are that way.
+- **The icon set without core's icons.** The 103 icons core imports were packed a second time. `readSourceIconFiles` (`vite/icon-set.ts`) lists them from the renderer's sources (tests left out) before Rollup has the graph; the generated set module imports those components and packs only their names. An empty element list marks them, so an unbundled icon without elements is refused. A digest over all 6,137 names of the shared `lucide-react` module (display name, class names and element list of each) in the isolated instance equals the one of lucide's own ES module.
+- **Front-coded names.** Each name in the packed set starts with how many characters it shares with the name before it, one base-36 digit (at most 35). Other orders of the icons (by content, by reversed name segments, greedy by shared elements) packed worse than the alphabetical one.
+- **The common chunk.** `COMMON_MODULES` lists helpers several lazy surfaces import (escape layers, `Feedback`, `VirtualList`, `ChangesTree`, the runtime version, sheet dragging, the pairing format, `runtime-models`, `file-mention-expander`, ...). None imports a stylesheet or a module of another lazy chunk: a module that did (`NearbyMachineList` and `page-head` import the Settings controls) made a chunk cycle and moved the controls' stylesheet into nearly every dynamic import's list, which changes the cascade. Both renderer builds now fail on Rollup's `CIRCULAR_CHUNK` warning, and a script comparing each dynamic import's list of stylesheets between base and change found them identical. A module the entry imports itself stays in the entry, so the chunk never loads at start-up. It loads with the first surface that needs it and with the deferred preload two seconds after `load`, as the dialogs chunk did.
+
+`npm run start:budget` passes: first paint 108 ms under a load average of 17 and 152 ms under 6, seven files. In the isolated instance on the fake model a plain turn, a `write` turn and a prompt with an `@` mention (sent with the file's text) ran; the command palette with its Set model level, the fourteen Settings entries, the review surface with the diff, and the system prompt dialog opened with no empty icon, and the logs showed no chunk error.
+
+Tried and left out:
+
+- Rollup's `experimentalMinChunkSize` at 1,000 and 2,000 bytes on top: −886 and −1,910 bytes of gzip, but it merges modules K25 moved out of the entry back into it (+362 and +1,639 gzip there).
+- A dictionary of the icon elements that repeat (837 distinct, 88 KB of repeats): gzip already finds most of them, −300 bytes.
+- Dead code the sweep found in the bundle is small (about 150 lines): public `usePreferences` setters, a deprecated settings-page flag, preference migrations from v0.4.0, host updates no host sends, class members only tests call. Each is API, a migration too young to drop, or worth less than 100 bytes of gzip.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
