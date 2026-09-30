@@ -34,8 +34,8 @@ import type {
   SystemPromptInspection,
   UiToolOutputPreview,
 } from "../shared/contracts.js";
-import { addModelProvider, loadModelsConfig } from "./models-config.js";
-import { discoverPromptOverrides } from "./system-prompt-resolver.js";
+import { loadModelsConfig } from "./models-config.js";
+import { inspectHostSystemPrompt, configureHostModelProvider, configuredComposerCommands } from "./host-model-configuration.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import {
   HOST_PROTOCOL_VERSION,
@@ -90,7 +90,6 @@ import type { TurnDelivery } from "./turn-delivery.js";
 import type { AttachedThreadBackend } from "./attached-thread-backend.js";
 import type { HostExtensionSeam } from "./host-ports.js";
 import { findPiBridge } from "./pi-bridge-client.js";
-import { composerCommandsForAdapter } from "./bridge-snapshot.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
@@ -107,7 +106,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents, type PiHostComponents } from "./pi-host-components.js";
-import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -1895,19 +1894,10 @@ export class PiHost {
       await this.runtimes.settleOpening();
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.threadId)));
       for (const result of results) if (result.status === "rejected") teardownErrors.push(result.reason);
-      try {
-        await this.projectHistory.flush();
-      } catch (error) {
-        teardownErrors.push(error);
-      }
-      try {
-        await this.index.dispose();
-      } catch (error) {
-        teardownErrors.push(error);
-      }
-      if (teardownErrors.length > 0) {
-        throw new AggregateError(teardownErrors, "Pi runtime shutdown failed");
-      }
+      await finishHostShutdown(teardownErrors, [
+        () => this.projectHistory.flush(),
+        () => this.index.dispose(),
+      ]);
     });
   }
 
@@ -2014,25 +2004,11 @@ export class PiHost {
   }
 
   async addModelProvider(input: CustomProviderInput): Promise<UiModel[]> {
-    await addModelProvider(this.agentDir, input);
-    this.publication.invalidateModels();
-    await this.publication.publishActiveCatalog();
-    return this.publication.ensureModels();
+    return configureHostModelProvider(this.agentDir, input, this.publication);
   }
 
   async inspectSystemPrompt(threadId?: string, cwd?: string): Promise<SystemPromptInspection> {
-    const thread = (threadId ? this.threadFor(threadId) : undefined) ?? this.active;
-    if (thread?.backend.capabilities.systemPrompt) {
-      return await thread.backend.capabilities.systemPrompt.inspect();
-    }
-    const targetCwd = cwd || thread?.cwd || this.cwd;
-    const overrides = discoverPromptOverrides(targetCwd, this.agentDir);
-    return {
-      effectivePrompt: overrides.customPrompt?.content ?? "(No active thread — showing project configuration)",
-      ...(overrides.customPrompt ? { basePrompt: overrides.customPrompt.content, basePromptSource: overrides.customPrompt.path } : {}),
-      appends: overrides.appendPrompts.map((p) => ({ text: p.content, source: p.path })),
-      contextFiles: overrides.contextFiles,
-    };
+    return inspectHostSystemPrompt((threadId ? this.threadFor(threadId) : undefined) ?? this.active, cwd || this.cwd, this.agentDir, cwd);
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */
@@ -2044,9 +2020,7 @@ export class PiHost {
 
   /** Commands of an external backend; a supplied catalog is re-spelled in the backend's dialect. */
   private externalComposerCommands(kind: ThreadBackendKind, cwd: string): UiComposerCommand[] {
-    const provider = this.requireBackend(kind);
-    if (this.runtimeCommands.length > 0) return composerCommandsForAdapter(this.runtimeCommands, provider.adapter);
-    return provider.composerCommands(cwd);
+    return configuredComposerCommands(this.requireBackend(kind), this.runtimeCommands, cwd);
   }
 
   /** The workspace a client named, by id or — for a client that still sends paths — by path. */
