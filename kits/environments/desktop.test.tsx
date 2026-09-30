@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DiscoveredHost, EnvironmentPairResult, HostReadiness, HostResources, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
-import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { tooltipProps, type DiscoveredHost, type EnvironmentPairResult, type HostExtensionClient, type HostReadiness, type HostResources, type PlatformEnvironments, type UiDiscoveredHosts, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
+import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { agentThreadsSource, createMachineCardRow, createMachineThreads, createShownMachine } from "./rail.js";
-import { createRunOnControl, runOnDetail } from "./run-on.js";
+import { createRunOnSource, runOnDetail } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
-import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -61,6 +61,26 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
   return new Proxy(patch, { get: (target, key) => (target as Record<string, unknown>)[key as string] ?? vi.fn() }) as WorkbenchActions;
 }
 
+/** Workspace Kit's Run-on pill, cut down: the machine it names, and the rows it opens. */
+function createRunOnControl(environments: PlatformEnvironments, host?: HostExtensionClient) {
+  const source = createRunOnSource(environments, host);
+  function Pill(props: DraftMachineProps) {
+    const chosen = source.useMachine(props);
+    const [open, setOpen] = useState(false);
+    if (!chosen) return null;
+    return <>
+      <button aria-label={`Run on ${chosen.name}`} {...(chosen.tooltip ? tooltipProps(chosen.tooltip) : {})} onClick={() => setOpen(!open)}>{chosen.name}</button>
+      {open ? <div onClickCapture={() => setOpen(false)}><source.Section {...props} touch={false} /></div> : null}
+    </>;
+  }
+  return function Control(props: DraftMachineProps) {
+    return <ThreadStoreContext.Provider value={new ThreadStore()}><Pill {...props} /></ThreadStoreContext.Provider>;
+  };
+}
+
+const row = (name: RegExp) => within(screen.getByRole("group", { name: "Machines" })).getByRole("button", { name });
+const queryRow = (name: RegExp) => screen.queryByRole("group", { name: "Machines" }) && within(screen.getByRole("group", { name: "Machines" })).queryByRole("button", { name });
+
 describe("Machines Kit", () => {
   it("draws nothing in a client that has no window process", () => {
     const { registry } = createKitHarness();
@@ -75,11 +95,14 @@ describe("Machines Kit", () => {
     const registered = vi.fn(() => () => undefined);
     const listed = vi.fn(() => () => undefined);
     const card = vi.fn(() => () => undefined);
-    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card }); } });
+    const runOn = vi.fn(() => () => undefined);
+    registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card, registerDraftMachine: runOn }); } });
     registry.activate(environmentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
     expect(registry.getComposerControls()).toEqual([]);
-    expect(registry.getRegions("draft-actions").map((region) => region.id)).toEqual(["environments.run-on"]);
+    // A new thread's machine goes into Workspace Kit's Run-on pill (design 1k), not under the heading.
+    expect(registry.getRegions("draft-actions")).toEqual([]);
+    expect(runOn).toHaveBeenCalledWith(expect.objectContaining({ useMachine: expect.any(Function), Section: expect.any(Function) }));
     expect(registry.getCommands().some((command) => command.id === "environments.add")).toBe(true);
     expect(registered).toHaveBeenCalledTimes(1);
     expect(listed).toHaveBeenCalledTimes(1);
@@ -220,9 +243,9 @@ describe("Run on", () => {
     const actions = fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "Refactor the parser", setComposerDraft });
     render(<Control actions={actions} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const offline = screen.getByRole("menuitem", { name: /attic/u });
+    const offline = row(/attic/u);
     expect(offline.getAttribute("aria-disabled") ?? String((offline as HTMLButtonElement).disabled)).toMatch(/true/u);
-    fireEvent.click(screen.getByRole("menuitem", { name: /studio/u }));
+    fireEvent.click(row(/studio/u));
     expect(environments.open).toHaveBeenCalledWith("studio", { newThread: { draft: "Refactor the parser", workspaceId: "ws-api" } });
     expect(setComposerDraft).toHaveBeenCalledWith("");
   });
@@ -232,7 +255,7 @@ describe("Run on", () => {
     const Control = createRunOnControl(environments);
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "x" })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const item = screen.getByRole("menuitem", { name: /studio/u });
+    const item = row(/studio/u);
     expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
     expect(item.textContent).toMatch(/Read only: studio lets this computer look/u);
     fireEvent.click(item);
@@ -244,7 +267,7 @@ describe("Run on", () => {
     const Control = createRunOnControl(one.environments);
     const { container, rerender } = render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    expect(screen.getByRole("menuitem", { name: /laptop/u }).textContent).toContain("this machine · idle");
+    expect(row(/laptop/u).textContent).toContain("this machine · idle");
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
     const two = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Started = createRunOnControl(two.environments);
@@ -261,30 +284,21 @@ describe("Run on, as in the design", () => {
     expect(runOnDetail(attic, 60_000)).toBe(statusText(attic, 60_000));
   });
 
-  it("is a pill under a new thread's heading, its menu holding the machines only (design 1k: Branch is a pill of its own)", () => {
-    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
-    const { registry } = createKitHarness(undefined, undefined, { environments });
-    registry.activate(environmentsExtension);
-    const Control = registry.getRegions("draft-actions").find((entry) => entry.id === "environments.run-on")!.Component;
-    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
-    const pill = screen.getByRole("button", { name: "Run on laptop" });
-    expect(pill.className).toContain("draft-pill");
-    fireEvent.click(pill);
-    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
-      expect.stringMatching(/^Automatic/u), expect.stringMatching(/^laptop/u), expect.stringMatching(/^studio/u),
-    ]);
-    expect(screen.queryByRole("textbox")).toBeNull();
-  });
-
-  it("checks the machine without a badge (design 1k)", () => {
-    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
-    const RunOn = createRunOnControl(environments);
+  it("lists Automatic and every machine, the one it runs on checked without a badge, one out of reach faded with why (design 1k)", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
+    const RunOn = createRunOnControl(environments, { invoke: vi.fn(async () => undefined), onEvent: vi.fn(() => () => undefined) } as never);
     render(<RunOn actions={fakeActions({ activeThread: () => ({ draftPending: true }) })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const menu = screen.getByRole("menu");
-    const row = within(menu).getByRole("menuitem", { name: /^laptop/u });
-    expect(row.className).toContain("selected");
-    expect(row.querySelector(".menu-label b")).toBeNull();
+    const rows = within(screen.getByRole("group", { name: "Machines" })).getAllByRole("button") as HTMLButtonElement[];
+    expect(rows.map((entry) => [entry.textContent, entry.getAttribute("aria-pressed"), entry.disabled])).toEqual([
+      [expect.stringMatching(/^Automatic/u), "false", false],
+      ["laptopthis machine · idle", "true", false],
+      ["studioonline · 1 running", "false", false],
+      [expect.stringMatching(/^atticOffline/u), "false", true],
+    ]);
+    expect(rows[1]!.querySelector("b, .machine-badge")).toBeNull();
+    // Opening asks the machine out of reach again.
+    expect(environments.retry).toHaveBeenCalledWith("attic");
   });
 });
 
@@ -627,14 +641,14 @@ describe("Run on: Automatic", () => {
     const Control = createRunOnControl(environments, host);
     render(<Control actions={fakeActions({ activeThread: () => draft })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Automatic/u }));
+    fireEvent.click(row(/Automatic/u));
     expect(storage.get(RUN_ON_KEY)).toBe("auto");
     const chip = screen.getByRole("button", { name: "Run on Automatic" });
     await vi.waitFor(() => expect(chip.getAttribute("data-tooltip")).toMatch(/\nNow: studio\. studio has the most room: 45/u));
     expect(host.invoke).toHaveBeenCalledWith("choose-machine", { purpose: "thread", cwd: "/work/api", backend: "pi", model: "openai-codex/gpt-5.6-luna", machines: ["studio"] });
     // Picking a machine ends it.
     fireEvent.click(chip);
-    fireEvent.click(screen.getByRole("menuitem", { name: /laptop/u }));
+    fireEvent.click(row(/laptop/u));
     expect(storage.get(RUN_ON_KEY)).toBeNull();
     expect(screen.getByRole("button", { name: "Run on laptop" })).toBeTruthy();
   });
@@ -647,7 +661,7 @@ describe("Run on: Automatic", () => {
     const Control = createRunOnControl(environments, host);
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: false, sessionId: "s", cwd: "/work/api" }) })} snapshot={{ messages: [], isStreaming: false } as never} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
-    const item = screen.getByRole("menuitem", { name: /Automatic/u });
+    const item = row(/Automatic/u);
     expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
     expect(item.textContent).toMatch(/exists here already/u);
     expect(host.invoke).not.toHaveBeenCalled();
@@ -659,7 +673,7 @@ describe("Run on: Automatic", () => {
     const Control = createRunOnControl({ ...environments, shownElsewhere: "studio" }, chooser());
     render(<Control actions={fakeActions({ activeThread: () => draft })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on studio" }));
-    expect(screen.queryByRole("menuitem", { name: /Automatic/u })).toBeNull();
+    expect(queryRow(/Automatic/u)).toBeNull();
   });
 
   const claim = (patch: Record<string, unknown> = {}) => ({

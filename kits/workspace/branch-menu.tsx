@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, Folder, FolderGit2, GitBranch, Plus, Search, Trash2 } from "lucide-react";
-import { Popover, Sheet, Switch, VirtualList, tooltipProps, type RegionProps, type UiRef, type UiWorktree, type UiWorktreeStatus } from "tau";
+import { Popover, Switch, VirtualList, tooltipProps, type RegionProps, type UiRef, type UiWorktree, type UiWorktreeStatus } from "tau";
 import type { UiWorktreeRemoval } from "./protocol.js";
 import { useWorkspaceStore } from "./store-context.js";
 
-/** What a new thread's worktree branch reads as before the prompt names it. */
-export const AUTO_BRANCH = "tau/auto-named";
-
-function useWorkspaceState() {
+export function useWorkspaceState() {
   const store = useWorkspaceStore();
   return { store, state: useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot) };
 }
@@ -37,7 +34,7 @@ function SearchField({ value, label, onChange, onKeyDown }: { value: string; lab
 }
 
 /** Refs to pick from, with the typed name offered as a new one when `create` is given. */
-function RefList({ refs, current, placeholder, create, onPick }: {
+export function RefList({ refs, current, placeholder, create, onPick }: {
   refs: readonly UiRef[];
   current?: string;
   placeholder: string;
@@ -67,48 +64,6 @@ function RefList({ refs, current, placeholder, create, onPick }: {
       <button type="button" className={cursor === shown.length ? "selected" : ""} onClick={() => create.onCreate(offer)}><Plus size={13} /><span>{create.label(offer)}</span></button>
     </div> : null}
   </>;
-}
-
-/**
- * A new thread's Branch section (design 1k): its own worktree on a `tau/…`
- * branch named when the prompt is sent, from the base the host resolves, or
- * the checkout as it is.
- */
-export function DraftBranchSection() {
-  const { store, state } = useWorkspaceState();
-  const [picking, setPicking] = useState(false);
-  const info = state.workspace;
-  const worktree = state.workspaceMode === "worktree";
-  useEffect(() => {
-    if (worktree && !state.worktreeBase) void store.loadWorktreeBase();
-  }, [state.worktreeBase, store, worktree]);
-  if (!info?.isRepo) return <div className="branch-section"><div className="menu-heading">Branch</div><p className="branch-note">{info ? "Not a Git repository: the thread runs in the folder as it is." : "Reading the project…"}</p></div>;
-  const base = state.draftBase ?? state.worktreeBase?.ref ?? info.branch ?? "HEAD";
-  if (picking) return <div className="branch-section picking">
-    <RefList refs={info.refs} current={base} placeholder="Start from…" onPick={(ref) => { setPicking(false); store.setDraftBranch({ base: ref }); }} />
-  </div>;
-  return <div className="branch-section">
-    <div className="menu-heading">Branch</div>
-    {worktree ? <>
-      <label className="branch-name">
-        <GitBranch size={13} aria-hidden />
-        <input
-          value={state.draftBranch ?? ""}
-          placeholder={AUTO_BRANCH}
-          aria-label="Branch name for the new worktree"
-          spellCheck={false}
-          onChange={(event) => store.setDraftBranch({ name: event.target.value })}
-        />
-        {state.draftBranch ? null : <small>auto</small>}
-      </label>
-      <button type="button" className="branch-base" onClick={() => setPicking(true)}>from <code>{base}</code><ChevronDown size={12} /></button>
-    </> : <div className="branch-name"><GitBranch size={13} aria-hidden /><code>{info.branch ?? "detached"}</code><small>checkout</small></div>}
-    {/* The whole row is the switch's label, so a tap anywhere on it switches (a 44 px target on touch). */}
-    <label className="branch-worktree">
-      <span><strong>New worktree</strong><small>{worktree ? "Its own folder; the checkout stays as it is" : "Runs in the project's checkout"}</small></span>
-      <Switch label="Run in a new worktree" checked={worktree} onChange={(on) => store.setWorkspaceMode(on ? "worktree" : "current")} />
-    </label>
-  </div>;
 }
 
 function statusLine(status?: UiWorktreeStatus): string {
@@ -212,25 +167,22 @@ function NewWorktree({ base, onCreate }: { base: string; onCreate(name: string):
 }
 
 /**
- * The branch in the thread header's sub-line (`thread-branch`): for a running
- * thread a menu over its checkout, for a new thread its Branch section. Core
- * draws the plain label while no kit takes the slot.
+ * The branch in the thread header's sub-line (`thread-branch`): a menu over
+ * the thread's checkout. Core draws the plain label while no kit takes the slot.
  */
 export function ThreadBranch({ snapshot }: RegionProps) {
   const { state } = useWorkspaceState();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const info = state.workspace;
-  const draft = state.draftPending;
-  const planned = draft && state.workspaceMode === "worktree";
-  const label = planned ? state.draftBranch ?? AUTO_BRANCH : info?.branch ?? snapshot?.projectLabel;
+  const label = info?.branch ?? snapshot?.projectLabel;
   if (!label) return null;
   if (info && !info.isRepo) return <span className="thread-detail"><GitBranch size={12} aria-hidden /><span>{label}</span></span>;
   return <span className="thread-detail">
     <button
       ref={anchor}
       type="button"
-      className={`thread-branch-trigger${planned ? " planned" : ""}`}
+      className="thread-branch-trigger"
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`Branch ${label}`}
@@ -240,40 +192,9 @@ export function ThreadBranch({ snapshot }: RegionProps) {
       <span>{label}</span><ChevronDown size={11} className="chev" />
     </button>
     {open ? <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={() => setOpen(false)}>
-      {draft ? <DraftBranchSection /> : <CheckoutMenu sessionId={snapshot?.sessionId} onDone={() => setOpen(false)} />}
+      <CheckoutMenu sessionId={snapshot?.sessionId} onDone={() => setOpen(false)} />
     </Popover> : null}
   </span>;
-}
-
-/**
- * A new thread's branch as a pill under its heading (`draft-actions`), beside
- * the project and the machine: its Branch section in a popover, or a sheet.
- */
-export function createDraftBranchPill(sheet: boolean) {
-  return function DraftBranchPill() {
-    const { state } = useWorkspaceState();
-    const anchor = useRef<HTMLButtonElement>(null);
-    const [open, setOpen] = useState(false);
-    const info = state.workspace;
-    if (!state.draftPending || !info) return null;
-    const label = !info.isRepo ? "No Git" : state.workspaceMode === "worktree" ? state.draftBranch || AUTO_BRANCH : info.branch ?? "detached";
-    const close = () => setOpen(false);
-    return <>
-      <button
-        ref={anchor}
-        type="button"
-        className="draft-pill"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={`Change branch, current branch ${label}`}
-        disabled={state.workspaceBusy}
-        onClick={() => setOpen((value) => !value)}
-      ><GitBranch size={13} aria-hidden /><span>{label}</span><ChevronDown size={12} /></button>
-      {open ? sheet
-        ? <Sheet title="Branch" className="branch-sheet" onClose={close}><DraftBranchSection /></Sheet>
-        : <Popover anchor={anchor} label="Branch" className="branch-popover" onClose={close}><DraftBranchSection /></Popover> : null}
-    </>;
-  };
 }
 
 /** Why the draft suggests its own worktree, in the pill's tooltip. */

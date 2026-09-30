@@ -24,7 +24,8 @@ import { addProjectMenu } from "./add-project-menu.js";
 import { threadBranchService } from "./branch-service.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
-import { createDraftBranchPill, ThreadBranch, WorktreeSuggestionPill } from "./branch-menu.js";
+import { WorktreeSuggestionPill } from "./branch-menu.js";
+import { createHeadingBranch, createRunOnControl } from "./run-on.js";
 import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
@@ -122,13 +123,14 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.title-actions", placement: "title-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceTitleActions) });
     // The design's Editor button at the stage strip's right end.
     context.registerRegion({ id: "workspace.open-in", placement: "stage-bar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceEditorButton) });
-    // The branch in the thread header: a menu over the checkout, or a new thread's Branch section.
-    context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(ThreadBranch) });
-    // A new thread's branch as a pill under its heading, beside project and machine; a sheet on touch.
+    // The header's branch: a menu over the checkout; for a new thread "project · machine · no worktree yet".
+    context.registerRegion({ id: "workspace.branch", placement: "thread-branch", order: 10, profiles: ["desktop"], Component: bind(createHeadingBranch(false)) });
+    context.registerRegion({ id: "workspace.branch-touch", placement: "thread-branch", order: 10, profiles: ["compact"], Component: bind(createHeadingBranch(true)) });
+    // A new thread's machine and branch: one pill before the model (design 1k), a sheet on touch (1o).
+    context.registerComposerControl({ id: "workspace.run-on", placement: "lead", order: 5, profiles: ["desktop"], Component: bind(createRunOnControl(false)) });
+    context.registerComposerControl({ id: "workspace.run-on-sheet", placement: "lead", order: 5, profiles: ["compact"], Component: bind(createRunOnControl(true)) });
     // A fresh install's first screen (2a), in place of the draft until a thread exists.
     context.registerRegion({ id: "workspace.fresh-start", placement: "draft-actions", order: 0, profiles: ["desktop"], Component: bind(FreshStart) });
-    context.registerRegion({ id: "workspace.draft-branch", placement: "draft-actions", order: 10, profiles: ["desktop"], Component: bind(createDraftBranchPill(false)) });
-    context.registerRegion({ id: "workspace.draft-branch-sheet", placement: "draft-actions", order: 10, profiles: ["compact"], Component: bind(createDraftBranchPill(true)) });
     // Offered while another thread's turn runs in the draft's folder; the phone gets it too.
     context.registerRegion({ id: "workspace.worktree-suggestion", placement: "draft-actions", order: 11, profiles: ["desktop", "compact"], Component: bind(WorktreeSuggestionPill) });
     const documents = documentStates(store);

@@ -2717,6 +2717,19 @@ export async function resolveWorktreeBase(
   };
 }
 
+/** What "Based on" lists beside `base`: when the remote was last fetched, and origin's other latest branches. */
+export async function readBaseChoices(cwd: string, base: string, runGit: GitRunner = git): Promise<{ fetchedAt?: number; others: string[] }> {
+  const [fetchedAt, listed] = await Promise.all([
+    runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"])
+      .then((path) => stat(path.trim()))
+      .then((info) => info.mtimeMs, () => undefined),
+    runGit(cwd, ["for-each-ref", "--sort=-committerdate", "--count=12", "--format=%(refname:short)", "refs/remotes/origin"]).catch(() => ""),
+  ]);
+  // `origin/HEAD` reads as plain `origin` in its short form.
+  const others = listed.split("\n").map((ref) => ref.trim()).filter((ref) => ref.includes("/") && ref !== base && ref !== "origin/HEAD").slice(0, 8);
+  return { ...(fetchedAt ? { fetchedAt } : {}), others };
+}
+
 /**
  * The base a branch was created from, kept in the repository's own config so a
  * later diff, review or pull request has the same answer this worktree started

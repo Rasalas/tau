@@ -32,6 +32,7 @@ import {
   readWorktreeStatuses,
   removeWorktree,
   resolveDefaultBaseRef,
+  readBaseChoices,
   resolveWorktreeBase,
   revertFile,
   restoreWorkspaceSnapshot,
@@ -1097,6 +1098,23 @@ describe("worktree base", () => {
       "rev-parse --verify --quiet main^{commit}": "3333333333333333333333333333333333333333\n",
     }, offline))).resolves.toMatchObject({ ref: "main", fromOrigin: false });
     expect(offline.some((args) => args[0] === "fetch")).toBe(false);
+  });
+
+  it("lists origin's other latest branches and when it was fetched, for Based on (design 1k)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-base-choices-"));
+    try {
+      const fetchHead = join(dir, "FETCH_HEAD");
+      await writeFile(fetchHead, "");
+      const { mtimeMs } = await stat(fetchHead);
+      await expect(readBaseChoices("/repo", "origin/main", runner({
+        "rev-parse --path-format=absolute --git-path FETCH_HEAD": `${fetchHead}\n`,
+        "for-each-ref --sort=-committerdate --count=12 --format=%(refname:short) refs/remotes/origin": "origin/develop\norigin/main\norigin\norigin/feat/a\norigin/feat/b\norigin/feat/c\n",
+      }))).resolves.toEqual({ fetchedAt: mtimeMs, others: ["origin/develop", "origin/feat/a", "origin/feat/b", "origin/feat/c"] });
+      // Never fetched, no remote: nothing but the default.
+      await expect(readBaseChoices("/repo", "main", runner({}))).resolves.toEqual({ others: [] });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps offering the local base when origin cannot be reached", async () => {

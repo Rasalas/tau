@@ -193,7 +193,7 @@ export const SHOTS = [
     name: "machines",
     device: "desktop",
     needs: ["studio"],
-    description: "A second machine: its threads in the list, and a new thread's Run on menu",
+    description: "A second machine: its threads in the list, and a new thread's Run on popover",
     async run(ctx) {
       // One draft for both themes: the second pass opens the one the first left.
       const draft = `[...document.querySelectorAll("article.thread-row")].find((row) => row.querySelector(".thread-title")?.textContent.trim() === "New thread")?.querySelector("button.thread-main")`;
@@ -207,7 +207,7 @@ export const SHOTS = [
       const menu = `/The machine with the most room/.test(document.body.textContent) && /online/.test(document.body.textContent)`;
       // studio's status can still be on its way when the menu first opens; it is asked again then.
       for (let attempt = 0; ; attempt += 1) {
-        await ctx.click(byText("button", "MacBook Pro"));
+        await ctx.click(byLabel("/^Run on /"));
         try {
           await ctx.waitFor(menu, 10_000);
           break;

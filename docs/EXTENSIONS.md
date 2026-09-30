@@ -848,19 +848,19 @@ core's plain branch label steps aside. Both are drawn bare in the sub-line,
 so draw each item as a `span.thread-detail` (core puts the "·" between
 them) and render nothing when there is nothing to say. Workspace Kit's
 branch there opens a menu over the thread's checkout (switch or create a
-branch, open, add or remove a worktree) and, for a new thread, its Branch
-section. A phone's bar draws neither; an older core draws neither. A new
-thread's draft has no sub-line since API 1.28.0 (K104): its pills in
-`draft-actions` already say project, machine and branch. A thread that exists
-but is still empty shows only `thread-details` and its branch there, since its
-branch has no pill.
+branch, open, add or remove a worktree). For a new thread's draft it says
+"project · machine · no worktree yet" (design 1k, K152; the checkout's branch in
+place of the last part when the draft runs in the checkout); a phone's bar
+draws `thread-branch` for the draft too, "project · machine" (design 1o). A
+thread that exists but is still empty shows only `thread-details` and its
+branch there.
 `draft-actions` (K98, for API 1.28.0) is the row of pills after a new
 thread's "What should <project> do next?" and its sentence: core's project
 pill leads it (a click opens the project picker at the pill and moves the
 draft; a second click on the pill closes it), then the kits' pills, each a `button.draft-pill` that opens its own
-popover, or a sheet on a phone or tablet. Machines Kit draws "Run on" there,
-Workspace Kit the branch with its Branch section. Render nothing for a thread
-that started; an older core draws no such row.
+popover, or a sheet on a phone or tablet. Machine and branch are no longer
+pills here since K152: they are one `lead` composer control (see below).
+Render nothing for a thread that started; an older core draws no such row.
 `stage-bar` (API 1.27.0) is the right end of the stage's tab strip, after the
 tools and before the maximize, for a control about the stage as a whole, such as
 Workspace Kit's "Open in". The other placements are
@@ -1906,13 +1906,22 @@ its Branch section, `draftBranch` and `draftBase` in the store's state (set with
 `setDraftBranch({ name?, base? })`), wins over the naming kit and the default
 base; both are forgotten with the draft.
 
-A new thread's Branch section (its own worktree or the checkout, the `tau/…`
-branch named when the prompt is sent or typed, "from" its base) opens from
-Workspace Kit's branch pill in `draft-actions` (a sheet on a phone or tablet).
-Its "New worktree" row is the switch's label: a click or tap anywhere on the
-row switches. The `tau.workspace/branch-section`
-service that lent it to Machines Kit's "Run on" is gone (K98): "Run on" holds
-the machines only, as the design's two pills do.
+A new thread's machine and branch are one pill before the model (design 1k/1o,
+K152): Workspace Kit's `lead` composer control, "machine · branch", opening one
+popover above the composer (a sheet with Done on a phone or tablet). It holds
+"Run on" (the machines), then Branch: a field under `tau/` ("name it, or leave
+empty"; a name with its own `/` is taken whole), "If empty: Name from the
+prompt / Random" (the kit preference `branch-naming`, `prompt` or `random`;
+without a naming kit it is random), "Based on" (the default base with its fetch
+age, origin's other latest branches and a branch another thread's worktree
+holds; "Other branch…" searches the rest) and the "New worktree" switch, whose
+whole row is its label. `worktree-base` answers `fetchedAt` (FETCH_HEAD's time)
+and `others` for it. Machines Kit fills "Run on" through the store:
+`registerDraftMachine({ useMachine, Section })`, where `useMachine(props)` is a
+hook naming the machine (or `undefined` for a started thread) and `Section`
+draws the rows (`touch` for 44 px rows). Without it the pill names the host
+(`useHostName`) and lists it alone, so a phone shows "Run on" with one machine
+too.
 
 A host half reaches another kit's host half with `context.invokeHostExtension(id,
 command, input)`, and only for a command the target registered with
@@ -2137,9 +2146,8 @@ package chips first lose their labels and then move into the menu; the
 model and the reasoning level stay longest. A host older than 1.27.0 draws a `menu` control in the row.
 `placement: "lead"` (API 1.27.0) puts a control before the model chip, then a
 thin rule, then the model. A `lead` control never folds into the menu. An
-older core draws it in the row. No bundled kit uses it since K98: a new
-thread's project, machine and branch are pills in the `draft-actions` region
-instead, and the draft's footer holds the model, the level, "…" and send.
+older core draws it in the row. Workspace Kit's Run-on pill (a new thread's
+machine and branch, K152) is one; the project stays a pill in `draft-actions`.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
@@ -3389,9 +3397,9 @@ dropped, as opening it would. `open(id, target)` loads the app on that host
 `pair`, `discover` and `setPreferences` do nothing there (the phone pairs
 from its host list), and it has no `watchThread`, `transcriptPage` or
 `update`. `threads[].settled` says the phone settled the thread while it
-showed that host. On a phone Machines Kit draws "Run on" as a sheet in
-`draft-actions` (a machine out of reach says why and cannot be picked; the
-sheet asks it again when it opens), the other machines' threads in the thread
+showed that host. On a phone Machines Kit lists the paired machines in the
+Run-on sheet (a machine out of reach says why and cannot be picked; opening
+the sheet asks it again), the other machines' threads in the thread
 list (`registerThreadListSource`) and their state in `thread-list-head`.
 
 ### A machine's own Tau: `useMachineUpdates`, `useHostUpdate`
