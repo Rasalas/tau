@@ -1071,7 +1071,8 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rvd-side-notes { gap: 4px; }
 .rvd-side-notes > li { display: flex; flex-direction: column; gap: 3px; padding: 7px var(--space-5); border-radius: var(--radius-md); background: var(--stage); }
 .rvd-side-note-head { display: flex; align-items: center; gap: var(--space-3); color: var(--muted); font: var(--text-xs) var(--mono); }
-.rvd-side-note-head > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Cut at the start, so the line number stays. */
+.rvd-side-note-head > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .rvd-side-note-head > button { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--brand); font: var(--text-xs) var(--sans); cursor: pointer; }
 .rvd-side-note-head > button:hover { background: var(--hover); }
 .rvd-side-note-head > button.icon { padding: 2px; color: var(--faint); }
