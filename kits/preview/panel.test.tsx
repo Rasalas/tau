@@ -7,7 +7,7 @@ import { EMPTY_PREVIEW_STATE, type PreviewBounds, type PreviewChipInput } from "
 import { PreviewPanel } from "./panel.js";
 import { connectPreviewHost, previewStore } from "./store.js";
 import type { ComputerUseScreenService } from "./screen-protocol.js";
-import { holdScreenService, previewView } from "./screen-store.js";
+import { holdScreenService, previewHold, previewView } from "./screen-store.js";
 
 /** jsdom has no layout, so the panel's rectangle is the one this test dictates. */
 function domRect(box: { left: number; top: number; width: number; height: number }): DOMRect {
@@ -76,6 +76,18 @@ afterEach(() => {
   disconnect();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("PreviewPanel held by the user", () => {
+  it("frames the page and says who has control until the hold ends", () => {
+    const view = render(panel());
+    expect(screen.queryByText("you have control")).toBeNull();
+    act(() => previewHold.set({}));
+    expect(screen.getByText("you have control")).toBeTruthy();
+    expect(view.container.querySelector(".preview-panel.held")).toBeTruthy();
+    act(() => previewHold.set(undefined));
+    expect(view.container.querySelector(".preview-panel.held")).toBeNull();
+  });
 });
 
 describe("PreviewPanel bounds", () => {

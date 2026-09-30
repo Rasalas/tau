@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { WorkbenchActions } from "tau";
 import type { ComputerUseScreenService, ScreenState, ScreenWindow } from "./screen-protocol.js";
+import type { PreviewHold } from "./protocol.js";
 
 /** A value several components read and one place writes, without a provider around the panel. */
 export class Cell<T> {
@@ -30,6 +31,9 @@ export type PreviewView = "browser" | "screen";
 
 /** Computer Use's screen service while that kit is on; the Screen tab exists only then. */
 export const screenService = new Cell<ComputerUseScreenService | undefined>(undefined);
+
+/** Another kit's hold on the page while the user has control (a takeover). */
+export const previewHold = new Cell<PreviewHold | undefined>(undefined);
 
 /** Which of the panel's two views is in front. */
 export const previewView = new Cell<PreviewView>("browser");

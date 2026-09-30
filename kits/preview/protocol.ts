@@ -2,6 +2,8 @@
  * Preview Kit's own contract between its host entry and its desktop entry.
  * Tau core does not know these commands; it only routes them by extension id.
  */
+import type { ComponentType } from "react";
+import type { WorkbenchActions } from "tau";
 import type { PreviewAnnotationResult, PreviewAnnotationTool, PreviewPickedElement } from "./page-overlay.js";
 
 export const PREVIEW_HOST_EXTENSION_ID = "tau.preview";
@@ -318,6 +320,8 @@ export interface PreviewHostCommands {
   "import-cookies": { input: CookieImportRequest & { sites: string[]; into: string }; output: CookieImportResult };
   /** Opens the system setting that grants Full Disk Access (Safari's cookies). */
   "import-open-access": { input: undefined; output: void };
+  /** The user holds the page: a focused password field says it is not recorded. */
+  "hold": { input: { on: boolean }; output: void };
 }
 
 export type PreviewHostClient = {
@@ -364,6 +368,7 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
     "import-sites": call("import-sites"),
     "import-cookies": call("import-cookies"),
     "import-open-access": call("import-open-access"),
+    hold: call("hold"),
   } as PreviewHostClient;
 }
 
@@ -407,6 +412,17 @@ export interface PreviewBrowserService {
   watch?(target: { kind: "browser" } | { kind: "app"; threadId: string }, maxWidth: number, onFrame: (picture: { url: string; width: number; height: number } | undefined) => void): () => void;
   /** This client is not on the host's machine: `jump` opens the Preview here, where the user can drive it. */
   remote?(): boolean;
+  /**
+   * The user holds the page, e.g. for a sign-in: the panel draws an amber frame
+   * and "you have control"; a phone's sheet draws `Bar` above the page and
+   * `Footer` under it. Returns the release.
+   */
+  hold?(control: PreviewHold): () => void;
+}
+
+export interface PreviewHold {
+  Bar?: ComponentType<{ actions: WorkbenchActions }>;
+  Footer?: ComponentType;
 }
 
 /**

@@ -4,7 +4,7 @@ import { Empty, errorMessage, getClientStorage, READ_ONLY_REASON, tooltipProps, 
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
-import { activeThread, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
+import { activeThread, previewHold, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
 import { isPreviewState, previewKit, previewStore, readPreviewState, usePreviewState } from "./store.js";
 import { hostMachineName } from "./machine.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
@@ -160,6 +160,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const threadId = activeThread.use() ?? actions.activeThread()?.sessionId;
   const { readOnly } = useHostCapabilities();
   const machine = hostMachineName.use();
+  const hold = previewHold.use();
   const noWindow = view === "browser" && Boolean(state.noWindow);
   const mayNavigate = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "navigate");
   const mayOpen = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "open");
@@ -326,7 +327,8 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
       : <Empty icon={<Globe size={20} />} title="Nothing open" description={mayOpen ? "Type an address above, or ask the agent to open one." : "The page an agent or the host opens shows here."} />
     : <Empty icon={<AppWindow size={20} />} title="No window yet" description="The window this thread's agent drives shows here once it has looked at one." />;
 
-  return <section className={`panel-body preview-remote${compact ? " compact" : ""}`} aria-label="Preview on this device">
+  return <section className={`panel-body preview-remote${compact ? " compact" : ""}${hold ? " held" : ""}`} aria-label="Preview on this device">
+    {hold?.Bar && compact ? <hold.Bar actions={actions} /> : null}
     <header className="preview-remote-bar">
       {view === "browser" ? <>
         <button type="button" className="preview-remote-icon" aria-label="Back" {...tooltipProps(mayNavigate ? "Back" : READ_ONLY_REASON)} disabled={!mayNavigate || !state.canGoBack} onClick={() => navigate("back")}><ArrowLeft size={18} /></button>
@@ -414,5 +416,6 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
         >{entry.key === "Enter" ? <CornerDownLeft size={16} aria-hidden="true" /> : entry.key === "Backspace" ? <Delete size={16} aria-hidden="true" /> : entry.label}</button>)}
       </div>
     </>}
+    {hold?.Footer && compact ? <hold.Footer /> : null}
   </section>;
 }
