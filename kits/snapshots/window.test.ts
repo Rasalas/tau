@@ -49,7 +49,7 @@ describe("SnapShots' window half", () => {
     const macProbe = vi.fn(() => { throw new Error("macOS only"); });
     expect(readAccess("win32", macProbe, macProbe)).toEqual({ supported: true, screen: "granted", accessibility: "granted" });
     expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, screen: "granted", accessibility: "granted" });
-    expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, screen: "unavailable", accessibility: "granted" });
+    expect(readAccess("linux", macProbe, macProbe, { DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0", DBUS_SESSION_BUS_ADDRESS: "unix:path=/session" })).toEqual({ supported: true, captureMode: "picker", screen: "not-determined", accessibility: "unavailable" });
     expect(macProbe).not.toHaveBeenCalled();
     expect(windowIdOfSource("window:35210:0")).toBe(35210);
     expect(windowIdOfSource("screen:1:0")).toBeUndefined();
@@ -167,13 +167,35 @@ it("reports a missing Windows accessibility backend without macOS permission cal
   }
 });
 
-it("refuses Wayland capture before source enumeration or a portal prompt", async () => {
+it("refuses named Wayland capture before source enumeration or a portal prompt", async () => {
   Object.defineProperty(process, "platform", { ...platform, value: "linux" });
   vi.stubEnv("WAYLAND_DISPLAY", "wayland-0");
   try {
     const { half: window } = half();
     await expect(window.handle("capture", { target: { windowId: 12, pid: 34 } })).rejects.toThrow(/Wayland/u);
     expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    expect(electron.WebContentsView).not.toHaveBeenCalled();
+    window.dispose?.();
+  } finally {
+    vi.unstubAllEnvs();
+    Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  }
+});
+
+it("opens one Wayland portal selection only after capture and omits accessibility", async () => {
+  Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+  vi.stubEnv("WAYLAND_DISPLAY", "wayland-0");
+  vi.stubEnv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/test-session");
+  const load = vi.fn(async () => ({}));
+  try {
+    const { half: window } = half(load);
+    expect(await window.handle("access")).toMatchObject({ captureMode: "picker", screen: "not-determined", accessibility: "unavailable" });
+    expect(electron.desktopCapturer.getSources).not.toHaveBeenCalled();
+    electron.desktopCapturer.getSources.mockResolvedValueOnce([{ id: "window:123:0", name: "Selection", thumbnail: { isEmpty: () => false, getSize: () => ({ width: 40, height: 30 }), toPNG: () => Buffer.from("png") } }] as never);
+    const capture = await window.handle("capture", { accessibility: true });
+    expect(capture).toMatchObject({ app: "Selected source", pid: 0, image: { width: 40, height: 30 }, accessibilityNote: expect.stringMatching(/picker/u) });
+    expect(capture).not.toHaveProperty("accessibility");
+    expect(load).not.toHaveBeenCalled();
     expect(electron.WebContentsView).not.toHaveBeenCalled();
     window.dispose?.();
   } finally {

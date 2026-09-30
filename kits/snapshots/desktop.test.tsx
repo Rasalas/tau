@@ -209,4 +209,16 @@ describe("Settings → SnapShots", () => {
     expect(await screen.findByText("SnapShots are unavailable")).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
   });
+  it("offers explicit Wayland source selection without a macOS permission prompt", async () => {
+    const { page, invoke } = settingsPage({ supported: true, captureMode: "picker", screen: "not-determined", accessibility: "unavailable" });
+    renderKitSettingsPage(page.Component);
+    const choose = await screen.findByRole("button", { name: "Choose a window or display" });
+    expect(invoke).not.toHaveBeenCalledWith(ID, "capture", expect.anything());
+    expect(screen.queryByRole("button", { name: "Ask the system" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open System Settings" })).toBeNull();
+    fireEvent.click(choose);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(ID, "capture", { accessibility: false }));
+    expect(await screen.findByText("Capture saved for your draft.")).toBeTruthy();
+  });
+
 });

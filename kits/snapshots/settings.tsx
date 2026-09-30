@@ -89,6 +89,13 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
     const accessibility = useSetting<boolean>(`options.${ID}.${SETTING_ACCESSIBILITY}`, { defaultValue: true, read: readBoolean });
     const [access, setAccess] = useState<SnapShotAccess | undefined>();
     const [state, setState] = useState<ShortcutState>({});
+    const [capturing, setCapturing] = useState(false);
+    const [captureError, setCaptureError] = useState<string>();
+    const chooseWindow = () => {
+      setCapturing(true);
+      setCaptureError(undefined);
+      void host("capture", { accessibility: false }).then(() => setCaptureError("Capture saved for your draft.")).catch((error: unknown) => setCaptureError(error instanceof Error ? error.message : String(error))).finally(() => setCapturing(false));
+    };
 
     const refresh = useCallback((next?: SnapShotAccess) => {
       if (next) setAccess(next);
@@ -123,24 +130,29 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
     return (
       <div className="settings-page snapshots-settings">
         <h3>SnapShots</h3>
+        {access?.captureMode === "picker" ? <SettingsSection title="Wayland source picker">
+          <SettingRow title="Manual capture" description="Choose one window or display in your desktop's picker. Only the source you approve is captured. The shortcut opens the same picker when supported. Picker captures omit accessibility text." status={captureError}
+            control={<Button disabled={capturing || access.screen === "unavailable"} onClick={chooseWindow}>{capturing ? "Waiting for selection…" : "Choose a window or display"}</Button>} />
+          <SettingRow title="Desktop setup" description="GNOME, KDE Plasma, Hyprland and Niri need PipeWire, xdg-desktop-portal and the portal backend for that desktop. Install these through your distribution if the chooser is unavailable. Tau does not install compositor helpers or change your shortcut configuration." />
+        </SettingsSection> : null}
         <SettingsSection title="Shortcut">
-          <SettingRow id="setting-snapshots-enabled" title="Capture with a global shortcut" description="Works while Tau runs, whichever app is in front. Off until you turn it on." setting={enabled}
+          <SettingRow id="setting-snapshots-enabled" title="Capture with a global shortcut" description={access?.captureMode === "picker" ? "Opens the desktop source picker if your compositor permits this global shortcut. Off until you turn it on." : "Works while Tau runs, whichever app is in front. Off until you turn it on."} setting={enabled}
             control={<Switch label="Capture with a global shortcut" checked={enabled.value} onChange={enabled.set} />} />
           <SettingRow id="setting-snapshots-shortcut" title="Shortcut" description={conflict ?? "Click, then press a letter, digit or F-key with Control, Alt or Command."} status={shortcutStatus} setting={shortcut}
             control={<ShortcutRecorder setting={shortcut} suspend={suspend} />} />
-          <SettingRow id="setting-snapshots-accessibility" title="Include what the window says" description="Lets the agent read the window instead of guessing from pixels."
+          <SettingRow id="setting-snapshots-accessibility" title="Include what the window says" description={access?.captureMode === "picker" ? "The portal does not identify the selected app. Picker captures omit app text regardless of this preference." : "Lets the agent read the window instead of guessing from pixels."}
             help="The accessibility tree: roles, labels and texts of the window's elements, with where they sit in the picture." setting={accessibility}
             control={<Switch label="Include what the window says" checked={accessibility.value} onChange={accessibility.set} />} />
         </SettingsSection>
         <SettingsSection title="System access">
-          <SettingRow id="setting-snapshots-screen" title="Screen Recording" description="To capture the picture of one window. Tau never records a whole screen."
-            help="macOS may need a restart after granting access. Linux needs X11 for foreground window capture; Wayland portal selection is not supported. Windows blocks capture of protected windows."
-            control={access ? <PermissionControl kind="screen" state={access.screen} host={host} refresh={refresh} /> : null} />
+          <SettingRow id="setting-snapshots-screen" title="Screen Recording" description={access?.captureMode === "picker" ? "Your desktop asks which window or display to capture each time. Nothing is captured until you approve a source." : "To capture the picture of one window. Tau never records a whole screen."}
+            help="macOS may need a restart after granting access. Wayland asks you to select a window or display for each capture. Windows blocks capture of protected windows."
+            control={access ? access.captureMode === "picker" ? <Badge tone="neutral" dot>{access.screen === "unavailable" ? "Session bus unavailable" : "Asked for each capture"}</Badge> : <PermissionControl kind="screen" state={access.screen} host={host} refresh={refresh} /> : null} />
           <SettingRow id="setting-snapshots-accessibility-permission" title="Accessibility" description="To know which window is in front and to read its text and controls. Tau only reads; it never clicks or types into other apps."
             control={access ? <PermissionControl kind="accessibility" state={access.accessibility} host={host} refresh={refresh} /> : null} />
         </SettingsSection>
         <SettingsSection title="Privacy">
-          <SettingRow title="What a SnapShot holds" description="Only the window that was in front when you pressed the shortcut. Its text may include private things — messages, names, numbers — so look at the chip before you send it." />
+          <SettingRow title="What a SnapShot holds" description="The foreground window, or the window or display you approved in the Wayland picker. Its text may include private things — messages, names, numbers — so look at the chip before you send it." />
           <SettingRow title="Where it stays" description="On this machine, in Tau's own folder, until you send or remove it, and at most a week. When you send it, the picture and the text go to the thread's model like any attachment." />
         </SettingsSection>
       </div>

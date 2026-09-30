@@ -17,6 +17,7 @@ import {
   type SnapShotTarget,
 } from "./protocol.js";
 import { isAccelerator } from "./shortcut.js";
+import { captureWaylandWindow } from "./wayland.js";
 
 const SETTINGS_PANES: Record<PermissionKind, string> = {
   screen: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -68,10 +69,13 @@ export function readAccess(
 ): SnapShotAccess {
   if (platform === "win32") return { supported: true, screen: "granted", accessibility: "granted" };
   if (platform === "linux") {
-    // A Wayland portal chooses a source interactively. It cannot identify the
-    // foreground window without prompting, so never silently record a screen.
+    // Portal availability needs the user's session bus. The chooser is opened
+    // only on a capture action, never while checking access or arming a key.
     const wayland = environment.XDG_SESSION_TYPE === "wayland" || Boolean(environment.WAYLAND_DISPLAY);
-    return { supported: true, screen: !wayland && environment.DISPLAY ? "granted" : "unavailable", accessibility: environment.DBUS_SESSION_BUS_ADDRESS ? "granted" : "unavailable" };
+    return { supported: true,
+      ...(wayland ? { captureMode: "picker" as const } : {}),
+      screen: wayland ? environment.DBUS_SESSION_BUS_ADDRESS ? "not-determined" : "unavailable" : environment.DISPLAY ? "granted" : "unavailable",
+      accessibility: !wayland && environment.DBUS_SESSION_BUS_ADDRESS ? "granted" : "unavailable" };
   }
   if (platform !== "darwin") return { supported: false, screen: "unavailable", accessibility: "unavailable" };
   const answer = screen();
@@ -193,6 +197,11 @@ export default function activate(context: WindowExtensionContext): WindowExtensi
   const capture = async (target: SnapShotTarget | undefined, accessibility: boolean): Promise<SnapShotCapture> => {
     const access = readAccess();
     if (!access.supported) throw new Error("SnapShots are available on macOS, Windows and Linux.");
+    if (access.captureMode === "picker") {
+      if (target) throw new Error("Wayland captures use the desktop picker. A client window number cannot identify a Wayland window.");
+      if (access.screen === "unavailable") throw new Error("The Wayland desktop picker needs a session D-Bus, xdg-desktop-portal and PipeWire.");
+      return captureWaylandWindow();
+    }
     // Recording asks the system for permission on its first try; only the Settings button may do that.
     if (access.screen !== "granted") throw new Error(process.platform === "darwin"
       ? "Tau may not record windows yet. Allow Screen Recording for Tau in System Settings."

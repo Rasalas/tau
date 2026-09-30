@@ -212,11 +212,30 @@ read an elevated app's accessibility tree. Tau does not elevate itself to
 work around this.
 
 On Linux, foreground shortcut capture needs X11, a session D-Bus and AT-SPI2.
-The settings report capture unavailable on Wayland, including an XWayland
-DISPLAY inside a Wayland session. A portal chooser cannot guarantee the same
-foreground window that the shortcut names. Tau does not fall back to a whole
-screen or request portal permission silently. Missing native accessibility
-binaries report unavailable rather than showing macOS permission instructions.
+Wayland sessions, including XWayland apps, use a manual portal source picker.
+Press Choose a window or display in Settings, or the shortcut where supported, then
+approve one window or display in the desktop chooser. Tau captures that
+selected source only. It does not silently capture the foreground window or
+fall back after cancellation or denial. Picker captures have no accessibility
+text because the portal does not identify the app.
+
+The picker needs PipeWire, xdg-desktop-portal and the backend for your desktop,
+such as GNOME, KDE Plasma, Hyprland or GTK. These must already be installed and
+working. Tau does not install compositor helpers, change compositor config or
+claim a global shortcut is reserved when registration fails. The Settings
+button remains available when the compositor cannot register a global key.
+Native foreground capture and app text on Wayland would require compositor
+helpers with a separate installation and approval flow. Tau currently uses the
+manual picker across compositors.
+
+The implementation follows the manual picker approach in
+[T3 Code v0.0.44](https://github.com/pingdotgg/t3code/blob/v0.0.44/apps/desktop/src/snapShot/DesktopSnapShot.ts)
+and [Electron 44's generic PipeWire capturer](https://github.com/electron/electron/blob/v44.0.0/shell/browser/api/electron_api_desktop_capturer.cc).
+Electron requires both window and screen source types to open its delegated
+chooser. It labels the selected source as a window even when the user chose a
+display, so Tau describes it as Selected source and never guesses its app.
+Missing native accessibility binaries report unavailable rather than showing
+macOS permission instructions.
 
 Verification on 2026-09-30 used injected Windows and Linux environments,
 recordable window sources, accessibility trees, WSL executors and pairing
@@ -225,5 +244,7 @@ capture, or system permission change was performed. A platform verification
 still needs an isolated Windows desktop instance with x64 and arm64 distros,
 WSL localhost forwarding and a distro with systemd, followed by a restart and
 reconnect. Test SnapShots against ordinary, protected and elevated windows,
-and against X11 and Wayland sessions. Check that Wayland never starts capture
-or raises a portal chooser when the shortcut is pressed.
+and against X11 and Wayland sessions. Check that startup and Settings access
+checks never open the chooser, that
+cancellation and denial store no image, and that the chosen source is captured
+without app identity or accessibility text.
