@@ -10,8 +10,8 @@ them, and never should. So there are two routes, chosen per platform:
 
 | Route | When | Who reads the text |
 |---|---|---|
-| **Tau's relay** | The default: no key of your own is saved for that platform. | Nobody on the way. Your machine encrypts title and text with a key only your phone has. |
-| **Your own keys** | You saved an APNs key (iPhone) or a Firebase service account (Android) in Settings → Push. | Apple or Google, as with any push. Your machine sends directly; no relay. |
+| **Tau's relay** | The default: no key of your own is saved for that platform. | Only your phone and your machine. Your machine encrypts title and text with a key your phone made for it; nobody on the way can read them. |
+| **Your own keys** | You saved an APNs key (iPhone) or a Firebase service account (Android) in Settings → Push. | Apple or Google, as with any push. Your machine sends directly; the relay carries none of its pushes. |
 
 Settings → Push shows under **How pushes travel** which route each platform takes, and
 each device row says `relay`, `APNs` or `FCM`.
@@ -22,38 +22,63 @@ The relay is a single Cloud Function (`relay/`, Firebase project `tau-push-e3c95
 region `europe-west3`). It holds Tau's APNs key, the Firebase project's own identity and
 a key for sealing handles, and nothing else. It has no database and writes nothing to disk.
 
-- When the phone registers, the relay sees its push token, its platform and its IP
-  address. It answers with a *handle*, the token encrypted under the relay's key, and
-  keeps nothing.
-- When your machine sends, the relay sees the handle (which it opens to find the token
-  again), the encrypted notification, an opaque collapse id so that a thread's newer
-  notification replaces the older one, and your machine's IP address.
-- It never sees the thread's title, the agent's words, the thread or host ids, or which
-  machine sends. They are inside the encrypted part.
+- The phone always registers with the relay, once for each machine it pairs with, and
+  again every 30 days. That includes a machine that sends with keys of its own. The
+  relay sees the push token, the platform and the phone's IP address. It answers with a
+  *handle*: the token and the time, encrypted under the relay's key. It keeps nothing.
+- When your machine sends, the relay sees that handle (which it opens to find the token
+  again), the encrypted notification, the id of the key it is encrypted with, an opaque
+  collapse id so that a thread's newer notification replaces the older one, and your
+  machine's IP address.
+- The key id travels in the clear, so the phone knows which key opens a push. It is
+  random, but it stays the same for as long as the phone keeps that machine. The relay,
+  Apple and Google can therefore tell which pushes come from the same machine to the
+  same phone, and count them. They cannot tell from it which machine that is.
+- The relay never sees the thread's title, the agent's words, or the thread or host
+  ids. They are inside the encrypted part.
 
-Its own logs hold event names and error codes only: no token, handle, payload or
-address. Google Cloud keeps request logs for every call (time, path, status, caller IP
-address) for 30 days. Rate limits live in memory: 30 sends in a burst per handle, then one
-every 6 seconds; 10 registrations per address, then one a minute. At most two
-instances run.
+Its own logs hold warnings and errors only (FCM or APNs refused a push, APNs is not set
+up), as codes: no token, handle, payload or address. Cloud Run also writes a request log
+for every call (time, path, status, latency, user agent and caller IP address) and keeps
+it for 30 days. To stop that, the project owner can exclude the relay's request log
+from the `_Default` sink once:
 
-Apple and Google see the token and the ciphertext. An Android phone decrypts the
-notification itself and shows the real title and text. An iPhone shows **"A thread
-needs your attention"** for now; tapping it opens the thread. Decrypting on the iPhone
-needs a Notification Service Extension, which is a later ticket.
+```sh
+gcloud logging sinks update _Default --project tau-push-e3c95 \
+  --add-exclusion='name=push-relay-requests,description=Tau push relay request log,filter=resource.type="cloud_run_revision" AND resource.labels.service_name="relay" AND log_id("run.googleapis.com/requests")'
+```
+
+Rate limits live in memory: 30 sends in a burst per handle, then one every 6 seconds; 60
+per phone over all its handles, then one every 3 seconds; 10 registrations per address,
+then one a minute. The address is the last `X-Forwarded-For` entry, the one Google's
+front end appends; the entries before it are the caller's to write. At most two
+instances run, each taking 10 requests at a time.
+
+Apple and Google see the token, the ciphertext and the key id. An Android phone decrypts
+the notification itself and shows the real title and text; a push it cannot decrypt (a
+forgotten machine, another key) it drops without showing anything. An iPhone shows **"A
+thread needs your attention"** for now; tapping it opens the thread. Decrypting on the
+iPhone needs a Notification Service Extension, which is a later ticket. Once it exists,
+it will drop a push it cannot decrypt the same way.
 
 ## How it works
 
-1. The app gets its push token from iOS or Android and sends `POST /register
-   { platform, token }` to the relay (`PUSH_RELAY_URL` in `kits/push/protocol.ts`). It
-   asks once per token and app start; if the relay cannot be reached, it registers with
-   the token alone.
-2. For each host it pairs with, the app makes a random 256-bit key and a random key id
-   once, and keeps them in the Keychain or the Keystore-backed store
-   (`mobile/src/push-keys.ts`). Forgetting the host deletes its key.
+1. The app gets its push token from iOS or Android. For each host it pairs with, it
+   sends `POST /register { platform, token }` to the relay (`PUSH_RELAY_URL` in
+   `kits/push/protocol.ts`) and keeps that host's handle in the Keychain or the
+   Keystore-backed store. It asks again when the handle is 30 days old, when the token
+   changed, or when the host says the relay refused the handle. While the relay cannot
+   be reached, a saved handle serves until it is 60 days old; without one the app
+   registers without a handle.
+2. For each host, the app also makes a random 256-bit key and a random key id once, and
+   keeps them in the same store (`mobile/src/push-keys.ts`). Forgetting the host deletes
+   its key and its handle.
 3. Over the existing pinned TLS connection, the app calls the host's `register`
-   command with `{ platform, token, host, topic?, relay: { handle, keyId, key } }`. The
-   host keeps it in `kit-state/tau.push/devices.json` (mode 0600).
+   command with `{ platform, host, topic?, relay: { handle, keyId, key } }`, without
+   the token. The host keeps it in `kit-state/tau.push/devices.json` (mode 0600). A host
+   that sends to that platform with a key of its own answers `needsToken`, and the app
+   registers again with `token`. A host on the relay route never gets the token and
+   drops one an older app still sends; removing a key drops that platform's tokens.
 4. For a notification, the host seals `{ title, body, url, kind, tag }` with the phone's
    key and sends `POST /send { handle, payload, collapseId }` to the relay.
 5. The relay opens the handle and hands the payload to FCM as a high-priority data
@@ -64,26 +89,31 @@ needs a Notification Service Extension, which is a later ticket.
    id, decrypts, and shows the notification; a tap opens the thread's `tau://` link. On
    iOS the app decrypts the link when the notification is tapped.
 
-A token that FCM calls unregistered, or that APNs answers with 410 or `BadDeviceToken`,
-comes back as `410 gone`. The host then drops that phone's registration, and the phone
-registers again the next time it connects.
+A handle the relay cannot open or that is over 60 days old, a token that FCM calls
+unregistered, or one that APNs answers with 410 or `BadDeviceToken`, comes back as
+`410 gone`. The host then drops that phone's registration. When the phone next connects
+with the same handle, the host answers `renewHandle`, and the phone gets a new one.
 
 ### Endpoints
 
 Base URL: `https://europe-west3-tau-push-e3c95.cloudfunctions.net/relay`. Both take and
-answer JSON; bodies are at most 8 KiB.
+answer JSON. Bodies are at most 10 KiB; a larger `Content-Length` gets `413` before
+anything else is done.
 
 | Request | Answer |
 |---|---|
 | `POST /register { platform: "ios" \| "android", token }` | `200 { handle }`; `400` for a token that does not look like one; `429` with `Retry-After`. Answers any origin (CORS), since the app's web view calls it. |
-| `POST /send { handle, payload, collapseId? }` | `200 { ok: true }`; `410 { error: "gone", reason }` for a handle the relay cannot open or a token that is gone for good; `400` for a payload over 3072 characters or outside base64url and dots, or a collapse id over 64; `429`; `502 { error: "upstream", reason }`; `503` for iPhones until the APNs key is set up. |
+| `POST /send { handle, payload, collapseId? }` | `200 { ok: true }`; `410 { error: "gone", reason }` for a handle the relay cannot open (`unknown-handle`), one over 60 days old (`expired-handle`), or a token that is gone for good; `400` for a payload over 3072 characters or outside base64url and dots, or a collapse id over 64; `429`; `502 { error: "upstream", reason }`; `503` for iPhones until the APNs key is set up. |
 
 ### Formats
 
-**Handle, version 1** (the relay's own; nobody else opens it):
-`base64url(0x01 ‖ keyId ‖ nonce ‖ AES-256-GCM(JSON { p, t }) ‖ tag)`, with a random
-96-bit nonce, a one-byte key id, and the associated data `"tau-relay-handle" ‖ 0x01 ‖
-keyId`. Changing version or key id makes it fail to open.
+**Handle, version 2** (the relay's own; nobody else opens it):
+`base64url(0x02 ‖ keyId ‖ nonce ‖ AES-256-GCM(JSON { p, t, i }) ‖ tag)`, with `p` the
+platform, `t` the token, `i` the issue time in Unix seconds, a random 96-bit nonce, a
+one-byte key id, and the associated data `"tau-relay-handle" ‖ 0x02 ‖ keyId`. Changing
+version or key id makes it fail to open. Version 1, without an issue time, is not read.
+A handle is at most 6000 characters, and the longest one with the longest payload and
+collapse id fits the body limit.
 
 **Sealed push, version 1** (host to phone):
 `1.<keyId>.<base64url(nonce ‖ ciphertext ‖ tag)>`, AES-256-GCM with a random 96-bit
@@ -99,9 +129,10 @@ A new layout gets a new version number; readers refuse versions they do not know
 
 - `RELAY_HANDLE_KEYS` in Secret Manager holds comma-separated `<id>:<32 bytes, base64>`
   entries, ids 1 to 255. The first one seals new handles; every listed one still opens.
-  To rotate, put a new key first (`2:…,1:…`) and deploy. Each phone gets a new handle when
-  the app next starts. Once the old key is removed, its handles answer `410`, and those phones
-  register again the next time they connect.
+  To rotate, put a new key first (`2:…,1:…`) and deploy. Phones get handles under the
+  new key as theirs turn 30 days old. Remove the old key 60 days later, when every handle
+  it sealed has expired anyway. Removed sooner, its handles answer `410`; each host drops
+  that phone and asks it for a new handle when it next connects.
 - `APNS_KEY_P8`, `APNS_KEY_ID` and `APNS_TEAM_ID` in Secret Manager hold the team's APNs key.
   Until it exists, any placeholder works (`none`); iPhones then get `503`.
 - FCM needs no key file. The function runs as `push-relay-runtime@tau-push-e3c95.iam.gserviceaccount.com`,
@@ -110,11 +141,15 @@ A new layout gets a new version number; readers refuse versions they do not know
 
 ## Your own keys (self-hosting)
 
-With keys of your own, your machine sends to Apple and Google itself and the relay never
-hears of it: Settings → Push → iPhone (APNs key, Key ID, Team ID) or Android (Firebase
-service account). The steps are in [mobile-testflight.md](mobile-testflight.md#8-push-notifications).
-This is also the way for your own build of the app under another bundle id. The keys are
-kept in `kit-state/tau.push/keys.json` (mode 0600). Removing them switches that platform
+With keys of your own, your machine sends to Apple and Google itself and the relay
+carries none of its pushes: Settings → Push → iPhone (APNs key, Key ID, Team ID) or
+Android (Firebase service account). The steps are in [mobile-testflight.md](mobile-testflight.md#8-push-notifications).
+The phone still registers with the relay for this machine's handle, as it does for
+every machine, so the relay sees its token and address then. This is also the way for
+your own build of the app under another bundle id. The keys are kept in
+`kit-state/tau.push/keys.json` (mode 0600). A saved key that no longer reads shows as an
+error in Settings → Push, and that platform's phones get no pushes until you replace or
+remove it; Tau does not switch them to the relay. Removing a key switches that platform
 back to the relay.
 
 Running a relay of your own takes a build of the app too: the relay's address is a
@@ -128,9 +163,11 @@ loopback).
 `.github/workflows/push-relay.yml` checks every change under `relay/` (and
 `kits/push/apns.ts`, which the relay bundles): typecheck, tests and build. On `main`, and
 when run by hand, it deploys from the GitHub environment `push-relay`. It signs in to
-Google through Workload Identity Federation, so no key file exists. From a checkout,
-`npm run relay:deploy` does the same with your own login (`firebase login`, or
-`gcloud auth application-default login`).
+Google through Workload Identity Federation, so no key file exists. It installs the
+relay's packages with `--ignore-scripts` before it signs in, so no package's code runs
+while the credentials exist, and deploys with the `firebase-tools` pinned in
+`relay/package-lock.json`. From a checkout, `npm run relay:deploy` does the same with
+your own login (`firebase login`, or `gcloud auth application-default login`).
 
 The deploy runs `firebase deploy --only functions --force` from `relay/`. `--force`
 removes functions of the `push-relay` codebase that the source no longer defines, and
