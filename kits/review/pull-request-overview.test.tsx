@@ -11,7 +11,7 @@ import { hideWhitespace } from "./pull-request-diff.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { PullRequestListView } from "./pull-request-list-view.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
-import { TestPageActionSlot, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
+import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { LinkWatcher, worthShowing } from "./proactive-panels.js";
 
 afterEach(cleanup);
