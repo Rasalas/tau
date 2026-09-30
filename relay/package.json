@@ -12,7 +12,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "deploy": "npx --yes firebase-tools@15.32.0 deploy --only functions --project tau-push-e3c95 --non-interactive --force"
+    "deploy": "firebase deploy --only functions --project tau-push-e3c95 --non-interactive --force"
   },
   "dependencies": {
     "firebase-admin": "^14.5.0",
@@ -21,6 +21,7 @@
   "devDependencies": {
     "@types/node": "^22.20.1",
     "esbuild": "0.25.12",
+    "firebase-tools": "15.32.0",
     "typescript": "5.9.3"
   }
 }

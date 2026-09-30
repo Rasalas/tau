@@ -70,7 +70,7 @@
     "typecheck:examples": "tsc -p tooling/tsconfig.examples.json --noEmit",
     "typecheck:relay": "tsc -p tooling/tsconfig.relay.json --noEmit",
     "build:kits": "node scripts/build-kits.mjs",
-    "relay:deploy": "npm --prefix relay ci && npm --prefix relay run typecheck && npm --prefix relay run deploy"
+    "relay:deploy": "npm --prefix relay ci --ignore-scripts && npm --prefix relay run typecheck && npm --prefix relay run deploy"
   },
   "dependencies": {
     "@amaster.ai/pi-computer-use": "^0.1.12",
